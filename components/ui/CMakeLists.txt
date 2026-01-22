@@ -8,7 +8,8 @@ idf_component_register(
     "images.c"
     "styles.c"
     "actions.c"
+    "vars.c"
     ${IMAGE_SOURCES}
     ${FONT_SOURCES}
-  REQUIRES driver lvgl
+  REQUIRES driver lvgl clock
   INCLUDE_DIRS "./")

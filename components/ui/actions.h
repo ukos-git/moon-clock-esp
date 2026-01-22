@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+extern void action_update_clock_display(lv_event_t *e);
+
 #ifdef __cplusplus
 }
 #endif

@@ -47,11 +47,6 @@
           "template": "#ifndef EEZ_LVGL_UI_EVENTS_H\r\n#define EEZ_LVGL_UI_EVENTS_H\r\n\r\n//${eez-studio LVGL_INCLUDE}\r\n\r\n#ifdef __cplusplus\r\nextern \"C\" {\r\n#endif\r\n\r\n//${eez-studio LVGL_ACTIONS_DECL}\r\n\r\n#ifdef __cplusplus\r\n}\r\n#endif\r\n\r\n#endif /*EEZ_LVGL_UI_EVENTS_H*/"
         },
         {
-          "objID": "414e1798-fba5-4fa5-9792-e567b29a9e5e",
-          "fileName": "actions.c",
-          "template": "#include \"actions.h\"\n#include \"lvgl.h\"\n\n// TODO: Fill in EEZ action logic generated or required by your flow."
-        },
-        {
           "objID": "d4f95758-9ae6-476b-9925-5bbbcd4e21ff",
           "fileName": "vars.h",
           "template": "#ifndef EEZ_LVGL_UI_VARS_H\r\n#define EEZ_LVGL_UI_VARS_H\r\n\r\n#include <stdint.h>\r\n#include <stdbool.h>\r\n\r\n#ifdef __cplusplus\r\nextern \"C\" {\r\n#endif\r\n\r\n// enum declarations\r\n\r\n//${eez-studio FLOW_ENUMS}\r\n\r\n// Flow global variables\r\n\r\n//${eez-studio FLOW_GLOBAL_VARIABLES_ENUM}\r\n\r\n// Native global variables\r\n\r\n//${eez-studio LVGL_VARS_DECL}\r\n\r\n#ifdef __cplusplus\r\n}\r\n#endif\r\n\r\n#endif /*EEZ_LVGL_UI_VARS_H*/"
@@ -117,11 +112,37 @@
   },
   "variables": {
     "objID": "c6c71e16-53e1-217f-d03b-cef56c6b037a",
-    "globalVariables": [],
+    "globalVariables": [
+      {
+        "objID": "c9f023cb-21fd-4fa5-a1e1-197a21b54c46",
+        "name": "clock_seconds",
+        "type": "integer",
+        "defaultValue": "0",
+        "persistent": false,
+        "native": false
+      },
+      {
+        "objID": "bb15a9b4-6f2b-4573-8e29-664c62be206f",
+        "name": "clock_label",
+        "type": "string",
+        "defaultValue": "\"\"",
+        "persistent": false,
+        "native": false
+      }
+    ],
     "structures": [],
     "enums": []
   },
-  "actions": [],
+  "actions": [
+    {
+      "objID": "e1c0127d-48da-445d-f1eb-8997d332a310",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "update_clock_display"
+    }
+  ],
   "userPages": [
     {
       "objID": "1b93ec1c-63ae-45d9-ad88-7f1f1c32b3d5",
@@ -153,7 +174,7 @@
               "type": "LVGLLabelWidget",
               "left": 0,
               "top": 0,
-              "width": 385,
+              "width": 242,
               "height": 71,
               "customInputs": [],
               "customOutputs": [],
@@ -194,10 +215,71 @@
               },
               "group": "",
               "groupIndex": 0,
-              "text": "22:01:59",
-              "textType": "literal",
+              "text": "clock_label",
+              "textType": "expression",
               "longMode": "WRAP",
-              "recolor": false
+              "recolor": false,
+              "previewValue": "01:23"
+            },
+            {
+              "objID": "66a58d3d-ec30-40fa-ed4d-baf0a8ed4fee",
+              "type": "LVGLArcWidget",
+              "left": 0,
+              "top": 0,
+              "width": 466,
+              "height": 466,
+              "customInputs": [],
+              "customOutputs": [],
+              "style": {
+                "objID": "141a0742-7c0d-4a6f-bad5-05321e835cb3",
+                "useStyle": "default",
+                "conditionalStyles": [],
+                "childStyles": []
+              },
+              "timeline": [],
+              "eventHandlers": [],
+              "identifier": "arc-clock",
+              "leftUnit": "px",
+              "topUnit": "px",
+              "widthUnit": "px",
+              "heightUnit": "px",
+              "children": [],
+              "widgetFlags": "CLICK_FOCUSABLE|GESTURE_BUBBLE|PRESS_LOCK|SCROLL_ELASTIC|SCROLL_MOMENTUM|SCROLL_WITH_ARROW|SNAPPABLE",
+              "hiddenFlagType": "literal",
+              "clickableFlag": true,
+              "clickableFlagType": "literal",
+              "flagScrollbarMode": "",
+              "flagScrollDirection": "",
+              "scrollSnapX": "",
+              "scrollSnapY": "",
+              "checkedStateType": "literal",
+              "disabledStateType": "literal",
+              "states": "",
+              "localStyles": {
+                "objID": "6fd6d3d2-8772-4f1f-eb2e-22e4d802e4b3",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "pad_top": 10,
+                      "pad_bottom": 10,
+                      "pad_left": 10,
+                      "pad_right": 10
+                    }
+                  }
+                }
+              },
+              "group": "",
+              "groupIndex": 0,
+              "rangeMin": 0,
+              "rangeMinType": "literal",
+              "rangeMax": 60,
+              "rangeMaxType": "literal",
+              "value": "clock_seconds",
+              "valueType": "expression",
+              "bgStartAngle": 0,
+              "bgEndAngle": 360,
+              "mode": "NORMAL",
+              "rotation": 270
             }
           ],
           "widgetFlags": "CLICKABLE|PRESS_LOCK|CLICK_FOCUSABLE|GESTURE_BUBBLE|SNAPPABLE|SCROLLABLE|SCROLL_ELASTIC|SCROLL_MOMENTUM|SCROLL_CHAIN_HOR|SCROLL_CHAIN_VER",

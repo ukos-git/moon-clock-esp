@@ -1,9 +1,12 @@
 {
   "navigation": {
     "selectedUserPageObject": "[moon-phase.eez-project]:/userPages/0",
+    "selectedActionObject": "[moon-phase.eez-project]:/actions/0",
+    "selectedGlobalVariableObject": "[moon-phase.eez-project]:/variables/globalVariables/0",
     "selectedFontObject": "[moon-phase.eez-project]:/fonts/0",
-    "selectedGlyphObject": "[moon-phase.eez-project]:/fonts/0/glyphs/0",
-    "subnavigationSelectedItems": {}
+    "subnavigationSelectedItems": {
+      "variables-tab/sub-navigation/selected-item": "Global"
+    }
   },
   "layoutModel": {
     "rootEditor": {
@@ -71,6 +74,7 @@
           },
           {
             "type": "border",
+            "selected": 3,
             "location": "bottom",
             "children": [
               {
@@ -188,8 +192,8 @@
             {
               "type": "tabset",
               "id": "EDITORS",
-              "weight": 50.200364298724956,
-              "selected": 2,
+              "weight": 39.526670484362015,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
@@ -227,13 +231,12 @@
                   },
                   "icon": "material:settings"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
               "id": "#9c3d872c-db0e-4c46-b2db-3668f5710e40",
-              "weight": 20,
+              "weight": 30.673693814362952,
               "children": [
                 {
                   "type": "tabset",
@@ -248,7 +251,8 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -996,12 +1000,16 @@
   "objects": {
     "[moon-phase.eez-project]:/userPages/0[flow-state]": {
       "selection": {
-        "0": {}
+        "0": {
+          "1": {
+            "$selected": true
+          }
+        }
       },
       "transform": {
         "translate": {
-          "x": -400,
-          "y": -241
+          "x": -242.5,
+          "y": -230.5
         },
         "scale": 1
       },
@@ -1027,8 +1035,9 @@
   "lvglPart": "MAIN",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
-    "TEXT",
-    "POSITION AND SIZE"
+    "POSITION AND SIZE",
+    "PADDING",
+    "ARC"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

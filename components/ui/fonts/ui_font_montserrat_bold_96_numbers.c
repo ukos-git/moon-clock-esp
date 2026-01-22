@@ -1,8 +1,7 @@
 /*******************************************************************************
  * Size: 96 px
  * Bpp: 4
- * Opts: --bpp 4 --size 96 --no-compress --font
- * assets/fonts/Montserrat/Montserrat-Bold.ttf --range 48-58 --format lvgl
+ * Opts: --bpp 4 --size 96 --no-compress --font assets/fonts/Montserrat/Montserrat-Bold.ttf --range 48-58 --format lvgl
  ******************************************************************************/
 
 #ifdef __has_include
@@ -1084,8 +1083,7 @@ lv_font_t ui_font_montserrat_bold_96_numbers = {
     .underline_position = -10,
     .underline_thickness = 5,
 #endif
-    .dsc = &font_dsc, /*The custom font data. Will be accessed by
-                         `get_glyph_bitmap/dsc` */
+    .dsc = &font_dsc, /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
 #if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
     .fallback = NULL,
 #endif

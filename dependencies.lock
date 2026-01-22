@@ -40,7 +40,7 @@ dependencies:
       require: private
       version: '>=4.4.2'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.2.0
   espressif/esp_io_expander_tca9554:
@@ -333,10 +333,22 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.0.4
+  waveshare/pcf85063a:
+    component_hash: 4565204a05965081813cc2b277ec7c0f052e9d5e184c375090630afeeb821c7a
+    dependencies:
+    - name: idf
+      version: '>=5.3.2'
+    source:
+      git: https://github.com/ukos-git/Waveshare-ESP32-components.git
+      path: sensor/pcf85063a
+      type: git
+    version: 31e039cad6d1a06ecdcc0453e04a977c21cf6543
 direct_dependencies:
+- espressif/esp_io_expander
 - idf
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_1_75
-manifest_hash: a8daf146066278bc697442f531f0d4420df805bfabc7c1b0da0644d71fcdefcf
+- waveshare/pcf85063a
+manifest_hash: e33da200a30ff2c9e38d2d91ebc355918f0c08178cda5cc9f775d785e9b52202
 target: esp32s3
 version: 2.0.0
