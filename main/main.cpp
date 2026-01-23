@@ -31,45 +31,14 @@ static void lvgl_seconds_timer_cb(lv_timer_t *timer) {
 static void rtc_interrupt_handler_cb(lv_timer_t *timer) {
     ESP_LOGD(TAG, "rtc_interrupt_handler_cb called");
 
-    // Check if there's a pending interrupt on EXIO 3
-    bool interrupt_pending = clock_is_interrupt_pending();
+    bool display_update_needed = false;
+    esp_err_t ret = clock_handle_interrupts(&display_update_needed);
 
-    ESP_LOGD(TAG, "Interrupt pending: %s", interrupt_pending ? "YES" : "NO");
-
-    if (interrupt_pending) {
-        clock_interrupt_t ints;
-        esp_err_t ret = clock_get_interrupts(&ints);
-
-        if (ret == ESP_OK && ints != CLOCK_INT_NONE) {
-            ESP_LOGD(TAG, "RTC interrupt detected, ints=0x%x", ints);
-
-            // Handle timer interrupts with proper synchronization
-            if (ints & CLOCK_INT_TIMER) {
-                bool is_minute_tick = false;
-                esp_err_t process_ret = clock_process_minute_interrupt(&is_minute_tick);
-
-                if (process_ret == ESP_OK && is_minute_tick) {
-                    ESP_LOGD(TAG, "Minute tick processed - updating display");
-                    action_update_clock_display(NULL);
-                } else if (process_ret != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
-                    // Fallback: clear timer flag manually
-                    clock_clear_interrupts(CLOCK_INT_TIMER);
-                }
-            }
-
-            // Handle alarm interrupts separately
-            if (ints & CLOCK_INT_ALARM) {
-                ESP_LOGD(TAG, "Alarm interrupt detected");
-                action_update_clock_display(NULL);
-
-                // Clear alarm flag
-                esp_err_t clear_ret = clock_clear_interrupts(CLOCK_INT_ALARM);
-                if (clear_ret != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to clear alarm flag: %s", esp_err_to_name(clear_ret));
-                }
-            }
-        }
+    if (ret == ESP_OK && display_update_needed) {
+        ESP_LOGD(TAG, "Display update needed - updating clock display");
+        action_update_clock_display(NULL);
+    } else if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to handle RTC interrupts: %s", esp_err_to_name(ret));
     }
 }
 

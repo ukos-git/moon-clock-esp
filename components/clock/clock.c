@@ -305,7 +305,7 @@ esp_err_t clock_process_minute_interrupt(bool *is_minute_tick) {
 
     *is_minute_tick = false;
 
-    // Step 6: Handle the timer interrupt
+    // Handle the timer interrupt
     uint8_t timer_flag = 0;
     esp_err_t ret = pcf85063a_get_timer_flag(&s_rtc_dev, &timer_flag);
     if (ret != ESP_OK || !timer_flag) {
@@ -320,7 +320,7 @@ esp_err_t clock_process_minute_interrupt(bool *is_minute_tick) {
         return ret;
     }
 
-    // Step 7: Switch to repeating timer on first interrupt (one time only)
+    // Switch to repeating timer on first interrupt (one time only)
     if (!s_minute_timer_synced) {
         ESP_LOGI(TAG, "First synchronized minute tick - switching to repeating timer");
         ret = clock_sync_minute_timer();
@@ -329,17 +329,67 @@ esp_err_t clock_process_minute_interrupt(bool *is_minute_tick) {
         }
     }
 
-    // Step 8 & 9: Valid minute tick - optionally verify timing
+    // Valid minute tick
     *is_minute_tick = true;
 
-    // Optional: Verify correct alignment for debugging
-    clock_time_t current_time;
-    ret = clock_get_time(&current_time);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Minute tick at %02d:%02d:%02d", current_time.hour, current_time.minute, current_time.second);
+    return ESP_OK;
+}
 
-        if (current_time.second != 0) {
-            ESP_LOGW(TAG, "Minute tick not aligned! Second = %d", current_time.second);
+/**
+ * @brief Handle all RTC interrupts in one function
+ *
+ * This function checks for pending RTC interrupts and processes them appropriately.
+ * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
+ *
+ * @param[out] display_update_needed Set to true if display should be updated
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_handle_interrupts(bool *display_update_needed) {
+    if (!display_update_needed || !s_initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *display_update_needed = false;
+
+    // Check if there's a pending interrupt on EXIO 3
+    bool interrupt_pending = clock_is_interrupt_pending();
+    if (!interrupt_pending) {
+        return ESP_OK; // No interrupt to process
+    }
+
+    // Get interrupt flags
+    clock_interrupt_t ints;
+    esp_err_t ret = clock_get_interrupts(&ints);
+    if (ret != ESP_OK || ints == CLOCK_INT_NONE) {
+        return ret; // No valid interrupts
+    }
+
+    ESP_LOGD(TAG, "RTC interrupt detected, ints=0x%x", ints);
+
+    // Handle timer interrupts with proper synchronization
+    if (ints & CLOCK_INT_TIMER) {
+        bool is_minute_tick = false;
+        esp_err_t process_ret = clock_process_minute_interrupt(&is_minute_tick);
+
+        if (process_ret == ESP_OK && is_minute_tick) {
+            ESP_LOGD(TAG, "Minute tick processed");
+            *display_update_needed = true;
+        } else if (process_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
+            // Fallback: clear timer flag manually
+            clock_clear_interrupts(CLOCK_INT_TIMER);
+        }
+    }
+
+    // Handle alarm interrupts separately
+    if (ints & CLOCK_INT_ALARM) {
+        ESP_LOGD(TAG, "Alarm interrupt detected");
+        *display_update_needed = true;
+
+        // Clear alarm flag
+        esp_err_t clear_ret = clock_clear_interrupts(CLOCK_INT_ALARM);
+        if (clear_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to clear alarm flag: %s", esp_err_to_name(clear_ret));
         }
     }
 

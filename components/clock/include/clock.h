@@ -116,6 +116,18 @@ esp_err_t clock_sync_minute_timer(void);
 esp_err_t clock_process_minute_interrupt(bool *is_minute_tick);
 
 /**
+ * @brief Handle all RTC interrupts comprehensively
+ *
+ * This function checks for pending RTC interrupts and processes them appropriately.
+ * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
+ * Should be called from a polling timer or interrupt handler.
+ *
+ * @param[out] display_update_needed Set to true if display should be updated
+ * @return ESP_OK on success
+ */
+esp_err_t clock_handle_interrupts(bool *display_update_needed);
+
+/**
  * @brief Check if minute timer is synchronized to boundaries
  *
  * @return true if timer is synchronized to minute boundaries, false otherwise
