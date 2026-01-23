@@ -21,6 +21,7 @@ static pcf85063a_dev_t s_rtc_dev;
 static i2c_master_bus_handle_t s_bus_handle = NULL;
 static esp_io_expander_handle_t s_io_expander = NULL;
 static bool s_initialized = false;
+static bool s_minute_timer_synced = false;
 
 // Validation functions
 static bool validate_time(const clock_time_t *time) {
@@ -168,64 +169,189 @@ esp_err_t clock_init_minute_tick(void) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    ESP_LOGI(TAG, "Enabling minute timer immediately (no sync)");
+    ESP_LOGI(TAG, "Initializing synchronized minute tick timer");
 
-    // Just enable the minute timer directly
-    return clock_enable_minute_tick(true);
+    // Step 2: Read the current RTC time
+    pcf85063a_datetime_t now;
+    esp_err_t ret = pcf85063a_get_time_date(&s_rtc_dev, &now);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read RTC time for sync: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Current time: %02d:%02d:%02d", now.hour, now.min, now.sec);
+
+    // Step 3: Calculate seconds until the next minute boundary
+    uint8_t sync_delay;
+    if (now.sec == 0) {
+        sync_delay = 60;
+    } else {
+        sync_delay = 60 - now.sec;
+    }
+
+    ESP_LOGI(TAG, "Synchronizing to minute boundary in %d seconds", sync_delay);
+
+    // Reset sync state for new synchronization
+    s_minute_timer_synced = false;
+
+    // Use the common timer function with calculated sync delay
+    ret = clock_enable_minute_tick(sync_delay);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Synchronization timer started - first tick in %d seconds", sync_delay);
+    }
+
+    return ret;
 }
 
-esp_err_t clock_enable_minute_tick(bool enable) {
+esp_err_t clock_sync_minute_timer(void) {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (enable) {
-        ESP_LOGI(TAG, "Enabling 60-second minute boundary timer");
+    if (s_minute_timer_synced) {
+        // Already synchronized, nothing to do
+        return ESP_OK;
+    }
 
-        // Disable timer first to reset it
-        esp_err_t ret = pcf85063a_disable_timer(&s_rtc_dev);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to disable timer: %s", esp_err_to_name(ret));
-            return ret;
-        }
+    ESP_LOGI(TAG, "Switching to repeating 60-second timer after synchronization");
+    s_minute_timer_synced = true;
 
-        // Clear any existing timer flag
-        ret = pcf85063a_clear_timer_flag(&s_rtc_dev);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to clear timer flag: %s", esp_err_to_name(ret));
-            return ret;
-        }
+    // Step 7: Switch to a repeating 60-second timer
+    uint8_t timer_mode = PCF85063A_RTC_TIMER_TCF_1HZ | PCF85063A_RTC_TIMER_MODE_TIE;
+    esp_err_t ret = pcf85063a_set_timer_safe(&s_rtc_dev, 60, timer_mode);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set repeating timer: %s", esp_err_to_name(ret));
+        s_minute_timer_synced = false; // Reset on failure
+        return ret;
+    }
 
-        // Configure timer for 60-second intervals: 1Hz clock + timer interrupt enable
-        // Since we're synchronized to minute boundary, use fixed 60-second timer
-        uint8_t timer_mode = PCF85063A_RTC_TIMER_TCF_1HZ | PCF85063A_RTC_TIMER_MODE_TIE;
-        ret = pcf85063a_set_timer_safe(&s_rtc_dev, 60, timer_mode);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to enable timer: %s", esp_err_to_name(ret));
-            return ret;
-        }
+    ESP_LOGI(TAG, "Repeating 60-second timer enabled - synchronized to minute boundaries");
+    return ESP_OK;
+}
 
-        ESP_LOGI(TAG, "60-second minute boundary timer enabled (auto-repeating)");
+esp_err_t clock_enable_minute_tick(uint8_t timer_seconds) {
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
-        // Verify timer was set correctly
-        uint8_t verify_val, verify_mode;
-        pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_VAL, &verify_val, 1);
-        pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_MODE, &verify_mode, 1);
-        ESP_LOGI(TAG, "Timer verification - Value: %d, Mode: 0x%02x", verify_val, verify_mode);
-
-    } else {
-        // Disable timer
+    if (timer_seconds == 0) {
+        // Disable timer and reset sync state
         esp_err_t ret = pcf85063a_disable_timer(&s_rtc_dev);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to disable timer: %s", esp_err_to_name(ret));
         } else {
             ESP_LOGI(TAG, "Timer disabled");
         }
+
+        // Reset sync state when disabling
+        s_minute_timer_synced = false;
+
         return ret;
+    }
+
+    // Enable timer with specified duration
+    const char *timer_type = (timer_seconds == 60) ? "basic 60-second" : "synchronized";
+    ESP_LOGI(TAG, "Enabling %s timer (%d seconds)", timer_type, timer_seconds);
+
+    // Step 4: Reset the RTC timer state
+    esp_err_t ret = pcf85063a_disable_timer(&s_rtc_dev);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to disable timer: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = pcf85063a_clear_timer_flag(&s_rtc_dev);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear timer flag: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Configure timer: 1Hz clock + timer interrupt enable
+    uint8_t timer_mode = PCF85063A_RTC_TIMER_TCF_1HZ | PCF85063A_RTC_TIMER_MODE_TIE;
+    ret = pcf85063a_set_timer_safe(&s_rtc_dev, timer_seconds, timer_mode);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable timer: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "%d-second timer enabled", timer_seconds);
+
+    // Verify timer was set correctly
+    uint8_t verify_val, verify_mode;
+    pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_VAL, &verify_val, 1);
+    pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_MODE, &verify_mode, 1);
+    ESP_LOGI(TAG, "Timer verification - Value: %d, Mode: 0x%02x", verify_val, verify_mode);
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Process minute tick timer interrupt
+ *
+ * This function should be called from the timer interrupt handler.
+ * It implements steps 6-8 from the synchronization instructions:
+ * - Verifies timer flag is set
+ * - Clears the flag
+ * - Switches to repeating timer after first interrupt
+ * - Returns whether this was a valid minute tick
+ *
+ * @param[out] is_minute_tick Set to true if this is a valid minute tick
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_process_minute_interrupt(bool *is_minute_tick) {
+    if (!is_minute_tick || !s_initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *is_minute_tick = false;
+
+    // Step 6: Handle the timer interrupt
+    uint8_t timer_flag = 0;
+    esp_err_t ret = pcf85063a_get_timer_flag(&s_rtc_dev, &timer_flag);
+    if (ret != ESP_OK || !timer_flag) {
+        // Not a timer interrupt or error reading flag
+        return ret;
+    }
+
+    // Clear the timer flag immediately
+    ret = pcf85063a_clear_timer_flag(&s_rtc_dev);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear timer flag: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Step 7: Switch to repeating timer on first interrupt (one time only)
+    if (!s_minute_timer_synced) {
+        ESP_LOGI(TAG, "First synchronized minute tick - switching to repeating timer");
+        ret = clock_sync_minute_timer();
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    // Step 8 & 9: Valid minute tick - optionally verify timing
+    *is_minute_tick = true;
+
+    // Optional: Verify correct alignment for debugging
+    clock_time_t current_time;
+    ret = clock_get_time(&current_time);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Minute tick at %02d:%02d:%02d", current_time.hour, current_time.minute, current_time.second);
+
+        if (current_time.second != 0) {
+            ESP_LOGW(TAG, "Minute tick not aligned! Second = %d", current_time.second);
+        }
     }
 
     return ESP_OK;
 }
+
+/**
+ * @brief Check if minute timer is synchronized to boundaries
+ *
+ * @return true if timer is synchronized to minute boundaries, false otherwise
+ */
+bool clock_is_minute_timer_synced(void) { return s_initialized && s_minute_timer_synced; }
 
 esp_err_t clock_set_alarm(const clock_time_t *time) {
     if (!time || !s_initialized) {

@@ -11,12 +11,18 @@
 #include "clock.h"
 #include "esp_io_expander.h"
 #include "ui.h"
+#include "vars.h"
 
 static const char *TAG = "main";
 
 static void ui_tick_timer_cb(lv_timer_t *timer) {
     ESP_LOGD(TAG, "ui_tick_timer_cb called");
     ui_tick();
+}
+
+static void lvgl_seconds_timer_cb(lv_timer_t *timer) {
+    int32_t current_seconds = get_var_clock_seconds();
+    set_var_clock_seconds(current_seconds + 1);
 }
 
 // Use prime number (1.3 seconds) for debugging - will align with minute interrupts
@@ -37,23 +43,31 @@ static void rtc_interrupt_handler_cb(lv_timer_t *timer) {
         if (ret == ESP_OK && ints != CLOCK_INT_NONE) {
             ESP_LOGD(TAG, "RTC interrupt detected, ints=0x%x", ints);
 
-            if (ints & (CLOCK_INT_TIMER | CLOCK_INT_ALARM)) {
-                ESP_LOGD(TAG, "Updating display on minute boundary");
-                action_update_clock_display(NULL);
-            }
-
-            // Clear the interrupt flags immediately
-            ESP_LOGD(TAG, "Clearing interrupt flags: 0x%x", ints);
-            esp_err_t clear_ret = clock_clear_interrupts(ints);
-            if (clear_ret != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to clear interrupt flags: %s", esp_err_to_name(clear_ret));
-            } else {
-                ESP_LOGD(TAG, "Interrupt flags cleared successfully");
-            }
-
-            // Timer automatically reloads for next 60-second interval
+            // Handle timer interrupts with proper synchronization
             if (ints & CLOCK_INT_TIMER) {
-                ESP_LOGD(TAG, "Timer interrupt processed, auto-reload will handle next cycle");
+                bool is_minute_tick = false;
+                esp_err_t process_ret = clock_process_minute_interrupt(&is_minute_tick);
+
+                if (process_ret == ESP_OK && is_minute_tick) {
+                    ESP_LOGD(TAG, "Minute tick processed - updating display");
+                    action_update_clock_display(NULL);
+                } else if (process_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
+                    // Fallback: clear timer flag manually
+                    clock_clear_interrupts(CLOCK_INT_TIMER);
+                }
+            }
+
+            // Handle alarm interrupts separately
+            if (ints & CLOCK_INT_ALARM) {
+                ESP_LOGD(TAG, "Alarm interrupt detected");
+                action_update_clock_display(NULL);
+
+                // Clear alarm flag
+                esp_err_t clear_ret = clock_clear_interrupts(CLOCK_INT_ALARM);
+                if (clear_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to clear alarm flag: %s", esp_err_to_name(clear_ret));
+                }
             }
         }
     }
@@ -71,7 +85,6 @@ extern "C" void app_main(void) {
     esp_err_t ret = clock_init(&clock_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize clock: %s", esp_err_to_name(ret));
-        // Don't return - continue without clock for debugging
     } else {
         ESP_LOGI(TAG, "Clock component initialized successfully");
 
@@ -99,6 +112,9 @@ extern "C" void app_main(void) {
 
     // Create timer for UI updates (10ms)
     lv_timer_create(ui_tick_timer_cb, 10, NULL);
+
+    // Create simple LVGL seconds counter (1 second interval)
+    lv_timer_create(lvgl_seconds_timer_cb, 1000, NULL);
 
     // Create polling timer for RTC interrupt handling - debug interval
     // This checks for RTC interrupts and handles timer restarts
