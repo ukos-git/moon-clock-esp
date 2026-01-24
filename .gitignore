@@ -5,3 +5,4 @@ sdkconfig.old
 sdkconfig
 assets
 warnings.txt
+spiffs

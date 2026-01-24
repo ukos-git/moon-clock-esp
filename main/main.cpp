@@ -13,6 +13,7 @@
 #include "vars.h"
 
 #include "clock.h"
+#include "wifi.h"
 
 #define RTC_POLL_INTERVAL_MS 1300
 
@@ -33,11 +34,18 @@ static void clock_display_update_wrapper(void) { action_update_clock_display(NUL
 
 extern "C" void app_main(void) {
 
-    // Configure and initialize the clock component (BSP handles I2C)
-    // Clock component will handle time initialization automatically
+    // Initialize WiFi first for NTP synchronization
+    ESP_LOGI(TAG, "Initializing WiFi...");
+    esp_err_t wifi_ret = wifi_manager_init();
+    if (wifi_ret == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi initialized and connected successfully");
+    } else {
+        ESP_LOGW(TAG, "WiFi initialization failed: %s", esp_err_to_name(wifi_ret));
+    }
+
+    // Configure and initialize the clock component with NTP support
     clock_config_t clock_cfg = {
-        .i2c_freq_hz = 400000, // 400kHz I2C frequency (for reference)
-        .initial_time = NULL   // Use system time
+        .enable_ntp_sync = (wifi_ret == ESP_OK) // Enable NTP only if WiFi is available
     };
 
     esp_err_t ret = clock_init(&clock_cfg);

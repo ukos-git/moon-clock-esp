@@ -11,6 +11,7 @@
 #include "clock.h"
 #include "clock_alarm.h"
 #include "clock_interrupt.h"
+#include "clock_sntp.h"
 #include "clock_timer.h"
 #include "pcf85063a.h"
 
@@ -104,7 +105,42 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     // Mark as initialized before attempting time operations
     s_initialized = true;
 
-    // Handle time initialization
+    // Handle time initialization with NTP integration
+    clock_time_t time_to_set;
+    bool time_obtained = false;
+
+    // Initialize SNTP component first
+    ret = clock_sntp_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize SNTP: %s", esp_err_to_name(ret));
+    }
+
+    // Try NTP synchronization if enabled and WiFi is available
+    if (cfg->enable_ntp_sync) {
+        ESP_LOGI(TAG, "Attempting NTP time synchronization...");
+        ret = clock_sntp_sync(CONFIG_CLOCK_NTP_TIMEOUT_MS);
+        if (ret == ESP_OK) {
+            // Get NTP-synchronized time
+            ret = clock_sntp_get_system_time(&time_to_set);
+            if (ret == ESP_OK) {
+                time_obtained = true;
+                ESP_LOGI(TAG, "Successfully obtained time via NTP");
+            }
+        } else {
+            ESP_LOGW(TAG, "NTP synchronization failed: %s", esp_err_to_name(ret));
+        }
+    }
+
+    // If NTP failed or not enabled, try to get system time
+    if (!time_obtained) {
+        ESP_LOGI(TAG, "Using system time for RTC initialization");
+        ret = clock_sntp_get_system_time(&time_to_set);
+        if (ret == ESP_OK) {
+            time_obtained = true;
+        }
+    }
+
+    // Check current RTC time
     ESP_LOGD(TAG, "Reading current time from RTC.");
     clock_time_t current_time;
     ret = clock_get_time(&current_time);
@@ -113,25 +149,23 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         ESP_LOGI(TAG, "Current RTC time: %04d-%02d-%02d %02d:%02d:%02d", current_time.year, current_time.month,
                  current_time.day, current_time.hour, current_time.minute, current_time.second);
     } else {
-        ESP_LOGE(TAG, "Failed to read RTC time: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Failed to read RTC time: %s", esp_err_to_name(ret));
     }
 
-    if (cfg->initial_time) {
-        ESP_LOGD(TAG, "Setting initial time on RTC.");
-        clock_time_t time_to_set;
-        time_to_set = *cfg->initial_time;
-
-        ESP_LOGI(TAG, "Setting RTC to: %04d-%02d-%02d %02d:%02d:%02d", time_to_set.year, time_to_set.month,
-                 time_to_set.day, time_to_set.hour, time_to_set.minute, time_to_set.second);
+    // Update RTC with synchronized time if available
+    if (time_obtained) {
+        ESP_LOGI(TAG, "Setting RTC to synchronized time: %04d-%02d-%02d %02d:%02d:%02d", time_to_set.year,
+                 time_to_set.month, time_to_set.day, time_to_set.hour, time_to_set.minute, time_to_set.second);
 
         ret = clock_set_time(&time_to_set);
         if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "RTC time set successfully");
+            ESP_LOGI(TAG, "RTC time updated successfully");
         } else {
-            ESP_LOGW(TAG, "Failed to set RTC time: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Failed to update RTC time: %s", esp_err_to_name(ret));
         }
     }
 
+    ESP_LOGI(TAG, "Clock component initialized successfully");
     return ESP_OK;
 }
 

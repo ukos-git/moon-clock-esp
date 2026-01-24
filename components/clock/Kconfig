@@ -1,0 +1,36 @@
+menu "Clock Component Configuration"
+
+    config CLOCK_DEFAULT_TIMEZONE
+        string "Default timezone (POSIX TZ format)"
+        default "CET-1CEST,M3.5.0/2,M10.5.0/3"
+        help
+            Default timezone in POSIX TZ format.
+            Examples:
+            - "CET-1CEST,M3.5.0/2,M10.5.0/3" (Central European Time with DST)
+            - "EST5EDT,M3.2.0,M11.1.0" (Eastern Time US with DST)
+            - "UTC0" (UTC time)
+            - "JST-9" (Japan Standard Time, no DST)
+            - "PST8PDT,M3.2.0,M11.1.0" (Pacific Time US with DST)
+
+    config CLOCK_NTP_SERVER
+        string "NTP server hostname"
+        default "pool.ntp.org"
+        help
+            Primary NTP server to synchronize time with.
+
+    config CLOCK_NTP_SYNC_INTERVAL_HOURS
+        int "NTP sync interval (hours)"
+        default 12
+        range 1 168
+        help
+            Interval between NTP synchronizations in hours (1-168).
+            Recommended: 6-24 hours for battery-powered devices.
+
+    config CLOCK_NTP_TIMEOUT_MS
+        int "NTP synchronization timeout (milliseconds)"
+        default 10000
+        range 3000 30000
+        help
+            Maximum time to wait for NTP synchronization.
+
+endmenu

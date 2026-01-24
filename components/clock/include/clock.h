@@ -17,6 +17,7 @@ extern "C" {
 #include "clock_alarm.h"
 #include "clock_cb.h"
 #include "clock_interrupt.h"
+#include "clock_sntp.h"
 #include "clock_timer.h"
 
 /**
@@ -24,18 +25,18 @@ extern "C" {
  */
 typedef struct {
     // Configuration is minimal since BSP handles I2C
-    uint32_t i2c_freq_hz;       // For reference only
-    clock_time_t *initial_time; // Initial time to set, or NULL to use system time
+    bool enable_ntp_sync; // Enable automatic NTP time synchronization
 } clock_config_t;
 
 /**
  * @brief Initialize the clock component
  *
- * This function initializes the RTC, reads current time, and sets it if needed.
- * If cfg->initial_time is NULL, it uses system time. If RTC time appears invalid
- * (before 2020), it will be corrected automatically.
+ * This function initializes the RTC and optionally synchronizes time via NTP.
+ * If enable_ntp_sync is true and WiFi is available, it will attempt NTP synchronization.
+ * Otherwise, it uses current system time. If RTC time appears invalid (before 2020),
+ * it will be corrected automatically.
  *
- * @param cfg Clock configuration including initial time
+ * @param cfg Clock configuration including NTP sync option
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_init(const clock_config_t *cfg);
