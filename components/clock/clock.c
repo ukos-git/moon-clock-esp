@@ -81,7 +81,6 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     esp_err_t ret = pcf85063a_init(&s_rtc_dev, s_bus_handle, PCF85063A_ADDRESS);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize PCF85063A: %s", esp_err_to_name(ret));
-
         return ret;
     }
 
