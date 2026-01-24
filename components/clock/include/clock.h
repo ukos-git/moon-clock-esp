@@ -11,26 +11,13 @@ extern "C" {
 #include "esp_io_expander.h"
 #include <time.h>
 
-/**
- * @brief Clock time structure
- */
-typedef struct {
-    int year;   // 2025
-    int month;  // 1–12
-    int day;    // 1–31
-    int hour;   // 0–23
-    int minute; // 0–59
-    int second; // 0–59
-} clock_time_t;
+#include "clock_types.h"
 
-/**
- * @brief Clock interrupt types
- */
-typedef enum {
-    CLOCK_INT_NONE = 0,
-    CLOCK_INT_TIMER = 1 << 0,
-    CLOCK_INT_ALARM = 1 << 1,
-} clock_interrupt_t;
+// Include all specialized clock headers
+#include "clock_alarm.h"
+#include "clock_cb.h"
+#include "clock_interrupt.h"
+#include "clock_timer.h"
 
 /**
  * @brief Clock configuration structure
@@ -68,117 +55,6 @@ esp_err_t clock_get_time(clock_time_t *out);
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_set_time(const clock_time_t *time);
-
-/**
- * @brief Enable/disable minute tick timer with specified duration
- *
- * This function enables a timer with the specified duration in seconds.
- * Pass 0 to disable the timer. For synchronized minute ticks that align
- * to wall-clock boundaries, use clock_init_minute_tick() instead.
- *
- * @param timer_seconds Timer duration in seconds (0 to disable, 1-255 to enable)
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_enable_minute_tick(uint8_t timer_seconds);
-
-/**
- * @brief Initialize synchronized minute timer
- *
- * This function starts a synchronized timer that will fire exactly at the next
- * minute boundary (HH:MM:00) and then continue firing every 60 seconds.
- * Uses the PCF85063A countdown timer with proper RTC time alignment.
- *
- * @return ESP_OK on success
- */
-esp_err_t clock_init_minute_tick(void);
-
-/**
- * @brief Synchronize minute timer after first interrupt
- *
- * This function should be called from the timer interrupt handler after the
- * first synchronization interrupt occurs. It switches the timer from one-shot
- * synchronization mode to repeating 60-second intervals.
- *
- * @return ESP_OK on success
- */
-esp_err_t clock_sync_minute_timer(void);
-
-/**
- * @brief Process minute tick timer interrupt
- *
- * This function should be called from the timer interrupt handler to process
- * synchronized minute ticks. It verifies the timer flag, clears it, and
- * handles the synchronization logic.
- *
- * @param[out] is_minute_tick Set to true if this is a valid minute tick
- * @return ESP_OK on success
- */
-esp_err_t clock_process_minute_interrupt(bool *is_minute_tick);
-
-/**
- * @brief Handle all RTC interrupts comprehensively
- *
- * This function checks for pending RTC interrupts and processes them appropriately.
- * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
- * Should be called from a polling timer or interrupt handler.
- *
- * @param[out] display_update_needed Set to true if display should be updated
- * @return ESP_OK on success
- */
-esp_err_t clock_handle_interrupts(bool *display_update_needed);
-
-/**
- * @brief Check if minute timer is synchronized to boundaries
- *
- * @return true if timer is synchronized to minute boundaries, false otherwise
- */
-bool clock_is_minute_timer_synced(void);
-
-/**
- * @brief Set alarm time
- *
- * @param time Alarm time (hour and minute used)
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_set_alarm(const clock_time_t *time);
-
-/**
- * @brief Enable/disable alarm
- *
- * @param enable true to enable, false to disable
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_enable_alarm(bool enable);
-
-/**
- * @brief Clear alarm
- *
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_clear_alarm(void);
-
-/**
- * @brief Get pending interrupts
- *
- * @param out Pointer to store interrupt flags
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_get_interrupts(clock_interrupt_t *out);
-
-/**
- * @brief Clear specific interrupt flags
- *
- * @param flags Interrupt flags to clear
- * @return esp_err_t ESP_OK on success
- */
-esp_err_t clock_clear_interrupts(clock_interrupt_t flags);
-
-/**
- * @brief Check if RTC interrupt is active on EXIO 3
- *
- * @return true if interrupt line is low (active), false otherwise
- */
-bool clock_is_interrupt_pending(void);
 
 #ifdef __cplusplus
 }

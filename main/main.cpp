@@ -1,5 +1,6 @@
 #include "driver/gpio.h"
 #include "esp_err.h" // required by bsp until PR goes through
+#include "esp_io_expander.h"
 #include "esp_log.h"
 
 #include "bsp/display.h"
@@ -8,10 +9,12 @@
 #include "lvgl.h"
 
 #include "actions.h"
-#include "clock.h"
-#include "esp_io_expander.h"
 #include "ui.h"
 #include "vars.h"
+
+#include "clock.h"
+
+#define RTC_POLL_INTERVAL_MS 1300
 
 static const char *TAG = "main";
 
@@ -25,22 +28,8 @@ static void lvgl_seconds_timer_cb(lv_timer_t *timer) {
     set_var_clock_seconds(current_seconds + 1);
 }
 
-// Use prime number (1.3 seconds) for debugging - will align with minute interrupts
-#define RTC_POLL_INTERVAL_MS 1300
-
-static void rtc_interrupt_handler_cb(lv_timer_t *timer) {
-    ESP_LOGD(TAG, "rtc_interrupt_handler_cb called");
-
-    bool display_update_needed = false;
-    esp_err_t ret = clock_handle_interrupts(&display_update_needed);
-
-    if (ret == ESP_OK && display_update_needed) {
-        ESP_LOGD(TAG, "Display update needed - updating clock display");
-        action_update_clock_display(NULL);
-    } else if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to handle RTC interrupts: %s", esp_err_to_name(ret));
-    }
-}
+// Wrapper function for action calls without event parameter
+static void clock_display_update_wrapper(void) { action_update_clock_display(NULL); }
 
 extern "C" void app_main(void) {
 
@@ -74,6 +63,9 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
+    // Register clock display update callback
+    clock_register_display_update_callback(clock_display_update_wrapper);
+
     // Update display now that UI objects are created
     action_update_clock_display(NULL);
 
@@ -87,7 +79,7 @@ extern "C" void app_main(void) {
 
     // Create polling timer for RTC interrupt handling - debug interval
     // This checks for RTC interrupts and handles timer restarts
-    lv_timer_create(rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS, NULL);
+    lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
 
