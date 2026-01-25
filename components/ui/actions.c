@@ -35,20 +35,21 @@ void action_update_clock_display(lv_event_t *e) {
 }
 
 /**
- * @brief Update the alarm display by reading next alarm from RTC
+ * @brief Update the alarm display by reading alarm directly from RTC hardware
  */
 void action_update_alarm_display(lv_event_t *e) {
-    // Get the cached next scheduled alarm time (not from RTC hardware)
+    // Read alarm time directly from RTC hardware registers
     clock_time_t alarm_time;
-    esp_err_t ret = clock_alarm_get_next_scheduled(&alarm_time);
+    esp_err_t ret = clock_get_alarm(&alarm_time);
 
     if (ret == ESP_OK) {
         char alarm_str[16];
         snprintf(alarm_str, sizeof(alarm_str), "%02d:%02d", alarm_time.hour, alarm_time.minute);
         set_var_alarm_label(alarm_str);
-        ESP_LOGI(TAG, "Alarm updated: %s (hour=%d, min=%d)", alarm_str, alarm_time.hour, alarm_time.minute);
+        ESP_LOGI(TAG, "Alarm updated from hardware: %s (hour=%d, min=%d)", alarm_str, alarm_time.hour,
+                 alarm_time.minute);
     } else {
-        ESP_LOGD(TAG, "No alarm scheduled: %s", esp_err_to_name(ret));
+        ESP_LOGD(TAG, "Failed to read alarm from hardware: %s", esp_err_to_name(ret));
         set_var_alarm_label("--:--");
     }
 }

@@ -334,7 +334,7 @@ dependencies:
       type: service
     version: 1.0.4
   waveshare/pcf85063a:
-    component_hash: 4565204a05965081813cc2b277ec7c0f052e9d5e184c375090630afeeb821c7a
+    component_hash: 1b1ac80637e2b3b0ae343184fbaf613b360834c0313bd9cad8f3a810d11e0b4b
     dependencies:
     - name: idf
       version: '>=5.3.2'
@@ -342,7 +342,7 @@ dependencies:
       git: https://github.com/ukos-git/Waveshare-ESP32-components.git
       path: sensor/pcf85063a
       type: git
-    version: 31e039cad6d1a06ecdcc0453e04a977c21cf6543
+    version: a415ab9f850f597fd58549f6574221f6a3607ab1
 direct_dependencies:
 - espressif/esp_io_expander
 - idf
