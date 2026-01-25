@@ -10,6 +10,7 @@ extern "C" {
 extern const lv_font_t ui_font_montserrat_bold_96_numbers;
 extern const lv_font_t ui_font_montserrat_regular_48_numbers;
 extern const lv_font_t ui_font_fontawesome7_regular_96_icons;
+extern const lv_font_t ui_font_fontawesome7_solid_96_icons;
 
 #ifdef __cplusplus
 }

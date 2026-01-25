@@ -1,14 +1,13 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[moon-phase.eez-project]:/userPages/2",
+    "selectedUserPageObject": "[moon-phase.eez-project]:/userPages/0",
     "selectedUserWidgetObject": "[moon-phase.eez-project]:/userWidgets/0",
-    "selectedActionObject": "[moon-phase.eez-project]:/actions/0",
-    "selectedGlobalVariableObject": "[moon-phase.eez-project]:/variables/globalVariables/2",
-    "selectedStyleObject": "[moon-phase.eez-project]:/lvglStyles/styles/3",
+    "selectedActionObject": "[moon-phase.eez-project]:/actions/3",
+    "selectedGlobalVariableObject": "[moon-phase.eez-project]:/variables/globalVariables/1",
+    "selectedStyleObject": "[moon-phase.eez-project]:/lvglStyles/styles/4",
     "selectedThemeObject": "[moon-phase.eez-project]:/themes/0",
     "selectedThemeColorObject": "[moon-phase.eez-project]:/colors/0",
-    "selectedFontObject": "[moon-phase.eez-project]:/fonts/2",
-    "selectedLvglGroupObject": "[moon-phase.eez-project]:/lvglGroups/groups/-1",
+    "selectedFontObject": "[moon-phase.eez-project]:/fonts/3",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Global"
     }
@@ -31,8 +30,7 @@
           },
           {
             "type": "border",
-            "selected": 1,
-            "size": 240,
+            "size": 731.5,
             "location": "right",
             "children": [
               {
@@ -132,6 +130,7 @@
                   "type": "tabset",
                   "id": "#1a3e2b34-8827-4eae-87c5-d3fdb609981d",
                   "weight": 1,
+                  "selected": 2,
                   "enableClose": false,
                   "children": [
                     {
@@ -158,7 +157,8 @@
                       "enableClose": false,
                       "icon": "material:code"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -198,45 +198,21 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 39.526670484362015,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
                 {
                   "type": "tab",
-                  "id": "#bc7d3785-325d-4ec3-982a-cbdf70323a2b",
-                  "name": "FONTAWESOME7_REGULAR_96_ICONS",
+                  "id": "#9df8c2f0-4187-49bb-bfb9-a652eed852ca",
+                  "name": "main",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[moon-phase.eez-project]:/fonts/2",
-                    "permanent": false
-                  },
-                  "icon": "material:font_download"
-                },
-                {
-                  "type": "tab",
-                  "id": "#75ae7542-8c50-429e-bf43-0e5b74f40369",
-                  "name": "alarm_screen",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[moon-phase.eez-project]:/userPages/2",
+                    "objectPath": "[moon-phase.eez-project]:/userPages/0",
                     "permanent": false
                   },
                   "icon": "svg:page"
-                },
-                {
-                  "type": "tab",
-                  "id": "#1fa54017-7fca-46ae-bb5b-06d334a9a62b",
-                  "name": "clock",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[moon-phase.eez-project]:/userWidgets/0",
-                    "permanent": false
-                  },
-                  "icon": "svg:user_widget"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -1015,7 +991,7 @@
       "transform": {
         "translate": {
           "x": -196.635,
-          "y": -590.5
+          "y": -230.5
         },
         "scale": 1
       },
@@ -1036,7 +1012,7 @@
       "transform": {
         "translate": {
           "x": -233,
-          "y": -593
+          "y": -233
         },
         "scale": 1
       },
@@ -1066,16 +1042,11 @@
       }
     },
     "[moon-phase.eez-project]:/lvglStyles/styles[tree-state]": {
-      "0": {
-        "$selected": true
-      },
-      "1": {
-        "$selected": true
-      },
-      "2": {
-        "$selected": true
-      },
-      "3": {
+      "0": {},
+      "1": {},
+      "2": {},
+      "3": {},
+      "4": {
         "$selected": true
       }
     },
@@ -1083,9 +1054,47 @@
       "selection": {
         "0": {
           "0": {},
+          "1": {
+            "$selected": true
+          }
+        }
+      },
+      "transform": {
+        "translate": {
+          "x": -233,
+          "y": -233
+        },
+        "scale": 1
+      },
+      "timeline": {
+        "isEditorActive": false,
+        "position": 0,
+        "secondToPx": 200,
+        "scrollLeft": 0
+      }
+    },
+    "[moon-phase.eez-project]:/userPages/3[flow-state]": {
+      "selection": {
+        "0": {
           "1": {}
         }
       },
+      "transform": {
+        "translate": {
+          "x": -233,
+          "y": -233
+        },
+        "scale": 1
+      },
+      "timeline": {
+        "isEditorActive": false,
+        "position": 0,
+        "secondToPx": 200,
+        "scrollLeft": 0
+      }
+    },
+    "[moon-phase.eez-project]:/userPages/4[flow-state]": {
+      "selection": {},
       "transform": {
         "translate": {
           "x": -233,
@@ -1115,7 +1124,8 @@
   "lvglPart": "KNOB",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
-    "MISCELLANEOUS"
+    "MISCELLANEOUS",
+    "TEXT"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

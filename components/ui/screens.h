@@ -9,6 +9,8 @@ extern "C" {
 
 typedef struct _objects_t {
     lv_obj_t *main;
+    lv_obj_t *modem_sleep;
+    lv_obj_t *light_sleep;
     lv_obj_t *deep_sleep;
     lv_obj_t *alarm;
     lv_obj_t *arc_clock_seconds;
@@ -16,11 +18,23 @@ typedef struct _objects_t {
     lv_obj_t *main_clock__clock;
     lv_obj_t *main_clock__label_clock_time;
     lv_obj_t *main_clock__label_clock_alarm;
+    lv_obj_t *screen_indicator_wifi;
+    lv_obj_t *modem_sleep_clock;
+    lv_obj_t *modem_sleep_clock__clock;
+    lv_obj_t *modem_sleep_clock__label_clock_time;
+    lv_obj_t *modem_sleep_clock__label_clock_alarm;
+    lv_obj_t *screen_indicator_modem;
+    lv_obj_t *arc_clock_seconds_modem;
+    lv_obj_t *light_sleep_clock;
+    lv_obj_t *light_sleep_clock__clock;
+    lv_obj_t *light_sleep_clock__label_clock_time;
+    lv_obj_t *light_sleep_clock__label_clock_alarm;
+    lv_obj_t *screen_indicator_sleep0;
     lv_obj_t *deep_sleep_clock;
     lv_obj_t *deep_sleep_clock__clock;
     lv_obj_t *deep_sleep_clock__label_clock_time;
     lv_obj_t *deep_sleep_clock__label_clock_alarm;
-    lv_obj_t *screen_indicator_sleep;
+    lv_obj_t *screen_indicator_sleep1;
     lv_obj_t *alarm_clock;
     lv_obj_t *alarm_clock__clock;
     lv_obj_t *alarm_clock__label_clock_time;
@@ -32,12 +46,20 @@ extern objects_t objects;
 
 enum ScreensEnum {
     SCREEN_ID_MAIN = 1,
-    SCREEN_ID_DEEP_SLEEP = 2,
-    SCREEN_ID_ALARM = 3,
+    SCREEN_ID_MODEM_SLEEP = 2,
+    SCREEN_ID_LIGHT_SLEEP = 3,
+    SCREEN_ID_DEEP_SLEEP = 4,
+    SCREEN_ID_ALARM = 5,
 };
 
 void create_screen_main();
 void tick_screen_main();
+
+void create_screen_modem_sleep();
+void tick_screen_modem_sleep();
+
+void create_screen_light_sleep();
+void tick_screen_light_sleep();
 
 void create_screen_deep_sleep();
 void tick_screen_deep_sleep();
