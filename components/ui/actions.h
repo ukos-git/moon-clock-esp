@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 extern void action_update_clock_display(lv_event_t *e);
+extern void action_increment_clock_seconds(lv_event_t *e);
+extern void action_update_alarm_display(lv_event_t *e);
 
 #ifdef __cplusplus
 }

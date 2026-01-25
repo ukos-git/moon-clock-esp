@@ -68,8 +68,13 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
-    // Update display now that UI objects are created
-    clock_update_display_vars();
+    // Register clock component callbacks for UI updates
+    // Cast action functions to callback type (they accept NULL as lv_event_t*)
+    clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);
+    clock_register_alarm_update_callback((clock_update_cb_t)action_update_alarm_display);
+
+    // Update display now that UI objects are created and callbacks registered
+    clock_trigger_time_update();
 
     bsp_display_unlock();
 

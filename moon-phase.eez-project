@@ -94,7 +94,7 @@
         {
           "objID": "a6fea3cc-c416-4ff3-feb4-c02dbe7ca8bf",
           "fileName": "CMakeLists.txt",
-          "template": "file(GLOB_RECURSE IMAGE_SOURCES \"images/*.c\")\nfile(GLOB_RECURSE FONT_SOURCES \"fonts/*.c\")\n\nidf_component_register(\n  SRCS\n    \"ui.c\"\n    \"screens.c\"\n    \"images.c\"\n    \"styles.c\"\n    \"actions.c\"\n    ${IMAGE_SOURCES}\n    ${FONT_SOURCES}\n  REQUIRES driver lvgl\n  INCLUDE_DIRS \"./\")"
+          "template": "file(GLOB_RECURSE IMAGE_SOURCES \"images/*.c\")\nfile(GLOB_RECURSE FONT_SOURCES \"fonts/*.c\")\n\nidf_component_register(\n  SRCS\n    \"ui.c\"\n    \"screens.c\"\n    \"images.c\"\n    \"styles.c\"\n    \"actions.c\"\n    \"vars.c\"\n    ${IMAGE_SOURCES}\n    ${FONT_SOURCES}\n  REQUIRES driver lvgl clock\n  INCLUDE_DIRS \"./\")"
         }
       ],
       "destinationFolder": "components/ui",
@@ -149,6 +149,22 @@
       "localVariables": [],
       "userProperties": [],
       "name": "update_clock_display"
+    },
+    {
+      "objID": "6d5175b8-0300-49ae-d34f-67837cd6c145",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "increment_clock_seconds"
+    },
+    {
+      "objID": "2ee1ec3b-51e2-4454-883a-4752e415abc6",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "update_alarm_display"
     }
   ],
   "userPages": [

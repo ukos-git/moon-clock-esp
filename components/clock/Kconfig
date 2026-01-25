@@ -1,5 +1,19 @@
 menu "Clock Component Configuration"
 
+    choice CLOCK_TIME_FORMAT
+        prompt "Time display format"
+        default CLOCK_TIME_FORMAT_24H
+        help
+            Choose between 12-hour (AM/PM) and 24-hour time display format.
+            Note: The RTC always stores time in 24-hour format internally.
+            This setting only affects how time is displayed in the UI.
+
+        config CLOCK_TIME_FORMAT_24H
+            bool "24-hour format (00:00 - 23:59)"
+        config CLOCK_TIME_FORMAT_12H
+            bool "12-hour format with AM/PM (12:00 AM - 11:59 PM)"
+    endchoice
+
     config CLOCK_DEFAULT_TIMEZONE
         string "Default timezone (POSIX TZ format)"
         default "CET-1CEST,M3.5.0/2,M10.5.0/3"

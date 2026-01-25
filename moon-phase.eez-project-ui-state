@@ -1,9 +1,14 @@
 {
   "navigation": {
-    "selectedUserPageObject": "[moon-phase.eez-project]:/userPages/0",
+    "selectedUserPageObject": "[moon-phase.eez-project]:/userPages/2",
+    "selectedUserWidgetObject": "[moon-phase.eez-project]:/userWidgets/0",
     "selectedActionObject": "[moon-phase.eez-project]:/actions/0",
-    "selectedGlobalVariableObject": "[moon-phase.eez-project]:/variables/globalVariables/0",
-    "selectedFontObject": "[moon-phase.eez-project]:/fonts/0",
+    "selectedGlobalVariableObject": "[moon-phase.eez-project]:/variables/globalVariables/2",
+    "selectedStyleObject": "[moon-phase.eez-project]:/lvglStyles/styles/3",
+    "selectedThemeObject": "[moon-phase.eez-project]:/themes/0",
+    "selectedThemeColorObject": "[moon-phase.eez-project]:/colors/0",
+    "selectedFontObject": "[moon-phase.eez-project]:/fonts/2",
+    "selectedLvglGroupObject": "[moon-phase.eez-project]:/lvglGroups/groups/-1",
     "subnavigationSelectedItems": {
       "variables-tab/sub-navigation/selected-item": "Global"
     }
@@ -199,39 +204,39 @@
               "children": [
                 {
                   "type": "tab",
-                  "id": "#760c1036-c0fc-4193-b1ba-bd1d1200b2f5",
-                  "name": "MONTSERRAT_BOLD_96_NUMBERS",
+                  "id": "#bc7d3785-325d-4ec3-982a-cbdf70323a2b",
+                  "name": "FONTAWESOME7_REGULAR_96_ICONS",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[moon-phase.eez-project]:/fonts/0",
+                    "objectPath": "[moon-phase.eez-project]:/fonts/2",
                     "permanent": false
                   },
                   "icon": "material:font_download"
                 },
                 {
                   "type": "tab",
-                  "id": "#f82c0a12-09d4-4306-8cab-d5abb21e0e5a",
-                  "name": "Main",
+                  "id": "#75ae7542-8c50-429e-bf43-0e5b74f40369",
+                  "name": "alarm_screen",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[moon-phase.eez-project]:/userPages/0",
+                    "objectPath": "[moon-phase.eez-project]:/userPages/2",
                     "permanent": false
                   },
                   "icon": "svg:page"
                 },
                 {
                   "type": "tab",
-                  "id": "#c5dd45b6-c437-4bcb-a540-06fdae4fe27b",
-                  "name": "Settings",
+                  "id": "#1fa54017-7fca-46ae-bb5b-06d334a9a62b",
+                  "name": "clock",
                   "component": "editor",
                   "config": {
-                    "objectPath": "[moon-phase.eez-project]:/settings",
-                    "subObjectPath": "[moon-phase.eez-project]:/settings",
+                    "objectPath": "[moon-phase.eez-project]:/userWidgets/0",
                     "permanent": false
                   },
-                  "icon": "material:settings"
+                  "icon": "svg:user_widget"
                 }
-              ]
+              ],
+              "active": true
             },
             {
               "type": "row",
@@ -251,8 +256,7 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ],
-                  "active": true
+                  ]
                 },
                 {
                   "type": "tabset",
@@ -789,7 +793,8 @@
                       "component": "styles",
                       "enableClose": false
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -847,7 +852,8 @@
                       "component": "themes",
                       "enableClose": false
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -968,7 +974,8 @@
                       "component": "groups",
                       "enableClose": false
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -1001,15 +1008,88 @@
     "[moon-phase.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "1": {
-            "$selected": true
-          }
+          "0": {},
+          "1": {}
         }
       },
       "transform": {
         "translate": {
-          "x": -242.5,
-          "y": -230.5
+          "x": -196.635,
+          "y": -590.5
+        },
+        "scale": 1
+      },
+      "timeline": {
+        "isEditorActive": false,
+        "position": 0,
+        "secondToPx": 200,
+        "scrollLeft": 0
+      }
+    },
+    "[moon-phase.eez-project]:/userPages/1[flow-state]": {
+      "selection": {
+        "0": {
+          "0": {},
+          "1": {}
+        }
+      },
+      "transform": {
+        "translate": {
+          "x": -233,
+          "y": -593
+        },
+        "scale": 1
+      },
+      "timeline": {
+        "isEditorActive": false,
+        "position": 0,
+        "secondToPx": 200,
+        "scrollLeft": 0
+      }
+    },
+    "[moon-phase.eez-project]:/userWidgets/0[flow-state]": {
+      "selection": {
+        "0": {}
+      },
+      "transform": {
+        "translate": {
+          "x": -233,
+          "y": -233
+        },
+        "scale": 1
+      },
+      "timeline": {
+        "isEditorActive": false,
+        "position": 0,
+        "secondToPx": 200,
+        "scrollLeft": 0
+      }
+    },
+    "[moon-phase.eez-project]:/lvglStyles/styles[tree-state]": {
+      "0": {
+        "$selected": true
+      },
+      "1": {
+        "$selected": true
+      },
+      "2": {
+        "$selected": true
+      },
+      "3": {
+        "$selected": true
+      }
+    },
+    "[moon-phase.eez-project]:/userPages/2[flow-state]": {
+      "selection": {
+        "0": {
+          "0": {},
+          "1": {}
+        }
+      },
+      "transform": {
+        "translate": {
+          "x": -233,
+          "y": -233
         },
         "scale": 1
       },
@@ -1032,12 +1112,10 @@
   "showComponentDescriptions": true,
   "logsPanelFilter": "all",
   "selectedStylePropertyName": "",
-  "lvglPart": "MAIN",
+  "lvglPart": "KNOB",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
-    "POSITION AND SIZE",
-    "PADDING",
-    "ARC"
+    "MISCELLANEOUS"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

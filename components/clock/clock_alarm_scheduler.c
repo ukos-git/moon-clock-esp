@@ -373,8 +373,8 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
         return ret;
     }
 
-    // Update alarm label in UI
-    clock_update_alarm_label(next_alarm.hour, next_alarm.minute);
+    // Trigger alarm display update via callback
+    clock_trigger_alarm_update();
 
     return ESP_OK;
 }

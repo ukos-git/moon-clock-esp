@@ -40,6 +40,28 @@ esp_err_t clock_set_alarm(const clock_time_t *time) {
     return pcf85063a_set_alarm(&s_rtc_dev, pcf_alarm_time);
 }
 
+esp_err_t clock_get_alarm(clock_time_t *time) {
+    if (!time || !s_initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    pcf85063a_datetime_t pcf_alarm_time;
+    esp_err_t ret = pcf85063a_get_alarm(&s_rtc_dev, &pcf_alarm_time);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // Convert PCF format to clock format (only hour and minute are relevant for alarm)
+    time->hour = pcf_alarm_time.hour;
+    time->minute = pcf_alarm_time.min;
+    time->second = pcf_alarm_time.sec;
+    time->year = 0;
+    time->month = 0;
+    time->day = 0;
+
+    return ESP_OK;
+}
+
 esp_err_t clock_enable_alarm(bool enable) {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;

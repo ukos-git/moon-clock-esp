@@ -18,6 +18,14 @@ extern "C" {
 esp_err_t clock_set_alarm(const clock_time_t *time);
 
 /**
+ * @brief Get currently set alarm time
+ *
+ * @param time Pointer to store alarm time
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_get_alarm(clock_time_t *time);
+
+/**
  * @brief Enable/disable alarm
  *
  * @param enable true to enable, false to disable
