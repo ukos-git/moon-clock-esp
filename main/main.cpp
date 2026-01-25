@@ -29,9 +29,6 @@ static void lvgl_seconds_timer_cb(lv_timer_t *timer) {
     set_var_clock_seconds(current_seconds + 1);
 }
 
-// Wrapper function for action calls without event parameter
-static void clock_display_update_wrapper(void) { action_update_clock_display(NULL); }
-
 extern "C" void app_main(void) {
 
     // Initialize WiFi first for NTP synchronization
@@ -71,11 +68,8 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
-    // Register clock display update callback
-    clock_register_display_update_callback(clock_display_update_wrapper);
-
     // Update display now that UI objects are created
-    action_update_clock_display(NULL);
+    clock_update_display_vars();
 
     bsp_display_unlock();
 

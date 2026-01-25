@@ -165,6 +165,26 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         }
     }
 
+    // Initialize alarm scheduler from SPIFFS
+    ret = clock_alarm_scheduler_init();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Alarm scheduler initialized, %d rules loaded", clock_alarm_get_rule_count());
+
+        // Get current time and schedule next alarm
+        clock_time_t alarm_current_time;
+        ret = clock_get_time(&alarm_current_time);
+        if (ret == ESP_OK) {
+            ret = clock_alarm_schedule_next(&alarm_current_time);
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "Next alarm scheduled successfully");
+            } else {
+                ESP_LOGW(TAG, "Failed to schedule next alarm: %s", esp_err_to_name(ret));
+            }
+        }
+    } else {
+        ESP_LOGW(TAG, "Failed to initialize alarm scheduler: %s", esp_err_to_name(ret));
+    }
+
     ESP_LOGI(TAG, "Clock component initialized successfully");
     return ESP_OK;
 }

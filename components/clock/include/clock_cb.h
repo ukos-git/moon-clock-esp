@@ -8,16 +8,19 @@ extern "C" {
 #include "lvgl.h"
 
 /**
- * @brief Callback function type for clock display updates
+ * @brief Update clock display variables in UI
+ *
+ * Reads current time from RTC and updates the UI clock label and seconds.
  */
-typedef void (*clock_display_update_cb_t)(void);
+void clock_update_display_vars(void);
 
 /**
- * @brief Register a callback function for clock display updates
+ * @brief Update alarm label in UI
  *
- * @param callback Function to call when display update is needed
+ * @param hour Alarm hour (0-23)
+ * @param minute Alarm minute (0-59)
  */
-void clock_register_display_update_callback(clock_display_update_cb_t callback);
+void clock_update_alarm_label(int hour, int minute);
 
 /**
  * @brief RTC interrupt handler callback for LVGL timer

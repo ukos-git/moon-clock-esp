@@ -15,6 +15,7 @@ extern "C" {
 
 // Include all specialized clock headers
 #include "clock_alarm.h"
+#include "clock_alarm_scheduler.h"
 #include "clock_cb.h"
 #include "clock_interrupt.h"
 #include "clock_sntp.h"

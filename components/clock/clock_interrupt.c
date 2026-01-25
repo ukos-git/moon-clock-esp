@@ -5,6 +5,7 @@
 #include "esp_log.h"
 
 #include "clock.h"
+#include "clock_alarm_scheduler.h"
 #include "clock_interrupt.h"
 #include "clock_timer.h"
 #include "pcf85063a.h"
@@ -67,13 +68,27 @@ esp_err_t clock_handle_interrupts(bool *display_update_needed) {
 
     // Handle alarm interrupts separately
     if (ints & CLOCK_INT_ALARM) {
-        ESP_LOGD(TAG, "Alarm interrupt detected");
+        ESP_LOGI(TAG, "Alarm interrupt triggered!");
         *display_update_needed = true;
 
         // Clear alarm flag
         esp_err_t clear_ret = clock_clear_interrupts(CLOCK_INT_ALARM);
         if (clear_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to clear alarm flag: %s", esp_err_to_name(clear_ret));
+        }
+
+        // Schedule next alarm based on current time
+        clock_time_t current_time;
+        esp_err_t time_ret = clock_get_time(&current_time);
+        if (time_ret == ESP_OK) {
+            esp_err_t sched_ret = clock_alarm_schedule_next(&current_time);
+            if (sched_ret == ESP_OK) {
+                ESP_LOGI(TAG, "Next alarm scheduled successfully");
+            } else {
+                ESP_LOGW(TAG, "Failed to schedule next alarm: %s", esp_err_to_name(sched_ret));
+            }
+        } else {
+            ESP_LOGE(TAG, "Failed to get current time for alarm rescheduling: %s", esp_err_to_name(time_ret));
         }
     }
 
