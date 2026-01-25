@@ -12,8 +12,9 @@ extern "C" {
  */
 typedef enum {
     CLOCK_INT_NONE = 0,
-    CLOCK_INT_TIMER = 1 << 0,
-    CLOCK_INT_ALARM = 1 << 1,
+    CLOCK_INT_MINUTE = 1 << 0,    // Minute interrupt (MI/HMI)
+    CLOCK_INT_COUNTDOWN = 1 << 1, // Countdown timer interrupt
+    CLOCK_INT_ALARM = 1 << 2,     // Alarm interrupt
 } clock_interrupt_t;
 
 /**

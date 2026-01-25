@@ -25,7 +25,6 @@ pcf85063a_dev_t s_rtc_dev;
 i2c_master_bus_handle_t s_bus_handle = NULL;
 esp_io_expander_handle_t s_io_expander = NULL;
 bool s_initialized = false;
-bool s_minute_timer_synced = false;
 
 // Validation functions
 static bool validate_time(const clock_time_t *time) {

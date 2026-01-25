@@ -47,12 +47,12 @@ extern "C" void app_main(void) {
     } else {
         ESP_LOGI(TAG, "Clock component initialized successfully");
 
-        // Initialize minute tick with synchronization to minute boundary
-        ret = clock_init_minute_tick();
+        // Enable minute interrupt for automatic time updates
+        ret = clock_minute_enable_interrupt(CLOCK_MINUTE_INT_FULL);
         if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "RTC minute tick initialized and synchronized");
+            ESP_LOGI(TAG, "RTC minute interrupt (MI) enabled");
         } else {
-            ESP_LOGW(TAG, "Failed to initialize minute tick: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Failed to enable minute interrupt: %s", esp_err_to_name(ret));
         }
     }
 

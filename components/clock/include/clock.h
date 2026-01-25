@@ -19,6 +19,7 @@ extern "C" {
 #include "clock_cb.h"
 #include "clock_idle.h"
 #include "clock_interrupt.h"
+#include "clock_minute.h"
 #include "clock_sntp.h"
 #include "clock_timer.h"
 

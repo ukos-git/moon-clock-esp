@@ -67,20 +67,24 @@ esp_err_t clock_enable_alarm(bool enable) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    // Read current CTRL2 to preserve MI/HMI bits
+    uint8_t ctrl2;
+    esp_err_t ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
     if (enable) {
-        return pcf85063a_enable_alarm(&s_rtc_dev);
+        // Enable alarm interrupt by setting AIE bit, clear AF flag
+        ctrl2 |= PCF85063A_RTC_CTRL_2_AIE;
+        ctrl2 &= ~PCF85063A_RTC_CTRL_2_AF;
     } else {
         // Disable alarm interrupt by clearing AIE bit
-        uint8_t ctrl2;
-        esp_err_t ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
-        if (ret != ESP_OK) {
-            return ret;
-        }
-
         ctrl2 &= ~PCF85063A_RTC_CTRL_2_AIE;
-        uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};
-        return pcf85063a_write_register(&s_rtc_dev, write_buf, 2);
     }
+
+    uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};
+    return pcf85063a_write_register(&s_rtc_dev, write_buf, 2);
 }
 
 esp_err_t clock_clear_alarm(void) {

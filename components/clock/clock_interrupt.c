@@ -8,7 +8,7 @@
 #include "clock_alarm_scheduler.h"
 #include "clock_cb.h"
 #include "clock_interrupt.h"
-#include "clock_timer.h"
+#include "clock_minute.h"
 #include "pcf85063a.h"
 
 static const char *TAG = "clock_interrupt";
@@ -50,18 +50,30 @@ esp_err_t clock_handle_interrupts(void) {
 
     ESP_LOGD(TAG, "RTC interrupt detected, ints=0x%x", ints);
 
-    // Handle timer interrupts with proper synchronization
-    if (ints & CLOCK_INT_TIMER) {
+    // Handle minute interrupts (MI/HMI)
+    if (ints & CLOCK_INT_MINUTE) {
         bool is_minute_tick = false;
-        esp_err_t process_ret = clock_process_minute_interrupt(&is_minute_tick);
+        esp_err_t process_ret = clock_minute_process_interrupt(&is_minute_tick);
 
         if (process_ret == ESP_OK && is_minute_tick) {
-            ESP_LOGD(TAG, "Minute tick processed");
+            ESP_LOGI(TAG, "Minute interrupt processed - updating display");
             clock_trigger_time_update();
         } else if (process_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
-            // Fallback: clear timer flag manually
-            clock_clear_interrupts(CLOCK_INT_TIMER);
+        }
+        // Note: clock_minute_process_interrupt() clears TF flag internally
+    }
+
+    // Handle countdown timer interrupts
+    if (ints & CLOCK_INT_COUNTDOWN) {
+        // Only handle if minute interrupt wasn't already processed
+        // (both share the TF flag, so if minute was handled, TF is already cleared)
+        if (!(ints & CLOCK_INT_MINUTE)) {
+            ESP_LOGI(TAG, "Countdown timer interrupt detected");
+            // Process countdown timer with clock_timer module if needed
+            clock_clear_interrupts(CLOCK_INT_COUNTDOWN);
+        } else {
+            ESP_LOGD(TAG, "Countdown timer flag detected but minute interrupt already cleared TF");
         }
     }
 
@@ -109,9 +121,36 @@ esp_err_t clock_get_interrupts(clock_interrupt_t *out) {
 
     *out = CLOCK_INT_NONE;
 
-    // Check for timer interrupt flag (TF)
-    if (ctrl2 & PCF85063A_RTC_TIMER_FLAG) {
-        *out |= CLOCK_INT_TIMER;
+    // Check for TF (Timer Flag, bit 3) - set by MI, HMI, or countdown timer
+    if (ctrl2 & PCF85063A_RTC_CTRL_2_TF) {
+        // Read Timer Mode register to check if countdown timer is enabled
+        uint8_t timer_mode = 0;
+        esp_err_t timer_ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_MODE, &timer_mode, 1);
+
+        // Check which interrupt sources are enabled
+        bool mi_enabled = (ctrl2 & PCF85063A_RTC_CTRL_2_MI) != 0;
+        bool hmi_enabled = (ctrl2 & PCF85063A_RTC_CTRL_2_HMI) != 0;
+        // Countdown timer must have both TE (Timer Enable) AND TIE (Timer Interrupt Enable) set
+        bool countdown_enabled = (timer_ret == ESP_OK) && (timer_mode & PCF85063A_RTC_TIMER_MODE_TE) != 0 &&
+                                 (timer_mode & PCF85063A_RTC_TIMER_MODE_TIE) != 0;
+
+        // Set appropriate interrupt flags based on what's enabled
+        // Note: TF can be set by MI, HMI, or countdown timer
+        if (mi_enabled || hmi_enabled) {
+            *out |= CLOCK_INT_MINUTE;
+        }
+        if (countdown_enabled) {
+            *out |= CLOCK_INT_COUNTDOWN;
+        }
+
+        // If TF is set but nothing is enabled, log a warning with details
+        if (!mi_enabled && !hmi_enabled && !countdown_enabled) {
+            ESP_LOGW(TAG,
+                     "TF flag set but no interrupt source enabled (CTRL2=0x%02x, TIMER_MODE=0x%02x, MI=%d, HMI=%d, "
+                     "TE=%d, TIE=%d)",
+                     ctrl2, timer_mode, mi_enabled, hmi_enabled, (timer_mode & PCF85063A_RTC_TIMER_MODE_TE) != 0,
+                     (timer_mode & PCF85063A_RTC_TIMER_MODE_TIE) != 0);
+        }
     }
 
     // Check for alarm interrupt flag (AF)
@@ -130,9 +169,10 @@ esp_err_t clock_clear_interrupts(clock_interrupt_t flags) {
     ESP_LOGD(TAG, "Clearing interrupt flags: 0x%x", flags);
     esp_err_t ret = ESP_OK;
 
-    // Clear specified flags using proper functions
-    if (flags & CLOCK_INT_TIMER) {
-        ESP_LOGD(TAG, "Clearing TIMER flag");
+    // Clear minute interrupt or countdown timer (both use TF flag)
+    if ((flags & CLOCK_INT_MINUTE) || (flags & CLOCK_INT_COUNTDOWN)) {
+        const char *int_type = (flags & CLOCK_INT_MINUTE) ? "MINUTE" : "COUNTDOWN";
+        ESP_LOGD(TAG, "Clearing %s flag (TF)", int_type);
         esp_err_t timer_ret = pcf85063a_clear_timer_flag(&s_rtc_dev);
         if (timer_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to clear timer flag: %s", esp_err_to_name(timer_ret));
@@ -140,12 +180,17 @@ esp_err_t clock_clear_interrupts(clock_interrupt_t flags) {
         }
     }
 
+    // Clear alarm interrupt
     if (flags & CLOCK_INT_ALARM) {
-        ESP_LOGD(TAG, "Clearing ALARM flag");
+        ESP_LOGD(TAG, "Clearing ALARM flag (AF)");
         uint8_t ctrl2;
         esp_err_t alarm_ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
         if (alarm_ret == ESP_OK) {
+            uint8_t ctrl2_before = ctrl2;
             ctrl2 &= ~PCF85063A_RTC_CTRL_2_AF;
+            ESP_LOGD(TAG, "Clearing AF: CTRL2 before=0x%02x, after=0x%02x (MI=%d->%d, HMI=%d->%d)", ctrl2_before, ctrl2,
+                     (ctrl2_before & PCF85063A_RTC_CTRL_2_MI) != 0, (ctrl2 & PCF85063A_RTC_CTRL_2_MI) != 0,
+                     (ctrl2_before & PCF85063A_RTC_CTRL_2_HMI) != 0, (ctrl2 & PCF85063A_RTC_CTRL_2_HMI) != 0);
             uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};
             alarm_ret = pcf85063a_write_register(&s_rtc_dev, write_buf, 2);
         }
@@ -156,59 +201,73 @@ esp_err_t clock_clear_interrupts(clock_interrupt_t flags) {
     }
 
     if (ret == ESP_OK) {
-        ESP_LOGD(TAG, "Successfully cleared interrupt flags");
+        // Check EXIO 3 pin status after clearing flags
+        bool exio_int_active = false;
+        if (s_io_expander) {
+            uint32_t level_mask = 0;
+            esp_err_t exio_ret = esp_io_expander_get_level(s_io_expander, EXIO_RTC_INT_PIN, &level_mask);
+            if (exio_ret == ESP_OK) {
+                // RTC interrupt is active low
+                exio_int_active = (level_mask & EXIO_RTC_INT_PIN) == 0;
+            }
+        }
+        ESP_LOGD(TAG, "Cleared interrupt flags - EXIO_INT=%d", exio_int_active);
     }
 
     return ret;
 }
 
 /**
- * @brief Check if RTC interrupt is active and has actual interrupt flags set
+ * @brief Check if RTC has pending interrupt flags
  *
- * This function checks both the IO expander pin AND the RTC's internal interrupt flags
- * to ensure we only process genuine RTC interrupts, not other devices on the TCA.
+ * This function checks the RTC's internal interrupt flags (TF and AF) to determine
+ * if there are pending interrupts to process.
  *
- * @return true if RTC has pending timer/alarm interrupts, false otherwise
+ * Note on interrupt detection:
+ * - MI/HMI pulses are only ~15ms wide (1/64 second)
+ * - Countdown timer pulses depend on TI_TP setting
+ * - With polling at 1.3s intervals, we'll miss the pulse but TF/AF flags stay set
+ * - We check flags directly since they persist until software clears them
+ * - Optional: Can check EXIO pin state, but not reliable for MI/HMI due to short pulse
+ *
+ * @return true if RTC has pending timer/alarm interrupt flags, false otherwise
  */
 bool clock_is_interrupt_pending(void) {
-    if (!s_initialized || !s_io_expander) {
+    if (!s_initialized) {
         return false;
     }
 
-    // First check if the IO expander interrupt pin is active
-    uint32_t level_mask = 0;
-    esp_err_t ret = esp_io_expander_get_level(s_io_expander, EXIO_RTC_INT_PIN, &level_mask);
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read EXIO 3 level: %s", esp_err_to_name(ret));
-        return false;
+    // Check EXIO 3 pin level (useful for wake-up from deep sleep detection)
+    bool exio_int_active = false;
+    if (s_io_expander) {
+        uint32_t level_mask = 0;
+        esp_err_t exio_ret = esp_io_expander_get_level(s_io_expander, EXIO_RTC_INT_PIN, &level_mask);
+        if (exio_ret == ESP_OK) {
+            // RTC interrupt is active low
+            exio_int_active = (level_mask & EXIO_RTC_INT_PIN) == 0;
+        }
     }
 
-    // RTC interrupt is active low - if high, no interrupt from any TCA device
-    bool io_interrupt_active = (level_mask & EXIO_RTC_INT_PIN) == 0;
-    if (!io_interrupt_active) {
-        return false; // No interrupt at all
-    }
-
-    // IO expander interrupt is active, but it could be from another device
-    // Check if the RTC specifically has interrupt flags set
+    // Read RTC interrupt flags (TF and AF)
+    // These flags are sticky - stay set until explicitly cleared by software
     uint8_t ctrl2;
-    ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
+    esp_err_t ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read RTC CTRL2 for interrupt check: %s", esp_err_to_name(ret));
         return false;
     }
 
-    // Check if RTC has any actual interrupt flags set
-    bool rtc_timer_flag = (ctrl2 & PCF85063A_RTC_TIMER_FLAG) != 0;
-    bool rtc_alarm_flag = (ctrl2 & PCF85063A_RTC_CTRL_2_AF) != 0;
+    // Check if RTC has any interrupt flags set
+    // TF (bit 3): Timer Flag - set by MI, HMI, or countdown timer
+    // AF (bit 6): Alarm Flag
+    bool tf_flag = (ctrl2 & PCF85063A_RTC_CTRL_2_TF) != 0;
+    bool af_flag = (ctrl2 & PCF85063A_RTC_CTRL_2_AF) != 0;
 
-    if (rtc_timer_flag || rtc_alarm_flag) {
-        ESP_LOGI(TAG, "RTC interrupt confirmed - CTRL2=0x%02x, timer=%d, alarm=%d", ctrl2, rtc_timer_flag,
-                 rtc_alarm_flag);
+    if (tf_flag || af_flag) {
+        ESP_LOGI(TAG, "RTC interrupt flags detected - CTRL2=0x%02x, TF=%d, AF=%d, EXIO_INT=%d", ctrl2, tf_flag, af_flag,
+                 exio_int_active);
         return true;
-    } else {
-        ESP_LOGD(TAG, "IO interrupt active but not from RTC: CTRL2=0x%02x", ctrl2);
-        return false; // Interrupt is from another TCA device, not RTC
     }
+
+    return false;
 }

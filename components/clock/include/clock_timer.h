@@ -9,57 +9,49 @@ extern "C" {
 #include <stdint.h>
 
 /**
- * @brief Enable/disable minute tick timer with specified duration
+ * @brief Enable/disable countdown timer with specified configuration
  *
- * This function enables a timer with the specified duration in seconds.
- * Pass 0 to disable the timer. For synchronized minute ticks that align
- * to wall-clock boundaries, use clock_init_minute_tick() instead.
+ * This function enables the PCF85063A countdown timer with custom settings.
+ * The timer can be configured with different clock frequencies and modes.
+ * Pass 0 for timer_seconds to disable the timer.
+ *
+ * Common timer_mode configurations:
+ * - PCF85063A_RTC_TIMER_TCF_4096HZ: 4.096 kHz timer source
+ * - PCF85063A_RTC_TIMER_TCF_64HZ: 64 Hz timer source
+ * - PCF85063A_RTC_TIMER_TCF_1HZ: 1 Hz timer source (most common)
+ * - PCF85063A_RTC_TIMER_TCF_1_60HZ: 1/60 Hz timer source
+ * Combine with:
+ * - PCF85063A_RTC_TIMER_MODE_TIE: Enable timer interrupt
+ * - PCF85063A_RTC_TIMER_MODE_TI_TP: Pulse mode (vs level mode)
+ *
+ * Example: timer_mode = PCF85063A_RTC_TIMER_TCF_1HZ | PCF85063A_RTC_TIMER_MODE_TIE
  *
  * @param timer_seconds Timer duration in seconds (0 to disable, 1-255 to enable)
+ * @param timer_mode Timer configuration (clock frequency + interrupt settings)
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t clock_enable_minute_tick(uint8_t timer_seconds);
+esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode);
 
 /**
- * @brief Initialize synchronized minute timer
+ * @brief Disable countdown timer
  *
- * This function starts a synchronized timer that will fire exactly at the next
- * minute boundary (HH:MM:00) and then continue firing every 60 seconds.
- * Uses the PCF85063A countdown timer with proper RTC time alignment.
+ * Convenience function to disable the timer.
  *
- * @return ESP_OK on success
+ * @return esp_err_t ESP_OK on success
  */
-esp_err_t clock_init_minute_tick(void);
+esp_err_t clock_timer_disable(void);
 
 /**
- * @brief Synchronize minute timer after first interrupt
+ * @brief Process timer interrupt
  *
- * This function should be called from the timer interrupt handler after the
- * first synchronization interrupt occurs. It switches the timer from one-shot
- * synchronization mode to repeating 60-second intervals.
+ * This function should be called from the interrupt handler when a timer flag
+ * is detected. It verifies the flag, clears it, and indicates if this was a
+ * valid timer interrupt.
  *
- * @return ESP_OK on success
+ * @param[out] is_timer_tick Set to true if this is a valid timer interrupt
+ * @return esp_err_t ESP_OK on success
  */
-esp_err_t clock_sync_minute_timer(void);
-
-/**
- * @brief Process minute tick timer interrupt
- *
- * This function should be called from the timer interrupt handler to process
- * synchronized minute ticks. It verifies the timer flag, clears it, and
- * handles the synchronization logic.
- *
- * @param[out] is_minute_tick Set to true if this is a valid minute tick
- * @return ESP_OK on success
- */
-esp_err_t clock_process_minute_interrupt(bool *is_minute_tick);
-
-/**
- * @brief Check if minute timer is synchronized to boundaries
- *
- * @return true if timer is synchronized to minute boundaries, false otherwise
- */
-bool clock_is_minute_timer_synced(void);
+esp_err_t clock_timer_process_interrupt(bool *is_timer_tick);
 
 #ifdef __cplusplus
 }
