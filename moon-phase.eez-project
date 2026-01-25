@@ -165,6 +165,38 @@
       "localVariables": [],
       "userProperties": [],
       "name": "update_alarm_display"
+    },
+    {
+      "objID": "fe466875-f622-4bb6-d550-a0ae1320441a",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "alarm_triggered"
+    },
+    {
+      "objID": "b3e7c541-615c-4a7b-df78-6172a0f9ec14",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "switch_to_deep_sleep_screen"
+    },
+    {
+      "objID": "f56f1839-787a-45e3-ff6d-cb13e67fb8c9",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "switch_to_main_screen"
+    },
+    {
+      "objID": "2fd9f803-0102-4aec-ff4d-d2cd0a56f1cf",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "switch_to_alarm_screen"
     }
   ],
   "userPages": [
@@ -324,7 +356,7 @@
       "connectionLines": [],
       "localVariables": [],
       "userProperties": [],
-      "name": "main_screen",
+      "name": "main",
       "left": 0,
       "top": 0,
       "width": 466,
@@ -515,6 +547,7 @@
               },
               "timeline": [],
               "eventHandlers": [],
+              "identifier": "alarm_clock",
               "leftUnit": "px",
               "topUnit": "px",
               "widthUnit": "px",
@@ -586,56 +619,6 @@
               "textType": "literal",
               "longMode": "WRAP",
               "recolor": false
-            },
-            {
-              "objID": "d7a3f86c-09ab-4425-e571-3033e69cb4e8",
-              "type": "LVGLArcWidget",
-              "left": 158,
-              "top": 294,
-              "width": 150,
-              "height": 150,
-              "customInputs": [],
-              "customOutputs": [],
-              "style": {
-                "objID": "7c6a8e85-2466-4af7-e4cf-9d18ad2459ac",
-                "useStyle": "default",
-                "conditionalStyles": [],
-                "childStyles": []
-              },
-              "timeline": [],
-              "eventHandlers": [],
-              "identifier": "arc-alarm",
-              "leftUnit": "px",
-              "topUnit": "px",
-              "widthUnit": "px",
-              "heightUnit": "px",
-              "children": [],
-              "widgetFlags": "CLICK_FOCUSABLE|GESTURE_BUBBLE|PRESS_LOCK|SCROLL_ELASTIC|SCROLL_MOMENTUM|SCROLL_WITH_ARROW|SNAPPABLE",
-              "hiddenFlagType": "literal",
-              "clickableFlag": true,
-              "clickableFlagType": "literal",
-              "flagScrollbarMode": "",
-              "flagScrollDirection": "",
-              "scrollSnapX": "",
-              "scrollSnapY": "",
-              "checkedStateType": "literal",
-              "disabledStateType": "literal",
-              "states": "",
-              "localStyles": {
-                "objID": "04cb9eb9-629e-440b-ad9b-d44652d21c8e"
-              },
-              "group": "",
-              "groupIndex": 0,
-              "rangeMin": 0,
-              "rangeMinType": "literal",
-              "rangeMax": 100,
-              "rangeMaxType": "literal",
-              "value": 25,
-              "valueType": "literal",
-              "bgStartAngle": 135,
-              "bgEndAngle": 45,
-              "mode": "NORMAL",
-              "rotation": 0
             }
           ],
           "widgetFlags": "CLICKABLE|PRESS_LOCK|CLICK_FOCUSABLE|GESTURE_BUBBLE|SNAPPABLE|SCROLLABLE|SCROLL_ELASTIC|SCROLL_MOMENTUM|SCROLL_CHAIN_HOR|SCROLL_CHAIN_VER",
@@ -654,7 +637,7 @@
       "connectionLines": [],
       "localVariables": [],
       "userProperties": [],
-      "name": "alarm_screen",
+      "name": "alarm",
       "left": 0,
       "top": 0,
       "width": 466,

@@ -31,6 +31,6 @@ int32_t get_var_clock_seconds() { return clock_seconds; }
 void set_var_clock_seconds(int32_t value) {
     // Apply modulo 60 to keep seconds in 0-59 range
     int32_t clamped_value = value % 60;
-    ESP_LOGI(TAG, "Updating Clock seconds with value: %d", clamped_value);
+    ESP_LOGD(TAG, "Updating Clock seconds with value: %d", clamped_value);
     clock_seconds = clamped_value;
 }

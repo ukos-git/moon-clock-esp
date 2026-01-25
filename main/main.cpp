@@ -10,7 +10,6 @@
 
 #include "actions.h"
 #include "ui.h"
-#include "vars.h"
 
 #include "clock.h"
 #include "wifi.h"
@@ -24,10 +23,7 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     ui_tick();
 }
 
-static void lvgl_seconds_timer_cb(lv_timer_t *timer) {
-    int32_t current_seconds = get_var_clock_seconds();
-    set_var_clock_seconds(current_seconds + 1);
-}
+static void seconds_increment_timer_cb(lv_timer_t *timer) { action_increment_clock_seconds(NULL); }
 
 extern "C" void app_main(void) {
 
@@ -72,23 +68,41 @@ extern "C" void app_main(void) {
     // Cast action functions to callback type (they accept NULL as lv_event_t*)
     clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);
     clock_register_alarm_update_callback((clock_update_cb_t)action_update_alarm_display);
+    clock_register_alarm_trigger_callback((clock_update_cb_t)action_switch_to_alarm_screen);
 
-    // Update display now that UI objects are created and callbacks registered
     clock_trigger_time_update();
+    clock_trigger_alarm_update();
+
+    // Register idle timer callbacks for screen switching
+    // Cast action functions to callback type (they accept NULL as lv_event_t*)
+    clock_register_idle_timeout_callback((clock_update_cb_t)action_switch_to_deep_sleep_screen);
+    clock_register_idle_wake_callback((clock_update_cb_t)action_switch_to_main_screen);
+
+    // Initialize idle timer system
+    ret = clock_idle_init();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Idle timer initialized");
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize idle timer: %s", esp_err_to_name(ret));
+    }
 
     bsp_display_unlock();
 
     // Create timer for UI updates (10ms)
     lv_timer_create(ui_tick_timer_cb, 10, NULL);
 
-    // Create simple LVGL seconds counter (1 second interval)
-    lv_timer_create(lvgl_seconds_timer_cb, 1000, NULL);
+    // Create seconds increment timer (1 second interval)
+    lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
 
     // Create polling timer for RTC interrupt handling - debug interval
     // This checks for RTC interrupts and handles timer restarts
     lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS, NULL);
 
+    // Create idle timer check (configured via Kconfig)
+    lv_timer_create(clock_idle_check_cb, CONFIG_CLOCK_IDLE_CHECK_INTERVAL_MS, NULL);
+
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
+    ESP_LOGI(TAG, "Idle timeout: %d seconds", CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
 
     ESP_LOGI(TAG, "Application started - RTC interrupts with polling backup");
 }

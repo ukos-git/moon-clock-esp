@@ -47,4 +47,20 @@ menu "Clock Component Configuration"
         help
             Maximum time to wait for NTP synchronization.
 
+    config CLOCK_IDLE_TIMEOUT_SEC
+        int "Idle timeout in seconds"
+        default 10
+        range 10 300
+        help
+            Time in seconds of no user interaction before switching to deep sleep screen.
+            The timer resets on any touch/display interaction.
+
+    config CLOCK_IDLE_CHECK_INTERVAL_MS
+        int "Idle check interval (milliseconds)"
+        default 1000
+        range 500 5000
+        help
+            How often to check for idle timeout (in milliseconds).
+            Lower values provide more precise timing but use more CPU.
+
 endmenu

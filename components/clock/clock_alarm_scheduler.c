@@ -16,6 +16,8 @@ static const char *ALARM_FILE_PATH = "/spiffs/alarm.txt";
 
 static alarm_rule_t s_alarm_rules[MAX_ALARM_RULES];
 static int s_alarm_count = 0;
+static clock_time_t s_next_alarm = {0}; // Cache of next scheduled alarm
+static bool s_alarm_scheduled = false;  // Whether an alarm is currently scheduled
 
 // Day of week calculation (Zeller's congruence for Gregorian calendar)
 static int get_day_of_week(int year, int month, int day) {
@@ -359,6 +361,10 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
     ESP_LOGI(TAG, "Next alarm scheduled for: %04d-%02d-%02d %02d:%02d", next_alarm.year, next_alarm.month,
              next_alarm.day, next_alarm.hour, next_alarm.minute);
 
+    // Cache the next alarm time before setting it
+    s_next_alarm = next_alarm;
+    s_alarm_scheduled = true;
+
     // Set the alarm in the RTC
     esp_err_t ret = clock_set_alarm(&next_alarm);
     if (ret != ESP_OK) {
@@ -380,3 +386,16 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
 }
 
 int clock_alarm_get_rule_count(void) { return s_alarm_count; }
+
+esp_err_t clock_alarm_get_next_scheduled(clock_time_t *time) {
+    if (!time) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!s_alarm_scheduled) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    *time = s_next_alarm;
+    return ESP_OK;
+}

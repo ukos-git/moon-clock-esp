@@ -49,6 +49,16 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time);
  */
 int clock_alarm_get_rule_count(void);
 
+/**
+ * @brief Get the next scheduled alarm time
+ *
+ * Returns the cached next alarm time that was scheduled.
+ *
+ * @param time Pointer to store the next alarm time
+ * @return esp_err_t ESP_OK on success, ESP_ERR_NOT_FOUND if no alarm scheduled
+ */
+esp_err_t clock_alarm_get_next_scheduled(clock_time_t *time);
+
 #ifdef __cplusplus
 }
 #endif

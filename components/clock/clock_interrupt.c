@@ -6,6 +6,7 @@
 
 #include "clock.h"
 #include "clock_alarm_scheduler.h"
+#include "clock_cb.h"
 #include "clock_interrupt.h"
 #include "clock_timer.h"
 #include "pcf85063a.h"
@@ -25,16 +26,14 @@ extern bool s_initialized;
  *
  * This function checks for pending RTC interrupts and processes them appropriately.
  * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
+ * Callbacks are invoked directly for both timer and alarm interrupts.
  *
- * @param[out] display_update_needed Set to true if display should be updated
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t clock_handle_interrupts(bool *display_update_needed) {
-    if (!display_update_needed || !s_initialized) {
+esp_err_t clock_handle_interrupts(void) {
+    if (!s_initialized) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    *display_update_needed = false;
 
     // Check if there's a pending interrupt on EXIO 3
     bool interrupt_pending = clock_is_interrupt_pending();
@@ -58,7 +57,7 @@ esp_err_t clock_handle_interrupts(bool *display_update_needed) {
 
         if (process_ret == ESP_OK && is_minute_tick) {
             ESP_LOGD(TAG, "Minute tick processed");
-            *display_update_needed = true;
+            clock_trigger_time_update();
         } else if (process_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
             // Fallback: clear timer flag manually
@@ -69,7 +68,9 @@ esp_err_t clock_handle_interrupts(bool *display_update_needed) {
     // Handle alarm interrupts separately
     if (ints & CLOCK_INT_ALARM) {
         ESP_LOGI(TAG, "Alarm interrupt triggered!");
-        *display_update_needed = true;
+
+        // Trigger alarm trigger callback (e.g. show alarm screen)
+        clock_trigger_alarm_triggered();
 
         // Clear alarm flag
         esp_err_t clear_ret = clock_clear_interrupts(CLOCK_INT_ALARM);

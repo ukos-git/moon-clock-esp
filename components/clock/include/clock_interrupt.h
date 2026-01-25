@@ -21,12 +21,12 @@ typedef enum {
  *
  * This function checks for pending RTC interrupts and processes them appropriately.
  * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
+ * Callbacks are invoked directly for both timer and alarm interrupts.
  * Should be called from a polling timer or interrupt handler.
  *
- * @param[out] display_update_needed Set to true if display should be updated
  * @return ESP_OK on success
  */
-esp_err_t clock_handle_interrupts(bool *display_update_needed);
+esp_err_t clock_handle_interrupts(void);
 
 /**
  * @brief Get pending interrupts
