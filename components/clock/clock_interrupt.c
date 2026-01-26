@@ -16,6 +16,10 @@ static const char *TAG = "clock_interrupt";
 // EXIO 3 pin definition (IO expander pin for RTC interrupt)
 #define EXIO_RTC_INT_PIN IO_EXPANDER_PIN_NUM_3
 
+// Polling interval for interrupt detection (in milliseconds)
+// This is used to calculate the countdown timer expiration threshold
+static uint32_t s_rtc_poll_interval_ms = 1300; // Default value
+
 // External references from clock.c
 extern pcf85063a_dev_t s_rtc_dev;
 extern esp_io_expander_handle_t s_io_expander;
@@ -50,6 +54,62 @@ esp_err_t clock_handle_interrupts(void) {
 
     ESP_LOGD(TAG, "RTC interrupt detected, ints=0x%x", ints);
 
+    // IMPORTANT: Check countdown timer BEFORE processing minute interrupt
+    // Both share the TF flag, but minute interrupt processing clears it
+    // We need to read timer value while TF is still set
+    if (ints & CLOCK_INT_COUNTDOWN) {
+        // Read timer value to determine if countdown expired (value will be 0)
+        uint8_t timer_val = 0;
+        esp_err_t timer_read_ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_TIMER_VAL, &timer_val, 1);
+
+        if (timer_read_ret == ESP_OK && clock_timer_is_active()) {
+            // Get the initial timer value and calculate dynamic threshold
+            uint8_t initial_value = clock_timer_get_value();
+
+            // Calculate how many timer ticks we might miss during one polling interval
+            // For 1Hz timer: missed_ticks = (poll_interval_ms / 1000) + 1 for safety margin
+            uint32_t missed_ticks = (s_rtc_poll_interval_ms / 1000) + 2; // +2 for safety
+
+            // Threshold: if value is within missed_ticks of initial value, timer just expired and reloaded
+            uint8_t reload_threshold = (initial_value > missed_ticks) ? (initial_value - missed_ticks) : 0;
+
+            ESP_LOGD(TAG, "Countdown timer check: value=%d, initial=%d, threshold=%d (poll_ms=%lu)", timer_val,
+                     initial_value, reload_threshold, s_rtc_poll_interval_ms);
+
+            // The PCF85063A timer auto-reloads when it reaches 0 if TE is set
+            // We detect expiration by checking if:
+            // 1. Value is 0 or 1 (caught exactly at expiration), OR
+            // 2. Value is >= reload_threshold (means it just expired and reloaded)
+            //    Our polling interval often misses the exact 0, so we see the reload
+            if (timer_val == 0 || timer_val == 1 || timer_val >= reload_threshold) {
+                // Countdown timer has expired (either at 0 or just reloaded)
+                ESP_LOGI(TAG, "Countdown timer expired (value=%d, %s) - triggering deep sleep transition", timer_val,
+                         (timer_val >= reload_threshold) ? "detected reload" : "caught at zero");
+
+                // CRITICAL: Disable the timer first to prevent further restarts
+                // The timer auto-restarts when TF is cleared if TE is still set
+                esp_err_t disable_ret = clock_timer_disable();
+                if (disable_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to disable countdown timer: %s", esp_err_to_name(disable_ret));
+                }
+
+                // Trigger countdown timer callback (e.g., transition to deep sleep)
+                clock_trigger_countdown_timer();
+
+                // Clear the TF flag
+                clock_clear_interrupts(CLOCK_INT_COUNTDOWN);
+
+                // Skip minute interrupt processing since we already cleared TF
+                return ESP_OK;
+            } else {
+                // Timer value is in mid-countdown, this TF is from minute interrupt
+                ESP_LOGD(TAG, "Countdown timer still running (value=%d), will process MI", timer_val);
+            }
+        } else if (timer_read_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to read timer value: %s", esp_err_to_name(timer_read_ret));
+        }
+    }
+
     // Handle minute interrupts (MI/HMI)
     if (ints & CLOCK_INT_MINUTE) {
         bool is_minute_tick = false;
@@ -62,19 +122,6 @@ esp_err_t clock_handle_interrupts(void) {
             ESP_LOGE(TAG, "Failed to process minute interrupt: %s", esp_err_to_name(process_ret));
         }
         // Note: clock_minute_process_interrupt() clears TF flag internally
-    }
-
-    // Handle countdown timer interrupts
-    if (ints & CLOCK_INT_COUNTDOWN) {
-        // Only handle if minute interrupt wasn't already processed
-        // (both share the TF flag, so if minute was handled, TF is already cleared)
-        if (!(ints & CLOCK_INT_MINUTE)) {
-            ESP_LOGI(TAG, "Countdown timer interrupt detected");
-            // Process countdown timer with clock_timer module if needed
-            clock_clear_interrupts(CLOCK_INT_COUNTDOWN);
-        } else {
-            ESP_LOGD(TAG, "Countdown timer flag detected but minute interrupt already cleared TF");
-        }
     }
 
     // Handle alarm interrupts separately
@@ -270,4 +317,9 @@ bool clock_is_interrupt_pending(void) {
     }
 
     return false;
+}
+
+void clock_set_poll_interval_ms(uint32_t interval_ms) {
+    s_rtc_poll_interval_ms = interval_ms;
+    ESP_LOGI(TAG, "RTC polling interval set to %lu ms", interval_ms);
 }

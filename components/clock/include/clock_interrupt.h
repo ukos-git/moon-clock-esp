@@ -52,6 +52,16 @@ esp_err_t clock_clear_interrupts(clock_interrupt_t flags);
  */
 bool clock_is_interrupt_pending(void);
 
+/**
+ * @brief Set the polling interval for RTC interrupt detection
+ *
+ * This is used to calculate the countdown timer expiration threshold.
+ * Should be called before starting countdown timers.
+ *
+ * @param interval_ms Polling interval in milliseconds
+ */
+void clock_set_poll_interval_ms(uint32_t interval_ms);
+
 #ifdef __cplusplus
 }
 #endif

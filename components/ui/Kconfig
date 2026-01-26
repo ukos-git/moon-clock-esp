@@ -1,0 +1,23 @@
+menu "UI Component Configuration"
+
+    config UI_DEEP_SLEEP_COUNTDOWN_SEC
+        int "Deep sleep countdown duration (seconds)"
+        default 30
+        range 10 300
+        help
+            Duration in seconds for countdown timer from light sleep to deep sleep.
+            This timer starts when the system enters light sleep and triggers
+            transition to deep sleep when it expires.
+
+            Recommended: 30-60 seconds for battery-powered devices.
+
+    config UI_LIGHT_SLEEP_TICK_MS
+        int "LVGL tick period in light sleep (milliseconds)"
+        default 100
+        range 50 1000
+        help
+            LVGL timer tick period when in light sleep mode.
+            Slower tick reduces CPU usage and power consumption.
+            Default is 100ms (vs 10ms in active mode).
+
+endmenu

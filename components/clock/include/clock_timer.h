@@ -8,6 +8,16 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
+// Timer frequency constants (maps to TCF[1:0] bits in Timer Mode register)
+#define CLOCK_TIMER_FREQ_4096HZ (0x00) // 4.096 kHz timer source
+#define CLOCK_TIMER_FREQ_64HZ (0x08)   // 64 Hz timer source
+#define CLOCK_TIMER_FREQ_1HZ (0x10)    // 1 Hz timer source (most common)
+#define CLOCK_TIMER_FREQ_1_60HZ (0x18) // 1/60 Hz timer source
+
+// Timer mode flags
+#define CLOCK_TIMER_MODE_ENABLE_INT (0x02) // Enable timer interrupt (TIE bit)
+#define CLOCK_TIMER_MODE_PULSE (0x01)      // Pulse mode vs level mode (TI_TP bit)
+
 /**
  * @brief Enable/disable countdown timer with specified configuration
  *
@@ -16,15 +26,15 @@ extern "C" {
  * Pass 0 for timer_seconds to disable the timer.
  *
  * Common timer_mode configurations:
- * - PCF85063A_RTC_TIMER_TCF_4096HZ: 4.096 kHz timer source
- * - PCF85063A_RTC_TIMER_TCF_64HZ: 64 Hz timer source
- * - PCF85063A_RTC_TIMER_TCF_1HZ: 1 Hz timer source (most common)
- * - PCF85063A_RTC_TIMER_TCF_1_60HZ: 1/60 Hz timer source
+ * - CLOCK_TIMER_FREQ_4096HZ: 4.096 kHz timer source
+ * - CLOCK_TIMER_FREQ_64HZ: 64 Hz timer source
+ * - CLOCK_TIMER_FREQ_1HZ: 1 Hz timer source (most common)
+ * - CLOCK_TIMER_FREQ_1_60HZ: 1/60 Hz timer source
  * Combine with:
- * - PCF85063A_RTC_TIMER_MODE_TIE: Enable timer interrupt
- * - PCF85063A_RTC_TIMER_MODE_TI_TP: Pulse mode (vs level mode)
+ * - CLOCK_TIMER_MODE_ENABLE_INT: Enable timer interrupt
+ * - CLOCK_TIMER_MODE_PULSE: Pulse mode (vs level mode)
  *
- * Example: timer_mode = PCF85063A_RTC_TIMER_TCF_1HZ | PCF85063A_RTC_TIMER_MODE_TIE
+ * Example: timer_mode = CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT
  *
  * @param timer_seconds Timer duration in seconds (0 to disable, 1-255 to enable)
  * @param timer_mode Timer configuration (clock frequency + interrupt settings)
@@ -40,6 +50,20 @@ esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode);
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_timer_disable(void);
+
+/**
+ * @brief Check if countdown timer is currently active
+ *
+ * @return true if timer is enabled and running
+ */
+bool clock_timer_is_active(void);
+
+/**
+ * @brief Get the initial countdown timer value
+ *
+ * @return Initial timer value that was set, or 0 if timer is not active
+ */
+uint8_t clock_timer_get_value(void);
 
 /**
  * @brief Process timer interrupt

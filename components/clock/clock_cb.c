@@ -14,6 +14,7 @@ static const char *TAG = "clock_cb";
 static clock_update_cb_t s_time_update_callback = NULL;
 static clock_update_cb_t s_alarm_update_callback = NULL;
 static clock_update_cb_t s_alarm_trigger_callback = NULL;
+static clock_update_cb_t s_countdown_timer_callback = NULL;
 static clock_update_cb_t s_idle_timeout_callback = NULL;
 static clock_update_cb_t s_idle_wake_callback = NULL;
 
@@ -30,6 +31,11 @@ void clock_register_alarm_update_callback(clock_update_cb_t callback) {
 void clock_register_alarm_trigger_callback(clock_update_cb_t callback) {
     s_alarm_trigger_callback = callback;
     ESP_LOGI(TAG, "Alarm trigger callback registered");
+}
+
+void clock_register_countdown_timer_callback(clock_update_cb_t callback) {
+    s_countdown_timer_callback = callback;
+    ESP_LOGI(TAG, "Countdown timer callback registered");
 }
 
 void clock_register_idle_timeout_callback(clock_update_cb_t callback) {
@@ -65,6 +71,15 @@ void clock_trigger_alarm_triggered(void) {
         ESP_LOGW(TAG, "Alarm triggered but no callback registered.");
     }
 }
+
+void clock_trigger_countdown_timer(void) {
+    if (s_countdown_timer_callback) {
+        s_countdown_timer_callback(NULL);
+    } else {
+        ESP_LOGW(TAG, "Countdown timer expired but no callback registered.");
+    }
+}
+
 void clock_trigger_idle_timeout(void) {
     if (s_idle_timeout_callback) {
         s_idle_timeout_callback(NULL);

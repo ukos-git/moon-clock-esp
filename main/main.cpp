@@ -47,6 +47,9 @@ extern "C" void app_main(void) {
     } else {
         ESP_LOGI(TAG, "Clock component initialized successfully");
 
+        // Set polling interval for countdown timer expiration detection
+        clock_set_poll_interval_ms(RTC_POLL_INTERVAL_MS);
+
         // Enable minute interrupt for automatic time updates
         ret = clock_minute_enable_interrupt(CLOCK_MINUTE_INT_FULL);
         if (ret == ESP_OK) {
@@ -64,32 +67,43 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
+    // Create UI tick timer (10ms) and save reference for dynamic adjustment
+    lv_timer_t *ui_tick_timer = lv_timer_create(ui_tick_timer_cb, 10, NULL);
+
+    // Pass timer reference to actions for sleep state management
+    action_set_ui_tick_timer(ui_tick_timer);
+
     // Register clock component callbacks for UI updates
     // Cast action functions to callback type (they accept NULL as lv_event_t*)
     clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);
     clock_register_alarm_update_callback((clock_update_cb_t)action_update_alarm_display);
-    clock_register_alarm_trigger_callback((clock_update_cb_t)action_switch_to_alarm_screen);
+    clock_register_alarm_trigger_callback((clock_update_cb_t)action_alarm_triggered);
 
     clock_trigger_time_update();
     clock_trigger_alarm_update();
 
     // Register idle timer callbacks for screen switching
-    // Cast action functions to callback type (they accept NULL as lv_event_t*)
-    clock_register_idle_timeout_callback((clock_update_cb_t)action_switch_to_deep_sleep_screen);
+    // Idle timeout goes to LIGHT SLEEP (not deep sleep directly)
+    clock_register_idle_timeout_callback((clock_update_cb_t)action_switch_to_light_sleep_screen);
     clock_register_idle_wake_callback((clock_update_cb_t)action_switch_to_main_screen);
 
-    // Initialize idle timer system
+    // Register countdown timer callback for transition from light sleep to deep sleep
+    clock_register_countdown_timer_callback((clock_update_cb_t)action_switch_to_deep_sleep_screen);
+
+    // Initialize idle timer system (sets up infrastructure, but doesn't start the timer yet)
     ret = clock_idle_init();
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Idle timer initialized");
+        ESP_LOGI(TAG, "Idle timer system initialized");
     } else {
         ESP_LOGE(TAG, "Failed to initialize idle timer: %s", esp_err_to_name(ret));
     }
 
     bsp_display_unlock();
 
-    // Create timer for UI updates (10ms)
-    lv_timer_create(ui_tick_timer_cb, 10, NULL);
+    // Now that UI is initialized and on main screen, explicitly start the idle timer
+    // This also sets the g_idle_timer_active flag in actions.c
+    action_switch_to_main_screen(NULL);
+    ESP_LOGI(TAG, "Main screen loaded with idle timer active");
 
     // Create seconds increment timer (1 second interval)
     lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
@@ -102,7 +116,10 @@ extern "C" void app_main(void) {
     lv_timer_create(clock_idle_check_cb, CONFIG_CLOCK_IDLE_CHECK_INTERVAL_MS, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
-    ESP_LOGI(TAG, "Idle timeout: %d seconds", CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
+    ESP_LOGI(TAG, "Sleep transitions: MAIN -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");
+    ESP_LOGI(TAG, "Idle timeout: %d seconds (configurable via Kconfig)", CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
+    ESP_LOGI(TAG, "LVGL timings: MAIN=10ms, LIGHT_SLEEP=configurable, DEEP_SLEEP=paused");
+    ESP_LOGI(TAG, "Alarm screen: Active state with no automatic sleep transitions");
 
     ESP_LOGI(TAG, "Application started - RTC interrupts with polling backup");
 }

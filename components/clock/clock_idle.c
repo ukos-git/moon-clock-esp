@@ -10,6 +10,7 @@ static const char *TAG = "clock_idle";
 // Idle state
 static uint64_t s_last_activity_time_ms = 0;
 static bool s_is_in_idle_mode = false;
+static bool s_idle_monitoring_enabled = true;
 
 // Configuration from Kconfig
 #define IDLE_TIMEOUT_MS (CONFIG_CLOCK_IDLE_TIMEOUT_SEC * 1000ULL)
@@ -64,6 +65,11 @@ void clock_idle_reset_timer(void) {
 }
 
 void clock_idle_check_cb(lv_timer_t *timer) {
+    // Don't check if idle monitoring is disabled (e.g., on alarm screen)
+    if (!s_idle_monitoring_enabled) {
+        return;
+    }
+
     // Don't check if already in idle mode
     if (s_is_in_idle_mode) {
         return;
@@ -84,3 +90,14 @@ void clock_idle_check_cb(lv_timer_t *timer) {
 }
 
 bool clock_is_idle(void) { return s_is_in_idle_mode; }
+
+void clock_idle_set_enabled(bool enabled) {
+    s_idle_monitoring_enabled = enabled;
+    if (enabled) {
+        ESP_LOGI(TAG, "Idle monitoring enabled");
+        // Reset timer when re-enabling
+        s_last_activity_time_ms = esp_timer_get_time() / 1000;
+    } else {
+        ESP_LOGI(TAG, "Idle monitoring disabled");
+    }
+}

@@ -50,6 +50,18 @@ void clock_register_alarm_trigger_callback(clock_update_cb_t callback);
 void clock_trigger_alarm_triggered(void);
 
 /**
+ * @brief Register callback for countdown timer expiration
+ *
+ * @param callback Function to call when countdown timer expires (called with NULL)
+ */
+void clock_register_countdown_timer_callback(clock_update_cb_t callback);
+
+/**
+ * @brief Trigger countdown timer callback (called when countdown timer expires)
+ */
+void clock_trigger_countdown_timer(void);
+
+/**
  * @brief Register callback for idle timeout
  *
  * @param callback Function to call when idle timeout occurs (called with NULL)

@@ -47,6 +47,16 @@ void clock_idle_check_cb(lv_timer_t *timer);
  */
 bool clock_is_idle(void);
 
+/**
+ * @brief Enable or disable idle monitoring
+ *
+ * When disabled, idle timeout will not trigger. Useful for screens
+ * that should remain active indefinitely (e.g., alarm screen).
+ *
+ * @param enabled true to enable idle monitoring, false to disable
+ */
+void clock_idle_set_enabled(bool enabled);
+
 #ifdef __cplusplus
 }
 #endif
