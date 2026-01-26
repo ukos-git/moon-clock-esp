@@ -18,11 +18,6 @@
 
 static const char *TAG = "main";
 
-static void ui_tick_timer_cb(lv_timer_t *timer) {
-    ESP_LOGD(TAG, "ui_tick_timer_cb called");
-    ui_tick();
-}
-
 static void seconds_increment_timer_cb(lv_timer_t *timer) { action_increment_clock_seconds(NULL); }
 
 extern "C" void app_main(void) {
@@ -66,12 +61,6 @@ extern "C" void app_main(void) {
 
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
-
-    // Create UI tick timer (10ms) and save reference for dynamic adjustment
-    lv_timer_t *ui_tick_timer = lv_timer_create(ui_tick_timer_cb, 10, NULL);
-
-    // Pass timer reference to actions for sleep state management
-    action_set_ui_tick_timer(ui_tick_timer);
 
     // Register clock component callbacks for UI updates
     // Cast action functions to callback type (they accept NULL as lv_event_t*)

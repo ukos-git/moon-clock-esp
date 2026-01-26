@@ -14,6 +14,9 @@
 
 static const char *TAG = "ui_actions";
 
+// Callback for UI tick timer
+static void ui_tick_timer_cb(lv_timer_t *timer) { ui_tick(); }
+
 // Global reference to UI tick timer for dynamic adjustment
 static lv_timer_t *g_ui_tick_timer = NULL;
 
@@ -49,6 +52,9 @@ void action_update_clock_display(lv_event_t *e) {
         set_var_clock_label("--:--");
         set_var_clock_seconds(0);
     }
+
+    // Trigger UI update immediately to reflect the change
+    ui_tick();
 }
 
 /**
@@ -77,14 +83,6 @@ void action_update_alarm_display(lv_event_t *e) {
 void action_increment_clock_seconds(lv_event_t *e) {
     int32_t current_seconds = get_var_clock_seconds();
     set_var_clock_seconds(current_seconds + 1);
-}
-
-/**
- * @brief Set UI tick timer reference (called from main during initialization)
- */
-void action_set_ui_tick_timer(lv_timer_t *timer) {
-    g_ui_tick_timer = timer;
-    ESP_LOGI(TAG, "UI tick timer reference set");
 }
 
 /**
@@ -158,8 +156,12 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to main screen");
 
-    // Resume normal UI tick timing
-    if (g_ui_tick_timer) {
+    // Create UI tick timer if it doesn't exist yet (first call)
+    if (!g_ui_tick_timer) {
+        g_ui_tick_timer = lv_timer_create(ui_tick_timer_cb, 10, NULL);
+        ESP_LOGI(TAG, "UI tick timer created at 10ms");
+    } else {
+        // Resume normal UI tick timing
         lv_timer_resume(g_ui_tick_timer);
         lv_timer_set_period(g_ui_tick_timer, 10);
         ESP_LOGI(TAG, "UI tick timer resumed at 10ms");
