@@ -1,0 +1,10 @@
+# Prevent GitHub Copilot from reading sensitive WiFi credentials
+spiffs/wifi_credentials.txt
+
+# Ignore build artifacts
+build/
+managed_components/
+
+# Ignore generated configuration files
+sdkconfig
+sdkconfig.old
