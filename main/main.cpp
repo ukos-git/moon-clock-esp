@@ -18,23 +18,21 @@
 
 static const char *TAG = "main";
 
-static void seconds_increment_timer_cb(lv_timer_t *timer) { action_increment_clock_seconds(NULL); }
-
 extern "C" void app_main(void) {
 
-    // Initialize WiFi first for NTP synchronization
+    // Initialize WiFi first
     ESP_LOGI(TAG, "Initializing WiFi...");
     esp_err_t wifi_ret = wifi_manager_init();
-    if (wifi_ret == ESP_OK) {
-        ESP_LOGI(TAG, "WiFi initialized and connected successfully");
+    bool wifi_available = (wifi_ret == ESP_OK);
+
+    if (wifi_available) {
+        ESP_LOGI(TAG, "WiFi connected successfully");
     } else {
         ESP_LOGW(TAG, "WiFi initialization failed: %s", esp_err_to_name(wifi_ret));
     }
 
-    // Configure and initialize the clock component with NTP support
-    clock_config_t clock_cfg = {
-        .enable_ntp_sync = (wifi_ret == ESP_OK) // Enable NTP only if WiFi is available
-    };
+    // Configure and initialize the clock component with NTP if WiFi available
+    clock_config_t clock_cfg = {.enable_ntp_sync = wifi_available};
 
     esp_err_t ret = clock_init(&clock_cfg);
     if (ret != ESP_OK) {
@@ -89,13 +87,8 @@ extern "C" void app_main(void) {
 
     bsp_display_unlock();
 
-    // Now that UI is initialized and on main screen, explicitly start the idle timer
-    // This also sets the g_idle_timer_active flag in actions.c
+    // Load initial screen - starts with modem screen, upgrades to main if WiFi available
     action_switch_to_main_screen(NULL);
-    ESP_LOGI(TAG, "Main screen loaded with idle timer active");
-
-    // Create seconds increment timer (1 second interval)
-    lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
 
     // Create polling timer for RTC interrupt handling - debug interval
     // This checks for RTC interrupts and handles timer restarts

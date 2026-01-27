@@ -13,6 +13,7 @@ extern void action_update_alarm_display(lv_event_t *e);
 extern void action_alarm_triggered(lv_event_t *e);
 extern void action_switch_to_deep_sleep_screen(lv_event_t *e);
 extern void action_switch_to_main_screen(lv_event_t *e);
+extern void action_switch_to_modem_sleep_screen(lv_event_t *e);
 extern void action_switch_to_alarm_screen(lv_event_t *e);
 extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 

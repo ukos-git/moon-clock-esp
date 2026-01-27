@@ -205,6 +205,14 @@
       "localVariables": [],
       "userProperties": [],
       "name": "switch_to_light_sleep_screen"
+    },
+    {
+      "objID": "91adf7ac-092a-478f-cb44-d399da9fa3ba",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "userProperties": [],
+      "name": "switch_to_modem_sleep_screen"
     }
   ],
   "userPages": [

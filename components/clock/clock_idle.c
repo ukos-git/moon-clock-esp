@@ -28,11 +28,11 @@ static void indev_read_cb(lv_event_t *e) {
         // Update last activity time
         s_last_activity_time_ms = esp_timer_get_time() / 1000;
 
-        // If we were in idle mode, trigger wake callback
+        // Only trigger wake callback if we were in idle mode
+        // (This prevents triggering on every touch when already on main screen)
         if (s_is_in_idle_mode) {
             ESP_LOGI(TAG, "Waking from idle mode");
             s_is_in_idle_mode = false;
-
             clock_trigger_idle_wake();
         }
     }

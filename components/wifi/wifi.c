@@ -23,7 +23,8 @@ static const char *TAG = "WIFI";
 #define MAX_PASSWORD_LEN 64
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
-#define MAX_RETRY 5
+#define MAX_RETRY 2                     // Reduced retries for faster failure detection
+#define WIFI_CONNECTION_TIMEOUT_MS 8000 // 8 second timeout
 
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_num = 0;
@@ -38,23 +39,55 @@ static esp_err_t read_wifi_credentials(char *ssid, char *password) {
         return ESP_FAIL;
     }
 
-    // Read SSID (first line)
-    if (fgets(ssid, MAX_SSID_LEN, f) == NULL) {
-        ESP_LOGE(TAG, "Failed to read SSID from credentials file");
-        fclose(f);
-        return ESP_FAIL;
-    }
-    ssid[strcspn(ssid, "\r\n")] = 0; // Remove newline
+    char line[256]; // Large buffer to read entire lines including long comments
+    bool ssid_found = false;
+    bool password_found = false;
 
-    // Read password (second line)
-    if (fgets(password, MAX_PASSWORD_LEN, f) == NULL) {
-        ESP_LOGE(TAG, "Failed to read password from credentials file");
-        fclose(f);
-        return ESP_FAIL;
+    // Read lines, skipping comments and empty lines
+    while (fgets(line, sizeof(line), f) != NULL) {
+        // Remove newline characters
+        line[strcspn(line, "\r\n")] = 0;
+
+        // Trim leading whitespace
+        char *trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') {
+            trimmed++;
+        }
+
+        // Skip empty lines and comments (lines starting with #)
+        if (*trimmed == '\0' || *trimmed == '#') {
+            continue;
+        }
+
+        // First non-comment line is SSID
+        if (!ssid_found) {
+            strncpy(ssid, trimmed, MAX_SSID_LEN - 1);
+            ssid[MAX_SSID_LEN - 1] = '\0';
+            ssid_found = true;
+            ESP_LOGI(TAG, "Found SSID: %s", ssid);
+            continue;
+        }
+
+        // Second non-comment line is password
+        if (!password_found) {
+            strncpy(password, trimmed, MAX_PASSWORD_LEN - 1);
+            password[MAX_PASSWORD_LEN - 1] = '\0';
+            password_found = true;
+            ESP_LOGI(TAG, "Found password (length: %d)", strlen(password));
+            break;
+        }
     }
-    password[strcspn(password, "\r\n")] = 0; // Remove newline
 
     fclose(f);
+
+    if (!ssid_found || !password_found) {
+        ESP_LOGE(TAG, "Failed to read valid SSID and password from credentials file");
+        ESP_LOGE(TAG, "The file appears to contain only comments or is empty");
+        ESP_LOGE(TAG, "Please add your WiFi SSID on the first non-comment line");
+        ESP_LOGE(TAG, "and your WiFi password on the second non-comment line");
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "Loaded WiFi credentials from %s", WIFI_CREDENTIALS_FILE);
     return ESP_OK;
 }
@@ -69,7 +102,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             s_retry_num++;
             ESP_LOGI(TAG, "Retry connecting to WiFi...");
         } else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            // Check if event group still exists before setting bits
+            if (s_wifi_event_group) {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            }
         }
         wifi_connected = false;
         ESP_LOGI(TAG, "WiFi connection failed");
@@ -78,12 +114,27 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         ESP_LOGI(TAG, "Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         wifi_connected = true;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        // Check if event group still exists before setting bits
+        if (s_wifi_event_group) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        }
     }
 }
 
 esp_err_t wifi_manager_init(void) {
-    // Initialize NVS
+    // If WiFi is already initialized (e.g., reconnecting after deinit), clean up first
+    if (s_wifi_event_group != NULL) {
+        ESP_LOGI(TAG, "WiFi already initialized, reinitializing...");
+
+        // Unregister event handlers first to prevent events during cleanup
+        esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler);
+
+        // Now safe to deinit
+        wifi_manager_deinit();
+    }
+
+    // Initialize NVS (safe to call multiple times)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -91,7 +142,7 @@ esp_err_t wifi_manager_init(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // Mount SPIFFS for WiFi credentials
+    // Mount SPIFFS for WiFi credentials (check if already mounted)
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
         .partition_label = "storage",
@@ -104,12 +155,28 @@ esp_err_t wifi_manager_init(void) {
         ESP_LOGE(TAG, "Please ensure SPIFFS partition exists and is properly configured");
         return ret;
     }
-    ESP_LOGI(TAG, "SPIFFS mounted successfully");
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "SPIFFS mounted successfully");
+    }
 
-    // Initialize network interface
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+    // Initialize network interface (safe to call multiple times)
+    ret = esp_netif_init();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to initialize netif: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Create default event loop if needed (safe to call multiple times)
+    ret = esp_event_loop_create_default();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to create event loop: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Create default WiFi STA interface if not exists
+    if (esp_netif_get_handle_from_ifkey("WIFI_STA_DEF") == NULL) {
+        esp_netif_create_default_wifi_sta();
+    }
 
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -148,7 +215,7 @@ esp_err_t wifi_manager_init(void) {
 
     // Wait for connection (with timeout)
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE,
-                                           pdMS_TO_TICKS(10000));
+                                           pdMS_TO_TICKS(WIFI_CONNECTION_TIMEOUT_MS));
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "Connected to WiFi SSID: %s", ssid);

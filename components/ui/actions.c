@@ -2,6 +2,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl.h"
 
 #include "actions.h"
@@ -14,11 +16,17 @@
 
 static const char *TAG = "ui_actions";
 
+// Callback for seconds increment timer
+static void seconds_increment_timer_cb(lv_timer_t *timer) { action_increment_clock_seconds(NULL); }
+
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) { ui_tick(); }
 
 // Global reference to UI tick timer for dynamic adjustment
 static lv_timer_t *g_ui_tick_timer = NULL;
+
+// Global reference to seconds increment timer
+static lv_timer_t *g_seconds_timer = NULL;
 
 // State tracking
 static bool g_wifi_deinited = false;
@@ -106,12 +114,15 @@ void action_alarm_triggered(lv_event_t *e) {
         ESP_LOGI(TAG, "RTC countdown timer disabled for alarm screen");
     }
 
-    // Disable idle monitoring - alarm screen stays active until user navigates away
-    clock_idle_set_enabled(false);
-    g_idle_timer_active = false;
+    // Keep idle monitoring enabled so touch can trigger wake callback to return to main
+    // But reset the timer so alarm screen won't auto-sleep
+    clock_idle_reset_timer();
+    ESP_LOGI(TAG, "Alarm screen active (touch to dismiss)");
 
     // Switch to alarm screen
     loadScreen(SCREEN_ID_ALARM);
+    ui_tick();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }
 
 /**
@@ -121,12 +132,6 @@ void action_alarm_triggered(lv_event_t *e) {
  */
 void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to deep sleep screen");
-
-    // Disable UI tick timer completely in deep sleep
-    if (g_ui_tick_timer) {
-        lv_timer_pause(g_ui_tick_timer);
-        ESP_LOGI(TAG, "UI tick timer paused for deep sleep");
-    }
 
     // Ensure WiFi is deinitialized
     if (!g_wifi_deinited && wifi_manager_is_connected()) {
@@ -146,12 +151,29 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 
     // Load deep sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_DEEP_SLEEP);
+
+    // Update UI one final time to show current state
+    ui_tick();
+
+    // Now pause UI tick timer for deep sleep
+    if (g_ui_tick_timer) {
+        lv_timer_pause(g_ui_tick_timer);
+        ESP_LOGI(TAG, "UI tick timer paused for deep sleep");
+    }
+
+    // Pause seconds timer for deep sleep
+    if (g_seconds_timer) {
+        lv_timer_pause(g_seconds_timer);
+        ESP_LOGI(TAG, "Seconds timer paused for deep sleep");
+    }
 }
 
 /**
  * @brief Switch to main screen.
  *
- * Called when user interacts after idle timeout or system wakes.
+ * Called when user interacts after idle timeout or from alarm screen.
+ * Attempts WiFi initialization and NTP sync. If successful, loads main screen.
+ * If WiFi fails, falls back to modem sleep screen (non-WiFi mode).
  */
 void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to main screen");
@@ -167,6 +189,15 @@ void action_switch_to_main_screen(lv_event_t *e) {
         ESP_LOGI(TAG, "UI tick timer resumed at 10ms");
     }
 
+    // Create or resume seconds increment timer
+    if (!g_seconds_timer) {
+        g_seconds_timer = lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
+        ESP_LOGI(TAG, "Seconds timer created");
+    } else {
+        lv_timer_resume(g_seconds_timer);
+        ESP_LOGI(TAG, "Seconds timer resumed");
+    }
+
     // Explicitly disable any active RTC countdown timer
     esp_err_t ret = clock_timer_disable();
     if (ret == ESP_OK) {
@@ -180,8 +211,91 @@ void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
 
-    // Load main screen using EEZ Studio function
-    loadScreen(SCREEN_ID_MAIN);
+    // Always start with modem sleep screen first (fast, no WiFi check)
+    // This provides immediate UI responsiveness
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
+    ui_tick();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
+    ESP_LOGI(TAG, "Modem sleep screen loaded (checking WiFi status...)");
+
+    // If WiFi is not connected (either never initialized or was deinitialized), try to connect
+    if (!wifi_manager_is_connected()) {
+        ESP_LOGI(TAG, "WiFi not connected, attempting to %s...", g_wifi_deinited ? "reconnect" : "connect");
+        esp_err_t ret = wifi_manager_init();
+        if (ret == ESP_OK) {
+            g_wifi_deinited = false;
+            ESP_LOGI(TAG, "WiFi connected successfully");
+        } else {
+            ESP_LOGW(TAG, "WiFi connection failed: %s", esp_err_to_name(ret));
+            g_wifi_deinited = true;
+        }
+    }
+
+    // Check if WiFi is available and upgrade to main screen if so
+    if (wifi_manager_is_connected()) {
+        g_wifi_deinited = false;
+        loadScreen(SCREEN_ID_MAIN);
+        ui_tick();
+        vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
+        ESP_LOGI(TAG, "Upgraded to main screen (WiFi active)");
+    } else {
+        g_wifi_deinited = true;
+        ESP_LOGI(TAG, "Staying on modem sleep screen (WiFi not connected)");
+    }
+}
+
+/**
+ * @brief Switch to modem sleep screen (non-WiFi mode).
+ *
+ * Simple clock display without WiFi. Used when WiFi is not available or needed.
+ * Behaves like main screen but without network connectivity.
+ */
+void action_switch_to_modem_sleep_screen(lv_event_t *e) {
+    ESP_LOGI(TAG, "Switching to modem sleep screen (non-WiFi mode)");
+
+    // Deinitialize WiFi if it's running
+    if (!g_wifi_deinited && wifi_manager_is_connected()) {
+        wifi_manager_deinit();
+        g_wifi_deinited = true;
+        ESP_LOGI(TAG, "WiFi deinitialized for modem sleep");
+    }
+
+    // Create UI tick timer if it doesn't exist yet
+    if (!g_ui_tick_timer) {
+        g_ui_tick_timer = lv_timer_create(ui_tick_timer_cb, 10, NULL);
+        ESP_LOGI(TAG, "UI tick timer created at 10ms");
+    } else {
+        lv_timer_resume(g_ui_tick_timer);
+        lv_timer_set_period(g_ui_tick_timer, 10);
+        ESP_LOGI(TAG, "UI tick timer resumed at 10ms");
+    }
+
+    // Create or resume seconds increment timer
+    if (!g_seconds_timer) {
+        g_seconds_timer = lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
+        ESP_LOGI(TAG, "Seconds timer created");
+    } else {
+        lv_timer_resume(g_seconds_timer);
+        ESP_LOGI(TAG, "Seconds timer resumed");
+    }
+
+    // Disable any active RTC countdown timer
+    esp_err_t ret = clock_timer_disable();
+    if (ret == ESP_OK) {
+        ESP_LOGD(TAG, "RTC countdown timer disabled");
+    }
+
+    // Enable idle monitoring for automatic sleep transitions
+    clock_idle_set_enabled(true);
+    clock_idle_reset_timer();
+    g_idle_timer_active = true;
+    ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
+             CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
+
+    // Load modem sleep screen
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
+    ui_tick();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }
 
 /**
@@ -206,6 +320,12 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
         ESP_LOGI(TAG, "UI tick timer slowed to %dms for light sleep", CONFIG_UI_LIGHT_SLEEP_TICK_MS);
     }
 
+    // Pause seconds timer for light sleep
+    if (g_seconds_timer) {
+        lv_timer_pause(g_seconds_timer);
+        ESP_LOGI(TAG, "Seconds timer paused for light sleep");
+    }
+
     // Disable idle monitoring (we're in sleep state, use countdown timer instead)
     clock_idle_set_enabled(false);
     g_idle_timer_active = false;
@@ -223,6 +343,8 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
+    ui_tick();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }
 
 /**
@@ -246,10 +368,12 @@ void action_switch_to_alarm_screen(lv_event_t *e) {
         ESP_LOGD(TAG, "RTC countdown timer disabled for alarm screen");
     }
 
-    // Disable idle monitoring - alarm screen stays active until user returns to main
-    clock_idle_set_enabled(false);
-    g_idle_timer_active = false;
+    // Keep idle monitoring enabled so touch returns to main screen
+    // Reset timer to prevent auto-sleep while viewing alarm
+    clock_idle_reset_timer();
 
     // Load alarm screen using EEZ Studio function
     loadScreen(SCREEN_ID_ALARM);
+    ui_tick();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }
