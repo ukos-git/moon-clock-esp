@@ -31,6 +31,7 @@ static lv_timer_t *g_seconds_timer = NULL;
 // State tracking
 static bool g_wifi_deinited = false;
 static bool g_idle_timer_active = false;
+static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
 
 // Configuration with fallback defaults if Kconfig not available
 #ifndef CONFIG_UI_LIGHT_SLEEP_TICK_MS
@@ -100,6 +101,9 @@ void action_increment_clock_seconds(lv_event_t *e) {
  */
 void action_alarm_triggered(lv_event_t *e) {
     ESP_LOGI(TAG, "Alarm triggered!");
+
+    // Mark alarm as active so wake callback knows we're dismissing alarm
+    g_alarm_active = true;
 
     // Restore active LVGL tick timing (alarm screen is an active state)
     if (g_ui_tick_timer) {
@@ -177,6 +181,17 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
  */
 void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to main screen");
+
+    // If we're dismissing an alarm and WiFi was off, return to modem sleep instead
+    if (g_alarm_active && g_wifi_deinited) {
+        ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to modem sleep screen");
+        g_alarm_active = false;
+        action_switch_to_modem_sleep_screen(e);
+        return;
+    }
+
+    // Clear alarm flag if set
+    g_alarm_active = false;
 
     // Create UI tick timer if it doesn't exist yet (first call)
     if (!g_ui_tick_timer) {
@@ -354,6 +369,9 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
  */
 void action_switch_to_alarm_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to alarm screen");
+
+    // Mark alarm as active for proper wake callback handling
+    g_alarm_active = true;
 
     // Ensure normal UI operation when viewing alarm (alarm screen is an active state)
     if (g_ui_tick_timer) {
