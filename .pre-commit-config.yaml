@@ -17,9 +17,8 @@ repos:
     rev: v0.21.0
     hooks:
       - id: yamlfmt
-  - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.15.0
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
     hooks:
-      - id: markdownlint
-        language_version: 3.2.6
-        args: [--rules, ~MD013]
+      - id: prettier
+        types: [markdown]

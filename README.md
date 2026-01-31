@@ -150,29 +150,57 @@ This board supports a **traditional alarm-clock style architecture**.
 
 GPIO Pins from the
 [Data Sheet](https://files.waveshare.com/wiki/RP2350-Touch-AMOLED-2.41/RP2350-Touch-AMOLED-2.41.pdf):
-| GPIO | LCD | UART | RTC | SD_Card | IMU | BAT | Other |
-|--------|------------|------|---------|---------|-----------|-------------|---------|
-| GPIO0 | | TXD | | | | | TXD | | GPIO1 | | RXD | | | | | RXD | | GPIO2 | | | |
-| | | GPIO2 | | GPIO3 | | | | | IMU INT2 | | | | GPIO4 | TP INT | | | | | | | |
-GPIO5 | TP RESET | | | | | | | | GPIO6 | TP SDA | | RTC SDA | | IMU SDA | | SDA
-| | GPIO7 | TP SCL | | RTC SCL | | IMU SCL | | SCL | | GPIO8 | | | RTC INT | |
-IMU INT1 | | | | GPIO9 | OLED CS | | | | | | | | GPIO10 | OLED CLK | | | | | |
-| | GPIO11 | OLED SIO0 | | | | | | | | GPIO12 | OLED SI1 | | | | | | | | GPIO13
-| OLED SI2 | | | | | | | | GPIO14 | OLED SI3 | | | | | | | | GPIO15 | OLED
-RESET | | | | | | | | GPIO16 | OLED TE | | | | | | | | GPIO17 | PWR EN | | | |
-| | | | GPIO18 | | | | SD SCLK | | | | | GPIO19 | | | | SD MOSI | | | | |
-GPIO20 | | | | SD MISO | | | | | GPIO21 | | | | SDIO D1 | | | | | GPIO22 | | |
-| SDIO D2 | | | | | GPIO23 | | | | SD CS | | | | | GPIO24 | | | | | | KEY BAT |
-| | GPIO25 | | | | | | BAT Control | | | GPIO26 | | | | | | | GPIO26 | | GPIO27
-| | | | | | | GPIO27 | | GPIO28 | | | | | | | GPIO28 | | GPIO29 | | | | | | |
-GPIO29 | | GPIO30 | | | | | | | GPIO30 | | GPIO31 | | | | | | | GPIO31 | |
-GPIO32 | | | | | | | GPIO32 | | GPIO33 | | | | | | | GPIO33 | | GPIO34 | | | |
-| | | GPIO34 | | GPIO35 | | | | | | | GPIO35 | | GPIO36 | | | | | | | GPIO36 |
-| GPIO37 | | | | | | | GPIO37 | | GPIO38 | | | | | | | GPIO38 | | GPIO39 | | |
-| | | | GPIO39 | | GPIO40 | | | | | | BAT ADC | | | GPIO41 | | | | | | | GPIO41
-| | GPIO42 | | | | | | | GPIO42 | | GPIO43 | | | | | | | GPIO43 | | GPIO44 | |
-| | | | | GPIO44 | | GPIO45 | | | | | | | GPIO45 | | GPIO46 | | | | | | |
-GPIO46 | | GPIO47 | | | | | | | GPIO47 |
+
+| GPIO   | LCD        | UART | RTC     | SD_Card | IMU      | BAT         | Other  |
+| ------ | ---------- | ---- | ------- | ------- | -------- | ----------- | ------ |
+| GPIO0  |            | TXD  |         |         |          |             | TXD    |
+| GPIO1  |            | RXD  |         |         |          |             | RXD    |
+| GPIO2  |            |      |         |         |          |             | GPIO2  |
+| GPIO3  |            |      |         |         | IMU INT2 |             |        |
+| GPIO4  | TP INT     |      |         |         |          |             |        |
+| GPIO5  | TP RESET   |      |         |         |          |             |        |
+| GPIO6  | TP SDA     |      | RTC SDA |         | IMU SDA  |             | SDA    |
+| GPIO7  | TP SCL     |      | RTC SCL |         | IMU SCL  |             | SCL    |
+| GPIO8  |            |      | RTC INT |         | IMU INT1 |             |        |
+| GPIO9  | OLED CS    |      |         |         |          |             |        |
+| GPIO10 | OLED CLK   |      |         |         |          |             |        |
+| GPIO11 | OLED SIO0  |      |         |         |          |             |        |
+| GPIO12 | OLED SI1   |      |         |         |          |             |        |
+| GPIO13 | OLED SI2   |      |         |         |          |             |        |
+| GPIO14 | OLED SI3   |      |         |         |          |             |        |
+| GPIO15 | OLED RESET |      |         |         |          |             |        |
+| GPIO16 | OLED TE    |      |         |         |          |             |        |
+| GPIO17 | PWR EN     |      |         |         |          |             |        |
+| GPIO18 |            |      |         | SD SCLK |          |             |        |
+| GPIO19 |            |      |         | SD MOSI |          |             |        |
+| GPIO20 |            |      |         | SD MISO |          |             |        |
+| GPIO21 |            |      |         | SDIO D1 |          |             |        |
+| GPIO22 |            |      |         | SDIO D2 |          |             |        |
+| GPIO23 |            |      |         | SD CS   |          |             |        |
+| GPIO24 |            |      |         |         |          | KEY BAT     |        |
+| GPIO25 |            |      |         |         |          | BAT Control |        |
+| GPIO26 |            |      |         |         |          |             | GPIO26 |
+| GPIO27 |            |      |         |         |          |             | GPIO27 |
+| GPIO28 |            |      |         |         |          |             | GPIO28 |
+| GPIO29 |            |      |         |         |          |             | GPIO29 |
+| GPIO30 |            |      |         |         |          |             | GPIO30 |
+| GPIO31 |            |      |         |         |          |             | GPIO31 |
+| GPIO32 |            |      |         |         |          |             | GPIO32 |
+| GPIO33 |            |      |         |         |          |             | GPIO33 |
+| GPIO34 |            |      |         |         |          |             | GPIO34 |
+| GPIO35 |            |      |         |         |          |             | GPIO35 |
+| GPIO36 |            |      |         |         |          |             | GPIO36 |
+| GPIO37 |            |      |         |         |          |             | GPIO37 |
+| GPIO38 |            |      |         |         |          |             | GPIO38 |
+| GPIO39 |            |      |         |         |          |             | GPIO39 |
+| GPIO40 |            |      |         |         |          | BAT ADC     |        |
+| GPIO41 |            |      |         |         |          |             | GPIO41 |
+| GPIO42 |            |      |         |         |          |             | GPIO42 |
+| GPIO43 |            |      |         |         |          |             | GPIO43 |
+| GPIO44 |            |      |         |         |          |             | GPIO44 |
+| GPIO45 |            |      |         |         |          |             | GPIO45 |
+| GPIO46 |            |      |         |         |          |             | GPIO46 |
+| GPIO47 |            |      |         |         |          |             | GPIO47 |
 
 ### Component Behavior
 
