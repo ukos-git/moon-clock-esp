@@ -26,18 +26,48 @@ menu "UI Component Configuration"
         help
             On boot, sweep the moon through the last synodic month
             (29.53 days) and settle on the current phase. Each frame is
-            one moon_bake at animation resolution (~250 ms on the S3,
-            including the ephemeris); the idle->sleep timer is held for
-            the sweep so it completes before the device may sleep.
+            one full-resolution moon_bake (~0.7-1 s on the S3, including
+            the ephemeris and the RGB565 pass), identical to the static
+            frame; the idle->sleep timer is held for the sweep so it
+            completes before the device may sleep.
 
     config UI_MOON_ANIM_FRAMES
         int "Boot animation frame count"
-        default 29
+        default 13
         range 5 60
         help
             Number of moon_bake frames in the boot animation, evenly
             spaced over the last synodic month. More frames = smoother,
-            longer boot animation (frames x ~250ms each; 29 ~ 7s sweep
-            + a final full-resolution settle bake).
+            longer boot animation (frames x ~1s each; 13 ~ 13s sweep
+            + a final "now" bake).
+
+    config UI_IMU_ENABLE
+        bool "Drive the moon spin from the QMI8658 IMU (device tilt)"
+        default y
+        help
+            In normal modes the in-plane moon angle follows the
+            device's screen-plane roll (QMI8658 gravity vector), so
+            tilting the device turns the moon "ball in hand". Touch
+            drag still works and adds to the tilt angle. When the IMU
+            is absent or this is disabled the moon is static and only
+            drag spins it.
+
+    config UI_IMU_ANGLE_SIGN
+        int "IMU angle sign (+1 or -1, flips the spin direction)"
+        default 1
+        range -1 1
+        help
+            The board's IMU mounting orientation is board-specific; if
+            tilting the device turns the moon the "wrong" way, set this
+            to -1.
+
+    config UI_IMU_ROLL_OFFSET_DEG
+        int "IMU roll offset (degrees, aligns the resting orientation)"
+        default 0
+        range 0 359
+        help
+            Added to the gravity angle so a chosen resting orientation
+            of the device maps to a chosen moon spin angle. 0 = the
+            gravity angle is used as-is.
 
 endmenu

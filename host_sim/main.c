@@ -60,8 +60,9 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     }
 
     const uint8_t *alb = moon_albedo();
-    if (!alb) {
-        fprintf(stderr, "no albedo\n");
+    const int8_t *dem = moon_dem();
+    if (!alb || !dem) {
+        fprintf(stderr, "no albedo/DEM\n");
         return 0;
     }
 
@@ -78,7 +79,7 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
     float fcy = size == 400 ? 199.5f : (float)(size / 2);
-    moon_bake(&g, alb, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H);
+    moon_bake(&g, alb, dem, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H);
 
     float th = (float)rot_deg * 0.017453292519943295f;
     int32_t c15 = moon_cos15(th);
@@ -92,10 +93,13 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     if (!px)
         px = malloc((size_t)size * size * 3);
     for (int i = 0; i < size * size; i++) {
+        /* Decode the exact panel pixel: R5 (5-bit), G6 (6-bit), B5 (5-bit).
+         * Green must be read as 6 bits and scaled by /63 -- decoding it as 5
+         * bits (/31) would hide the encoder's green-width in the PNG. */
         uint16_t v = rgb[i];
-        int r5 = v >> 11, g5 = (v >> 5) & 31, b5 = v & 31;
+        int r5 = v >> 11, g6 = (v >> 5) & 63, b5 = v & 31;
         px[i * 3 + 0] = (uint8_t)((r5 * 255 + 15) / 31);
-        px[i * 3 + 1] = (uint8_t)((g5 * 255 + 15) / 31);
+        px[i * 3 + 1] = (uint8_t)((g6 * 255 + 31) / 63);
         px[i * 3 + 2] = (uint8_t)((b5 * 255 + 15) / 31);
     }
 

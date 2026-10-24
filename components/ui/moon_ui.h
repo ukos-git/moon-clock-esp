@@ -11,8 +11,9 @@ extern "C" {
  * Moon phase UI layer (device side of components/moon).
  *
  * Owns the PSRAM frame buffers, the shared lv_image_dsc_t the moon screens
- * display, the in-plane "ball in hand" rotation (touch-drag driven; the real
- * IMU is a follow-up), and the boot animation over the last synodic month.
+ * display, the in-plane "ball in hand" rotation (device tilt via the
+ * QMI8658 IMU + touch drag), and the boot animation over the last synodic
+ * month.
  *
  * Call order (app_main, under the display lock, before ui_init):
  *   moon_ui_init()   -- PSRAM buffers + shared image descriptor + timers
@@ -25,9 +26,9 @@ extern "C" {
 void moon_ui_init(void);
 
 /**
- * Create the moon lv_image (466x466, full screen, black outside the disk)
- * pointed at the shared PSRAM buffer. Must be the first child of the screen
- * so the clock/arc render on top of it.
+ * Create the moon lv_image (400x400 disk centered on the 466x466 panel,
+ * black outside the disk) pointed at the shared PSRAM buffer. Must be the
+ * first child of the screen so the clock/arc render on top of it.
  */
 lv_obj_t *moon_ui_create_image(lv_obj_t *parent);
 

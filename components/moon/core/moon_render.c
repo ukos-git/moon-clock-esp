@@ -16,9 +16,14 @@ static int g565_init = 0;
 
 static void g565_build(void) {
     for (int g = 0; g < 256; g++) {
-        /* Gray: all three 5-bit channels equal. q = round(g * 31 / 255). */
-        int q = (g * 31 + 127) / 255;
-        g565[g] = (uint16_t)((q << 11) | (q << 5) | q);
+        /* Neutral gray: R5 and B5 (5-bit) and G6 (6-bit) all at the same
+         * fraction. R5/B5 = round(g*31/255), G6 = round(g*63/255). Using the
+         * full 6-bit green is what makes the gray neutral -- writing the 5-bit
+         * value into the 6-bit green field caps green at 31/63 (~49%) and
+         * renders every gray as magenta/pink on the panel. */
+        int r5 = (g * 31 + 127) / 255;
+        int g6 = (g * 63 + 127) / 255;
+        g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | r5);
     }
     g565_init = 1;
 }

@@ -19,10 +19,19 @@
 #define MOON_TEX_LON_OFFSET 180.0
 
 // --- Equirect albedo asset (row 0 = north, col 0 = longitude 0) ---
-// Relief-free by measurement: at this resolution the DEM slopes are below
-// Nyquist (max 0.013 deg) and the gate score is identical with/without it.
-#define MOON_ALB_W 1024
-#define MOON_ALB_H 512
+#define MOON_ALB_W 864
+#define MOON_ALB_H 432
+
+// --- Relief DEM asset (int8, same equirect convention) ---
+// LOLA height quantized to int8 over [MOON_DEM_MIN, MOON_DEM_MAX] meters:
+// code = round((h - MIN) / (MAX - MIN) * MOON_DEM_STEPS) - 128. The bake
+// computes a 4-neighbor central-difference normal and blends it into the
+// Lambert term over |d| < MOON_TERM_BAND_RAD (see moon_bake.c).
+#define MOON_DEM_W 512
+#define MOON_DEM_H 256
+#define MOON_DEM_STEPS 254
+#define MOON_DEM_MIN_M -8161.66845703125
+#define MOON_DEM_MAX_M 9293.0341796875
 
 // --- Earthshine (phase-independent dark-side gradient) ---
 // R = A*x + B*x^2 + C*x^3, x = max(0, -d), d = r_hat . S. 8-bit units.

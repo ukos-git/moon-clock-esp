@@ -9,6 +9,7 @@
 #include "lvgl.h"
 
 #include "actions.h"
+#include "imu.h"
 #include "moon_ui.h"
 #include "ui.h"
 
@@ -57,6 +58,14 @@ extern "C" void app_main(void) {
     bsp_display_backlight_on();
 
     bsp_display_lock(-1);
+
+    // QMI8658 IMU (device tilt for the moon's ball-in-hand spin). Runs on
+    // the shared BSP I2C bus after clock_init; soft-fails (the moon stays
+    // touch-drag-only) when the chip is absent.
+    ret = imu_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "IMU init failed: %s (moon tilt disabled)", esp_err_to_name(ret));
+    }
 
     // Moon phase: buffers + shared image descriptor + tick timer. Must run
     // before ui_init so create_screens() can attach the moon images (they are

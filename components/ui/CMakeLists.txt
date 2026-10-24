@@ -12,5 +12,5 @@ idf_component_register(
     "moon_ui.c"
     ${IMAGE_SOURCES}
     ${FONT_SOURCES}
-  REQUIRES driver lvgl clock heap log freertos esp_timer esp_partition moon
+  REQUIRES driver lvgl clock heap log freertos esp_timer esp_partition moon imu
   INCLUDE_DIRS "./")

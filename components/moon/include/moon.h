@@ -10,10 +10,12 @@
  *     moon_consts.h), ephemeris eraEpv00 + eraMoon98 (the same models
  *     the validated astropy pipeline uses internally).
  *   - bake: per-pixel base-sphere direction r = u*right + v*up + w*E,
- *     full Lambert of the base-sphere dot L = clip(d, 0, 1) with
- *     d = r.S (relief dropped by measurement), equirect albedo
- *     sampled with the live camera basis (libration + posangle exact),
- *     then the phase-independent earthshine, then the 256-entry tone LUT.
+ *     Lambert of the base-sphere dot d = r.S, with the int8 relief DEM
+ *     normal (4-neighbor gradient) blended in over the thin band
+ *     |d| < MOON_TERM_BAND_RAD (mountain shadows at the terminator),
+ *     equirect albedo sampled with the live camera basis (libration +
+ *     posangle exact), then the phase-independent earthshine, then the
+ *     256-entry tone LUT.
  *   - rotate: fixed-point in-plane gather ("ball in hand").
  */
 #ifndef MOON_H
@@ -43,12 +45,14 @@ typedef struct {
 void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
 
 /* Bake one lit 8-bit grayscale frame (size x size, row-major) from an
- * equirect albedo (alb_w x alb_h u8, row 0 = north). alb_w/alb_h are the
- * albedo's dimensions (the device passes MOON_ALB_W/MOON_ALB_H for the full
- * texture, or a smaller SRAM albedo for the fast boot animation). 0 outside
- * the disk. Lighting/earthshine/tone order = the validated model. */
-void moon_bake(const moon_geom_t *g, const uint8_t *albedo, uint8_t *frame, int size, float radius, float cx, float cy,
-               int alb_w, int alb_h);
+ * equirect albedo (alb_w x alb_h u8, row 0 = north) and a relief DEM
+ * (MOON_DEM_W x MOON_DEM_H int8, same equirect convention; NULL =
+ * relief-free Lambert). alb_w/alb_h are the albedo's dimensions (the
+ * device passes MOON_ALB_W/MOON_ALB_H for the full texture, or a smaller
+ * SRAM albedo for the fast boot animation). 0 outside the disk.
+ * Lighting/earthshine/tone order = the validated model. */
+void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size, float radius,
+               float cx, float cy, int alb_w, int alb_h);
 
 /* In-plane rotation of the baked 8-bit frame into an RGB565 output
  * (size x size). cos15/sin15 are Q15.15 in int32 (cos(0) = 32768);

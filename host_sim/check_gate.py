@@ -11,11 +11,11 @@ This runs two diffs over the 32-frame set, both at 5-bit panel fidelity
      Mean content SSIM is reported for context.
 
   2. C  vs Python model -- porting fidelity. The Python prototype (float
-     astropy ephemeris, relief-free device lighting, 5-bit quantized) is
-     the validated reference; the C core must reproduce it within ~2 MAE
-     per frame. Both are pixel-aligned (identical disk geometry, no
-     registration), so this is a direct pixel diff of the two panels'
-     renders. Gate: per-frame MAE <= 2.
+     astropy ephemeris, the same banded relief-DEM lighting as the C core,
+     5-bit quantized) is the validated reference; the C core must reproduce
+     it within ~2 MAE per frame. Both are pixel-aligned (identical disk
+     geometry, no registration), so this is a direct pixel diff of the two
+     panels' renders. Gate: per-frame MAE <= 2.
 
 If the C port is faithful (check 2), check 1 inherits the prototype's
 NASA agreement -- the residual between the two is exactly the porting
@@ -76,6 +76,8 @@ def main() -> int:
     rec = json.load(open(args.json))
     frames = select_frames(rec, args.frames)
     alb = A.bake_albedo(A.load_albedo())
+    dem, dem_lo, dem_hi = A.bake_dem(A.load_height())
+    mps = (dem_hi - dem_lo) / A.DEM_STEPS
     lut = np.asarray(C.TONE_LUT, dtype=np.uint8)
 
     # --- C output: run the simulator over the frame list -------------------
@@ -97,7 +99,7 @@ def main() -> int:
         if not os.path.exists(p):
             continue
         g = geometry(_iso(rec[i]["time"]))
-        raw, d = A.render_from_assets(g, alb)
+        raw, d = A.render_from_assets(g, alb, dem, mps)
         out = q565(A.to_uint8(A.tonemap(raw, d, lut)))
         Image.fromarray(out, mode="L").save(os.path.join(py_dir, "py.%04d.png" % k))
 
