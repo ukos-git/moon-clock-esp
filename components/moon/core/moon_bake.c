@@ -160,13 +160,18 @@ static float relief_lns(const int8_t *dem, int dem_w, int dem_h, float rx, float
     return lns > 0.0f ? lns : 0.0f;
 }
 
-void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size, float radius,
-               float cx, float cy, int alb_w, int alb_h) {
+/* Bake one 8-bit grayscale row range [y0, y1) (see file header for the
+ * per-pixel model). moon_bake() = the full range; the device boot
+ * animation bakes row-by-row so it can feed the progressive strip display
+ * (components/ui/moon_ui.c) while the rest of the frame is still being
+ * computed. */
+void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size,
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)alb_w / 360.0f;
     const float mps = (MOON_DEM_MAX_M - MOON_DEM_MIN_M) / (float)MOON_DEM_STEPS; /* m per int8 step */
-    for (int y = 0; y < size; y++) {
+    for (int y = y0; y < y1; y++) {
         float v = (cy - (float)y) / radius; /* v up: row 0 is top */
         uint8_t *row = &frame[y * size];
         for (int x = 0; x < size; x++) {
@@ -223,4 +228,9 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, u
             row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
         }
     }
+}
+
+void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size, float radius,
+               float cx, float cy, int alb_w, int alb_h) {
+    moon_bake_rows(g, albedo, dem, frame, size, radius, cx, cy, alb_w, alb_h, 0, size);
 }

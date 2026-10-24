@@ -42,6 +42,15 @@ void moon_ui_bake_now(int64_t utc_epoch);
 void moon_ui_start(void);
 
 /**
+ * Replay the boot animation right now (no-op when the moon has not
+ * started yet or a sweep is already running). Test hook: with
+ * CONFIG_UI_MOON_ANIM_ON_WAKE the UI layer calls this on every
+ * wake-from-sleep transition so the animation can be exercised without
+ * a reboot.
+ */
+void moon_ui_replay_animation(void);
+
+/**
  * Cheap day-change probe (call at most once per minute, e.g. from the clock
  * display update): re-bakes when the calendar day rolls over.
  */

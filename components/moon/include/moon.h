@@ -54,6 +54,14 @@ void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size, float radius,
                float cx, float cy, int alb_w, int alb_h);
 
+/* Row-range bake: identical per-pixel math as moon_bake() for rows
+ * [y0, y1). The device boot animation bakes row by row and converts each
+ * row to RGB565 immediately, so the display can show finished rows (as
+ * progressive strips) while the rest of the frame is still being
+ * computed -- the frame "sweeps" in instead of popping in. */
+void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size,
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1);
+
 /* In-plane rotation of the baked 8-bit frame into an RGB565 output
  * (size x size). cos15/sin15 are Q15.15 in int32 (cos(0) = 32768);
  * nearest-neighbor gather (1 PSRAM read/px); out of frame = 0 (black). */

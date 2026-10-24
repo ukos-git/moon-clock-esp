@@ -43,6 +43,10 @@ static bool g_alarm_active = false; // Track if we're showing alarm (for wake ca
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
 #endif
 
+#ifndef CONFIG_UI_MOON_ANIM_ON_WAKE
+#define CONFIG_UI_MOON_ANIM_ON_WAKE 0
+#endif
+
 /**
  * @brief Update the clock display with current time from RTC
  */
@@ -240,6 +244,14 @@ void action_switch_to_main_screen(lv_event_t *e) {
     // re-bakes if the calendar day rolled over while we slept.
     moon_ui_pause(false);
     moon_ui_day_tick();
+
+    // Testing (CONFIG_UI_MOON_ANIM_ON_WAKE): replay the boot animation on
+    // every wake-from-sleep transition. A no-op before moon_ui_start()
+    // (the boot path calls this action first) and while a sweep is already
+    // running.
+    if (CONFIG_UI_MOON_ANIM_ON_WAKE) {
+        moon_ui_replay_animation();
+    }
 
     // Always start with modem sleep screen first (fast, no WiFi check)
     // This provides immediate UI responsiveness

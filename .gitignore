@@ -5,4 +5,5 @@ sdkconfig.old
 sdkconfig
 assets
 warnings.txt
-spiffs
+spiffs/*
+!spiffs/wifi_credentials.example.txt

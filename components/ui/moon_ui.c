@@ -22,10 +22,16 @@
  * only when needed; the rotation is a few int ops per pixel
  * (nearest-neighbor gather, 1 PSRAM read/pixel, x4-unrolled).
  *
- * The boot animation is the same full-resolution bake as the static frame
- * (one moon_bake_epoch per frame over the last synodic month); the sweep
- * holds the idle->sleep timer for its duration (see moon_ui_start), so it
- * completes even when the device would otherwise sleep mid-boot.
+ * The boot animation is the same full-resolution bake as the static frame,
+ * run as a row-parallel producer/consumer pipeline so every computed frame
+ * is drawn, in order, with no gaps (see the animation section below): a
+ * dedicated task on core 1 bakes each frame row by row and converts each
+ * row to RGB565 as it goes, while the LVGL tick shows finished 25-row
+ * strips top-to-bottom -- each new frame sweeps in over ~1 s instead of
+ * popping in, and the next frame is already being baked while the last
+ * strips of the current one are still flushing. The sweep holds the
+ * idle->sleep timer for its duration (see moon_ui_start), so it completes
+ * even when the device would otherwise sleep mid-boot.
  *
  * Display-pipeline constraint (measured on this board): the LVGL draw
  * buffer is PSRAM, and octal PSRAM is NOT DMA-capable for SPI2_HOST
@@ -69,6 +75,13 @@ static const char *TAG = "moon_ui";
 #define MOON_CY 233
 #define MOON_R (float)MOON_DISK_RADIUS_PX
 #define MOON_TICK_MS 50
+/* Animation display strip = the BSP draw-buffer height (25 rows): one
+ * invalidated strip = exactly one draw buffer + one QSPI transfer. */
+#define MOON_STRIP_ROWS 25
+#define MOON_NSTRIPS (MOON_PX / MOON_STRIP_ROWS)
+#if (MOON_PX % MOON_STRIP_ROWS) != 0
+#error "MOON_PX must be a multiple of MOON_STRIP_ROWS"
+#endif
 
 /* Boot animation: a sweep over the last synodic month, rendered at FULL
  * resolution (MOON_PX) through the same moon_bake_epoch path as the static
@@ -112,8 +125,21 @@ static int32_t s_last_x, s_last_y;
 
 static int64_t s_baked_day; /* calendar day of the last static bake */
 static bool s_anim;         /* boot animation in progress */
-static int s_anim_i;        /* animation frame counter */
 static int64_t s_anim_end;  /* epoch the animation ends on (now) */
+
+/* Row-sweep pipeline state. Producer = the moon_anim task (pinned to
+ * core 1), consumer = the LVGL tick (50 ms). The producer publishes one
+ * packed 32-bit value per converted row -- (frame << 16) | rows_done --
+ * so the consumer reads both halves in a single atomic load and can
+ * never see a half-updated (frame, row) pair. Strips (25 rows) are shown
+ * only once fully converted, which also keeps the display from tearing
+ * mid-strip. */
+static volatile uint32_t s_anim_pub;
+static int s_anim_frame_shown;          /* consumer: frame index currently shown */
+static volatile int s_anim_strip_shown; /* consumer: next strip to show */
+static volatile bool s_anim_running;    /* producer task alive */
+static volatile bool s_anim_cancel;     /* stop the producer (sleep transition) */
+static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
 
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
@@ -200,15 +226,104 @@ static void moon_drag_update(void) {
     s_theta += DRAG_SIGN * ((float)rx * (float)dy - (float)ry * (float)dx) / r2;
 }
 
-/* ---------------- boot animation ---------------- */
+/* ---------------- boot animation (row-sweep pipeline) ----------------
+ *
+ * A producer/consumer pipeline so the sweep is smooth AND every computed
+ * frame is drawn, one after the other, even though one full-resolution
+ * frame takes ~1 s to bake:
+ *
+ *   producer (dedicated task, pinned to core 1 -- the LVGL task stays
+ *   responsive on the other core):
+ *     for each of CONFIG_UI_MOON_ANIM_FRAMES frames (evenly spaced over
+ *     the last synodic month):
+ *       compute the geometry for that instant (~50 ms)
+ *       for each row: bake the row (moon_bake_rows), convert the row to
+ *       RGB565 in s_rgb, publish (frame, rows_done)
+ *       wait until the consumer has shown all strips of this frame
+ *       (catch-up guard, capped so a paused tick cannot deadlock)
+ *
+ *   consumer (LVGL tick, every MOON_TICK_MS):
+ *     invalidate the strips of the current frame that are fully
+ *     converted, top to bottom, then drain the redraw synchronously
+ *     (lv_refr_now) so the strips' pixels are out of s_rgb and into
+ *     LVGL's draw buffers before the tick returns; the QSPI flush then
+ *     runs asynchronously from the draw buffers.
+ *
+ * Visible result: each new frame appears as a ~1 s top-to-bottom sweep
+ * (a strip roughly every 3 ms) instead of a hard pop, and the frame
+ * after the one on screen is being baked while its predecessor's last
+ * strips are still flushing -- the QSPI flush reads LVGL's draw buffers,
+ * never s_rgb, so the two stages cannot race.
+ */
+static void moon_anim_task(void *arg) {
+    (void)arg;
+    int frames = CONFIG_UI_MOON_ANIM_FRAMES;
+    const uint8_t *alb = moon_albedo();
+    const int8_t *dem = moon_dem();
+    if (!alb) {
+        ESP_LOGE(TAG, "no albedo; aborting boot animation");
+        s_anim_pub = ((uint32_t)frames << 16);
+        goto done;
+    }
+    if (!dem)
+        ESP_LOGW(TAG, "no relief DEM; animating relief-free");
+    for (int f = 0; f < frames && !s_anim_cancel; f++) {
+        /* Evenly spaced over the last synodic month, t_k -> 0 (now) as
+         * k -> frames - 1. Full-resolution bake at zero in-plane angle. */
+        double t = (double)(frames - 1 - f) / (double)(frames - 1);
+        int64_t epoch = (int64_t)(s_anim_end - t * SYNODIC_S);
+        moon_geom_t g;
+        int64_t t0 = esp_timer_get_time();
+        moon_geometry(epoch, &g);
+        for (int y = 0; y < MOON_PX && !s_anim_cancel; y++) {
+            moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+                           MOON_ALB_W, MOON_ALB_H, y, y + 1);
+            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+            for (int x = 0; x < MOON_PX; x++)
+                rrow[x] = moon_gray565(frow[x]);
+            s_anim_pub = ((uint32_t)f << 16) | (uint32_t)(y + 1);
+            /* Yield so the idle task on this core (and the 5 s TWDT) is
+             * fed across the back-to-back bakes. */
+            if ((y & 15) == 15)
+                vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        int64_t t1 = esp_timer_get_time();
+        ESP_LOGI(TAG, "anim %d/%d | phase %.1f%% illum | bake %lldms", f + 1, frames, g.illum * 100.0f,
+                 (long long)((t1 - t0) / 1000));
+        if (s_anim_cancel)
+            break;
+        /* Catch-up guard: wait until the consumer has shown every strip of
+         * this frame (it runs on the 50 ms tick, so this is at most one
+         * tick) before the next frame's conversion starts reusing s_rgb.
+         * The 200 ms cap keeps a paused tick from deadlocking the pipeline. */
+        for (int i = 0; i < 40 && s_anim_strip_shown < MOON_NSTRIPS; i++)
+            vTaskDelay(pdMS_TO_TICKS(5));
+    }
+done:
+    s_anim_pub = ((uint32_t)frames << 16); /* frames done, 0 rows */
+    s_anim_running = false;
+    s_anim_task = NULL;
+    vTaskDelete(NULL); /* a FreeRTOS task must never return */
+}
 
-/* Finish the animation early and show the current phase (animation done,
- * or a sleep transition interrupts it). */
+/* Stop the producer task (sleep transition / early exit) and show the
+ * current phase instead (animation done, or interrupted). */
 static void moon_anim_skip_to_now(void) {
+    if (s_anim_running) {
+        s_anim_cancel = true;
+        int waited = 0;
+        while (s_anim_running && waited < 400) /* the task exits at its next yield (~40 ms) */
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waited += 10;
+        }
+    }
     s_anim = false;
-    /* The boot animation holds the idle timer (see moon_ui_start). Release
-     * it only when the animation ends on its own; if a sleep transition
-     * drove this path we are already idle and must not re-arm it. */
+    /* The boot animation holds the idle timer (see moon_anim_begin).
+     * Release it only when the animation ends on its own; if a sleep
+     * transition drove this path we are already idle and must not
+     * re-arm it. */
     if (!clock_is_idle())
         clock_idle_set_enabled(true);
     int64_t now;
@@ -219,22 +334,42 @@ static void moon_anim_skip_to_now(void) {
     }
 }
 
-static void moon_anim_next(void) {
-    int frames = CONFIG_UI_MOON_ANIM_FRAMES;
-    if (s_anim_i >= frames) {
-        /* Final frame is exactly "now" (the static frame). */
-        moon_anim_skip_to_now();
+/* Start the animation pipeline (shared by moon_ui_start and the
+ * wake-from-sleep replay hook). Holds the idle->sleep timer for the
+ * sweep so it is never cut off mid-animation. */
+static void moon_anim_begin(void) {
+    int64_t now;
+    if (clock_get_utc_epoch(&now) != ESP_OK) {
+        /* No trustworthy time (RTC not set / no NTP): show nothing rather
+         * than a wrong phase. The daily day-tick will pick it up later. */
+        ESP_LOGW(TAG, "no UTC time yet; moon stays blank until the clock syncs");
         return;
     }
-    /* Evenly spaced over the last synodic month, t_k -> now as k -> frames.
-     * Full-resolution bake at zero in-plane angle (see moon_bake_epoch). */
-    double t = (double)(frames - 1 - s_anim_i) / (double)(frames - 1);
-    int64_t epoch = (int64_t)(s_anim_end - t * SYNODIC_S);
-    moon_bake_epoch(epoch);
-    s_anim_i++;
-    /* One-tick yield so IDLE0 (and the 5 s TWDT) is fed across the
-     * back-to-back animation bakes (~1s each at full resolution). */
-    vTaskDelay(1);
+    s_anim_end = now;
+    s_baked_day = now / 86400;
+    s_theta = 0.0f;
+    s_last_rotated_theta = 0.0f;
+    s_anim = true;
+    s_anim_cancel = false;
+    s_anim_pub = 0;
+    s_anim_frame_shown = 0;
+    s_anim_strip_shown = 0;
+    s_anim_running = true;
+    lv_timer_resume(s_tick);
+    clock_idle_set_enabled(false);
+    if (xTaskCreatePinnedToCore(moon_anim_task, "moon_anim", 8192, NULL, configMAX_PRIORITIES - 3, &s_anim_task, 1) !=
+        pdPASS) {
+        /* Out of internal RAM for the task stack: fall back to baking the
+         * current phase directly (one ~1 s full-frame bake on the tick). */
+        ESP_LOGE(TAG, "anim task allocation failed; showing the current phase directly");
+        s_anim = false;
+        s_anim_running = false;
+        clock_idle_set_enabled(true);
+        moon_bake_epoch(now);
+        return;
+    }
+    ESP_LOGI(TAG, "boot animation: %d frames over the last synodic month (row-sweep pipeline)",
+             CONFIG_UI_MOON_ANIM_FRAMES);
 }
 
 /* ---------------- tilt (QMI8658) ---------------- */
@@ -266,7 +401,46 @@ static void moon_tick_cb(lv_timer_t *timer) {
         return;
     if (s_anim) {
         s_theta = 0.0f;
-        moon_anim_next();
+        if (!s_anim_running) {
+            /* Producer done: the last baked frame is on screen; bake the
+             * final "now" frame (identical to the static frame) and
+             * release the idle timer. */
+            moon_anim_skip_to_now();
+            return;
+        }
+        /* Consumer side of the row-sweep pipeline: show every strip of
+         * the current frame that the producer has fully converted. The
+         * packed (frame, row) pair is one atomic 32-bit load. */
+        uint32_t pub = s_anim_pub;
+        int fr = (int)(pub >> 16);
+        int row = (int)(pub & 0xFFFF);
+        if (fr != s_anim_frame_shown) {
+            s_anim_frame_shown = fr;
+            s_anim_strip_shown = 0;
+        }
+        int strips_ready = row / MOON_STRIP_ROWS;
+        if (strips_ready > MOON_NSTRIPS)
+            strips_ready = MOON_NSTRIPS;
+        if (strips_ready > s_anim_strip_shown) {
+            for (int s = s_anim_strip_shown; s < strips_ready; s++) {
+                /* Strip area in the moon image's (screen) coordinates. */
+                lv_area_t a = {.x1 = (lv_coord_t)MOON_IMG_POS,
+                               .y1 = (lv_coord_t)(MOON_IMG_POS + s * MOON_STRIP_ROWS),
+                               .x2 = (lv_coord_t)(MOON_IMG_POS + MOON_PX - 1),
+                               .y2 = (lv_coord_t)(MOON_IMG_POS + (s + 1) * MOON_STRIP_ROWS - 1)};
+                for (int i = 0; i < s_n_images; i++)
+                    lv_obj_invalidate_area(s_images[i], &a);
+                s_anim_strip_shown = s + 1;
+            }
+            /* Drain the redraw now (the adapter's own flush path uses the
+             * same lv_refr_now call): after this returns, the strips'
+             * pixels are already copied out of s_rgb into LVGL's draw
+             * buffers (the QSPI transfer then runs asynchronously from
+             * the draw buffers). That is what lets the producer's
+             * catch-up guard reuse s_rgb for the next frame without the
+             * display tearing two frames together. */
+            lv_refr_now(NULL);
+        }
         return;
     }
     moon_imu_tick();    /* tilt sets the angle (no-op without an IMU) */
@@ -350,32 +524,29 @@ void moon_ui_bake_now(int64_t utc_epoch) {
 void moon_ui_start(void) {
     if (!s_ready)
         return;
-    int64_t now;
-    if (clock_get_utc_epoch(&now) != ESP_OK) {
-        /* No trustworthy time (RTC not set / no NTP): show nothing rather
-         * than a wrong phase. The daily day-tick will pick it up later. */
-        ESP_LOGW(TAG, "no UTC time yet; moon stays blank until the clock syncs");
-        return;
-    }
-    s_anim_end = now;
-    s_baked_day = now / 86400;
     s_started = true;
     if (CONFIG_UI_MOON_ANIM_ENABLE) {
-        s_anim = true;
-        s_anim_i = 0;
-        s_theta = 0.0f;
-        lv_timer_resume(s_tick);
-        /* The sweep is full-resolution bakes (~0.7s each + QSPI flush);
-         * hold the idle->sleep timer for its duration so the startup
-         * animation is never cut off by the 10s idle timeout;
-         * moon_anim_skip_to_now re-arms it on natural completion (a real
-         * sleep transition leaves it off). */
-        clock_idle_set_enabled(false);
-        ESP_LOGI(TAG, "boot animation: %d frames over the last synodic month", CONFIG_UI_MOON_ANIM_FRAMES);
+        /* Row-sweep pipeline (see moon_anim_begin); the idle timer is held
+         * for the whole sweep so the 10 s idle timeout cannot cut the
+         * startup animation off mid-sweep. */
+        moon_anim_begin();
     } else {
-        moon_bake_epoch(now);
+        int64_t now;
+        if (clock_get_utc_epoch(&now) == ESP_OK) {
+            s_baked_day = now / 86400;
+            moon_bake_epoch(now);
+        }
         lv_timer_resume(s_tick);
     }
+}
+
+void moon_ui_replay_animation(void) {
+    /* Test hook (wake-from-sleep, see CONFIG_UI_MOON_ANIM_ON_WAKE): run
+     * the sweep again over the last synodic month. No-op at boot order
+     * (before moon_ui_start) and while a sweep is already running. */
+    if (!s_ready || !s_started || s_anim)
+        return;
+    moon_anim_begin();
 }
 
 void moon_ui_day_tick(void) {

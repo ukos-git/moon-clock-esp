@@ -75,9 +75,15 @@ static esp_err_t imu_write(uint8_t reg, uint8_t val) {
     return i2c_master_transmit(s_dev, b, 2, IMU_XFER_TIMEOUT_MS);
 }
 
+/* Register reads use a STOP + fresh START (select the register, then a
+ * separate receive) rather than i2c_master_transmit_receive's repeated
+ * START, matching how the vendor driver reads through Arduino Wire (STOP
+ * after the register-select, a new START for the data). */
 static uint8_t imu_read_reg(uint8_t reg) {
     uint8_t v = 0;
-    return i2c_master_transmit_receive(s_dev, &reg, 1, &v, 1, IMU_XFER_TIMEOUT_MS) == ESP_OK ? v : 0xFF;
+    if (i2c_master_transmit(s_dev, &reg, 1, IMU_XFER_TIMEOUT_MS) != ESP_OK)
+        return 0xFF;
+    return i2c_master_receive(s_dev, &v, 1, IMU_XFER_TIMEOUT_MS) == ESP_OK ? v : 0xFF;
 }
 
 static void imu_set_bit(uint8_t reg, uint8_t bit) {
@@ -94,8 +100,15 @@ static void imu_set_bit(uint8_t reg, uint8_t bit) {
 #define IMU_REG_RST_RESULT 0x4D
 #define IMU_RST_RESULT_VAL 0x80
 static bool imu_soft_reset(void) {
-    if (imu_write(IMU_REG_SOFT_RST, IMU_SOFT_RST_VAL) != ESP_OK)
+    esp_err_t err = imu_write(IMU_REG_SOFT_RST, IMU_SOFT_RST_VAL);
+    if (err != ESP_OK) {
+        /* Distinguishes "chip NACKs even the reset write" (I2C core dead or
+         * wrong address) from "write ACKed but the chip never came back"
+         * (reset ignored -- rail held / chip faulted). */
+        ESP_LOGW(TAG, "soft reset write 0x60=0xB0 not ACKed (%s)", esp_err_to_name(err));
         return false;
+    }
+    ESP_LOGI(TAG, "soft reset write 0x60=0xB0 ACKed; polling RST_RESULT");
     for (int i = 0; i < 50; i++) { /* ~500 ms */
         if (imu_read_reg(IMU_REG_RST_RESULT) == IMU_RST_RESULT_VAL)
             break;
@@ -105,10 +118,64 @@ static bool imu_soft_reset(void) {
     return true;
 }
 
+/* AXP2101 PMIC status probe (read-only): the board's power state decides
+ * whether a "power cycle" ever actually cut the IMU rail. If a battery is
+ * connected (STATUS1 bit 3) the PMIC rails survive a USB unplug, so the
+ * IMU never sees a true cold power-on and can stay stuck in whatever state
+ * it was left in. Registers (vendor XPowersLib AXP2101Constants.h):
+ *   STATUS1 0x00 -- bit5 VBUS good, bit4 BATFET, bit3 battery connected
+ *   STATUS2 0x01 -- bits6-5 charging=01/discharging=10/standby=00, bit2 chg
+ *   PWRON_STATUS 0x20 -- what woke the board (bit4 battery, bit2 VBUS). */
+static int imu_axp_read(i2c_master_dev_handle_t d, uint8_t reg) {
+    uint8_t v = 0;
+    if (i2c_master_transmit(d, &reg, 1, IMU_XFER_TIMEOUT_MS) != ESP_OK)
+        return -1;
+    return i2c_master_receive(d, &v, 1, IMU_XFER_TIMEOUT_MS) == ESP_OK ? v : -1;
+}
+
+/* AXP2101 PMIC status probe (read-only): tells whether a battery holds
+ * the IMU rail alive across a "power cycle". Registers (vendor XPowersLib
+ * AXP2101Constants.h): STATUS1 0x00 (bit5 VBUS good, bit3 battery
+ * connected), STATUS2 0x01 (bits6-5 charge state), PWRON_STATUS 0x20
+ * (what started the board: bit4 battery, bit2 VBUS). */
+static void imu_axp_probe(void) {
+    i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = 0x34, .scl_speed_hz = 100000};
+    i2c_master_dev_handle_t axp;
+    if (i2c_master_bus_add_device(s_bus, &cfg, &axp) != ESP_OK) {
+        ESP_LOGW(TAG, "AXP2101 @0x34 not probing; cannot read power state");
+        return;
+    }
+    int s1 = imu_axp_read(axp, 0x00), s2 = imu_axp_read(axp, 0x01), s3 = imu_axp_read(axp, 0x20);
+    i2c_master_bus_rm_device(axp);
+    if (s1 < 0) {
+        ESP_LOGW(TAG, "AXP2101 answers 0x34 but status reads fail");
+        return;
+    }
+    ESP_LOGI(TAG, "AXP2101: STATUS1=0x%02X (VBUS %s, battery %s) STATUS2=0x%02X PWRON=0x%02X", s1,
+             (s1 & 0x20) ? "good" : "absent", (s1 & 0x08) ? "connected" : "absent", s2, s3);
+}
+
+/* Diagnostic: probe the whole 7-bit address range and log every responder.
+ * A healthy board shows the PCF85063 (0x51) and the TCA9554 (0x20) here;
+ * if the IMU does not appear at 0x6A/0x6B the chip has not power-cycled
+ * (its rail was held by the battery/caps) or is faulted. */
+static void imu_bus_scan(void) {
+    char buf[160];
+    int n = 0;
+    for (uint8_t a = 0x08; a <= 0x77; a++) {
+        if (i2c_master_probe(s_bus, a, 20) == ESP_OK)
+            n += snprintf(buf + n, sizeof(buf) - (size_t)n, " %02X", a);
+    }
+    ESP_LOGI(TAG, "bus scan:%s", n ? buf + 1 : " (no responders)");
+}
+
 static esp_err_t imu_read_raw(int16_t xyz[3]) {
     uint8_t reg = IMU_REG_AX_L;
     uint8_t buf[IMU_ACC_LEN];
-    if (i2c_master_transmit_receive(s_dev, &reg, 1, buf, IMU_ACC_LEN, IMU_XFER_TIMEOUT_MS) != ESP_OK)
+    /* STOP + fresh START (see imu_read_reg for the why). */
+    if (i2c_master_transmit(s_dev, &reg, 1, IMU_XFER_TIMEOUT_MS) != ESP_OK)
+        return ESP_FAIL;
+    if (i2c_master_receive(s_dev, buf, IMU_ACC_LEN, IMU_XFER_TIMEOUT_MS) != ESP_OK)
         return ESP_FAIL;
     xyz[0] = (int16_t)(buf[0] | (buf[1] << 8));
     xyz[1] = (int16_t)(buf[2] | (buf[3] << 8));
@@ -125,36 +192,64 @@ esp_err_t imu_init(void) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Probe 0x6A (SAD high), then 0x6B, for a matching WHO_AM_I. */
-    for (uint8_t addr = 0x6A; addr <= 0x6B; addr++) {
-        if (i2c_master_probe(s_bus, addr, IMU_XFER_TIMEOUT_MS) != ESP_OK)
-            continue;
-        i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
-                                   .device_address = addr,
-                                   .scl_speed_hz = 400000}; /* match the RTC driver */
-        i2c_master_dev_handle_t tmp;
-        if (i2c_master_bus_add_device(s_bus, &cfg, &tmp) != ESP_OK)
-            continue;
-        uint8_t who = imu_read_reg(IMU_REG_WHOAMI);
-        if (who != IMU_WHOAMI_VAL) {
-            /* Chip present but reads stuck (e.g. after an earlier
-             * software reset): run the vendor's reset sequence once and
-             * re-check. */
-            ESP_LOGW(TAG, "@0x%02X answers but WHO_AM_I 0x%02X != 0x%02X; trying soft reset", addr, who,
-                     IMU_WHOAMI_VAL);
-            imu_soft_reset();
-            who = imu_read_reg(IMU_REG_WHOAMI);
-            if (who != IMU_WHOAMI_VAL) {
-                i2c_master_bus_rm_device(tmp);
-                continue;
-            }
-            ESP_LOGI(TAG, "@0x%02X recovered after soft reset", addr);
+    /* Probe 0x6A (SAD high), then 0x6B, for a matching WHO_AM_I. A brief
+     * retry: right after a cold power-on the chip's I2C peripheral can be
+     * a few ms behind its own ready state, and the vendor example polls
+     * WHO_AM_I in a loop for exactly this reason. */
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            imu_bus_scan();
         }
-        s_dev = tmp;
-        s_addr = addr;
-        break;
+        for (uint8_t addr = 0x6A; addr <= 0x6B && !s_dev; addr++) {
+            if (i2c_master_probe(s_bus, addr, IMU_XFER_TIMEOUT_MS) != ESP_OK)
+                continue;
+            i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                                       .device_address = addr,
+                                       .scl_speed_hz = 100000}; /* the vendor QMI8658
+                                                                 * example runs this bus at
+                                                                 * 100 kHz; the chip's reads
+                                                                 * have been seen to fail at
+                                                                 * 400 kHz */
+            i2c_master_dev_handle_t tmp;
+            if (i2c_master_bus_add_device(s_bus, &cfg, &tmp) != ESP_OK)
+                continue;
+            /* s_dev must be live before any transaction: imu_read_reg and
+             * imu_soft_reset use it, and a NULL handle fails every
+             * transfer with ESP_ERR_INVALID_ARG before touching the wire,
+             * which reads back as 0xFF and looks like a dead chip. */
+            s_dev = tmp;
+            s_addr = addr;
+            uint8_t who = 0xFF;
+            uint8_t reg = IMU_REG_WHOAMI;
+            esp_err_t werr = i2c_master_transmit(s_dev, &reg, 1, IMU_XFER_TIMEOUT_MS);
+            if (werr == ESP_OK)
+                werr = i2c_master_receive(s_dev, &who, 1, IMU_XFER_TIMEOUT_MS);
+            if (werr != ESP_OK)
+                ESP_LOGW(TAG, "@0x%02X WHO_AM_I read failed: %s", addr, esp_err_to_name(werr));
+            if (who != IMU_WHOAMI_VAL) {
+                /* Chip present but reads stuck (e.g. after an earlier
+                 * software reset): run the vendor's reset sequence once
+                 * and re-check. */
+                ESP_LOGW(TAG, "@0x%02X answers but WHO_AM_I 0x%02X != 0x%02X; trying soft reset", addr, who,
+                         IMU_WHOAMI_VAL);
+                imu_soft_reset();
+                who = imu_read_reg(IMU_REG_WHOAMI);
+                if (who != IMU_WHOAMI_VAL) {
+                    i2c_master_bus_rm_device(s_dev);
+                    s_dev = NULL;
+                    s_addr = 0;
+                    continue;
+                }
+                ESP_LOGI(TAG, "@0x%02X recovered after soft reset", addr);
+            }
+        }
+        if (s_dev)
+            break;
     }
     if (!s_dev) {
+        imu_bus_scan();
+        imu_axp_probe(); /* did the PMIC rails survive a "power cycle"? */
         ESP_LOGW(TAG, "QMI8658 not found on the I2C bus (0x6A/0x6B); moon tilt disabled");
         return ESP_ERR_NOT_FOUND;
     }

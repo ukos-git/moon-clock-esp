@@ -26,20 +26,33 @@ menu "UI Component Configuration"
         help
             On boot, sweep the moon through the last synodic month
             (29.53 days) and settle on the current phase. Each frame is
-            one full-resolution moon_bake (~0.7-1 s on the S3, including
-            the ephemeris and the RGB565 pass), identical to the static
-            frame; the idle->sleep timer is held for the sweep so it
-            completes before the device may sleep.
+            one full-resolution moon_bake, identical to the static
+            frame; a dedicated task bakes them row by row in the
+            background while the display shows each frame as a
+            top-to-bottom sweep of 25-row strips, so frames appear one
+            after the other with no gaps. The idle->sleep timer is held
+            for the sweep so it completes before the device may sleep.
 
     config UI_MOON_ANIM_FRAMES
-        int "Boot animation frame count"
-        default 13
+        int "Boot animation frame count (1-2 per day)"
+        default 28
         range 5 60
         help
-            Number of moon_bake frames in the boot animation, evenly
-            spaced over the last synodic month. More frames = smoother,
-            longer boot animation (frames x ~1s each; 13 ~ 13s sweep
-            + a final "now" bake).
+            Number of full-resolution frames in the boot animation,
+            evenly spaced over the last synodic month: 28 = one frame
+            per day (a ~28 s sweep), 56 = two frames per day. Each
+            frame sweeps in over its ~1 s bake time (row-parallel
+            pipeline), so higher counts are smoother without freezing
+            the display.
+
+    config UI_MOON_ANIM_ON_WAKE
+        bool "Replay the moon animation on every wake from sleep (testing)"
+        default n
+        help
+            Test hook: whenever the device wakes from sleep back to the
+            main screen, replay the boot animation over the last
+            synodic month. Lets the sweep be exercised repeatedly
+            without a reboot. Off in normal builds.
 
     config UI_IMU_ENABLE
         bool "Drive the moon spin from the QMI8658 IMU (device tilt)"
