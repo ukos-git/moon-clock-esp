@@ -3,6 +3,7 @@
 #include "actions.h"
 #include "fonts.h"
 #include "images.h"
+#include "moon_ui.h"
 #include "screens.h"
 #include "styles.h"
 #include "ui.h"
@@ -13,6 +14,16 @@
 objects_t objects;
 lv_obj_t *tick_value_change_obj;
 uint32_t active_theme_index = 0;
+
+/* Pure-black screen background: the moon image is black outside the disk,
+ * so the corners blend into the screen (AMOLED black = off pixels).
+ * The moon image must be created FIRST (LVGL 9.4 has no public z-order
+ * reorder API; z-order = creation order) so the clock/arc render on top. */
+static void moon_screen_prepare(lv_obj_t *obj) {
+    lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    moon_ui_create_image(obj);
+}
 
 static void event_handler_cb_main_arc_clock_seconds(lv_event_t *e) {
     lv_event_code_t event = lv_event_get_code(e);
@@ -41,6 +52,7 @@ void create_screen_main() {
     objects.main = obj;
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
+    moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
         {
@@ -109,6 +121,7 @@ void create_screen_modem_sleep() {
     objects.modem_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
+    moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
         {
@@ -177,6 +190,7 @@ void create_screen_light_sleep() {
     objects.light_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
+    moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
         {
@@ -214,6 +228,7 @@ void create_screen_deep_sleep() {
     objects.deep_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
+    moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
         {

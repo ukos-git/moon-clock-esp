@@ -9,6 +9,7 @@
 #include "lvgl.h"
 
 #include "actions.h"
+#include "moon_ui.h"
 #include "ui.h"
 
 #include "clock.h"
@@ -57,6 +58,11 @@ extern "C" void app_main(void) {
 
     bsp_display_lock(-1);
 
+    // Moon phase: buffers + shared image descriptor + tick timer. Must run
+    // before ui_init so create_screens() can attach the moon images (they are
+    // created first in each screen, so the clock renders on top).
+    moon_ui_init();
+
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
@@ -89,6 +95,12 @@ extern "C" void app_main(void) {
 
     // Load initial screen - starts with modem screen, upgrades to main if WiFi available
     action_switch_to_main_screen(NULL);
+
+    // Moon phase: bake the current phase and play the boot animation over
+    // the last synodic month (Kconfig UI_MOON_ANIM_*). Runs on the LVGL
+    // tick; a blank RTC (no NTP, no RTC time) leaves the moon black until
+    // a trustworthy time exists.
+    moon_ui_start();
 
     // Create polling timer for RTC interrupt handling - debug interval
     // This checks for RTC interrupts and handles timer restarts

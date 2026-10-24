@@ -53,6 +53,20 @@ esp_err_t clock_init(const clock_config_t *cfg);
 esp_err_t clock_get_time(clock_time_t *out);
 
 /**
+ * @brief Get the current UTC epoch (seconds since 1970) from the RTC
+ *
+ * The RTC stores local (timezone/DST-adjusted) time; this converts it back
+ * to a UTC epoch using the configured timezone so consumers (e.g. the moon
+ * phase) can work in UTC. Returns ESP_ERR_INVALID_STATE when the RTC time is
+ * not a plausible calendar date, so the caller can show nothing rather than
+ * a wrong value.
+ *
+ * @param out Pointer to store the epoch seconds
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_get_utc_epoch(int64_t *out);
+
+/**
  * @brief Set RTC time
  *
  * @param time Time to set

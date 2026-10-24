@@ -7,6 +7,7 @@
 #include "lvgl.h"
 
 #include "actions.h"
+#include "moon_ui.h"
 #include "screens.h"
 #include "ui.h"
 #include "vars.h"
@@ -62,6 +63,9 @@ void action_update_clock_display(lv_event_t *e) {
         set_var_clock_seconds(0);
     }
 
+    // Re-bake the moon once per calendar day (cheap probe: compares day numbers).
+    moon_ui_day_tick();
+
     // Trigger UI update immediately to reflect the change
     ui_tick();
 }
@@ -112,6 +116,9 @@ void action_alarm_triggered(lv_event_t *e) {
         ESP_LOGI(TAG, "UI tick timer restored to 10ms for alarm");
     }
 
+    // Alarm is an active (touch) state: the moon resumes tilt rotation.
+    moon_ui_pause(false);
+
     // Explicitly disable RTC countdown timer (no sleep transitions during alarm)
     esp_err_t ret = clock_timer_disable();
     if (ret == ESP_OK) {
@@ -146,6 +153,9 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 
     // Mark idle timer as inactive (deep sleep state)
     g_idle_timer_active = false;
+
+    // Sleep mode: the moon stays at its current (static) phase.
+    moon_ui_pause(true);
 
     // Explicitly disable RTC countdown timer (no longer needed in deep sleep)
     esp_err_t ret = clock_timer_disable();
@@ -225,6 +235,11 @@ void action_switch_to_main_screen(lv_event_t *e) {
     g_idle_timer_active = true;
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
+
+    // Normal (active) mode: the moon rotates with tilt ("ball in hand") and
+    // re-bakes if the calendar day rolled over while we slept.
+    moon_ui_pause(false);
+    moon_ui_day_tick();
 
     // Always start with modem sleep screen first (fast, no WiFi check)
     // This provides immediate UI responsiveness
@@ -307,6 +322,11 @@ void action_switch_to_modem_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
 
+    // Modem sleep is an active (Airplane) mode: the moon keeps rotating and
+    // re-bakes if the calendar day rolled over.
+    moon_ui_pause(false);
+    moon_ui_day_tick();
+
     // Load modem sleep screen
     loadScreen(SCREEN_ID_MODEM_SLEEP);
     ui_tick();
@@ -355,6 +375,9 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     } else {
         ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
     }
+
+    // Sleep mode: the moon shows a static current phase (no tilt rotation).
+    moon_ui_pause(true);
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);

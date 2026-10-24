@@ -203,6 +203,43 @@ esp_err_t clock_get_time(clock_time_t *out) {
     return ESP_OK;
 }
 
+esp_err_t clock_get_utc_epoch(int64_t *out) {
+    if (!out)
+        return ESP_ERR_INVALID_ARG;
+    if (!s_initialized)
+        return ESP_ERR_INVALID_STATE;
+
+    clock_time_t t;
+    esp_err_t ret = clock_get_time(&t);
+    if (ret != ESP_OK)
+        return ret;
+
+    // Reject implausible dates so callers (moon phase) show nothing rather
+    // than a wrong phase. validate_time covers the same ranges the RTC write
+    // path uses.
+    if (!validate_time(&t))
+        return ESP_ERR_INVALID_STATE;
+
+    // The RTC holds local (TZ/DST-adjusted) time; mktime interprets it as
+    // local and returns the UTC epoch. The TZ env var is set by
+    // clock_sntp_init() during clock_init, before any moon use.
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = t.year - 1900;
+    tm.tm_mon = t.month - 1;
+    tm.tm_mday = t.day;
+    tm.tm_hour = t.hour;
+    tm.tm_min = t.minute;
+    tm.tm_sec = t.second;
+    tm.tm_isdst = -1;
+    time_t epoch = mktime(&tm);
+    if (epoch == (time_t)-1)
+        return ESP_ERR_INVALID_STATE;
+
+    *out = (int64_t)epoch;
+    return ESP_OK;
+}
+
 esp_err_t clock_set_time(const clock_time_t *time) {
     if (!time || !s_initialized) {
         return ESP_ERR_INVALID_ARG;

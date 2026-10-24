@@ -1,6 +1,13 @@
 ## IDF Component Manager Manifest File
+##
+## The Waveshare ESP32-S3-Touch-AMOLED-1.75 BSP is vendored and patched in
+## components/esp32_s3_touch_amoled_1_75 (LVGL strip height 50 -> 25 rows so
+## the PSRAM->internal-RAM DMA staging copy fits the 32 KiB S3 SPI DMA
+## transaction limit). It shadows the managed `waveshare/esp32_s3_touch_amoled_1_75`
+## by name, so it is NOT declared as a registry dependency here; its own
+## idf_component.yml supplies the transitive deps (esp_lcd_co5300, the LVGL
+## adapter, the CST9217 touch, ...).
 dependencies:
   idf:
     version: '>=4.1.0'
   lvgl/lvgl: ^9
-  waveshare/esp32_s3_touch_amoled_1_75: '*'
