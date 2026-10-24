@@ -14,7 +14,6 @@
 #define MOON_DISK_RADIUS_PX 200.0
 #define MOON_IMAGE_SIZE 400
 #define MOON_RADIUS_M 1737400.0
-#define MOON_TERM_BAND_RAD 0.02 // |r.S| band half-width
 #define MOON_POSANGLE_SIGN 1.0
 #define MOON_TEX_LON_OFFSET 180.0
 
@@ -25,13 +24,15 @@
 // --- Relief DEM asset (int8, same equirect convention) ---
 // LOLA height quantized to int8 over [MOON_DEM_MIN, MOON_DEM_MAX] meters:
 // code = round((h - MIN) / (MAX - MIN) * MOON_DEM_STEPS) - 128. The bake
-// computes a 4-neighbor central-difference normal and blends it into the
-// Lambert term over |d| < MOON_TERM_BAND_RAD (see moon_bake.c).
-#define MOON_DEM_W 512
-#define MOON_DEM_H 256
+// computes a 4-neighbor central-difference normal and applies the
+// displaced-normal Lambert L = clip(lns, 0, 1) over the WHOLE lit disk
+// (lns = (d - G.S)/sqrt(1 + |G|^2), unclipped) -- the physically exact
+// displaced-heightfield model (see moon_bake.c).
+#define MOON_DEM_W 2048
+#define MOON_DEM_H 1024
 #define MOON_DEM_STEPS 254
-#define MOON_DEM_MIN_M -8161.66845703125
-#define MOON_DEM_MAX_M 9293.0341796875
+#define MOON_DEM_MIN_M -8518.19921875
+#define MOON_DEM_MAX_M 10416.568359375
 
 // --- Earthshine (phase-independent dark-side gradient) ---
 // R = A*x + B*x^2 + C*x^3, x = max(0, -d), d = r_hat . S. 8-bit units.

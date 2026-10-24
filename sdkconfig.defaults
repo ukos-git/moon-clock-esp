@@ -66,3 +66,25 @@ CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
+
+# --- Flash: the board has a 16MB chip (esptool flash_id). The 2MB layout in
+# git history was a config choice; the 2048x1024 relief DEM needs the
+# headroom (see partitions.csv, moon_assets = 2560K). ---
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# --- Moon-phase boot animation (row-sweep pipeline, last synodic month). ---
+CONFIG_UI_MOON_ANIM_ENABLE=y
+CONFIG_UI_MOON_ANIM_FRAMES=28
+# Test mode: replay the animation on every wake from sleep.
+CONFIG_UI_MOON_ANIM_ON_WAKE=y
+
+# --- Task watchdog: core 1 runs the bounded boot/wake moon-animation
+# producer (a high-priority ~2s/frame full-disk-relief bake) plus the LVGL
+# worker; together they starve the CPU1 idle task for the whole sweep,
+# which would trip the 5s WDT every 5s (log-only but noisy). The anim task
+# is bounded (28 frames then vTaskDelete) and self-cancelling, so a
+# permanent core-1 hang is not a realistic risk; keep core 0's idle check
+# as the hang safety net. ---
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n

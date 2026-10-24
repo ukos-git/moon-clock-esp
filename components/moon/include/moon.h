@@ -10,12 +10,11 @@
  *     moon_consts.h), ephemeris eraEpv00 + eraMoon98 (the same models
  *     the validated astropy pipeline uses internally).
  *   - bake: per-pixel base-sphere direction r = u*right + v*up + w*E,
- *     Lambert of the base-sphere dot d = r.S, with the int8 relief DEM
- *     normal (4-neighbor gradient) blended in over the thin band
- *     |d| < MOON_TERM_BAND_RAD (mountain shadows at the terminator),
- *     equirect albedo sampled with the live camera basis (libration +
- *     posangle exact), then the phase-independent earthshine, then the
- *     256-entry tone LUT.
+ *     full-disk displaced-normal Lambert L = clip(lns, 0, 1) from the int8
+ *     relief DEM (4-neighbor gradient; mountain shadows at the
+ *     terminator), equirect albedo sampled with the live camera basis
+ *     (libration + posangle exact), then the phase-independent
+ *     earthshine, then the 256-entry tone LUT.
  *   - rotate: fixed-point in-plane gather ("ball in hand").
  */
 #ifndef MOON_H

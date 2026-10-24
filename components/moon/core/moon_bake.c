@@ -4,14 +4,16 @@
  * renderer.earthshine/tonemap 1:1 (the validated device model):
  *
  *   r_body = u*right + v*up + w*E        (base unit direction, body frame)
- *   d      = r_body . S                  (base-sphere dot, terminator + es)
- *   L      = clip(d, 0, 1) outside the band |d| < MOON_TERM_BAND_RAD
- *            (full Lambert); inside the band the DEM relief normal is
- *            blended in: L = clip(d + (lns - d)*w, 0, 1), w =
- *            (band - |d|)/band (mountain shadows at the terminator -- the
- *            ragged edge + crater shadows the NASA frames carry). The DEM
- *            is sampled ONLY inside the band, so the bake stays close to
- *            the relief-free cost (a few % of pixels pay the 4-tap).
+ *   d      = r_body . S                  (base-sphere dot; drives earthshine)
+ *   L      = clip(lns, 0, 1), lns = (d - G.S)/sqrt(1 + |G|^2) UNCLIPPED
+ *            -- the displaced-normal Lambert applied over the WHOLE lit
+ *            disk (mountain shadows at the terminator: the ragged edge +
+ *            the fully dark shadow side of crater ridges the NASA frames
+ *            carry). The old thin-band blend of a CLIPPED relief term
+ *            (|d| < MOON_TERM_BAND_RAD, lns floored at 0) left the
+ *            terminator 3-7x too soft; unclipped full-disk relief at a
+ *            2048x1024 DEM matches the NASA terminator contrast.
+ *            dem == NULL: relief-free L = clip(d, 0, 1).
  *   raw    = albedo(lon_tex, lat_body) * L     (equirect, nearest-neighbor)
  *   es     = A*x + B*x^2 + C*x^3, x = max(0, -d)   (phase-independent)
  *   out    = clamp(TONE_LUT[round(raw)] + es)     (8-bit units)
@@ -31,14 +33,17 @@
  * (see assets.py::relief_lns for the derivation); at the slopes present
  * (<< 0.3 rad) the truncation error is < 0.5%.
  *
- * Per-pixel cost outside the band is a few FPU ops + ONE albedo read. The
- * Xtensa FPU has no atan/asin, so the texture long/lat come from two small
- * internal-RAM tables (worst-case error << 0.05 texture row / 0.001 deg)
- * instead of the libm transcendentals, and the albedo is sampled
- * nearest-neighbor: the 864-wide texture is ~1.05 texture px per screen px
- * on the disk, so NN is sub-pixel-accurate. (The validated gate re-checks
- * the NN/bilinear and table/atan2 differences against the Python model
- * after any change here.)
+ * Per-pixel cost: a few FPU ops + ONE albedo read + (when the DEM is
+ * present) a fixed 4-neighbor DEM gather for the relief normal --
+ * DEM-resolution-independent, so the 2048-wide DEM costs the same as the
+ * 512-wide one (the animation is display-rate-limited, not bake-limited).
+ * The Xtensa FPU has no atan/asin, so the texture long/lat come from two
+ * small internal-RAM tables (worst-case error << 0.05 texture row /
+ * 0.001 deg) instead of the libm transcendentals, and the albedo is
+ * sampled nearest-neighbor: the 864-wide texture is ~1.05 texture px per
+ * screen px on the disk, so NN is sub-pixel-accurate. (The validated gate
+ * re-checks the NN/bilinear and table/atan2 differences against the
+ * Python model after any change here.)
  */
 #include "moon.h"
 #include "moon_consts.h"
@@ -112,10 +117,14 @@ static float earthshine(float d) {
     return MOON_ES_A * x + MOON_ES_B * x * x + MOON_ES_C * x * x * x;
 }
 
-/* Relief-normal sun dot lns = max(N . S, 0) from the 4-neighbor DEM
- * gradient (body frame; see file header). dem_w/dem_h are the DEM
- * dimensions (MOON_DEM_W/H). rx,ry,rz is the unit base direction, d =
- * r . S. Returns the clipped relief Lambert term. */
+/* Relief-normal sun dot lns = (d - G.S)/sqrt(1 + |G|^2) -- UNCLIPPED --
+ * from the 4-neighbor DEM gradient (body frame; see file header).
+ * dem_w/dem_h are the DEM dimensions (MOON_DEM_W/H). rx,ry,rz is the unit
+ * base direction, d = r . S. Goes negative on slopes facing away from the
+ * Sun (a ridge's shadow side); the caller clips at 0 so the dark side gets
+ * no direct light. The old max(lns, 0) floor is what kept the terminator
+ * shadows from going fully dark -- and left the edge 3-7x too soft vs the
+ * NASA frames. */
 static float relief_lns(const int8_t *dem, int dem_w, int dem_h, float rx, float ry, float rz, float d, const float *S,
                         float theta, float row_frac, float mps) {
     /* DEM texel (same equirect convention as the albedo). */
@@ -204,15 +213,15 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *d
                 r = alb_h - 1;
             float A = (float)albedo[r * alb_w + c];
 
-            /* Lighting: full Lambert, relief normal blended in the band. */
-            float ad = d < 0.0f ? -d : d;
+            /* Lighting: full-disk displaced-normal Lambert (see header).
+             * lns is unclipped; clip at 0 so the dark side (d < 0 and
+             * shadowed slopes) gets no direct light -- earthshine below
+             * carries the dark zone. */
             float L;
-            if (ad >= MOON_TERM_BAND_RAD || dem == NULL) {
+            if (dem == NULL) {
                 L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
             } else {
-                float lns = relief_lns(dem, MOON_DEM_W, MOON_DEM_H, rx, ry, rz, d, g->S, theta, row_frac, mps);
-                float wgt = (MOON_TERM_BAND_RAD - ad) / MOON_TERM_BAND_RAD;
-                L = d + (lns - d) * wgt;
+                L = relief_lns(dem, MOON_DEM_W, MOON_DEM_H, rx, ry, rz, d, g->S, theta, row_frac, mps);
                 if (L < 0.0f)
                     L = 0.0f;
                 else if (L > 1.0f)
