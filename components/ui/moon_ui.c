@@ -52,12 +52,15 @@
  * place, so the current phase is baked again with the basis pre-rotated
  * (moon_orbit_geometry rotates the (right, up, E) basis; the core
  * bake is unchanged and stays gate-safe). A dedicated task bakes the
- * frame row by row (~2.3 s with the relief DEM) and sweeps the new
- * frame into the display 25-row strips top-to-bottom at a frozen
- * in-plane angle -- the viewport moves as a sweep, never a pop --
- * while the in-plane spin is held for the ~3 s bake+sweep so no seam
- * crosses the sweep line. Latest-wins: a target that moves mid-bake
- * starts a fresh bake right after.
+ * whole frame off screen (~1.7-2.4 s with the relief DEM, row by row
+ * so a cancel is honored quickly); when it is done, the tick sweeps
+ * the finished frame into the display with the SAME 2-strip batches
+ * as the burn-in spin, so the viewport change lands as one ~400 ms
+ * frame -- the same sequential update as the spin -- instead of a
+ * progressive top-to-bottom wipe over the bake. The in-plane spin is
+ * held for the bake+sweep so no rotated frame crosses the sweep.
+ * Latest-wins: a target that moves mid-bake starts a fresh bake right
+ * after.
  *
  * Tilt is also the activity/wake input: a 1 Hz monitor measures the
  * angle between successive raw gravity samples and reports sustained
@@ -231,6 +234,7 @@ static SemaphoreHandle_t s_rgb_mtx;    /* guards s_rgb (+ s_frame while baking) 
  * system's. */
 static volatile uint32_t s_perf_render_us;
 static volatile uint32_t s_perf_refr_us;
+static volatile uint32_t s_perf_orbit_us; /* orbit sweep display cost */
 
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
@@ -377,8 +381,9 @@ static void moon_spin_task(void *arg) {
     (void)arg;
     for (;;) {
         /* Paused (not stopped) while the orbit owns the buffer: its
-         * bake + sweep rewrites s_frame and sweeps s_rgb row by row.
-         * The tick re-anchors the angle at the end of the sweep. */
+         * bake rewrites s_frame (row by row, off screen) and the tick
+         * then sweeps s_rgb in the spin's 2-strip batches. The tick
+         * re-anchors the angle at the end of the sweep. */
         while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping))
             vTaskDelay(pdMS_TO_TICKS(50));
         if (s_spin_cancel)
@@ -490,11 +495,14 @@ static void moon_orbit_interrupt(void);
 
 /* ---------------- out-of-plane orbit (sphere model) ---------------- */
 
-/* Bake the current phase at the given orbit angle, row by row, sweeping
- * each converted row into the display (s_rgb). The sweep is what makes
- * the viewport change a top-to-bottom motion instead of a pop. The task
- * owns s_frame and s_rgb's row content, but never the images' validity
- * -- the tick shows strips like the boot animation. */
+/* Bake the current phase at the given orbit angle -- the WHOLE frame,
+ * off screen (row by row, per-row critical sections so a cancel is
+ * honored quickly). When it is done the tick sweeps the finished frame
+ * into the display with the same 2-strip batches as the burn-in spin,
+ * so the viewport change lands as one ~400 ms frame -- the same
+ * sequential update as the spin -- instead of a progressive
+ * top-to-bottom wipe over the ~2.4 s bake. The task owns s_frame and
+ * s_rgb's row content, but never the images' validity. */
 static void moon_orbit_task(void *arg) {
     (void)arg;
     int64_t epoch = s_orbit_epoch;
@@ -531,16 +539,16 @@ static void moon_orbit_task(void *arg) {
         for (int x = 0; x < MOON_PX; x++)
             rrow[x] = moon_gray565(frow[x]);
         xSemaphoreGive(s_rgb_mtx);
-        /* rows_done (one atomic 32-bit load for the consumer). */
-        s_orbit_pub = (uint32_t)(y + 1);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
     int64_t t1 = esp_timer_get_time();
+    if (!s_orbit_cancel)
+        s_orbit_pub = MOON_PX; /* the tick sweeps the finished frame in */
     s_orbit_baking = false;
     if (!s_orbit_cancel)
         s_orbit_baked = target_deg; /* the on-screen frame IS this viewport */
-    ESP_LOGI(TAG, "orbit %+d deg %s in %lldms", target_deg, s_orbit_cancel ? "interrupted" : "baked+swept",
+    ESP_LOGI(TAG, "orbit %+d deg %s in %lldms (sweep follows)", target_deg, s_orbit_cancel ? "interrupted" : "baked",
              (long long)((t1 - t0) / 1000));
     vTaskDelete(NULL);
 }
@@ -788,24 +796,34 @@ static void moon_tick_cb(lv_timer_t *timer) {
         int strips_ready = (int)((uint32_t)s_orbit_pub / MOON_STRIP_ROWS);
         if (strips_ready > MOON_NSTRIPS)
             strips_ready = MOON_NSTRIPS;
-        if (strips_ready > s_orbit_strip_shown) {
-            for (int s = s_orbit_strip_shown; s < strips_ready; s++) {
+        int show = strips_ready - s_orbit_strip_shown;
+        if (show > MOON_SPIN_BATCH)
+            show = MOON_SPIN_BATCH; /* the same 2-strip batches as the spin */
+        if (show > 0) {
+            int last = s_orbit_strip_shown + show;
+            for (int s = s_orbit_strip_shown; s < last; s++) {
                 lv_area_t a = {.x1 = (lv_coord_t)MOON_IMG_POS,
                                .y1 = (lv_coord_t)(MOON_IMG_POS + s * MOON_STRIP_ROWS),
                                .x2 = (lv_coord_t)(MOON_IMG_POS + MOON_PX - 1),
                                .y2 = (lv_coord_t)(MOON_IMG_POS + (s + 1) * MOON_STRIP_ROWS - 1)};
                 for (int i = 0; i < s_n_images; i++)
                     lv_obj_invalidate_area(s_images[i], &a);
-                s_orbit_strip_shown = s + 1;
             }
+            s_orbit_strip_shown = last;
             /* Same mutex-guarded drain as the spin batches: pixels out
              * of s_rgb into LVGL's draw buffers before the next strip
              * may be reused. */
+            int64_t r0 = esp_timer_get_time();
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);
             xSemaphoreGive(s_rgb_mtx);
+            s_perf_orbit_us += (uint32_t)(esp_timer_get_time() - r0);
         }
         if (s_orbit_strip_shown >= MOON_NSTRIPS) {
+            /* Perf (task #24): the sweep's display cost (the bake cost
+             * is the task's log line). */
+            ESP_LOGI(TAG, "orbit sweep shown in %dms", (int)(s_perf_orbit_us / 1000));
+            s_perf_orbit_us = 0;
             /* Re-anchor (under the buffer mutex) BEFORE clearing the
              * sweep flag: the render polls s_orbit_sweeping and cannot
              * compute a post-sweep angle until it is false, and it

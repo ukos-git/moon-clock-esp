@@ -142,9 +142,12 @@ menu "UI Component Configuration"
             rotates the camera around the moon, so the dark side can be
             peeked at -- on a near-full moon this reveals the
             unilluminated limb. This requires a re-bake with a
-            pre-rotated camera basis (~2.3 s with the relief DEM on
-            this board), delivered as a top-to-bottom sweep so the
-            viewport never pops. The in-plane spin (UI_IMU_ENABLE)
+            pre-rotated camera basis (~1.7-2.4 s with the relief DEM
+            on this board); the finished frame is then swept into the
+            display with the same 2-strip batches as the burn-in spin
+            (one ~400 ms frame -- the same sequential update the spin
+            uses), so the viewport change lands as a frame instead of
+            a slow wipe. The in-plane spin (UI_IMU_ENABLE)
             composes on top; UI_IMU_ANGLE_SIGN applies to both.
 
     config UI_MOON_ORBIT_MAX_DEG
