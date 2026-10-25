@@ -110,4 +110,63 @@ menu "UI Component Configuration"
             of the device maps to a chosen moon spin angle. 0 = the
             gravity angle is used as-is.
 
+    config UI_MOON_ORBIT_ENABLE
+        bool "Sphere model: peek at the dark side via out-of-plane tilt"
+        default y
+        help
+            The moon behaves like a sphere: the out-of-plane tilt of the
+            device (the angle between the screen normal and vertical,
+            0 deg at vertical / wall-mounted, 90 deg flat on a table)
+            rotates the camera around the moon, so the dark side can be
+            peeked at -- on a near-full moon this reveals the
+            unilluminated limb. This requires a re-bake with a
+            pre-rotated camera basis (~2.3 s with the relief DEM on
+            this board), delivered as a top-to-bottom sweep so the
+            viewport never pops. The in-plane spin (UI_IMU_ENABLE)
+            composes on top; UI_IMU_ANGLE_SIGN applies to both.
+
+    config UI_MOON_ORBIT_MAX_DEG
+        int "Max orbit (peek) angle in degrees"
+        default 30
+        range 0 60
+        help
+            The viewport only moves by the tilt up to this limit:
+            beyond it the orbit is clamped. 0 disables the orbit
+            (the moon stays on its default viewport regardless of
+            out-of-plane tilt). A wall-mounted device reads ~0 deg
+            (vertical = the default viewport); flat on a table it
+            reads 90 deg, which clamps to this limit.
+
+    config UI_MOON_ORBIT_STEP_DEG
+        int "Orbit quantization step in degrees (re-bake trigger)"
+        default 1
+        range 1 10
+        help
+            The orbit angle is quantized to this step and the re-bake
+            only runs when the quantized target moves. 1 degree is the
+            default (no visible stutter at rest); raise it (e.g. 3-5)
+            if the ~2.3 s re-bake makes viewport changes feel too
+            slow for the device's re-draw performance.
+
+    config UI_MOON_ORBIT_DEADZONE_DEG
+        int "Orbit dead zone in degrees"
+        default 2
+        range 0 15
+        help
+            Quantized orbit angles inside +/- this band map to the
+            default viewport (0), so table jitter (at-rest floor
+            measured at ~1.5 deg/s mean, 3.3 deg/s p90 at 1 Hz on
+            this board) cannot walk the viewport around.
+
+    config UI_MOON_ORBIT_LPF_ALPHA
+        int "Orbit low-pass filter coefficient in percent (5-95)"
+        default 30
+        range 5 95
+        help
+            Exponential smoothing on the orbit angle, applied at the
+            20 Hz UI tick, as a percentage: 30 = alpha 0.30 per tick.
+            Together with the dead zone and the quantization step this
+            eliminates sensor stutter; raise it for a snappier
+            (jitterier) response, lower it for a heavier low-pass.
+
 endmenu

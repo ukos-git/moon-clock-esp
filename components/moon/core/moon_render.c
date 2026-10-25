@@ -34,12 +34,10 @@ uint16_t moon_gray565(uint8_t g) {
     return g565[g];
 }
 
-void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
-                 int32_t cos15, int32_t sin15) {
-    if (!g565_init)
-        g565_build();
+static void moon_rotate_range(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx,
+                              int f_cy, int32_t cos15, int32_t sin15, int y0, int y1) {
     int32_t c15 = cos15, s15 = sin15;
-    for (int y = 0; y < size; y++) {
+    for (int y = y0; y < y1; y++) {
         int dy = y - cy;
         uint16_t *row = &out[y * size];
         /* 4 pixels per iteration with incremental Q15.15 updates (fx += c15,
@@ -69,4 +67,18 @@ void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, 
             }
         }
     }
+}
+
+void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
+                 int32_t cos15, int32_t sin15) {
+    if (!g565_init)
+        g565_build();
+    moon_rotate_range(frame, frame_size, out, size, cx, cy, f_cx, f_cy, cos15, sin15, 0, size);
+}
+
+void moon_rotate_rows(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
+                      int32_t cos15, int32_t sin15, int y0, int y1) {
+    if (!g565_init)
+        g565_build();
+    moon_rotate_range(frame, frame_size, out, size, cx, cy, f_cx, f_cy, cos15, sin15, y0, y1);
 }

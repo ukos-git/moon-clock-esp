@@ -8,14 +8,45 @@
  *     of the baked frame into the RGB565 panel buffer -- the "ball in hand".
  *
  * Tilt input: the on-board QMI8658 (components/imu) is the ONLY input to
- * the moon (touch is the core-UI wake input, never a moon input). In
- * normal modes the in-plane angle follows the screen-plane roll
- * (gravity vector, EMA-smoothed) -- theta = UI_IMU_ANGLE_SIGN *
- * (offset - roll) -- so turning the device turns the moon "ball in
- * hand". With the IMU absent or UI_IMU_ENABLE off the moon is static.
- * The IMU angle sign/offset are Kconfig knobs (UI_IMU_ANGLE_SIGN /
+ * the moon (touch is the core-UI wake input, never a moon input). The
+ * gravity vector drives two channels, giving the device a sphere feel:
+ *
+ *   - in-plane roll: the screen-plane angle atan2(gy, gx),
+ *     EMA-smoothed in the driver -- theta = UI_IMU_ANGLE_SIGN *
+ *     (offset - roll). It rotates the baked frame in place (cheap NN
+ *     gather) so turning the device turns the moon "ball in hand".
+ *
+ *   - out-of-plane orbit (the sphere model): the angle between the
+ *     screen normal and vertical, asin(-gz) in screen coordinates --
+ *     0 deg when the device is vertical (wall mount: the DEFAULT
+ *     viewport), 90 deg flat on a table. It rotates the camera around
+ *     the moon, so the dark side can be peeked at (on a near-full moon
+ *     that reveals the unilluminated limb). The chip's z axis is the
+ *     out-of-screen axis (calibrated (0, 0, -1) at rest), so the raw
+ *     reading is used as-is. A gravity vector has 2 DOF, so pure
+ *     in-plane yaw is not observable; that residual is the spin above.
+ *     The orbit is low-passed (UI_MOON_ORBIT_LPF_ALPHA), dead-zoned
+ *     (UI_MOON_ORBIT_DEADZONE_DEG, above the measured at-rest jitter
+ *     floor), clamped to +/- UI_MOON_ORBIT_MAX_DEG (default 30) and
+ *     quantized to UI_MOON_ORBIT_STEP_DEG (default 1); only the
+ *     quantized target triggers a re-bake.
+ *
+ * With the IMU absent or UI_IMU_ENABLE off the moon is static. The IMU
+ * angle sign/offset are Kconfig knobs (UI_IMU_ANGLE_SIGN /
  * UI_IMU_ROLL_OFFSET_DEG) because the board's IMU mounting orientation
- * is not known at code level.
+ * is not known at code level; UI_IMU_ANGLE_SIGN applies to both
+ * channels.
+ *
+ * The orbit re-bake: changing the camera basis cannot be gathered in
+ * place, so the current phase is baked again with the basis pre-rotated
+ * (moon_orbit_geometry rotates the (right, up, E) basis; the core
+ * bake is unchanged and stays gate-safe). A dedicated task bakes the
+ * frame row by row (~2.3 s with the relief DEM) and sweeps the new
+ * frame into the display 25-row strips top-to-bottom at a frozen
+ * in-plane angle -- the viewport moves as a sweep, never a pop --
+ * while the in-plane spin is held for the ~3 s bake+sweep so no seam
+ * crosses the sweep line. Latest-wins: a target that moves mid-bake
+ * starts a fresh bake right after.
  *
  * Tilt is also the activity/wake input: a 1 Hz monitor measures the
  * angle between successive raw gravity samples and reports sustained
@@ -112,6 +143,21 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_IMU_ROLL_OFFSET_DEG
 #define CONFIG_UI_IMU_ROLL_OFFSET_DEG 0
 #endif
+#ifndef CONFIG_UI_MOON_ORBIT_ENABLE
+#define CONFIG_UI_MOON_ORBIT_ENABLE 1
+#endif
+#ifndef CONFIG_UI_MOON_ORBIT_MAX_DEG
+#define CONFIG_UI_MOON_ORBIT_MAX_DEG 30
+#endif
+#ifndef CONFIG_UI_MOON_ORBIT_STEP_DEG
+#define CONFIG_UI_MOON_ORBIT_STEP_DEG 1
+#endif
+#ifndef CONFIG_UI_MOON_ORBIT_DEADZONE_DEG
+#define CONFIG_UI_MOON_ORBIT_DEADZONE_DEG 2
+#endif
+#ifndef CONFIG_UI_MOON_ORBIT_LPF_ALPHA
+#define CONFIG_UI_MOON_ORBIT_LPF_ALPHA 30
+#endif
 #define SYNODIC_S (29.53 * 86400.0)
 
 static uint8_t *s_frame;     /* 8-bit baked frame, MOON_PX^2 */
@@ -126,9 +172,24 @@ static bool s_started; /* moon_ui_start() called; ticks may run */
 static float s_theta;              /* in-plane angle, rad (ball-in-hand) */
 static float s_last_rotated_theta; /* last angle the RGB buffer was built at */
 
-static int64_t s_baked_day; /* calendar day of the last static bake */
-static bool s_anim;         /* boot animation in progress */
-static int64_t s_anim_end;  /* epoch the animation ends on (now) */
+static int64_t s_baked_day;   /* calendar day of the last static bake */
+static bool s_anim;           /* boot animation in progress */
+static int64_t s_anim_end;    /* epoch the animation ends on (now) */
+static int64_t s_orbit_epoch; /* utc the last static bake was for (0 = none) */
+
+/* Out-of-plane orbit (sphere model) state. The quantized target is what
+ * drives re-bakes; the smoothed angle is what the in-plane hold tracks.
+ * The task publishes (epoch_ms, rows_done) like the anim pipeline. */
+static volatile bool s_orbit_baking;    /* bake task running */
+static volatile bool s_orbit_cancel;    /* stop the running bake */
+static volatile bool s_orbit_sweeping;  /* the tick is showing the baked frame's strips */
+static volatile int32_t s_orbit_target; /* quantized orbit angle, deg (signed) */
+static volatile int32_t s_orbit_baked;  /* orbit angle the on-screen frame was last baked at */
+static volatile uint32_t s_orbit_pub;   /* rows fully converted (0..MOON_PX) */
+static volatile int s_orbit_strip_shown;
+static TaskHandle_t s_orbit_task;
+static float s_orbit_lpf; /* low-passed orbit angle, rad */
+static bool s_orbit_have; /* s_orbit_lpf holds a value */
 
 /* Row-sweep pipeline state. Producer = the moon_anim task (pinned to
  * core 1), consumer = the LVGL tick (50 ms). The producer publishes one
@@ -165,11 +226,54 @@ static void moon_rotate_into_rgb(void) {
     moon_invalidate_all();
 }
 
+/* Sphere-model camera: rotate the camera basis about the right
+ * (screen-horizontal) axis by the orbit angle -- "move the camera around
+ * the sphere" (the moon is fixed in the body frame, so equivalently
+ * rotate the moon sphere the way the device tilts it). E is the body
+ * direction the camera looks at, so the orbit mixes (up, E) and leaves
+ * right unchanged; the light source S stays put (body frame), so the lit
+ * side of the moon does not move -- only which side of the disk the
+ * camera sees, which is what reveals the dark limb.
+ *
+ * Sign convention (verified against the device frame, screen coords x
+ * right / y down / z toward the viewer, gravity calibrated (0,0,-1) at
+ * rest): orbit angle = asin(-gz) = 0 deg vertical (wall, default
+ * viewport), positive when the top of the device tilts away from the
+ * viewer (toward the table side) -- then the BOTTOM limb of the moon
+ * moves toward the viewer and the visible pole moves to -up, i.e.
+ * E_new = cos(o) E - sin(o) up (and up_new = cos(o) up + sin(o) E).
+ * The in-plane spin composes on top via moon_rotate (the gather is
+ * exact for a pure camera roll about E; the orbit is small -- clamped
+ * to UI_MOON_ORBIT_MAX_DEG -- so the composition tracks the true
+ * 3D camera to within a few degrees even at the clamp).
+ * UI_IMU_ANGLE_SIGN is applied to the quantized target (like the spin),
+ * so this takes the target in radians as-is. */
+static void moon_orbit_geometry(const moon_geom_t *src, float orbit_rad, moon_geom_t *dst) {
+    *dst = *src;
+    float c = cosf(orbit_rad), s = sinf(orbit_rad);
+    float e[3], u[3];
+    e[0] = c * src->E[0] - s * src->up[0];
+    e[1] = c * src->E[1] - s * src->up[1];
+    e[2] = c * src->E[2] - s * src->up[2];
+    u[0] = c * src->up[0] + s * src->E[0];
+    u[1] = c * src->up[1] + s * src->E[1];
+    u[2] = c * src->up[2] + s * src->E[2];
+    dst->E[0] = e[0];
+    dst->E[1] = e[1];
+    dst->E[2] = e[2];
+    dst->up[0] = u[0];
+    dst->up[1] = u[1];
+    dst->up[2] = u[2];
+    /* right unchanged (orbit axis). */
+}
+
 static void moon_bake_epoch(int64_t epoch) {
     moon_geom_t g;
     int64_t t0 = esp_timer_get_time();
     moon_geometry(epoch, &g);
     int64_t t1 = esp_timer_get_time();
+    s_orbit_epoch = epoch; /* orbit re-bakes reuse the same phase */
+    s_orbit_baked = 0;     /* a static bake shows the default viewport */
     const uint8_t *alb = moon_albedo();
     if (!alb) {
         ESP_LOGE(TAG, "no albedo; moon stays black");
@@ -306,6 +410,10 @@ static void moon_anim_skip_to_now(void) {
     }
 }
 
+/* Forward decl: defined in the orbit section below (the sweep pipeline
+ * must be cancelled before the animation takes over s_frame/s_rgb). */
+static void moon_orbit_interrupt(void);
+
 /* Start the animation pipeline (shared by moon_ui_start and the
  * wake-from-sleep replay hook). Holds the idle->sleep timer for the
  * sweep so it is never cut off mid-animation. */
@@ -317,6 +425,7 @@ static void moon_anim_begin(void) {
         ESP_LOGW(TAG, "no UTC time yet; moon stays blank until the clock syncs");
         return;
     }
+    moon_orbit_interrupt(); /* the sweep owns the buffers; default viewport */
     s_anim_end = now;
     s_baked_day = now / 86400;
     s_theta = 0.0f;
@@ -344,18 +453,139 @@ static void moon_anim_begin(void) {
              CONFIG_UI_MOON_ANIM_FRAMES);
 }
 
-/* ---------------- tilt (QMI8658) ---------------- */
+/* ---------------- out-of-plane orbit (sphere model) ---------------- */
 
-/* The device's screen-plane roll sets the ball angle: theta = sign *
- * (offset - roll). The driver EMA-smooths the roll and drops implausible
- * samples; a missing IMU (or UI_IMU_ENABLE off) leaves the angle alone,
- * so the moon is static and only drag spins it. */
+/* Bake the current phase at the given orbit angle, row by row, sweeping
+ * each converted row into the display (s_rgb) at a FROZEN in-plane
+ * angle. The sweep is what makes the viewport change a top-to-bottom
+ * motion instead of a pop; the frozen angle (captured at task start)
+ * keeps the in-plane spin from tearing a seam across the sweep line.
+ * The task owns s_frame and s_rgb's row content, but never the images'
+ * validity -- the tick shows strips like the boot animation. */
+static void moon_orbit_task(void *arg) {
+    (void)arg;
+    int64_t epoch = s_orbit_epoch;
+    const uint8_t *alb = moon_albedo();
+    const int8_t *dem = moon_dem();
+    if (!alb) {
+        ESP_LOGE(TAG, "no albedo; orbit bake aborted");
+        s_orbit_baking = false;
+        vTaskDelete(NULL);
+    }
+    if (!dem)
+        ESP_LOGW(TAG, "no relief DEM; orbit bake relief-free");
+    int32_t target_deg = s_orbit_target;
+    /* The target is signed (UI_IMU_ANGLE_SIGN applied at quantization),
+     * so the basis rotation takes it as-is. */
+    float orbit = (float)target_deg * (float)M_PI / 180.0f;
+    moon_geom_t g;
+    moon_geometry(epoch, &g);
+    moon_orbit_geometry(&g, orbit, &g);
+    /* Frozen in-plane angle for the sweep: the display keeps exactly the
+     * image it showed when the bake started, rows by row. */
+    int32_t c15 = moon_cos15(s_theta);
+    int32_t s15 = moon_sin15(s_theta);
+    int64_t t0 = esp_timer_get_time();
+    for (int y = 0; y < MOON_PX && !s_orbit_cancel; y++) {
+        moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
+                       MOON_ALB_H, y, y + 1);
+        if (s_theta == 0.0f) {
+            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+            for (int x = 0; x < MOON_PX; x++)
+                rrow[x] = moon_gray565(frow[x]);
+        } else {
+            moon_rotate_rows(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, c15,
+                             s15, y, y + 1);
+        }
+        /* rows_done (one atomic 32-bit load for the consumer). */
+        s_orbit_pub = (uint32_t)(y + 1);
+        if ((y & 15) == 15)
+            vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+    }
+    int64_t t1 = esp_timer_get_time();
+    s_orbit_baking = false;
+    if (!s_orbit_cancel)
+        s_orbit_baked = target_deg; /* the on-screen frame IS this viewport */
+    ESP_LOGI(TAG, "orbit %+d deg %s in %lldms", target_deg, s_orbit_cancel ? "interrupted" : "baked+swept",
+             (long long)((t1 - t0) / 1000));
+    vTaskDelete(NULL);
+}
+
+/* Kick off the orbit bake for s_orbit_target (latest-wins: the task
+ * reads s_orbit_target at its start, so a target that moved mid-bake
+ * starts a fresh bake right after the running one finishes). */
+static void moon_orbit_start(void) {
+    int64_t epoch = s_orbit_epoch;
+    if (epoch <= 0)
+        return; /* nothing baked yet (anim running or no time) */
+    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 8192, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
+                                1) != pdPASS) {
+        ESP_LOGE(TAG, "orbit task allocation failed; viewport stays at the last bake");
+        return;
+    }
+    s_orbit_baking = true;
+    s_orbit_sweeping = true;
+    s_orbit_strip_shown = 0;
+    s_orbit_pub = 0;
+    /* Hold the idle->sleep timer for the bake+sweep (~3 s) so the device
+     * cannot sleep into the middle of a viewport change. */
+    if (!clock_is_idle())
+        clock_idle_set_enabled(false);
+}
+
+/* Start a bake if the quantized target is set and no bake/sweep is in
+ * flight. Called from the tick (cheap flag checks); latest-wins falls
+ * out of the target being read at task start. */
+static void moon_orbit_drain(void) {
+    if (!CONFIG_UI_MOON_ORBIT_ENABLE || s_anim || s_orbit_baking || s_orbit_sweeping)
+        return;
+    if (s_orbit_target == 0 || s_orbit_target == s_orbit_baked)
+        return; /* default viewport, or the on-screen frame is this viewport */
+    moon_orbit_start();
+}
+
+/* Cancel the running orbit bake/sweep and leave a clean default-viewport
+ * state. Called on the sleep transition and when the boot animation
+ * (re)starts, both of which take over s_frame/s_rgb. */
+static void moon_orbit_interrupt(void) {
+    if (s_orbit_baking) {
+        s_orbit_cancel = true;
+        int waited = 0;
+        /* The task exits at its next yield (~one row, a few ms). */
+        while (s_orbit_baking && waited < 400) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waited += 10;
+        }
+        if (s_orbit_baking)
+            ESP_LOGW(TAG, "orbit task did not exit within 400 ms; forcing state clear");
+    }
+    s_orbit_cancel = false;
+    s_orbit_baking = false;
+    s_orbit_sweeping = false;
+    s_orbit_strip_shown = 0;
+    s_orbit_pub = 0;
+    s_orbit_target = 0; /* sleep/anim shows the default viewport */
+    if (!clock_is_idle())
+        clock_idle_set_enabled(true);
+}
+
+/* The tilt is the moon's input: the in-plane roll sets the ball angle,
+ * theta = sign * (offset - roll) -- the driver EMA-smooths the roll and
+ * drops implausible samples; a missing IMU (or UI_IMU_ENABLE off) leaves
+ * the angle alone, so the moon is static. The out-of-plane orbit (sphere
+ * model) comes from the same gravity vector: angle from vertical
+ * asin(-gz) (chip z is the out-of-screen axis, calibrated (0,0,-1) at
+ * rest), low-passed, dead-zoned, clamped to +/- UI_MOON_ORBIT_MAX_DEG,
+ * quantized to UI_MOON_ORBIT_STEP_DEG -- only a moved quantized target
+ * triggers a re-bake. */
 static float s_last_roll; /* last good gravity angle (rad), for the 1 Hz diagnostic line */
 static bool s_last_roll_ok;
 
 static void moon_imu_tick(void) {
     if (!CONFIG_UI_IMU_ENABLE)
         return;
+    static const float DEG = 0.017453292519943295f;
     float roll;
     if (!imu_read_roll(&roll)) {
         s_last_roll_ok = false;
@@ -363,13 +593,64 @@ static void moon_imu_tick(void) {
     }
     s_last_roll_ok = true;
     s_last_roll = roll;
-    static const float DEG = 0.017453292519943295f;
     float th = CONFIG_UI_IMU_ANGLE_SIGN * ((float)CONFIG_UI_IMU_ROLL_OFFSET_DEG * DEG - roll);
     while (th > 3.14159265f)
         th -= 6.2831853f;
     while (th < -3.14159265f)
         th += 6.2831853f;
     s_theta = th;
+
+    if (!CONFIG_UI_MOON_ORBIT_ENABLE)
+        return;
+    float g[3];
+    if (!imu_read_gravity(g))
+        return;
+    /* Orbit angle from the wall (vertical) position (rad): 0 when the
+     * screen is vertical (wall-mounted: the DEFAULT viewport), 90 deg
+     * flat on a table (clamped to the max). The chip's z axis is the
+     * out-of-screen axis, so gravity-z is -cos of that angle. Sign:
+     * UI_IMU_ANGLE_SIGN like the spin (tilting the top toward the face
+     * reveals the north limb, away reveals the south -- ball in hand).
+     *
+     * The driver's |g| band (0.5-1.5) does not bound the COMPONENTS:
+     * near-flat (g[2] ~ -0.998) a single sample can read |g[2]| just
+     * over 1, and asinf(|x| > 1) is NaN, which would poison the EMA
+     * below for the rest of the boot. Clamp the argument instead. */
+    float gz = -g[2];
+    if (gz > 1.0f)
+        gz = 1.0f;
+    else if (gz < -1.0f)
+        gz = -1.0f;
+    float raw = CONFIG_UI_IMU_ANGLE_SIGN * asinf(gz);
+    /* Low-pass (EMA) at the 20 Hz UI tick: kills sensor stutter. */
+    if (s_orbit_have)
+        s_orbit_lpf += (float)CONFIG_UI_MOON_ORBIT_LPF_ALPHA / 100.0f * (raw - s_orbit_lpf);
+    else {
+        s_orbit_lpf = raw;
+        s_orbit_have = true;
+    }
+    int32_t deg = (int32_t)lrintf(s_orbit_lpf * 57.29577951308232f);
+    int32_t sgn = (deg < 0) ? -1 : 1;
+    int32_t mag = (deg < 0) ? -deg : deg;
+    /* Dead zone: inside the band the viewport is the default one (the
+     * measured at-rest jitter floor cannot walk it around). */
+    if (mag <= (int32_t)CONFIG_UI_MOON_ORBIT_DEADZONE_DEG)
+        mag = 0;
+    else if (mag > (int32_t)CONFIG_UI_MOON_ORBIT_MAX_DEG)
+        mag = CONFIG_UI_MOON_ORBIT_MAX_DEG; /* clamp: "not act above 30 deg" */
+    /* Quantize to the re-bake step, then restore the sign: a negative
+     * target peeks the opposite limb. */
+    int32_t step = CONFIG_UI_MOON_ORBIT_STEP_DEG;
+    int32_t target = (mag / step) * step;
+    if (target > 0)
+        target = sgn * target;
+    if (target != s_orbit_target) {
+        int32_t old = s_orbit_target;
+        s_orbit_target = target;
+        moon_orbit_drain(); /* starts a bake if none in flight; a bake in
+                             * flight re-reads the target at its start */
+        ESP_LOGI(TAG, "orbit viewport %+d -> %+d deg (smoothed %.1f)", old, target, s_orbit_lpf * 57.29577951308232f);
+    }
 }
 
 /* Tilt activity / wake monitor (1 Hz). Tilt is the moon's input, so
@@ -424,8 +705,9 @@ static void moon_tilt_monitor_cb(lv_timer_t *timer) {
     bool ok = imu_read_roll(&roll);
     lv_indev_t *ind = lv_indev_get_next(NULL);
     int st = ind ? (int)lv_indev_get_state(ind) : -1;
-    ESP_LOGI(TAG, "DIAG imu %s roll %.1f | indev %d | theta %.1f | anim %d", ok ? "ok" : "FAIL",
-             ok ? roll * 57.29577951308232f : -1000.0f, st, ok ? s_theta * 57.29577951308232f : 0.0f, (int)s_anim);
+    ESP_LOGI(TAG, "DIAG imu %s roll %.1f | indev %d | theta %.1f | anim %d | orbit t%d b%d sweep%d", ok ? "ok" : "FAIL",
+             ok ? roll * 57.29577951308232f : -1000.0f, st, ok ? s_theta * 57.29577951308232f : 0.0f, (int)s_anim,
+             (int)s_orbit_target, (int)s_orbit_baked, (int)(s_orbit_baking || s_orbit_sweeping));
 }
 
 /* ---------------- tick ---------------- */
@@ -478,11 +760,41 @@ static void moon_tick_cb(lv_timer_t *timer) {
         }
         return;
     }
-    moon_imu_tick(); /* tilt sets the angle (no-op without an IMU) */
-    /* Rotate only when the angle actually moved: a resting ball is static
-     * (the IMU EMA settles, so at rest the angle stops changing) and the
-     * 30fps gather pass runs only during a tilt. */
-    if (s_theta != s_last_rotated_theta) {
+    /* Orbit sweep consumer: show the strips of the freshly baked frame
+     * the task has fully converted, top to bottom (same strip math as
+     * the boot animation), so the new viewport sweeps in instead of
+     * popping in. */
+    if (s_orbit_sweeping) {
+        int strips_ready = (int)((uint32_t)s_orbit_pub / MOON_STRIP_ROWS);
+        if (strips_ready > MOON_NSTRIPS)
+            strips_ready = MOON_NSTRIPS;
+        if (strips_ready > s_orbit_strip_shown) {
+            for (int s = s_orbit_strip_shown; s < strips_ready; s++) {
+                lv_area_t a = {.x1 = (lv_coord_t)MOON_IMG_POS,
+                               .y1 = (lv_coord_t)(MOON_IMG_POS + s * MOON_STRIP_ROWS),
+                               .x2 = (lv_coord_t)(MOON_IMG_POS + MOON_PX - 1),
+                               .y2 = (lv_coord_t)(MOON_IMG_POS + (s + 1) * MOON_STRIP_ROWS - 1)};
+                for (int i = 0; i < s_n_images; i++)
+                    lv_obj_invalidate_area(s_images[i], &a);
+                s_orbit_strip_shown = s + 1;
+            }
+            /* Same drain as the boot animation: pixels out of s_rgb into
+             * LVGL's draw buffers before the next strip may be reused. */
+            lv_refr_now(NULL);
+        }
+        if (s_orbit_strip_shown >= MOON_NSTRIPS) {
+            s_orbit_sweeping = false;
+            if (!clock_is_idle())
+                clock_idle_set_enabled(true);
+        }
+    }
+    moon_imu_tick();    /* tilt sets the angle (no-op without an IMU) */
+    moon_orbit_drain(); /* latest-wins: start a pending orbit bake */
+    /* Spin hold: while a viewport bake is baking or sweeping, keep the
+     * in-plane gather frozen (the sweep already ran at the frozen
+     * angle) so the spin cannot tear a seam across the sweep line; the
+     * spin resumes at the current angle the tick after the sweep. */
+    if (!(s_orbit_baking || s_orbit_sweeping) && s_theta != s_last_rotated_theta) {
         s_last_rotated_theta = s_theta;
         moon_rotate_into_rgb();
     }
@@ -595,6 +907,12 @@ void moon_ui_day_tick(void) {
         return;
     int64_t day = now / 86400;
     if (day != s_baked_day) {
+        if (s_orbit_baking || s_orbit_sweeping) {
+            /* The orbit pipeline owns s_frame/s_rgb until its sweep
+             * finishes; defer (do NOT advance s_baked_day) so the next
+             * tick re-tries and the two bakes never race on the buffers. */
+            return;
+        }
         ESP_LOGI(TAG, "new day; re-baking moon phase");
         s_baked_day = day;
         moon_bake_epoch(now);
@@ -607,6 +925,7 @@ void moon_ui_pause(bool pause) {
     if (pause) {
         if (s_anim)
             moon_anim_skip_to_now(); /* jump straight to the current phase */
+        moon_orbit_interrupt();      /* sleep shows the default viewport */
         lv_timer_pause(s_tick);
     } else
         lv_timer_resume(s_tick);

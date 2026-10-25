@@ -67,6 +67,13 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *d
 void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
                  int32_t cos15, int32_t sin15);
 
+/* Row-range rotation: identical per-pixel math as moon_rotate() for rows
+ * [y0, y1). The device orbit (peek) re-bake sweeps a freshly baked frame
+ * into the display buffer 25 rows at a time, so the new viewport appears
+ * as a top-to-bottom sweep instead of a pop. */
+void moon_rotate_rows(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
+                      int32_t cos15, int32_t sin15, int y0, int y1);
+
 /* Gray 0..255 -> RGB565 (round-to-nearest 256-entry LUT; 1 lookup/px). */
 uint16_t moon_gray565(uint8_t g);
 
