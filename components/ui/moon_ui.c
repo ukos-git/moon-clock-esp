@@ -278,21 +278,14 @@ static void moon_bake_epoch(int64_t epoch) {
     const int8_t *dem = moon_dem();
     if (!dem)
         ESP_LOGW(TAG, "no relief DEM; baking relief-free");
-    /* Diagnostic (temporary): time the relief-free pass alongside the
-     * DEM pass to settle whether the 2048x1024 gather (or PSRAM
-     * contention) is what makes a bake ~2.3 s. relief-free ~0.5 s vs
-     * with-DEM ~2.3 s would be the smoking gun. Runs once per bake, so
-     * the cost is one extra full-frame bake (~0.5 s). */
-    int64_t td0 = esp_timer_get_time();
-    moon_bake(&g, alb, NULL, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-              MOON_ALB_H);
-    int64_t td1 = esp_timer_get_time();
     moon_bake(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H);
     int64_t t2 = esp_timer_get_time();
-    ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms relief-free %lldms with-DEM %lldms",
-             g.illum * 100.0f, g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000),
-             (long long)((td1 - td0) / 1000), (long long)((t2 - td1) / 1000));
+    /* (The relief-free vs with-DEM split that ran here while diagnosing
+     * the ~2.3 s bake settled the question: the 4-neighbor DEM gather
+     * is the dominant cost, ~1.2 s of the ~1.9 s frame at 2048x1024.) */
+    ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms bake %lldms", g.illum * 100.0f,
+             g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000));
     moon_convert_to_rgb();
     int64_t t3 = esp_timer_get_time();
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));

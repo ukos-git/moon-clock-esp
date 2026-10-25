@@ -70,7 +70,10 @@ static void tables_build(void) {
     s_tbl_init = 1;
 }
 
-static float atan_interp(float t) /* t in [0,1] -> atan(t) deg */
+/* always_inline on the per-pixel helpers: see the note on bake_px (the
+ * inner loop's PSRAM loads can only be scheduled across pixels when the
+ * whole pixel body is visible to the compiler at once). */
+static __attribute__((always_inline)) inline float atan_interp(float t) /* t in [0,1] -> atan(t) deg */
 {
     float f = t * 256.0f;
     int i = (int)f;
@@ -80,7 +83,7 @@ static float atan_interp(float t) /* t in [0,1] -> atan(t) deg */
     return s_atan_deg[i] + (s_atan_deg[i + 1] - s_atan_deg[i]) * fr;
 }
 
-static float row_frac_interp(float rz) /* rz in [-1,1] -> row frac [0,1] */
+static __attribute__((always_inline)) inline float row_frac_interp(float rz) /* rz in [-1,1] -> row frac [0,1] */
 {
     float f = (rz + 1.0f) * 128.0f;
     int i = (int)f;
@@ -93,7 +96,7 @@ static float row_frac_interp(float rz) /* rz in [-1,1] -> row frac [0,1] */
 }
 
 /* atan2(y, x) in degrees, [0, 360) -- matches math.atan2 + wrap. */
-static float atan2_deg(float x, float y) {
+static __attribute__((always_inline)) inline float atan2_deg(float x, float y) {
     if (x == 0.0f && y == 0.0f)
         return 0.0f; /* poles: atan2(0,0) = 0 in both C and Python */
     float ax = x < 0.0f ? -x : x;
@@ -112,7 +115,7 @@ static float atan2_deg(float x, float y) {
 }
 
 /* Phase-independent earthshine, 8-bit units (constants.MOON_ES_*). */
-static float earthshine(float d) {
+static __attribute__((always_inline)) inline float earthshine(float d) {
     float x = -d > 0.0f ? -d : 0.0f;
     return MOON_ES_A * x + MOON_ES_B * x * x + MOON_ES_C * x * x * x;
 }
@@ -125,8 +128,9 @@ static float earthshine(float d) {
  * no direct light. The old max(lns, 0) floor is what kept the terminator
  * shadows from going fully dark -- and left the edge 3-7x too soft vs the
  * NASA frames. */
-static float relief_lns(const int8_t *dem, int dem_w, int dem_h, float rx, float ry, float rz, float d, const float *S,
-                        float theta, float row_frac, float mps) {
+static __attribute__((always_inline)) inline float relief_lns(const int8_t *dem, int dem_w, int dem_h, float rx,
+                                                              float ry, float rz, float d, const float *S, float theta,
+                                                              float row_frac, float mps) {
     /* DEM texel (same equirect convention as the albedo). */
     float colf = (theta + MOON_TEX_LON_OFFSET) * ((float)dem_w / 360.0f);
     if (colf >= (float)dem_w)
@@ -169,11 +173,97 @@ static float relief_lns(const int8_t *dem, int dem_w, int dem_h, float rx, float
     return lns > 0.0f ? lns : 0.0f;
 }
 
+/* One pixel of the bake (see file header for the per-pixel model). Row
+ * scalars ride in the context so the inner loop can unroll without an
+ * argument-list blowup.
+ *
+ * always_inline is load-bearing: with bake_px / relief_lns as separate
+ * call targets the compiler cannot see the 4 pixels' PSRAM loads
+ * together, so every load pays the full ~500-cycle octal-PSRAM latency
+ * (the DEM indices are computed immediately before the loads and the
+ * loads are dependent) -- measured ~2.1 s/frame, i.e. the unroll buys
+ * nothing. Inlined, the 4 pixels' index math can run ahead and their
+ * loads be issued together, overlapping the latency with the FPU work. */
+typedef struct {
+    const moon_geom_t *g;
+    const uint8_t *alb;
+    const int8_t *dem;
+    uint8_t *row;
+    int alb_w, alb_h;
+    float radius, cx, v;
+    float per_deg; /* albedo columns per degree */
+    float mps;     /* meters per DEM int8 step */
+} bake_ctx_t;
+
+static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) {
+    const moon_geom_t *g = c->g;
+    float u = ((float)x - c->cx) / c->radius;
+    float r2 = u * u + c->v * c->v;
+    if (r2 > 1.0f) {
+        c->row[x] = 0;
+        return;
+    }
+    float w = sqrtf(1.0f - r2);
+    /* Base direction, body frame (pole = +z). */
+    float rx = u * g->right[0] + c->v * g->up[0] + w * g->E[0];
+    float ry = u * g->right[1] + c->v * g->up[1] + w * g->E[1];
+    float rz = u * g->right[2] + c->v * g->up[2] + w * g->E[2];
+    float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
+
+    /* Texture coordinates, table-based (see file header). */
+    float theta = atan2_deg(rx, ry); /* lon, deg, [0, 360) */
+    float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
+    if (colf >= (float)c->alb_w) /* theta + 180 < 540: one wrap max */
+        colf -= (float)c->alb_w;
+    int col = (int)(colf + 0.5f);
+    if (col >= c->alb_w)
+        col = c->alb_w - 1;
+    float row_frac = row_frac_interp(rz);
+    int r = (int)(row_frac * (float)c->alb_h + 0.5f);
+    if (r < 0)
+        r = 0;
+    else if (r >= c->alb_h)
+        r = c->alb_h - 1;
+    float A = (float)c->alb[r * c->alb_w + col];
+
+    /* Lighting: full-disk displaced-normal Lambert (see header).
+     * lns is unclipped; clip at 0 so the dark side (d < 0 and
+     * shadowed slopes) gets no direct light -- earthshine below
+     * carries the dark zone. */
+    float L;
+    if (c->dem == NULL) {
+        L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
+    } else {
+        L = relief_lns(c->dem, MOON_DEM_W, MOON_DEM_H, rx, ry, rz, d, g->S, theta, row_frac, c->mps);
+        if (L < 0.0f)
+            L = 0.0f;
+        else if (L > 1.0f)
+            L = 1.0f;
+    }
+    float raw = A * L;
+    int idx = (int)(raw + 0.5f);
+    if (idx < 0)
+        idx = 0;
+    else if (idx > 255)
+        idx = 255;
+    float out = MOON_TONE_LUT[idx] + earthshine(d);
+    c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+}
+
 /* Bake one 8-bit grayscale row range [y0, y1) (see file header for the
  * per-pixel model). moon_bake() = the full range; the device boot
  * animation bakes row-by-row so it can feed the progressive strip display
  * (components/ui/moon_ui.c) while the rest of the frame is still being
- * computed. */
+ * computed.
+ *
+ * The inner loop processes 4 pixels per iteration: each pixel issues up to
+ * 6 PSRAM int8 loads (1 albedo + the 4-neighbor DEM gather), and a
+ * sequential loop leaves the FPU stalled on the first load of every pixel
+ * (~4000 cycles/px measured on-device vs ~400 of ideal FPU work). Unrolling
+ * keeps up to 24 PSRAM loads in flight per 4 pixels, so the bake runs at
+ * FPU throughput instead of PSRAM latency -- the same trick
+ * moon_rotate_range uses in moon_render.c. Per-pixel math is unchanged
+ * (same ops, same order), so the gate is unaffected. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *dem, uint8_t *frame, int size,
                     float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1) {
     if (!s_tbl_init)
@@ -181,60 +271,27 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const int8_t *d
     const float per_deg = (float)alb_w / 360.0f;
     const float mps = (MOON_DEM_MAX_M - MOON_DEM_MIN_M) / (float)MOON_DEM_STEPS; /* m per int8 step */
     for (int y = y0; y < y1; y++) {
-        float v = (cy - (float)y) / radius; /* v up: row 0 is top */
-        uint8_t *row = &frame[y * size];
-        for (int x = 0; x < size; x++) {
-            float u = ((float)x - cx) / radius;
-            float r2 = u * u + v * v;
-            if (r2 > 1.0f) {
-                row[x] = 0;
-                continue;
-            }
-            float w = sqrtf(1.0f - r2);
-            /* Base direction, body frame (pole = +z). */
-            float rx = u * g->right[0] + v * g->up[0] + w * g->E[0];
-            float ry = u * g->right[1] + v * g->up[1] + w * g->E[1];
-            float rz = u * g->right[2] + v * g->up[2] + w * g->E[2];
-            float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
-
-            /* Texture coordinates, table-based (see file header). */
-            float theta = atan2_deg(rx, ry); /* lon, deg, [0, 360) */
-            float colf = (theta + MOON_TEX_LON_OFFSET) * per_deg;
-            if (colf >= (float)alb_w) /* theta + 180 < 540: one wrap max */
-                colf -= (float)alb_w;
-            int c = (int)(colf + 0.5f);
-            if (c >= alb_w)
-                c = alb_w - 1;
-            float row_frac = row_frac_interp(rz);
-            int r = (int)(row_frac * (float)alb_h + 0.5f);
-            if (r < 0)
-                r = 0;
-            else if (r >= alb_h)
-                r = alb_h - 1;
-            float A = (float)albedo[r * alb_w + c];
-
-            /* Lighting: full-disk displaced-normal Lambert (see header).
-             * lns is unclipped; clip at 0 so the dark side (d < 0 and
-             * shadowed slopes) gets no direct light -- earthshine below
-             * carries the dark zone. */
-            float L;
-            if (dem == NULL) {
-                L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
-            } else {
-                L = relief_lns(dem, MOON_DEM_W, MOON_DEM_H, rx, ry, rz, d, g->S, theta, row_frac, mps);
-                if (L < 0.0f)
-                    L = 0.0f;
-                else if (L > 1.0f)
-                    L = 1.0f;
-            }
-            float raw = A * L;
-            int idx = (int)(raw + 0.5f);
-            if (idx < 0)
-                idx = 0;
-            else if (idx > 255)
-                idx = 255;
-            float out = MOON_TONE_LUT[idx] + earthshine(d);
-            row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+        bake_ctx_t c;
+        c.g = g;
+        c.alb = albedo;
+        c.dem = dem;
+        c.row = &frame[y * size];
+        c.alb_w = alb_w;
+        c.alb_h = alb_h;
+        c.radius = radius;
+        c.cx = cx;
+        c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
+        c.per_deg = per_deg;
+        c.mps = mps;
+        for (int x0 = 0; x0 < size; x0 += 4) {
+            int n = size - x0;
+            bake_px(&c, x0);
+            if (n > 1)
+                bake_px(&c, x0 + 1);
+            if (n > 2)
+                bake_px(&c, x0 + 2);
+            if (n > 3)
+                bake_px(&c, x0 + 3);
         }
     }
 }
