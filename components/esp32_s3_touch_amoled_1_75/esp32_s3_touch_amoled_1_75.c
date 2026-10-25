@@ -567,6 +567,16 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg) {
     lv_display_t *disp;
 
     assert(cfg != NULL);
+    /* Pin the LVGL task to core 0. The adapter default (core -1, no
+     * affinity) lets FreeRTOS park it on core 1, where the moon bake
+     * producer (pinned core 1, priority configMAX_PRIORITIES - 3)
+     * starves it for the whole ~2 min boot animation: the producer's
+     * 1 ms yields only go to idle, never to the lower-priority LVGL
+     * task, so the 50 ms moon tick (strip display + the animation's
+     * catch-up guard) stops running and the sweep shows nothing. Core
+     * 0 keeps the LVGL task responsive on the other core, which is the
+     * design the moon pipeline relies on (components/ui/moon_ui.c). */
+    cfg->lv_adapter_cfg.task_core_id = 0;
     BSP_ERROR_CHECK_RETURN_NULL(esp_lv_adapter_init(&cfg->lv_adapter_cfg));
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
