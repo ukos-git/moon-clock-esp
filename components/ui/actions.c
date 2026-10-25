@@ -13,6 +13,7 @@
 #include "vars.h"
 
 #include "clock.h"
+#include "clock_idle.h"
 #include "wifi.h"
 
 static const char *TAG = "ui_actions";
@@ -120,8 +121,10 @@ void action_alarm_triggered(lv_event_t *e) {
         ESP_LOGI(TAG, "UI tick timer restored to 10ms for alarm");
     }
 
-    // Alarm is an active (touch) state: the moon resumes tilt rotation.
-    moon_ui_pause(false);
+    // The alarm screen has no moon image: pause the moon entirely (tick +
+    // orbit re-bake), otherwise the orbit pipeline keeps burning ~90% CPU
+    // baking viewports for a screen that shows none of them.
+    moon_ui_pause(true);
 
     // Explicitly disable RTC countdown timer (no sleep transitions during alarm)
     esp_err_t ret = clock_timer_disable();
@@ -138,6 +141,38 @@ void action_alarm_triggered(lv_event_t *e) {
     loadScreen(SCREEN_ID_ALARM);
     ui_tick();
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
+}
+
+/* The alarm screen can only be dismissed by touch, but the idle-wake
+ * path (touch -> action_switch_to_main_screen) only fires while the
+ * device is IN idle mode; while awake, a tap just resets the idle
+ * timer, so tapping to dismiss never left the screen (and never let the
+ * device sleep into a dismissable state) -- a one-way door. Register a
+ * direct input-device callback instead: it fires on every press
+ * regardless of the hit-tested object, and while the alarm screen is
+ * shown (g_alarm_active) and the device is awake it dismisses it. The
+ * asleep path is untouched: the idle-wake callback (registered earlier,
+ * so it runs first) wakes the device and clears g_alarm_active before
+ * this callback sees the same press, so the switch happens once. */
+static void alarm_indev_read_cb(lv_event_t *e) {
+    lv_indev_t *indev = lv_event_get_target(e);
+    if (lv_indev_get_state(indev) != LV_INDEV_STATE_PRESSED)
+        return;
+    if (g_alarm_active && !clock_is_idle()) {
+        ESP_LOGI(TAG, "Alarm dismissed by touch (device awake)");
+        action_switch_to_main_screen(e);
+    }
+}
+
+esp_err_t action_register_alarm_touch(void) {
+    lv_indev_t *indev = lv_indev_get_next(NULL);
+    if (!indev) {
+        ESP_LOGE(TAG, "no input device; alarm touch dismiss unavailable");
+        return ESP_FAIL;
+    }
+    lv_indev_add_event_cb(indev, alarm_indev_read_cb, LV_EVENT_PRESSED, NULL);
+    ESP_LOGI(TAG, "Alarm touch dismiss registered");
+    return ESP_OK;
 }
 
 /**

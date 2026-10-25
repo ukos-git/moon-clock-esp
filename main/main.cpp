@@ -123,6 +123,10 @@ extern "C" void app_main(void) {
         ESP_LOGE(TAG, "Failed to initialize idle timer: %s", esp_err_to_name(ret));
     }
 
+    // Touch dismiss of the alarm screen while awake (the idle-wake path
+    // only covers the asleep case).
+    action_register_alarm_touch();
+
     bsp_display_unlock();
 
     // Load initial screen - starts with modem screen, upgrades to main if WiFi available

@@ -1,8 +1,6 @@
 #include <string.h>
 
 #include "actions.h"
-#include "clock_idle.h"
-#include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
 #include "moon_ui.h"
@@ -265,25 +263,14 @@ void tick_screen_deep_sleep() { tick_user_widget_clock(23); }
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_switch_to_main_screen) only fires while the device is
- * in idle mode; while awake, taps just reset the idle timer, so without
- * this handler a tapping user never leaves the screen (and never lets it
- * sleep into a dismissable state). Asleep, the wake path handles it and
- * this returns early so the switch only happens once. */
-static void event_handler_cb_alarm_root(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED)
-        return;
-    if (clock_is_idle())
-        return;
-    ESP_LOGI("ui_screens", "Alarm dismissed by touch (device awake)");
-    action_switch_to_main_screen(e);
-}
-
+ * in idle mode; while awake, a tap just resets the idle timer, so a
+ * dedicated input-device callback dismisses it instead
+ * (action_register_alarm_touch in actions.c). */
 void create_screen_alarm() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.alarm = obj;
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
-    lv_obj_add_event_cb(obj, event_handler_cb_alarm_root, LV_EVENT_PRESSED, 0);
     {
         lv_obj_t *parent_obj = obj;
         {

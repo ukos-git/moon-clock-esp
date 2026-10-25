@@ -35,15 +35,16 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_FRAMES
         int "Boot animation frame count (1-2 per day)"
-        default 28
-        range 5 60
+        default 56
+        range 5 120
         help
             Number of full-resolution frames in the boot animation,
-            evenly spaced over the last synodic month: 28 = one frame
-            per day (a ~28 s sweep), 56 = two frames per day. Each
-            frame sweeps in over its ~1 s bake time (row-parallel
-            pipeline), so higher counts are smoother without freezing
-            the display.
+            evenly spaced over the last synodic month: 56 = two
+            frames per day, so the phase angle moves ~0.7 deg between
+            frames (1/day = ~1.4 deg, visibly jumpy). Each frame
+            sweeps in over its ~2.2 s bake time (row-parallel
+            pipeline), so 56 frames run ~2 minutes; higher counts
+            are smoother without freezing the display.
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Replay the moon animation on every wake from sleep (testing)"
@@ -67,15 +68,17 @@ menu "UI Component Configuration"
             the device. 0 (default) = off.
 
     config UI_IMU_ENABLE
-        bool "Drive the moon spin from the QMI8658 IMU (device tilt)"
+        bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"
         default y
         help
-            In normal modes the in-plane moon angle follows the
-            device's screen-plane roll (QMI8658 gravity vector), so
-            tilting the device turns the moon "ball in hand". Touch is
-            not an input to the moon (it is only the core-UI wake
-            input). When the IMU is absent or this is disabled the
-            moon is static.
+            The moon keeps the fixed Earth viewport and never rotates
+            in place; the device tilt (QMI8658 gravity) changes which
+            side of the sphere the camera sees (the orbit, see
+            UI_MOON_ORBIT_*). Tilt also counts as user activity: it
+            holds the idle timer and wakes the device from sleep.
+            Touch is not an input to the moon (it is only the core-UI
+            wake input). When the IMU is absent or this is disabled
+            the moon is static.
 
     config UI_IMU_ACTIVITY_DEG
         int "Tilt motion threshold for activity/wake (degrees per second)"
@@ -93,22 +96,23 @@ menu "UI Component Configuration"
             vibration, lower it for more immediate wake.
 
     config UI_IMU_ANGLE_SIGN
-        int "IMU angle sign (+1 or -1, flips the spin direction)"
+        int "IMU angle sign (+1 or -1, flips the orbit direction)"
         default 1
         range -1 1
         help
             The board's IMU mounting orientation is board-specific; if
-            tilting the device turns the moon the "wrong" way, set this
-            to -1.
+            tilting the device peeks the moon the "wrong" way, set this
+            to -1. Applies to the orbit (UI_MOON_ORBIT_*) and to the
+            tilt activity/wake direction.
 
     config UI_IMU_ROLL_OFFSET_DEG
         int "IMU roll offset (degrees, aligns the resting orientation)"
         default 0
         range 0 359
         help
-            Added to the gravity angle so a chosen resting orientation
-            of the device maps to a chosen moon spin angle. 0 = the
-            gravity angle is used as-is.
+            Obsolete: the moon no longer spins in place, so the roll
+            offset has no effect. Kept so existing sdkconfig files
+            keep validating.
 
     config UI_MOON_ORBIT_ENABLE
         bool "Sphere model: peek at the dark side via out-of-plane tilt"
