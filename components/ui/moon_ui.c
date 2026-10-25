@@ -768,6 +768,8 @@ static void moon_tick_cb(lv_timer_t *timer) {
         }
         if (s_spin_strip >= MOON_NSTRIPS) {
             s_spin_ready = false;
+            s_spin_strip = 0; /* fresh counter for the next frame (was stuck at NSTRIPS, so
+                               * every frame after the first displayed nothing) */
             /* Perf (task #24): frame fully on screen -- the render
              * (core 1) and display (core 0) cost of this frame. */
             ESP_LOGI(TAG, "perf spin: deg %d | render %dms | refr %dms (batch %d strips)", s_spin_deg,
