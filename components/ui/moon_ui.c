@@ -196,6 +196,19 @@ static volatile bool s_anim_running;    /* producer task alive */
 static volatile bool s_anim_cancel;     /* stop the producer (sleep transition) */
 static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
 
+/* Animation perf instrumentation (temporary, task #22 -- measure before
+ * optimizing the ~50% CPU). The producer (core 1) fills these at frame
+ * end with its own per-stage timing; the consumer (LVGL tick, core 0)
+ * accumulates the lv_refr_now time and, once the frame is fully shown,
+ * logs one line with both cores' per-frame cost and a self-measured duty
+ * (work/wall) for each -- the moon pipeline's own CPU, not the system's. */
+static volatile uint32_t s_perf_geo_us;
+static volatile uint32_t s_perf_bake_us;
+static volatile uint32_t s_perf_conv_us;
+static volatile uint32_t s_perf_batch_max_us; /* slowest 16-row bake block */
+static volatile uint32_t s_perf_wall_us;      /* frame: bake start -> last row */
+static uint32_t s_perf_refr_us;               /* consumer: sum of lv_refr_now */
+
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
         lv_obj_invalidate(s_images[i]);
@@ -326,6 +339,12 @@ static void moon_anim_task(void *arg) {
     }
     if (!dem)
         ESP_LOGW(TAG, "no relief DEM; animating relief-free");
+    /* Perf instrumentation (temporary, task #22): per-frame cost
+     * breakdown. The producer (pinned core 1) fills s_perf_* at frame
+     * end; the consumer (LVGL tick, core 0) logs one line per frame
+     * once it has shown all strips. Self-measured duty (work/wall), so
+     * the percentages are what the moon pipeline itself burns on each
+     * core, not the whole system. */
     for (int f = 0; f < frames && !s_anim_cancel; f++) {
         /* Evenly spaced over the last synodic month, t_k -> 0 (now) as
          * k -> frames - 1. Full-resolution bake at zero in-plane angle. */
@@ -334,22 +353,41 @@ static void moon_anim_task(void *arg) {
         moon_geom_t g;
         int64_t t0 = esp_timer_get_time();
         moon_geometry(epoch, &g);
+        int64_t t1 = esp_timer_get_time();
+        uint32_t bake_us = 0, conv_us = 0, batch_us = 0, batch_max_us = 0;
         for (int y = 0; y < MOON_PX && !s_anim_cancel; y++) {
+            int64_t rb0 = esp_timer_get_time();
             moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                            MOON_ALB_W, MOON_ALB_H, y, y + 1);
+            int64_t rb1 = esp_timer_get_time();
             const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
             uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
             for (int x = 0; x < MOON_PX; x++)
                 rrow[x] = moon_gray565(frow[x]);
+            int64_t rb2 = esp_timer_get_time();
+            bake_us += (uint32_t)(rb1 - rb0);
+            conv_us += (uint32_t)(rb2 - rb1);
+            batch_us += (uint32_t)(rb2 - rb0);
             s_anim_pub = ((uint32_t)f << 16) | (uint32_t)(y + 1);
-            /* Yield so the idle task on this core (and the 5 s TWDT) is
-             * fed across the back-to-back bakes. */
-            if ((y & 15) == 15)
+            if ((y & 15) == 15) {
+                if (batch_us > batch_max_us)
+                    batch_max_us = batch_us;
+                batch_us = 0;
+                /* Yield so the idle task on this core (and the 5 s
+                 * TWDT) is fed across the back-to-back bakes. */
                 vTaskDelay(pdMS_TO_TICKS(1));
+            }
         }
-        int64_t t1 = esp_timer_get_time();
+        if (batch_us > batch_max_us)
+            batch_max_us = batch_us; /* final partial 16-row block */
+        int64_t t2 = esp_timer_get_time();
+        s_perf_geo_us = (uint32_t)(t1 - t0);
+        s_perf_bake_us = bake_us;
+        s_perf_conv_us = conv_us;
+        s_perf_batch_max_us = batch_max_us;
+        s_perf_wall_us = (uint32_t)(t2 - t1);
         ESP_LOGI(TAG, "anim %d/%d | phase %.1f%% illum | bake %lldms", f + 1, frames, g.illum * 100.0f,
-                 (long long)((t1 - t0) / 1000));
+                 (long long)((t2 - t0) / 1000));
         if (s_anim_cancel)
             break;
         /* Catch-up guard: wait until the consumer has shown every strip of
@@ -702,7 +740,25 @@ static void moon_tick_cb(lv_timer_t *timer) {
              * the draw buffers). That is what lets the producer's
              * catch-up guard reuse s_rgb for the next frame without the
              * display tearing two frames together. */
+            int64_t r0 = esp_timer_get_time();
             lv_refr_now(NULL);
+            s_perf_refr_us += (uint32_t)(esp_timer_get_time() - r0);
+        }
+        /* Perf (task #22): the frame is fully on screen -- log both
+         * cores' per-frame cost. "producer %%" is core-1 duty (work /
+         * wall of the bake+convert), "core0 %%" is core-0 duty (the
+         * summed lv_refr_now over the same wall window). */
+        if (s_anim_strip_shown >= MOON_NSTRIPS) {
+            int wall_ms = (int)(s_perf_wall_us / 1000);
+            int refr_ms = (int)(s_perf_refr_us / 1000);
+            ESP_LOGI(TAG,
+                     "perf anim: geo %dms bake %dms conv %dms batchMax %dus | core0 refr %dms | "
+                     "duty core1 %d%% core0 %d%%",
+                     (int)(s_perf_geo_us / 1000), (int)(s_perf_bake_us / 1000), (int)(s_perf_conv_us / 1000),
+                     (int)s_perf_batch_max_us, refr_ms,
+                     wall_ms ? 100 * ((int)(s_perf_bake_us + s_perf_conv_us) / 1000) / wall_ms : 0,
+                     wall_ms ? 100 * refr_ms / wall_ms : 0);
+            s_perf_refr_us = 0;
         }
         return;
     }
