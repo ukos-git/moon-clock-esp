@@ -21,19 +21,77 @@ static const char *TAG = "ui_actions";
 // Callback for seconds increment timer
 static void seconds_increment_timer_cb(lv_timer_t *timer) { action_increment_clock_seconds(NULL); }
 
+// State tracking
+static bool g_wifi_deinited = false;
+static bool g_idle_timer_active = false;
+static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
+
+/* WiFi connect/reconnect runs on a dedicated task, never on the LVGL task:
+ * the wake handler (action_switch_to_main_screen) runs in the LVGL task
+ * (indev event / moon tilt timer), and the old blocking
+ * wifi_manager_init() there parked the LVGL task for the whole ~1.25 s
+ * WPA2 handshake -- no LVGL timer fired, so the moon spin and the clock
+ * were frozen on the modem-sleep screen until the connection landed.
+ * The display now stays live during the handshake; the main-screen
+ * upgrade is picked up by the UI tick below (which runs on the LVGL
+ * task) once the connection completes. */
+static volatile bool s_wifi_connecting = false;
+static volatile bool s_wifi_connect_ok = false;
+
+static void wifi_reconnect_task_fn(void *arg) {
+    ESP_LOGI(TAG, "WiFi connect in background task...");
+    esp_err_t ret = wifi_manager_init();
+    s_wifi_connect_ok = (ret == ESP_OK);
+    s_wifi_connecting = false;
+    if (ret == ESP_OK) {
+        g_wifi_deinited = false;
+        ESP_LOGI(TAG, "WiFi connected successfully (background)");
+    } else {
+        g_wifi_deinited = true;
+        ESP_LOGW(TAG, "WiFi connection failed: %s", esp_err_to_name(ret));
+    }
+    vTaskDelete(NULL);
+}
+
+static void wifi_reconnect_kickoff(void) {
+    if (s_wifi_connecting) {
+        ESP_LOGI(TAG, "WiFi connect already in progress");
+        return;
+    }
+    s_wifi_connecting = true;
+    s_wifi_connect_ok = false;
+    if (xTaskCreate(wifi_reconnect_task_fn, "wifi_reconnect", 4096, NULL, 10, NULL) != pdPASS) {
+        s_wifi_connecting = false;
+        ESP_LOGW(TAG, "WiFi reconnect task creation failed");
+    }
+}
+
 // Callback for UI tick timer
-static void ui_tick_timer_cb(lv_timer_t *timer) { ui_tick(); }
+static void ui_tick_timer_cb(lv_timer_t *timer) {
+    // Finished background WiFi connect: upgrade to the main screen from
+    // here (the LVGL task; loadScreen touches LVGL state). Deferred to the
+    // tick so the handshake never blocks the display. Only while awake:
+    // if the device re-slept during the handshake, drop the upgrade and
+    // let the next wake re-trigger the switch.
+    if (!s_wifi_connecting && s_wifi_connect_ok) {
+        s_wifi_connect_ok = false;
+        if (!clock_is_idle()) {
+            g_wifi_deinited = false;
+            loadScreen(SCREEN_ID_MAIN);
+            ui_tick();
+            ESP_LOGI(TAG, "Upgraded to main screen (WiFi active)");
+        } else {
+            ESP_LOGI(TAG, "WiFi connected but device is asleep; main screen deferred");
+        }
+    }
+    ui_tick();
+}
 
 // Global reference to UI tick timer for dynamic adjustment
 static lv_timer_t *g_ui_tick_timer = NULL;
 
 // Global reference to seconds increment timer
 static lv_timer_t *g_seconds_timer = NULL;
-
-// State tracking
-static bool g_wifi_deinited = false;
-static bool g_idle_timer_active = false;
-static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
 
 // Configuration with fallback defaults if Kconfig not available
 #ifndef CONFIG_UI_LIGHT_SLEEP_TICK_MS
@@ -295,20 +353,8 @@ void action_switch_to_main_screen(lv_event_t *e) {
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
     ESP_LOGI(TAG, "Modem sleep screen loaded (checking WiFi status...)");
 
-    // If WiFi is not connected (either never initialized or was deinitialized), try to connect
-    if (!wifi_manager_is_connected()) {
-        ESP_LOGI(TAG, "WiFi not connected, attempting to %s...", g_wifi_deinited ? "reconnect" : "connect");
-        esp_err_t ret = wifi_manager_init();
-        if (ret == ESP_OK) {
-            g_wifi_deinited = false;
-            ESP_LOGI(TAG, "WiFi connected successfully");
-        } else {
-            ESP_LOGW(TAG, "WiFi connection failed: %s", esp_err_to_name(ret));
-            g_wifi_deinited = true;
-        }
-    }
-
-    // Check if WiFi is available and upgrade to main screen if so
+    // Already connected (boot path: app_main connected before the display
+    // came up): upgrade straight to the main screen.
     if (wifi_manager_is_connected()) {
         g_wifi_deinited = false;
         loadScreen(SCREEN_ID_MAIN);
@@ -316,8 +362,15 @@ void action_switch_to_main_screen(lv_event_t *e) {
         vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
         ESP_LOGI(TAG, "Upgraded to main screen (WiFi active)");
     } else {
+        // Not connected: stay on the modem sleep screen and reconnect in
+        // the background. wifi_manager_init() blocks for the whole ~1.25 s
+        // WPA2 handshake; running it here would freeze the display, because
+        // this handler runs on the LVGL task and the handshake would park
+        // it with no timers firing. The UI tick picks up the finished
+        // connect and upgrades the screen while the display stays live.
         g_wifi_deinited = true;
-        ESP_LOGI(TAG, "Staying on modem sleep screen (WiFi not connected)");
+        ESP_LOGI(TAG, "WiFi not connected, reconnecting in background (display stays live)");
+        wifi_reconnect_kickoff();
     }
 }
 
