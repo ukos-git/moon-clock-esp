@@ -24,36 +24,54 @@ menu "UI Component Configuration"
         bool "Play boot animation of the last synodic moon month"
         default y
         help
-            On boot, sweep the moon through the last synodic month
-            (29.53 days) and settle on the current phase. Each frame is
-            one full-resolution moon_bake, identical to the static
-            frame; a dedicated task bakes them row by row in the
-            background while the display shows each frame as a
-            top-to-bottom sweep of 25-row strips, so frames appear one
-            after the other with no gaps. The idle->sleep timer is held
-            for the sweep so it completes before the device may sleep.
+            Obsolete: the month-long phase sweep is gone (it was
+            display-bound and caused a visible top-to-bottom redraw
+            plus a Task WDT). Kept so existing sdkconfig files keep
+            validating; the on-screen moon is now the current phase
+            baked once, then the burn-in spin (UI_MOON_SPIN_*).
 
     config UI_MOON_ANIM_FRAMES
         int "Boot animation frame count (1-2 per day)"
         default 56
         range 5 120
         help
-            Number of full-resolution frames in the boot animation,
-            evenly spaced over the last synodic month: 56 = two
-            frames per day, so the phase angle moves ~0.7 deg between
-            frames (1/day = ~1.4 deg, visibly jumpy). Each frame
-            sweeps in over its ~2.2 s bake time (row-parallel
-            pipeline), so 56 frames run ~2 minutes; higher counts
-            are smoother without freezing the display.
+            Obsolete: see UI_MOON_ANIM_ENABLE. No longer used.
 
     config UI_MOON_ANIM_ON_WAKE
-        bool "Replay the moon animation on every wake from sleep (testing)"
+        bool "Re-bake the moon on every wake from sleep (testing)"
         default n
         help
             Test hook: whenever the device wakes from sleep back to the
-            main screen, replay the boot animation over the last
-            synodic month. Lets the sweep be exercised repeatedly
-            without a reboot. Off in normal builds.
+            main screen, re-bake the current phase (the spin resumes
+            automatically). Lets the wake-from-sleep re-bake be
+            exercised repeatedly without a reboot. Off in normal builds.
+
+    config UI_MOON_SPIN_ENABLE
+        bool "Burn-in spin: slowly rotate the moon in place"
+        default y
+        help
+            The current phase is baked once (the static frame) and then
+            slowly rotated in-plane on screen (a nearest-neighbor
+            gather, ~6 ms/frame -- no re-bake). The rotation moves the
+            lit pixels around the panel, preventing AMOLED burn-in.
+            The spin render runs on core 1; the display (LVGL) runs on
+            core 0; they are serialized on the frame buffer so the
+            display never tears. The spin runs on every screen that
+            shows the moon and is paused (not stopped) while the
+            tilt-driven orbit re-bake owns the buffer.
+
+    config UI_MOON_SPIN_PERIOD_S
+        int "Burn-in spin: seconds for one full 360-degree turn"
+        default 180
+        range 30 7200
+        help
+            The spin completes one full in-plane rotation in this many
+            seconds (the default 180 s = a turn every 3 minutes). The
+            frame step is period/360 (180 s -> 0.5 s/frame = 1
+            degree/frame), which keeps the rotation smooth while the
+            display (the LVGL full-frame redraw) is the pacing
+            bottleneck. Lower = a faster (more visible) spin; the
+            display duty scales with it.
 
     config TEST_AUTO_WAKE_SEC
         int "Test: auto-wake from sleep after N seconds (0 = off)"
