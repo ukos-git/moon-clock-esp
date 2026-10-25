@@ -54,11 +54,12 @@
  * bake is unchanged and stays gate-safe). A dedicated task bakes the
  * whole frame off screen (~1.7-2.4 s with the relief DEM, row by row
  * so a cancel is honored quickly); when it is done, the tick sweeps
- * the finished frame into the display with the SAME 2-strip batches
- * as the burn-in spin, so the viewport change lands as one ~400 ms
- * frame -- the same sequential update as the spin -- instead of a
- * progressive top-to-bottom wipe over the bake. The in-plane spin is
- * held for the bake+sweep so no rotated frame crosses the sweep.
+ * the finished frame into the display with the SAME atomic whole-frame
+ * display (MOON_SPIN_BATCH = MOON_NSTRIPS) as the burn-in spin, so the
+ * viewport change lands as one ~150 ms frame -- the same sequential
+ * update as the spin -- instead of a progressive top-to-bottom wipe
+ * over the bake. The in-plane spin is held for the bake+sweep so no
+ * rotated frame crosses the sweep.
  * Latest-wins: a target that moves mid-bake starts a fresh bake right
  * after.
  *
@@ -200,28 +201,38 @@ static bool s_orbit_have; /* s_orbit_lpf holds a value */
  * (core 1): waits for the display to drain the previous frame
  * (s_spin_shown), runs moon_rotate over the WHOLE frame under the
  * buffer mutex (a ~6 ms nearest-neighbor gather) and hands the frame to
- * the display (s_spin_ready). Display (the LVGL tick, core 0): shows
- * the frame in MOON_SPIN_BATCH-row batches -- a few hundred ms of
- * lv_refr_now per tick, short enough to keep core 0's idle task fed for
- * the Task WDT -- and gives s_spin_shown once the last batch is out of
- * s_rgb. The render paces to the display; the time-based angle (wall
+ * the display (s_spin_ready). Display (the LVGL tick, core 0): shows the
+ * WHOLE frame in one lv_refr_now (~175 ms measured, comfortably under
+ * the 5 s Task WDT) so each frame lands atomically (no top-to-bottom
+ * wipe) -- and gives s_spin_shown once the frame is out of s_rgb. The
+ * render paces to the display; the time-based angle (wall
  * clock vs s_spin_anchor_ms) keeps the angular speed constant no matter
  * how many frames the display manages -- a dropped frame is a bigger
  * step, never a repeat or a stall. The mutex guards every reader/writer
  * of s_rgb (the render, the tick's batched display, the orbit's row
  * sweep, the static LUT convert) so the display never tears. */
-/* Strips (25 rows) displayed per tick. TUNABLE (task #24): the measured
- * lv_refr_now cost is ~190-410 ms per 25-row strip, so a batch must
- * stay short enough that each tick's drain is a few hundred ms (core 0
- * idle gap for the Task WDT + touch responsiveness) -- 2 strips at the
- * measured rate. If the display proves faster, raise this. */
-#define MOON_SPIN_BATCH 2
+/* Strips (25 rows) displayed per tick. Measured: the WHOLE 400-row frame
+ * is ~175 ms of lv_refr_now (~11 ms per 25-row strip), so a single
+ * full-frame flush fits comfortably in one tick (well under the 5 s Task
+ * WDT, which the old month-long sweep tripped). Showing the whole frame in
+ * ONE lv_refr_now (MOON_NSTRIPS strips) makes each frame land ATOMICALLY
+ * -- no visible top-to-bottom wipe -- and halves the frame cadence
+ * (~230 ms vs ~450 ms) so the rotation steps in ~0.45 deg instead of
+ * ~0.9 deg per displayed frame (more intermediate frames = a steadier
+ * spin). The orbit sweep reuses this constant, so a tilt viewport change
+ * also lands as one atomic frame. */
+#define MOON_SPIN_BATCH MOON_NSTRIPS
 static volatile bool s_spin_running;      /* render task alive */
 static volatile bool s_spin_cancel;       /* stop the render (sleep transition) */
 static volatile int64_t s_spin_anchor_ms; /* wall ms (esp_timer) the angle was 0 */
 static volatile bool s_spin_ready;        /* a rendered frame is in s_rgb */
 static volatile int s_spin_strip;         /* display: next strip of the frame */
-static volatile int s_spin_deg;           /* last displayed angle, deg (perf log) */
+static volatile int s_spin_deg;
+static volatile float s_spin_last_rad; /* the on-screen orientation (the last
+                                         * displayed spin frame; 0 after an
+                                         * orbit sweep or a re-bake re-anchor).
+                                         * Read on wake to resume the spin from
+                                         * exactly where it paused. */           /* last displayed angle, deg (perf log) */
 static TaskHandle_t s_spin_task;
 static SemaphoreHandle_t s_spin_shown; /* the display has drained s_rgb */
 static SemaphoreHandle_t s_rgb_mtx;    /* guards s_rgb (+ s_frame while baking) */
@@ -254,8 +265,10 @@ static void moon_convert_to_rgb(void) {
     /* Re-anchor inside the critical section: the spin render computes
      * its angle under this mutex, so the next frame is the identity
      * gather of the fresh frame -- exactly what the LUT just displayed
-     * (no orientation jump after a re-bake). */
+     * (no orientation jump after a re-bake). The on-screen frame is now
+     * the unrotated one, so the tracked orientation is 0 too. */
     s_spin_anchor_ms = esp_timer_get_time();
+    s_spin_last_rad = 0.0f;
     xSemaphoreGive(s_rgb_mtx);
     moon_invalidate_all();
 }
@@ -360,16 +373,18 @@ static void moon_bake_epoch(int64_t epoch) {
  *     the frame to the display (s_spin_ready)
  *
  *   display (the LVGL tick, core 0, every MOON_TICK_MS):
- *     invalidate MOON_SPIN_BATCH strips (25 rows each) of the pending
- *     frame, top to bottom, and drain the redraw synchronously
- *     (lv_refr_now, under the mutex) -- a full 400-row frame in one
- *     tick would be ~4 s of continuous core-0 work (25-row QSPI
- *     flushes at ~250 ms each), long enough to starve core 0's idle
- *     task into the Task WDT; batched, each tick is a few hundred ms
- *     with an idle gap between batches.
- *     give s_spin_shown once all MOON_NSTRIPS strips are out of s_rgb
- *     (the QSPI flush then runs asynchronously from LVGL's draw
- *     buffers, never s_rgb).
+ *     invalidate the WHOLE pending frame and drain the redraw
+ *     synchronously (one lv_refr_now, under the mutex). Measured ~175 ms
+ *     for the full 400-row frame (~11 ms per 25-row strip), so a single
+ *     flush fits comfortably in one tick (well under the 5 s Task WDT).
+ *     Displaying the whole frame in one flush (MOON_SPIN_BATCH =
+ *     MOON_NSTRIPS) makes each frame land ATOMICALLY -- no visible
+ *     top-to-bottom wipe -- and halves the frame cadence (~230 ms vs the
+ *     ~450 ms of the old 8-strip scheme), so the rotation steps in
+ *     ~0.45 deg instead of ~0.9 deg per displayed frame: more
+ *     intermediate frames, a steadier spin.
+ *     give s_spin_shown once the frame is out of s_rgb (the QSPI flush
+ *     then runs asynchronously from LVGL's draw buffers, never s_rgb).
  *
  * While the orbit owns the buffer (its re-bake + row sweep) the render
  * is paused (not stopped): it blocks on the orbit flags, and the tick
@@ -382,8 +397,9 @@ static void moon_spin_task(void *arg) {
     for (;;) {
         /* Paused (not stopped) while the orbit owns the buffer: its
          * bake rewrites s_frame (row by row, off screen) and the tick
-         * then sweeps s_rgb in the spin's 2-strip batches. The tick
-         * re-anchors the angle at the end of the sweep. */
+         * then displays s_rgb as one atomic whole frame (the spin's
+         * display). The tick re-anchors the angle at the end of the
+         * sweep. */
         while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping))
             vTaskDelay(pdMS_TO_TICKS(50));
         if (s_spin_cancel)
@@ -416,7 +432,11 @@ static void moon_spin_task(void *arg) {
                             (double)CONFIG_UI_MOON_SPIN_PERIOD_S);
         moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                     moon_cos15(rad), moon_sin15(rad));
-        s_spin_ready = true; /* the display shows it in batches */
+        s_spin_last_rad = rad; /* the on-screen orientation once this frame
+                                * is drained (its pixels cannot be overwritten
+                                * until s_spin_shown); the wake path resumes
+                                * the spin from exactly this angle. */
+        s_spin_ready = true;   /* the display shows it in batches */
         xSemaphoreGive(s_rgb_mtx);
         s_perf_render_us = (uint32_t)(esp_timer_get_time() - t0);
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
@@ -431,22 +451,40 @@ static void moon_spin_task(void *arg) {
     vTaskDelete(NULL); /* a FreeRTOS task must never return */
 }
 
-/* Anchor the spin: angle 0 at this instant, under the buffer mutex so
- * the render's next angle read (which is also under the mutex) is
- * guaranteed to see the new anchor. The orbit sweep's final frame calls
- * this before it clears the sweep flag the render is polling on, so the
- * render cannot read the old anchor. */
-static void moon_spin_reanchor(void) {
+/* Anchor the spin so the wall-clock angle is `rad` at this instant,
+ * under the buffer mutex (the render reads the anchor under the same
+ * mutex, so it cannot see the old one). Keeps the baseline steady across
+ * a pause/resume (sleep/wake, screen switch): on resume the first frame
+ * is the exact on-screen orientation (s_spin_last_rad), not wherever
+ * the wall clock advanced to during the pause -- so the moon continues
+ * from where it was instead of popping to a new pose.
+ *
+ * The orbit sweep's final frame calls this (at 0) before it clears the
+ * sweep flag the render is polling on, so the render cannot read the
+ * old anchor: the swept-in frame is the unrotated one. */
+static void moon_spin_anchor_at(float rad) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    s_spin_anchor_ms = esp_timer_get_time();
+    /* Wall-clock instant at which the angle would be `rad`: `rad`/2pi is
+     * the fraction of the period, so back off that many ms from now. */
+    double period = (double)CONFIG_UI_MOON_SPIN_PERIOD_S;
+    int64_t offset_ms = (int64_t)(((double)rad * period / 6.283185307179586) * 1e6);
+    s_spin_anchor_ms = esp_timer_get_time() - offset_ms;
+    s_spin_last_rad = rad;
     xSemaphoreGive(s_rgb_mtx);
 }
 
+/* Angle-0 anchor (re-bake / orbit sweep): the on-screen frame is the
+ * unrotated one, so the spin resumes from the identity pose. */
+static void moon_spin_reanchor(void) { moon_spin_anchor_at(0.0f); }
+
 /* Start the render task (a previous one, if any, is already joined by
- * the caller -- moon_spin_stop). No re-anchor here on purpose: after a
- * sleep the angle is computed from wall clock time against the existing
- * anchor, so the first frame is exactly where the spin would have been
- * had it kept running -- no orientation snap on wake. */
+ * the caller -- moon_spin_stop). Re-anchors at the tracked on-screen
+ * orientation (s_spin_last_rad): after a sleep (or any screen/sleep/
+ * alarm transition that paused the spin) the first frame is the exact
+ * pose the moon was showing -- the baseline stays steady -- instead of
+ * jumping to wherever the wall clock advanced to during the pause. At
+ * boot the on-screen frame is the angle-0 LUT display and
+ * s_spin_last_rad is 0, so the first spin frame matches it. */
 static void moon_spin_begin(void) {
     if (!CONFIG_UI_MOON_SPIN_ENABLE || s_spin_running)
         return;
@@ -454,6 +492,7 @@ static void moon_spin_begin(void) {
     s_spin_ready = false;
     s_spin_strip = 0;
     s_perf_refr_us = 0;
+    moon_spin_anchor_at(s_spin_last_rad);
     /* Prime the handshake: the first frame may be rendered immediately
      * (the on-screen frame is the angle-0 LUT display). */
     (void)xSemaphoreTake(s_spin_shown, 0); /* consume a stale signal */
@@ -497,10 +536,10 @@ static void moon_orbit_interrupt(void);
 
 /* Bake the current phase at the given orbit angle -- the WHOLE frame,
  * off screen (row by row, per-row critical sections so a cancel is
- * honored quickly). When it is done the tick sweeps the finished frame
- * into the display with the same 2-strip batches as the burn-in spin,
- * so the viewport change lands as one ~400 ms frame -- the same
- * sequential update as the spin -- instead of a progressive
+ * honored quickly). When it is done the tick displays the finished frame
+ * as one atomic whole frame (MOON_SPIN_BATCH = MOON_NSTRIPS, the spin's
+ * display), so the viewport change lands as one ~150 ms frame -- the
+ * same sequential update as the spin -- instead of a progressive
  * top-to-bottom wipe over the ~2.4 s bake. The task owns s_frame and
  * s_rgb's row content, but never the images' validity. */
 static void moon_orbit_task(void *arg) {
@@ -798,7 +837,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
             strips_ready = MOON_NSTRIPS;
         int show = strips_ready - s_orbit_strip_shown;
         if (show > MOON_SPIN_BATCH)
-            show = MOON_SPIN_BATCH; /* the same 2-strip batches as the spin */
+            show = MOON_SPIN_BATCH; /* the spin's atomic whole-frame display */
         if (show > 0) {
             int last = s_orbit_strip_shown + show;
             for (int s = s_orbit_strip_shown; s < last; s++) {
