@@ -86,6 +86,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 
@@ -190,11 +191,28 @@ static bool s_orbit_have; /* s_orbit_lpf holds a value */
  * only once fully converted, which also keeps the display from tearing
  * mid-strip. */
 static volatile uint32_t s_anim_pub;
-static int s_anim_frame_shown;          /* consumer: frame index currently shown */
-static volatile int s_anim_strip_shown; /* consumer: next strip to show */
-static volatile bool s_anim_running;    /* producer task alive */
-static volatile bool s_anim_cancel;     /* stop the producer (sleep transition) */
-static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
+static volatile uint32_t s_anim_pub_bot; /* bottom half: (frame << 16) | rows done (200..400) */
+static int s_anim_frame_shown;           /* consumer: frame index currently shown */
+static volatile int s_anim_strip_shown;  /* consumer: next strip to show */
+static volatile bool s_anim_running;     /* top producer task alive (frame master) */
+static volatile bool s_anim_cancel;      /* stop the producers (sleep transition) */
+static TaskHandle_t s_anim_task;         /* NULL once the task has exited */
+/* Two-core bake split (task #22): one core at 99% duty bakes a frame in
+ * ~2.1 s (PSRAM-latency-bound per pixel); the frame splits across the
+ * cores with no quality change. The top-half producer (core 1) is the
+ * frame master: it computes the geometry, ships it to the bottom-half
+ * producer (core 0, priority BELOW the LVGL task so the strip consumer
+ * is never starved) over this queue, bakes rows 0..199 itself and
+ * joins on the done semaphore before the next frame. Rows are the
+ * frame-local row numbers, so row 200 (the split) is strip 8 -- an
+ * exact multiple of MOON_STRIP_ROWS. */
+typedef struct {
+    moon_geom_t g;
+    int frame;
+} anim_half_item_t;
+static QueueHandle_t s_anim_half_q;
+static SemaphoreHandle_t s_anim_half_done;
+static TaskHandle_t s_anim_task_bot; /* NULL if the allocation failed */
 
 /* Animation perf instrumentation (temporary, task #22 -- measure before
  * optimizing the ~50% CPU). The producer (core 1) fills these at frame
@@ -203,10 +221,12 @@ static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
  * logs one line with both cores' per-frame cost and a self-measured duty
  * (work/wall) for each -- the moon pipeline's own CPU, not the system's. */
 static volatile uint32_t s_perf_geo_us;
-static volatile uint32_t s_perf_bake_us;
-static volatile uint32_t s_perf_conv_us;
-static volatile uint32_t s_perf_batch_max_us; /* slowest 16-row bake block */
-static volatile uint32_t s_perf_wall_us;      /* frame: bake start -> last row */
+static volatile uint32_t s_perf_bake_us;      /* top half, core 1 */
+static volatile uint32_t s_perf_conv_us;      /* top half, core 1 */
+static volatile uint32_t s_perf_bake_bot_us;  /* bottom half, core 0 (producer) */
+static volatile uint32_t s_perf_batch_max_us; /* slowest 16-row bake block (top half) */
+static volatile uint32_t s_perf_wall_us;      /* top half: bake start -> last row */
+static volatile uint32_t s_perf_wall_bot_us;  /* bottom half: bake start -> last row */
 static uint32_t s_perf_refr_us;               /* consumer: sum of lv_refr_now */
 
 static void moon_invalidate_all(void) {
@@ -297,28 +317,40 @@ static void moon_bake_epoch(int64_t epoch) {
  * frame is drawn, one after the other, even though one full-resolution
  * frame takes ~1 s to bake:
  *
- *   producer (dedicated task, pinned to core 1 -- the LVGL task stays
- *   responsive on the other core):
+ *   top producer (dedicated task, pinned to core 1 -- the LVGL task is
+ *   pinned to core 0, see the BSP):
  *     for each of CONFIG_UI_MOON_ANIM_FRAMES frames (evenly spaced over
  *     the last synodic month):
  *       compute the geometry for that instant (~50 ms)
- *       for each row: bake the row (moon_bake_rows), convert the row to
+ *       ship it to the bottom producer (queue), then bake rows 0..199:
+ *       for each row, bake the row (moon_bake_rows), convert the row to
  *       RGB565 in s_rgb, publish (frame, rows_done)
- *       wait until the consumer has shown all strips of this frame
- *       (catch-up guard, capped so a paused tick cannot deadlock)
+ *       join on the bottom producer's done semaphore (rows 200..399
+ *       are baked in parallel on core 0), then wait until the consumer
+ *       has shown all strips of this frame (catch-up guard, capped so a
+ *       paused tick cannot deadlock)
+ *
+ *   bottom producer (dedicated task, core 0, priority BELOW the LVGL
+ *   task): bakes rows 200..399 of each frame in parallel with the top
+ *   half and publishes its own row watermark (frame-tagged). It runs
+ *   below the LVGL priority so the strip consumer is never starved;
+ *   the bake is PSRAM-latency-bound, so preemption costs nothing the
+ *   core was not already stalled on.
  *
  *   consumer (LVGL tick, every MOON_TICK_MS):
  *     invalidate the strips of the current frame that are fully
- *     converted, top to bottom, then drain the redraw synchronously
+ *     converted -- strips 0..7 from the top watermark, 8..15 from the
+ *     bottom one -- top to bottom, then drain the redraw synchronously
  *     (lv_refr_now) so the strips' pixels are out of s_rgb and into
  *     LVGL's draw buffers before the tick returns; the QSPI flush then
  *     runs asynchronously from the draw buffers.
  *
- * Visible result: each new frame appears as a ~1 s top-to-bottom sweep
- * (a strip roughly every 3 ms) instead of a hard pop, and the frame
- * after the one on screen is being baked while its predecessor's last
- * strips are still flushing -- the QSPI flush reads LVGL's draw buffers,
- * never s_rgb, so the two stages cannot race.
+ * Visible result: each new frame appears as a top-to-bottom sweep of
+ * roughly half the single-core bake time (a strip roughly every 1.5 ms)
+ * instead of a hard pop, and the frame after the one on screen is being
+ * baked while its predecessor's last strips are still flushing -- the
+ * QSPI flush reads LVGL's draw buffers, never s_rgb, so the two stages
+ * cannot race.
  */
 static void moon_anim_task(void *arg) {
     (void)arg;
@@ -333,11 +365,12 @@ static void moon_anim_task(void *arg) {
     if (!dem)
         ESP_LOGW(TAG, "no relief DEM; animating relief-free");
     /* Perf instrumentation (temporary, task #22): per-frame cost
-     * breakdown. The producer (pinned core 1) fills s_perf_* at frame
-     * end; the consumer (LVGL tick, core 0) logs one line per frame
-     * once it has shown all strips. Self-measured duty (work/wall), so
-     * the percentages are what the moon pipeline itself burns on each
-     * core, not the whole system. */
+     * breakdown. The top producer (core 1) and the bottom producer
+     * (core 0) each fill their s_perf_* at frame end; the consumer
+     * (LVGL tick, core 0) logs one line per frame once it has shown all
+     * strips. Self-measured duty (work/wall), so the percentages are
+     * what the moon pipeline itself burns on each core, not the whole
+     * system. */
     for (int f = 0; f < frames && !s_anim_cancel; f++) {
         /* Evenly spaced over the last synodic month, t_k -> 0 (now) as
          * k -> frames - 1. Full-resolution bake at zero in-plane angle. */
@@ -347,8 +380,20 @@ static void moon_anim_task(void *arg) {
         int64_t t0 = esp_timer_get_time();
         moon_geometry(epoch, &g);
         int64_t t1 = esp_timer_get_time();
+        /* Ship the frame to the bottom producer BEFORE baking: it starts
+         * its half immediately, so the two halves run in parallel for
+         * the whole frame. The queue never overflows (depth 1; the
+         * bottom producer is always back at its receive before the top
+         * starts the next frame). Without a bottom producer the top
+         * bakes the whole frame on its own. */
+        int rows_end = s_anim_task_bot ? MOON_PX / 2 : MOON_PX;
+        if (s_anim_task_bot) {
+            anim_half_item_t item = {.g = g, .frame = f};
+            if (xQueueSend(s_anim_half_q, &item, pdMS_TO_TICKS(1000)) != pdPASS)
+                ESP_LOGW(TAG, "anim %d: bottom producer lost; baking top half only", f + 1);
+        }
         uint32_t bake_us = 0, conv_us = 0, batch_us = 0, batch_max_us = 0;
-        for (int y = 0; y < MOON_PX && !s_anim_cancel; y++) {
+        for (int y = 0; y < rows_end && !s_anim_cancel; y++) {
             int64_t rb0 = esp_timer_get_time();
             moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                            MOON_ALB_W, MOON_ALB_H, y, y + 1);
@@ -379,10 +424,15 @@ static void moon_anim_task(void *arg) {
         s_perf_conv_us = conv_us;
         s_perf_batch_max_us = batch_max_us;
         s_perf_wall_us = (uint32_t)(t2 - t1);
-        ESP_LOGI(TAG, "anim %d/%d | phase %.1f%% illum | bake %lldms", f + 1, frames, g.illum * 100.0f,
+        ESP_LOGI(TAG, "anim %d/%d | phase %.1f%% illum | top half %lldms", f + 1, frames, g.illum * 100.0f,
                  (long long)((t2 - t0) / 1000));
         if (s_anim_cancel)
             break;
+        /* Join on the bottom half: its rows are part of this frame and
+         * s_rgb must be complete before the consumer's catch-up guard
+         * below can be satisfied. The 5 s cap covers a lost producer. */
+        if (xSemaphoreTake(s_anim_half_done, pdMS_TO_TICKS(5000)) != pdPASS)
+            ESP_LOGE(TAG, "anim %d: bottom producer did not finish its half", f + 1);
         /* Catch-up guard: wait until the consumer has shown every strip of
          * this frame (it runs on the 50 ms tick, so this is at most one
          * tick) before the next frame's conversion starts reusing s_rgb.
@@ -392,9 +442,67 @@ static void moon_anim_task(void *arg) {
     }
 done:
     s_anim_pub = ((uint32_t)frames << 16); /* frames done, 0 rows */
-    s_anim_running = false;
+    s_anim_running = false;                /* the bottom producer exits at its next poll */
     s_anim_task = NULL;
     vTaskDelete(NULL); /* a FreeRTOS task must never return */
+}
+
+/* Bottom-half producer (see the pipeline header): bakes rows 200..399 of
+ * each frame on core 0 while the top producer bakes 0..199 on core 1.
+ * Runs at a priority below the LVGL task so it never starves the strip
+ * consumer; it is PSRAM-latency-bound anyway, so the preemptions cost
+ * the core nothing it was not already stalled on. Publishes its own
+ * frame-tagged row watermark; the consumer ignores a watermark whose
+ * frame tag is not the frame the top producer is currently showing
+ * (the previous frame's final watermark would otherwise look like all
+ * bottom strips are ready). Exits once the top producer (frame master)
+ * has finished (s_anim_running). */
+static void moon_anim_half_task(void *arg) {
+    (void)arg;
+    anim_half_item_t item;
+    const uint8_t *alb = moon_albedo();
+    const int8_t *dem = moon_dem();
+    if (!alb) {
+        ESP_LOGE(TAG, "no albedo; bottom producer aborting");
+        vTaskDelete(NULL);
+    }
+    if (!dem)
+        ESP_LOGW(TAG, "no relief DEM; bottom half relief-free");
+    for (;;) {
+        /* Finite poll: the top producer is the frame master and sets
+         * s_anim_running false when the animation ends (including a
+         * cancel), so a timed-out receive is the exit condition. While
+         * the animation runs the next frame is shipped within one
+         * geometry compute (~50 ms), so the 200 ms timeout is just a
+         * liveness poll, not a wait. */
+        if (xQueueReceive(s_anim_half_q, &item, pdMS_TO_TICKS(200)) != pdPASS) {
+            if (!s_anim_running)
+                vTaskDelete(NULL);
+            continue;
+        }
+        int f = item.frame;
+        moon_geom_t g = item.g;
+        uint32_t bake_us = 0;
+        int64_t t0 = esp_timer_get_time();
+        for (int y = MOON_PX / 2; y < MOON_PX && !s_anim_cancel; y++) {
+            int64_t rb0 = esp_timer_get_time();
+            moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+                           MOON_ALB_W, MOON_ALB_H, y, y + 1);
+            int64_t rb1 = esp_timer_get_time();
+            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+            for (int x = 0; x < MOON_PX; x++)
+                rrow[x] = moon_gray565(frow[x]);
+            bake_us += (uint32_t)(rb1 - rb0);
+            s_anim_pub_bot = ((uint32_t)f << 16) | (uint32_t)(y + 1);
+            if ((y & 15) == 15)
+                vTaskDelay(pdMS_TO_TICKS(1)); /* feed the core-0 idle task + TWDT */
+        }
+        s_perf_bake_bot_us = bake_us;
+        s_perf_wall_bot_us = (uint32_t)(esp_timer_get_time() - t0);
+        xSemaphoreGive(s_anim_half_done); /* join point: the top producer's
+                                           * catch-up guard waits for the full frame */
+    }
 }
 
 /* Stop the producer task (sleep transition / early exit) and show the
@@ -403,10 +511,24 @@ static void moon_anim_skip_to_now(void) {
     if (s_anim_running) {
         s_anim_cancel = true;
         int waited = 0;
-        while (s_anim_running && waited < 400) /* the task exits at its next yield (~40 ms) */
+        while (s_anim_running && waited < 400) /* the top task exits at its next yield (~40 ms) */
         {
             vTaskDelay(pdMS_TO_TICKS(10));
             waited += 10;
+        }
+        /* Join the bottom half before re-baking s_frame/s_rgb: on the
+         * normal-completion path the top task's semaphore join already
+         * covered it, but on cancel the top did NOT join (it broke out
+         * of the frame loop first), so the bottom may still be writing
+         * a row. It exits at its next queue-receive timeout (<= 200 ms)
+         * once the top task set s_anim_running false. */
+        if (s_anim_task_bot) {
+            int waited_bot = 0;
+            while (eTaskGetState(s_anim_task_bot) != eDeleted && waited_bot < 2000) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                waited_bot += 10;
+            }
+            s_anim_task_bot = NULL;
         }
     }
     s_anim = false;
@@ -445,11 +567,29 @@ static void moon_anim_begin(void) {
     s_anim = true;
     s_anim_cancel = false;
     s_anim_pub = 0;
+    s_anim_pub_bot = 0;
     s_anim_frame_shown = 0;
     s_anim_strip_shown = 0;
     s_anim_running = true;
+    /* Reset the half-pipeline sync state (a cancelled previous run may
+     * have left a pending done signal; the queue must be empty). */
+    (void)xSemaphoreTake(s_anim_half_done, 0);
+    while (xQueueReceive(s_anim_half_q, &(anim_half_item_t){0}, 0) == pdPASS)
+        ;
     lv_timer_resume(s_tick);
     clock_idle_set_enabled(false);
+    /* Bottom-half producer: core 0, priority BELOW the LVGL task (6) so
+     * the strip consumer is never starved. PSRAM task stack: the bake
+     * path needs 8 KB and internal RAM is tighter than it looks (the
+     * DMA staging copy needs a ~23 KB contiguous internal block). A
+     * failed spawn leaves the handle NULL, so the top producer bakes
+     * the whole frame on its own. (The previous run's producer is gone
+     * by here: moon_anim_skip_to_now joins it before returning.) */
+    s_anim_task_bot = NULL;
+    if (xTaskCreatePinnedToCoreWithCaps(moon_anim_half_task, "moon_anim_b", 8192, NULL, 5, &s_anim_task_bot, 0,
+                                        MALLOC_CAP_SPIRAM) != pdPASS) {
+        ESP_LOGW(TAG, "bottom producer allocation failed; baking top half only");
+    }
     if (xTaskCreatePinnedToCore(moon_anim_task, "moon_anim", 8192, NULL, configMAX_PRIORITIES - 3, &s_anim_task, 1) !=
         pdPASS) {
         /* Out of internal RAM for the task stack: fall back to baking the
@@ -461,7 +601,7 @@ static void moon_anim_begin(void) {
         moon_bake_epoch(now);
         return;
     }
-    ESP_LOGI(TAG, "boot animation: %d frames over the last synodic month (row-sweep pipeline)",
+    ESP_LOGI(TAG, "boot animation: %d frames over the last synodic month (two-core row-sweep pipeline)",
              CONFIG_UI_MOON_ANIM_FRAMES);
 }
 
@@ -703,8 +843,8 @@ static void moon_tick_cb(lv_timer_t *timer) {
             return;
         }
         /* Consumer side of the row-sweep pipeline: show every strip of
-         * the current frame that the producer has fully converted. The
-         * packed (frame, row) pair is one atomic 32-bit load. */
+         * the current frame that the producer(s) have fully converted.
+         * The packed (frame, row) pair is one atomic 32-bit load. */
         uint32_t pub = s_anim_pub;
         int fr = (int)(pub >> 16);
         int row = (int)(pub & 0xFFFF);
@@ -712,9 +852,29 @@ static void moon_tick_cb(lv_timer_t *timer) {
             s_anim_frame_shown = fr;
             s_anim_strip_shown = 0;
         }
-        int strips_ready = row / MOON_STRIP_ROWS;
+        int strips_ready = row / MOON_STRIP_ROWS; /* top watermark: strips 0..7 */
         if (strips_ready > MOON_NSTRIPS)
             strips_ready = MOON_NSTRIPS;
+        /* Bottom half (strips 8..15) from the frame-tagged bottom
+         * watermark. A tag that is not the frame the top producer is
+         * showing is the previous frame's final watermark (all 16
+         * strips "ready") and counts as nothing; before the bottom
+         * publishes its first row of this frame the same holds. In
+         * fallback mode (no bottom producer) the top watermark already
+         * covers the whole frame, so the clamp never applies. */
+        if (s_anim_task_bot) {
+            uint32_t pubb = s_anim_pub_bot;
+            int bfr = (int)(pubb >> 16);
+            int bot_rows = (int)(pubb & 0xFFFF);
+            int bot_strips = 8; /* bottom not ready: only strips 0..7 may show */
+            if (bfr == fr && bot_rows >= MOON_PX / 2) {
+                bot_strips = bot_rows / MOON_STRIP_ROWS;
+                if (bot_strips > MOON_NSTRIPS)
+                    bot_strips = MOON_NSTRIPS;
+            }
+            if (bot_strips < strips_ready)
+                strips_ready = bot_strips;
+        }
         if (strips_ready > s_anim_strip_shown) {
             for (int s = s_anim_strip_shown; s < strips_ready; s++) {
                 /* Strip area in the moon image's (screen) coordinates. */
@@ -738,19 +898,21 @@ static void moon_tick_cb(lv_timer_t *timer) {
             s_perf_refr_us += (uint32_t)(esp_timer_get_time() - r0);
         }
         /* Perf (task #22): the frame is fully on screen -- log both
-         * cores' per-frame cost. "producer %%" is core-1 duty (work /
-         * wall of the bake+convert), "core0 %%" is core-0 duty (the
-         * summed lv_refr_now over the same wall window). */
+         * cores' per-frame cost. "core1 %" is the top half's duty
+         * (work / wall of the top bake+convert); "core0 %" is the
+         * bottom producer's bake plus the consumer's summed
+         * lv_refr_now over the same wall window. */
         if (s_anim_strip_shown >= MOON_NSTRIPS) {
             int wall_ms = (int)(s_perf_wall_us / 1000);
             int refr_ms = (int)(s_perf_refr_us / 1000);
+            int bot_ms = (int)(s_perf_bake_bot_us / 1000);
             ESP_LOGI(TAG,
-                     "perf anim: geo %dms bake %dms conv %dms batchMax %dus | core0 refr %dms | "
-                     "duty core1 %d%% core0 %d%%",
-                     (int)(s_perf_geo_us / 1000), (int)(s_perf_bake_us / 1000), (int)(s_perf_conv_us / 1000),
+                     "perf anim: geo %dms bake top %dms bot %dms conv %dms batchMax %dus | "
+                     "core0 refr %dms | duty core1 %d%% core0 %d%%",
+                     (int)(s_perf_geo_us / 1000), (int)(s_perf_bake_us / 1000), bot_ms, (int)(s_perf_conv_us / 1000),
                      (int)s_perf_batch_max_us, refr_ms,
                      wall_ms ? 100 * ((int)(s_perf_bake_us + s_perf_conv_us) / 1000) / wall_ms : 0,
-                     wall_ms ? 100 * refr_ms / wall_ms : 0);
+                     wall_ms ? 100 * (refr_ms + bot_ms) / wall_ms : 0);
             s_perf_refr_us = 0;
         }
         return;
@@ -826,6 +988,18 @@ void moon_ui_init(void) {
 
     s_tick = lv_timer_create(moon_tick_cb, MOON_TICK_MS, NULL);
     lv_timer_pause(s_tick);
+    /* Two-core bake split sync (see the animation section): one geometry
+     * item per frame (depth 1, the bottom producer is always back at its
+     * receive before the next frame is shipped) and a binary join
+     * semaphore (the top producer waits for the bottom half before the
+     * next frame reuses s_rgb). */
+    s_anim_half_q = xQueueCreate(1, sizeof(anim_half_item_t));
+    s_anim_half_done = xSemaphoreCreateBinary();
+    if (!s_anim_half_q || !s_anim_half_done) {
+        ESP_LOGE(TAG, "anim half-pipeline sync allocation failed; moon disabled");
+        s_ready = false;
+        return;
+    }
     /* 1 Hz tilt activity/wake monitor (+ temporary diagnostic line); runs
      * in every screen state because the moon tick itself is paused in
      * deep sleep. */
