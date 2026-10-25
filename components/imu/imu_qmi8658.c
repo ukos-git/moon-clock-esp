@@ -69,6 +69,7 @@ static float s_inv_g;  /* 1 / magnitude of 1 g, in LSB^-1 (calibrated) */
 static float s_angle;  /* EMA-smoothed atan2(gy, gx) */
 static bool s_have_angle;
 static bool s_ready;
+static int s_fail_count; /* consecutive I2C read failures (0 = healthy) */
 
 static esp_err_t imu_write(uint8_t reg, uint8_t val) {
     uint8_t b[2] = {reg, val};
@@ -300,8 +301,20 @@ bool imu_read_roll(float *angle_rad) {
     if (!s_ready)
         return false;
     int16_t v[3];
-    if (imu_read_raw(v) != ESP_OK)
+    if (imu_read_raw(v) != ESP_OK) {
+        /* A chip left stuck on the shared I2C bus NACKs every transfer;
+         * log the start and every 20th consecutive failure so the stuck
+         * state is visible in the serial log (it also stalls the RTC on
+         * the same bus). */
+        s_fail_count++;
+        if (s_fail_count == 1 || s_fail_count % 20 == 0)
+            ESP_LOGW(TAG, "accel read failed (consecutive %d)", s_fail_count);
         return false;
+    }
+    if (s_fail_count) {
+        ESP_LOGI(TAG, "accel reads recovered after %d consecutive failures", s_fail_count);
+        s_fail_count = 0;
+    }
     float gx = v[0] * s_inv_g, gy = v[1] * s_inv_g, gz = v[2] * s_inv_g;
     float mag = sqrtf(gx * gx + gy * gy + gz * gz);
     if (mag < 0.5f || mag > 1.5f) /* shaking / dropped: skip the sample */

@@ -14,11 +14,34 @@
 #include "ui.h"
 
 #include "clock.h"
+#include "clock_idle.h"
 #include "wifi.h"
 
 #define RTC_POLL_INTERVAL_MS 1300
 
+#ifndef CONFIG_TEST_AUTO_WAKE_SEC
+#define CONFIG_TEST_AUTO_WAKE_SEC 0
+#endif
+
 static const char *TAG = "main";
+
+// Test hook (CONFIG_TEST_AUTO_WAKE_SEC): fire the idle-wake transition
+// while the device has been asleep for N seconds, so the wake path
+// (WiFi reconnect, screen switch, moon re-bake/animation) is exercised
+// without touching the device. Runs in the LVGL task context, exactly
+// like a touch-driven wake.
+static void auto_wake_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_AUTO_WAKE_SEC <= 0 || !clock_is_idle())
+        return;
+    static uint32_t asleep_s = 0;
+    asleep_s++;
+    if (asleep_s < CONFIG_TEST_AUTO_WAKE_SEC)
+        return;
+    asleep_s = 0;
+    ESP_LOGW(TAG, "TEST auto-wake: firing idle wake after %us in sleep", CONFIG_TEST_AUTO_WAKE_SEC);
+    clock_trigger_idle_wake();
+}
 
 extern "C" void app_main(void) {
 
@@ -117,6 +140,11 @@ extern "C" void app_main(void) {
 
     // Create idle timer check (configured via Kconfig)
     lv_timer_create(clock_idle_check_cb, CONFIG_CLOCK_IDLE_CHECK_INTERVAL_MS, NULL);
+
+    // Test hook: auto-wake from sleep after N seconds of being asleep
+    // (CONFIG_TEST_AUTO_WAKE_SEC; 0 = off).
+    if (CONFIG_TEST_AUTO_WAKE_SEC > 0)
+        lv_timer_create(auto_wake_test_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
     ESP_LOGI(TAG, "Sleep transitions: MAIN -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");

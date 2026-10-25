@@ -44,6 +44,7 @@
  * (~31 KiB) and every full-panel flush fails with ESP_ERR_NO_MEM.
  */
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -141,6 +142,9 @@ static volatile bool s_anim_running;    /* producer task alive */
 static volatile bool s_anim_cancel;     /* stop the producer (sleep transition) */
 static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
 
+/* Diagnostic 1 Hz line (temporary; see the implementation below). */
+static void moon_diag_cb(lv_timer_t *timer);
+
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
         lv_obj_invalidate(s_images[i]);
@@ -175,11 +179,21 @@ static void moon_bake_epoch(int64_t epoch) {
     const int8_t *dem = moon_dem();
     if (!dem)
         ESP_LOGW(TAG, "no relief DEM; baking relief-free");
+    /* Diagnostic (temporary): time the relief-free pass alongside the
+     * DEM pass to settle whether the 2048x1024 gather (or PSRAM
+     * contention) is what makes a bake ~2.3 s. relief-free ~0.5 s vs
+     * with-DEM ~2.3 s would be the smoking gun. Runs once per bake, so
+     * the cost is one extra full-frame bake (~0.5 s). */
+    int64_t td0 = esp_timer_get_time();
+    moon_bake(&g, alb, NULL, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
+              MOON_ALB_H);
+    int64_t td1 = esp_timer_get_time();
     moon_bake(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H);
     int64_t t2 = esp_timer_get_time();
-    ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms bake %lldms", g.illum * 100.0f,
-             g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000));
+    ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms relief-free %lldms with-DEM %lldms",
+             g.illum * 100.0f, g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000),
+             (long long)((td1 - td0) / 1000), (long long)((t2 - td1) / 1000));
     moon_rotate_into_rgb();
     int64_t t3 = esp_timer_get_time();
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));
@@ -378,12 +392,19 @@ static void moon_anim_begin(void) {
  * (offset - roll). The driver EMA-smooths the roll and drops implausible
  * samples; a missing IMU (or UI_IMU_ENABLE off) leaves the angle alone,
  * so the moon is static and only drag spins it. */
+static float s_last_roll; /* last good gravity angle (rad), for the 1 Hz diagnostic line */
+static bool s_last_roll_ok;
+
 static void moon_imu_tick(void) {
     if (!CONFIG_UI_IMU_ENABLE)
         return;
     float roll;
-    if (!imu_read_roll(&roll))
+    if (!imu_read_roll(&roll)) {
+        s_last_roll_ok = false;
         return;
+    }
+    s_last_roll_ok = true;
+    s_last_roll = roll;
     static const float DEG = 0.017453292519943295f;
     float th = CONFIG_UI_IMU_ANGLE_SIGN * ((float)CONFIG_UI_IMU_ROLL_OFFSET_DEG * DEG - roll);
     while (th > 3.14159265f)
@@ -391,6 +412,25 @@ static void moon_imu_tick(void) {
     while (th < -3.14159265f)
         th += 6.2831853f;
     s_theta = th;
+}
+
+/* Diagnostic (temporary): 1 Hz tilt/input-state line. Runs in the LVGL
+ * task context on its own timer, so it prints in every screen state
+ * (the moon tick itself is paused in deep sleep). The IMU read here is
+ * the extra bus transaction that shows whether the chip still answers
+ * while asleep -- the "stuck in sleep after tilting" hypothesis. */
+static void moon_diag_cb(lv_timer_t *timer) {
+    (void)timer;
+    float roll;
+    bool ok = imu_read_roll(&roll);
+    /* indev state (0=RELEASED 1=PRESSED 2=PRESSING 3=WAIT_RELEASE 4=GESTURE):
+     * the touch-wake path depends on this firing LV_EVENT_PRESSED; if the
+     * digitizer wedges, the state sticks (or the read fails) and the device
+     * can no longer wake from sleep by touch. */
+    lv_indev_t *ind = lv_indev_get_next(NULL);
+    int st = ind ? (int)lv_indev_get_state(ind) : -1;
+    ESP_LOGI(TAG, "DIAG imu %s roll %.1f | indev %d | theta %.1f | anim %d", ok ? "ok" : "FAIL",
+             ok ? roll * 57.29577951308232f : -1000.0f, st, ok ? s_theta * 57.29577951308232f : 0.0f, (int)s_anim);
 }
 
 /* ---------------- tick ---------------- */
@@ -493,6 +533,9 @@ void moon_ui_init(void) {
 
     s_tick = lv_timer_create(moon_tick_cb, MOON_TICK_MS, NULL);
     lv_timer_pause(s_tick);
+    /* Diagnostic (temporary): 1 Hz tilt/input-state line; runs in every
+     * screen state because the moon tick itself is paused in deep sleep. */
+    lv_timer_create(moon_diag_cb, 1000, NULL);
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
 }

@@ -54,6 +54,18 @@ menu "UI Component Configuration"
             synodic month. Lets the sweep be exercised repeatedly
             without a reboot. Off in normal builds.
 
+    config TEST_AUTO_WAKE_SEC
+        int "Test: auto-wake from sleep after N seconds (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: while the device is in an idle (sleep) state,
+            trigger the idle-wake path automatically after N seconds of
+            being asleep -- no touch needed. Lets the wake-from-sleep
+            transitions (WiFi reconnect, screen switch, moon
+            re-bake/animation) be exercised repeatedly without touching
+            the device. 0 (default) = off.
+
     config UI_IMU_ENABLE
         bool "Drive the moon spin from the QMI8658 IMU (device tilt)"
         default y

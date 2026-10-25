@@ -9,6 +9,7 @@ static const char *TAG = "clock_idle";
 
 // Idle state
 static uint64_t s_last_activity_time_ms = 0;
+static uint64_t s_idle_entered_ms = 0; /* when the current idle episode started (0 = not idle) */
 static bool s_is_in_idle_mode = false;
 static bool s_idle_monitoring_enabled = true;
 
@@ -31,9 +32,13 @@ static void indev_read_cb(lv_event_t *e) {
         // Only trigger wake callback if we were in idle mode
         // (This prevents triggering on every touch when already on main screen)
         if (s_is_in_idle_mode) {
-            ESP_LOGI(TAG, "Waking from idle mode");
+            uint64_t in_idle_ms = esp_timer_get_time() / 1000 - s_idle_entered_ms;
+            ESP_LOGI(TAG, "Waking from idle mode after %llu ms in sleep", (unsigned long long)in_idle_ms);
             s_is_in_idle_mode = false;
+            s_idle_entered_ms = 0;
             clock_trigger_idle_wake();
+        } else {
+            ESP_LOGD(TAG, "touch while active (no wake)");
         }
     }
 }
@@ -83,6 +88,7 @@ void clock_idle_check_cb(lv_timer_t *timer) {
         ESP_LOGI(TAG, "Idle timeout reached after %llu ms", (unsigned long long)idle_duration_ms);
 
         s_is_in_idle_mode = true;
+        s_idle_entered_ms = current_time_ms;
 
         // Trigger idle timeout callback
         clock_trigger_idle_timeout();
