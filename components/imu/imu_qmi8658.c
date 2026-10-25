@@ -297,15 +297,17 @@ esp_err_t imu_init(void) {
 
 bool imu_is_ready(void) { return s_ready; }
 
-bool imu_read_roll(float *angle_rad) {
+/* One burst read -> calibrated, sanity-checked gravity vector (units of
+ * g, |g| ~ 1 at rest). Shared by imu_read_roll and imu_read_gravity.
+ *
+ * A chip left stuck on the shared I2C bus NACKs every transfer; log the
+ * start and every 20th consecutive failure so the stuck state is visible
+ * in the serial log (it also stalls the RTC on the same bus). */
+static bool imu_gravity_sample(float g[3]) {
     if (!s_ready)
         return false;
     int16_t v[3];
     if (imu_read_raw(v) != ESP_OK) {
-        /* A chip left stuck on the shared I2C bus NACKs every transfer;
-         * log the start and every 20th consecutive failure so the stuck
-         * state is visible in the serial log (it also stalls the RTC on
-         * the same bus). */
         s_fail_count++;
         if (s_fail_count == 1 || s_fail_count % 20 == 0)
             ESP_LOGW(TAG, "accel read failed (consecutive %d)", s_fail_count);
@@ -315,11 +317,22 @@ bool imu_read_roll(float *angle_rad) {
         ESP_LOGI(TAG, "accel reads recovered after %d consecutive failures", s_fail_count);
         s_fail_count = 0;
     }
-    float gx = v[0] * s_inv_g, gy = v[1] * s_inv_g, gz = v[2] * s_inv_g;
-    float mag = sqrtf(gx * gx + gy * gy + gz * gz);
+    g[0] = v[0] * s_inv_g;
+    g[1] = v[1] * s_inv_g;
+    g[2] = v[2] * s_inv_g;
+    float mag = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
     if (mag < 0.5f || mag > 1.5f) /* shaking / dropped: skip the sample */
         return false;
-    float ang = atan2f(gy, gx);
+    return true;
+}
+
+bool imu_read_gravity(float g[3]) { return imu_gravity_sample(g); }
+
+bool imu_read_roll(float *angle_rad) {
+    float g[3];
+    if (!imu_gravity_sample(g))
+        return false;
+    float ang = atan2f(g[1], g[0]);
     if (s_have_angle) {
         float diff = ang - s_angle;
         if (diff > M_PI)

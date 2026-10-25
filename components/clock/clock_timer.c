@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "clock.h"
 #include "clock_timer.h"
@@ -16,6 +17,7 @@ extern bool s_initialized;
 // Track current countdown timer configuration
 static uint8_t s_countdown_timer_value = 0;
 static bool s_countdown_timer_active = false;
+static int64_t s_countdown_enabled_at_us = 0; /* host time the active countdown started */
 
 esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode) {
     if (!s_initialized) {
@@ -31,6 +33,7 @@ esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode) {
             ESP_LOGI(TAG, "Timer disabled");
             s_countdown_timer_active = false;
             s_countdown_timer_value = 0;
+            s_countdown_enabled_at_us = 0;
         }
         return ret;
     }
@@ -59,9 +62,16 @@ esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode) {
 
     ESP_LOGI(TAG, "Timer enabled: %d seconds", timer_seconds);
 
-    // Track timer configuration for expiration detection
+    // Track timer configuration for expiration detection. The host-side
+    // start timestamp is the expiration oracle: the PCF85063A's TF flag is
+    // SHARED with the minute interrupt and the hardware timer auto-reloads
+    // (re-setting TF every period), so the register value alone cannot tell
+    // "just expired" from "just started a while ago" (see
+    // clock_interrupt.c -- the old value-based heuristic misfired on the
+    // first poll after a start).
     s_countdown_timer_value = timer_seconds;
     s_countdown_timer_active = true;
+    s_countdown_enabled_at_us = esp_timer_get_time();
 
     // Verify timer was set correctly
     uint8_t verify_val, verify_mode;
@@ -77,6 +87,8 @@ esp_err_t clock_timer_disable(void) { return clock_timer_enable(0, 0); }
 bool clock_timer_is_active(void) { return s_countdown_timer_active; }
 
 uint8_t clock_timer_get_value(void) { return s_countdown_timer_value; }
+
+int64_t clock_timer_get_enabled_at_us(void) { return s_countdown_enabled_at_us; }
 
 esp_err_t clock_timer_process_interrupt(bool *is_timer_tick) {
     if (!is_timer_tick || !s_initialized) {

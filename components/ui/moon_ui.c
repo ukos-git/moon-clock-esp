@@ -7,15 +7,22 @@
  *   - per-frame in-plane rotation (moon_rotate, Q15.15 fixed-point gather)
  *     of the baked frame into the RGB565 panel buffer -- the "ball in hand".
  *
- * Tilt input: the on-board QMI8658 (components/imu) feeds the screen-plane
- * roll (gravity vector, EMA-smoothed); in normal modes the in-plane angle
- * follows the tilt -- theta = UI_IMU_ANGLE_SIGN * (offset - roll) -- so
- * turning the device turns the moon "ball in hand". Touch drag adds to the
- * angle (drag in a circle = spin; drag radially = no spin); both input
- * paths compose. With the IMU absent or UI_IMU_ENABLE off the moon is
- * static and only drag spins it. The IMU angle sign/offset are Kconfig
- * knobs (UI_IMU_ANGLE_SIGN / UI_IMU_ROLL_OFFSET_DEG) because the board's
- * IMU mounting orientation is not known at code level.
+ * Tilt input: the on-board QMI8658 (components/imu) is the ONLY input to
+ * the moon (touch is the core-UI wake input, never a moon input). In
+ * normal modes the in-plane angle follows the screen-plane roll
+ * (gravity vector, EMA-smoothed) -- theta = UI_IMU_ANGLE_SIGN *
+ * (offset - roll) -- so turning the device turns the moon "ball in
+ * hand". With the IMU absent or UI_IMU_ENABLE off the moon is static.
+ * The IMU angle sign/offset are Kconfig knobs (UI_IMU_ANGLE_SIGN /
+ * UI_IMU_ROLL_OFFSET_DEG) because the board's IMU mounting orientation
+ * is not known at code level.
+ *
+ * Tilt is also the activity/wake input: a 1 Hz monitor measures the
+ * angle between successive raw gravity samples and reports sustained
+ * motion (above UI_IMU_ACTIVITY_DEG, ~deg/s) to the idle system, which
+ * holds the idle timer while the user manipulates the ball and wakes
+ * from sleep (touch was the only wake input before -- a tilt-only
+ * session stranded the device asleep until the RTC alarm fired).
  *
  * All buffers are octal PSRAM. The bake is the expensive pass (one
  * equirect texture sample + Lambert per pixel) and runs off the UI tick
@@ -107,9 +114,6 @@ static const char *TAG = "moon_ui";
 #endif
 #define SYNODIC_S (29.53 * 86400.0)
 
-/* Touch-drag spin: +1 = clockwise spin for a clockwise finger drag. */
-#define DRAG_SIGN 1.0f
-
 static uint8_t *s_frame;     /* 8-bit baked frame, MOON_PX^2 */
 static uint16_t *s_rgb;      /* RGB565 display buffer, MOON_PX^2 */
 static lv_image_dsc_t s_dsc; /* (MOON_PX), points at s_rgb */
@@ -121,8 +125,6 @@ static bool s_started; /* moon_ui_start() called; ticks may run */
 
 static float s_theta;              /* in-plane angle, rad (ball-in-hand) */
 static float s_last_rotated_theta; /* last angle the RGB buffer was built at */
-static bool s_drag;
-static int32_t s_last_x, s_last_y;
 
 static int64_t s_baked_day; /* calendar day of the last static bake */
 static bool s_anim;         /* boot animation in progress */
@@ -141,9 +143,6 @@ static volatile int s_anim_strip_shown; /* consumer: next strip to show */
 static volatile bool s_anim_running;    /* producer task alive */
 static volatile bool s_anim_cancel;     /* stop the producer (sleep transition) */
 static TaskHandle_t s_anim_task;        /* NULL once the task has exited */
-
-/* Diagnostic 1 Hz line (temporary; see the implementation below). */
-static void moon_diag_cb(lv_timer_t *timer);
 
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
@@ -197,47 +196,6 @@ static void moon_bake_epoch(int64_t epoch) {
     moon_rotate_into_rgb();
     int64_t t3 = esp_timer_get_time();
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));
-}
-
-/* ---------------- touch-drag "ball in hand" ---------------- */
-
-static void moon_drag_update(void) {
-    /* First pointer indev (the CST9217 touch, registered by the BSP via the
-     * LVGL adapter). Querying LVGL directly keeps this free of the BSP header. */
-    lv_indev_t *indev = lv_indev_get_next(NULL);
-    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER)
-        return;
-    lv_indev_state_t st = lv_indev_get_state(indev);
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-
-    if (st != LV_INDEV_STATE_PRESSED) {
-        s_drag = false;
-        return;
-    }
-    if (!s_drag) {
-        s_drag = true;
-        s_last_x = p.x;
-        s_last_y = p.y;
-        return;
-    }
-    int32_t dx = p.x - s_last_x;
-    int32_t dy = p.y - s_last_y;
-    s_last_x = p.x;
-    s_last_y = p.y;
-    if (dx == 0 && dy == 0)
-        return;
-
-    /* Angular velocity of the finger about the disk center:
-     *   dtheta = (r x v) . z / |r|^2  (screen coords, y down)
-     * A small dead zone near the center keeps the spin stable. */
-    int32_t rx = p.x - MOON_CX;
-    int32_t ry = p.y - MOON_CY;
-    float r2 = (float)rx * rx + (float)ry * ry;
-    float rmin = MOON_R * 0.2f;
-    if (r2 < rmin * rmin)
-        r2 = rmin * rmin;
-    s_theta += DRAG_SIGN * ((float)rx * (float)dy - (float)ry * (float)dx) / r2;
 }
 
 /* ---------------- boot animation (row-sweep pipeline) ----------------
@@ -414,19 +372,56 @@ static void moon_imu_tick(void) {
     s_theta = th;
 }
 
-/* Diagnostic (temporary): 1 Hz tilt/input-state line. Runs in the LVGL
- * task context on its own timer, so it prints in every screen state
- * (the moon tick itself is paused in deep sleep). The IMU read here is
- * the extra bus transaction that shows whether the chip still answers
- * while asleep -- the "stuck in sleep after tilting" hypothesis. */
-static void moon_diag_cb(lv_timer_t *timer) {
+/* Tilt activity / wake monitor (1 Hz). Tilt is the moon's input, so
+ * sustained device motion must count as user activity: hold the idle
+ * timer while the user manipulates the ball, and wake from sleep (touch
+ * is the core-UI wake input, but a tilt-only session must not strand
+ * the device asleep).
+ *
+ * Motion test: the angle between successive RAW gravity samples (deg),
+ * which is ~deg/s at this 1 Hz rate. The at-rest noise floor measured
+ * on this board (device on a table, 1 Hz) has p90 ~3.3 deg/s and a
+ * quietest 30 s window spanning 3.9 deg, so the threshold sits above
+ * that (UI_IMU_ACTIVITY_DEG, default 5). 1 Hz is plenty: a hand tilt
+ * that should wake the device moves far more than 5 deg in a second,
+ * and the wake is all-or-nothing so per-second granularity is fine.
+ *
+ * This callback lives on its own timer (not the moon tick) because the
+ * moon tick is PAUSED in sleep -- the wake path must run there too. */
+#ifndef CONFIG_UI_IMU_ACTIVITY_DEG
+#define CONFIG_UI_IMU_ACTIVITY_DEG 5
+#endif
+static float s_last_g[3];
+static bool s_have_g;
+
+static void moon_tilt_monitor_cb(lv_timer_t *timer) {
     (void)timer;
+    float g[3];
+    if (imu_read_gravity(g)) {
+        if (s_have_g) {
+            float c = g[0] * s_last_g[0] + g[1] * s_last_g[1] + g[2] * s_last_g[2];
+            if (c < -1.0f)
+                c = -1.0f;
+            else if (c > 1.0f)
+                c = 1.0f;
+            float ang_deg = acosf(c) * 57.29577951308232f;
+            if (ang_deg >= (float)CONFIG_UI_IMU_ACTIVITY_DEG)
+                clock_idle_notify_tilt_activity();
+        }
+        s_last_g[0] = g[0];
+        s_last_g[1] = g[1];
+        s_last_g[2] = g[2];
+        s_have_g = true;
+    }
+
+    /* Diagnostic (temporary, remove with the 92faee2 instrumenting):
+     * 1 Hz tilt/input-state line. The IMU roll read here is an extra
+     * bus transaction that shows whether the chip answers while asleep
+     * -- the "stuck in sleep after tilting" hypothesis. The indev state
+     * (0=RELEASED 1=PRESSED 2=PRESSING 3=WAIT_RELEASE 4=GESTURE) shows
+     * whether the touch-wake path can still fire LV_EVENT_PRESSED. */
     float roll;
     bool ok = imu_read_roll(&roll);
-    /* indev state (0=RELEASED 1=PRESSED 2=PRESSING 3=WAIT_RELEASE 4=GESTURE):
-     * the touch-wake path depends on this firing LV_EVENT_PRESSED; if the
-     * digitizer wedges, the state sticks (or the read fails) and the device
-     * can no longer wake from sleep by touch. */
     lv_indev_t *ind = lv_indev_get_next(NULL);
     int st = ind ? (int)lv_indev_get_state(ind) : -1;
     ESP_LOGI(TAG, "DIAG imu %s roll %.1f | indev %d | theta %.1f | anim %d", ok ? "ok" : "FAIL",
@@ -483,11 +478,10 @@ static void moon_tick_cb(lv_timer_t *timer) {
         }
         return;
     }
-    moon_imu_tick();    /* tilt sets the angle (no-op without an IMU) */
-    moon_drag_update(); /* touch drag adds to it */
+    moon_imu_tick(); /* tilt sets the angle (no-op without an IMU) */
     /* Rotate only when the angle actually moved: a resting ball is static
      * (the IMU EMA settles, so at rest the angle stops changing) and the
-     * 30fps gather pass runs only during a tilt or a spin. */
+     * 30fps gather pass runs only during a tilt. */
     if (s_theta != s_last_rotated_theta) {
         s_last_rotated_theta = s_theta;
         moon_rotate_into_rgb();
@@ -533,9 +527,10 @@ void moon_ui_init(void) {
 
     s_tick = lv_timer_create(moon_tick_cb, MOON_TICK_MS, NULL);
     lv_timer_pause(s_tick);
-    /* Diagnostic (temporary): 1 Hz tilt/input-state line; runs in every
-     * screen state because the moon tick itself is paused in deep sleep. */
-    lv_timer_create(moon_diag_cb, 1000, NULL);
+    /* 1 Hz tilt activity/wake monitor (+ temporary diagnostic line); runs
+     * in every screen state because the moon tick itself is paused in
+     * deep sleep. */
+    lv_timer_create(moon_tilt_monitor_cb, 1000, NULL);
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
 }

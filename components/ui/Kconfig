@@ -72,10 +72,25 @@ menu "UI Component Configuration"
         help
             In normal modes the in-plane moon angle follows the
             device's screen-plane roll (QMI8658 gravity vector), so
-            tilting the device turns the moon "ball in hand". Touch
-            drag still works and adds to the tilt angle. When the IMU
-            is absent or this is disabled the moon is static and only
-            drag spins it.
+            tilting the device turns the moon "ball in hand". Touch is
+            not an input to the moon (it is only the core-UI wake
+            input). When the IMU is absent or this is disabled the
+            moon is static.
+
+    config UI_IMU_ACTIVITY_DEG
+        int "Tilt motion threshold for activity/wake (degrees per second)"
+        default 5
+        range 1 45
+        help
+            Device motion (the angle between successive IMU gravity
+            samples) above this threshold counts as user activity: it
+            holds the idle timer and wakes the device from sleep, so a
+            device operated purely by tilt cannot be stranded asleep.
+            The at-rest noise floor measured on this board (1 Hz
+            samples, device on a table) has p90 ~3.3 deg/s with a
+            quietest 30 s window spanning 3.9 deg; the default sits
+            above that. Raise it if the device wakes from table
+            vibration, lower it for more immediate wake.
 
     config UI_IMU_ANGLE_SIGN
         int "IMU angle sign (+1 or -1, flips the spin direction)"

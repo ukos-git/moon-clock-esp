@@ -32,6 +32,16 @@ esp_err_t clock_idle_init(void);
 void clock_idle_reset_timer(void);
 
 /**
+ * @brief Notify the idle system of tilt (IMU) activity
+ *
+ * The moon is operated by device tilt, not touch, so sustained motion
+ * must hold the idle timer and wake from sleep. Safe to call from the
+ * LVGL task context at most a few times per second; only a genuine
+ * transition logs at INFO level.
+ */
+void clock_idle_notify_tilt_activity(void);
+
+/**
  * @brief LVGL timer callback for idle checking
  *
  * This should be called periodically to check if idle timeout has expired.

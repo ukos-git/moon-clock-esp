@@ -69,6 +69,25 @@ void clock_idle_reset_timer(void) {
     ESP_LOGD(TAG, "Idle timer reset");
 }
 
+/* Tilt (IMU) is the moon's input, so sustained device motion counts as
+ * user activity: it holds the idle timer while the user is manipulating
+ * the ball, and it is the wake path from sleep for a device operated by
+ * tilt rather than touch (touch was the only wake input before; the RTC
+ * alarm was the only thing that could recover a tilt-only device from
+ * sleep). Called at most once per second by the moon UI's tilt monitor. */
+void clock_idle_notify_tilt_activity(void) {
+    s_last_activity_time_ms = esp_timer_get_time() / 1000;
+    if (s_is_in_idle_mode) {
+        uint64_t in_idle_ms = s_last_activity_time_ms - s_idle_entered_ms;
+        ESP_LOGI(TAG, "Waking from idle mode via tilt after %llu ms in sleep", (unsigned long long)in_idle_ms);
+        s_is_in_idle_mode = false;
+        s_idle_entered_ms = 0;
+        clock_trigger_idle_wake();
+    } else {
+        ESP_LOGD(TAG, "tilt activity while active (no wake)");
+    }
+}
+
 void clock_idle_check_cb(lv_timer_t *timer) {
     // Don't check if idle monitoring is disabled (e.g., on alarm screen)
     if (!s_idle_monitoring_enabled) {

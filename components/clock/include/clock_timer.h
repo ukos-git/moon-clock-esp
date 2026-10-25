@@ -66,6 +66,17 @@ bool clock_timer_is_active(void);
 uint8_t clock_timer_get_value(void);
 
 /**
+ * @brief Get the host-side start time of the active countdown
+ *
+ * @return esp_timer_get_time() (µs) at the moment the countdown was enabled,
+ *         or 0 if no countdown is active. This is the expiration oracle:
+ *         the PCF85063A timer auto-reloads and the TF flag is shared with the
+ *         minute interrupt, so the timer register value alone cannot
+ *         distinguish "just expired" from "just started a while ago".
+ */
+int64_t clock_timer_get_enabled_at_us(void);
+
+/**
  * @brief Process timer interrupt
  *
  * This function should be called from the interrupt handler when a timer flag
