@@ -58,6 +58,19 @@ void clock_idle_check_cb(lv_timer_t *timer);
 bool clock_is_idle(void);
 
 /**
+ * @brief Milliseconds since the last user activity (touch or tilt)
+ *
+ * Returns the elapsed wall time (ms) since the idle system last saw
+ * user activity -- a touch (indev event) or a sustained tilt
+ * (clock_idle_notify_tilt_activity). The moon spin uses this to decide
+ * between its active (ball-in-hand) rate and its phase-true coast:
+ * "used within the last N seconds" = active.
+ *
+ * @return ms since last activity; a large value if no activity yet.
+ */
+uint64_t clock_idle_last_activity_ms(void);
+
+/**
  * @brief Enable or disable idle monitoring
  *
  * When disabled, idle timeout will not trigger. Useful for screens

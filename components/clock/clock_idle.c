@@ -116,6 +116,8 @@ void clock_idle_check_cb(lv_timer_t *timer) {
 
 bool clock_is_idle(void) { return s_is_in_idle_mode; }
 
+uint64_t clock_idle_last_activity_ms(void) { return (uint64_t)(esp_timer_get_time() / 1000) - s_last_activity_time_ms; }
+
 void clock_idle_set_enabled(bool enabled) {
     s_idle_monitoring_enabled = enabled;
     if (enabled) {

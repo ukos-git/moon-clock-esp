@@ -5,28 +5,45 @@
  *   - one 8-bit grayscale bake (moon_bake) of the lit disk in the FIXED
  *     Earth viewport, only when the phase changes (~daily) or when the
  *     tilt moves the orbit (sphere model, below);
- *   - the burn-in spin: the baked frame is then slowly rotated in place
- *     on the panel (moon_rotate, a nearest-neighbor gather of ~6 ms per
- *     frame -- no re-bake), one full turn every UI_MOON_SPIN_PERIOD_S.
- *     The lit pixels move around the panel over time, which is the
- *     AMOLED burn-in protection. The spin render runs on core 1, the
- *     display (LVGL) on core 0; they are serialized on the frame buffer
- *     (a mutex + a rendered/shown handshake) so the display never tears
- *     and the angular speed is constant (time-based angle) no matter
- *     how many frames the display manages.
+ *   - the free spin (burn-in protection): the baked frame is then
+ *     rotated in place on the panel (moon_rotate, a nearest-neighbor
+ *     gather of ~6 ms per frame -- no re-bake). The angle is a FREE
+ *     integration (theta += omega*dt, see the spin section): the rate
+ *     eases between an ACTIVE value (one turn per
+ *     UI_MOON_SPIN_PERIOD_S while the device was used within the
+ *     settle window) and a PHASE-TRUE COAST (one turn per synodic
+ *     moon month when settled), so the on-screen pose tracks the real
+ *     moon phase and the lit pixels keep moving around the panel. The
+ *     spin render runs on core 1, the display (LVGL) on core 0; they
+ *     are serialized on the frame buffer (a mutex + a rendered/shown
+ *     handshake) so the display never tears and the angular speed is
+ *     exact (time-based angle) no matter how many frames the display
+ *     manages.
  *
- * The spin replaces the previous boot animation (a month-long phase
- * sweep): that was display-bound and showed a visible top-to-bottom
- * redraw (the top half of the new frame over the bottom half of the old
- * one). A rotation needs no sweep line at all -- the whole frame is one
- * cheap gather displayed whole, so the redraw matches the compute by
- * construction.
+ * The spin replaced the old boot animation (a month-long phase sweep):
+ * that was display-bound and showed a visible top-to-bottom redraw (the
+ * top half of the new frame over the bottom half of the old one). A
+ * rotation needs no sweep line at all -- the whole frame is one cheap
+ * gather displayed whole, so the redraw matches the compute by
+ * construction. The month sweep returns as the SYNODIC WAKE SWEEP (see
+ * the sweep section below), played on the same atomic whole-frame
+ * pipeline: the last 29.5 days in N frames, on every wake from sleep.
+ *
+ * Display invariant (the "no top-to-bottom" rule): every frame the
+ * pipeline produces -- spin frame, orbit sweep frame, wake sweep frame,
+ * re-bake, and even a screen switch -- is displayed as ONE atomic
+ * whole-frame / whole-panel lv_refr_now under the buffer mutex. A frame
+ * must never be left for LVGL's async refresh to drain in 25-row strips
+ * (that is the visible top-to-bottom crawl), and no pending full-screen
+ * invalidation (e.g. a screen-load animation) may ride along in one of
+ * these flushes -- a screen switch is a plain lv_scr_load + one atomic
+ * whole-panel flush (moon_ui_screen_switched), never a fade.
  *
  * Tilt input: the on-board QMI8658 (components/imu) is the ONLY input
  * to the moon (touch is the core-UI wake input, never a moon input).
  * The moon keeps the FIXED Earth viewport (the sub-Earth point is up,
  * posangle applied); the tilt changes only which side of the sphere the
- * camera sees (the in-plane rotation is the time-driven burn-in spin
+ * camera sees (the in-plane rotation is the free spin above,
  * above, not an input response):
  *
  *   - out-of-plane orbit (the sphere model): the angle between the
@@ -55,7 +72,7 @@
  * whole frame off screen (~1.7-2.4 s with the relief DEM, row by row
  * so a cancel is honored quickly); when it is done, the tick sweeps
  * the finished frame into the display with the SAME atomic whole-frame
- * display (MOON_SPIN_BATCH = MOON_NSTRIPS) as the burn-in spin, so the
+ * display (MOON_SPIN_BATCH = MOON_NSTRIPS) as the free spin, so the
  * viewport change lands as one ~150 ms frame -- the same sequential
  * update as the spin -- instead of a progressive top-to-bottom wipe
  * over the bake. The in-plane spin is held for the bake+sweep so no
@@ -64,11 +81,15 @@
  * after.
  *
  * Tilt is also the activity/wake input: a 1 Hz monitor measures the
- * angle between successive raw gravity samples and reports sustained
- * motion (above UI_IMU_ACTIVITY_DEG, ~deg/s) to the idle system, which
- * holds the idle timer while the user manipulates the ball and wakes
- * from sleep (touch was the only wake input before -- a tilt-only
- * session stranded the device asleep until the RTC alarm fired).
+ * DEPARTURE of the current pose from a settled-pose reference (a slow
+ * EMA that keeps absorbing the pose while settled -- it tracks the
+ * measured at-rest drift, so at rest the departure stays ~0.2 deg or
+ * less, far below either threshold) and reports sustained departure
+ * to the idle system,
+ * which holds the idle timer while the user manipulates the ball
+ * (departure above UI_IMU_ACTIVITY_DEG while awake) and wakes from
+ * sleep (departure above UI_IMU_WAKE_DEG, the deliberate-pick-up bar;
+ * both gated by a two-consecutive-sample streak).
  *
  * All buffers are octal PSRAM. The bake is the expensive pass (one
  * equirect texture sample + Lambert per pixel) and runs off the UI tick
@@ -77,14 +98,15 @@
  *
  * The spin pipeline (see the spin section below): the render task
  * (core 1) waits until the display has drained the previous frame out of
- * s_rgb, computes the angle from wall clock time, runs moon_rotate over
- * the whole frame (under the buffer mutex) and hands the frame to the
+ * s_rgb, integrates the free spin angle (theta += omega*dt, the rate
+ * smoothed toward active / phase-true coast), runs moon_rotate over the
+ * whole frame (under the buffer mutex) and hands the frame to the
  * display; the LVGL tick (core 0) invalidates the whole moon image,
  * drains the redraw synchronously (lv_refr_now) and hands the buffer
- * back. The display paces the spin; the time-based angle keeps the
+ * back. The display paces the spin; the time-integrated angle keeps the
  * angular speed constant and a dropped frame becomes a bigger step,
  * never a repeat or a stall. While the orbit owns the buffer (its
- * re-bake + sweep, ~3 s) the render blocks, and the tick re-anchors the
+ * re-bake + sweep, ~3 s) the render blocks, and the tick zeroes the
  * angle at the end of the sweep so the first post-orbit frame is the
  * unrotated one the sweep just showed.
  *
@@ -171,6 +193,12 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_MOON_ORBIT_LPF_ALPHA
 #define CONFIG_UI_MOON_ORBIT_LPF_ALPHA 30
 #endif
+#ifndef CONFIG_UI_MOON_ANIM_ENABLE
+#define CONFIG_UI_MOON_ANIM_ENABLE 1
+#endif
+#ifndef CONFIG_UI_MOON_ANIM_FRAMES
+#define CONFIG_UI_MOON_ANIM_FRAMES 14
+#endif
 static uint8_t *s_frame;     /* 8-bit baked frame, MOON_PX^2 */
 static uint16_t *s_rgb;      /* RGB565 display buffer, MOON_PX^2 */
 static lv_image_dsc_t s_dsc; /* (MOON_PX), points at s_rgb */
@@ -197,20 +225,22 @@ static TaskHandle_t s_orbit_task;
 static float s_orbit_lpf; /* low-passed orbit angle, rad */
 static bool s_orbit_have; /* s_orbit_lpf holds a value */
 
-/* Burn-in spin pipeline (see the spin section below). Render task
+/* Spin pipeline (see the spin section below). Render task
  * (core 1): waits for the display to drain the previous frame
- * (s_spin_shown), runs moon_rotate over the WHOLE frame under the
- * buffer mutex (a ~6 ms nearest-neighbor gather) and hands the frame to
- * the display (s_spin_ready). Display (the LVGL tick, core 0): shows the
- * WHOLE frame in one lv_refr_now (~175 ms measured, comfortably under
- * the 5 s Task WDT) so each frame lands atomically (no top-to-bottom
- * wipe) -- and gives s_spin_shown once the frame is out of s_rgb. The
- * render paces to the display; the time-based angle (wall
- * clock vs s_spin_anchor_ms) keeps the angular speed constant no matter
- * how many frames the display manages -- a dropped frame is a bigger
- * step, never a repeat or a stall. The mutex guards every reader/writer
- * of s_rgb (the render, the tick's batched display, the orbit's row
- * sweep, the static LUT convert) so the display never tears. */
+ * (s_spin_shown), integrates the free spin (theta += omega*dt, the rate
+ * smoothed toward active/coast -- see the section) under the buffer
+ * mutex, runs moon_rotate over the WHOLE frame (a ~6 ms
+ * nearest-neighbor gather) and hands the frame to the display
+ * (s_spin_ready). Display (the LVGL tick, core 0): shows the WHOLE
+ * frame in one lv_refr_now (~175 ms measured, comfortably under the 5
+ * s Task WDT) so each frame lands atomically (no top-to-bottom wipe)
+ * -- and gives s_spin_shown once the frame is out of s_rgb. The render
+ * paces to the display; the time-integrated angle keeps the angular
+ * speed constant no matter how many frames the display manages -- a
+ * dropped frame is a bigger step, never a repeat or a stall. The mutex
+ * guards every reader/writer of s_rgb (the render, the tick's batched
+ * display, the orbit's row sweep, the static LUT convert) so the
+ * display never tears. */
 /* Strips (25 rows) displayed per tick. Measured: the WHOLE 400-row frame
  * is ~175 ms of lv_refr_now (~11 ms per 25-row strip), so a single
  * full-frame flush fits comfortably in one tick (well under the 5 s Task
@@ -222,30 +252,57 @@ static bool s_orbit_have; /* s_orbit_lpf holds a value */
  * spin). The orbit sweep reuses this constant, so a tilt viewport change
  * also lands as one atomic frame. */
 #define MOON_SPIN_BATCH MOON_NSTRIPS
-static volatile bool s_spin_running;      /* render task alive */
-static volatile bool s_spin_cancel;       /* stop the render (sleep transition) */
-static volatile int64_t s_spin_anchor_ms; /* wall ms (esp_timer) the angle was 0 */
-static volatile bool s_spin_ready;        /* a rendered frame is in s_rgb */
-static volatile int s_spin_strip;         /* display: next strip of the frame */
-static volatile int s_spin_deg;
-static volatile float s_spin_last_rad; /* the on-screen orientation (the last
+/* One synodic month in seconds (29.53 days): the phase-true coast rate
+ * is 2*pi / this (one full spin turn per synodic moon month). */
+#define MOON_SYNODIC_S 2538634.0 /* 29.53 * 86400 */
+#ifndef CONFIG_UI_MOON_SPIN_SETTLE_S
+#define CONFIG_UI_MOON_SPIN_SETTLE_S 10
+#endif
+static volatile bool s_spin_running;    /* render task alive */
+static volatile bool s_spin_cancel;     /* stop the render (sleep transition) */
+static double s_spin_theta;             /* free spin angle, rad, unbounded (the render
+                                         * integrates it; 0 = the identity pose) */
+static double s_spin_omega;             /* current spin rate, rad/s (smoothed) */
+static volatile int64_t s_spin_last_ms; /* render time of the last frame */
+static volatile bool s_spin_ready;      /* a rendered frame is in s_rgb */
+static volatile int s_spin_strip;       /* display: next strip of the frame */
+static volatile int s_spin_deg;         /* last displayed angle, deg (park log) */
+static volatile float s_spin_last_rad;  /* the on-screen orientation (the last
                                          * displayed spin frame; 0 after an
                                          * orbit sweep or a re-bake re-anchor).
                                          * Read on wake to resume the spin from
-                                         * exactly where it paused. */           /* last displayed angle, deg (perf log) */
+                                         * exactly where it paused. */
 static TaskHandle_t s_spin_task;
 static SemaphoreHandle_t s_spin_shown; /* the display has drained s_rgb */
 static SemaphoreHandle_t s_rgb_mtx;    /* guards s_rgb (+ s_frame while baking) */
 
-/* Spin perf instrumentation (temporary, task #24): the render task
- * (core 1) fills s_perf_render_us (mutex + gather) per frame; the tick
- * (core 0) accumulates s_perf_refr_us over the frame's batches and logs
- * one line per displayed frame. Self-measured (work/wall), so the
- * numbers are the moon pipeline's own cost on each core, not the
- * system's. */
-static volatile uint32_t s_perf_render_us;
-static volatile uint32_t s_perf_refr_us;
-static volatile uint32_t s_perf_orbit_us; /* orbit sweep display cost */
+/* Synodic wake sweep state (see the sweep section below). The task
+ * (core 1) bakes whole frames off screen and publishes them one by one;
+ * the tick (core 0) displays each as one atomic whole frame and paces
+ * the task (backpressure) so the month unfolds at the bake rate. */
+static volatile bool s_sweep_baking;    /* bake task running */
+static volatile bool s_sweep_abort;     /* stop the running sweep */
+static volatile uint32_t s_sweep_pub;   /* frames fully baked (0..s_sweep_frames) */
+static volatile uint32_t s_sweep_shown; /* frames the tick has displayed */
+static volatile int32_t s_sweep_frames; /* this sweep's total frame count */
+static int64_t s_sweep_now;
+static TaskHandle_t s_sweep_task;
+static volatile bool s_frame_stale; /* s_frame/s_rgb left mid-bake by an
+                                     * abort; a completed bake clears it.
+                                     * The sleep park must not rotate a
+                                     * half-baked frame onto the panel. */
+
+/* The LVGL task's handle, cached on the first tilt-monitor tick (which
+ * runs on the LVGL task). The synchronous atomic displays (a whole
+ * 466x466 lv_refr_now) need the 8 KB LVGL task stack; the boot path
+ * (app_main / task main) has only a 3.5 KB stack and a full render
+ * there overflows it -- the boot loadScreen and the boot day-tick
+ * re-bake both land on that small stack. So the sync flush runs only
+ * when we are on the LVGL task; off it we invalidate and let the LVGL
+ * task's async refresh paint it (a crawl is acceptable at boot, before
+ * the moon matters). */
+static TaskHandle_t s_lvgl_task;
+static bool moon_on_lvgl(void) { return s_lvgl_task && s_lvgl_task == xTaskGetCurrentTaskHandle(); }
 
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
@@ -257,20 +314,35 @@ static void moon_invalidate_all(void) {
  * the first display and after a re-bake (day rollover / wake); the spin
  * re-anchors at angle 0 right after, so the first spin frame matches
  * what the LUT just showed. Under the buffer mutex like every other
- * s_rgb writer, so it cannot race the spin render's gather. */
+ * s_rgb writer, so it cannot race the spin render's gather. The fresh
+ * frame is DISPLAYED here, atomically (one whole-panel flush): the
+ * invalidate alone would leave it to LVGL's async refresh, which drains
+ * the 400-row image in 25-row QSPI strips -- a visible top-to-bottom
+ * crawl of every re-bake. */
 static void moon_convert_to_rgb(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     for (int i = 0; i < MOON_PX * MOON_PX; i++)
         s_rgb[i] = moon_gray565(s_frame[i]);
-    /* Re-anchor inside the critical section: the spin render computes
-     * its angle under this mutex, so the next frame is the identity
-     * gather of the fresh frame -- exactly what the LUT just displayed
-     * (no orientation jump after a re-bake). The on-screen frame is now
-     * the unrotated one, so the tracked orientation is 0 too. */
-    s_spin_anchor_ms = esp_timer_get_time();
+    /* Zero the free spin inside the critical section: the spin render
+     * integrates its angle under this mutex, so the next frame is the
+     * identity gather of the fresh frame -- exactly what the LUT just
+     * displayed (no orientation jump after a re-bake). The on-screen
+     * frame is now the unrotated one, so the tracked orientation is 0
+     * too. The spin RATE is untouched (a settled coast keeps coasting
+     * across a re-bake). */
+    s_spin_theta = 0.0;
     s_spin_last_rad = 0.0f;
-    xSemaphoreGive(s_rgb_mtx);
     moon_invalidate_all();
+    /* Atomic flush only on the LVGL task (8 KB stack). This runs on the
+     * 3.5 KB main task at boot (moon_ui_start -> moon_bake_epoch), where
+     * a synchronous whole-panel lv_refr_now overflows the stack; off the
+     * LVGL task the invalidated frame is painted by the LVGL task's
+     * async refresh instead (the pre-atomic behavior, safe at boot).
+     * The flush is inlined (not a helper) because we already hold
+     * s_rgb_mtx, which is non-reentrant. */
+    if (moon_on_lvgl())
+        lv_refr_now(NULL);
+    xSemaphoreGive(s_rgb_mtx);
 }
 
 /* Sphere-model camera: rotate the camera basis about the right
@@ -337,6 +409,7 @@ static void moon_bake_epoch(int64_t epoch) {
     moon_bake(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H);
     xSemaphoreGive(s_rgb_mtx);
+    s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     int64_t t2 = esp_timer_get_time();
     /* (The relief-free vs with-DEM split that ran here while diagnosing
      * the ~2.3 s bake settled the question: the 4-neighbor DEM gather
@@ -348,27 +421,42 @@ static void moon_bake_epoch(int64_t epoch) {
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));
 }
 
-/* ---------------- burn-in spin ----------------
+/* ---------------- spin (free, phase-anchored) ----------------
  *
  * The current phase is baked ONCE (moon_bake_epoch, ~2 s) and then the
- * frame is slowly rotated in place on the panel -- one full turn every
- * CONFIG_UI_MOON_SPIN_PERIOD_S -- so the lit pixels move around the
- * panel and the AMOLED cannot burn in. The rotation is a cheap
- * nearest-neighbor gather (moon_rotate, ~6 ms over the whole frame, one
- * PSRAM read/pixel): it is display-bound, not compute-bound, which is
- * what makes it usable. The old month-long sweep re-baked every frame
- * and showed a visible top-to-bottom redraw (the new frame's top half
- * over the old frame's bottom half); a rotation needs no sweep line at
- * all -- the whole frame is one cheap gather displayed whole, so the
- * redraw matches the compute by construction.
+ * frame is rotated in place on the panel by a FREE SPIN: a spin angle
+ * s_spin_theta (rad, unbounded) integrated per frame (theta +=
+ * omega*dt), so the on-screen pose is the baked phase plus the
+ * accumulated free rotation. The rate s_spin_omega (rad/s) is smoothed
+ * exponentially (time constant ~SETTLE/3) toward a target:
+ *   - ACTIVE (the device was used -- touched or tilted -- within
+ *     CONFIG_UI_MOON_SPIN_SETTLE_S, which the idle system's activity
+ *     timer tracks): 2*pi / CONFIG_UI_MOON_SPIN_PERIOD_S, the fast
+ *     ball-in-hand feel (default 180 s per full turn).
+ *   - SETTLED: the PHASE-TRUE COAST, 2*pi / MOON_SYNODIC_S -- one full
+ *     turn per synodic moon month (29.53 days, ~12 deg/day). The
+ *     display keeps turning continuously (the AMOLED burn-in
+ *     protection the fixed 180 s burn-in spin provided, without the
+ *     fixed period): when the user stops interacting the spin VISIBLY
+ *     slows down through the fast rate into the coast over a few
+ *     seconds, then creeps forever at the phase rate; picking the
+ *     device up spins it back up.
+ * The rotation is a cheap nearest-neighbor gather (moon_rotate, ~6 ms
+ * over the whole frame, one PSRAM read/pixel): display-bound, not
+ * compute-bound, which is what makes it usable. The old month-long
+ * sweep re-baked every frame and showed a visible top-to-bottom
+ * redraw (the new frame's top half over the old frame's bottom half);
+ * a rotation needs no sweep line at all -- the whole frame is one
+ * cheap gather displayed whole, so the redraw matches the compute by
+ * construction.
  *
  *   render (dedicated task, pinned to core 1 -- the LVGL task is pinned
  *   to core 0, see the BSP):
  *     wait for the display to drain the previous frame (s_spin_shown;
  *     a finite poll so a cancel is honored while blocked)
- *     compute the angle from wall clock time (time-based: the angular
- *     speed is constant even when frames drop -- a slow display is a
- *     bigger step, never a repeat or a stall)
+ *     integrate the free spin (theta += omega*dt, omega eased toward
+ *     active/coast) under the buffer mutex; a slow display is a bigger
+ *     step, never a repeat or a stall
  *     moon_rotate(s_frame -> s_rgb) under the buffer mutex, then hand
  *     the frame to the display (s_spin_ready)
  *
@@ -395,12 +483,12 @@ static void moon_bake_epoch(int64_t epoch) {
 static void moon_spin_task(void *arg) {
     (void)arg;
     for (;;) {
-        /* Paused (not stopped) while the orbit owns the buffer: its
-         * bake rewrites s_frame (row by row, off screen) and the tick
-         * then displays s_rgb as one atomic whole frame (the spin's
-         * display). The tick re-anchors the angle at the end of the
-         * sweep. */
-        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping))
+        /* Paused (not stopped) while the orbit or the wake sweep owns
+         * the buffer: their bakes rewrite s_frame (row by row, off
+         * screen) and the tick then displays s_rgb as one atomic whole
+         * frame (the spin's display). The tick re-anchors the angle at
+         * the end of each. */
+        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping || s_sweep_baking))
             vTaskDelay(pdMS_TO_TICKS(50));
         if (s_spin_cancel)
             break;
@@ -413,23 +501,37 @@ static void moon_spin_task(void *arg) {
             continue;
         if (s_spin_cancel)
             break;
-        /* The angle is computed UNDER the buffer mutex, after the
-         * frame's source is fixed: a re-bake (moon_bake_epoch) and the
-         * orbit sweep re-write s_frame and re-anchor the angle inside
-         * their own critical sections, so the render can never mix a
-         * new frame with a stale pre-re-bake angle (an orientation
-         * jump). The cost is a few FPU ops per frame. Time-based angle
-         * (see the section header): wall clock vs the anchor, wrapped
-         * to [0, 2pi) -- the displayed frame is always "where the
-         * angle is NOW", so a slow display costs smoothness (bigger
-         * steps), never direction or speed. int64 ms -> double is
-         * exact (2^53 ms ~ 285,000 years), so no precision loss at
-         * any device uptime. */
+        /* The free spin (see the section header) is integrated UNDER
+         * the buffer mutex: theta += omega * dt, dt = the wall time
+         * since the last frame (clamped, so a resume from a pause --
+         * a sweep hold, a sleep/wake -- cannot step a whole turn).
+         * omega is smoothed toward its target: ACTIVE (the device was
+         * touched or tilted within the settle window -- the idle
+         * system's activity timer tracks both) = the fast ball-in-hand
+         * rate, else the PHASE-TRUE COAST (one turn per synodic
+         * month). A re-bake zeroes theta inside its own critical
+         * section, so the render can never mix a new frame with a
+         * stale pre-re-bake angle (an orientation jump). dt << tau
+         * per frame, so the exponential approach is a linear step. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         int64_t t0 = esp_timer_get_time(); /* at render time, post-wait */
-        double sec = (double)(t0 - s_spin_anchor_ms) / 1e6;
-        float rad = (float)(fmod(sec, (double)CONFIG_UI_MOON_SPIN_PERIOD_S) * 6.283185307179586 /
-                            (double)CONFIG_UI_MOON_SPIN_PERIOD_S);
+        double dt = (double)(t0 - s_spin_last_ms) / 1e6;
+        s_spin_last_ms = t0;
+        if (dt < 0.0)
+            dt = 0.0;
+        else if (dt > 0.5)
+            dt = 0.5; /* a resume: step at most half a second */
+        /* "In use" = a touch or tilt within the settle window. The idle
+         * system's activity timer tracks both; note its getter returns
+         * ELAPSED ms since the last activity (small when recently used),
+         * not an absolute timestamp. */
+        bool active = clock_idle_last_activity_ms() < (uint64_t)CONFIG_UI_MOON_SPIN_SETTLE_S * 1000ULL;
+        double w_target =
+            active ? (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_PERIOD_S) : (6.283185307179586 / MOON_SYNODIC_S);
+        double alpha = 1.0 - exp(-(dt * 3.0) / (double)CONFIG_UI_MOON_SPIN_SETTLE_S); /* tau ~ SETTLE/3 */
+        s_spin_omega += (w_target - s_spin_omega) * alpha;
+        s_spin_theta += s_spin_omega * dt;
+        float rad = (float)fmod(s_spin_theta, 6.283185307179586);
         moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                     moon_cos15(rad), moon_sin15(rad));
         s_spin_last_rad = rad; /* the on-screen orientation once this frame
@@ -438,7 +540,6 @@ static void moon_spin_task(void *arg) {
                                 * the spin from exactly this angle. */
         s_spin_ready = true;   /* the display shows it in batches */
         xSemaphoreGive(s_rgb_mtx);
-        s_perf_render_us = (uint32_t)(esp_timer_get_time() - t0);
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
         /* Pace: the display is the bottleneck (a batch takes longer than
          * the gather); a short sleep between frames keeps the render from
@@ -451,48 +552,35 @@ static void moon_spin_task(void *arg) {
     vTaskDelete(NULL); /* a FreeRTOS task must never return */
 }
 
-/* Anchor the spin so the wall-clock angle is `rad` at this instant,
- * under the buffer mutex (the render reads the anchor under the same
- * mutex, so it cannot see the old one). Keeps the baseline steady across
- * a pause/resume (sleep/wake, screen switch): on resume the first frame
- * is the exact on-screen orientation (s_spin_last_rad), not wherever
- * the wall clock advanced to during the pause -- so the moon continues
- * from where it was instead of popping to a new pose.
- *
- * The orbit sweep's final frame calls this (at 0) before it clears the
- * sweep flag the render is polling on, so the render cannot read the
- * old anchor: the swept-in frame is the unrotated one. */
-static void moon_spin_anchor_at(float rad) {
+/* Zero the free spin angle at this instant, under the buffer mutex
+ * (the render integrates theta under the same mutex, so it cannot see
+ * the pre-zero value): the on-screen frame is the unrotated one (a
+ * fresh bake, an orbit sweep, the wake sweep's last frame), so the
+ * spin resumes from the identity pose. The spin RATE survives (a
+ * settled coast keeps coasting across the re-bake). Called before the
+ * caller clears the flag the render polls on (s_sweep_baking /
+ * s_orbit_sweeping), so the render cannot integrate against the old
+ * theta in the gap. */
+static void moon_spin_reanchor(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    /* Wall-clock instant at which the angle would be `rad`: `rad`/2pi is
-     * the fraction of the period, so back off that many ms from now. */
-    double period = (double)CONFIG_UI_MOON_SPIN_PERIOD_S;
-    int64_t offset_ms = (int64_t)(((double)rad * period / 6.283185307179586) * 1e6);
-    s_spin_anchor_ms = esp_timer_get_time() - offset_ms;
-    s_spin_last_rad = rad;
+    s_spin_theta = 0.0;
+    s_spin_last_rad = 0.0f;
     xSemaphoreGive(s_rgb_mtx);
 }
 
-/* Angle-0 anchor (re-bake / orbit sweep): the on-screen frame is the
- * unrotated one, so the spin resumes from the identity pose. */
-static void moon_spin_reanchor(void) { moon_spin_anchor_at(0.0f); }
-
 /* Start the render task (a previous one, if any, is already joined by
- * the caller -- moon_spin_stop). Re-anchors at the tracked on-screen
- * orientation (s_spin_last_rad): after a sleep (or any screen/sleep/
- * alarm transition that paused the spin) the first frame is the exact
- * pose the moon was showing -- the baseline stays steady -- instead of
- * jumping to wherever the wall clock advanced to during the pause. At
- * boot the on-screen frame is the angle-0 LUT display and
- * s_spin_last_rad is 0, so the first spin frame matches it. */
+ * the caller -- moon_spin_stop). No re-anchoring: the free spin's
+ * state (theta, omega, the tracked on-screen orientation) persists
+ * across the pause, so the first frame after a sleep/wake resumes
+ * from the exact pose the moon was showing (the render clamps its
+ * first dt to 0.5 s, so the pause itself adds at most half a
+ * second of spin). */
 static void moon_spin_begin(void) {
     if (!CONFIG_UI_MOON_SPIN_ENABLE || s_spin_running)
         return;
     s_spin_cancel = false;
     s_spin_ready = false;
     s_spin_strip = 0;
-    s_perf_refr_us = 0;
-    moon_spin_anchor_at(s_spin_last_rad);
     /* Prime the handshake: the first frame may be rendered immediately
      * (the on-screen frame is the angle-0 LUT display). */
     (void)xSemaphoreTake(s_spin_shown, 0); /* consume a stale signal */
@@ -508,7 +596,7 @@ static void moon_spin_begin(void) {
         return;
     }
     s_spin_running = true;
-    ESP_LOGI(TAG, "burn-in spin started (%d s per full turn)", CONFIG_UI_MOON_SPIN_PERIOD_S);
+    ESP_LOGI(TAG, "spin started (active %d s/turn, coast 1/29.5 d)", CONFIG_UI_MOON_SPIN_PERIOD_S);
 }
 
 /* Stop the render task (sleep transition): the screen goes off anyway,
@@ -526,6 +614,38 @@ static void moon_spin_stop(void) {
     }
     if (s_spin_running)
         ESP_LOGW(TAG, "spin task did not exit within 500 ms");
+}
+
+/* Sleep entry: the spin task is already joined by the caller, so the
+ * free spin would otherwise freeze wherever its last frame landed.
+ * Park it: advance theta by the spin rate over the pause gap (the
+ * wall time since the last frame, clamped to 0.5 s like the render's
+ * resume step) and display that frame atomically -- the moon rests at
+ * the exact pose the spin was heading to (sleep is the preparation for
+ * the full stop). theta/s_omega carry into the wake: the spin resumes
+ * from exactly this pose and keeps the rate it had (a settled coast
+ * coasts on). */
+static void moon_park(void) {
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    int64_t t0 = esp_timer_get_time();
+    double dt = (double)(t0 - s_spin_last_ms) / 1e6;
+    if (dt < 0.0)
+        dt = 0.0;
+    else if (dt > 0.5)
+        dt = 0.5;
+    s_spin_last_ms = t0;
+    s_spin_theta += s_spin_omega * dt;
+    float rad = (float)fmod(s_spin_theta, 6.283185307179586);
+    moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, moon_cos15(rad),
+                moon_sin15(rad));
+    s_spin_last_rad = rad;
+    xSemaphoreGive(s_rgb_mtx);
+    moon_invalidate_all();
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    lv_refr_now(NULL);
+    xSemaphoreGive(s_rgb_mtx);
+    s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
+    ESP_LOGI(TAG, "parked at spin deg %d (exact pose)", s_spin_deg);
 }
 
 /* Forward decl: defined in the orbit section below (the orbit pipeline
@@ -582,11 +702,14 @@ static void moon_orbit_task(void *arg) {
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
     int64_t t1 = esp_timer_get_time();
-    if (!s_orbit_cancel)
-        s_orbit_pub = MOON_PX; /* the tick sweeps the finished frame in */
-    s_orbit_baking = false;
-    if (!s_orbit_cancel)
+    if (!s_orbit_cancel) {
+        s_orbit_pub = MOON_PX;      /* the tick sweeps the finished frame in */
         s_orbit_baked = target_deg; /* the on-screen frame IS this viewport */
+        s_frame_stale = false;      /* the frame is complete and consistent */
+    } else {
+        s_frame_stale = true; /* cancelled mid-bake: partial frame */
+    }
+    s_orbit_baking = false;
     ESP_LOGI(TAG, "orbit %+d deg %s in %lldms (sweep follows)", target_deg, s_orbit_cancel ? "interrupted" : "baked",
              (long long)((t1 - t0) / 1000));
     vTaskDelete(NULL);
@@ -599,15 +722,21 @@ static void moon_orbit_start(void) {
     int64_t epoch = s_orbit_epoch;
     if (epoch <= 0)
         return; /* nothing baked yet (anim running or no time) */
-    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 8192, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
-                                1) != pdPASS) {
-        ESP_LOGE(TAG, "orbit task allocation failed; viewport stays at the last bake");
-        return;
-    }
+    /* The ownership flags BEFORE the task exists: the task may start
+     * baking s_rgb rows immediately, and the spin (the pause-poll) and
+     * the tick's display guard (the atomic whole-frame flush must not
+     * land over a half-baked frame) only stop once the flags are up. */
     s_orbit_baking = true;
     s_orbit_sweeping = true;
     s_orbit_strip_shown = 0;
     s_orbit_pub = 0;
+    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 8192, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
+                                1) != pdPASS) {
+        ESP_LOGE(TAG, "orbit task allocation failed; viewport stays at the last bake");
+        s_orbit_baking = false;
+        s_orbit_sweeping = false;
+        return;
+    }
     /* Hold the idle->sleep timer for the bake+sweep (~3 s) so the device
      * cannot sleep into the middle of a viewport change. */
     if (!clock_is_idle())
@@ -622,8 +751,9 @@ static void moon_orbit_start(void) {
  * the spin keeps rotating the swept frame (the tick re-anchors the
  * angle at the end of the sweep). */
 static void moon_orbit_drain(void) {
-    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping)
-        return;
+    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
+        s_sweep_baking)
+        return; /* the wake sweep owns the buffers; a peek can wait */
     if (s_orbit_target == 0 || s_orbit_target == s_orbit_baked)
         return; /* default viewport, or the on-screen frame is this viewport */
     moon_orbit_start();
@@ -647,8 +777,10 @@ static void moon_orbit_interrupt(void) {
             vTaskDelay(pdMS_TO_TICKS(10));
             waited += 10;
         }
-        if (s_orbit_baking)
+        if (s_orbit_baking) {
             ESP_LOGW(TAG, "orbit task did not exit within 400 ms; forcing state clear");
+            s_frame_stale = true; /* it may still be mid-row in the buffers */
+        }
     }
     s_orbit_cancel = false;
     s_orbit_baking = false;
@@ -660,9 +792,141 @@ static void moon_orbit_interrupt(void) {
         clock_idle_set_enabled(true);
 }
 
-/* The tilt is the moon's input: the in-plane roll sets the ball angle,
- * The out-of-plane orbit (sphere model) comes from the gravity vector:
- * angle from vertical asin(-gz) (chip z is the out-of-screen axis,
+/* ---------------- synodic wake sweep (the 28-day animation) ----------------
+ *
+ * The month-long phase sweep, rebuilt on the atomic whole-frame
+ * pipeline: the last 29.53 days in CONFIG_UI_MOON_ANIM_FRAMES frames,
+ * played on EVERY wake from sleep (moon_ui_replay_animation). A
+ * dedicated bake task (core 1, like the orbit) bakes the frames OFF
+ * screen, row by row with per-row critical sections (an abort is
+ * honored within a row), and publishes them one at a time; the tick
+ * displays each published frame as ONE atomic whole frame (the spin's
+ * display, MOON_SPIN_BATCH = MOON_NSTRIPS strips in one lv_refr_now),
+ * one frame per tick. Backpressure: the bake task does not start frame
+ * f+1 until the tick has displayed frame f -- without it, the display's
+ * full-frame flush could pick up the new frame's first rows over the
+ * old frame's bottom (a mixed frame on screen, the wipe the old
+ * pipeline showed). The bake (~2 s/frame) paces the month (~30 s for
+ * 14 frames); the display (~150 ms/frame) stays ahead. The frames are
+ * evenly spaced over the last synodic month, ending on the CURRENT
+ * phase (the final frame is epoch = now); the tick re-anchors the spin
+ * at the unrotated pose the last frame just showed and lets it resume.
+ * The spin render is paused for the whole sweep (the flag poll), the
+ * idle timer is held (the user is present for the ~30 s), and the sleep
+ * transition aborts the sweep (moon_sweep_interrupt).
+ */
+static void moon_sweep_task(void *arg) {
+    (void)arg;
+    int32_t frames = s_sweep_frames;
+    const uint8_t *alb = moon_albedo();
+    const int8_t *dem = moon_dem();
+    if (!alb) {
+        ESP_LOGE(TAG, "no albedo; sweep aborted");
+        s_sweep_baking = false;
+        vTaskDelete(NULL);
+    }
+    if (!dem)
+        ESP_LOGW(TAG, "no relief DEM; sweep relief-free");
+    const double SYNODIC_S = 29.53 * 86400.0;
+    int64_t now = s_sweep_now;
+    int64_t t0 = esp_timer_get_time();
+    for (int f = 0; f < frames && !s_sweep_abort; f++) {
+        /* Backpressure (see the section above): the previous frame must
+         * be on screen before s_rgb may be overwritten with the next.
+         * The tick advances s_sweep_shown at its 50 ms cadence, so this
+         * is ~one atomic display (~200 ms) per ~2 s bake; the 5 s cap
+         * is a safety bail (the only tick-paused case -- sleep entry --
+         * sets s_sweep_abort, which the loop polls too). */
+        if (f > 0) {
+            int waited = 0;
+            while (!s_sweep_abort && s_sweep_shown < (uint32_t)f) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                waited += 10;
+                if (waited > 5000)
+                    break;
+            }
+            if (s_sweep_abort)
+                break;
+        }
+        /* Frame f is (frames-1-f) synodic steps before the current
+         * phase: f=0 is a full month back, f=frames-1 is NOW. */
+        double t = (double)(frames - 1 - f) / (double)(frames - 1);
+        int64_t epoch = now - (int64_t)(t * SYNODIC_S);
+        moon_geom_t g;
+        moon_geometry(epoch, &g);
+        int64_t b0 = esp_timer_get_time();
+        for (int y = 0; y < MOON_PX && !s_sweep_abort; y++) {
+            /* One lock per row, like the orbit bake: the display's
+             * atomic flush (under the same mutex) can never mix rows
+             * of two frames, and a cancel is honored within a row. */
+            xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+            moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+                           MOON_ALB_W, MOON_ALB_H, y, y + 1);
+            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+            for (int x = 0; x < MOON_PX; x++)
+                rrow[x] = moon_gray565(frow[x]);
+            xSemaphoreGive(s_rgb_mtx);
+            if ((y & 15) == 15)
+                vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+        }
+        if (s_sweep_abort)
+            break;
+        s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
+        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms (illum %.1f%%)", f + 1, frames,
+                 (long long)((esp_timer_get_time() - b0) / 1000), g.illum * 100.0f);
+    }
+    if (!s_sweep_abort) {
+        /* Wait for the LAST frame to be on screen before exiting: the
+         * tick re-anchors the spin in the same advance of s_sweep_shown,
+         * and the spin render resumes only when s_sweep_baking is
+         * false -- so the re-anchor happens-before the resume. The 5 s
+         * bail covers the tick being paused (the only such case --
+         * sleep entry -- aborts the sweep, which the loop polls). */
+        int waited = 0;
+        while (!s_sweep_abort && s_sweep_shown < (uint32_t)s_sweep_frames && waited < 5000) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waited += 10;
+        }
+    } else if (s_sweep_pub < (uint32_t)s_sweep_frames) {
+        s_frame_stale = true; /* the buffers were left mid-bake */
+    } else {
+        s_frame_stale = false; /* all frames completed */
+    }
+    s_sweep_baking = false;
+    ESP_LOGI(TAG, "sweep bake %s in %lldms", s_sweep_abort ? "interrupted" : "done",
+             (long long)((esp_timer_get_time() - t0) / 1000));
+    vTaskDelete(NULL);
+}
+
+/* Abort a running sweep and clear its state (sleep entry / start). The
+ * task checks s_sweep_abort per row and in the backpressure poll, so it
+ * exits within a row (~2 ms) of the abort. */
+static void moon_sweep_interrupt(void) {
+    if (s_sweep_baking) {
+        s_sweep_abort = true;
+        int waited = 0;
+        while (s_sweep_baking && waited < 400) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waited += 10;
+        }
+        if (s_sweep_baking) {
+            ESP_LOGW(TAG, "sweep task did not exit within 400 ms; forcing state clear");
+            s_frame_stale = true; /* it may still be mid-row in the buffers */
+        }
+    }
+    s_sweep_abort = false;
+    s_sweep_baking = false;
+    s_sweep_pub = 0;
+    s_sweep_shown = 0;
+    s_sweep_frames = 0;
+}
+
+/* The tilt drives the moon's OUT-OF-PLANE orbit (sphere model; the
+ * in-plane pose is the free spin's, see the spin section -- the tilt
+ * counts as activity for its rate but does not set its angle). The
+ * orbit comes from the gravity vector: angle from vertical asin(-gz)
+ * (chip z is the out-of-screen axis,
  * calibrated (0,0,-1) at rest), low-passed, dead-zoned, clamped to
  * +/- UI_MOON_ORBIT_MAX_DEG, quantized to UI_MOON_ORBIT_STEP_DEG --
  * only a moved quantized target triggers a re-bake. */
@@ -725,55 +989,118 @@ static void moon_imu_tick(void) {
  * is the core-UI wake input, but a tilt-only session must not strand
  * the device asleep).
  *
- * Motion test: the angle between successive RAW gravity samples (deg),
- * which is ~deg/s at this 1 Hz rate. The at-rest noise floor measured
- * on this board (device on a table, 1 Hz) has p90 ~3.3 deg/s and a
- * quietest 30 s window spanning 3.9 deg, so the threshold sits above
- * that (UI_IMU_ACTIVITY_DEG, default 5). 1 Hz is plenty: a hand tilt
- * that should wake the device moves far more than 5 deg in a second,
- * and the wake is all-or-nothing so per-second granularity is fine.
+ * Motion test: the DEPARTURE (deg) of the current pose from a
+ * settled-pose reference, NOT the delta between two raw samples. The
+ * raw per-sample delta (the old test) amplifies per-sample noise: on
+ * this board the at-rest noise floor (1 Hz, device on a table) has
+ * p90 ~3.3 deg with a long tail, and a streak of two raw deltas above
+ * UI_IMU_ACTIVITY_DEG (5) still fired 3-9 s after sleep entry ("wakes
+ * right after entering sleep"). The fix is a reference: s_pose_g is a
+ * fast EMA of the raw gravity (the current pose, per-sample noise
+ * suppressed) and s_rest_g is a SLOW EMA of it (the settled pose),
+ * updated only while settled so it tracks the measured at-rest drift
+ * (~0.4 deg/s on this board) instead of fighting it. At rest the
+ * departure therefore sits ~0.2 deg or less (measured), far below
+ * every threshold; only a deliberate move produces a large departure.
+ *
+ * Two thresholds:
+ *   - awake (hold the idle timer while the user manipulates the ball):
+ *     UI_IMU_ACTIVITY_DEG (default 5 deg) -- a gentle manipulation
+ *     clears it; a still hold settles and the reference follows, so a
+ *     held-still device is free to sleep.
+ *   - asleep (the wake bar): UI_IMU_WAKE_DEG (default 20 deg) -- a
+ *     deliberate pick-up / tilt clears it; table vibration and the
+ *     at-rest drift cannot.
+ * A STREAK of two consecutive qualifying samples gates both, so a
+ * single residual spike cannot fire. 1 Hz is plenty: a hand tilt that
+ * should wake the device moves far more than the bar in a second, and
+ * the wake is all-or-nothing so per-second granularity is fine.
  *
  * This callback lives on its own timer (not the moon tick) because the
  * moon tick is PAUSED in sleep -- the wake path must run there too. */
 #ifndef CONFIG_UI_IMU_ACTIVITY_DEG
 #define CONFIG_UI_IMU_ACTIVITY_DEG 5
 #endif
-static float s_last_g[3];
+#ifndef CONFIG_UI_IMU_WAKE_DEG
+#define CONFIG_UI_IMU_WAKE_DEG 20
+#endif
+#define MOON_TILT_SMOOTH_ALPHA 0.5f /* fast EMA: the current pose */
+#define MOON_TILT_REST_ALPHA 0.1f   /* slow EMA: the settled reference */
+static float s_pose_g[3];           /* fast EMA of the raw gravity, unit vector */
+static float s_rest_g[3];           /* slow EMA, updated only while settled, unit */
 static bool s_have_g;
+static int s_motion_streak; /* consecutive samples above the active bar */
+
+/* Normalize a gravity vector (the magnitude wanders around 1 g; the
+ * departure test is an angle, so keep both EMAs unit). */
+static void moon_unit3(float v[3]) {
+    float n = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (n > 1e-4f) {
+        v[0] /= n;
+        v[1] /= n;
+        v[2] /= n;
+    }
+}
 
 static void moon_tilt_monitor_cb(lv_timer_t *timer) {
     (void)timer;
+    /* This timer runs on the LVGL task and is never paused, so it is the
+     * reliable early point to cache the LVGL task's handle (see
+     * moon_on_lvgl). The boot path (app_main / task main) has a 3.5 KB
+     * stack and must not run a synchronous whole-panel lv_refr_now. */
+    s_lvgl_task = xTaskGetCurrentTaskHandle();
+    if (!CONFIG_UI_IMU_ENABLE)
+        return; /* the moon ignores the IMU (orbit off too); the task
+                 * handle cache above is the only reason the timer keeps
+                 * running in that case */
+    float dep_deg = -1.0f;
     float g[3];
     if (imu_read_gravity(g)) {
-        if (s_have_g) {
-            float c = g[0] * s_last_g[0] + g[1] * s_last_g[1] + g[2] * s_last_g[2];
+        if (!s_have_g) {
+            /* First sample seeds both EMAs: zero departure. */
+            s_pose_g[0] = g[0];
+            s_pose_g[1] = g[1];
+            s_pose_g[2] = g[2];
+            s_rest_g[0] = g[0];
+            s_rest_g[1] = g[1];
+            s_rest_g[2] = g[2];
+            s_have_g = true;
+        } else {
+            /* Fast EMA: the current pose, per-sample noise suppressed. */
+            s_pose_g[0] += MOON_TILT_SMOOTH_ALPHA * (g[0] - s_pose_g[0]);
+            s_pose_g[1] += MOON_TILT_SMOOTH_ALPHA * (g[1] - s_pose_g[1]);
+            s_pose_g[2] += MOON_TILT_SMOOTH_ALPHA * (g[2] - s_pose_g[2]);
+            moon_unit3(s_pose_g);
+            /* Departure of the pose from the settled reference. */
+            float c = s_pose_g[0] * s_rest_g[0] + s_pose_g[1] * s_rest_g[1] + s_pose_g[2] * s_rest_g[2];
             if (c < -1.0f)
                 c = -1.0f;
             else if (c > 1.0f)
                 c = 1.0f;
-            float ang_deg = acosf(c) * 57.29577951308232f;
-            if (ang_deg >= (float)CONFIG_UI_IMU_ACTIVITY_DEG)
-                clock_idle_notify_tilt_activity();
+            dep_deg = acosf(c) * 57.29577951308232f;
+            if (dep_deg < (float)CONFIG_UI_IMU_ACTIVITY_DEG) {
+                /* Settled: the slow reference absorbs the current pose
+                 * (and any slow at-rest drift), so at rest the departure
+                 * stays far below both bars. */
+                s_rest_g[0] += MOON_TILT_REST_ALPHA * (s_pose_g[0] - s_rest_g[0]);
+                s_rest_g[1] += MOON_TILT_REST_ALPHA * (s_pose_g[1] - s_rest_g[1]);
+                s_rest_g[2] += MOON_TILT_REST_ALPHA * (s_pose_g[2] - s_rest_g[2]);
+                moon_unit3(s_rest_g);
+                s_motion_streak = 0;
+            } else if (dep_deg >= (float)CONFIG_UI_IMU_WAKE_DEG || !clock_is_idle()) {
+                /* Above the bar for this state -- awake: the activity
+                 * bar (holds the idle timer while the user manipulates
+                 * the ball); asleep: the wake bar. Streak gate: two
+                 * consecutive samples. */
+                if (++s_motion_streak >= 2)
+                    clock_idle_notify_tilt_activity();
+            } else {
+                /* Asleep, between the activity and wake bars: below the
+                 * wake bar -- neither wake nor hold. */
+                s_motion_streak = 0;
+            }
         }
-        s_last_g[0] = g[0];
-        s_last_g[1] = g[1];
-        s_last_g[2] = g[2];
-        s_have_g = true;
     }
-
-    /* Diagnostic (temporary, remove with the 92faee2 instrumenting):
-     * 1 Hz tilt/input-state line. The IMU roll read here is an extra
-     * bus transaction that shows whether the chip answers while asleep
-     * -- the "stuck in sleep after tilting" hypothesis. The indev state
-     * (0=RELEASED 1=PRESSED 2=PRESSING 3=WAIT_RELEASE 4=GESTURE) shows
-     * whether the touch-wake path can still fire LV_EVENT_PRESSED. */
-    float roll;
-    bool ok = imu_read_roll(&roll);
-    lv_indev_t *ind = lv_indev_get_next(NULL);
-    int st = ind ? (int)lv_indev_get_state(ind) : -1;
-    ESP_LOGI(TAG, "DIAG imu %s roll %.1f | indev %d | spin %d %d | orbit t%d b%d sweep%d", ok ? "ok" : "FAIL",
-             ok ? roll * 57.29577951308232f : -1000.0f, st, (int)s_spin_running, s_spin_deg, (int)s_orbit_target,
-             (int)s_orbit_baked, (int)(s_orbit_baking || s_orbit_sweeping));
 }
 
 /* ---------------- tick ---------------- */
@@ -789,7 +1116,12 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * hundred ms of core-0 work (a full 400-row frame at once would be
      * ~4 s of continuous 25-row QSPI flushes -- too long for the Task
      * WDT margin and too coarse for touch responsiveness). */
-    if (s_spin_ready) {
+    /* Guarded while a bake pipeline owns s_frame/s_rgb: a spin frame
+     * still pending for display must not be drained into s_rgb while a
+     * bake rewrites it row by row (that would put one mixed frame --
+     * new top rows over old bottom rows -- on screen). It waits and is
+     * dropped at the pipeline's completion, like the orbit path does. */
+    if (s_spin_ready && !s_orbit_baking && !s_orbit_sweeping && !s_sweep_baking) {
         int end = s_spin_strip + MOON_SPIN_BATCH;
         if (end > MOON_NSTRIPS)
             end = MOON_NSTRIPS;
@@ -806,22 +1138,15 @@ static void moon_tick_cb(lv_timer_t *timer) {
              * draw buffers; the QSPI transfer then runs asynchronously
              * from the draw buffers). The mutex is what keeps the
              * render and the orbit sweep from reusing s_rgb mid-drain. */
-            int64_t r0 = esp_timer_get_time();
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);
             xSemaphoreGive(s_rgb_mtx);
-            s_perf_refr_us += (uint32_t)(esp_timer_get_time() - r0);
             s_spin_strip = end;
         }
         if (s_spin_strip >= MOON_NSTRIPS) {
             s_spin_ready = false;
-            s_spin_strip = 0; /* fresh counter for the next frame (was stuck at NSTRIPS, so
-                               * every frame after the first displayed nothing) */
-            /* Perf (task #24): frame fully on screen -- the render
-             * (core 1) and display (core 0) cost of this frame. */
-            ESP_LOGI(TAG, "perf spin: deg %d | render %dms | refr %dms (batch %d strips)", s_spin_deg,
-                     (int)(s_perf_render_us / 1000), (int)(s_perf_refr_us / 1000), MOON_SPIN_BATCH);
-            s_perf_refr_us = 0;
+            s_spin_strip = 0;             /* fresh counter for the next frame (was stuck at NSTRIPS, so
+                                           * every frame after the first displayed nothing) */
             xSemaphoreGive(s_spin_shown); /* the render may reuse s_rgb */
         }
     }
@@ -852,17 +1177,11 @@ static void moon_tick_cb(lv_timer_t *timer) {
             /* Same mutex-guarded drain as the spin batches: pixels out
              * of s_rgb into LVGL's draw buffers before the next strip
              * may be reused. */
-            int64_t r0 = esp_timer_get_time();
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);
             xSemaphoreGive(s_rgb_mtx);
-            s_perf_orbit_us += (uint32_t)(esp_timer_get_time() - r0);
         }
         if (s_orbit_strip_shown >= MOON_NSTRIPS) {
-            /* Perf (task #24): the sweep's display cost (the bake cost
-             * is the task's log line). */
-            ESP_LOGI(TAG, "orbit sweep shown in %dms", (int)(s_perf_orbit_us / 1000));
-            s_perf_orbit_us = 0;
             /* Re-anchor (under the buffer mutex) BEFORE clearing the
              * sweep flag: the render polls s_orbit_sweeping and cannot
              * compute a post-sweep angle until it is false, and it
@@ -880,6 +1199,37 @@ static void moon_tick_cb(lv_timer_t *timer) {
                 xSemaphoreGive(s_spin_shown);
             }
             s_orbit_sweeping = false; /* now the render may resume */
+            if (!clock_is_idle())
+                clock_idle_set_enabled(true);
+        }
+    }
+    /* Synodic wake sweep consumer (see the sweep section): each
+     * published frame is displayed as ONE atomic whole frame (the
+     * spin's display) -- never left for LVGL's async 25-row drain. The
+     * task paces itself on s_sweep_shown (backpressure), so the month
+     * unfolds at the bake rate (~2 s/frame) while the display keeps up. */
+    if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
+        moon_invalidate_all();
+        int64_t r0 = esp_timer_get_time();
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        lv_refr_now(NULL);
+        xSemaphoreGive(s_rgb_mtx);
+        s_sweep_shown = s_sweep_pub;
+        ESP_LOGI(TAG, "sweep %u/%d shown in %dms", (unsigned)s_sweep_shown, (int)s_sweep_frames,
+                 (int)((esp_timer_get_time() - r0) / 1000));
+        if (s_sweep_shown >= (uint32_t)s_sweep_frames) {
+            /* Last frame on screen: it IS the current phase, unrotated.
+             * Re-anchor BEFORE the task exits (its final wait runs on
+             * this very advance), so the spin resumes from exactly
+             * this pose -- the month ends where the clock is. */
+            moon_spin_reanchor();
+            if (s_spin_ready) {
+                /* A pre-sweep spin frame was still pending: drop it and
+                 * hand the buffer back to the render. */
+                s_spin_ready = false;
+                s_spin_strip = 0;
+                xSemaphoreGive(s_spin_shown);
+            }
             if (!clock_is_idle())
                 clock_idle_set_enabled(true);
         }
@@ -940,9 +1290,10 @@ void moon_ui_init(void) {
         s_ready = false;
         return;
     }
-    /* 1 Hz tilt activity/wake monitor (+ temporary diagnostic line); runs
-     * in every screen state because the moon tick itself is paused in
-     * deep sleep. */
+    /* 1 Hz tilt activity/wake monitor; runs in every screen state
+     * because the moon tick itself is paused in deep sleep. It also
+     * caches the LVGL task handle (moon_on_lvgl), so the timer is
+     * created even when UI_IMU_ENABLE is off (see the callback). */
     lv_timer_create(moon_tilt_monitor_cb, 1000, NULL);
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
@@ -994,35 +1345,59 @@ void moon_ui_start(void) {
 }
 
 void moon_ui_replay_animation(void) {
-    /* Test hook (wake-from-sleep, see CONFIG_UI_MOON_ANIM_ON_WAKE):
-     * re-bake the current phase (the spin resumes automatically -- it
-     * never stopped, and the bake re-anchors the angle under the buffer
-     * mutex, so the first frame after the re-bake is the unrotated one
-     * the LUT display just showed). No-op before moon_ui_start (no time
-     * yet) and while the orbit pipeline owns the buffers. */
-    if (!s_ready || !s_started || s_orbit_baking || s_orbit_sweeping)
+    /* Synodic wake sweep (see the sweep section): the last 29.5 days in
+     * CONFIG_UI_MOON_ANIM_FRAMES frames, baked off screen by the bake
+     * task and displayed one atomic whole frame per tick, ending on the
+     * current phase. Called on EVERY wake from sleep (no-op at boot,
+     * before moon_ui_start, and while the orbit pipeline owns the
+     * buffers). The spin is held for the sweep; the idle timer is held
+     * too (the user is present for the ~30 s). */
+    if (!CONFIG_UI_MOON_ANIM_ENABLE || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
     if (clock_get_utc_epoch(&now) != ESP_OK)
         return;
-    ESP_LOGI(TAG, "wake re-bake (test hook)");
-    s_baked_day = now / 86400;
-    moon_bake_epoch(now);
-    moon_spin_begin();
+    moon_sweep_interrupt(); /* defensive join; nothing should be running */
+    s_sweep_now = now;
+    s_sweep_frames = CONFIG_UI_MOON_ANIM_FRAMES;
+    s_sweep_pub = 0;
+    s_sweep_shown = 0;
+    s_sweep_abort = false;
+    s_frame_stale = false;
+    s_baked_day = now / 86400; /* the sweep's final frame is the current phase */
+    /* Ownership flag BEFORE the task exists (the orbit rule): the task
+     * may start baking s_rgb rows immediately; the spin's pause-poll and
+     * the tick's display guard must already be stopped. */
+    s_sweep_baking = true;
+    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 8192, NULL, configMAX_PRIORITIES - 3,
+                                        &s_sweep_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+        ESP_LOGE(TAG, "sweep task allocation failed; moon stays on the current frame");
+        s_sweep_baking = false;
+        return;
+    }
+    if (!clock_is_idle())
+        clock_idle_set_enabled(false); /* hold sleep for the sweep duration */
+    ESP_LOGI(TAG, "synodic wake sweep started: %d frames over 29.5 days", s_sweep_frames);
 }
 
 void moon_ui_day_tick(void) {
-    if (!s_ready)
+    /* Guarded on s_started, not just s_ready: at boot the main-screen
+     * handler runs BEFORE moon_ui_start (its one ~2 s first bake), and a
+     * valid RTC would otherwise re-bake here (s_baked_day is 0) -- a
+     * duplicate boot bake. The day-tick is for "the day rolled over while
+     * we slept"; the first bake is moon_ui_start's alone. */
+    if (!s_ready || !s_started)
         return;
     int64_t now;
     if (clock_get_utc_epoch(&now) != ESP_OK)
         return;
     int64_t day = now / 86400;
     if (day != s_baked_day) {
-        if (s_orbit_baking || s_orbit_sweeping) {
-            /* The orbit pipeline owns s_frame/s_rgb until its sweep
-             * finishes; defer (do NOT advance s_baked_day) so the next
-             * tick re-tries and the two bakes never race on the buffers. */
+        if (s_orbit_baking || s_orbit_sweeping || s_sweep_baking) {
+            /* The orbit or wake-sweep pipeline owns s_frame/s_rgb until
+             * it finishes; defer (do NOT advance s_baked_day) so the
+             * next tick re-tries and the bakes never race on the
+             * buffers. */
             return;
         }
         ESP_LOGI(TAG, "new day; re-baking moon phase");
@@ -1036,18 +1411,75 @@ void moon_ui_pause(bool pause) {
     if (!s_tick)
         return;
     if (pause) {
-        moon_spin_stop();       /* the screen goes off; the moon can freeze */
-        moon_orbit_interrupt(); /* sleep shows the default viewport */
+        /* Sleep entry (and the alarm screen): the pipelines take
+         * priority in this order -- join the wake sweep, stop the spin
+         * render, interrupt the orbit -- then the moon PARKS: one final
+         * frame rendered at the EXACT current wall-clock spin angle and
+         * displayed atomically (see moon_park), so the sleep screens
+         * show the pose the clock says the moon is in, not wherever the
+         * last frame happened to land (up to ~200 ms / ~0.4 deg stale).
+         * Sleep is the preparation for the full stop. All of this is
+         * bounded (each join polls its exit at 10 ms) and runs in the
+         * LVGL task, so the display stays live the whole way. */
+        moon_sweep_interrupt();
+        moon_spin_stop();
+        moon_orbit_interrupt(); /* sleep shows the last baked viewport */
+        if (s_started && !s_frame_stale)
+            moon_park();
         lv_timer_pause(s_tick);
     } else {
+        if (s_frame_stale && s_started && !s_sweep_baking) {
+            /* A mid-bake abort left s_frame/s_rgb partial (a sleep
+             * transition landed on an in-flight bake): re-bake the
+             * current phase atomically before the spin may gather.
+             * Skipped while a sweep owns the buffers: the sweep's last
+             * frame IS the current phase, and it re-anchors the spin
+             * itself when it lands. */
+            int64_t now;
+            if (clock_get_utc_epoch(&now) == ESP_OK) {
+                ESP_LOGI(TAG, "frame was mid-bake at sleep; re-baking before wake");
+                s_baked_day = now / 86400;
+                moon_bake_epoch(now);
+                s_frame_stale = false;
+            }
+        }
         lv_timer_resume(s_tick);
         /* Wake from sleep: restart the render task (stopped on the
-         * sleep transition). The angle is wall-clock based against the
-         * existing anchor, so the first frame is exactly where the spin
-         * would have been had it kept running -- no snap on wake.
-         * Guarded by s_started: at boot the screen actions run before
-         * moon_ui_start, which does the first bake + spin start. */
+         * sleep transition). The free spin's angle/rate persist across
+         * the pause (the render clamps its first dt to 0.5 s), so the
+         * first frame is exactly where the spin parked at sleep -- no
+         * snap on wake. Guarded by s_started: at boot the screen
+         * actions run before moon_ui_start, which does the first bake +
+         * spin start. */
         if (s_started)
             moon_spin_begin();
     }
+}
+
+/* A screen switch happened (the plain lv_scr_load in loadScreen):
+ * display the new screen's contents -- the moon image included -- as
+ * ONE atomic whole-panel flush, the same atomic rule the spin frames
+ * obey. lv_scr_load invalidates the whole new screen; without this
+ * immediate flush LVGL's async 25-row strip drain would repaint it
+ * top-to-bottom over ~a second (the wake artifact).
+ *
+ * The flush is safe whenever s_rgb holds a complete frame -- the steady
+ * spin (s_rgb is always a whole rendered frame) and an orbit sweep in
+ * flight (s_rgb fully converted, the tick is draining its strips). It
+ * is unsafe ONLY while a bake task is actively rewriting s_rgb row by
+ * row (s_orbit_baking / s_sweep_baking): that leaves a temporarily
+ * mixed frame (new top rows over old bottom rows) that a full flush
+ * would put on screen. Skip in that case: the bake's completion display
+ * (or the spin's next atomic frame) lands the new screen atomically.
+ *
+ * Must be on the LVGL task (8 KB stack) -- a whole-panel lv_refr_now
+ * overflows the 3.5 KB main task at boot; off it the invalidated screen
+ * is painted by the LVGL task's async refresh (a boot crawl is
+ * acceptable, the moon is not baked yet anyway). */
+void moon_ui_screen_switched(void) {
+    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking)
+        return;
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    lv_refr_now(NULL);
+    xSemaphoreGive(s_rgb_mtx);
 }

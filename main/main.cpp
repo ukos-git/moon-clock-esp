@@ -29,7 +29,10 @@ static const char *TAG = "main";
 // while the device has been asleep for N seconds, so the wake path
 // (WiFi reconnect, screen switch, moon re-bake/animation) is exercised
 // without touching the device. Runs in the LVGL task context, exactly
-// like a touch-driven wake.
+// like a real tilt wake: it goes through clock_idle_notify_tilt_activity,
+// which clears the idle flag BEFORE triggering the wake callback -- a
+// direct clock_trigger_idle_wake() here would leave the device flagged
+// idle while awake (the DIAG "idle 1" after a test wake).
 static void auto_wake_test_cb(lv_timer_t *timer) {
     (void)timer;
     if (CONFIG_TEST_AUTO_WAKE_SEC <= 0 || !clock_is_idle())
@@ -40,7 +43,7 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
         return;
     asleep_s = 0;
     ESP_LOGW(TAG, "TEST auto-wake: firing idle wake after %us in sleep", CONFIG_TEST_AUTO_WAKE_SEC);
-    clock_trigger_idle_wake();
+    clock_idle_notify_tilt_activity();
 }
 
 extern "C" void app_main(void) {
@@ -132,10 +135,13 @@ extern "C" void app_main(void) {
     // Load initial screen - starts with modem screen, upgrades to main if WiFi available
     action_switch_to_main_screen(NULL);
 
-    // Moon phase: bake the current phase and play the boot animation over
-    // the last synodic month (Kconfig UI_MOON_ANIM_*). Runs on the LVGL
-    // tick; a blank RTC (no NTP, no RTC time) leaves the moon black until
-    // a trustworthy time exists.
+    // Moon phase: bake the current phase and start the free spin
+    // (phase-anchored: active rate while in use, one turn per synodic
+    // month when settled -- the AMOLED burn-in protection).
+    // (The synodic wake sweep -- the last 29.5 days -- plays on every
+    // wake from sleep, not at boot; see UI_MOON_ANIM_*.) A blank RTC
+    // (no NTP, no RTC time) leaves the moon black until a trustworthy
+    // time exists.
     moon_ui_start();
 
     // Create polling timer for RTC interrupt handling - debug interval

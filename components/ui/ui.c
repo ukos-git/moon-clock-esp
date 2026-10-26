@@ -4,6 +4,7 @@
 
 #include "actions.h"
 #include "images.h"
+#include "moon_ui.h"
 #include "screens.h"
 #include "ui.h"
 #include "vars.h"
@@ -32,10 +33,20 @@ static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
     return ((lv_obj_t **)&objects)[index];
 }
 
+/* Plain lv_scr_load (no fade) + one atomic whole-panel display of the
+ * new screen (moon_ui_screen_switched, under the moon's buffer mutex).
+ * The old FADE_IN screen-load re-invalidated the whole panel for the
+ * 200 ms anim and LVGL's async refresh drained it in 25-row QSPI
+ * strips -- the moon crept in top-to-bottom for over a second on every
+ * screen switch, and the fade's pending invalidation also rode along
+ * in the spin's atomic full-frame flushes, breaking their atomicity
+ * (the "nasty top-to-bottom redraw artifacts" on wake from deep
+ * sleep). */
 void loadScreen(enum ScreensEnum screenId) {
     currentScreen = screenId - 1;
     lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
-    lv_scr_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
+    lv_scr_load(screen);
+    moon_ui_screen_switched();
 }
 
 void ui_init() {

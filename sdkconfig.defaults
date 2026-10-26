@@ -2,12 +2,32 @@
 # Espressif IoT Development Framework (ESP-IDF) 5.5.1 Project Minimal Configuration
 #
 CONFIG_IDF_TARGET="esp32s3"
+# Flash: the board has a 16MB chip (esptool flash_id). The 2MB layout in
+# git history was a config choice; the 2048x1024 relief DEM needs the
+# headroom (see partitions.csv, moon_assets = 2560K).
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# Task watchdog: core 1 runs the bounded moon bakes (a high-priority
+# ~2 s/frame full-disk-relief bake for orbit/wake-sweep) plus the spin
+# render; together they can starve the CPU1 idle task for a full bake,
+# which would trip the 5 s WDT (log-only but noisy). The bakes are
+# bounded and self-cancelling, so a permanent core-1 hang is not a
+# realistic risk; core 0's idle check (IDF default, on) stays as the
+# hang safety net.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# LCD flush queue depth 1: the S3 SPI DMA caps one transfer at 32 KiB
+# and PSRAM is not DMA-capable, so every strip is staged into internal
+# RAM; depth 1 keeps the peak internal allocation at one ~23 KB strip
+# (deeper queues exhausted the heap -> ESP_ERR_NO_MEM, see the vendored
+# BSP buffer_height 50->25 fix).
 CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1
+# Obsolete test hook (the synodic wake sweep plays on every wake by
+# default now); kept off and present so existing configs keep validating.
+CONFIG_UI_MOON_ANIM_ON_WAKE=n
 CONFIG_CODEC_ES7243_SUPPORT=n
 CONFIG_CODEC_ES7243E_SUPPORT=n
 CONFIG_CODEC_ES8156_SUPPORT=n
@@ -66,25 +86,3 @@ CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
-
-# --- Flash: the board has a 16MB chip (esptool flash_id). The 2MB layout in
-# git history was a config choice; the 2048x1024 relief DEM needs the
-# headroom (see partitions.csv, moon_assets = 2560K). ---
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
-
-# --- Moon-phase boot animation (row-sweep pipeline, last synodic month). ---
-CONFIG_UI_MOON_ANIM_ENABLE=y
-CONFIG_UI_MOON_ANIM_FRAMES=28
-# Test mode: replay the animation on every wake from sleep.
-CONFIG_UI_MOON_ANIM_ON_WAKE=y
-
-# --- Task watchdog: core 1 runs the bounded boot/wake moon-animation
-# producer (a high-priority ~2s/frame full-disk-relief bake) plus the LVGL
-# worker; together they starve the CPU1 idle task for the whole sweep,
-# which would trip the 5s WDT every 5s (log-only but noisy). The anim task
-# is bounded (28 frames then vTaskDelete) and self-cancelling, so a
-# permanent core-1 hang is not a realistic risk; keep core 0's idle check
-# as the hang safety net. ---
-CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
-CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n

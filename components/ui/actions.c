@@ -26,6 +26,14 @@ static bool g_wifi_deinited = false;
 static bool g_idle_timer_active = false;
 static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
 
+// True while the device sits on a sleep screen (light/deep sleep). The
+// sleep transitions set it; the wake handler
+// (action_switch_to_main_screen) consumes (clears) it to know that its
+// call is a real wake from sleep -- which drives the synodic wake sweep
+// (plays on EVERY wake) and keeps a stale alarm (one that rang while
+// the user slept) from hijacking the wake flow.
+static bool g_asleep = false;
+
 /* WiFi connect/reconnect runs on a dedicated task, never on the LVGL task:
  * the wake handler (action_switch_to_main_screen) runs in the LVGL task
  * (indev event / moon tilt timer), and the old blocking
@@ -100,10 +108,6 @@ static lv_timer_t *g_seconds_timer = NULL;
 
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
-#endif
-
-#ifndef CONFIG_UI_MOON_ANIM_ON_WAKE
-#define CONFIG_UI_MOON_ANIM_ON_WAKE 0
 #endif
 
 /**
@@ -241,6 +245,9 @@ esp_err_t action_register_alarm_touch(void) {
 void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to deep sleep screen");
 
+    // The wake handler reads this to know its call is a real wake.
+    g_asleep = true;
+
     // Ensure WiFi is deinitialized
     if (!g_wifi_deinited && wifi_manager_is_connected()) {
         wifi_manager_deinit();
@@ -289,8 +296,21 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to main screen");
 
-    // If we're dismissing an alarm and WiFi was off, return to modem sleep instead
-    if (g_alarm_active && g_wifi_deinited) {
+    // Was this call a real wake from sleep? The sleep transitions set
+    // g_asleep; this handler consumes it. It drives the synodic wake
+    // sweep (plays on EVERY wake from sleep) and the stale-alarm branch
+    // below. Boot and the awake alarm-dismiss touch path see false.
+    bool was_asleep = g_asleep;
+    g_asleep = false;
+
+    // If we're dismissing an alarm and WiFi was off, return to modem
+    // sleep instead -- but only when the user was actually AT the
+    // alarm (awake). A stale alarm (rang while the user slept, so the
+    // user never saw it) must not hijack the wake: it follows the
+    // normal wake flow below with the sweep running (kicked off
+    // further down, after the idle re-enable, so the sweep's idle
+    // hold is not undone).
+    if (g_alarm_active && g_wifi_deinited && !was_asleep) {
         ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to modem sleep screen");
         g_alarm_active = false;
         action_switch_to_modem_sleep_screen(e);
@@ -338,13 +358,17 @@ void action_switch_to_main_screen(lv_event_t *e) {
     moon_ui_pause(false);
     moon_ui_day_tick();
 
-    // Testing (CONFIG_UI_MOON_ANIM_ON_WAKE): replay the boot animation on
-    // every wake-from-sleep transition. A no-op before moon_ui_start()
-    // (the boot path calls this action first) and while a sweep is already
-    // running.
-    if (CONFIG_UI_MOON_ANIM_ON_WAKE) {
+    // Synodic wake sweep (UI_MOON_ANIM_*): replay the last 29.5 days on
+    // EVERY wake from sleep. Kicked off AFTER the idle re-enable above
+    // on purpose: the sweep holds the idle timer for its ~30 s, and
+    // the handler's clock_idle_set_enabled(true) would otherwise
+    // re-arm it underneath the sweep. No-op before moon_ui_start()
+    // (boot) and while a sweep already runs. The sweep bakes on a
+    // core-1 task and displays atomic whole frames from the tick --
+    // this handler (LVGL task) only kicks it off, so the display
+    // stays live through the ~30 s sweep.
+    if (was_asleep)
         moon_ui_replay_animation();
-    }
 
     // Always start with modem sleep screen first (fast, no WiFi check)
     // This provides immediate UI responsiveness
@@ -441,6 +465,9 @@ void action_switch_to_modem_sleep_screen(lv_event_t *e) {
  */
 void action_switch_to_light_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to light sleep screen");
+
+    // The wake handler reads this to know its call is a real wake.
+    g_asleep = true;
 
     // Deinitialize WiFi/network to save power (modem sleep)
     if (!g_wifi_deinited && wifi_manager_is_connected()) {

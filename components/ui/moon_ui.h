@@ -11,15 +11,21 @@ extern "C" {
  * Moon phase UI layer (device side of components/moon).
  *
  * Owns the PSRAM frame buffers, the shared lv_image_dsc_t the moon screens
- * display, the in-plane "ball in hand" rotation (device tilt via the
- * QMI8658 IMU + touch drag), and the boot animation over the last synodic
- * month.
+ * display, the free spin (phase-anchored in-plane rotation of the baked
+ * phase: active rate while in use, one turn per synodic month when
+ * settled -- the AMOLED burn-in protection), the tilt-driven
+ * out-of-plane orbit
+ * (QMI8658 IMU sphere model), the synodic wake sweep (the 28-day phase
+ * animation played on every wake from sleep), and the tilt activity/
+ * wake monitor. Every frame the pipeline produces is displayed as one
+ * atomic whole-frame / whole-panel lv_refr_now (never LVGL's async
+ * 25-row strip drain), which is the "no top-to-bottom redraw" rule.
  *
  * Call order (app_main, under the display lock, before ui_init):
  *   moon_ui_init()   -- PSRAM buffers + shared image descriptor + timers
  *   create_screens() -- each moon screen calls moon_ui_create_image(parent)
  *                       FIRST so the moon sits below the clock (z-order)
- *   moon_ui_start()  -- bake the current phase + run the boot animation
+ *   moon_ui_start()  -- bake the current phase + start the free spin
  */
 
 /** Allocate buffers, build the image descriptor, start the tick timer. */
@@ -38,15 +44,15 @@ void moon_ui_refresh(void);
 /** Bake + display the moon for the given UTC epoch. */
 void moon_ui_bake_now(int64_t utc_epoch);
 
-/** Bake the current phase and start the boot animation (last synodic month). */
+/** Bake the current phase and start the free spin. */
 void moon_ui_start(void);
 
 /**
- * Replay the boot animation right now (no-op when the moon has not
- * started yet or a sweep is already running). Test hook: with
- * CONFIG_UI_MOON_ANIM_ON_WAKE the UI layer calls this on every
- * wake-from-sleep transition so the animation can be exercised without
- * a reboot.
+ * Play the synodic wake sweep (the last 29.5 days in
+ * CONFIG_UI_MOON_ANIM_FRAMES frames, ending on the current phase)
+ * right now. No-op when the moon has not started yet or while the
+ * orbit / sweep pipeline owns the buffers. Called on every wake from
+ * sleep by the UI layer (UI_MOON_ANIM_ENABLE).
  */
 void moon_ui_replay_animation(void);
 
@@ -56,8 +62,22 @@ void moon_ui_replay_animation(void);
  */
 void moon_ui_day_tick(void);
 
-/** Pause/resume the moon tick (sleep screens show a static moon). */
+/**
+ * Pause/resume the moon tick (sleep screens show a static moon). On
+ * pause the moon PARKS: it renders one final frame at the exact
+ * current wall-clock spin pose and displays it atomically, so the
+ * sleep screens show the pose the clock says the moon is in (sleep is
+ * the preparation for the full stop).
+ */
 void moon_ui_pause(bool pause);
+
+/**
+ * Display the new screen's contents (moon image included) as ONE
+ * atomic whole-panel flush after a plain lv_scr_load. Must run in the
+ * LVGL task context. No-op while a pipeline owns the buffer (the spin
+ * or a bake completion then displays the screen atomically itself).
+ */
+void moon_ui_screen_switched(void);
 
 #ifdef __cplusplus
 }

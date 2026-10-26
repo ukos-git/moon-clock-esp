@@ -21,57 +21,87 @@ menu "UI Component Configuration"
             Default is 100ms (vs 10ms in active mode).
 
     config UI_MOON_ANIM_ENABLE
-        bool "Play boot animation of the last synodic moon month"
+        bool "Play the synodic wake sweep (last synodic month) on every wake from sleep"
         default y
         help
-            Obsolete: the month-long phase sweep is gone (it was
-            display-bound and caused a visible top-to-bottom redraw
-            plus a Task WDT). Kept so existing sdkconfig files keep
-            validating; the on-screen moon is now the current phase
-            baked once, then the burn-in spin (UI_MOON_SPIN_*).
+            On every wake from sleep the moon replays the last 29.5 days
+            (the 28-day animation) in UI_MOON_ANIM_FRAMES frames, baked
+            off screen and displayed as atomic whole frames on the same
+            pipeline as the burn-in spin (one ~150 ms frame, no
+            top-to-bottom wipe, the display stays live throughout).
+            The sweep ends on the current phase and hands the spin back
+            at the exact on-screen pose. The boot path does not play
+            it: boot shows the current phase + the burn-in spin
+            (UI_MOON_SPIN_*).
 
     config UI_MOON_ANIM_FRAMES
-        int "Boot animation frame count (1-2 per day)"
-        default 56
-        range 5 120
+        int "Synodic wake sweep frame count"
+        default 14
+        range 5 60
         help
-            Obsolete: see UI_MOON_ANIM_ENABLE. No longer used.
+            How many phase frames make up the wake sweep, evenly spaced
+            over the last 29.5 days and ending on the current phase.
+            Each frame is a full re-bake (~2 s on this board with the
+            relief DEM) displayed as one atomic whole frame (~150 ms),
+            so the sweep takes roughly frames x 2 s (14 -> ~30 s).
+            Lower = faster but coarser sweep; the display stays live
+            either way.
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"
-        default n
+        default y
         help
-            Test hook: whenever the device wakes from sleep back to the
-            main screen, re-bake the current phase (the spin resumes
-            automatically). Lets the wake-from-sleep re-bake be
-            exercised repeatedly without a reboot. Off in normal builds.
+            Obsolete: the synodic wake sweep (UI_MOON_ANIM_*) now plays
+            on every wake from sleep; the old re-bake test hook is gone.
+            Kept so existing sdkconfig files keep validating.
 
     config UI_MOON_SPIN_ENABLE
-        bool "Burn-in spin: slowly rotate the moon in place"
+        bool "Free spin: rotate the moon in place (phase-anchored)"
         default y
         help
             The current phase is baked once (the static frame) and then
-            slowly rotated in-plane on screen (a nearest-neighbor
-            gather, ~6 ms/frame -- no re-bake). The rotation moves the
-            lit pixels around the panel, preventing AMOLED burn-in.
-            The spin render runs on core 1; the display (LVGL) runs on
-            core 0; they are serialized on the frame buffer so the
-            display never tears. The spin runs on every screen that
-            shows the moon and is paused (not stopped) while the
-            tilt-driven orbit re-bake owns the buffer.
+            rotated in-plane on screen by a FREE SPIN (a nearest-neighbor
+            gather, ~6 ms/frame -- no re-bake): a spin angle integrated
+            per frame whose rate is smoothed toward a target. While the
+            device is in use (touched or tilted within the settle window)
+            the rate is the ACTIVE period below; once it settles the rate
+            coasts to the PHASE-TRUE speed -- one full turn per synodic
+            moon month (29.53 days, ~12 deg/day) -- so the pose tracks
+            the real moon phase. The continuous slow coast moves the lit
+            pixels around the panel, preventing AMOLED burn-in (the same
+            intent as the old fixed-period burn-in spin, without a fixed
+            period). Picking the device up spins it faster; letting it
+            settle slows it visibly back to the phase rate. The render
+            runs on core 1; the display (LVGL) runs on core 0; they are
+            serialized on the frame buffer so the display never tears.
+            The spin runs on every screen that shows the moon and is
+            paused (not stopped) while the tilt-driven orbit re-bake
+            owns the buffer.
 
     config UI_MOON_SPIN_PERIOD_S
-        int "Burn-in spin: seconds for one full 360-degree turn"
+        int "Active spin: seconds for one full turn (while in use)"
         default 180
         range 30 7200
         help
-            The spin completes one full in-plane rotation in this many
-            seconds (the default 180 s = a turn every 3 minutes). The
-            frame step is period/360 (180 s -> 0.5 s/frame = 1
-            degree/frame), which keeps the rotation smooth while the
-            display (the LVGL full-frame redraw) is the pacing
-            bottleneck. Lower = a faster (more visible) spin; the
-            display duty scales with it.
+            The spin rate while the device is in use: one full in-plane
+            rotation in this many seconds (the default 180 s = a turn
+            every 3 minutes). After the last user activity (touch or
+            tilt) the rate eases down toward the phase-true coast (one
+            turn per synodic month) over the settle window. Lower = a
+            faster (more visible) spin while in use; the display duty
+            scales with it.
+
+    config UI_MOON_SPIN_SETTLE_S
+        int "Spin settle window: seconds of idle before coasting to phase"
+        default 10
+        range 2 60
+        help
+            After this much time without user activity (touch or tilt)
+            the spin rate begins easing from the active period down to
+            the phase-true coast (one turn per synodic moon month). The
+            rate change is exponential (time constant ~ this/3), so a
+            few multiples of this window settle the spin fully. Larger
+            = the moon keeps its active spin longer after use.
 
     config TEST_AUTO_WAKE_SEC
         int "Test: auto-wake from sleep after N seconds (0 = off)"
@@ -89,29 +119,48 @@ menu "UI Component Configuration"
         bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"
         default y
         help
-            The moon keeps the fixed Earth viewport and never rotates
-            in place; the device tilt (QMI8658 gravity) changes which
-            side of the sphere the camera sees (the orbit, see
-            UI_MOON_ORBIT_*). Tilt also counts as user activity: it
-            holds the idle timer and wakes the device from sleep.
-            Touch is not an input to the moon (it is only the core-UI
-            wake input). When the IMU is absent or this is disabled
-            the moon is static.
+            The moon's in-plane pose is the free spin's (UI_MOON_SPIN_*,
+            which rotates the baked phase in place); the device tilt
+            (QMI8658 gravity) changes which side of the sphere the
+            camera sees (the out-of-plane orbit, see UI_MOON_ORBIT_*).
+            Tilt also counts as user activity: it holds the idle timer,
+            wakes the device from sleep, and drives the spin's active
+            rate (picking the device up spins it faster). Touch is not
+            an input to the moon's pose (it is only the core-UI wake
+            input). When the IMU is absent or this is disabled the
+            orbit is off (the tilt monitor runs on but gets no pose
+            input, so no tilt-driven activity/wake; the free spin still
+            runs when UI_MOON_SPIN_ENABLE is set).
 
     config UI_IMU_ACTIVITY_DEG
-        int "Tilt motion threshold for activity/wake (degrees per second)"
+        int "Tilt activity threshold: departure from the settled pose (degrees)"
         default 5
         range 1 45
         help
-            Device motion (the angle between successive IMU gravity
-            samples) above this threshold counts as user activity: it
-            holds the idle timer and wakes the device from sleep, so a
-            device operated purely by tilt cannot be stranded asleep.
-            The at-rest noise floor measured on this board (1 Hz
-            samples, device on a table) has p90 ~3.3 deg/s with a
-            quietest 30 s window spanning 3.9 deg; the default sits
-            above that. Raise it if the device wakes from table
-            vibration, lower it for more immediate wake.
+            The monitor measures the DEPARTURE (deg) of the current
+            pose from a settled-pose reference (a slow EMA that only
+            updates while settled), not the delta between two raw
+            samples (which amplifies per-sample noise and fired the
+            "wakes right after entering sleep" bug). While the device
+            is AWAKE, a departure above this threshold counts as user
+            activity: it holds the idle timer, so a device operated
+            purely by tilt cannot be stranded asleep. At rest the
+            departure settles back below it and the reference follows,
+            so a still device is free to sleep. A two-consecutive-
+            sample streak gates the fire.
+
+    config UI_IMU_WAKE_DEG
+        int "Tilt wake threshold: departure from the settled pose (degrees)"
+        default 20
+        range 5 45
+        help
+            While the device is ASLEEP, a departure above this
+            (deliberate-pick-up) threshold wakes it, gated by a
+            two-consecutive-sample streak. Higher than
+            UI_IMU_ACTIVITY_DEG on purpose: table vibration and the
+            measured at-rest drift (~0.4 deg/s -> ~2.5 deg of steady
+            departure) must not wake, only a deliberate tilt. Lower it
+            for more sensitive wake.
 
     config UI_IMU_ANGLE_SIGN
         int "IMU angle sign (+1 or -1, flips the orbit direction)"
@@ -120,17 +169,18 @@ menu "UI Component Configuration"
         help
             The board's IMU mounting orientation is board-specific; if
             tilting the device peeks the moon the "wrong" way, set this
-            to -1. Applies to the orbit (UI_MOON_ORBIT_*) and to the
-            tilt activity/wake direction.
+            to -1. Applies to the orbit (UI_MOON_ORBIT_*) only: the
+            tilt activity/wake monitor measures a DEPARTURE (an angle
+            from the settled pose), so it is sign-agnostic.
 
     config UI_IMU_ROLL_OFFSET_DEG
         int "IMU roll offset (degrees, aligns the resting orientation)"
         default 0
         range 0 359
         help
-            Obsolete: the moon no longer spins in place, so the roll
-            offset has no effect. Kept so existing sdkconfig files
-            keep validating.
+            Obsolete: the free spin (UI_MOON_SPIN_*) is time-driven,
+            not tilt-driven, so a resting roll offset has no effect.
+            Kept so existing sdkconfig files keep validating.
 
     config UI_MOON_ORBIT_ENABLE
         bool "Sphere model: peek at the dark side via out-of-plane tilt"
@@ -147,8 +197,8 @@ menu "UI Component Configuration"
             atomic whole frame, exactly like the burn-in spin (one
             ~150 ms frame -- the same sequential update the spin uses),
             so the viewport change lands as a frame instead of a slow
-            wipe. The in-plane spin (UI_IMU_ENABLE) composes on top;
-            UI_IMU_ANGLE_SIGN applies to both.
+            wipe. The free spin (UI_MOON_SPIN_*) rotates the baked
+            frame in place on top of the orbit's viewport.
 
     config UI_MOON_ORBIT_MAX_DEG
         int "Max orbit (peek) angle in degrees"
