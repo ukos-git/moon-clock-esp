@@ -43,6 +43,8 @@ static int parse_iso(const char *s, int64_t *epoch) {
 }
 
 /* --- one frame ---------------------------------------------------------- */
+static int g_darkzero = 0; /* --darkzero: montage path (night side -> 0x0000) */
+
 static int render_one(const char *iso, int rot_deg, int size, const char *out_path, int idx) {
     int64_t epoch;
     if (!parse_iso(iso, &epoch)) {
@@ -54,8 +56,11 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     if (size == 400) {
         radius = 199;
         center = 199; /* rot=0 must be identity: rot center == gather center */
+    } else if (size == 466) {
+        radius = (int)MOON_DISK_RADIUS_PX; /* device panel: r=200 disk, 33px margin */
+        center = size / 2;
     } else {
-        radius = (int)MOON_DISK_RADIUS_PX;
+        radius = size / 2; /* sweep intermediate: full disk in an S x S bake */
         center = size / 2;
     }
 
@@ -79,7 +84,7 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
     float fcy = size == 400 ? 199.5f : (float)(size / 2);
-    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, 0);
+    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero);
 
     float th = (float)rot_deg * 0.017453292519943295f;
     int32_t c15 = moon_cos15(th);
@@ -139,6 +144,8 @@ int main(int argc, char **argv) {
             end = argv[++i];
         else if (!strcmp(argv[i], "--out"))
             out = argv[++i];
+        else if (!strcmp(argv[i], "--darkzero"))
+            g_darkzero = 1;
         else if (!strcmp(argv[i], "--rot"))
             rot = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size"))
@@ -214,6 +221,6 @@ int main(int argc, char **argv) {
         return render_one(iso, rot, size, out, -1) ? 0 : 1;
 
     fprintf(stderr, "usage: moon_sim --utc ISO|--list FILE|--frames N --start S --end E\n"
-                    "                [--rot deg] [--size 400|466] [--out DIR]\n");
+                    "                [--rot deg] [--size 400|466] [--out DIR] [--darkzero]\n");
     return 2;
 }

@@ -293,6 +293,20 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     float rz = u * g->right[2] + c->v * g->up[2] + w * g->E[2];
     float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
 
+    /* Sweep montage (dark_zero): zero the WHOLE geometric night side (d < 0)
+     * -- not just the slopes shadowed from the Sun (L <= 0). Night-side crater
+     * rims and peaks can still have their displaced normal catch the Sun
+     * (L > 0); that relief reads as dithered bright speckle against a pure
+     * black AMOLED. d < 0 needs no texture lookup, no packed-gradient PSRAM
+     * load, and no albedo load, so this early return skips all of them -- the
+     * night side is free (a win for the crescent end of the sweep). The
+     * static/spin path (dark_zero = 0) and the gate (host, dark_zero = 0) are
+     * untouched and remain byte-identical. */
+    if (c->dark_zero && d < 0.0f) {
+        c->row[x] = 0;
+        return;
+    }
+
     /* Texture coordinates, table-based (see file header): pure CPU table
      * lookups (no PSRAM), shared by the DEM texel and the albedo sample.
      * Computed before lighting so the relief path can find its gradient
@@ -311,7 +325,9 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
      * work for a dark pixel and is skipped below: bit-identical.
      * dark_zero writes 0 instead of the earthshine (sweep montage:
      * the ~17-step earthshine ramp bands/dithers visibly in the fast
-     * animation, and the dark side carries no phase info there). */
+     * animation, and the dark side carries no phase info there). Combined
+     * with the d < 0 early return above, the whole night side is flat 0x0000
+     * -- only d >= 0, L > 0 (lit) pixels carry the relief shading. */
     float L;
     if (c->grel == NULL) {
         L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
