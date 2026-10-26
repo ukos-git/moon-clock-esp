@@ -426,8 +426,9 @@ static void moon_bake_epoch(int64_t epoch) {
      * the old ~2.3 s bake settled the question: the per-pixel 4-neighbor
      * DEM gather was the dominant cost, ~1.2 s of the ~1.9 s frame at
      * 2048x1024. It is now precomputed once into the relief gradient
-     * cache (moon_relief / moon_relief_build) -- the bake reads two
-     * cache bytes per pixel; the bake is ~1.3 s on this board.) */
+     * cache (moon_relief / moon_relief_build) -- the bake reads ONE
+     * packed 16-bit cache cell per pixel; the bake is ~1.3 s on this
+     * board.) */
     ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms bake %lldms", g.illum * 100.0f,
              g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000));
     moon_convert_to_rgb();
@@ -1344,12 +1345,12 @@ void moon_ui_init(void) {
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     /* Eagerly load the albedo + build the relief gradient cache HERE, on
      * the main task, before ui_init / moon_ui_start can spawn a bake task
-     * (orbit/sweep). The build is the one slow, non-idempotent op (two 2 MB
-     * PSRAM planes from a one-shot whole-DEM read + moon_relief_build);
-     * running it once up front means the later moon_bake_epoch / orbit /
-     * sweep moon_relief() calls are cheap pointer returns with no
-     * concurrent-build race (two tasks both seeing relief_built == false
-     * and double-allocating the planes). */
+     * (orbit/sweep). The build is the one slow, non-idempotent op (one 4 MB
+     * packed PSRAM array from a one-shot whole-DEM read +
+     * moon_relief_build); running it once up front means the later
+     * moon_bake_epoch / orbit / sweep moon_relief() calls are cheap
+     * pointer returns with no concurrent-build race (two tasks both
+     * seeing relief_built == false and double-allocating the array). */
     if (!moon_albedo() || !moon_relief())
         ESP_LOGW(TAG, "moon assets unavailable: moon will bake relief-free or stay blank");
     memset(s_frame, 0, MOON_PX * MOON_PX);

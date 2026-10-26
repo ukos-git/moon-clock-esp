@@ -43,15 +43,16 @@ typedef struct {
  * 0.51 deg subearth / 0.44 deg posangle over the 32-frame gate set. */
 void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
 
-/* The per-cell relief gradient cache (see moon_relief_build): two int8
- * planes of MOON_DEM_W x MOON_DEM_H, the DEM's central-difference
- * slopes quantized to int8 (see moon_bake.c for the scale). Built once
- * from the relief DEM; the bake reads two cache bytes per pixel
- * instead of a 4-neighbor DEM gather. NULL grel (or NULL planes) =
- * relief-free Lambert. */
+/* The per-cell relief gradient cache (see moon_relief_build): ONE
+ * uint16 array of MOON_DEM_W x MOON_DEM_H packed cells, the DEM's
+ * central-difference slopes quantized to int8 (see moon_bake.c for the
+ * scale), glon (longitude/east) in the low byte and glat
+ * (latitude/north) in the high byte. Built once from the relief DEM;
+ * the bake reads ONE 16-bit cache load per pixel instead of a
+ * 4-neighbor DEM gather. NULL grel (or NULL pack) = relief-free
+ * Lambert. */
 typedef struct {
-    const int8_t *glon; /* longitude/east slope */
-    const int8_t *glat; /* latitude/north slope */
+    const uint16_t *pack; /* packed glon (low) / glat (high) slope cells */
 } moon_grel_t;
 
 /* Bake one lit 8-bit grayscale frame (size x size, row-major) from an
@@ -62,8 +63,8 @@ typedef struct {
  * smaller SRAM albedo for the fast boot animation). 0 outside the
  * disk. Lighting/earthshine/tone order = the validated model. The
  * cached per-cell slope (quantized, see moon_bake.c) replaces the old
- * per-pixel 4-neighbor DEM gather: same displaced-normal model, 3
- * PSRAM loads/px instead of 6. */
+ * per-pixel 4-neighbor DEM gather: same displaced-normal model, 2
+ * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6. */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                float radius, float cx, float cy, int alb_w, int alb_h);
 
@@ -78,18 +79,20 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =
  * DEM[r], row_s = DEM[r+1 clamped]), each dem_w int8. Writes dem_w
- * cells to gln/glt. The whole-array moon_relief_build is a loop over
- * this. Pure C, identical math on host and device (the host gate
- * image-diffs the built cache against NASA). */
+ * packed uint16 cells to gpack (glon low byte / glat high byte). The
+ * whole-array moon_relief_build is a loop over this. Pure C, identical
+ * math on host and device (the host gate image-diffs the built cache
+ * against NASA). */
 void moon_relief_row(const int8_t *row_n, const int8_t *row_m, const int8_t *row_s, int dem_w, int dem_h, int r,
-                     int8_t *gln, int8_t *glt);
+                     uint16_t *gpack);
 
 /* Build the relief gradient cache (see moon_bake.c): the DEM's
- * 4-neighbor central-difference slopes, quantized to int8, into the
- * two MOON_DEM_W x MOON_DEM_H int8 planes (glon = longitude/east,
- * glat = latitude/north). Phase-independent: build once at boot, bake
- * forever (this is what makes the wake-sweep frames cheap). */
-void moon_relief_build(const int8_t *dem, int dem_w, int dem_h, int8_t *glon_q, int8_t *glat_q);
+ * 4-neighbor central-difference slopes, quantized to int8, packed into
+ * ONE MOON_DEM_W x MOON_DEM_H uint16 array (glon = longitude/east in
+ * the low byte, glat = latitude/north in the high byte). Phase-
+ * independent: build once at boot, bake forever (this is what makes
+ * the wake-sweep frames cheap). */
+void moon_relief_build(const int8_t *dem, int dem_w, int dem_h, uint16_t *pack);
 
 /* In-plane rotation of the baked 8-bit frame into an RGB565 output
  * (size x size). cos15/sin15 are Q15.15 in int32 (cos(0) = 32768);

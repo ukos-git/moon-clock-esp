@@ -35,11 +35,12 @@
  *
  * The slope (glon, glat) is a pure function of the DEM cell -- the
  * 4-neighbor height differences -- so it is PRECOMPUTED ONCE per cell by
- * moon_relief_build() into two int8 planes (quantized to MOON_GREL_INV,
- * clamped at 127 = 0.381 rad) instead of being re-gathered per pixel.
- * The bake then reads two cache bytes per pixel (1 + 2 PSRAM loads total)
- * instead of a 4-neighbor DEM scatter, and the only per-pixel relief
- * math left is dequantize + the tangent-basis dots. The quantization
+ * moon_relief_build() into ONE uint16 array (quantized to MOON_GREL_INV,
+ * clamped at 127 = 0.381 rad, glon low byte / glat high byte) instead of
+ * being re-gathered per pixel. The bake then reads ONE 16-bit cache load
+ * per pixel (1 + 1 PSRAM loads total) instead of a 4-neighbor DEM
+ * scatter, and the only per-pixel relief math left is dequantize + the
+ * tangent-basis dots. The quantization
  * (+-MOON_GREL_INV/2 slope -> < 0.3% of L) and the per-cell rho_c (vs
  * per-pixel; differs only in the polar-cap rows, where lns ~ (d-G.S)/|G|
  * -> 0 anyway) are re-checked by the image-diff gate after any change.
@@ -164,17 +165,23 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
  * their own latency -- ~4 s for the whole build on the S3). */
 static __attribute__((always_inline)) inline void relief_cell(const int8_t *row_n, const int8_t *row_m,
                                                               const int8_t *row_s, int c, float mps, float inv_glon,
-                                                              float inv_glat, int8_t *gln, int8_t *glt) {
+                                                              float inv_glat, uint16_t *gpack) {
     float dhlon = ((float)row_m[c + 1] - (float)row_m[c - 1]) * mps;
     float dhlat = ((float)row_n[c] - (float)row_s[c]) * mps;
-    gln[c] = slope_q(dhlon * inv_glon);
-    glt[c] = slope_q(dhlat * inv_glat);
+    /* Packed cell: glon (east) low byte, glat (north) high byte -- the
+     * bake reads both slopes with ONE 16-bit PSRAM load per pixel
+     * instead of two 1-byte loads (the PSRAM load count is the perf
+     * floor). Same quantized values as the old two-plane layout. */
+    int8_t qn = slope_q(dhlon * inv_glon);
+    int8_t qt = slope_q(dhlat * inv_glat);
+    gpack[c] = (uint16_t)((uint16_t)(uint8_t)qn | ((uint16_t)(uint8_t)qt << 8));
 }
 
 /* One output row of the per-cell relief-gradient cache (see file
  * header) from the three DEM window rows (row_n/row_m/row_s, each
  * dem_w int8): the central-difference slopes quantized to
- * MOON_GREL_INV, written to gln/glt (dem_w cells each).
+ * MOON_GREL_INV, written packed (glon low byte / glat high byte) to
+ * gpack (dem_w uint16 cells).
  *
  * Bit-level notes: the numerators (h_e - h_w)*mps / (h_n - h_s)*mps are
  * computed with the exact same float ops as the old per-pixel gather (the
@@ -188,7 +195,7 @@ static __attribute__((always_inline)) inline void relief_cell(const int8_t *row_
  * at most rounding-boundary cells by one quantization step = 0.003 slope
  * = 0.3% of L; the image-diff gate re-checks it). */
 void moon_relief_row(const int8_t *row_n, const int8_t *row_m, const int8_t *row_s, int dem_w, int dem_h, int r,
-                     int8_t *gln, int8_t *glt) {
+                     uint16_t *gpack) {
     const int W = dem_w;
     const float mps = (MOON_DEM_MAX_M - MOON_DEM_MIN_M) / (float)MOON_DEM_STEPS; /* m per int8 step */
     const float dlon = (2.0f * 3.14159265f) / (float)dem_w;
@@ -210,37 +217,39 @@ void moon_relief_row(const int8_t *row_n, const int8_t *row_m, const int8_t *row
     {
         float dhlon = ((float)row_m[0] - (float)row_m[W - 1]) * mps;
         float dhlat = ((float)row_n[0] - (float)row_s[0]) * mps;
-        gln[0] = slope_q(dhlon * inv_glon);
-        glt[0] = slope_q(dhlat * inv_glat);
+        int8_t qn = slope_q(dhlon * inv_glon), qt = slope_q(dhlat * inv_glat);
+        gpack[0] = (uint16_t)((uint16_t)(uint8_t)qn | ((uint16_t)(uint8_t)qt << 8));
         dhlon = ((float)row_m[0] - (float)row_m[W - 2]) * mps;
         dhlat = ((float)row_n[W - 1] - (float)row_s[W - 1]) * mps;
-        gln[W - 1] = slope_q(dhlon * inv_glon);
-        glt[W - 1] = slope_q(dhlat * inv_glat);
+        qn = slope_q(dhlon * inv_glon);
+        qt = slope_q(dhlat * inv_glat);
+        gpack[W - 1] = (uint16_t)((uint16_t)(uint8_t)qn | ((uint16_t)(uint8_t)qt << 8));
     }
     /* Interior: 4 cells per iteration, so up to 24 PSRAM loads (4 rows x
      * ... 3 window rows x ~2-3 loads/cell) are in flight together and the
      * octal-PSRAM latency overlaps with the FPU work. */
     for (int c = 1; c + 3 <= W - 2; c += 4) {
-        relief_cell(row_n, row_m, row_s, c, mps, inv_glon, inv_glat, gln, glt);
-        relief_cell(row_n, row_m, row_s, c + 1, mps, inv_glon, inv_glat, gln, glt);
-        relief_cell(row_n, row_m, row_s, c + 2, mps, inv_glon, inv_glat, gln, glt);
-        relief_cell(row_n, row_m, row_s, c + 3, mps, inv_glon, inv_glat, gln, glt);
+        relief_cell(row_n, row_m, row_s, c, mps, inv_glon, inv_glat, gpack);
+        relief_cell(row_n, row_m, row_s, c + 1, mps, inv_glon, inv_glat, gpack);
+        relief_cell(row_n, row_m, row_s, c + 2, mps, inv_glon, inv_glat, gpack);
+        relief_cell(row_n, row_m, row_s, c + 3, mps, inv_glon, inv_glat, gpack);
     }
     for (int c = 1 + 4 * ((W - 4) / 4); c <= W - 2; c++) { /* the 0-3 leftover cells */
-        relief_cell(row_n, row_m, row_s, c, mps, inv_glon, inv_glat, gln, glt);
+        relief_cell(row_n, row_m, row_s, c, mps, inv_glon, inv_glat, gpack);
     }
 }
 
 /* Build the whole per-cell relief-gradient cache from the int8 DEM (see
- * file header): glon_q/glat_q are MOON_DEM_W x MOON_DEM_H int8 planes.
- * Pure C (no allocation): the caller (asset backend) owns the planes;
- * the whole-array build is just a loop over moon_relief_row. */
-void moon_relief_build(const int8_t *dem, int dem_w, int dem_h, int8_t *glon_q, int8_t *glat_q) {
+ * file header): pack is MOON_DEM_W x MOON_DEM_H uint16 cells (glon low
+ * byte / glat high byte). Pure C (no allocation): the caller (asset
+ * backend) owns the array; the whole-array build is just a loop over
+ * moon_relief_row. */
+void moon_relief_build(const int8_t *dem, int dem_w, int dem_h, uint16_t *pack) {
     for (int r = 0; r < dem_h; r++) {
         const int8_t *row_m = dem + (size_t)r * dem_w;
         const int8_t *row_n = dem + (size_t)(r > 0 ? r - 1 : 0) * dem_w;
         const int8_t *row_s = dem + (size_t)(r + 1 < dem_h ? r + 1 : dem_h - 1) * dem_w;
-        moon_relief_row(row_n, row_m, row_s, dem_w, dem_h, r, glon_q + (size_t)r * dem_w, glat_q + (size_t)r * dem_w);
+        moon_relief_row(row_n, row_m, row_s, dem_w, dem_h, r, pack + (size_t)r * dem_w);
     }
 }
 
@@ -316,8 +325,11 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
         if (dr >= MOON_DEM_H)
             dr = MOON_DEM_H - 1;
         int i = dr * MOON_DEM_W + dc;
-        float glon = (float)c->grel->glon[i] * MOON_GREL_INV;
-        float glat = (float)c->grel->glat[i] * MOON_GREL_INV;
+        /* Packed cell: glon (east) low byte, glat (north) high byte --
+         * ONE 2-byte PSRAM load for both slopes (was two 1-byte loads). */
+        uint16_t gp = c->grel->pack[i];
+        float glon = (float)(int8_t)(gp & 0xFF) * MOON_GREL_INV;
+        float glat = (float)(int8_t)(gp >> 8) * MOON_GREL_INV;
         /* Tangent basis dotted with S (east/north from r itself). */
         float rho = sqrtf(rx * rx + ry * ry); /* = cos(lat) */
         if (rho < 1e-4f)

@@ -9,9 +9,10 @@
  * requires 4-byte-aligned access, while the bake does per-pixel byte
  * samples). The relief DEM is the one-time INPUT to the relief gradient
  * cache: moon_relief() reads the whole 2 MB DEM in a single esp_partition_read
- * into a transient PSRAM buffer, builds the two 2 MB PSRAM planes
- * (glon/glat) with moon_relief_build (the same builder the host gate uses),
- * and frees the DEM. Steady-state relief memory is the two 2 MB planes only.
+ * into a transient PSRAM buffer, builds the ONE 4 MB packed PSRAM array
+ * (glon low byte / glat high byte per cell) with moon_relief_build (the
+ * same builder the host gate uses), and frees the DEM. Steady-state
+ * relief memory is that one 4 MB array only.
  * The build runs eagerly on the main task (moon_ui_init), before any
  * orbit/sweep bake task exists, so there is no concurrent-build race.
  */
@@ -28,8 +29,7 @@ static const char *TAG = "moon";
 
 static const esp_partition_t *part;
 static uint8_t *psram_alb;
-static int8_t *psram_glon; /* relief cache: longitude/east slope */
-static int8_t *psram_glat; /* relief cache: latitude/north slope */
+static uint16_t *psram_gpack; /* relief cache: packed glon (low) / glat (high) */
 static moon_grel_t s_grel;
 static bool loaded;
 static bool relief_built;
@@ -71,15 +71,15 @@ const uint8_t *moon_albedo(void) {
     return psram_alb;
 }
 
-/* Build the two-plane relief cache from a whole-DEM read. The 2 MB DEM
+/* Build the packed relief cache from a whole-DEM read. The 2 MB DEM
  * is read in ONE esp_partition_read into a transient PSRAM buffer
  * (fast: one flash transaction, vs ~4 s for 1024 row reads), passed to
  * moon_relief_build (the same whole-array builder the host gate uses),
  * then freed. The DEM is never kept: steady-state relief memory is the
- * two 2 MB planes alone. The transient DEM coexists with the planes only
- * during the build; the caller allocates the planes FIRST so the tightest
- * point (all three live) still leaves the largest block the allocator
- * needs to place the final 2 MB. */
+ * one 4 MB packed array alone. The transient DEM coexists with the
+ * array only during the build; the caller allocates the array FIRST so
+ * the tightest point (both live) still leaves the largest block the
+ * allocator needs to place it. */
 static void build_relief_whole(int8_t *dem_tmp) {
     const int W = MOON_DEM_W, H = MOON_DEM_H;
     const size_t dem_sz = (size_t)W * H;
@@ -89,8 +89,8 @@ static void build_relief_whole(int8_t *dem_tmp) {
         ESP_LOGE(TAG, "esp_partition_read failed (DEM, %u bytes)", (unsigned)dem_sz);
         return;
     }
-    moon_relief_build(dem_tmp, W, H, psram_glon, psram_glat);
-    ESP_LOGI(TAG, "relief gradient cache built (%d KB glon + %d KB glat) in %lld ms", W * H / 1024, W * H / 1024,
+    moon_relief_build(dem_tmp, W, H, psram_gpack);
+    ESP_LOGI(TAG, "relief gradient cache built (%d KB packed) in %lld ms", (W * H * (int)sizeof(uint16_t)) / 1024,
              (long long)(esp_timer_get_time() - t0) / 1000);
 }
 
@@ -98,44 +98,40 @@ const moon_grel_t *moon_relief(void) {
     if (!loaded && !load_albedo())
         return NULL;
     if (!relief_built) {
-        size_t plane = (size_t)MOON_DEM_W * MOON_DEM_H; /* 2 MB per plane */
+        size_t cells = (size_t)MOON_DEM_W * MOON_DEM_H;
+        size_t pack_sz = cells * sizeof(uint16_t); /* 4 MB packed array */
         const int64_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-        ESP_LOGI(TAG, "building relief cache: PSRAM free %d KB (need 2 x %d KB planes + %d KB transient DEM)",
-                 (int)(psram_free / 1024), (int)(plane / 1024), (int)(plane / 1024));
-        /* Planes first (persistent, max free space), then the transient
-         * DEM buffer. Each 2 MB block is placed with >= ~3 MB free, so the
-         * largest-block requirement is met even before the DEM is freed. */
-        psram_glon = (int8_t *)heap_caps_malloc(plane, MALLOC_CAP_SPIRAM);
-        psram_glat = (int8_t *)heap_caps_malloc(plane, MALLOC_CAP_SPIRAM);
-        int8_t *dem_tmp = (int8_t *)heap_caps_malloc(plane, MALLOC_CAP_SPIRAM);
-        if (!psram_glon || !psram_glat || !dem_tmp) {
-            ESP_LOGE(TAG, "PSRAM allocation failed (relief 2 x %u KB planes + %u KB DEM); free %d KB",
-                     (unsigned)(plane / 1024), (unsigned)(plane / 1024),
+        ESP_LOGI(TAG, "building relief cache: PSRAM free %d KB (need %d KB packed array + %d KB transient DEM)",
+                 (int)(psram_free / 1024), (int)(pack_sz / 1024), (int)(cells / 1024));
+        /* Packed array first (persistent, max free space), then the
+         * transient DEM buffer. The 4 MB block is placed with ~3.8 MB
+         * free, so the largest-block requirement is met even before
+         * the DEM is freed. */
+        psram_gpack = (uint16_t *)heap_caps_malloc(pack_sz, MALLOC_CAP_SPIRAM);
+        int8_t *dem_tmp = (int8_t *)heap_caps_malloc(cells, MALLOC_CAP_SPIRAM);
+        if (!psram_gpack || !dem_tmp) {
+            ESP_LOGE(TAG, "PSRAM allocation failed (relief %u KB packed array + %u KB DEM); free %d KB",
+                     (unsigned)(pack_sz / 1024), (unsigned)(cells / 1024),
                      (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
-            free(psram_glon);
-            free(psram_glat);
+            free(psram_gpack);
             free(dem_tmp);
-            psram_glon = NULL;
-            psram_glat = NULL;
+            psram_gpack = NULL;
             return NULL;
         }
         build_relief_whole(dem_tmp);
         free(dem_tmp); /* transient: the DEM is never kept */
         relief_built = true;
-        s_grel.glon = psram_glon;
-        s_grel.glat = psram_glat;
+        s_grel.pack = psram_gpack;
     }
     return &s_grel;
 }
 
 void moon_deinit(void) {
-    if (psram_alb || psram_glon || psram_glat) {
+    if (psram_alb || psram_gpack) {
         free(psram_alb);
-        free(psram_glon);
-        free(psram_glat);
+        free(psram_gpack);
         psram_alb = NULL;
-        psram_glon = NULL;
-        psram_glat = NULL;
+        psram_gpack = NULL;
         loaded = false;
         relief_built = false;
     }
