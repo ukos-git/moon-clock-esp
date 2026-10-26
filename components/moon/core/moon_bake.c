@@ -362,6 +362,16 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
 }
 
+/* Ensure the internal texture tables are built (idempotent). The bakers
+ * build them lazily on the first call; callers that bake from TWO
+ * concurrent tasks (the wake sweep's two-core row split) must call this
+ * BEFORE spawning the helper, so the lazy init cannot race between the
+ * two first bakes (a half-built table would be read by the other). */
+void moon_bake_ensure_tables(void) {
+    if (!s_tbl_init)
+        tables_build();
+}
+
 /* Bake one 8-bit grayscale row range [y0, y1) (see file header for the
  * per-pixel model). moon_bake() = the full range; the device boot
  * animation bakes row-by-row so it can feed the progressive strip display

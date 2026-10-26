@@ -208,11 +208,15 @@ static const char *TAG = "moon_ui";
 #define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
 static uint8_t *s_frame;       /* 8-bit baked frame, MOON_PX^2 */
-static uint16_t *s_rgb;        /* RGB565 display buffer, MOON_PX^2 */
+static uint16_t *s_rgb;        /* RGB565 display buffer (ping), MOON_PX^2 */
+static uint16_t *s_rgb_b;      /* RGB565 display buffer (pong), MOON_PX^2:
+                                * the sweep converts the NEXT frame here
+                                * while the tick displays the current one
+                                * (the ping-pong pipeline) */
 static uint8_t *s_sweep_small; /* reduced-res intermediate sweep frame (see
                                 * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
                                 * reduction is disabled */
-static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
+static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb / s_rgb_b */
 static lv_obj_t *s_images[4];
 static int s_n_images;
 static lv_timer_t *s_tick;
@@ -296,6 +300,23 @@ static volatile bool s_sweep_abort;     /* stop the running sweep */
 static volatile uint32_t s_sweep_pub;   /* frames fully baked (0..s_sweep_frames) */
 static volatile uint32_t s_sweep_shown; /* frames the tick has displayed */
 static volatile int32_t s_sweep_frames; /* this sweep's total frame count */
+/* Two-core row split of each sweep frame (see moon_sweep_task): the main
+ * task (core 1) bakes rows [0, split) and the helper (core 0) bakes
+ * [split, size) of the SAME buffer -- disjoint rows, one frame in flight
+ * at a time. The window (geometry s_sweep_g + s_sweep_split + s_sweep_px)
+ * is written before s_sweep_go is given; the helper gives
+ * s_sweep_rows_done when its half is out. s_sweep_gen retires the
+ * previous sweep's helper (it exits on a generation mismatch, so a stale
+ * task never bakes a new sweep's rows; moon_sweep_interrupt joins it). */
+static volatile uint32_t s_sweep_gen;   /* bumped per sweep kickoff */
+static volatile uint32_t s_sweep_split; /* the in-flight frame's row split point */
+static volatile int s_sweep_px;         /* the in-flight frame's bake size */
+static volatile bool s_sweep_dual;      /* helper alive (creation succeeded) */
+static volatile bool s_sweep_helper_alive;
+static moon_geom_t s_sweep_g;               /* the in-flight frame's geometry (shared) */
+static SemaphoreHandle_t s_sweep_go;        /* main -> helper: a window is set */
+static SemaphoreHandle_t s_sweep_rows_done; /* helper -> main: its half is baked */
+static TaskHandle_t s_sweep_helper;
 static int64_t s_sweep_now;
 static TaskHandle_t s_sweep_task;
 static volatile bool s_frame_stale; /* s_frame/s_rgb left mid-bake by an
@@ -811,37 +832,111 @@ static void moon_orbit_interrupt(void) {
  *
  * The month-long phase sweep, rebuilt on the atomic whole-frame
  * pipeline: the last 29.53 days in CONFIG_UI_MOON_ANIM_FRAMES frames,
- * played on EVERY wake from sleep (moon_ui_replay_animation). A
- * dedicated bake task (core 1, like the orbit) bakes the frames OFF
- * screen and publishes them one at a time; the tick displays each
- * published frame as ONE atomic whole frame (the spin's display,
- * MOON_SPIN_BATCH = MOON_NSTRIPS strips in one lv_refr_now), one frame
- * per tick. Backpressure: the bake task does not start frame f+1 until
- * the tick has displayed frame f -- without it, the display's full-frame
- * flush could pick up the new frame's first rows over the old frame's
- * bottom (a mixed frame on screen, the wipe the old pipeline showed).
+ * played on EVERY wake from sleep (moon_ui_replay_animation). Two bake
+ * tasks run the frames OFF screen and publish them one at a time; the
+ * tick displays each published frame as ONE atomic whole frame (the
+ * spin's display, MOON_SPIN_BATCH = MOON_NSTRIPS strips in one
+ * lv_refr_now), one frame per tick.
+ *
+ * Two-core split: the bake is PSRAM-load-latency bound (the single-issue
+ * core stalls ~300-500 cycles on every scattered 1-byte albedo/gradient
+ * load and the stalls do not overlap within one core -- measured 40-60%
+ * CPU during the sweep), so the second core is nearly free. The main
+ * task (core 1) bakes rows [0, S/2) of each frame and a helper task
+ * (core 0, priority 5 -- one below the LVGL task's 6, so the tick's
+ * display and touch always preempt it) bakes rows [S/2, S) of the SAME
+ * buffer; disjoint rows, one frame in flight, joined per frame via
+ * s_sweep_go / s_sweep_rows_done (1:1, the helper always gives done
+ * after consuming go). The helper is created per sweep and retired by
+ * moon_sweep_interrupt (join + s_sweep_gen bump), so a stale helper can
+ * never pick up a new sweep's go.
+ *
+ * Ping-pong display: the RGB565 buffers s_rgb / s_rgb_b alternate --
+ * frame f converts into the buffer that frame f-1 (same parity) has
+ * already left the screen. The dsc.data swap is atomic under the buffer
+ * mutex (the tick's display takes the same mutex), and the backpressure
+ * gate (wait for frame f-1 on screen) sits AFTER the bake, so the ~134 ms
+ * display of frame f overlaps the bake of frame f+1 instead of
+ * serializing with it. At the end (clean or aborted) dsc.data is put
+ * back on s_rgb: the spin/orbit/static paths always write s_rgb.
  *
  * Resolution: the intermediate frames bake at UI_MOON_ANIM_BAKE_PX
  * (default 240, a scratch s_sweep_small frame) and upscase to the full
  * 400x400 for display; only the FINAL frame (the current phase the spin
  * resumes from) bakes at full MOON_PX. The bake cost scales with the
- * on-disk pixel count, (S/400)^2 -- a full-res frame is ~1.3 s on this
- * board (the relief gradient cache; FPU/PSRAM-bound on the S3) while a
- * 240-px frame is ~0.36 s, so the default 168-frame sweep (phase step
- * ~4.2 h/frame) unfolds at roughly 60-70 s. The reduced-res frames are
- * physically correct (the lighting/relief model is
- * resolution-independent; only the screen sampling is coarser), which
- * is invisible in the fast montage; the last frame and the static/spin
- * phase are always full resolution.
+ * on-disk pixel count, (S/400)^2 -- a full-res frame is ~1.3 s single-
+ * core on this board (the relief gradient cache) while a 240-px frame
+ * is ~0.48 s single-core, and the two-core split roughly halves the
+ * row phase, so the default 168-frame sweep (phase step ~4.2 h/frame)
+ * unfolds in well under a minute. The reduced-res frames are physically
+ * correct (the lighting/relief model is resolution-independent; only
+ * the screen sampling is coarser), which is invisible in the fast
+ * montage; the last frame and the static/spin phase are always full
+ * resolution.
  *
- * The frames are evenly spaced over the last
- * synodic month, ending on the CURRENT phase (the final frame is epoch
- * = now); the tick re-anchors the spin at the unrotated pose the last
- * frame just showed and lets it resume. The spin render is paused for
- * the whole sweep (the flag poll), the idle timer is held (the user is
- * present for the sweep), and the sleep transition aborts the sweep
+ * The frames are evenly spaced over the last synodic month, ending on
+ * the CURRENT phase (the final frame is epoch = now); the tick
+ * re-anchors the spin at the unrotated pose the last frame just showed
+ * and lets it resume. The spin render is paused for the whole sweep
+ * (the flag poll), the idle timer is held (the user is present for the
+ * sweep), and the sleep transition aborts the sweep
  * (moon_sweep_interrupt).
  */
+
+/* One row range [y0, y1) of the in-flight sweep frame (s_sweep_g, the
+ * buffer chosen by S). Both halves of the two-core split go through
+ * here. Yields every 64 rows (a ~100 ms bake gap) to feed the idle
+ * task + the Task WDT -- the old 16-row yield cost ~10 ms each (a
+ * 1-tick vTaskDelay at 100 Hz) for ~110 ms/frame; 64 rows keeps the
+ * 5 s Task-WDT margin ~30x while cutting most of that. */
+static void sweep_bake_half(uint8_t *dst, int S, int y0, int y1) {
+    const uint8_t *alb = moon_albedo();
+    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
+    for (int y = y0; y < y1 && !s_sweep_abort; y++) {
+        moon_bake_rows(&s_sweep_g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
+                       MOON_ALB_H, y, y + 1);
+        if ((y & 63) == 63)
+            vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+    }
+}
+
+/* Two-core split helper (see the section above): bakes the bottom half
+ * of each sweep frame's rows while the main task bakes the top half.
+ * Lifetime == the sweep: created by moon_ui_replay_animation, retired
+ * by moon_sweep_interrupt (abort + join). Exits when the sweep is gone
+ * (no more go; s_sweep_baking cleared) or s_sweep_gen moved on. */
+static void moon_sweep_helper_task(void *arg) {
+    (void)arg;
+    const uint32_t gen = s_sweep_gen;
+    s_sweep_helper_alive = true;
+    const uint8_t *alb = moon_albedo();
+    if (!alb) {
+        /* The main task aborts on the same condition; nothing to bake. */
+        s_sweep_helper_alive = false;
+        vTaskDelete(NULL);
+    }
+    for (;;) {
+        /* Wait for a frame window (the main task wrote s_sweep_g /
+         * s_sweep_split / s_sweep_px before giving go). The 100 ms
+         * timeout bounds the exit latency when the sweep ends. */
+        if (xSemaphoreTake(s_sweep_go, pdMS_TO_TICKS(100)) != pdPASS) {
+            if (s_sweep_gen != gen || !s_sweep_baking)
+                break; /* replaced or the sweep ended */
+            continue;
+        }
+        if (s_sweep_gen != gen || s_sweep_abort) {
+            xSemaphoreGive(s_sweep_rows_done); /* keep the go:done 1:1 */
+            break;
+        }
+        int S = s_sweep_px;
+        uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* same choice as the main task */
+        sweep_bake_half(dst, S, (int)s_sweep_split, S);
+        xSemaphoreGive(s_sweep_rows_done); /* always: the main task's frame is in flight */
+    }
+    s_sweep_helper_alive = false;
+    vTaskDelete(NULL);
+}
+
 static void moon_sweep_task(void *arg) {
     (void)arg;
     int32_t frames = s_sweep_frames;
@@ -859,24 +954,6 @@ static void moon_sweep_task(void *arg) {
     int64_t now = s_sweep_now;
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
-        /* Backpressure (see the section above): the previous frame must
-         * be on screen before s_rgb may be overwritten with the next.
-         * The tick displays each published frame one tick later (one
-         * atomic ~140 ms lv_refr_now), while the bake is ~1.3 s, so the
-         * bake paces the sweep and this wait is usually ~0; the 5 s cap
-         * is a safety bail (the only tick-paused case -- sleep entry --
-         * sets s_sweep_abort, which the loop polls too). */
-        if (f > 0) {
-            int waited = 0;
-            while (!s_sweep_abort && s_sweep_shown < (uint32_t)f) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                waited += 10;
-                if (waited > 5000)
-                    break;
-            }
-            if (s_sweep_abort)
-                break;
-        }
         /* Frame f is (frames-1-f) synodic steps before the current
          * phase: f=0 is a full month back, f=frames-1 is NOW.
          *
@@ -891,34 +968,77 @@ static void moon_sweep_task(void *arg) {
          * frame bakes at full resolution (the old path). */
         double t = (double)(frames - 1 - f) / (double)(frames - 1);
         int64_t epoch = now - (int64_t)(t * SYNODIC_S);
-        moon_geom_t g;
-        moon_geometry(epoch, &g);
+        moon_geometry(epoch, &s_sweep_g);                    /* shared with the helper (below) */
         int S = (f == frames - 1) ? MOON_PX : sweep_bake_px; /* this frame's bake size */
         if (S > MOON_PX)
             S = MOON_PX;
         uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
         int64_t b0 = esp_timer_get_time();
-        for (int y = 0; y < S && !s_sweep_abort; y++) {
-            /* Bake into the (scratch, sweep-only) small frame unlocked:
-             * nothing else reads s_sweep_small, the spin is paused for
-             * the whole sweep, and the display only ever touches s_rgb
-             * (converted below, under the mutex). A cancel is honored
-             * within a row. */
-            moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
-                           MOON_ALB_H, y, y + 1);
-            if ((y & 15) == 15)
-                vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+        if (s_sweep_dual) {
+            /* Two-core split (see the section above): the helper (core
+             * 0) takes the bottom rows of the SAME buffer. The window is
+             * written before the go; the give/take pair is the ordering
+             * barrier. The small buffer is scratch (sweep-only) and
+             * s_frame is the spin's, which is paused for the whole
+             * sweep -- so the unlocked per-row bakes cannot race. */
+            s_sweep_split = (uint32_t)(S / 2);
+            s_sweep_px = S;
+            xSemaphoreGive(s_sweep_go);
+            sweep_bake_half(dst, S, 0, S / 2); /* the top half */
+            /* The helper always gives done after consuming the go (1:1);
+             * a 5 s stall means it is gone (if it were merely slow, the
+             * go wait would have returned; a truly dead one panicked).
+             * Abort rather than bake the half solo: baking solo while the
+             * helper still finishes its half would desync the 1:1 done
+             * pairing (a stale done releases the NEXT frame early). */
+            int waited = 0;
+            while (xSemaphoreTake(s_sweep_rows_done, pdMS_TO_TICKS(50)) != pdPASS) {
+                waited += 50;
+                if (s_sweep_abort)
+                    break;
+                if (waited > 5000) {
+                    ESP_LOGW(TAG, "sweep helper lost; aborting the sweep");
+                    s_sweep_abort = true;
+                    break;
+                }
+            }
+        } else {
+            sweep_bake_half(dst, S, 0, S);
         }
         if (s_sweep_abort)
             break;
-        /* Convert + (if reduced) upscase into s_rgb as ONE locked block:
-         * the display's atomic flush (under the same mutex) can never
-         * mix two frames, and the small buffer is only read here. */
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        /* Backpressure AFTER the bake (the pipeline, see the section
+         * above): frame f-1's display (~134 ms, core 0) overlaps frame
+         * f's bake. The gate only protects the convert below: frame f's
+         * ping-pong buffer is frame f-2's, and shown >= f means frame
+         * f-1 (hence f-2) is off screen. One 50 ms tick of extra
+         * latency at most when the display lags, which it never does
+         * (display ~134 ms < bake). A 5 s stall means the tick is gone
+         * (sleep entry sets s_sweep_abort too) -- bail out as an abort
+         * rather than convert onto a live display. */
+        if (f > 0) {
+            int waited = 0;
+            while (!s_sweep_abort && s_sweep_shown < (uint32_t)f) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                waited += 10;
+                if (waited > 5000) {
+                    s_sweep_abort = true;
+                    break;
+                }
+            }
+            if (s_sweep_abort)
+                break;
+        }
+        /* Convert + (if reduced) upscase into the OTHER ping-pong
+         * display buffer -- frame f-2's, off screen by the gate above.
+         * Unlocked: the spin/orbit/static paths (s_rgb writers) are all
+         * stopped for the sweep (s_sweep_baking), so only the dsc.data
+         * swap below serializes with the tick's atomic display. */
+        uint16_t *back = (f & 1) ? s_rgb_b : s_rgb;
         if (S == MOON_PX) {
             for (int y = 0; y < MOON_PX; y++) {
                 const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
-                uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+                uint16_t *rrow = &back[(size_t)y * MOON_PX];
                 for (int x = 0; x < MOON_PX; x++)
                     rrow[x] = moon_gray565(frow[x]);
             }
@@ -935,33 +1055,57 @@ static void moon_sweep_task(void *arg) {
             }
             for (int Y = 0; Y < MOON_PX; Y++) {
                 const uint8_t *frow = &s_sweep_small[(size_t)sm[Y] * S];
-                uint16_t *rrow = &s_rgb[(size_t)Y * MOON_PX];
+                uint16_t *rrow = &back[(size_t)Y * MOON_PX];
                 for (int x = 0; x < MOON_PX; x++)
                     rrow[x] = moon_gray565(frow[sm[x]]);
             }
         }
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        s_dsc.data = (const uint8_t *)back; /* the atomic whole-frame swap */
         xSemaphoreGive(s_rgb_mtx);
         s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
-        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
-                 (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
+        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx %s (illum %.1f%%)", f + 1, frames,
+                 (long long)((esp_timer_get_time() - b0) / 1000), S, s_sweep_dual ? "2-core" : "1-core",
+                 s_sweep_g.illum * 100.0f);
     }
+    /* Hand the display back to s_rgb (the spin/orbit/static paths
+     * always write it): on a clean finish the final frame is in s_frame
+     * (baked full-res) -- re-convert it into s_rgb and swap dsc back;
+     * the swap is visually a no-op (same phase, unrotated). On abort,
+     * just repoint (s_frame may be half-baked; the s_frame_stale logic
+     * below drives the re-bake). */
     if (!s_sweep_abort) {
         /* Wait for the LAST frame to be on screen before exiting: the
          * tick re-anchors the spin in the same advance of s_sweep_shown,
          * and the spin render resumes only when s_sweep_baking is
          * false -- so the re-anchor happens-before the resume. The 5 s
-         * bail covers the tick being paused (the only such case --
-         * sleep entry -- aborts the sweep, which the loop polls). */
+         * bail marks an abort (the only stall case -- sleep entry --
+         * sets s_sweep_abort itself; if the tick is gone anyway the
+         * abort path is the safe one). */
         int waited = 0;
         while (!s_sweep_abort && s_sweep_shown < (uint32_t)s_sweep_frames && waited < 5000) {
             vTaskDelay(pdMS_TO_TICKS(10));
             waited += 10;
+            if (waited >= 5000)
+                s_sweep_abort = true;
         }
-    } else if (s_sweep_pub < (uint32_t)s_sweep_frames) {
-        s_frame_stale = true; /* the buffers were left mid-bake */
-    } else {
-        s_frame_stale = false; /* all frames completed */
     }
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    if (s_sweep_pub >= (uint32_t)s_sweep_frames) {
+        /* The final frame is fully baked into s_frame (full-res):
+         * re-convert it into s_rgb so the repoint below shows exactly
+         * what the spin is about to rotate (same phase, unrotated --
+         * visually a no-op on the clean path). */
+        for (int y = 0; y < MOON_PX; y++) {
+            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+            for (int x = 0; x < MOON_PX; x++)
+                rrow[x] = moon_gray565(frow[x]);
+        }
+    }
+    s_dsc.data = (const uint8_t *)s_rgb;
+    xSemaphoreGive(s_rgb_mtx);
+    s_frame_stale = (s_sweep_pub < (uint32_t)s_sweep_frames); /* mid-bake abort */
     s_sweep_baking = false;
     ESP_LOGI(TAG, "sweep bake %s in %lldms", s_sweep_abort ? "interrupted" : "done",
              (long long)((esp_timer_get_time() - t0) / 1000));
@@ -969,8 +1113,11 @@ static void moon_sweep_task(void *arg) {
 }
 
 /* Abort a running sweep and clear its state (sleep entry / start). The
- * task checks s_sweep_abort per row and in the backpressure poll, so it
- * exits within a row (~2 ms) of the abort. */
+ * main task checks s_sweep_abort per row and in the backpressure poll, so
+ * it exits within a row (~2 ms) of the abort; the two-core helper exits
+ * within its row + one go-timeout (~100 ms). Both joins are bounded; on
+ * a timeout the state is force-cleared and s_frame_stale flags the
+ * possibly-mid-bake buffers. */
 static void moon_sweep_interrupt(void) {
     if (s_sweep_baking) {
         s_sweep_abort = true;
@@ -984,11 +1131,33 @@ static void moon_sweep_interrupt(void) {
             s_frame_stale = true; /* it may still be mid-row in the buffers */
         }
     }
+    /* Retire the two-core helper: its window's abort (or the main task's
+     * exit, which stops the next go) ends the current half, and the
+     * generation bump ends any later go wait. It self-deletes. */
+    s_sweep_gen++;
+    if (s_sweep_helper_alive) {
+        int waited = 0;
+        while (s_sweep_helper_alive && waited < 400) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waited += 10;
+        }
+        if (s_sweep_helper_alive) {
+            ESP_LOGW(TAG, "sweep helper did not exit within 400 ms; forcing state clear");
+            s_frame_stale = true;
+        }
+        s_sweep_helper_alive = false;
+    }
+    /* Drain any in-flight window signal so a fresh sweep starts clean. */
+    if (s_sweep_go)
+        (void)xSemaphoreTake(s_sweep_go, 0);
+    if (s_sweep_rows_done)
+        (void)xSemaphoreTake(s_sweep_rows_done, 0);
     s_sweep_abort = false;
     s_sweep_baking = false;
     s_sweep_pub = 0;
     s_sweep_shown = 0;
     s_sweep_frames = 0;
+    s_sweep_dual = false;
 }
 
 /* The tilt drives the moon's OUT-OF-PLANE orbit (sphere model; the
@@ -1316,6 +1485,9 @@ void moon_ui_init(void) {
 
     s_frame = heap_caps_malloc(MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
     s_rgb = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
+    /* The sweep's ping-pong display buffer (see the sweep section): frame
+     * f+1's convert runs while frame f is on screen. */
+    s_rgb_b = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
     /* Reduced-res intermediate sweep frame (UI_MOON_ANIM_BAKE_PX): the
      * wake sweep's non-final frames bake here (smaller than MOON_PX^2) and
      * are upscased into s_rgb on display. Allocated at the bake size (not
@@ -1325,7 +1497,7 @@ void moon_ui_init(void) {
     int sweep_bake_px = CONFIG_UI_MOON_ANIM_BAKE_PX;
     if (sweep_bake_px < MOON_PX)
         s_sweep_small = heap_caps_malloc((size_t)sweep_bake_px * sweep_bake_px, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small)) {
+    if (!s_frame || !s_rgb || !s_rgb_b || (sweep_bake_px < MOON_PX && !s_sweep_small)) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }
@@ -1354,6 +1526,7 @@ void moon_ui_init(void) {
         ESP_LOGW(TAG, "moon assets unavailable: moon will bake relief-free or stay blank");
     memset(s_frame, 0, MOON_PX * MOON_PX);
     memset(s_rgb, 0, (size_t)MOON_PX * MOON_PX * 2);
+    memset(s_rgb_b, 0, (size_t)MOON_PX * MOON_PX * 2);
 
     s_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
     s_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
@@ -1374,7 +1547,12 @@ void moon_ui_init(void) {
      * paces the spin). */
     s_rgb_mtx = xSemaphoreCreateMutex();
     s_spin_shown = xSemaphoreCreateBinary();
-    if (!s_rgb_mtx || !s_spin_shown) {
+    /* Two-core sweep split (see the sweep section): go / rows_done hand
+     * each frame's bottom-row window main -> helper and the "half baked"
+     * back helper -> main (one in flight, 1:1 per frame). */
+    s_sweep_go = xSemaphoreCreateBinary();
+    s_sweep_rows_done = xSemaphoreCreateBinary();
+    if (!s_rgb_mtx || !s_spin_shown || !s_sweep_go || !s_sweep_rows_done) {
         ESP_LOGE(TAG, "spin sync allocation failed; moon disabled");
         s_ready = false;
         return;
@@ -1448,7 +1626,9 @@ void moon_ui_replay_animation(void) {
     int64_t now;
     if (clock_get_utc_epoch(&now) != ESP_OK)
         return;
-    moon_sweep_interrupt(); /* defensive join; nothing should be running */
+    moon_sweep_interrupt();    /* defensive join; nothing should be running */
+    moon_bake_ensure_tables(); /* the two-core split bakes from two tasks;
+                                * the lazy first-bake table build would race */
     s_sweep_now = now;
     s_sweep_frames = CONFIG_UI_MOON_ANIM_FRAMES;
     s_sweep_pub = 0;
@@ -1456,14 +1636,27 @@ void moon_ui_replay_animation(void) {
     s_sweep_abort = false;
     s_frame_stale = false;
     s_baked_day = now / 86400; /* the sweep's final frame is the current phase */
+    /* Two-core helper (see the sweep section): bakes each frame's bottom
+     * rows on core 0 -- priority 5, one BELOW the LVGL task (6), so the
+     * tick's display and touch always preempt it -- while the main task
+     * bakes the top rows on core 1. Creation failure degrades to the
+     * single-core path (s_sweep_dual stays false); the sweep still runs. */
+    s_sweep_gen++;
+    s_sweep_dual = false;
+    s_sweep_helper = NULL;
+    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_helper_task, "moon_sweep_h", 8192, NULL, 5, &s_sweep_helper, 0,
+                                        MALLOC_CAP_SPIRAM) != pdPASS)
+        ESP_LOGW(TAG, "sweep helper allocation failed; single-core sweep");
+    else
+        s_sweep_dual = true;
     /* Ownership flag BEFORE the task exists (the orbit rule): the task
-     * may start baking s_rgb rows immediately; the spin's pause-poll and
-     * the tick's display guard must already be stopped. */
+     * may start baking the sweep frames immediately; the spin's
+     * pause-poll and the tick's display guard must already be stopped. */
     s_sweep_baking = true;
     if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 8192, NULL, configMAX_PRIORITIES - 3,
                                         &s_sweep_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "sweep task allocation failed; moon stays on the current frame");
-        s_sweep_baking = false;
+        s_sweep_baking = false; /* the helper (if up) self-exits on its next go timeout */
         return;
     }
     if (!clock_is_idle())
