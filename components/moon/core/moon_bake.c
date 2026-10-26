@@ -44,11 +44,17 @@
  * per-pixel; differs only in the polar-cap rows, where lns ~ (d-G.S)/|G|
  * -> 0 anyway) are re-checked by the image-diff gate after any change.
  *
- * Per-pixel cost: a few FPU ops + 3 PSRAM byte loads (1 albedo + 2 relief
- * gradient, all independent, so the 4-pixel unroll below overlaps their
- * latency with the FPU work) -- measured ~1.3 s/frame on the S3 (down
- * from ~3.3 s/frame with the old per-pixel 4-neighbor gather); the sweep
- * (components/ui) paces off this bake time, not the ~150 ms display.
+ * Per-pixel cost: a few FPU ops + PSRAM byte loads -- a LIT pixel takes
+ * 3 (1 albedo + 2 relief gradient, independent, so the 4-pixel unroll
+ * below overlaps their latency with the FPU work); a DARK pixel takes 2,
+ * because L <= 0 is provable from d + the gradient cache alone
+ * (d - G.S <= 0, the sqrt denominator is always positive) and its output
+ * is TONE_LUT[0] + earthshine(d), albedo-independent (A*0 rounds to LUT
+ * entry 0) -- so the albedo load is dead work there and is skipped
+ * (bit-identical; see bake_px). Measured ~1.3 s/frame at half phase on
+ * the S3 (down from ~3.3 s/frame with the old per-pixel 4-neighbor
+ * gather); the sweep (components/ui) paces off this bake time, not the
+ * ~150 ms display.
  * The Xtensa FPU has no atan/asin, so the texture long/lat come from two
  * small internal-RAM tables (worst-case error << 0.05 texture row /
  * 0.001 deg) instead of the libm transcendentals, and the albedo is
@@ -238,38 +244,12 @@ void moon_relief_build(const int8_t *dem, int dem_w, int dem_h, int8_t *glon_q, 
     }
 }
 
-/* Relief-normal sun dot lns = (d - G.S)/sqrt(1 + |G|^2) -- UNCLIPPED --
- * from the cached per-cell gradient (body frame; see file header).
- * grel is the two-plane cache, c/r the DEM texel; rx,ry,rz the unit base
- * direction, d = r . S. Goes negative on slopes facing away from the Sun
- * (a ridge's shadow side); the caller clips at 0 so the dark side gets
- * no direct light. The old max(lns, 0) floor is what kept the terminator
- * shadows from going fully dark -- and left the edge 3-7x too soft vs
- * the NASA frames. */
-static __attribute__((always_inline)) inline float relief_lns(const moon_grel_t *grel, int c, int r, float rx, float ry,
-                                                              float rz, float d, const float *S) {
-    int i = r * MOON_DEM_W + c;
-    float glon = (float)grel->glon[i] * MOON_GREL_INV;
-    float glat = (float)grel->glat[i] * MOON_GREL_INV;
-
-    /* Tangent basis dotted with S (east/north from r itself). */
-    float rho = sqrtf(rx * rx + ry * ry); /* = cos(lat) */
-    if (rho < 1e-4f)
-        rho = 1e-4f;
-    float inv = 1.0f / rho;
-    float east_s = (-ry * S[0] + rx * S[1]) * inv;
-    float north_s = (-rz * rx * S[0] - rz * ry * S[1] + rho * S[2]) * inv;
-    float gs = glon * east_s + glat * north_s;
-    float lns = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
-    return lns > 0.0f ? lns : 0.0f;
-}
-
 /* One pixel of the bake (see file header for the per-pixel model). Row
  * scalars ride in the context so the inner loop can unroll without an
  * argument-list blowup.
  *
- * always_inline is load-bearing: with bake_px / relief_lns as separate
- * call targets the compiler cannot see the 4 pixels' PSRAM loads
+ * always_inline is load-bearing: with bake_px as a separate call target
+ * the compiler cannot see the 4 pixels' PSRAM loads
  * together, so every load pays the full ~500-cycle octal-PSRAM latency
  * (the cache indices are computed immediately before the loads) --
  * measured ~2.1 s/frame with a separate gather, i.e. the unroll buys
@@ -303,33 +283,29 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     float rz = u * g->right[2] + c->v * g->up[2] + w * g->E[2];
     float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
 
-    /* Texture coordinates, table-based (see file header). */
+    /* Texture coordinates, table-based (see file header): pure CPU table
+     * lookups (no PSRAM), shared by the DEM texel and the albedo sample.
+     * Computed before lighting so the relief path can find its gradient
+     * cache cell; dark pixels pay the lookups but skip the albedo load. */
     float theta = atan2_deg(rx, ry); /* lon, deg, [0, 360) */
-    float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
-    if (colf >= (float)c->alb_w) /* theta + 180 < 540: one wrap max */
-        colf -= (float)c->alb_w;
-    int col = (int)(colf + 0.5f);
-    if (col >= c->alb_w)
-        col = c->alb_w - 1;
     float row_frac = row_frac_interp(rz);
-    int r = (int)(row_frac * (float)c->alb_h + 0.5f);
-    if (r < 0)
-        r = 0;
-    else if (r >= c->alb_h)
-        r = c->alb_h - 1;
-    float A = (float)c->alb[r * c->alb_w + col];
 
-    /* Lighting: full-disk displaced-normal Lambert (see header).
-     * lns is unclipped; clip at 0 so the dark side (d < 0 and
-     * shadowed slopes) gets no direct light -- earthshine below
-     * carries the dark zone. */
+    /* Lighting first: full-disk displaced-normal Lambert (see header).
+     * lns is unclipped; clip at 0 so the dark side (d < 0 and shadowed
+     * slopes) gets no direct light -- earthshine below carries the dark
+     * zone. lns <= 0  <=>  d - G.S <= 0 (the sqrt denominator is always
+     * positive), so the dark side is provable from d + the two gradient
+     * bytes alone -- and its output is TONE_LUT[0] + earthshine(d),
+     * albedo-independent (A * 0 rounds to LUT entry 0). The albedo
+     * PSRAM load (the scattered byte that is the perf floor) is dead
+     * work for a dark pixel and is skipped below: bit-identical. */
     float L;
     if (c->grel == NULL) {
         L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
     } else {
         /* DEM texel for the gradient cache: the old per-pixel gather's
          * same equirect mapping, from the theta (deg) / row_frac
-         * (normalized) already computed for the albedo sample. */
+         * (normalized) above. */
         float dcf = (theta + MOON_TEX_LON_OFFSET) * ((float)MOON_DEM_W / 360.0f);
         if (dcf >= (float)MOON_DEM_W)
             dcf -= (float)MOON_DEM_W;
@@ -339,12 +315,43 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
         int dr = (int)(row_frac * (float)MOON_DEM_H + 0.5f);
         if (dr >= MOON_DEM_H)
             dr = MOON_DEM_H - 1;
-        L = relief_lns(c->grel, dc, dr, rx, ry, rz, d, g->S);
+        int i = dr * MOON_DEM_W + dc;
+        float glon = (float)c->grel->glon[i] * MOON_GREL_INV;
+        float glat = (float)c->grel->glat[i] * MOON_GREL_INV;
+        /* Tangent basis dotted with S (east/north from r itself). */
+        float rho = sqrtf(rx * rx + ry * ry); /* = cos(lat) */
+        if (rho < 1e-4f)
+            rho = 1e-4f;
+        float inv = 1.0f / rho;
+        float east_s = (-ry * g->S[0] + rx * g->S[1]) * inv;
+        float north_s = (-rz * rx * g->S[0] - rz * ry * g->S[1] + rho * g->S[2]) * inv;
+        float gs = glon * east_s + glat * north_s;
+        L = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
         if (L < 0.0f)
             L = 0.0f;
         else if (L > 1.0f)
             L = 1.0f;
     }
+    if (L <= 0.0f) { /* dark side: earthshine only, no albedo load */
+        float out = MOON_TONE_LUT[0] + earthshine(d);
+        c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+        return;
+    }
+
+    /* Albedo, nearest-neighbor -- lit pixels only (see the note above). */
+    float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
+    if (colf >= (float)c->alb_w) /* theta + 180 < 540: one wrap max */
+        colf -= (float)c->alb_w;
+    int col = (int)(colf + 0.5f);
+    if (col >= c->alb_w)
+        col = c->alb_w - 1;
+    int r = (int)(row_frac * (float)c->alb_h + 0.5f);
+    if (r < 0)
+        r = 0;
+    else if (r >= c->alb_h)
+        r = c->alb_h - 1;
+    float A = (float)c->alb[r * c->alb_w + col];
+
     float raw = A * L;
     int idx = (int)(raw + 0.5f);
     if (idx < 0)
@@ -361,10 +368,11 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
  * (components/ui/moon_ui.c) while the rest of the frame is still being
  * computed.
  *
- * The inner loop processes 4 pixels per iteration: each pixel issues 3
- * independent PSRAM int8 loads (1 albedo + 2 relief-gradient cache) and
- * a few FPU ops (2 sqrt + 2 div + ~35 FMA). Unrolling keeps up to 12
- * PSRAM loads in flight per 4 pixels so their ~500-cycle octal-PSRAM
+ * The inner loop processes 4 pixels per iteration: each LIT pixel issues
+ * 3 independent PSRAM int8 loads (1 albedo + 2 relief-gradient cache), a
+ * DARK pixel only 2 (the albedo load is dead work there -- see bake_px),
+ * and a few FPU ops (~2 sqrt + ~1 div + ~30 FMA). Unrolling keeps up to
+ * 12 PSRAM loads in flight per 4 pixels so their ~500-cycle octal-PSRAM
  * latency overlaps with the FPU work -- the same trick
  * moon_rotate_range uses in moon_render.c (sequential per-pixel: every
  * load waits on its own latency; unrolled: measured ~1.3 s/frame vs the
