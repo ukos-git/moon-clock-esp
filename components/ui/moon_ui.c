@@ -197,7 +197,12 @@ static const char *TAG = "moon_ui";
 #define CONFIG_UI_MOON_ANIM_ENABLE 1
 #endif
 #ifndef CONFIG_UI_MOON_ANIM_FRAMES
-#define CONFIG_UI_MOON_ANIM_FRAMES 14
+#define CONFIG_UI_MOON_ANIM_FRAMES 28
+#endif
+/* Perf A/B hook (unset bools are absent from sdkconfig.h; fall back to
+ * 0 = relief ON, the normal path). */
+#ifndef CONFIG_TEST_BAKE_NO_RELIEF
+#define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
 static uint8_t *s_frame;     /* 8-bit baked frame, MOON_PX^2 */
 static uint16_t *s_rgb;      /* RGB565 display buffer, MOON_PX^2 */
@@ -396,9 +401,9 @@ static void moon_bake_epoch(int64_t epoch) {
         ESP_LOGE(TAG, "no albedo; moon stays black");
         return;
     }
-    const int8_t *dem = moon_dem();
-    if (!dem)
-        ESP_LOGW(TAG, "no relief DEM; baking relief-free");
+    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
+    if (!grel)
+        ESP_LOGW(TAG, "no relief cache; baking relief-free");
     /* Under the buffer mutex: this re-bake replaces the WHOLE frame
      * (s_frame + the s_rgb display) while the spin render may be
      * mid-gather on the old one. The render blocks on the mutex for the
@@ -406,14 +411,17 @@ static void moon_bake_epoch(int64_t epoch) {
      * the current time-based angle once it resumes (the caller
      * re-anchors). */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    moon_bake(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
+    moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H);
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     int64_t t2 = esp_timer_get_time();
     /* (The relief-free vs with-DEM split that ran here while diagnosing
-     * the ~2.3 s bake settled the question: the 4-neighbor DEM gather
-     * is the dominant cost, ~1.2 s of the ~1.9 s frame at 2048x1024.) */
+     * the old ~2.3 s bake settled the question: the per-pixel 4-neighbor
+     * DEM gather was the dominant cost, ~1.2 s of the ~1.9 s frame at
+     * 2048x1024. It is now precomputed once into the relief gradient
+     * cache (moon_relief / moon_relief_build) -- the bake reads two
+     * cache bytes per pixel; the bake is ~1.3 s on this board.) */
     ESP_LOGI(TAG, "bake | phase %.1f%% illum, subsolar (%.1f, %.1f) | geo %lldms bake %lldms", g.illum * 100.0f,
              g.subsolar_lon, g.subsolar_lat, (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000));
     moon_convert_to_rgb();
@@ -423,7 +431,8 @@ static void moon_bake_epoch(int64_t epoch) {
 
 /* ---------------- spin (free, phase-anchored) ----------------
  *
- * The current phase is baked ONCE (moon_bake_epoch, ~2 s) and then the
+ * The current phase is baked ONCE (moon_bake_epoch, ~1.3 s with the
+ * relief gradient cache) and then the
  * frame is rotated in place on the panel by a FREE SPIN: a spin angle
  * s_spin_theta (rad, unbounded) integrated per frame (theta +=
  * omega*dt), so the on-screen pose is the baked phase plus the
@@ -666,14 +675,14 @@ static void moon_orbit_task(void *arg) {
     (void)arg;
     int64_t epoch = s_orbit_epoch;
     const uint8_t *alb = moon_albedo();
-    const int8_t *dem = moon_dem();
+    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
     if (!alb) {
         ESP_LOGE(TAG, "no albedo; orbit bake aborted");
         s_orbit_baking = false;
         vTaskDelete(NULL);
     }
-    if (!dem)
-        ESP_LOGW(TAG, "no relief DEM; orbit bake relief-free");
+    if (!grel)
+        ESP_LOGW(TAG, "no relief cache; orbit bake relief-free");
     int32_t target_deg = s_orbit_target;
     /* The target is signed (UI_IMU_ANGLE_SIGN applied at quantization),
      * so the basis rotation takes it as-is. */
@@ -690,7 +699,7 @@ static void moon_orbit_task(void *arg) {
          * critical sections also keep the render task from waiting more
          * than a row (~6 ms) at a time, so a cancel is honored quickly. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
+        moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
                        MOON_ALB_H, y, y + 1);
         /* Fixed viewport: the row maps straight to RGB565 (no rotation). */
         const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
@@ -806,35 +815,42 @@ static void moon_orbit_interrupt(void) {
  * f+1 until the tick has displayed frame f -- without it, the display's
  * full-frame flush could pick up the new frame's first rows over the
  * old frame's bottom (a mixed frame on screen, the wipe the old
- * pipeline showed). The bake (~2 s/frame) paces the month (~30 s for
- * 14 frames); the display (~150 ms/frame) stays ahead. The frames are
- * evenly spaced over the last synodic month, ending on the CURRENT
- * phase (the final frame is epoch = now); the tick re-anchors the spin
- * at the unrotated pose the last frame just showed and lets it resume.
- * The spin render is paused for the whole sweep (the flag poll), the
- * idle timer is held (the user is present for the ~30 s), and the sleep
- * transition aborts the sweep (moon_sweep_interrupt).
+ * pipeline showed). With the relief gradient cache (moon_relief, built
+ * once from the DEM) the bake is ~1.3 s/frame on this board (down from
+ * ~3.3 s with the old per-pixel gather, but FPU/PSRAM-bound on the
+ * S3), so the month unfolds at the bake rate: ~44 s for the default
+ * 28 frames (vs ~30 s for the old 14 -- the extra frames cost more
+ * wall time than the per-frame speedup saves; the phase STEP per frame
+ * is halved, which is the smoothness win). The frames are evenly
+ * spaced over the last
+ * synodic month, ending on the CURRENT phase (the final frame is epoch
+ * = now); the tick re-anchors the spin at the unrotated pose the last
+ * frame just showed and lets it resume. The spin render is paused for
+ * the whole sweep (the flag poll), the idle timer is held (the user is
+ * present for the sweep), and the sleep transition aborts the sweep
+ * (moon_sweep_interrupt).
  */
 static void moon_sweep_task(void *arg) {
     (void)arg;
     int32_t frames = s_sweep_frames;
     const uint8_t *alb = moon_albedo();
-    const int8_t *dem = moon_dem();
+    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
     if (!alb) {
         ESP_LOGE(TAG, "no albedo; sweep aborted");
         s_sweep_baking = false;
         vTaskDelete(NULL);
     }
-    if (!dem)
-        ESP_LOGW(TAG, "no relief DEM; sweep relief-free");
+    if (!grel)
+        ESP_LOGW(TAG, "no relief cache; sweep relief-free");
     const double SYNODIC_S = 29.53 * 86400.0;
     int64_t now = s_sweep_now;
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
         /* Backpressure (see the section above): the previous frame must
          * be on screen before s_rgb may be overwritten with the next.
-         * The tick advances s_sweep_shown at its 50 ms cadence, so this
-         * is ~one atomic display (~200 ms) per ~2 s bake; the 5 s cap
+         * The tick displays each published frame one tick later (one
+         * atomic ~140 ms lv_refr_now), while the bake is ~1.3 s, so the
+         * bake paces the sweep and this wait is usually ~0; the 5 s cap
          * is a safety bail (the only tick-paused case -- sleep entry --
          * sets s_sweep_abort, which the loop polls too). */
         if (f > 0) {
@@ -860,7 +876,7 @@ static void moon_sweep_task(void *arg) {
              * atomic flush (under the same mutex) can never mix rows
              * of two frames, and a cancel is honored within a row. */
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-            moon_bake_rows(&g, alb, dem, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+            moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                            MOON_ALB_W, MOON_ALB_H, y, y + 1);
             const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
             uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
@@ -1207,7 +1223,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * published frame is displayed as ONE atomic whole frame (the
      * spin's display) -- never left for LVGL's async 25-row drain. The
      * task paces itself on s_sweep_shown (backpressure), so the month
-     * unfolds at the bake rate (~2 s/frame) while the display keeps up. */
+     * unfolds at the bake rate (~1.3 s/frame, ~44 s for 28). */
     if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
         moon_invalidate_all();
         int64_t r0 = esp_timer_get_time();
@@ -1263,6 +1279,16 @@ void moon_ui_init(void) {
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     ESP_LOGI(TAG, "heap psram: free %u, largest %u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    /* Eagerly load the albedo + build the relief gradient cache HERE, on
+     * the main task, before ui_init / moon_ui_start can spawn a bake task
+     * (orbit/sweep). The build is the one slow, non-idempotent op (two 2 MB
+     * PSRAM planes from a one-shot whole-DEM read + moon_relief_build);
+     * running it once up front means the later moon_bake_epoch / orbit /
+     * sweep moon_relief() calls are cheap pointer returns with no
+     * concurrent-build race (two tasks both seeing relief_built == false
+     * and double-allocating the planes). */
+    if (!moon_albedo() || !moon_relief())
+        ESP_LOGW(TAG, "moon assets unavailable: moon will bake relief-free or stay blank");
     memset(s_frame, 0, MOON_PX * MOON_PX);
     memset(s_rgb, 0, (size_t)MOON_PX * MOON_PX * 2);
 
@@ -1339,7 +1365,7 @@ void moon_ui_start(void) {
     }
     moon_orbit_interrupt(); /* the boot bake owns the buffers; default viewport */
     s_baked_day = now / 86400;
-    moon_bake_epoch(now); /* the one ~2 s bake of the session's phase */
+    moon_bake_epoch(now); /* the one ~1.3 s bake of the session's phase */
     moon_spin_begin();    /* then the slow in-place spin (see the spin section) */
     lv_timer_resume(s_tick);
 }
@@ -1351,7 +1377,7 @@ void moon_ui_replay_animation(void) {
      * current phase. Called on EVERY wake from sleep (no-op at boot,
      * before moon_ui_start, and while the orbit pipeline owns the
      * buffers). The spin is held for the sweep; the idle timer is held
-     * too (the user is present for the ~30 s). */
+     * too (the user is present for the ~44 s). */
     if (!CONFIG_UI_MOON_ANIM_ENABLE || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
@@ -1382,7 +1408,8 @@ void moon_ui_replay_animation(void) {
 
 void moon_ui_day_tick(void) {
     /* Guarded on s_started, not just s_ready: at boot the main-screen
-     * handler runs BEFORE moon_ui_start (its one ~2 s first bake), and a
+     * handler runs BEFORE moon_ui_start (its one first bake: the
+     * one-time gradient-cache build + the ~1.3 s bake), and a
      * valid RTC would otherwise re-bake here (s_baked_day is 0) -- a
      * duplicate boot bake. The day-tick is for "the day rolled over while
      * we slept"; the first bake is moon_ui_start's alone. */

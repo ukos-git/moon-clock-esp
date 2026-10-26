@@ -36,16 +36,18 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_FRAMES
         int "Synodic wake sweep frame count"
-        default 14
+        default 28
         range 5 60
         help
             How many phase frames make up the wake sweep, evenly spaced
             over the last 29.5 days and ending on the current phase.
-            Each frame is a full re-bake (~2 s on this board with the
-            relief DEM) displayed as one atomic whole frame (~150 ms),
-            so the sweep takes roughly frames x 2 s (14 -> ~30 s).
-            Lower = faster but coarser sweep; the display stays live
-            either way.
+            Each frame is a full re-bake (~1.3 s on this board with the
+            relief gradient cache) displayed as one atomic whole frame
+            (~150 ms), so the sweep takes roughly frames x 1.3-1.4 s
+            (28 -> ~44 s). The phase step per frame is 29.5 d / (N-1):
+            28 -> ~1.09 d/frame (smooth), 14 -> ~2.17 d/frame (the old
+            value). Lower = faster but coarser sweep; the display stays
+            live either way.
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"
@@ -114,6 +116,17 @@ menu "UI Component Configuration"
             transitions (WiFi reconnect, screen switch, moon
             re-bake/animation) be exercised repeatedly without touching
             the device. 0 (default) = off.
+
+    config TEST_BAKE_NO_RELIEF
+        bool "Test: bake without the relief gradient cache (perf A/B)"
+        default n
+        help
+            Test hook: pass a NULL relief cache to every bake (relief-free
+            L = clip(d, 0, 1)) to measure how much of the per-frame bake
+            cost is the 2 relief-cache PSRAM loads + tangent-basis dots
+            vs the common path (base direction, texture tables, albedo
+            load, earthshine, tonemap). Temporary profiling aid; off by
+            default and visually wrong (flat terminator).
 
     config UI_IMU_ENABLE
         bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"

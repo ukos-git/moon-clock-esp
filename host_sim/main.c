@@ -60,9 +60,9 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     }
 
     const uint8_t *alb = moon_albedo();
-    const int8_t *dem = moon_dem();
-    if (!alb || !dem) {
-        fprintf(stderr, "no albedo/DEM\n");
+    const moon_grel_t *grel = moon_relief();
+    if (!alb || !grel) {
+        fprintf(stderr, "no albedo/relief\n");
         return 0;
     }
 
@@ -79,7 +79,7 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
     float fcy = size == 400 ? 199.5f : (float)(size / 2);
-    moon_bake(&g, alb, dem, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H);
+    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H);
 
     float th = (float)rot_deg * 0.017453292519943295f;
     int32_t c15 = moon_cos15(th);

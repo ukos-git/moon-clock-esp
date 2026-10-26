@@ -25,5 +25,5 @@ idf_component_register(
     INCLUDE_DIRS
         include
         core/erfa
-    REQUIRES esp_partition log
+    REQUIRES esp_partition esp_timer log
 )
