@@ -275,6 +275,7 @@ typedef struct {
     int alb_w, alb_h;
     float radius, cx, v;
     float per_deg; /* albedo columns per degree */
+    int dark_zero; /* dark side written 0 (flat black) instead of earthshine */
 } bake_ctx_t;
 
 static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) {
@@ -307,7 +308,10 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
      * bytes alone -- and its output is TONE_LUT[0] + earthshine(d),
      * albedo-independent (A * 0 rounds to LUT entry 0). The albedo
      * PSRAM load (the scattered byte that is the perf floor) is dead
-     * work for a dark pixel and is skipped below: bit-identical. */
+     * work for a dark pixel and is skipped below: bit-identical.
+     * dark_zero writes 0 instead of the earthshine (sweep montage:
+     * the ~17-step earthshine ramp bands/dithers visibly in the fast
+     * animation, and the dark side carries no phase info there). */
     float L;
     if (c->grel == NULL) {
         L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
@@ -345,6 +349,10 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
             L = 1.0f;
     }
     if (L <= 0.0f) { /* dark side: earthshine only, no albedo load */
+        if (c->dark_zero) {
+            c->row[x] = 0; /* flat 0x0000 (sweep montage: no earthshine banding) */
+            return;
+        }
         float out = MOON_TONE_LUT[0] + earthshine(d);
         c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
         return;
@@ -391,7 +399,7 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
  * old per-pixel 4-neighbor gather's ~3.3 s). The remaining per-frame
  * cost is the FPU + PSRAM bandwidth floor, not load latency. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1) {
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)alb_w / 360.0f;
@@ -407,6 +415,7 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
         c.cx = cx;
         c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
         c.per_deg = per_deg;
+        c.dark_zero = dark_zero;
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             bake_px(&c, x0);
@@ -421,6 +430,6 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
 }
 
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h) {
-    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero) {
+    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero);
 }

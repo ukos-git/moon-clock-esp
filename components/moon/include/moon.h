@@ -64,17 +64,23 @@ typedef struct {
  * disk. Lighting/earthshine/tone order = the validated model. The
  * cached per-cell slope (quantized, see moon_bake.c) replaces the old
  * per-pixel 4-neighbor DEM gather: same displaced-normal model, 2
- * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6. */
+ * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6.
+ * dark_zero writes the dark side flat 0 (0x0000) instead of the
+ * earthshine gradient -- the wake-sweep montage uses it: the ~17-step
+ * earthshine ramp shows up as banded/dithered speckle in the fast
+ * animation, and the dark side carries no phase information there
+ * anyway. Static/spin bakes keep the earthshine (dark_zero = 0). */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero);
 
 /* Row-range bake: identical per-pixel math as moon_bake() for rows
  * [y0, y1). The device boot animation bakes row by row and converts each
  * row to RGB565 immediately, so the display can show finished rows (as
  * progressive strips) while the rest of the frame is still being
- * computed -- the frame "sweeps" in instead of popping in. */
+ * computed -- the frame "sweeps" in instead of popping in.
+ * dark_zero: see moon_bake. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1);
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero);
 
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =

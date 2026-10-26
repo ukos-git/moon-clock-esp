@@ -418,7 +418,7 @@ static void moon_bake_epoch(int64_t epoch) {
      * re-anchors). */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-              MOON_ALB_H);
+              MOON_ALB_H, 0);
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     int64_t t2 = esp_timer_get_time();
@@ -707,7 +707,7 @@ static void moon_orbit_task(void *arg) {
          * than a row (~6 ms) at a time, so a cancel is honored quickly. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-                       MOON_ALB_H, y, y + 1);
+                       MOON_ALB_H, y, y + 1, 0);
         /* Fixed viewport: the row maps straight to RGB565 (no rotation). */
         const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
         uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
@@ -898,6 +898,12 @@ static void moon_sweep_task(void *arg) {
         if (S > MOON_PX)
             S = MOON_PX;
         uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
+        /* Flat-black dark side for the montage frames: the earthshine's
+         * ~17-step ramp shows up as banded/dithered speckle in the fast
+         * animation (the dark side carries no phase info there). The
+         * FINAL frame keeps the earthshine -- it lingers on screen as
+         * the static phase. */
+        int dark_zero = (f < frames - 1);
         int64_t b0 = esp_timer_get_time();
         for (int y = 0; y < S && !s_sweep_abort; y++) {
             /* Bake into the (scratch, sweep-only) small frame unlocked:
@@ -906,7 +912,7 @@ static void moon_sweep_task(void *arg) {
              * (converted below, under the mutex). A cancel is honored
              * within a row. */
             moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
-                           MOON_ALB_H, y, y + 1);
+                           MOON_ALB_H, y, y + 1, dark_zero);
             if ((y & 15) == 15)
                 vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
         }
