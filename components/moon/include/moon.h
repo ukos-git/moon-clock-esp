@@ -75,13 +75,6 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                     float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1);
 
-/* Ensure the bake's internal texture tables are built. The bakers build
- * them lazily on the first call; when TWO tasks bake concurrently (the
- * wake sweep's two-core row split) each would race the lazy init and one
- * could read half-built tables, so the orchestrator calls this BEFORE
- * spawning its helper. Idempotent. */
-void moon_bake_ensure_tables(void);
-
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =
  * DEM[r], row_s = DEM[r+1 clamped]), each dem_w int8. Writes dem_w
