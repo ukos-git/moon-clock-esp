@@ -36,18 +36,40 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_FRAMES
         int "Synodic wake sweep frame count"
-        default 28
-        range 5 60
+        default 168
+        range 5 400
         help
             How many phase frames make up the wake sweep, evenly spaced
             over the last 29.5 days and ending on the current phase.
-            Each frame is a full re-bake (~1.3 s on this board with the
-            relief gradient cache) displayed as one atomic whole frame
-            (~150 ms), so the sweep takes roughly frames x 1.3-1.4 s
-            (28 -> ~44 s). The phase step per frame is 29.5 d / (N-1):
-            28 -> ~1.09 d/frame (smooth), 14 -> ~2.17 d/frame (the old
+            The intermediate frames are baked at UI_MOON_ANIM_BAKE_PX
+            (a reduced resolution, upscased on display -- see there) and
+            the final frame at full MOON_PX, so the sweep takes roughly
+            frames x (intermediate bake time). The phase step per frame
+            is 29.5 d / (N-1): 168 -> ~0.177 d/frame (~4.2 h, very
+            smooth), 84 -> ~0.35 d/frame, 28 -> ~1.09 d/frame (the old
             value). Lower = faster but coarser sweep; the display stays
             live either way.
+
+    config UI_MOON_ANIM_BAKE_PX
+        int "Synodic wake sweep intermediate-frame bake resolution (px)"
+        default 240
+        range 100 400
+        help
+            The on-screen size the wake sweep's INTERMEDIATE frames are
+            baked at before being upscased (nearest-neighbor) to the full
+            MOON_PX for display. The final frame is always baked at full
+            MOON_PX (it is the current phase the spin resumes from).
+            Baking at a reduced size cuts the per-frame bake cost in
+            proportion to (S/MOON_PX)^2 (the on-disk pixel count), so the
+            168-frame sweep stays tractable: 240 -> ~0.36 s/frame vs the
+            ~1.3 s of a full-resolution frame, 200 -> ~0.26 s/frame,
+            300 -> ~0.56 s/frame. The reduced-res frames are physically
+            correct (the lighting/relief model is resolution-independent;
+            only the screen sampling is coarser, 400/S x 400/S blocks),
+            which is invisible in the fast montage. 400 (= MOON_PX)
+            disables the reduction and bakes every frame at full res
+            (the slow path). The last frame and the static/spin phase are
+            ALWAYS full resolution regardless of this setting.
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"

@@ -26,11 +26,13 @@ static bool g_wifi_deinited = false;
 static bool g_idle_timer_active = false;
 static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
 
-// True while the device sits on a sleep screen (light/deep sleep). The
-// sleep transitions set it; the wake handler
-// (action_switch_to_main_screen) consumes (clears) it to know that its
-// call is a real wake from sleep -- which drives the synodic wake sweep
-// (plays on EVERY wake) and keeps a stale alarm (one that rang while
+// True while the device sits on a sleep screen (light/deep sleep) or on
+// the alarm screen. The sleep transitions and the alarm trigger set it;
+// the wake handler (action_switch_to_main_screen) consumes (clears) it
+// to know that its call is a real wake event -- which drives the
+// synodic wake sweep (plays on EVERY wake, INCLUDING a dismissed alarm:
+// the alarm trigger sets it so the month replays when the user
+// acknowledges the alarm) and keeps a stale alarm (one that rang while
 // the user slept) from hijacking the wake flow.
 static bool g_asleep = false;
 
@@ -175,6 +177,13 @@ void action_alarm_triggered(lv_event_t *e) {
 
     // Mark alarm as active so wake callback knows we're dismissing alarm
     g_alarm_active = true;
+
+    // Mark the alarm screen as a wake-worthy state (like the sleep
+    // screens): dismissing it (touch) is a wake event, so the synodic
+    // wake sweep plays when the user acknowledges the alarm. (If the
+    // alarm rang while the device was already asleep, g_asleep is already
+    // set by the sleep transition and the normal wake flow handles it.)
+    g_asleep = true;
 
     // Restore active LVGL tick timing (alarm screen is an active state)
     if (g_ui_tick_timer) {

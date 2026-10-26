@@ -197,16 +197,22 @@ static const char *TAG = "moon_ui";
 #define CONFIG_UI_MOON_ANIM_ENABLE 1
 #endif
 #ifndef CONFIG_UI_MOON_ANIM_FRAMES
-#define CONFIG_UI_MOON_ANIM_FRAMES 28
+#define CONFIG_UI_MOON_ANIM_FRAMES 168
+#endif
+#ifndef CONFIG_UI_MOON_ANIM_BAKE_PX
+#define CONFIG_UI_MOON_ANIM_BAKE_PX 240
 #endif
 /* Perf A/B hook (unset bools are absent from sdkconfig.h; fall back to
  * 0 = relief ON, the normal path). */
 #ifndef CONFIG_TEST_BAKE_NO_RELIEF
 #define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
-static uint8_t *s_frame;     /* 8-bit baked frame, MOON_PX^2 */
-static uint16_t *s_rgb;      /* RGB565 display buffer, MOON_PX^2 */
-static lv_image_dsc_t s_dsc; /* (MOON_PX), points at s_rgb */
+static uint8_t *s_frame;       /* 8-bit baked frame, MOON_PX^2 */
+static uint16_t *s_rgb;        /* RGB565 display buffer, MOON_PX^2 */
+static uint8_t *s_sweep_small; /* reduced-res intermediate sweep frame (see
+                                * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
+                                * reduction is disabled */
+static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
 static lv_obj_t *s_images[4];
 static int s_n_images;
 static lv_timer_t *s_tick;
@@ -807,22 +813,28 @@ static void moon_orbit_interrupt(void) {
  * pipeline: the last 29.53 days in CONFIG_UI_MOON_ANIM_FRAMES frames,
  * played on EVERY wake from sleep (moon_ui_replay_animation). A
  * dedicated bake task (core 1, like the orbit) bakes the frames OFF
- * screen, row by row with per-row critical sections (an abort is
- * honored within a row), and publishes them one at a time; the tick
- * displays each published frame as ONE atomic whole frame (the spin's
- * display, MOON_SPIN_BATCH = MOON_NSTRIPS strips in one lv_refr_now),
- * one frame per tick. Backpressure: the bake task does not start frame
- * f+1 until the tick has displayed frame f -- without it, the display's
- * full-frame flush could pick up the new frame's first rows over the
- * old frame's bottom (a mixed frame on screen, the wipe the old
- * pipeline showed). With the relief gradient cache (moon_relief, built
- * once from the DEM) the bake is ~1.3 s/frame on this board (down from
- * ~3.3 s with the old per-pixel gather, but FPU/PSRAM-bound on the
- * S3), so the month unfolds at the bake rate: ~44 s for the default
- * 28 frames (vs ~30 s for the old 14 -- the extra frames cost more
- * wall time than the per-frame speedup saves; the phase STEP per frame
- * is halved, which is the smoothness win). The frames are evenly
- * spaced over the last
+ * screen and publishes them one at a time; the tick displays each
+ * published frame as ONE atomic whole frame (the spin's display,
+ * MOON_SPIN_BATCH = MOON_NSTRIPS strips in one lv_refr_now), one frame
+ * per tick. Backpressure: the bake task does not start frame f+1 until
+ * the tick has displayed frame f -- without it, the display's full-frame
+ * flush could pick up the new frame's first rows over the old frame's
+ * bottom (a mixed frame on screen, the wipe the old pipeline showed).
+ *
+ * Resolution: the intermediate frames bake at UI_MOON_ANIM_BAKE_PX
+ * (default 240, a scratch s_sweep_small frame) and upscase to the full
+ * 400x400 for display; only the FINAL frame (the current phase the spin
+ * resumes from) bakes at full MOON_PX. The bake cost scales with the
+ * on-disk pixel count, (S/400)^2 -- a full-res frame is ~1.3 s on this
+ * board (the relief gradient cache; FPU/PSRAM-bound on the S3) while a
+ * 240-px frame is ~0.36 s, so the default 168-frame sweep (phase step
+ * ~4.2 h/frame) unfolds at roughly 60-70 s. The reduced-res frames are
+ * physically correct (the lighting/relief model is
+ * resolution-independent; only the screen sampling is coarser), which
+ * is invisible in the fast montage; the last frame and the static/spin
+ * phase are always full resolution.
+ *
+ * The frames are evenly spaced over the last
  * synodic month, ending on the CURRENT phase (the final frame is epoch
  * = now); the tick re-anchors the spin at the unrotated pose the last
  * frame just showed and lets it resume. The spin render is paused for
@@ -833,6 +845,7 @@ static void moon_orbit_interrupt(void) {
 static void moon_sweep_task(void *arg) {
     (void)arg;
     int32_t frames = s_sweep_frames;
+    int sweep_bake_px = CONFIG_UI_MOON_ANIM_BAKE_PX; /* intermediate frames' bake size */
     const uint8_t *alb = moon_albedo();
     const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
     if (!alb) {
@@ -865,32 +878,72 @@ static void moon_sweep_task(void *arg) {
                 break;
         }
         /* Frame f is (frames-1-f) synodic steps before the current
-         * phase: f=0 is a full month back, f=frames-1 is NOW. */
+         * phase: f=0 is a full month back, f=frames-1 is NOW.
+         *
+         * Intermediate frames bake at the reduced UI_MOON_ANIM_BAKE_PX
+         * resolution (the on-disk pixel count scales (S/400)^2, so the
+         * per-frame cost drops with it -- the lighting/relief model is
+         * resolution-independent, only the screen sampling is coarser),
+         * then upscase to the full 400x400 for display. The FINAL frame
+         * is always baked at full MOON_PX: it is the current phase the
+         * spin resumes from, and it is the only frame that lingers on
+         * screen. With the reduction disabled (bake px >= MOON_PX) every
+         * frame bakes at full resolution (the old path). */
         double t = (double)(frames - 1 - f) / (double)(frames - 1);
         int64_t epoch = now - (int64_t)(t * SYNODIC_S);
         moon_geom_t g;
         moon_geometry(epoch, &g);
+        int S = (f == frames - 1) ? MOON_PX : sweep_bake_px; /* this frame's bake size */
+        if (S > MOON_PX)
+            S = MOON_PX;
+        uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
         int64_t b0 = esp_timer_get_time();
-        for (int y = 0; y < MOON_PX && !s_sweep_abort; y++) {
-            /* One lock per row, like the orbit bake: the display's
-             * atomic flush (under the same mutex) can never mix rows
-             * of two frames, and a cancel is honored within a row. */
-            xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-            moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                           MOON_ALB_W, MOON_ALB_H, y, y + 1);
-            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
-            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
-            for (int x = 0; x < MOON_PX; x++)
-                rrow[x] = moon_gray565(frow[x]);
-            xSemaphoreGive(s_rgb_mtx);
+        for (int y = 0; y < S && !s_sweep_abort; y++) {
+            /* Bake into the (scratch, sweep-only) small frame unlocked:
+             * nothing else reads s_sweep_small, the spin is paused for
+             * the whole sweep, and the display only ever touches s_rgb
+             * (converted below, under the mutex). A cancel is honored
+             * within a row. */
+            moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
+                           MOON_ALB_H, y, y + 1);
             if ((y & 15) == 15)
                 vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
         }
         if (s_sweep_abort)
             break;
+        /* Convert + (if reduced) upscase into s_rgb as ONE locked block:
+         * the display's atomic flush (under the same mutex) can never
+         * mix two frames, and the small buffer is only read here. */
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        if (S == MOON_PX) {
+            for (int y = 0; y < MOON_PX; y++) {
+                const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
+                uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
+                for (int x = 0; x < MOON_PX; x++)
+                    rrow[x] = moon_gray565(frow[x]);
+            }
+        } else {
+            /* Nearest-neighbor (S -> MOON_PX): the pixel centers map to
+             * src = (i + 0.5) * S / MOON_PX, computed as (2i+1)*S/800 to
+             * keep it exact in int math (S/400 is not integer). */
+            int sm[MOON_PX];
+            for (int i = 0; i < MOON_PX; i++) {
+                int s_ = ((2 * i + 1) * S) / (2 * MOON_PX);
+                if (s_ >= S)
+                    s_ = S - 1;
+                sm[i] = s_;
+            }
+            for (int Y = 0; Y < MOON_PX; Y++) {
+                const uint8_t *frow = &s_sweep_small[(size_t)sm[Y] * S];
+                uint16_t *rrow = &s_rgb[(size_t)Y * MOON_PX];
+                for (int x = 0; x < MOON_PX; x++)
+                    rrow[x] = moon_gray565(frow[sm[x]]);
+            }
+        }
+        xSemaphoreGive(s_rgb_mtx);
         s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
-        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms (illum %.1f%%)", f + 1, frames,
-                 (long long)((esp_timer_get_time() - b0) / 1000), g.illum * 100.0f);
+        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
+                 (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
     }
     if (!s_sweep_abort) {
         /* Wait for the LAST frame to be on screen before exiting: the
@@ -1223,7 +1276,8 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * published frame is displayed as ONE atomic whole frame (the
      * spin's display) -- never left for LVGL's async 25-row drain. The
      * task paces itself on s_sweep_shown (backpressure), so the month
-     * unfolds at the bake rate (~1.3 s/frame, ~44 s for 28). */
+     * unfolds at the (reduced-res) bake rate (~0.36 s/frame at the
+     * default 240 px, ~60-70 s for the default 168 frames). */
     if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
         moon_invalidate_all();
         int64_t r0 = esp_timer_get_time();
@@ -1262,7 +1316,16 @@ void moon_ui_init(void) {
 
     s_frame = heap_caps_malloc(MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
     s_rgb = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb) {
+    /* Reduced-res intermediate sweep frame (UI_MOON_ANIM_BAKE_PX): the
+     * wake sweep's non-final frames bake here (smaller than MOON_PX^2) and
+     * are upscased into s_rgb on display. Allocated at the bake size (not
+     * MOON_PX^2) -- the bake writes size^2 bytes. If the reduction is
+     * disabled (bake size >= MOON_PX) this stays NULL and the sweep bakes
+     * intermediate frames into s_frame directly (the old full-res path). */
+    int sweep_bake_px = CONFIG_UI_MOON_ANIM_BAKE_PX;
+    if (sweep_bake_px < MOON_PX)
+        s_sweep_small = heap_caps_malloc((size_t)sweep_bake_px * sweep_bake_px, MALLOC_CAP_SPIRAM);
+    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small)) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }
@@ -1374,10 +1437,12 @@ void moon_ui_replay_animation(void) {
     /* Synodic wake sweep (see the sweep section): the last 29.5 days in
      * CONFIG_UI_MOON_ANIM_FRAMES frames, baked off screen by the bake
      * task and displayed one atomic whole frame per tick, ending on the
-     * current phase. Called on EVERY wake from sleep (no-op at boot,
+     * current phase. Called on EVERY wake from sleep -- and on an alarm
+     * dismissal (the alarm trigger sets the wake flag so the month
+     * replays as the user acknowledges the alarm) -- no-op at boot,
      * before moon_ui_start, and while the orbit pipeline owns the
-     * buffers). The spin is held for the sweep; the idle timer is held
-     * too (the user is present for the ~44 s). */
+     * buffers. The spin is held for the sweep; the idle timer is held
+     * too (the user is present for the ~60-70 s). */
     if (!CONFIG_UI_MOON_ANIM_ENABLE || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
