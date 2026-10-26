@@ -330,6 +330,19 @@ static bool time_is_before(const clock_time_t *time1, const clock_time_t *time2)
 esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
     if (!current_time || s_alarm_count == 0) {
         ESP_LOGW(TAG, "No alarm rules loaded or invalid current time");
+        if (s_alarm_count == 0) {
+            /* Disarm the hardware alarm: the PCF85063A's ALM register
+             * persists on the RTC, so a stale armed time (e.g. from a
+             * previous boot's rules) would otherwise fire a phantom
+             * alarm screen when the clock next matches it -- with no
+             * rules loaded there is nothing left to reschedule. */
+            esp_err_t ret = clock_clear_alarm();
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(ret));
+            } else {
+                s_alarm_scheduled = false;
+            }
+        }
         return ESP_ERR_INVALID_STATE;
     }
 
