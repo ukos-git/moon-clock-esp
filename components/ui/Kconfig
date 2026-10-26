@@ -36,7 +36,7 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_FRAMES
         int "Synodic wake sweep frame count"
-        default 168
+        default 336
         range 5 400
         help
             How many phase frames make up the wake sweep, evenly spaced
@@ -45,10 +45,11 @@ menu "UI Component Configuration"
             (a reduced resolution, upscased on display -- see there) and
             the final frame at full MOON_PX, so the sweep takes roughly
             frames x (intermediate bake time). The phase step per frame
-            is 29.5 d / (N-1): 168 -> ~0.177 d/frame (~4.2 h, very
-            smooth), 84 -> ~0.35 d/frame, 28 -> ~1.09 d/frame (the old
-            value). Lower = faster but coarser sweep; the display stays
-            live either way.
+            is 29.5 d / (N-1): 336 -> ~0.088 d/frame (~2.1 h, the
+            default), 168 -> ~0.177 d/frame (~4.2 h), 84 -> ~0.35
+            d/frame, 28 -> ~1.09 d/frame (the old value). Lower =
+            faster but coarser sweep; the display stays live either
+            way.
 
     config UI_MOON_ANIM_BAKE_PX
         int "Synodic wake sweep intermediate-frame bake resolution (px)"
