@@ -1450,9 +1450,18 @@ static void moon_imu_tick(void) {
  * fast EMA of the raw gravity (the current pose, per-sample noise
  * suppressed) and s_rest_g is a SLOW EMA of it (the settled pose),
  * updated only while settled so it tracks the measured at-rest drift
- * (~0.4 deg/s on this board) instead of fighting it. At rest the
- * departure therefore sits ~0.2 deg or less (measured), far below
- * every threshold; only a deliberate move produces a large departure.
+ * (~0.4-0.7 deg/s on this board, faster when warm after a long bake)
+ * instead of fighting it. At rest the departure therefore sits ~1.5 deg
+ * or less (measured 2026-10-27), far below every threshold; only a
+ * deliberate move produces a large departure. The tracking ceiling is
+ * the bar x alpha / (1 - alpha) of drift: 5 deg x 0.2 / 0.8 = 1.25 deg/s
+ * at the activity bar -- a first-order EMA lags a ramp by (1 - alpha) /
+ * alpha of the drift velocity, so drift above the ceiling pins the
+ * departure just over the bar and the device would hold its idle timer
+ * forever (never sleep). The original alpha 0.1 (ceiling 0.56 deg/s)
+ * was measured right at its ceiling on a hot board; 0.2 doubles the
+ * margin. The wake-bar ceiling (20 x 0.2 / 0.8 = 5 deg/s) is still far
+ * above any real drift.
  *
  * Two thresholds:
  *   - awake (hold the idle timer while the user manipulates the ball):
@@ -1476,7 +1485,7 @@ static void moon_imu_tick(void) {
 #define CONFIG_UI_IMU_WAKE_DEG 20
 #endif
 #define MOON_TILT_SMOOTH_ALPHA 0.5f /* fast EMA: the current pose */
-#define MOON_TILT_REST_ALPHA 0.1f   /* slow EMA: the settled reference */
+#define MOON_TILT_REST_ALPHA 0.2f   /* slow EMA: the settled reference (see the ceiling note above) */
 static float s_pose_g[3];           /* fast EMA of the raw gravity, unit vector */
 static float s_rest_g[3];           /* slow EMA, updated only while settled, unit */
 static bool s_have_g;
