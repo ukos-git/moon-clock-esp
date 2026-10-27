@@ -82,6 +82,40 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                     float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero);
 
+/* Constant-projection pass (the light-sleep dusk): the renderer's color
+ * depends only on the body direction and the epoch's fixed body-frame
+ * sun -- the camera basis selects which direction is visible but never
+ * enters the color -- so a pole spin at a fixed phase re-projects ONE
+ * pre-shaded body-frame equirect map instead of re-baking (no per-frame
+ * shadow/lighting recompute; a fixed surface point keeps its color, no
+ * terminator flicker). moon_shade_map_* builds the map, moon_reproject_*
+ * renders it through a (folded) camera basis. See moon_bake.c. */
+
+/* Build one row range [y0, y1) of the pre-shaded body-frame equirect map
+ * (map_w x map_h bytes == the albedo's dimensions, row 0 = north, column
+ * 0 = the texture column): map cell (c, r) = the full bake color (albedo
+ * x displaced-normal Lambert x tone LUT + earthshine, dark_zero = 0) of
+ * that cell's body direction, at S = g->S. Row-range build so the caller
+ * can honor an abort between rows; grel NULL = relief-free Lambert. */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
+                         int map_h, int y0, int y1);
+
+/* Build the whole shade map (see moon_bake.c): one-time per epoch. */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
+                          int map_h);
+
+/* Re-project the pre-shaded map (moon_shade_map_build) through the camera
+ * basis g into an 8-bit frame (size x size, row-major, 0 outside the
+ * disk): per pixel the bake's base direction r = u*right + v*up + w*E,
+ * the bake's (theta, row_frac) table pass, then the nearest-neighbor map
+ * sample -- the bake WITHOUT the lighting (the map carries the color).
+ * g = the epoch's geometry folded by the orbit / in-plane / pole basis
+ * rotations. */
+void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
+                         float radius, float cx, float cy, int y0, int y1);
+void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
+                    float radius, float cx, float cy);
+
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =
  * DEM[r], row_s = DEM[r+1 clamped]), each dem_w int8. Writes dem_w

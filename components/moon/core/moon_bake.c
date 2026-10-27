@@ -449,3 +449,215 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
                float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero) {
     moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero);
 }
+
+/* ---------------- constant-projection pass (the light-sleep dusk) ------
+ *
+ * The dusk spins the camera about the POLE at a FIXED phase epoch:
+ * between its frames only the camera basis changes, not the light.
+ * bake_px's color is a function of the body-frame surface direction r
+ * and the epoch's fixed body-frame sun S alone (d = r . S, the
+ * displaced-normal L from d + the per-cell gradient, the tone LUT, and
+ * the phase-independent earthshine -- the view direction E selects
+ * which r is visible but never enters the color). So the fully-lit
+ * body-frame color map
+ *
+ *     C[cell] = the bake color of that cell's body direction
+ *
+ * is CONSTANT for the whole animation: build it once (moon_shade_map_*)
+ * and every pole-spin frame re-projects that one fixed map through the
+ * folded camera basis (moon_reproject_*) -- the same (theta, row_frac)
+ * table pass as the bake, then ONE map load instead of the lighting. No
+ * per-frame shadow/lighting recompute, and a fixed surface point keeps
+ * exactly its color on every frame (no terminator flicker). The phase
+ * sweep keeps per-frame bakes: there the sun moves between frames.
+ *
+ * The map is laid out like the albedo (row 0 = north, column 0 = the
+ * texture column, i.e. body longitude - 180 + MOON_TEX_LON_OFFSET):
+ * the re-projection's index math is the bake's albedo index math
+ * verbatim, so map cell (c, r) is the bake color of the direction that
+ * albedo cell covers, and the map is built AT the albedo's dimensions
+ * (map_w x map_h == the albedo's).
+ */
+
+/* Build one row range [y0, y1) of the shade map: for each cell, the full
+ * bake color of the cell's body direction (see the section header). The
+ * albedo byte and the gradient cell are the cell's OWN texels (no index
+ * math beyond the row pointers); the body direction walks the row by a
+ * recurrence (one complex step per column, no per-cell transcendentals,
+ * no tables).
+ *
+ * The column is the bake's THETA convention, not plain body longitude:
+ * the bake's atan2_deg mirrors the longitude across the E-W axis in the
+ * western half (theta = lon if cos lon >= 0 else 360 - lon -- the
+ * east-left IAU image layout), and col = (theta + 180) * map_w / 360.
+ * So the recurrence walks THETA (one full circle, no seam) and the body
+ * direction takes (cos lam, sin lam) = (cos theta, +/- sin theta) with
+ * the sign flipped in the mirrored half (cos(360 - th) = cos th,
+ * sin(360 - th) = -sin th).
+ *
+ * The east/north tangent-basis dots with S simplify with rho = coslat
+ * cancelling out:
+ *   d       = coslat (cl S0 + sl S1) + sinlat S2
+ *   east_s  = cl S1 - sl S0
+ *   north_s = S2 - sinlat (cl S0 + sl S1)
+ * (the bake's 1e-4 polar-cap floor cannot fire on a 432-row grid: the
+ * row-center coslat is >= 0.0036 -- the same behavior as bake_px there).
+ * L <= 0 cells skip the albedo load exactly as the bake (dark color =
+ * TONE_LUT[0] + earthshine(d); dark_zero stays 0: the dark side keeps
+ * its earthshine + relief-lit contrast). Row-range build so the caller
+ * (the dusk task) can honor an abort between rows. */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
+                         int map_h, int y0, int y1) {
+    const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
+    const float dlon = 2.0f * (float)M_PI / (float)map_w;
+    const float cosd = cosf(dlon), sind = sinf(dlon);
+    const float deg2rad = (float)M_PI / 180.0f;
+    const float dem_scale = (float)MOON_DEM_W / (float)map_w;
+    for (int y = y0; y < y1; y++) {
+        const float rf = ((float)y + 0.5f) / (float)map_h; /* the cell's row fraction */
+        const float lat = 90.0f - 180.0f * rf;             /* row 0 = north */
+        const float sinlat = sinf(lat * deg2rad), coslat = cosf(lat * deg2rad);
+        const uint8_t *arow = albedo + (size_t)y * map_w;
+        uint8_t *mrow = map + (size_t)y * map_w;
+        /* Gradient-cache row for the whole map row: the bake's
+         * row_frac -> DEM-row mapping, at the cell centers. */
+        int dr = 0;
+        if (grel) {
+            dr = (int)(rf * (float)MOON_DEM_H + 0.5f);
+            if (dr >= MOON_DEM_H)
+                dr = MOON_DEM_H - 1;
+        }
+        /* Texture column 0 is theta - 180 (MOON_TEX_LON_OFFSET): the
+         * recurrence starts at the cell-center theta of column 0
+         * (-180 + half a column) and walks one column per step (see the
+         * theta-vs-lon note above). */
+        const float th0 = -(float)M_PI + 0.5f * dlon;
+        float ct = cosf(th0), st = sinf(th0); /* (cos theta, sin theta) */
+        for (int x = 0; x < map_w; x++) {
+            const float cl = ct;                      /* cos lam = cos theta (both halves) */
+            const float sl = (ct >= 0.0f) ? st : -st; /* the mirror */
+            const float a = cl * S0 + sl * S1;        /* the equatorial part of S */
+            const float d = coslat * a + sinlat * S2;
+            float L;
+            if (grel == NULL) {
+                L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
+            } else {
+                /* == the bake's (theta + MOON_TEX_LON_OFFSET) * DEM_W/360
+                 * mapping at this cell's theta center: (x + 0.5) *
+                 * DEM_W / map_w. */
+                const int dc = (int)((x + 0.5f) * dem_scale + 0.5f);
+                const uint16_t gp = grel->pack[dr * MOON_DEM_W + dc];
+                const float glon = (float)(int8_t)(gp & 0xFF) * MOON_GREL_INV;
+                const float glat = (float)(int8_t)(gp >> 8) * MOON_GREL_INV;
+                const float gs = glon * (cl * S1 - sl * S0) + glat * (S2 - sinlat * a);
+                L = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
+                if (L < 0.0f)
+                    L = 0.0f;
+                else if (L > 1.0f)
+                    L = 1.0f;
+            }
+            float out;
+            if (L <= 0.0f) {
+                out = MOON_TONE_LUT[0] + earthshine(d); /* no albedo load */
+            } else {
+                const int idx = (int)((float)arow[x] * L + 0.5f);
+                out = MOON_TONE_LUT[idx > 255 ? 255 : idx] + earthshine(d);
+            }
+            mrow[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+            /* Next cell: advance theta by one column (a complex rotation). */
+            const float nct = ct * cosd - st * sind;
+            st = ct * sind + st * cosd;
+            ct = nct;
+        }
+    }
+}
+
+/* Build the whole shade map (see the section header). One-time cost per
+ * dusk epoch (~2 s on the S3 for the 864 x 432 map). */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
+                          int map_h) {
+    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h);
+}
+
+/* One pixel of the re-projection: bake_px WITHOUT the lighting -- the
+ * base direction r from the (folded) camera basis, the same (theta,
+ * row_frac) table pass, then ONE nearest-neighbor load of the pre-shaded
+ * map (which carries the complete color, earthshine included).
+ * always_inline so the 4-px unroll can overlap the map loads (the same
+ * load-bearing note as bake_px). */
+typedef struct {
+    const uint8_t *map;
+    int map_w, map_h;
+    const moon_geom_t *g;
+    uint8_t *row;
+    float radius, cx, v;
+    float per_deg;
+} reproj_ctx_t;
+
+static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, int x) {
+    float u = ((float)x - c->cx) / c->radius;
+    float r2 = u * u + c->v * c->v;
+    if (r2 > 1.0f) {
+        c->row[x] = 0;
+        return;
+    }
+    float w = sqrtf(1.0f - r2);
+    float rx = u * c->g->right[0] + c->v * c->g->up[0] + w * c->g->E[0];
+    float ry = u * c->g->right[1] + c->v * c->g->up[1] + w * c->g->E[1];
+    float rz = u * c->g->right[2] + c->v * c->g->up[2] + w * c->g->E[2];
+    float theta = atan2_deg(rx, ry);
+    float row_frac = row_frac_interp(rz);
+    float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
+    if (colf >= (float)c->map_w)
+        colf -= (float)c->map_w;
+    int col = (int)(colf + 0.5f);
+    if (col >= c->map_w)
+        col = c->map_w - 1;
+    int r = (int)(row_frac * (float)c->map_h + 0.5f);
+    if (r < 0)
+        r = 0;
+    else if (r >= c->map_h)
+        r = c->map_h - 1;
+    c->row[x] = c->map[(size_t)r * c->map_w + col];
+}
+
+/* Re-project the pre-shaded body-frame equirect map (moon_shade_map_build)
+ * through the camera basis g into an 8-bit frame (size x size, row-major,
+ * 0 outside the disk), rows [y0, y1): per pixel r = u*right + v*up + w*E
+ * (the bake's base direction at the folded basis), the bake's
+ * (theta, row_frac) table pass, then the nearest-neighbor map sample.
+ * g = the orbit + in-plane + pole folds of the epoch's geometry (the
+ * dusk's per-frame basis). */
+void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
+                         float radius, float cx, float cy, int y0, int y1) {
+    if (!s_tbl_init)
+        tables_build();
+    const float per_deg = (float)map_w / 360.0f;
+    for (int y = y0; y < y1; y++) {
+        reproj_ctx_t c;
+        c.map = map;
+        c.map_w = map_w;
+        c.map_h = map_h;
+        c.g = g;
+        c.row = &frame[(size_t)y * size];
+        c.radius = radius;
+        c.cx = cx;
+        c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
+        c.per_deg = per_deg;
+        for (int x0 = 0; x0 < size; x0 += 4) {
+            int n = size - x0;
+            reproject_px(&c, x0);
+            if (n > 1)
+                reproject_px(&c, x0 + 1);
+            if (n > 2)
+                reproject_px(&c, x0 + 2);
+            if (n > 3)
+                reproject_px(&c, x0 + 3);
+        }
+    }
+}
+
+void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
+                    float radius, float cx, float cy) {
+    moon_reproject_rows(map, map_w, map_h, g, frame, size, radius, cx, cy, 0, size);
+}

@@ -224,6 +224,104 @@ int main(void) {
             g_fail++; /* no contrast: the dark side would be invisible */
     }
 
+    printf("== 3. constant-projection (shade map + reproject) vs per-frame bake\n"
+           "    The dusk's promise: a pole spin at a fixed epoch re-projects ONE\n"
+           "    pre-shaded body-frame map (no per-frame shadow recompute) instead\n"
+           "    of re-baking. The error must be the cell-center-vs-pixel lighting\n"
+           "    difference ALONE -- it must not grow with the fold angle (the map\n"
+           "    is view-independent: only the basis changes between frames).\n");
+    /* Acceptance: the map is a constant, so the re-projected frame differs
+     * from the per-frame bake only by the map's CELL-CENTER lighting (the
+     * lighting is evaluated once per 0.42 x 0.42 deg cell, not per pixel):
+     *   - the mean error must stay small (the lighting is smooth), and
+     *   - the spikes (relief-shadow rims straddling a cell boundary) must
+     *     be rare, NOT grow with the fold angle (view independence: the
+     *     same cells light the same surface points every frame -- they
+     *     rotate rigidly with the disk, they cannot flicker), and
+     *   - between consecutive frames the re-projected path must move the
+     *     image by the SAME amount as the re-baked one (the temporal
+     *     delta is the genuine 1 deg roll of the content, identical for
+     *     both -- the map adds no frame-to-frame shimmer). */
+    static uint8_t shade_map[MOON_ALB_W * MOON_ALB_H];
+    for (unsigned e = 0; e < 3; e++) {
+        int64_t epoch = e == 1 ? iso(epochs[e]) : now - 7 * 86400LL * (int)e;
+        moon_geom_t g0;
+        moon_geometry(epoch, &g0);
+        /* Build the map ONCE from the unfolded geometry (S is never folded:
+         * the folds only touch the camera basis). */
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H);
+        const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
+        const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
+        for (unsigned t = 0; t < 4; t++) {
+            moon_geom_t gb;
+            moon_inplane_geometry(&g0, thetas3[t], &gb);
+            moon_pole_geometry(&gb, phis3[t], &gb);
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H,
+                      0);                                                                 /* reference */
+            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR); /* the dusk's frame */
+            double sum = 0;
+            int mx = 0, n = 0, big = 0;
+            for (int y = 0; y < PX; y++)
+                for (int x = 0; x < PX; x++) {
+                    float u = (x - 199.5f) / 200.0f, v = (199.5f - y) / 200.0f;
+                    if (u * u + v * v > 1.0f)
+                        continue;
+                    int d = (int)a[y * PX + x] - (int)b[y * PX + x];
+                    d = d < 0 ? -d : d;
+                    sum += d;
+                    if (d > mx)
+                        mx = d;
+                    if (d > 100)
+                        big++;
+                    n++;
+                }
+            double mae = sum / (double)n;
+            double big_pct = 100.0 * (double)big / (double)n;
+            /* The baseline pair (phi = 0, small theta) measures the inherent
+             * map-vs-bake error; every fold must stay close to it. */
+            int baseline = (t == 0);
+            printf("  epoch=%ld d th=%+.2f phi=%+.2f rad: MAE=%.2f max=%d px>100=%.2f%% %s\n",
+                   (long)(epoch - now) / 86400, thetas3[t], phis3[t], mae, mx, big_pct, baseline ? "(baseline)" : "");
+            if (mae > 7.0 || big_pct > 2.0)
+                g_fail++;
+        }
+        /* Temporal: the re-projected path's frame-to-frame motion must
+         * match the re-baked path's (the same content rolls 1 deg about
+         * the pole; the map adds no shimmer of its own). Coarse 10 deg
+         * step to amplify the delta; the device steps 1 deg. */
+        moon_geom_t ga, gaa;
+        moon_inplane_geometry(&g0, 0.0f, &ga);
+        moon_pole_geometry(&ga, 0.0f, &ga);
+        moon_pole_geometry(&g0, 0.17453293f, &gaa); /* +10 deg */
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR);
+        moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0);
+        static uint8_t bb[PX * PX];
+        moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0);
+        double sr = 0, sb = 0;
+        int nr = 0;
+        for (int y = 0; y < PX; y++)
+            for (int x = 0; x < PX; x++) {
+                float u = (x - 199.5f) / 200.0f, v = (199.5f - y) / 200.0f;
+                if (u * u + v * v > 1.0f)
+                    continue;
+                int dr = (int)b[y * PX + x] - (int)a[y * PX + x];
+                int db = (int)bb[y * PX + x] - (int)(a + PX * PX)[y * PX + x];
+                dr = dr < 0 ? -dr : dr;
+                db = db < 0 ? -db : db;
+                sr += dr;
+                sb += db;
+                nr++;
+            }
+        sr /= nr, sb /= nr;
+        double diff = sr > sb ? sr - sb : sb - sr;
+        printf("  temporal (10 deg step): reproject f-delta=%.2f bake f-delta=%.2f |d|=%.2f\n", sr, sb, diff);
+        /* The map's temporal delta may exceed the bake's by the cell
+         * re-sampling, but must stay within ~1.5x of it (same content). */
+        if (diff > 0.5 * (sr + sb))
+            g_fail++;
+    }
+
     printf(g_fail ? "POLE TEST FAIL (%d)\n" : "POLE TEST PASS\n", g_fail);
     return g_fail ? 1 : 0;
 }

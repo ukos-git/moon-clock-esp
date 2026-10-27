@@ -1,7 +1,9 @@
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -9,6 +11,7 @@
 #include "bsp/display.h"
 
 #include "actions.h"
+#include "imu.h"
 #include "moon_ui.h"
 #include "screens.h"
 #include "ui.h"
@@ -84,8 +87,116 @@ static void wifi_reconnect_kickoff(void) {
     }
 }
 
+/* ---------------- tilt -> clock orientation (keep the clock horizontal) ---
+ *
+ * The in-plane ROLL of the device (the angle of the gravity vector in the
+ * screen plane) counter-rotates the clock text + seconds arc so the clock
+ * stays HORIZONTAL as the device is tilted in its own plane. With the orbit
+ * (UI_MOON_ORBIT_ENABLE) off on the S3 this is the tilt's only moon-UI
+ * coupling.
+ *
+ * The roll is only observable when the screen plane has a gravity component
+ * (|g_xy| well above 0: the device tilted between vertical and flat). At
+ * exactly vertical or exactly flat the gravity vector is parallel to the
+ * screen normal and the in-plane angle is undefined -- then the last
+ * correction is kept (0 at a fixed resting pose).
+ *
+ * The correction is the roll's DEPARTURE from a settled-pose reference (a
+ * slow EMA updated only while the tilt monitor reports settled --
+ * moon_ui_tilt_settled -- so at-rest drift does not walk the text around),
+ * dead-zoned to 1 deg. Steady state (settled pose) => correction 0 => LVGL
+ * takes its direct draw path: zero cost. The cost is only paid while the
+ * device is actively tilted. UI_CLOCK_ROLL_SIGN flips it for a mirrored
+ * board mount (if the text counter-rotates the wrong way, set it to -1).
+ */
+#ifndef CONFIG_UI_IMU_ENABLE
+#define CONFIG_UI_IMU_ENABLE 1
+#endif
+#ifndef CONFIG_UI_CLOCK_ROLL_SIGN
+#define CONFIG_UI_CLOCK_ROLL_SIGN 1
+#endif
+#define ROLL_ALPHA 0.2f                /* shortest-path EMA of the current roll */
+#define ROLL_REF_ALPHA 0.2f            /* the settled reference (tracks only while settled) */
+#define ROLL_DEADZONE_RAD 0.017453293f /* 1 deg */
+#define ROLL_FLAT_GATE 0.25f           /* below |g_xy| the roll is undefined */
+#define ROLL_RATE_MS 50                /* apply-rate gate (the UI tick is 10 ms awake) */
+
+static float s_roll_ema;  /* shortest-path EMA of the in-plane roll, rad */
+static float s_roll0_ema; /* the settled-pose roll reference, rad */
+static bool s_have_roll;
+static int32_t s_roll_v10; /* the last applied correction, 1/10 deg */
+static int64_t s_roll_last_ms;
+
+/* Wrap an angle difference to [-pi, pi] (the shortest path). */
+static float roll_wrap(float a) {
+    while (a > 3.14159265f)
+        a -= 6.28318531f;
+    while (a < -3.14159265f)
+        a += 6.28318531f;
+    return a;
+}
+
+/* Called from the UI tick (LVGL task): counter-rotate the clock containers
+ * + seconds arcs by the device's in-plane roll departure from the settled
+ * pose, so the clock text/arc stay horizontal while the device is tilted. */
+static void clock_roll_apply(void) {
+    if (!CONFIG_UI_IMU_ENABLE || !imu_is_ready())
+        return;
+    float g[3];
+    if (!imu_read_gravity(g))
+        return;
+    /* Roll undefined when gravity is parallel to the screen normal
+     * (exactly vertical or flat): keep the last correction. */
+    float m = hypotf(g[0], g[1]);
+    if (m < ROLL_FLAT_GATE)
+        return;
+    float roll = atan2f(g[1], g[0]);
+    if (!s_have_roll) {
+        s_roll_ema = roll;
+        s_roll0_ema = roll;
+        s_have_roll = true;
+        s_roll_v10 = 0;
+        return; /* seed both EMAs: zero correction */
+    }
+    /* Shortest-path EMA of the current roll (per-sample noise suppressed). */
+    s_roll_ema += ROLL_ALPHA * roll_wrap(roll - s_roll_ema);
+    /* The settled reference tracks only while settled, so at-rest drift
+     * (the reference follows the pose) cannot walk the text around. */
+    if (moon_ui_tilt_settled())
+        s_roll0_ema += ROLL_REF_ALPHA * roll_wrap(s_roll_ema - s_roll0_ema);
+    float corr = roll_wrap(s_roll_ema - s_roll0_ema);
+    if (fabsf(corr) < ROLL_DEADZONE_RAD) /* 1 deg dead zone */
+        corr = 0.0f;
+    int32_t v10 = (int32_t)lrintf(corr * 5729.578f * (float)CONFIG_UI_CLOCK_ROLL_SIGN);
+    /* Apply only on a change and rate-gated (the UI tick is 10 ms awake /
+     * 100 ms light sleep, paused in deep sleep where the clock is hidden). */
+    int64_t now = esp_timer_get_time();
+    if (v10 == s_roll_v10 || now - s_roll_last_ms < ROLL_RATE_MS)
+        return;
+    s_roll_last_ms = now;
+    int32_t old = s_roll_v10;
+    s_roll_v10 = v10;
+    if (objects.main_clock)
+        lv_obj_set_style_transform_rotation(objects.main_clock, v10, 0);
+    if (objects.modem_sleep_clock)
+        lv_obj_set_style_transform_rotation(objects.modem_sleep_clock, v10, 0);
+    if (objects.light_sleep_clock)
+        lv_obj_set_style_transform_rotation(objects.light_sleep_clock, v10, 0);
+    if (objects.deep_sleep_clock)
+        lv_obj_set_style_transform_rotation(objects.deep_sleep_clock, v10, 0);
+    if (objects.arc_clock_seconds)
+        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds, v10, 0);
+    if (objects.arc_clock_seconds_modem)
+        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds_modem, v10, 0);
+    if (old != 0 || v10 != 0)
+        ESP_LOGI(TAG, "clock roll %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
+}
+
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) {
+    // Keep the clock horizontal while the device is tilted in its own plane
+    // (no-op at the settled pose: zero correction -> LVGL direct draw path).
+    clock_roll_apply();
     // Finished background WiFi connect: upgrade to the main screen from
     // here (the LVGL task; loadScreen touches LVGL state). Deferred to the
     // tick so the handshake never blocks the display. Only while awake:
@@ -120,6 +231,12 @@ static lv_timer_t *g_seconds_timer = NULL;
  * @brief Update the clock display with current time from RTC
  */
 void action_update_clock_display(lv_event_t *e) {
+    // Deep sleep: the clock is removed from the screen and the panel
+    // backlight is off -- skip the only live clock update (the RTC
+    // bookkeeping itself is untouched; the moon's day re-bake happens
+    // on the wake path).
+    if (g_backlight_off)
+        return;
     clock_time_t current_time;
     esp_err_t ret = clock_get_time(&current_time);
 
@@ -295,8 +412,14 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // Load deep sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_DEEP_SLEEP);
 
+    // Deep sleep shows the moon only: the clock is removed (the RTC
+    // clock update is also gated on g_backlight_off above). The
+    // flag is re-applied on every deep-sleep entry, so the next
+    // entry re-hides it after a wake to the other screens.
+    lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
+
     // Update UI one final time to show current state (the dark side
-    // from the completed dusk, with the clock, one last atomic flush)
+    // from the completed dusk, one last atomic flush)
     ui_tick();
 
     // Deep sleep turns the panel backlight OFF (the sleep screens
@@ -553,6 +676,13 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
+
+    // Light sleep dims the clock to ~20% opacity (the AMOLED has no
+    // per-pixel alpha; a low-opacity container is the "barely
+    // visible" the design asks for). The moon image is a sibling of
+    // the clock container, so it stays at full contrast.
+    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_20, 0);
+
     ui_tick();
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }

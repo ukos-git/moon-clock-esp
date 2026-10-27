@@ -59,11 +59,11 @@ menu "UI Component Configuration"
             coarser sweep; the display stays live either way.
 
     config UI_MOON_ANIM_BAKE_PX
-        int "Synodic wake sweep intermediate-frame bake resolution (px)"
+        int "Synodic boot sweep intermediate-frame bake resolution (px)"
         default 240
         range 100 400
         help
-            The on-screen size the wake sweep's INTERMEDIATE frames are
+            The on-screen size the boot sweep's INTERMEDIATE frames are
             baked at before being upscased (nearest-neighbor) to the full
             MOON_PX for display. 240 (the default) keeps the 336-frame
             sweep under ~3 min (~0.28 s bake + ~0.23 s display+tick per
@@ -77,7 +77,10 @@ menu "UI Component Configuration"
             resolution-independent; only the screen sampling is coarser,
             400/S x 400/S blocks), which is acceptable in the fast
             montage. The last frame and the static/spin phase are ALWAYS
-            full resolution regardless of this setting.
+            full resolution regardless of this setting. (The light-sleep
+            dusk does not bake intermediate frames at all: its constant-
+            projection re-renders at full resolution, and its final
+            dark-side frame is a full-resolution bake.)
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"
@@ -96,19 +99,25 @@ menu "UI Component Configuration"
             exact free-spin pose, seamless seam) spins about its POLE at
             the current phase -- 1 degree per frame, the shortest arc to
             the fully unilluminated view (at most a half turn, 14-95 s
-            at the ~0.5 s/frame bake rate) -- and the deep-sleep RTC
+            at the ~0.2 s/frame display pace) -- and the deep-sleep RTC
             countdown (UI_DEEP_SLEEP_COUNTDOWN_SEC) is armed on the
             LAST frame's display, so the sleep depth follows the
-            animation. The spin is a re-bake (a changed camera basis
-            cannot be gathered in place): intermediate frames bake at
-            UI_MOON_ANIM_BAKE_PX into the sweep scratch frame and
-            upscase to the full disk; the final (dark-side) frame bakes
-            at full MOON_PX and lingers on the sleep screens. The dark
-            side keeps its contrast (earthshine + relief-lit rims,
-            dark_zero stays 0). Waking from sleep shows the CURRENT
-            phase static at the parked pose -- no animation; the
-            burn-in spin resumes from exactly the pose the dusk
-            started from.
+            animation. The spin is a CONSTANT PROJECTION, not a re-bake:
+            the renderer's color depends only on the body-frame surface
+            direction and the epoch's fixed sun (the camera basis never
+            enters the color), so the fully-lit body-frame equirect map
+            (864x432) is baked ONCE for the epoch (~1.5-2 s) and every
+            intermediate frame re-projects that fixed map through the
+            folded camera basis -- a gather-class pass (~50 ms), no
+            per-frame shadow/lighting recompute, and no terminator
+            flicker (a fixed surface point keeps its exact color).
+            The FINAL (dark-side) frame is one full MOON_PX bake at the
+            endpoint (pixel-exact lighting) and lingers on the sleep
+            screens; the dark side keeps its contrast (earthshine +
+            relief-lit rims, dark_zero stays 0). Waking from sleep shows
+            the CURRENT phase static at the parked pose -- no
+            animation; the burn-in spin resumes from exactly the pose
+            the dusk started from.
 
     config UI_MOON_SPIN_ENABLE
         bool "Free spin: rotate the moon in place (phase-anchored)"
@@ -248,9 +257,31 @@ menu "UI Component Configuration"
             not tilt-driven, so a resting roll offset has no effect.
             Kept so existing sdkconfig files keep validating.
 
+    config UI_CLOCK_ROLL_SIGN
+        int "Clock-roll correction sign (+1 or -1)"
+        default 1
+        range -1 1
+        help
+            The in-plane ROLL of the device (the angle of the gravity
+            vector in the screen plane) counter-rotates the clock text +
+            seconds arc (lv_obj_set_style_transform_rotation) so the
+            clock stays HORIZONTAL as the device is tilted in its own
+            plane (with the orbit, UI_MOON_ORBIT_ENABLE, off on the S3
+            this is the tilt's only moon-UI coupling). The correction is
+            the roll's departure from a settled-pose reference (updated
+            only while the device is settled, so at-rest drift does not
+            walk the text around), dead-zoned to 1 deg, and only applied
+            when the screen plane has a gravity component (near-flat the
+            roll is undefined and the last value is kept). 0 correction
+            (the settled pose) costs nothing -- LVGL takes its direct
+            draw path -- so the cost is only paid while the device is
+            actively tilted. The board's IMU mounting orientation may
+            flip the measured roll; if the text counter-rotates the
+            WRONG way when the device is tilted, set this to -1.
+
     config UI_MOON_ORBIT_ENABLE
         bool "Sphere model: peek at the dark side via out-of-plane tilt"
-        default y
+        default n
         help
             The moon behaves like a sphere: the out-of-plane tilt of the
             device (the angle between the screen normal and vertical,
@@ -265,6 +296,15 @@ menu "UI Component Configuration"
             so the viewport change lands as a frame instead of a slow
             wipe. The free spin (UI_MOON_SPIN_*) rotates the baked
             frame in place on top of the orbit's viewport.
+
+            DISABLED by default: the ~2 s relief-DEM re-bake cannot be
+            served at the tilt-driven cadence on the ESP32-S3 (the
+            display pipeline stalls and the viewport lags the tilt), so
+            on the S3 the tilt drives the CLOCK orientation instead
+            (UI_CLOCK_ROLL_SIGN) and the moon stays on its default
+            viewport. The in-plane free spin and the tilt activity/wake
+            monitor are unaffected. Re-enable on the ESP32-P4, which can
+            hold the re-bake rate.
 
     config UI_MOON_ORBIT_MAX_DEG
         int "Max orbit (peek) angle in degrees"

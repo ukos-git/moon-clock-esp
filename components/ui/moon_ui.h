@@ -85,8 +85,12 @@ void moon_ui_pause(bool pause);
  * Start the light-sleep "dusk" (the pole-axis spin to the fully
  * unilluminated side, 1 degree/frame, shortest arc). Call AFTER
  * moon_ui_pause(true) so the parked pose (in-plane spin angle + tilt
- * orbit viewport) is captured. Intermediate frames bake reduced-res;
- * the final (dark-side) frame bakes full-res and lingers on the sleep
+ * orbit viewport) is captured. The spin is a constant projection: the
+ * fully-lit body-frame equirect map is baked ONCE for the epoch (~2 s)
+ * and the intermediate frames re-project that fixed map through the
+ * folded camera basis (a gather-class pass, no per-frame lighting
+ * recompute, no terminator flicker); the final (dark-side) frame is one
+ * full-resolution bake at the endpoint and lingers on the sleep
  * screens. The deep-sleep RTC countdown is armed on the LAST frame's
  * display (the tick), never at the light-sleep entry. Returns false
  * when the dusk could not start (no static phase yet / a pipeline owns
@@ -95,6 +99,16 @@ void moon_ui_pause(bool pause);
  * UI_MOON_DUSK_ENABLE.
  */
 bool moon_ui_dusk_start(void);
+
+/**
+ * The tilt monitor's settled state: true while the measured departure of
+ * the current pose from the settled-pose reference is below the activity
+ * bar (the device is at rest / slowly drifting), false while it is
+ * deliberately in motion. The clock-roll correction (actions.c) uses it
+ * as its "at rest" gate (the settled reference tracks only while settled,
+ * so at-rest drift cannot walk the text).
+ */
+bool moon_ui_tilt_settled(void);
 
 /**
  * Display the new screen's contents (moon image included) as ONE
