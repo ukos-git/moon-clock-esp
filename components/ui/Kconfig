@@ -5,9 +5,12 @@ menu "UI Component Configuration"
         default 30
         range 10 300
         help
-            Duration in seconds for countdown timer from light sleep to deep sleep.
-            This timer starts when the system enters light sleep and triggers
-            transition to deep sleep when it expires.
+            Duration in seconds for the countdown timer from light sleep
+            to deep sleep. The timer is armed by the moon tick on the
+            LIGHT-SLEEP DUSK's last frame (the fully unilluminated side
+            on screen, UI_MOON_DUSK_ENABLE) -- the sleep depth follows
+            the animation, never a fixed timer at the sleep entry -- and
+            triggers the transition to deep sleep when it expires.
 
             Recommended: 30-60 seconds for battery-powered devices.
 
@@ -21,26 +24,29 @@ menu "UI Component Configuration"
             Default is 100ms (vs 10ms in active mode).
 
     config UI_MOON_ANIM_ENABLE
-        bool "Play the synodic wake sweep (new moon -> now) on every wake from sleep"
+        bool "Play the synodic boot sweep (new moon -> now) at boot"
         default y
         help
-            On every wake from sleep the moon replays the current
-            synodic cycle -- from the last NEW MOON (a dark disk) to
-            now, at most 29.5 days -- in UI_MOON_ANIM_FRAMES frames,
-            baked off screen and displayed as atomic whole frames on the
-            same pipeline as the burn-in spin (one ~150 ms frame, no
-            top-to-bottom wipe, the display stays live throughout).
-            The sweep always starts dark and ends on the current phase,
-            and hands the spin back at the exact on-screen pose. The
-            boot path does not play it: boot shows the current phase +
-            the burn-in spin (UI_MOON_SPIN_*).
+            At boot the moon starts on a BLACK screen and replays the
+            current synodic cycle -- from the last NEW MOON (a dark
+            disk) to now, at most 29.5 days -- in UI_MOON_ANIM_FRAMES
+            frames, baked off screen and displayed as atomic whole
+            frames on the same pipeline as the burn-in spin (one ~150 ms
+            frame, no top-to-bottom wipe, the display stays live
+            throughout). The sweep always starts dark (the black screen
+            fades into the reveal; the first frames are nearly black)
+            and ends on the current phase, and hands the burn-in spin
+            (UI_MOON_SPIN_*) back at the exact on-screen pose. This is
+            the BOOT animation only: waking from sleep (touch, tilt or
+            an alarm dismiss) shows the current moon phase STATIC, with
+            no animation.
 
     config UI_MOON_ANIM_FRAMES
-        int "Synodic wake sweep frame count"
+        int "Synodic boot sweep frame count"
         default 336
         range 5 400
         help
-            How many phase frames make up the wake sweep, evenly spaced
+            How many phase frames make up the boot sweep, evenly spaced
             from the last NEW MOON to the current phase (the span is the
             moon's current age this cycle, at most 29.53 days). The
             frame count is fixed, so the sweep wall time is fixed
@@ -77,9 +83,32 @@ menu "UI Component Configuration"
         bool "Re-bake the moon on every wake from sleep (testing)"
         default y
         help
-            Obsolete: the synodic wake sweep (UI_MOON_ANIM_*) now plays
-            on every wake from sleep; the old re-bake test hook is gone.
-            Kept so existing sdkconfig files keep validating.
+            Obsolete: the synodic sweep (UI_MOON_ANIM_*) now plays at
+            BOOT only (from a black screen); wakes show the current
+            phase static. The old re-bake test hook is gone. Kept so
+            existing sdkconfig files keep validating.
+
+    config UI_MOON_DUSK_ENABLE
+        bool "Light-sleep dusk: pole-axis spin to the fully unilluminated side"
+        default y
+        help
+            When the device enters light sleep the moon (parked at the
+            exact free-spin pose, seamless seam) spins about its POLE at
+            the current phase -- 1 degree per frame, the shortest arc to
+            the fully unilluminated view (at most a half turn, 14-95 s
+            at the ~0.5 s/frame bake rate) -- and the deep-sleep RTC
+            countdown (UI_DEEP_SLEEP_COUNTDOWN_SEC) is armed on the
+            LAST frame's display, so the sleep depth follows the
+            animation. The spin is a re-bake (a changed camera basis
+            cannot be gathered in place): intermediate frames bake at
+            UI_MOON_ANIM_BAKE_PX into the sweep scratch frame and
+            upscase to the full disk; the final (dark-side) frame bakes
+            at full MOON_PX and lingers on the sleep screens. The dark
+            side keeps its contrast (earthshine + relief-lit rims,
+            dark_zero stays 0). Waking from sleep shows the CURRENT
+            phase static at the parked pose -- no animation; the
+            burn-in spin resumes from exactly the pose the dusk
+            started from.
 
     config UI_MOON_SPIN_ENABLE
         bool "Free spin: rotate the moon in place (phase-anchored)"

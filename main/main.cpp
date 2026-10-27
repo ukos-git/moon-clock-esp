@@ -135,13 +135,15 @@ extern "C" void app_main(void) {
     // Load initial screen - starts with modem screen, upgrades to main if WiFi available
     action_switch_to_main_screen(NULL);
 
-    // Moon phase: bake the current phase and start the free spin
-    // (phase-anchored: active rate while in use, one turn per synodic
-    // month when settled -- the AMOLED burn-in protection).
-    // (The synodic wake sweep -- the last 29.5 days -- plays on every
-    // wake from sleep, not at boot; see UI_MOON_ANIM_*.) A blank RTC
-    // (no NTP, no RTC time) leaves the moon black until a trustworthy
-    // time exists.
+    // Moon phase: start the free spin (phase-anchored: active rate while
+    // in use, one turn per synodic month when settled -- the AMOLED
+    // burn-in protection) and play the synodic boot sweep (the last new
+    // moon -> now, from a BLACK screen, ending on the current phase; see
+    // UI_MOON_ANIM_*). Wakes from sleep show the current phase static (no
+    // animation); the light-sleep "dusk" (pole spin to the dark side) is
+    // the sleep indicator and arms the deep-sleep countdown on its last
+    // frame (UI_MOON_DUSK_*). A blank RTC (no NTP, no RTC time) leaves
+    // the moon black until a trustworthy time exists.
     moon_ui_start();
 
     // Create polling timer for RTC interrupt handling - debug interval

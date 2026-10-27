@@ -6,6 +6,8 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
+#include "bsp/display.h"
+
 #include "actions.h"
 #include "moon_ui.h"
 #include "screens.h"
@@ -26,14 +28,20 @@ static bool g_wifi_deinited = false;
 static bool g_idle_timer_active = false;
 static bool g_alarm_active = false; // Track if we're showing alarm (for wake callback)
 
+// True while the panel backlight is off (deep sleep). Deep sleep is the
+// only state that turns the backlight off -- the light-sleep screens
+// keep the panel lit (the dusk + the dark side with the clock show
+// there). The wake handler and the alarm trigger restore it.
+static bool g_backlight_off = false;
+
 // True while the device sits on a sleep screen (light/deep sleep) or on
 // the alarm screen. The sleep transitions and the alarm trigger set it;
 // the wake handler (action_switch_to_main_screen) consumes (clears) it
-// to know that its call is a real wake event -- which drives the
-// synodic wake sweep (plays on EVERY wake, INCLUDING a dismissed alarm:
-// the alarm trigger sets it so the month replays when the user
-// acknowledges the alarm) and keeps a stale alarm (one that rang while
-// the user slept) from hijacking the wake flow.
+// to know that its call is a real wake event -- which keeps a stale
+// alarm (one that rang while the user slept) from hijacking the wake
+// flow. It no longer drives an animation: wakes (INCLUDING a dismissed
+// alarm) show the current moon phase static, no synodic sweep (the
+// sweep plays at BOOT only).
 static bool g_asleep = false;
 
 /* WiFi connect/reconnect runs on a dedicated task, never on the LVGL task:
@@ -108,10 +116,6 @@ static lv_timer_t *g_seconds_timer = NULL;
 #define CONFIG_UI_LIGHT_SLEEP_TICK_MS 100
 #endif
 
-#ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
-#define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
-#endif
-
 /**
  * @brief Update the clock display with current time from RTC
  */
@@ -175,14 +179,26 @@ void action_increment_clock_seconds(lv_event_t *e) {
 void action_alarm_triggered(lv_event_t *e) {
     ESP_LOGI(TAG, "Alarm triggered!");
 
+    // An alarm can fire from DEEP SLEEP (the panel backlight is off
+    // there): light the panel before the alarm screen is shown.
+    if (g_backlight_off) {
+        if (bsp_display_backlight_on() == ESP_OK) {
+            g_backlight_off = false;
+            ESP_LOGI(TAG, "Alarm: panel backlight restored");
+        } else {
+            ESP_LOGW(TAG, "Failed to restore the panel backlight for the alarm screen");
+        }
+    }
+
     // Mark alarm as active so wake callback knows we're dismissing alarm
     g_alarm_active = true;
 
     // Mark the alarm screen as a wake-worthy state (like the sleep
-    // screens): dismissing it (touch) is a wake event, so the synodic
-    // wake sweep plays when the user acknowledges the alarm. (If the
-    // alarm rang while the device was already asleep, g_asleep is already
-    // set by the sleep transition and the normal wake flow handles it.)
+    // screens): dismissing it (touch) is a wake event. (If the alarm
+    // rang while the device was already asleep, g_asleep is already
+    // set by the sleep transition and the normal wake flow handles
+    // it.) Wakes -- including a dismissed alarm -- show the current
+    // moon phase static, no animation.
     g_asleep = true;
 
     // Restore active LVGL tick timing (alarm screen is an active state)
@@ -279,8 +295,21 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // Load deep sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_DEEP_SLEEP);
 
-    // Update UI one final time to show current state
+    // Update UI one final time to show current state (the dark side
+    // from the completed dusk, with the clock, one last atomic flush)
     ui_tick();
+
+    // Deep sleep turns the panel backlight OFF (the sleep screens
+    // before it kept it on). A wake (touch, tilt or an alarm) restores
+    // it (action_switch_to_main_screen / action_alarm_triggered).
+    if (!g_backlight_off) {
+        if (bsp_display_backlight_off() == ESP_OK) {
+            g_backlight_off = true;
+            ESP_LOGI(TAG, "Deep sleep: panel backlight off");
+        } else {
+            ESP_LOGW(TAG, "Failed to turn the panel backlight off");
+        }
+    }
 
     // Now pause UI tick timer for deep sleep
     if (g_ui_tick_timer) {
@@ -305,10 +334,21 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to main screen");
 
+    // A wake from deep sleep lights the panel again (the deep-sleep
+    // transition turned the backlight off).
+    if (g_backlight_off) {
+        if (bsp_display_backlight_on() == ESP_OK) {
+            g_backlight_off = false;
+            ESP_LOGI(TAG, "Wake: panel backlight restored");
+        } else {
+            ESP_LOGW(TAG, "Failed to restore the panel backlight");
+        }
+    }
+
     // Was this call a real wake from sleep? The sleep transitions set
-    // g_asleep; this handler consumes it. It drives the synodic wake
-    // sweep (plays on EVERY wake from sleep) and the stale-alarm branch
-    // below. Boot and the awake alarm-dismiss touch path see false.
+    // g_asleep; this handler consumes it. It drives the stale-alarm
+    // branch below. Boot and the awake alarm-dismiss touch path see
+    // false.
     bool was_asleep = g_asleep;
     g_asleep = false;
 
@@ -316,9 +356,7 @@ void action_switch_to_main_screen(lv_event_t *e) {
     // sleep instead -- but only when the user was actually AT the
     // alarm (awake). A stale alarm (rang while the user slept, so the
     // user never saw it) must not hijack the wake: it follows the
-    // normal wake flow below with the sweep running (kicked off
-    // further down, after the idle re-enable, so the sweep's idle
-    // hold is not undone).
+    // normal wake flow below (static current phase, no animation).
     if (g_alarm_active && g_wifi_deinited && !was_asleep) {
         ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to modem sleep screen");
         g_alarm_active = false;
@@ -362,22 +400,14 @@ void action_switch_to_main_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
 
-    // Normal (active) mode: the moon rotates with tilt ("ball in hand") and
-    // re-bakes if the calendar day rolled over while we slept.
+    // Normal (active) mode: the moon resumes its free spin from the
+    // exact pose it parked at sleep (no snap) and re-bakes if the
+    // calendar day rolled over while we slept. Wakes show the current
+    // phase STATIC -- no synodic animation on wake (the sweep is the
+    // boot animation only; after a dusk the wake pose display in
+    // moon_ui_pause(false) replaces the dark side atomically).
     moon_ui_pause(false);
     moon_ui_day_tick();
-
-    // Synodic wake sweep (UI_MOON_ANIM_*): replay the last 29.5 days on
-    // EVERY wake from sleep. Kicked off AFTER the idle re-enable above
-    // on purpose: the sweep holds the idle timer for its ~30 s, and
-    // the handler's clock_idle_set_enabled(true) would otherwise
-    // re-arm it underneath the sweep. No-op before moon_ui_start()
-    // (boot) and while a sweep already runs. The sweep bakes on a
-    // core-1 task and displays atomic whole frames from the tick --
-    // this handler (LVGL task) only kicks it off, so the display
-    // stays live through the ~30 s sweep.
-    if (was_asleep)
-        moon_ui_replay_animation();
 
     // Always start with modem sleep screen first (fast, no WiFi check)
     // This provides immediate UI responsiveness
@@ -501,19 +531,25 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     clock_idle_set_enabled(false);
     g_idle_timer_active = false;
 
-    // Start RTC countdown timer for transition to deep sleep
-    // Use 1Hz timer with interrupt enabled
-    esp_err_t ret =
-        clock_timer_enable(CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC, CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
-
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "RTC countdown timer started: %d seconds to deep sleep", CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC);
-    } else {
-        ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
-    }
-
-    // Sleep mode: the moon shows a static current phase (no tilt rotation).
+    // Sleep mode: the moon parks at its exact spin pose (no tilt
+    // rotation), then the light-sleep "dusk" spins it about its pole
+    // to the fully unilluminated side (1 degree/frame). The RTC
+    // countdown for the deep-sleep transition is armed by the moon
+    // tick on the dusk's LAST frame -- the sleep depth follows the
+    // animation, never a fixed timer at the sleep entry. Fallback:
+    // when the dusk cannot start (no static phase yet, pipeline in
+    // flight, dark side already on screen), arm the countdown right
+    // away so the deep-sleep transition still happens.
     moon_ui_pause(true);
+    if (!moon_ui_dusk_start()) {
+        esp_err_t ret =
+            clock_timer_enable(CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC, CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
+        if (ret == ESP_OK)
+            ESP_LOGI(TAG, "dusk unavailable; RTC countdown %d s to deep sleep armed immediately",
+                     CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC);
+        else
+            ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
+    }
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);

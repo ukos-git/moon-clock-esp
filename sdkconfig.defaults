@@ -25,9 +25,13 @@ CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 # (deeper queues exhausted the heap -> ESP_ERR_NO_MEM, see the vendored
 # BSP buffer_height 50->25 fix).
 CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1
-# Obsolete test hook (the synodic wake sweep plays on every wake by
-# default now); kept off and present so existing configs keep validating.
+# Obsolete test hook (the synodic sweep now plays at BOOT only, from a
+# black screen); kept off and present so existing configs keep
+# validating.
 CONFIG_UI_MOON_ANIM_ON_WAKE=n
+# Light-sleep dusk: the pole-axis spin to the fully unilluminated side;
+# the deep-sleep countdown is armed on its last frame.
+CONFIG_UI_MOON_DUSK_ENABLE=y
 CONFIG_CODEC_ES7243_SUPPORT=n
 CONFIG_CODEC_ES7243E_SUPPORT=n
 CONFIG_CODEC_ES8156_SUPPORT=n

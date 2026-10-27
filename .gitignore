@@ -7,3 +7,4 @@ assets
 warnings.txt
 spiffs/*
 !spiffs/wifi_credentials.example.txt
+host_sim/pole_test
