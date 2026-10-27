@@ -808,12 +808,15 @@ static void moon_orbit_interrupt(void) {
         clock_idle_set_enabled(true);
 }
 
-/* ---------------- synodic wake sweep (the 28-day animation) ----------------
+/* ---------------- synodic wake sweep (new moon -> now) ----------------
  *
- * The month-long phase sweep, rebuilt on the atomic whole-frame
- * pipeline: the last 29.53 days in CONFIG_UI_MOON_ANIM_FRAMES frames,
- * played on EVERY wake from sleep (moon_ui_replay_animation). A
- * dedicated bake task (core 1, like the orbit) bakes the frames OFF
+ * The phase sweep, rebuilt on the atomic whole-frame
+ * pipeline: the last synodic cycle (from the last NEW MOON to now) in
+ * CONFIG_UI_MOON_ANIM_FRAMES frames, played on EVERY wake from sleep
+ * (moon_ui_replay_animation). Starting at the new moon means the
+ * animation always begins on a dark disk; its length is the moon's
+ * current age this cycle (<= 29.53 days). A dedicated
+ * bake task (core 1, like the orbit) bakes the frames OFF
  * screen and publishes them one at a time; the tick displays each
  * published frame as ONE atomic whole frame (the spin's display,
  * MOON_SPIN_BATCH = MOON_NSTRIPS strips in one lv_refr_now), one frame
@@ -824,25 +827,63 @@ static void moon_orbit_interrupt(void) {
  *
  * Resolution: the intermediate frames bake at UI_MOON_ANIM_BAKE_PX
  * (default 240, a scratch s_sweep_small frame) and upscase to the full
- * 400x400 for display; only the FINAL frame (the current phase the spin
- * resumes from) bakes at full MOON_PX. The bake cost scales with the
- * on-disk pixel count, (S/400)^2 -- a full-res frame is ~1.3 s on this
- * board (the relief gradient cache; FPU/PSRAM-bound on the S3) while a
- * 240-px frame is ~0.36 s, so the default 168-frame sweep (phase step
- * ~4.2 h/frame) unfolds at roughly 60-70 s. The reduced-res frames are
- * physically correct (the lighting/relief model is
- * resolution-independent; only the screen sampling is coarser), which
- * is invisible in the fast montage; the last frame and the static/spin
- * phase are always full resolution.
+ * 400x400 for display; the FINAL frame (the current phase the spin
+ * resumes from) always bakes at full MOON_PX. The bake cost scales
+ * with the on-disk pixel count, (S/400)^2 -- measured on the 336-frame
+ * sweep: 200 -> ~0.21 s/frame, 240 -> ~0.28 s, 320 -> ~0.48 s, 400 ->
+ * ~0.72 s, plus a fixed ~0.23 s of display+tick per frame
+ * (resolution-independent), so the sweep wall is 200 -> ~2.4 min, 240
+ * -> ~2.8 min (the default, chosen to stay under ~3 min), 400 ->
+ * ~5.3 min (full res, montage pixel-identical to the static/spin
+ * bakes). A reduced bake size makes the montage coarser (400/S x 400/S
+ * NN blocks) but physically correct (the lighting/relief model is
+ * resolution-independent).
  *
- * The frames are evenly spaced over the last
- * synodic month, ending on the CURRENT phase (the final frame is epoch
- * = now); the tick re-anchors the spin at the unrotated pose the last
- * frame just showed and lets it resume. The spin render is paused for
- * the whole sweep (the flag poll), the idle timer is held (the user is
- * present for the sweep), and the sleep transition aborts the sweep
+ * The frames are evenly spaced from the last NEW MOON (f=0, a dark
+ * disk) to the CURRENT phase (f=frames-1, epoch = now); the tick
+ * re-anchors the spin at the unrotated pose the last frame just showed
+ * and lets it resume. The spin render is paused for the whole sweep
+ * (the flag poll), the idle timer is held (the user is present for the
+ * sweep), and the sleep transition aborts the sweep
  * (moon_sweep_interrupt).
  */
+
+/* The last NEW MOON before utc_epoch: the coarse (6 h) + fine (20 min)
+ * backward scan of moon_geometry's illumination over at most one
+ * synodic month. Two passes because the ephemeris is a few dozen ms per
+ * call and a full 20-min grid over 29.53 d would be ~2200 of them. The
+ * coarse grid (6 h -> ~240 calls) brackets the minimum within 6 h; the
+ * fine pass only refines the coarse minimum and its two neighbors. The
+ * 1e-6 slack keeps a flat/tied coarse step from drifting the fine pass
+ * to a neighboring cycle's minimum (a full month further back). Returns
+ * < utc_epoch by construction; the caller clamps the span. */
+static int64_t new_moon_epoch(int64_t utc_epoch) {
+    moon_geom_t g;
+    int64_t best = utc_epoch - (int64_t)(29.53 * 86400);
+    float best_illum = 1.0f;
+    for (int64_t e = utc_epoch - (int64_t)(6 * 3600); e >= utc_epoch - (int64_t)(29.53 * 86400); e -= 6 * 3600) {
+        /* moon_geometry() is void and no-ops on the (never-seen) ephemeris
+         * failure: preset illum so a failed call can never win. */
+        g.illum = 1.0f;
+        moon_geometry(e, &g);
+        if (g.illum < best_illum - 1e-6f) {
+            best_illum = g.illum;
+            best = e;
+        }
+    }
+    int64_t fine_best = best;
+    float fine_illum = best_illum;
+    for (int64_t e = best + 6 * 3600; e >= best - 6 * 3600; e -= 20 * 60) {
+        g.illum = 1.0f;
+        moon_geometry(e, &g);
+        if (g.illum < fine_illum - 1e-6f) {
+            fine_illum = g.illum;
+            fine_best = e;
+        }
+    }
+    return fine_best;
+}
+
 static void moon_sweep_task(void *arg) {
     (void)arg;
     int32_t frames = s_sweep_frames;
@@ -856,8 +897,18 @@ static void moon_sweep_task(void *arg) {
     }
     if (!grel)
         ESP_LOGW(TAG, "no relief cache; sweep relief-free");
-    const double SYNODIC_S = 29.53 * 86400.0;
     int64_t now = s_sweep_now;
+    /* Sweep span: the last synodic cycle, from the last NEW MOON to now
+     * (the animation always starts dark). new_moon_epoch() finds it by
+     * coarse-then-fine scanning moon_geometry's illumination backwards
+     * over at most one synodic month; the span is clamped to (0, 29.53 d]. */
+    const int64_t SYNODIC_S = 29.53 * 86400;
+    int64_t span = now - new_moon_epoch(now);
+    if (span <= 0)
+        span = SYNODIC_S; /* ephemeris degenerate: fall back to a full month */
+    if (span > SYNODIC_S)
+        span = SYNODIC_S;
+    ESP_LOGI(TAG, "sweep span: %lld d (new moon %lld s before now)", (long long)(span / 86400), (long long)span);
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
         /* Backpressure (see the section above): the previous frame must
@@ -878,8 +929,9 @@ static void moon_sweep_task(void *arg) {
             if (s_sweep_abort)
                 break;
         }
-        /* Frame f is (frames-1-f) synodic steps before the current
-         * phase: f=0 is a full month back, f=frames-1 is NOW.
+        /* Frame f is (frames-1-f) sweep steps before the current
+         * phase: f=0 is the last NEW MOON (dark disk), f=frames-1 is
+         * NOW.
          *
          * Intermediate frames bake at the reduced UI_MOON_ANIM_BAKE_PX
          * resolution (the on-disk pixel count scales (S/400)^2, so the
@@ -891,7 +943,7 @@ static void moon_sweep_task(void *arg) {
          * screen. With the reduction disabled (bake px >= MOON_PX) every
          * frame bakes at full resolution (the old path). */
         double t = (double)(frames - 1 - f) / (double)(frames - 1);
-        int64_t epoch = now - (int64_t)(t * SYNODIC_S);
+        int64_t epoch = now - (int64_t)(t * span);
         moon_geom_t g;
         moon_geometry(epoch, &g);
         int S = (f == frames - 1) ? MOON_PX : sweep_bake_px; /* this frame's bake size */
@@ -1282,9 +1334,10 @@ static void moon_tick_cb(lv_timer_t *timer) {
     /* Synodic wake sweep consumer (see the sweep section): each
      * published frame is displayed as ONE atomic whole frame (the
      * spin's display) -- never left for LVGL's async 25-row drain. The
-     * task paces itself on s_sweep_shown (backpressure), so the month
-     * unfolds at the (reduced-res) bake rate (~0.36 s/frame at the
-     * default 240 px, ~60-70 s for the default 168 frames). */
+     * task paces itself on s_sweep_shown (backpressure), so the cycle
+     * unfolds at the bake rate (~0.51 s/frame at the default 240 px:
+     * ~0.28 s bake + ~0.23 s display+tick, ~2.8 min for the default
+     * 336 frames). */
     if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
         moon_invalidate_all();
         int64_t r0 = esp_timer_get_time();
@@ -1441,15 +1494,16 @@ void moon_ui_start(void) {
 }
 
 void moon_ui_replay_animation(void) {
-    /* Synodic wake sweep (see the sweep section): the last 29.5 days in
-     * CONFIG_UI_MOON_ANIM_FRAMES frames, baked off screen by the bake
-     * task and displayed one atomic whole frame per tick, ending on the
-     * current phase. Called on EVERY wake from sleep -- and on an alarm
-     * dismissal (the alarm trigger sets the wake flag so the month
-     * replays as the user acknowledges the alarm) -- no-op at boot,
-     * before moon_ui_start, and while the orbit pipeline owns the
-     * buffers. The spin is held for the sweep; the idle timer is held
-     * too (the user is present for the ~60-70 s). */
+    /* Synodic wake sweep (see the sweep section): the current synodic
+     * cycle (last NEW MOON -> now) in CONFIG_UI_MOON_ANIM_FRAMES
+     * frames, baked off screen by the bake task and displayed one
+     * atomic whole frame per tick, ending on the current phase. Called
+     * on EVERY wake from sleep -- and on an alarm dismissal (the alarm
+     * trigger sets the wake flag so the cycle replays as the user
+     * acknowledges the alarm) -- no-op at boot, before
+     * moon_ui_start, and while the orbit pipeline owns the buffers.
+     * The spin is held for the sweep; the idle timer is held too (the
+     * user is present for the sweep's ~2.8 min at the default 240 px). */
     if (!CONFIG_UI_MOON_ANIM_ENABLE || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
@@ -1475,7 +1529,7 @@ void moon_ui_replay_animation(void) {
     }
     if (!clock_is_idle())
         clock_idle_set_enabled(false); /* hold sleep for the sweep duration */
-    ESP_LOGI(TAG, "synodic wake sweep started: %d frames over 29.5 days", s_sweep_frames);
+    ESP_LOGI(TAG, "synodic wake sweep started: %d frames (new moon -> now)", s_sweep_frames);
 }
 
 void moon_ui_day_tick(void) {

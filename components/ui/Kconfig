@@ -21,18 +21,19 @@ menu "UI Component Configuration"
             Default is 100ms (vs 10ms in active mode).
 
     config UI_MOON_ANIM_ENABLE
-        bool "Play the synodic wake sweep (last synodic month) on every wake from sleep"
+        bool "Play the synodic wake sweep (new moon -> now) on every wake from sleep"
         default y
         help
-            On every wake from sleep the moon replays the last 29.5 days
-            (the 28-day animation) in UI_MOON_ANIM_FRAMES frames, baked
-            off screen and displayed as atomic whole frames on the same
-            pipeline as the burn-in spin (one ~150 ms frame, no
+            On every wake from sleep the moon replays the current
+            synodic cycle -- from the last NEW MOON (a dark disk) to
+            now, at most 29.5 days -- in UI_MOON_ANIM_FRAMES frames,
+            baked off screen and displayed as atomic whole frames on the
+            same pipeline as the burn-in spin (one ~150 ms frame, no
             top-to-bottom wipe, the display stays live throughout).
-            The sweep ends on the current phase and hands the spin back
-            at the exact on-screen pose. The boot path does not play
-            it: boot shows the current phase + the burn-in spin
-            (UI_MOON_SPIN_*).
+            The sweep always starts dark and ends on the current phase,
+            and hands the spin back at the exact on-screen pose. The
+            boot path does not play it: boot shows the current phase +
+            the burn-in spin (UI_MOON_SPIN_*).
 
     config UI_MOON_ANIM_FRAMES
         int "Synodic wake sweep frame count"
@@ -40,40 +41,37 @@ menu "UI Component Configuration"
         range 5 400
         help
             How many phase frames make up the wake sweep, evenly spaced
-            over the last 29.5 days and ending on the current phase.
-            The intermediate frames are baked at UI_MOON_ANIM_BAKE_PX
-            (a reduced resolution, upscased on display -- see there) and
-            the final frame at full MOON_PX, so the sweep takes roughly
-            frames x (intermediate bake time). The phase step per frame
-            is 29.5 d / (N-1): 336 -> ~0.088 d/frame (~2.1 h, the
-            default), 168 -> ~0.177 d/frame (~4.2 h), 84 -> ~0.35
-            d/frame, 28 -> ~1.09 d/frame (the old value). Lower =
-            faster but coarser sweep; the display stays live either
-            way.
+            from the last NEW MOON to the current phase (the span is the
+            moon's current age this cycle, at most 29.53 days). The
+            frame count is fixed, so the sweep wall time is fixed
+            (~frames x per-frame bake+display) while the PHASE STEP
+            shrinks as the cycle is younger: at 336 (the default) the
+            step is up to ~0.088 d/frame (~2.1 h) at an old moon and
+            down to a few hours near first quarter. The intermediate
+            frames are baked at UI_MOON_ANIM_BAKE_PX (see there); the
+            final frame is always full MOON_PX. Lower = faster but
+            coarser sweep; the display stays live either way.
 
     config UI_MOON_ANIM_BAKE_PX
         int "Synodic wake sweep intermediate-frame bake resolution (px)"
-        default 200
+        default 240
         range 100 400
         help
             The on-screen size the wake sweep's INTERMEDIATE frames are
             baked at before being upscased (nearest-neighbor) to the full
-            MOON_PX for display. The final frame is always baked at full
-            MOON_PX (it is the current phase the spin resumes from).
-            Baking at a reduced size cuts the per-frame bake cost in
-            proportion to (S/MOON_PX)^2 (the on-disk pixel count), so the
-            sweep stays tractable: measured bake (336-frame sweep) 200 ->
-            ~0.21 s/frame (the default), 240 -> ~0.28 s, 320 -> ~0.48 s,
-            400 -> ~0.72 s (full res). Each frame also pays a fixed
-            ~0.23 s of display+tick (resolution-independent), so the
-            336-frame sweep wall is 200 -> ~2.4 min, 240 -> ~2.8 min,
-            400 -> ~5.3 min. The reduced-res frames are physically
-            correct (the lighting/relief model is resolution-independent;
-            only the screen sampling is coarser, 400/S x 400/S blocks),
-            which is invisible in the fast montage. 400 (= MOON_PX)
-            disables the reduction and bakes every frame at full res
-            (the slow path). The last frame and the static/spin phase are
-            ALWAYS full resolution regardless of this setting.
+            MOON_PX for display. 240 (the default) keeps the 336-frame
+            sweep under ~3 min (~0.28 s bake + ~0.23 s display+tick per
+            frame). Measured on the 336-frame sweep: 200 -> ~0.21
+            s/frame (~2.4 min), 240 -> ~0.28 s (~2.8 min), 320 -> ~0.48 s
+            (~4.0 min), 400 (= MOON_PX) -> ~0.72 s (~5.3 min) -- 400 bakes
+            every frame at full resolution, pixel-identical to the
+            static/spin bakes (no upsample softness at the terminator),
+            at the cost of a ~5 min sweep. The reduced-res frames are
+            physically correct (the lighting/relief model is
+            resolution-independent; only the screen sampling is coarser,
+            400/S x 400/S blocks), which is acceptable in the fast
+            montage. The last frame and the static/spin phase are ALWAYS
+            full resolution regardless of this setting.
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"
