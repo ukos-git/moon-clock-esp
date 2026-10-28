@@ -13,8 +13,22 @@ static uint64_t s_idle_entered_ms = 0; /* when the current idle episode started 
 static bool s_is_in_idle_mode = false;
 static bool s_idle_monitoring_enabled = true;
 
-// Configuration from Kconfig
-#define IDLE_TIMEOUT_MS (CONFIG_CLOCK_IDLE_TIMEOUT_SEC * 1000ULL)
+// Configuration from Kconfig (the default; the runtime settings store
+// can override it via clock_idle_set_timeout_ms before/at boot and from
+// the light-sleep settings screen).
+#ifndef CONFIG_CLOCK_IDLE_TIMEOUT_SEC
+#define CONFIG_CLOCK_IDLE_TIMEOUT_SEC 10
+#endif
+static uint64_t s_idle_timeout_ms = (uint64_t)CONFIG_CLOCK_IDLE_TIMEOUT_SEC * 1000ULL;
+
+void clock_idle_set_timeout_ms(uint64_t timeout_ms) {
+    if (timeout_ms < 10ULL * 1000ULL)
+        timeout_ms = 10ULL * 1000ULL; /* match the Kconfig range floor */
+    if (timeout_ms > 300ULL * 1000ULL)
+        timeout_ms = 300ULL * 1000ULL;
+    s_idle_timeout_ms = timeout_ms;
+    ESP_LOGI(TAG, "Idle timeout set to %llu ms", (unsigned long long)timeout_ms);
+}
 
 /**
  * @brief Input device read callback to detect user activity
@@ -44,7 +58,7 @@ static void indev_read_cb(lv_event_t *e) {
 }
 
 esp_err_t clock_idle_init(void) {
-    ESP_LOGI(TAG, "Initializing idle timer (timeout: %llu seconds)", (unsigned long long)(IDLE_TIMEOUT_MS / 1000));
+    ESP_LOGI(TAG, "Initializing idle timer (timeout: %llu ms)", (unsigned long long)s_idle_timeout_ms);
 
     // Initialize last activity time to now
     s_last_activity_time_ms = esp_timer_get_time() / 1000;
@@ -103,7 +117,7 @@ void clock_idle_check_cb(lv_timer_t *timer) {
     uint64_t idle_duration_ms = current_time_ms - s_last_activity_time_ms;
 
     // Check if idle timeout has been reached
-    if (idle_duration_ms >= IDLE_TIMEOUT_MS) {
+    if (idle_duration_ms >= s_idle_timeout_ms) {
         ESP_LOGI(TAG, "Idle timeout reached after %llu ms", (unsigned long long)idle_duration_ms);
 
         s_is_in_idle_mode = true;

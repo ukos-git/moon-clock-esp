@@ -15,6 +15,7 @@
 
 #include "clock.h"
 #include "clock_idle.h"
+#include "settings_store.h"
 #include "wifi.h"
 
 #define RTC_POLL_INTERVAL_MS 1300
@@ -58,6 +59,12 @@ extern "C" void app_main(void) {
     } else {
         ESP_LOGW(TAG, "WiFi initialization failed: %s", esp_err_to_name(wifi_ret));
     }
+
+    // Runtime settings (the settings screens persist overrides of the
+    // Kconfig defaults to /spiffs/settings.txt): load them before any
+    // runtime consumer. wifi_manager_init mounted SPIFFS already.
+    settings_store_load();
+    clock_idle_set_timeout_ms((uint64_t)settings_idle_timeout_sec() * 1000ULL);
 
     // Configure and initialize the clock component with NTP if WiFi available
     clock_config_t clock_cfg = {.enable_ntp_sync = wifi_available};
@@ -113,7 +120,7 @@ extern "C" void app_main(void) {
     // Register idle timer callbacks for screen switching
     // Idle timeout goes to LIGHT SLEEP (not deep sleep directly)
     clock_register_idle_timeout_callback((clock_update_cb_t)action_switch_to_light_sleep_screen);
-    clock_register_idle_wake_callback((clock_update_cb_t)action_switch_to_main_screen);
+    clock_register_idle_wake_callback((clock_update_cb_t)action_wake_screen);
 
     // Register countdown timer callback for transition from light sleep to deep sleep
     clock_register_countdown_timer_callback((clock_update_cb_t)action_switch_to_deep_sleep_screen);
@@ -132,8 +139,26 @@ extern "C" void app_main(void) {
 
     bsp_display_unlock();
 
-    // Load initial screen - starts with modem screen, upgrades to main if WiFi available
-    action_switch_to_main_screen(NULL);
+    // Load the initial screen (full wake setup: tick timers, idle
+    // monitoring, moon resume). With the boot NTP sync succeeded the
+    // device is fresh -> the airplane screen; otherwise the wake flow
+    // runs the on-demand WiFi sync itself (the transient WiFi screen
+    // during the handshake, airplane when it completes).
+    action_wake_screen(NULL);
+
+    // Boot NTP succeeded: the startup animation plays on the transient
+    // WiFi screen (the spec: the boot sweep flows seamlessly WiFi ->
+    // airplane). The hand-off poller moves to the airplane screen once
+    // the sweep is done (or never started); both screens share the one
+    // moon image, so the switch is the atomic whole-panel flush. Test
+    // the NTP outcome, not the radio state: the fresh-NTP branch of
+    // action_wake_screen already deinit'd the radio on the way to the
+    // airplane screen.
+    if (wifi_available && !clock_sntp_needs_sync()) {
+        loadScreen(SCREEN_ID_WIFI);
+        ui_tick();
+        action_boot_handoff_start();
+    }
 
     // Moon phase: start the free spin (phase-anchored: active rate while
     // in use, one turn per synodic month when settled -- the AMOLED
@@ -159,9 +184,10 @@ extern "C" void app_main(void) {
         lv_timer_create(auto_wake_test_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
-    ESP_LOGI(TAG, "Sleep transitions: MAIN -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");
-    ESP_LOGI(TAG, "Idle timeout: %d seconds (configurable via Kconfig)", CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
-    ESP_LOGI(TAG, "LVGL timings: MAIN=10ms, LIGHT_SLEEP=configurable, DEEP_SLEEP=paused");
+    ESP_LOGI(TAG, "Sleep transitions: AIRPLANE -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");
+    ESP_LOGI(TAG, "Idle timeout: %u seconds (runtime settings override the Kconfig default)",
+             (unsigned)settings_idle_timeout_sec());
+    ESP_LOGI(TAG, "LVGL timings: AIRPLANE/WIFI=10ms, LIGHT_SLEEP=configurable, DEEP_SLEEP=paused");
     ESP_LOGI(TAG, "Alarm screen: Active state with no automatic sleep transitions");
 
     ESP_LOGI(TAG, "Application started - RTC interrupts with polling backup");

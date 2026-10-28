@@ -19,6 +19,7 @@
 
 #include "clock.h"
 #include "clock_idle.h"
+#include "settings_store.h"
 #include "wifi.h"
 
 static const char *TAG = "ui_actions";
@@ -39,7 +40,7 @@ static bool g_backlight_off = false;
 
 // True while the device sits on a sleep screen (light/deep sleep) or on
 // the alarm screen. The sleep transitions and the alarm trigger set it;
-// the wake handler (action_switch_to_main_screen) consumes (clears) it
+// the wake handler (action_wake_screen) consumes (clears) it
 // to know that its call is a real wake event -- which keeps a stale
 // alarm (one that rang while the user slept) from hijacking the wake
 // flow. It no longer drives an animation: wakes (INCLUDING a dismissed
@@ -47,43 +48,61 @@ static bool g_backlight_off = false;
 // sweep plays at BOOT only).
 static bool g_asleep = false;
 
-/* WiFi connect/reconnect runs on a dedicated task, never on the LVGL task:
- * the wake handler (action_switch_to_main_screen) runs in the LVGL task
- * (indev event / moon tilt timer), and the old blocking
+/* The WiFi + NTP sync runs on a dedicated task, never on the LVGL task:
+ * the wake handler (action_wake_screen) runs in the LVGL task (indev
+ * event / moon tilt timer / the RTC minute tick), and the old blocking
  * wifi_manager_init() there parked the LVGL task for the whole ~1.25 s
  * WPA2 handshake -- no LVGL timer fired, so the moon spin and the clock
- * were frozen on the modem-sleep screen until the connection landed.
- * The display now stays live during the handshake; the main-screen
- * upgrade is picked up by the UI tick below (which runs on the LVGL
- * task) once the connection completes. */
-static volatile bool s_wifi_connecting = false;
-static volatile bool s_wifi_connect_ok = false;
+ * were frozen until the connection landed. The display now stays live
+ * during the handshake (on the transient WiFi screen); the drop back to
+ * the airplane screen is picked up by the UI tick below (LVGL task)
+ * once the sync completes -- on BOTH outcomes (a failure must not
+ * strand the device on the WiFi screen). */
+#ifndef CONFIG_CLOCK_NTP_TIMEOUT_MS
+#define CONFIG_CLOCK_NTP_TIMEOUT_MS 10000
+#endif
+static volatile bool s_wifi_sync_running = false;
+static volatile bool s_wifi_sync_done = false;
+static volatile bool s_wifi_sync_ok = false;
 
-static void wifi_reconnect_task_fn(void *arg) {
-    ESP_LOGI(TAG, "WiFi connect in background task...");
+static void wifi_sync_task_fn(void *arg) {
+    ESP_LOGI(TAG, "WiFi + NTP sync in background task...");
     esp_err_t ret = wifi_manager_init();
-    s_wifi_connect_ok = (ret == ESP_OK);
-    s_wifi_connecting = false;
-    if (ret == ESP_OK) {
+    bool ok = (ret == ESP_OK);
+    if (ok) {
         g_wifi_deinited = false;
         ESP_LOGI(TAG, "WiFi connected successfully (background)");
+        if (clock_sntp_needs_sync()) {
+            esp_err_t n = clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS);
+            if (n != ESP_OK)
+                ESP_LOGW(TAG, "NTP sync failed (RTC keeps its time): %s", esp_err_to_name(n));
+        } else {
+            ESP_LOGI(TAG, "NTP sync not due; skipping");
+        }
     } else {
         g_wifi_deinited = true;
         ESP_LOGW(TAG, "WiFi connection failed: %s", esp_err_to_name(ret));
     }
+    s_wifi_sync_ok = ok;
+    s_wifi_sync_done = true;
+    s_wifi_sync_running = false;
     vTaskDelete(NULL);
 }
 
-static void wifi_reconnect_kickoff(void) {
-    if (s_wifi_connecting) {
-        ESP_LOGI(TAG, "WiFi connect already in progress");
+static void wifi_sync_kickoff(void) {
+    if (s_wifi_sync_running) {
+        ESP_LOGI(TAG, "WiFi sync already in progress");
         return;
     }
-    s_wifi_connecting = true;
-    s_wifi_connect_ok = false;
-    if (xTaskCreate(wifi_reconnect_task_fn, "wifi_reconnect", 4096, NULL, 10, NULL) != pdPASS) {
-        s_wifi_connecting = false;
-        ESP_LOGW(TAG, "WiFi reconnect task creation failed");
+    s_wifi_sync_running = true;
+    s_wifi_sync_done = false;
+    s_wifi_sync_ok = false;
+    /* 6144: wifi_manager_init + the SNTP stack run here. */
+    if (xTaskCreate(wifi_sync_task_fn, "wifi_sync", 6144, NULL, 10, NULL) != pdPASS) {
+        s_wifi_sync_running = false;
+        s_wifi_sync_done = true;
+        s_wifi_sync_ok = false;
+        ESP_LOGW(TAG, "WiFi sync task creation failed; dropping to airplane");
     }
 }
 
@@ -176,18 +195,18 @@ static void clock_roll_apply(void) {
     s_roll_last_ms = now;
     int32_t old = s_roll_v10;
     s_roll_v10 = v10;
-    if (objects.main_clock)
-        lv_obj_set_style_transform_rotation(objects.main_clock, v10, 0);
     if (objects.modem_sleep_clock)
         lv_obj_set_style_transform_rotation(objects.modem_sleep_clock, v10, 0);
+    if (objects.wifi_clock)
+        lv_obj_set_style_transform_rotation(objects.wifi_clock, v10, 0);
     if (objects.light_sleep_clock)
         lv_obj_set_style_transform_rotation(objects.light_sleep_clock, v10, 0);
     if (objects.deep_sleep_clock)
         lv_obj_set_style_transform_rotation(objects.deep_sleep_clock, v10, 0);
-    if (objects.arc_clock_seconds)
-        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds, v10, 0);
     if (objects.arc_clock_seconds_modem)
         lv_obj_set_style_transform_rotation(objects.arc_clock_seconds_modem, v10, 0);
+    if (objects.arc_clock_seconds_wifi)
+        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds_wifi, v10, 0);
     if (old != 0 || v10 != 0)
         ESP_LOGI(TAG, "clock roll %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
 }
@@ -197,23 +216,93 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     // Keep the clock horizontal while the device is tilted in its own plane
     // (no-op at the settled pose: zero correction -> LVGL direct draw path).
     clock_roll_apply();
-    // Finished background WiFi connect: upgrade to the main screen from
-    // here (the LVGL task; loadScreen touches LVGL state). Deferred to the
-    // tick so the handshake never blocks the display. Only while awake:
-    // if the device re-slept during the handshake, drop the upgrade and
-    // let the next wake re-trigger the switch.
-    if (!s_wifi_connecting && s_wifi_connect_ok) {
-        s_wifi_connect_ok = false;
+    // Finished background WiFi + NTP sync: drop to the airplane screen
+    // from here (the LVGL task; loadScreen touches LVGL state). Deferred
+    // to the tick so the handshake never blocks the display. Both
+    // outcomes (success AND failure) must leave the transient WiFi
+    // screen. Only while awake: if the device re-slept during the
+    // handshake, drop the hand-off and let the next wake re-trigger it.
+    if (!s_wifi_sync_running && s_wifi_sync_done) {
+        s_wifi_sync_done = false;
         if (!clock_is_idle()) {
-            g_wifi_deinited = false;
-            loadScreen(SCREEN_ID_MAIN);
-            ui_tick();
-            ESP_LOGI(TAG, "Upgraded to main screen (WiFi active)");
+            if (ui_current_screen() == SCREEN_ID_WIFI) {
+                loadScreen(SCREEN_ID_MODEM_SLEEP);
+                ui_tick();
+            }
+            clock_idle_set_enabled(true);
+            clock_idle_reset_timer();
+            ESP_LOGI(TAG, "WiFi sync %s -> airplane screen", s_wifi_sync_ok ? "complete" : "failed");
         } else {
-            ESP_LOGI(TAG, "WiFi connected but device is asleep; main screen deferred");
+            ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
         }
     }
     ui_tick();
+}
+
+/* ---------------- on-demand WiFi + NTP sync (the transient WiFi screen) ---
+ *
+ * The device lives on the airplane (modem-sleep) screen; WiFi is
+ * activated on demand (boot, wake, the hourly tick, the settings hub's
+ * exit button) purely to refresh the RTC, then the sync flow drops
+ * straight back to airplane. The WiFi screen hosts the handshake and
+ * the (boot) synodic sweep; it and the airplane screen share the one
+ * moon image, so the hand-off is the atomic whole-panel flush with no
+ * visible seam.
+ */
+
+// The boot hand-off: after boot lands on the WiFi screen (the boot NTP
+// succeeded), this 100 ms poller switches to the airplane screen once
+// the boot sweep is out of the way -- when the sweep has finished
+// baking, or when 1 s elapsed without it starting (animation disabled,
+// no trustworthy time). Both screens share the one moon image, so the
+// switch is the existing atomic flush: the sweep plays seamlessly
+// across WiFi -> airplane.
+static lv_timer_t *s_boot_handoff_timer = NULL;
+static bool s_boot_handoff_saw_sweep = false;
+static int64_t s_boot_handoff_t0_ms = 0;
+
+static void boot_handoff_timer_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (s_wifi_sync_running || moon_ui_sweeping()) {
+        s_boot_handoff_saw_sweep = true;
+        return;
+    }
+    int64_t elapsed_ms = esp_timer_get_time() - s_boot_handoff_t0_ms;
+    if (!s_boot_handoff_saw_sweep && elapsed_ms < 1000)
+        return;
+    ESP_LOGI(TAG, "Boot sync hand-off: WiFi -> airplane screen");
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
+    ui_tick();
+    if (s_boot_handoff_timer) {
+        lv_timer_delete(s_boot_handoff_timer);
+        s_boot_handoff_timer = NULL;
+    }
+}
+
+void action_start_wifi_sync(void) {
+    if (s_wifi_sync_running) {
+        ESP_LOGI(TAG, "WiFi sync already in progress");
+        return;
+    }
+    /* No sleep transitions during the ~8+10 s handshake: the sleep
+     * paths call wifi_manager_deinit(), which must not race the sync
+     * task's wifi_manager_init() (the pre-existing wake-path race). */
+    clock_idle_set_enabled(false);
+    loadScreen(SCREEN_ID_WIFI);
+    ui_tick();
+    ESP_LOGI(TAG, "WiFi screen loaded (on-demand sync)");
+    wifi_sync_kickoff();
+}
+
+/* Start the boot hand-off poller (called from app_main only when boot
+ * landed on the WiFi screen). */
+void action_boot_handoff_start(void) {
+    if (s_boot_handoff_timer)
+        return;
+    s_boot_handoff_saw_sweep = false;
+    s_boot_handoff_t0_ms = esp_timer_get_time();
+    s_boot_handoff_timer = lv_timer_create(boot_handoff_timer_cb, 100, NULL);
+    ESP_LOGI(TAG, "Boot hand-off poller started (100 ms)");
 }
 
 // Global reference to UI tick timer for dynamic adjustment
@@ -239,6 +328,20 @@ void action_update_clock_display(lv_event_t *e) {
         return;
     clock_time_t current_time;
     esp_err_t ret = clock_get_time(&current_time);
+
+    /* Hourly on-demand sync: at the top of a minute, while at rest on
+     * the airplane screen and the RTC is due for a refresh (the 1 h
+     * NTP interval), activate WiFi + NTP and drop back to airplane.
+     * Gated to AT REST on airplane: no waking a sleeping device (a
+     * 30 s radio wake for an NTP fetch is a net power loss -- the next
+     * wake re-syncs), no interference with the boot sweep, no yanking
+     * a settings session away. */
+    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !s_wifi_sync_running && !moon_ui_sweeping() &&
+        !wifi_manager_is_connected() && clock_sntp_needs_sync() && ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
+        ESP_LOGI(TAG, "Hourly sync due at the top of the minute; activating WiFi");
+        action_start_wifi_sync();
+        return;
+    }
 
     if (ret == ESP_OK) {
         char time_str[16];
@@ -348,7 +451,7 @@ void action_alarm_triggered(lv_event_t *e) {
 }
 
 /* The alarm screen can only be dismissed by touch, but the idle-wake
- * path (touch -> action_switch_to_main_screen) only fires while the
+ * path (touch -> action_wake_screen) only fires while the
  * device is IN idle mode; while awake, a tap just resets the idle
  * timer, so tapping to dismiss never left the screen (and never let the
  * device sleep into a dismissable state) -- a one-way door. Register a
@@ -364,7 +467,7 @@ static void alarm_indev_read_cb(lv_event_t *e) {
         return;
     if (g_alarm_active && !clock_is_idle()) {
         ESP_LOGI(TAG, "Alarm dismissed by touch (device awake)");
-        action_switch_to_main_screen(e);
+        action_wake_screen(e);
     }
 }
 
@@ -424,7 +527,7 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 
     // Deep sleep turns the panel backlight OFF (the sleep screens
     // before it kept it on). A wake (touch, tilt or an alarm) restores
-    // it (action_switch_to_main_screen / action_alarm_triggered).
+    // it (action_wake_screen / action_alarm_triggered).
     if (!g_backlight_off) {
         if (bsp_display_backlight_off() == ESP_OK) {
             g_backlight_off = true;
@@ -448,14 +551,16 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 }
 
 /**
- * @brief Switch to main screen.
+ * @brief Wake handler: return from sleep (or boot) to the active flow.
  *
- * Called when user interacts after idle timeout or from alarm screen.
- * Attempts WiFi initialization and NTP sync. If successful, loads main screen.
- * If WiFi fails, falls back to modem sleep screen (non-WiFi mode).
+ * Called when the user interacts after idle (the idle-wake callback),
+ * from the alarm screen, and at boot. Runs the on-demand WiFi + NTP
+ * sync (the transient WiFi screen) when the device is not connected or
+ * the RTC is due for a refresh; otherwise drops straight to the
+ * airplane screen.
  */
-void action_switch_to_main_screen(lv_event_t *e) {
-    ESP_LOGI(TAG, "Switching to main screen");
+void action_wake_screen(lv_event_t *e) {
+    ESP_LOGI(TAG, "Wake: switching to the active flow");
 
     // A wake from deep sleep lights the panel again (the deep-sleep
     // transition turned the backlight off).
@@ -481,9 +586,9 @@ void action_switch_to_main_screen(lv_event_t *e) {
     // user never saw it) must not hijack the wake: it follows the
     // normal wake flow below (static current phase, no animation).
     if (g_alarm_active && g_wifi_deinited && !was_asleep) {
-        ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to modem sleep screen");
+        ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to the airplane screen");
         g_alarm_active = false;
-        action_switch_to_modem_sleep_screen(e);
+        action_switch_to_airplane_screen(e);
         return;
     }
 
@@ -532,48 +637,34 @@ void action_switch_to_main_screen(lv_event_t *e) {
     moon_ui_pause(false);
     moon_ui_day_tick();
 
-    // Always start with modem sleep screen first (fast, no WiFi check)
-    // This provides immediate UI responsiveness
-    loadScreen(SCREEN_ID_MODEM_SLEEP);
-    ui_tick();
-    vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
-    ESP_LOGI(TAG, "Modem sleep screen loaded (checking WiFi status...)");
-
-    // Already connected (boot path: app_main connected before the display
-    // came up): upgrade straight to the main screen.
-    if (wifi_manager_is_connected()) {
+    // Already connected and the RTC is fresh: straight to the airplane
+    // screen (the home screen).
+    if (wifi_manager_is_connected() && !clock_sntp_needs_sync()) {
         g_wifi_deinited = false;
-        loadScreen(SCREEN_ID_MAIN);
-        ui_tick();
-        vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
-        ESP_LOGI(TAG, "Upgraded to main screen (WiFi active)");
-    } else {
-        // Not connected: stay on the modem sleep screen and reconnect in
-        // the background. wifi_manager_init() blocks for the whole ~1.25 s
-        // WPA2 handshake; running it here would freeze the display, because
-        // this handler runs on the LVGL task and the handshake would park
-        // it with no timers firing. The UI tick picks up the finished
-        // connect and upgrades the screen while the display stays live.
-        g_wifi_deinited = true;
-        ESP_LOGI(TAG, "WiFi not connected, reconnecting in background (display stays live)");
-        wifi_reconnect_kickoff();
+        action_switch_to_airplane_screen(e);
+        return;
     }
+
+    // Otherwise run the on-demand sync: the transient WiFi screen hosts
+    // the handshake (display stays live; the UI tick drops to airplane
+    // when it completes, on both outcomes).
+    action_start_wifi_sync();
 }
 
 /**
- * @brief Switch to modem sleep screen (non-WiFi mode).
+ * @brief Switch to the airplane screen (the home screen; non-WiFi mode).
  *
- * Simple clock display without WiFi. Used when WiFi is not available or needed.
- * Behaves like main screen but without network connectivity.
+ * Simple clock display with the modem in sleep (WiFi deinitialized).
+ * The home screen: moon, clock, seconds arc, no indicator icons.
  */
-void action_switch_to_modem_sleep_screen(lv_event_t *e) {
-    ESP_LOGI(TAG, "Switching to modem sleep screen (non-WiFi mode)");
+void action_switch_to_airplane_screen(lv_event_t *e) {
+    ESP_LOGI(TAG, "Switching to the airplane screen");
 
     // Deinitialize WiFi if it's running
     if (!g_wifi_deinited && wifi_manager_is_connected()) {
         wifi_manager_deinit();
         g_wifi_deinited = true;
-        ESP_LOGI(TAG, "WiFi deinitialized for modem sleep");
+        ESP_LOGI(TAG, "WiFi deinitialized for the airplane screen");
     }
 
     // Create UI tick timer if it doesn't exist yet
@@ -613,7 +704,7 @@ void action_switch_to_modem_sleep_screen(lv_event_t *e) {
     moon_ui_pause(false);
     moon_ui_day_tick();
 
-    // Load modem sleep screen
+    // Load the airplane screen
     loadScreen(SCREEN_ID_MODEM_SLEEP);
     ui_tick();
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
@@ -631,7 +722,7 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // The wake handler reads this to know its call is a real wake.
     g_asleep = true;
 
-    // Deinitialize WiFi/network to save power (modem sleep)
+    // Deinitialize WiFi/network to save power (airplane / modem sleep)
     if (!g_wifi_deinited && wifi_manager_is_connected()) {
         wifi_manager_deinit();
         g_wifi_deinited = true;
@@ -666,10 +757,10 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     moon_ui_pause(true);
     if (!moon_ui_dusk_start()) {
         esp_err_t ret =
-            clock_timer_enable(CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC, CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
+            clock_timer_enable(settings_deep_sleep_countdown_sec(), CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
         if (ret == ESP_OK)
-            ESP_LOGI(TAG, "dusk unavailable; RTC countdown %d s to deep sleep armed immediately",
-                     CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC);
+            ESP_LOGI(TAG, "dusk unavailable; RTC countdown %u s to deep sleep armed immediately",
+                     (unsigned)settings_deep_sleep_countdown_sec());
         else
             ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
     }

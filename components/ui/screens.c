@@ -25,15 +25,12 @@ static void moon_screen_prepare(lv_obj_t *obj) {
     moon_ui_create_image(obj);
 }
 
-static void event_handler_cb_main_arc_clock_seconds(lv_event_t *e) {
-    lv_event_code_t event = lv_event_get_code(e);
-    if (event == LV_EVENT_VALUE_CHANGED) {
-        lv_obj_t *ta = lv_event_get_target(e);
-        if (tick_value_change_obj != ta) {
-            int32_t value = lv_arc_get_value(ta);
-            set_var_clock_seconds(value);
-        }
-    }
+/* Settings screens are moon-less by design: black background only, NO
+ * moon image (the spin pipeline's s_images[] stays at the four moon
+ * screens). */
+static void settings_screen_prepare(lv_obj_t *obj) {
+    lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 static void event_handler_cb_modem_sleep_arc_clock_seconds_modem(lv_event_t *e) {
@@ -47,73 +44,15 @@ static void event_handler_cb_modem_sleep_arc_clock_seconds_modem(lv_event_t *e) 
     }
 }
 
-void create_screen_main() {
-    lv_obj_t *obj = lv_obj_create(0);
-    objects.main = obj;
-    lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
-    moon_screen_prepare(obj);
-    {
-        lv_obj_t *parent_obj = obj;
-        {
-            // arc-clock-seconds
-            lv_obj_t *obj = lv_arc_create(parent_obj);
-            objects.arc_clock_seconds = obj;
-            lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
-            lv_arc_set_range(obj, 0, 60);
-            lv_arc_set_bg_start_angle(obj, 0);
-            lv_arc_set_bg_end_angle(obj, 360);
-            lv_arc_set_rotation(obj, 270);
-            lv_obj_add_event_cb(obj, event_handler_cb_main_arc_clock_seconds, LV_EVENT_ALL, 0);
-            lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_state(obj, LV_STATE_DISABLED);
-            add_style_moon_arc(obj);
-            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        }
-        {
-            // main_clock
-            lv_obj_t *obj = lv_obj_create(parent_obj);
-            objects.main_clock = obj;
-            lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
-            lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 7);
-        }
-        {
-            // screen-indicator-wifi
-            lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.screen_indicator_wifi = obj;
-            lv_obj_set_pos(obj, 185, 320);
-            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            add_style_label_icon_solid(obj);
-            lv_label_set_text(obj, "");
+static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
+    lv_event_code_t event = lv_event_get_code(e);
+    if (event == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *ta = lv_event_get_target(e);
+        if (tick_value_change_obj != ta) {
+            int32_t value = lv_arc_get_value(ta);
+            set_var_clock_seconds(value);
         }
     }
-
-    tick_screen_main();
-}
-
-void tick_screen_main() {
-    {
-        int32_t new_val = get_var_clock_seconds();
-        int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds);
-        if (new_val != cur_val) {
-            tick_value_change_obj = objects.arc_clock_seconds;
-            lv_arc_set_value(objects.arc_clock_seconds, new_val);
-            tick_value_change_obj = NULL;
-        }
-    }
-    tick_user_widget_clock(7);
 }
 
 void create_screen_modem_sleep() {
@@ -137,15 +76,6 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             create_user_widget_clock(obj, 12);
-        }
-        {
-            // screen-indicator-modem
-            lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.screen_indicator_modem = obj;
-            lv_obj_set_pos(obj, 185, 320);
-            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            add_style_label_icon_solid(obj);
-            lv_label_set_text(obj, "");
         }
         {
             // arc-clock-seconds-modem
@@ -185,6 +115,72 @@ void tick_screen_modem_sleep() {
     }
 }
 
+/* The transient WiFi screen: shown while a WiFi + NTP sync runs (boot,
+ * hourly, manual from the settings hub's exit button) and dropped back
+ * to the airplane screen when the sync completes. Same structure as the
+ * airplane (modem-sleep) screen -- moon, clock, seconds arc -- with no
+ * indicator icon; the two screens share the one moon image, so the
+ * switch between them is the atomic whole-panel flush. */
+void create_screen_wifi() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.wifi = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    moon_screen_prepare(obj);
+    {
+        lv_obj_t *parent_obj = obj;
+        {
+            // wifi_clock
+            lv_obj_t *obj = lv_obj_create(parent_obj);
+            objects.wifi_clock = obj;
+            lv_obj_set_pos(obj, 0, 0);
+            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            create_user_widget_clock(obj, 17);
+        }
+        {
+            // arc-clock-seconds-wifi
+            lv_obj_t *obj = lv_arc_create(parent_obj);
+            objects.arc_clock_seconds_wifi = obj;
+            lv_obj_set_pos(obj, 0, 0);
+            lv_obj_set_size(obj, 466, 466);
+            lv_arc_set_range(obj, 0, 60);
+            lv_arc_set_bg_start_angle(obj, 0);
+            lv_arc_set_bg_end_angle(obj, 360);
+            lv_arc_set_rotation(obj, 270);
+            lv_obj_add_event_cb(obj, event_handler_cb_wifi_arc_clock_seconds_wifi, LV_EVENT_ALL, 0);
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_state(obj, LV_STATE_DISABLED);
+            add_style_moon_arc(obj);
+            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+        }
+    }
+
+    tick_screen_wifi();
+}
+
+void tick_screen_wifi() {
+    tick_user_widget_clock(17);
+    {
+        int32_t new_val = get_var_clock_seconds();
+        int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
+        if (new_val != cur_val) {
+            tick_value_change_obj = objects.arc_clock_seconds_wifi;
+            lv_arc_set_value(objects.arc_clock_seconds_wifi, new_val);
+            tick_value_change_obj = NULL;
+        }
+    }
+}
+
 void create_screen_light_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.light_sleep = obj;
@@ -205,23 +201,14 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 18);
-        }
-        {
-            // screen-indicator-sleep0
-            lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.screen_indicator_sleep0 = obj;
-            lv_obj_set_pos(obj, 185, 320);
-            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            add_style_label_icon_regular(obj);
-            lv_label_set_text(obj, "");
+            create_user_widget_clock(obj, 22);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(18); }
+void tick_screen_light_sleep() { tick_user_widget_clock(22); }
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -243,7 +230,7 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 23);
+            create_user_widget_clock(obj, 26);
         }
         {
             // screen-indicator-sleep1
@@ -259,10 +246,10 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(23); }
+void tick_screen_deep_sleep() { tick_user_widget_clock(26); }
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
- * asleep -> action_switch_to_main_screen) only fires while the device is
+ * asleep -> action_wake_screen) only fires while the device is
  * in idle mode; while awake, a tap just resets the idle timer, so a
  * dedicated input-device callback dismisses it instead
  * (action_register_alarm_touch in actions.c). */
@@ -285,7 +272,7 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 28);
+            create_user_widget_clock(obj, 31);
         }
         {
             // screen-indicator-alarm
@@ -301,7 +288,73 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(28); }
+void tick_screen_alarm() { tick_user_widget_clock(31); }
+
+/* ---------------- settings screens ----------------
+ *
+ * Placeholders for now (black, moon-less): the hub and the sub-screens
+ * get their widgets (concentric exit button, icon ring, rollers, the
+ * weekday pie) in the settings steps. They are created here so
+ * loadScreen() has valid roots for every reserved SCREEN_ID. */
+void create_screen_settings_hub() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_hub = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_hub() {}
+
+void create_screen_settings_alarm() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_alarm = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_alarm() {}
+
+void create_screen_settings_pomodoro() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_pomodoro = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_pomodoro() {}
+
+void create_screen_settings_alarm_time() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_alarm_time = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_alarm_time() {}
+
+void create_screen_settings_light_sleep() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_light_sleep = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_light_sleep() {}
+
+void create_screen_settings_deep_sleep() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_deep_sleep = obj;
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+}
+
+void tick_screen_settings_deep_sleep() {}
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     (void)startWidgetIndex;
@@ -381,8 +434,8 @@ void change_color_theme(uint32_t theme_index) {
 
     lv_style_set_bg_color(get_style_moon_arc_KNOB_DEFAULT(), lv_color_hex(theme_colors[theme_index][0]));
 
-    lv_obj_invalidate(objects.main);
     lv_obj_invalidate(objects.modem_sleep);
+    lv_obj_invalidate(objects.wifi);
     lv_obj_invalidate(objects.light_sleep);
     lv_obj_invalidate(objects.deep_sleep);
     lv_obj_invalidate(objects.alarm);
@@ -394,7 +447,18 @@ uint32_t theme_colors[1][1] = {
 
 typedef void (*tick_screen_func_t)();
 tick_screen_func_t tick_screen_funcs[] = {
-    tick_screen_main, tick_screen_modem_sleep, tick_screen_light_sleep, tick_screen_deep_sleep, tick_screen_alarm,
+    /* order must match enum ScreensEnum - 1 */
+    tick_screen_modem_sleep,
+    tick_screen_wifi,
+    tick_screen_light_sleep,
+    tick_screen_deep_sleep,
+    tick_screen_alarm,
+    tick_screen_settings_hub,
+    tick_screen_settings_alarm,
+    tick_screen_settings_pomodoro,
+    tick_screen_settings_alarm_time,
+    tick_screen_settings_light_sleep,
+    tick_screen_settings_deep_sleep,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -405,9 +469,15 @@ void create_screens() {
                                               true, LV_FONT_DEFAULT);
     lv_disp_set_theme(dispp, theme);
 
-    create_screen_main();
     create_screen_modem_sleep();
+    create_screen_wifi();
     create_screen_light_sleep();
     create_screen_deep_sleep();
     create_screen_alarm();
+    create_screen_settings_hub();
+    create_screen_settings_alarm();
+    create_screen_settings_pomodoro();
+    create_screen_settings_alarm_time();
+    create_screen_settings_light_sleep();
+    create_screen_settings_deep_sleep();
 }

@@ -139,6 +139,7 @@
 #include "moon_assets.h"
 #include "moon_consts.h"
 #include "moon_ui.h"
+#include "settings_store.h"
 
 static const char *TAG = "moon_ui";
 
@@ -209,6 +210,13 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
 #endif
+
+/* The animation on/off flags are runtime settings (the sleep settings
+ * screens override them and persist them); the Kconfig macros are only
+ * the build-time defaults. The countdown is a runtime setting too (the
+ * deep-sleep settings screen changes it). */
+static bool boot_anim_enabled(void) { return CONFIG_UI_MOON_ANIM_ENABLE && settings_boot_anim_enable(); }
+static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && settings_dusk_anim_enable(); }
 #ifndef CONFIG_UI_MOON_ANIM_FRAMES
 #define CONFIG_UI_MOON_ANIM_FRAMES 168
 #endif
@@ -231,7 +239,7 @@ static uint8_t *s_shade_map;   /* the dusk's pre-shaded body-frame equirect
                                 * every dusk frame re-projects it instead of
                                 * re-baking the lighting) */
 static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
-static lv_obj_t *s_images[4];
+static lv_obj_t *s_images[8];  /* 4 moon screens today; headroom for more */
 static int s_n_images;
 static lv_timer_t *s_tick;
 static bool s_ready;
@@ -1612,6 +1620,10 @@ static void moon_tilt_monitor_cb(lv_timer_t *timer) {
  * at-rest drift cannot rotate the text. */
 bool moon_ui_tilt_settled(void) { return s_tilt_settled; }
 
+/* True while the synodic boot sweep's bake task is running (the on-demand
+ * sync flow waits for it before switching the WiFi screen to airplane). */
+bool moon_ui_sweeping(void) { return s_sweep_baking; }
+
 /* ---------------- tick ---------------- */
 
 static void moon_tick_cb(lv_timer_t *timer) {
@@ -1776,10 +1788,11 @@ static void moon_tick_cb(lv_timer_t *timer) {
         ESP_LOGI(TAG, "dusk %u/%d shown in %dms", (unsigned)s_dusk_shown, (int)s_dusk_frames,
                  (int)((esp_timer_get_time() - r0) / 1000));
         if (s_dusk_shown >= (uint32_t)s_dusk_frames) {
-            esp_err_t ret = clock_timer_enable(CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC,
+            esp_err_t ret = clock_timer_enable(settings_deep_sleep_countdown_sec(),
                                                CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
             if (ret == ESP_OK)
-                ESP_LOGI(TAG, "dusk done; RTC countdown %d s to deep sleep armed", CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC);
+                ESP_LOGI(TAG, "dusk done; RTC countdown %u s to deep sleep armed",
+                         (unsigned)settings_deep_sleep_countdown_sec());
             else
                 ESP_LOGE(TAG, "dusk done but the countdown arm failed: %d", (int)ret);
         }
@@ -1883,7 +1896,7 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
     lv_obj_set_size(img, MOON_PX, MOON_PX);
     lv_image_set_src(img, &s_dsc);
     lv_obj_set_clickable(img, false);
-    if (s_n_images < 4)
+    if (s_n_images < 8)
         s_images[s_n_images++] = img;
     return img;
 }
@@ -1942,7 +1955,7 @@ void moon_ui_replay_animation(void) {
      * owns the buffers. The spin is held for the sweep; the idle timer
      * is held too (the user is present for the sweep's ~2.8 min at the
      * default 240 px). */
-    if (!CONFIG_UI_MOON_ANIM_ENABLE || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
+    if (!boot_anim_enabled() || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
     if (clock_get_utc_epoch(&now) != ESP_OK)
@@ -1984,8 +1997,8 @@ bool moon_ui_dusk_start(void) {
      * already the on-screen state after a completed dusk): the caller
      * then arms the deep-sleep countdown immediately (the pre-dusk
      * behavior) so the deep-sleep transition still happens. */
-    if (!CONFIG_UI_MOON_DUSK_ENABLE || !s_ready || !s_started || s_orbit_epoch <= 0 || s_orbit_baking ||
-        s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_dusk_done)
+    if (!dusk_anim_enabled() || !s_ready || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
+        s_sweep_baking || s_dusk_baking || s_dusk_done)
         return false;
     /* The parked pose, captured before the task exists: the in-plane
      * free-spin angle (theta-folded into every dusk frame's basis --

@@ -111,6 +111,14 @@ bool moon_ui_dusk_start(void);
 bool moon_ui_tilt_settled(void);
 
 /**
+ * True while the synodic boot sweep's bake task is running. The
+ * on-demand sync flow (actions.c) waits for it before switching the
+ * WiFi screen to airplane, so the boot sweep is never interrupted by
+ * the sync hand-off.
+ */
+bool moon_ui_sweeping(void);
+
+/**
  * Display the new screen's contents (moon image included) as ONE
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
  * LVGL task context. No-op while a pipeline owns the buffer (the spin

@@ -20,6 +20,9 @@ void ui_tick();
 
 #if !defined(EEZ_FOR_LVGL)
 void loadScreen(enum ScreensEnum screenId);
+/* The currently loaded screen (SCREEN_ID_*); SCREEN_ID_MODEM_SLEEP
+ * before the first loadScreen. */
+enum ScreensEnum ui_current_screen(void);
 #endif
 
 #ifdef __cplusplus

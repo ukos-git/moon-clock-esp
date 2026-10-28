@@ -65,6 +65,30 @@ static void pcf_to_clock_time(const pcf85063a_datetime_t *pcf_time, clock_time_t
     clock_time->second = pcf_time->sec;
 }
 
+esp_err_t clock_sync_time_from_ntp(uint32_t timeout_ms) {
+    esp_err_t ret = clock_sntp_sync(timeout_ms);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "NTP synchronization failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    clock_time_t time_to_set;
+    ret = clock_sntp_get_system_time(&time_to_set);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to obtain NTP-synchronized time: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "Successfully obtained time via NTP: %04d-%02d-%02d %02d:%02d:%02d", time_to_set.year,
+             time_to_set.month, time_to_set.day, time_to_set.hour, time_to_set.minute, time_to_set.second);
+    /* Only valid when the RTC is up (called from clock_init after
+     * s_initialized = true, and from the sync task after boot). */
+    if (s_initialized) {
+        ret = clock_set_time(&time_to_set);
+        if (ret != ESP_OK)
+            ESP_LOGW(TAG, "Failed to update RTC time: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
 esp_err_t clock_init(const clock_config_t *cfg) {
     if (!cfg) {
         ESP_LOGE(TAG, "Invalid configuration");
@@ -117,17 +141,8 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     // Try NTP synchronization if enabled and WiFi is available
     if (cfg->enable_ntp_sync) {
         ESP_LOGI(TAG, "Attempting NTP time synchronization...");
-        ret = clock_sntp_sync(CONFIG_CLOCK_NTP_TIMEOUT_MS);
-        if (ret == ESP_OK) {
-            // Get NTP-synchronized time
-            ret = clock_sntp_get_system_time(&time_to_set);
-            if (ret == ESP_OK) {
-                time_obtained = true;
-                ESP_LOGI(TAG, "Successfully obtained time via NTP");
-            }
-        } else {
-            ESP_LOGW(TAG, "NTP synchronization failed: %s", esp_err_to_name(ret));
-        }
+        if (clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS) == ESP_OK)
+            time_obtained = true;
     }
 
     // If NTP failed or not enabled, try to get system time

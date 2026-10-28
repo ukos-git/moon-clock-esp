@@ -51,9 +51,14 @@ void loadScreen(enum ScreensEnum screenId) {
 
 void ui_init() {
     create_screens();
-    loadScreen(SCREEN_ID_MAIN);
+    /* The airplane (modem-sleep) screen is the home screen; the boot
+     * flow (app_main) loads the transient WiFi screen when the boot NTP
+     * succeeded and hands it off to airplane (action_boot_handoff_start). */
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
 }
 
 void ui_tick() { tick_screen(currentScreen); }
+
+enum ScreensEnum ui_current_screen(void) { return (enum ScreensEnum)(currentScreen + 1); }
 
 #endif

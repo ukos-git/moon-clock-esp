@@ -34,11 +34,13 @@ menu "Clock Component Configuration"
 
     config CLOCK_NTP_SYNC_INTERVAL_HOURS
         int "NTP sync interval (hours)"
-        default 12
+        default 1
         range 1 168
         help
             Interval between NTP synchronizations in hours (1-168).
-            Recommended: 6-24 hours for battery-powered devices.
+            The device activates WiFi on demand (wake + the hourly tick
+            while at rest on the airplane screen) purely to refresh the
+            RTC, then drops back to airplane mode.
 
     config CLOCK_NTP_TIMEOUT_MS
         int "NTP synchronization timeout (milliseconds)"

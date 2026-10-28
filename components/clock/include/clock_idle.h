@@ -4,6 +4,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 #include "esp_err.h"
 #include "lvgl.h"
 
@@ -79,6 +81,17 @@ uint64_t clock_idle_last_activity_ms(void);
  * @param enabled true to enable idle monitoring, false to disable
  */
 void clock_idle_set_enabled(bool enabled);
+
+/**
+ * @brief Set the idle timeout at runtime (the runtime settings store
+ * overrides the Kconfig default, and the light-sleep settings screen
+ * changes it live).
+ *
+ * Clamped to the Kconfig range (10-300 s).
+ *
+ * @param timeout_ms new timeout in milliseconds
+ */
+void clock_idle_set_timeout_ms(uint64_t timeout_ms);
 
 #ifdef __cplusplus
 }

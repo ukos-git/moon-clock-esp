@@ -45,6 +45,17 @@ typedef struct {
 esp_err_t clock_init(const clock_config_t *cfg);
 
 /**
+ * @brief One-shot NTP sync: sync the system clock, then update the RTC
+ *
+ * Used at boot (from clock_init) and by the on-demand sync flow (the
+ * WiFi screen's background task). Requires a connected WiFi.
+ *
+ * @param timeout_ms SNTP wait timeout (ms)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_sync_time_from_ntp(uint32_t timeout_ms);
+
+/**
  * @brief Get current time from RTC
  *
  * @param out Pointer to store time
