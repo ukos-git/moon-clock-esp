@@ -763,12 +763,16 @@ void tick_screen_settings_pomodoro() {}
  * stored arc angle off the 360/0 wrap edge (an indicator end angle of
  * exactly 360 stores as 360 and the SW arc mask clamps it to 359,
  * drawing a 1 deg gap at the right edge of the band). The arc centre
- * is (233, 240), R = 100 (zero pad, the 200 px object at (133, 140));
+ * is (233, 300), R = 100 (zero pad, the 200 px object at (133, 200)):
  * the ring is 46 px wide (r 54..100), the handles sit at r 77 (the
- * ring midline) and the letters at r 140 (just outside the ring). The
- * time rollers sit up top (y ~60) -- the arc's centre hole no longer
- * hosts them, because the horizontal day positions (y ~240) would
- * collide with centred rollers.
+ * ring midline) and the letters at r 140 (just outside the ring).
+ * Because the band is only the UPPER half-circle, its lowest drawn
+ * pixels are the two ends (y ~300) -- 42 px clear of the bottom-centre
+ * exit button's band (top edge y 342). The letters are children of the
+ * SCREEN ROOT, not the band: at r 140 they would lie 40 px outside the
+ * 200 px band object and LVGL clips children to the parent's bounds.
+ * The time rollers sit up top (y 5..115) -- the top letter (271 deg,
+ * y 160) clears them by 45 px.
  *
  * State: s_alarm_range_{start,end} (day indices, Mon..Sun order) -- the
  * working range (the widgets persist across loadScreen, so it must
@@ -780,7 +784,7 @@ void tick_screen_settings_pomodoro() {}
  * time. */
 
 #define ALARM_TIME_ARC_CX 233
-#define ALARM_TIME_ARC_CY 240
+#define ALARM_TIME_ARC_CY 300
 #define ALARM_TIME_ARC_R 100
 #define ALARM_TIME_ARC_WIDTH 46
 #define ALARM_TIME_HANDLE_R 77  /* the day handles' radius (the ring midline) */
@@ -995,19 +999,22 @@ void create_screen_settings_alarm_time() {
      * children) catch them, everything else falls through. */
     lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
 
-    /* The day letters, just outside the ring (children of the band so
-     * they align to the arc centre), created before the handles so the
-     * handles render on top. */
+    /* The day letters, just outside the ring -- children of the screen
+     * ROOT, not the band: at r 140 they sit 40 px outside the 200 px
+     * band object, and LVGL clips children to the parent's bounds (the
+     * outermost letters would be cut in half). The root is 466x466, so
+     * every letter is whole. The arc centre is (233, 300) in screen
+     * coords, the root centre (233, 233) -- hence the +67 y offset. */
     static const char *weekday_letters[7] = {"M", "T", "W", "T", "F", "S", "S"};
     for (int d = 0; d < 7; d++) {
-        lv_obj_t *letter = lv_label_create(band);
+        lv_obj_t *letter = lv_label_create(obj);
         objects.settings_alarm_time_letters[d] = letter;
         lv_obj_set_style_text_font(letter, &ui_font_montserrat_regular_40_weekdays, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(letter, weekday_letters[d]);
         lv_obj_set_size(letter, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         float ang = (float)ALARM_DAY_ANG(d) * 3.14159265f / 180.0f;
         lv_obj_align(letter, LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_LETTER_R * cosf(ang)),
-                     (int32_t)(ALARM_TIME_LETTER_R * sinf(ang)));
+                     (int32_t)(ALARM_TIME_LETTER_R * sinf(ang) + (ALARM_TIME_ARC_CY - 233)));
         lv_obj_clear_flag(letter, LV_OBJ_FLAG_CLICKABLE);
     }
 
