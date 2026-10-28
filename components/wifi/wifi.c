@@ -11,6 +11,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include <stdio.h>
@@ -239,4 +240,108 @@ void wifi_manager_deinit(void) {
     esp_wifi_stop();
     esp_wifi_deinit();
     wifi_connected = false;
+}
+
+/* ---------------- AP scan (the WiFi settings screen) ----------------
+ *
+ * The scan runs on its own task (esp_wifi_scan_start blocks ~3 s) and
+ * keeps its results in a static buffer the screen polls. The radio's
+ * lifecycle is owned by whoever brought it up: the manager (boot /
+ * hourly sync, s_wifi_event_group != NULL) or this task. When we
+ * bring it up we deinit it again when the scan is done (back to
+ * modem sleep; the credentials file is never touched). */
+static bool s_scan_running = false;
+static wifi_ap_info_t s_scan_aps[WIFI_SCAN_MAX_APS];
+static int s_scan_count = 0;
+static wifi_ap_record_t s_scan_raw[WIFI_SCAN_MAX_APS];
+
+static void wifi_scan_task_fn(void *arg) {
+    (void)arg;
+    bool radio_was_up = (s_wifi_event_group != NULL);
+    bool we_own_radio = false;
+
+    if (!radio_was_up) {
+        /* Minimal radio bring-up: no credentials, no connection. The
+         * manager's still-registered event handler will attempt
+         * esp_wifi_connect() on STA_START; with no SSID configured it
+         * fails fast and its event-group writes are NULL-guarded. */
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        esp_err_t ret = esp_wifi_init(&cfg);
+        if (ret == ESP_OK) {
+            we_own_radio = true;
+            if (esp_wifi_set_mode(WIFI_MODE_STA) == ESP_OK) {
+                esp_wifi_start();
+                vTaskDelay(pdMS_TO_TICKS(100));
+            } else {
+                we_own_radio = false;
+            }
+        }
+        if (we_own_radio) {
+            ESP_LOGI(TAG, "Scan: radio brought up");
+        } else {
+            ESP_LOGE(TAG, "Scan: failed to bring up the radio: %s", esp_err_to_name(ret));
+        }
+    }
+
+    wifi_scan_config_t scan_cfg = {
+        .show_hidden = true,
+        .channel = 0,
+    };
+    esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
+    if (ret == ESP_OK) {
+        uint16_t ap_cnt = 0;
+        esp_wifi_scan_get_ap_num(&ap_cnt);
+        if (esp_wifi_scan_get_ap_records(&ap_cnt, s_scan_raw) == ESP_OK) {
+            s_scan_count = ap_cnt < WIFI_SCAN_MAX_APS ? (int)ap_cnt : WIFI_SCAN_MAX_APS;
+            for (int i = 0; i < s_scan_count; i++) {
+                size_t len = strlen((const char *)s_scan_raw[i].ssid);
+                if (len > 32) {
+                    len = 32;
+                }
+                memcpy(s_scan_aps[i].ssid, s_scan_raw[i].ssid, len);
+                s_scan_aps[i].ssid[len] = '\0';
+                s_scan_aps[i].rssi = s_scan_raw[i].rssi;
+                s_scan_aps[i].auth = s_scan_raw[i].authmode;
+            }
+            ESP_LOGI(TAG, "Scan done: %d APs", s_scan_count);
+        } else {
+            s_scan_count = 0;
+        }
+    } else {
+        s_scan_count = 0;
+        ESP_LOGE(TAG, "Scan failed: %s", esp_err_to_name(ret));
+    }
+
+    if (we_own_radio) {
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        ESP_LOGI(TAG, "Scan: radio down again");
+    }
+    s_scan_running = false;
+    vTaskDelete(NULL);
+}
+
+void wifi_scan_start(void) {
+    if (s_scan_running) {
+        return;
+    }
+    s_scan_running = true;
+    s_scan_count = 0;
+    if (xTaskCreate(wifi_scan_task_fn, "wifi_scan", 6144, NULL, 5, NULL) != pdPASS) {
+        s_scan_running = false;
+        ESP_LOGE(TAG, "Scan task creation failed");
+    }
+}
+
+bool wifi_scan_in_progress(void) { return s_scan_running; }
+
+int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
+    if (!out || max <= 0) {
+        return 0;
+    }
+    int n = s_scan_count < max ? s_scan_count : max;
+    for (int i = 0; i < n; i++) {
+        out[i] = s_scan_aps[i];
+    }
+    return n;
 }

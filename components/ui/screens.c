@@ -15,8 +15,7 @@
 #include "styles.h"
 #include "ui.h"
 #include "vars.h"
-
-#include <string.h>
+#include "wifi.h"
 
 objects_t objects;
 lv_obj_t *tick_value_change_obj;
@@ -108,6 +107,7 @@ static void settings_alarm_screen_refresh(void);
 static void settings_pomodoro_screen_refresh(void);
 static void settings_alarm_time_screen_refresh(void);
 static void settings_sleep_screen_refresh(int screen);
+static void settings_wifi_screen_refresh(void);
 static void settings_screen_refresh_for(enum ScreensEnum target);
 
 /* One icon of the hub's ring: a clickable 96 px FA glyph. The target
@@ -547,6 +547,9 @@ static void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_DEEP_SLEEP:
         settings_sleep_screen_refresh(1);
+        break;
+    case SCREEN_ID_SETTINGS_WIFI:
+        settings_wifi_screen_refresh();
         break;
     default:
         break;
@@ -1078,22 +1081,111 @@ void create_screen_settings_deep_sleep() {
 
 void tick_screen_settings_deep_sleep() {}
 
-/* Placeholder for now (Step 7 fills it with the AP scan list). */
+/* --- WiFi settings: the AP scan list ---------------------------------
+ *
+ * A background scan (wifi_scan_start) runs while the screen is open;
+ * the rows below render the results when the scan finishes (the 10 ms
+ * tick polls wifi_scan_in_progress() and renders once). Selection is
+ * log-only for now -- the circular-keyboard password entry + saving
+ * the credentials is the approved follow-up, so the screen carries a
+ * note about it. */
+#define WIFI_SETTINGS_ROWS 12
+
+static lv_obj_t *s_wifi_rows[WIFI_SETTINGS_ROWS];
+static bool s_wifi_scan_rendered = true;
+static int s_wifi_selected = -1;
+
+static void settings_wifi_render_rows(void) {
+    wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
+    int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
+    if (n == 0) {
+        for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
+            lv_label_set_text(s_wifi_rows[i], i == 0 ? "NO APs FOUND" : "");
+        }
+        return;
+    }
+    for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
+        if (i >= n) {
+            lv_label_set_text(s_wifi_rows[i], "");
+            continue;
+        }
+        char buf[40];
+        int pos = 0;
+        for (size_t c = 0; c < sizeof(aps[i].ssid) - 1 && pos < 20; c++) {
+            char ch = aps[i].ssid[c];
+            if (ch >= 'a' && ch <= 'z') {
+                ch = (char)(ch - 'a' + 'A');
+            }
+            buf[pos++] = ch;
+        }
+        buf[pos++] = 0;
+        pos += snprintf(buf + pos, sizeof(buf) - pos, " %ddBm", (int)aps[i].rssi);
+        lv_label_set_text(s_wifi_rows[i], buf);
+        lv_obj_set_style_text_color(s_wifi_rows[i], i == s_wifi_selected ? SETTINGS_WHITE : SETTINGS_GREY,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+}
+
+/* user_data = the row index. */
+static void event_handler_cb_wifi_row(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    s_wifi_selected = (int)(intptr_t)lv_event_get_user_data(e);
+    settings_wifi_render_rows();
+    /* Selection is log-only until the follow-up (circular-keyboard
+     * password entry + credentials save). */
+    ESP_LOGW("settings_wifi", "AP row %d selected (password entry: follow-up)", s_wifi_selected);
+}
+
+static void settings_wifi_screen_refresh(void) {
+    s_wifi_selected = -1;
+    s_wifi_scan_rendered = false;
+    wifi_scan_start();
+}
+
 void create_screen_settings_wifi() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_wifi = obj;
     settings_sub_screen_prepare(obj);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *header = lv_label_create(obj);
     add_style_label_icon_solid(header);
     lv_label_set_text(header, GLYPH_WIFI);
     lv_obj_set_size(header, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(header, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_align(header, LV_ALIGN_CENTER, 0, -150);
     lv_obj_set_style_text_color(header, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *note = lv_label_create(obj);
+    lv_obj_set_style_text_font(note, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(note, "PASSWORD ENTRY: FOLLOW-UP");
+    lv_obj_set_size(note, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(note, LV_ALIGN_CENTER, 0, -84);
+    lv_obj_set_style_text_color(note, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(note, LV_OBJ_FLAG_CLICKABLE);
+
+    for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
+        lv_obj_t *row = lv_label_create(obj);
+        s_wifi_rows[i] = row;
+        lv_obj_set_style_text_font(row, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(row, "");
+        lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_align(row, LV_ALIGN_CENTER, 0, -40 + i * 30);
+        lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, event_handler_cb_wifi_row, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
 }
 
-void tick_screen_settings_wifi() {}
+void tick_screen_settings_wifi() {
+    if (s_wifi_scan_rendered || wifi_scan_in_progress()) {
+        return;
+    }
+    settings_wifi_render_rows();
+    s_wifi_scan_rendered = true;
+}
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     (void)startWidgetIndex;
