@@ -11,6 +11,7 @@
 #include "images.h"
 #include "moon_ui.h"
 #include "screens.h"
+#include "settings_store.h"
 #include "styles.h"
 #include "ui.h"
 #include "vars.h"
@@ -106,6 +107,7 @@ static void event_handler_cb_home_tap(lv_event_t *e) {
 static void settings_alarm_screen_refresh(void);
 static void settings_pomodoro_screen_refresh(void);
 static void settings_alarm_time_screen_refresh(void);
+static void settings_sleep_screen_refresh(int screen);
 static void settings_screen_refresh_for(enum ScreensEnum target);
 
 /* One icon of the hub's ring: a clickable 96 px FA glyph. The target
@@ -540,6 +542,12 @@ static void settings_screen_refresh_for(enum ScreensEnum target) {
     case SCREEN_ID_SETTINGS_ALARM_TIME:
         settings_alarm_time_screen_refresh();
         break;
+    case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
+        settings_sleep_screen_refresh(0);
+        break;
+    case SCREEN_ID_SETTINGS_DEEP_SLEEP:
+        settings_sleep_screen_refresh(1);
+        break;
     default:
         break;
     }
@@ -917,10 +925,146 @@ void create_screen_settings_alarm_time() {
 
 void tick_screen_settings_alarm_time() {}
 
+/* --- sleep settings: one parameterized builder (the two screens are
+ * near-identical; the plan's fallback 5) ------------------------------
+ *
+ * SETTINGS_LIGHT_SLEEP: the idle-timeout roller (10-300 s, the
+ * airplane -> light-sleep transition). SETTINGS_DEEP_SLEEP: the
+ * deep-sleep countdown roller (light -> deep). Both screens carry
+ * both animation toggles (the spec): a moon glyph + upper-cased
+ * caption, coloured white (on) / moon grey (off) -- no switch widget
+ * (LV_USE_SWITCH is off). A tap on the toggle row flips the flag,
+ * saves, and recolors. The countdown takes effect at the next dusk
+ * arming; the idle timeout is applied live via
+ * clock_idle_set_timeout_ms().
+ *
+ * The widgets are created once (loadScreen never destroys them), so
+ * the pointers live here; [0] = light-sleep screen, [1] = deep. */
+static lv_obj_t *s_sleep_roller[2];
+static lv_obj_t *s_anim_glyph[2][2]; /* [screen][0=boot, 1=dusk] */
+static lv_obj_t *s_anim_cap[2][2];
+
+static void settings_anim_apply_colors(int screen) {
+    bool boot = settings_boot_anim_enable();
+    bool dusk = settings_dusk_anim_enable();
+    lv_color_t c0 = boot ? SETTINGS_WHITE : SETTINGS_GREY;
+    lv_color_t c1 = dusk ? SETTINGS_WHITE : SETTINGS_GREY;
+    lv_obj_set_style_text_color(s_anim_glyph[screen][0], c0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(s_anim_cap[screen][0], c0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(s_anim_glyph[screen][1], c1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(s_anim_cap[screen][1], c1, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+static void settings_sleep_screen_refresh(int screen) {
+    if (!s_sleep_roller[screen]) {
+        return;
+    }
+    int v = screen ? (int)settings_deep_sleep_countdown_sec() : (int)settings_idle_timeout_sec();
+    lv_roller_set_selected(s_sleep_roller[screen], v - 10, LV_ANIM_OFF);
+    settings_anim_apply_colors(screen);
+}
+
+/* user_data = screen (0/1) on the roller; screen*2+toggle on a row. */
+static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    int v = settings_roller_value(s_sleep_roller[screen]);
+    if (screen) {
+        settings_set_deep_sleep_countdown_sec((uint32_t)v);
+    } else {
+        settings_set_idle_timeout_sec((uint32_t)v);
+        clock_idle_set_timeout_ms((uint64_t)v * 1000ULL);
+    }
+    esp_err_t r = settings_store_save();
+    ESP_LOGW("settings_sleep", "screen %d value %d s -> %s", screen, v, esp_err_to_name(r));
+}
+
+static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    int sel = (int)(intptr_t)lv_event_get_user_data(e);
+    int screen = sel / 2;
+    int toggle = sel % 2;
+    if (toggle == 0) {
+        settings_set_boot_anim_enable(!settings_boot_anim_enable());
+    } else {
+        settings_set_dusk_anim_enable(!settings_dusk_anim_enable());
+    }
+    esp_err_t r = settings_store_save();
+    ESP_LOGW("settings_anim", "toggle %d on screen %d -> %s", toggle, screen, esp_err_to_name(r));
+    settings_anim_apply_colors(screen);
+}
+
+/* One 96 px moon-glyph + 32 px caption toggle row (clickable
+ * container; the labels themselves are not clickable). */
+static void settings_anim_toggle(lv_obj_t *parent, int screen, int toggle, int32_t x) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, 200, 135);
+    lv_obj_align(row, LV_ALIGN_CENTER, x, 118);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)(screen * 2 + toggle));
+
+    const bool solid = (toggle != 0);
+    lv_obj_t *glyph = lv_label_create(row);
+    if (solid) {
+        add_style_label_icon_solid(glyph);
+    } else {
+        add_style_label_icon_regular(glyph);
+    }
+    lv_label_set_text(glyph, GLYPH_MOON);
+    lv_obj_set_size(glyph, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(glyph, LV_ALIGN_CENTER, 0, -18);
+    lv_obj_clear_flag(glyph, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *cap = lv_label_create(row);
+    lv_obj_set_style_text_font(cap, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(cap, toggle == 0 ? "BOOT ANIM" : "DUSK ANIM");
+    lv_obj_set_size(cap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(cap, LV_ALIGN_CENTER, 0, +44);
+    lv_obj_clear_flag(cap, LV_OBJ_FLAG_CLICKABLE);
+
+    s_anim_glyph[screen][toggle] = glyph;
+    s_anim_cap[screen][toggle] = cap;
+}
+
+static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *caption = lv_label_create(obj);
+    lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(caption, screen ? "SLEEP COUNTDOWN" : "IDLE TIMEOUT");
+    lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
+
+    char options[1200];
+    int pos = 0;
+    for (int v = 10; v <= 300; v++) {
+        pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
+    }
+    s_sleep_roller[screen] = settings_create_roller(obj, options, 0);
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
+                        (void *)(intptr_t)screen);
+
+    settings_anim_toggle(obj, screen, 0, -115);
+    settings_anim_toggle(obj, screen, 1, +115);
+
+    settings_sleep_screen_refresh(screen);
+}
+
 void create_screen_settings_light_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_light_sleep = obj;
     settings_sub_screen_prepare(obj);
+    settings_create_sleep_screen(obj, 0);
 }
 
 void tick_screen_settings_light_sleep() {}
@@ -929,6 +1073,7 @@ void create_screen_settings_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_deep_sleep = obj;
     settings_sub_screen_prepare(obj);
+    settings_create_sleep_screen(obj, 1);
 }
 
 void tick_screen_settings_deep_sleep() {}
