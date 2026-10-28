@@ -5,6 +5,8 @@
 #include "esp_err.h" // required by bsp until PR goes through
 #include "esp_io_expander.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "bsp/display.h"
 #include "bsp/esp-bsp.h"
@@ -149,6 +151,97 @@ static void settings_demo_cb(lv_timer_t *timer) {
     }
     default:
         break;
+    }
+}
+
+// Test hook (CONFIG_TEST_CPU_STATS_SEC): per-second per-task CPU % from
+// the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS). Profiling
+// aid for which task burns the settings-idle CPU and the spin CPU. After
+// N seconds of waiting (so the boot sweep is done and the device rests),
+// it logs every task's share of total CPU time once per second: ~1 s on
+// the home screen (the coast-spin), then it loads the settings hub and
+// logs there for ~90 s. The % is the per-window delta (task run-time
+// delta / total run-time delta), so it is not skewed by the boot sweep's
+// earlier run time. 0 (default) = off.
+#ifndef CONFIG_TEST_CPU_STATS_SEC
+#define CONFIG_TEST_CPU_STATS_SEC 0
+#endif
+
+#define CPU_STATS_MAX_TASKS 32
+#define CPU_STATS_HOME_SEC 10 /* seconds on the home screen before the hub */
+#define CPU_STATS_HUB_SEC 30
+
+static TaskStatus_t s_cpu_prev[CPU_STATS_MAX_TASKS];
+static UBaseType_t s_cpu_prev_n = 0;
+
+static void cpu_stats_log(const char *phase) {
+    uint32_t total = 0;
+    TaskStatus_t cur[CPU_STATS_MAX_TASKS];
+    UBaseType_t n = uxTaskGetSystemState(cur, CPU_STATS_MAX_TASKS, &total);
+    if (total == 0 || s_cpu_prev_n == 0) {
+        memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
+        s_cpu_prev_n = n;
+        return; /* first sample: seed, nothing to diff */
+    }
+    unsigned dt = (unsigned)total; /* total run-time over this ~1 s window */
+    ESP_LOGW(TAG, "CPU %s (dt=%u):", phase, dt);
+    for (UBaseType_t i = 0; i < n; i++) {
+        uint32_t prev = 0;
+        for (UBaseType_t j = 0; j < s_cpu_prev_n; j++) {
+            if (strcmp(s_cpu_prev[j].pcTaskName, cur[i].pcTaskName) == 0) {
+                prev = s_cpu_prev[j].ulRunTimeCounter;
+                break;
+            }
+        }
+        unsigned d = (unsigned)(cur[i].ulRunTimeCounter - prev);
+        unsigned pct = (unsigned)(((uint64_t)d * 100) / dt);
+        if (pct > 0)
+            ESP_LOGW(TAG, "  %-16s %3u%%  (%u)", cur[i].pcTaskName, pct, d);
+    }
+    memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
+    s_cpu_prev_n = n;
+}
+
+static void cpu_stats_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_CPU_STATS_SEC <= 0)
+        return;
+    /* Hold the device awake the way a user touch does: the idle timer
+     * otherwise dusk-sleeps ~60 s after the boot sweep drops to the
+     * airplane screen (before the hub measurement window), and the LVGL
+     * task pauses for deep sleep. */
+    clock_idle_reset_timer();
+    static int phase = 0; /* 0 = wait, 1 = home, 2 = hub */
+    static uint32_t wait_s = (uint32_t)CONFIG_TEST_CPU_STATS_SEC;
+    static uint32_t measured = 0;
+    if (phase == 0) {
+        if (wait_s > 0) {
+            if (--wait_s > 0)
+                return;
+            phase = 1;
+            measured = 0;
+            ESP_LOGW(TAG, "TEST cpu stats: start (home %ds, then hub %ds)", CPU_STATS_HOME_SEC, CPU_STATS_HUB_SEC);
+        }
+    }
+    if (phase == 1) {
+        /* The first call seeds the previous-sample baseline (no log line);
+         * the rest diff against it. */
+        cpu_stats_log("home");
+        if (++measured >= CPU_STATS_HOME_SEC) {
+            phase = 2;
+            measured = 0;
+            loadScreen(SCREEN_ID_SETTINGS_HUB);
+            ui_tick();
+            ESP_LOGW(TAG, "TEST cpu stats: -> settings hub");
+        }
+        return;
+    }
+    if (phase == 2) {
+        cpu_stats_log("hub");
+        if (++measured >= CPU_STATS_HUB_SEC) {
+            lv_timer_delete(timer);
+            ESP_LOGW(TAG, "TEST cpu stats: done");
+        }
     }
 }
 
@@ -302,6 +395,10 @@ extern "C" void app_main(void) {
         lv_timer_create(settings_demo_cb, 1000, NULL);
         clock_idle_set_enabled(false);
     }
+
+    // Test hook: per-second per-task CPU % (TEST_CPU_STATS_SEC; 0 = off).
+    if (CONFIG_TEST_CPU_STATS_SEC > 0)
+        lv_timer_create(cpu_stats_cb, 1000, NULL);
 
     // Test hook: the headless clock-roll tilt script (TEST_ROLL_TILT_SEC;
     // 0 = off). Feeds the real roll pipeline synthetic gravity -- the
