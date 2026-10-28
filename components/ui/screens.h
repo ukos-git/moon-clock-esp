@@ -102,9 +102,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_alarm_clock;
     lv_obj_t *settings_pomodoro_roller_h;
     lv_obj_t *settings_pomodoro_roller_m;
-    lv_obj_t *settings_pomodoro_preview;
     lv_obj_t *settings_pomodoro_caption;
-    lv_obj_t *settings_alarm_time_preview;
     lv_obj_t *settings_alarm_time_roller_h;
     lv_obj_t *settings_alarm_time_roller_m;
     lv_obj_t *settings_alarm_time_arcs[7];

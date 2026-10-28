@@ -142,8 +142,10 @@ static lv_obj_t *settings_hub_icon(lv_obj_t *parent, const char *glyph, const lv
 /* The concentric exit button: a grey ring with a black inner disc
  * (grey border) and a white xmark centred on it. The ring is the only
  * clickable part; a tap on it fires LV_EVENT_CLICKED on the returned
- * obj. Used central (150 px) on the hub and top-centre (90 px) on
- * every sub-screen. */
+ * obj. Used central (150 px) on the hub and bottom-centre (90 px) on
+ * every sub-screen -- the middle of the screen is occupied by the
+ * settings' working widgets, so the exit lives at the bottom edge and
+ * the sub-screens' layouts keep the band around it clear. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     lv_obj_t *ring = lv_obj_create(parent);
     lv_obj_set_size(ring, size, size);
@@ -186,7 +188,7 @@ static void event_handler_cb_hub_exit(lv_event_t *e) {
     action_start_wifi_sync();
 }
 
-/* Every sub-screen's top-centre exit goes back to the hub. */
+/* Every sub-screen's bottom-centre exit goes back to the hub. */
 static void event_handler_cb_settings_exit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -480,8 +482,9 @@ void create_screen_settings_hub() {
 void tick_screen_settings_hub() {}
 
 /* One sub-screen shell: black root (non-clickable) + the shared
- * top-centre exit button (90 px) back to the hub. The sub-screens add
- * their own widgets on top in the later settings steps. */
+ * bottom-centre exit button (90 px) back to the hub. The sub-screens
+ * add their own widgets on top in the later settings steps; the band
+ * around the exit (x 188..278, y 342..432) stays free of widgets. */
 static void settings_sub_screen_prepare(lv_obj_t *obj) {
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
@@ -489,7 +492,7 @@ static void settings_sub_screen_prepare(lv_obj_t *obj) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *exit = settings_create_exit_button(obj, 90);
-    lv_obj_align(exit, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -34);
     lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, 0);
 }
 
@@ -610,11 +613,12 @@ void tick_screen_settings_alarm() {}
 
 /* --- pomodoro: hour/minute rollers (repeat interval) -----------------
  *
- * Two lv_rollers side by side (hours 0-23, minutes 0-59) seed from
- * the stored interval rule (H = N / 60, M = N % 60; a sub-hour rule
- * shows hours 0). The 96 px preview follows the drag (VALUE_CHANGED);
- * only RELEASED persists (minutes_total = H*60+M, 0 rejected), keeping
- * the SPIFFS write + RTC reschedule off the drag path. */
+ * Two shared clock-style rollers side by side (hours 0-23, minutes
+ * 0-59) seed from the stored interval rule (H = N / 60, M = N % 60; a
+ * sub-hour rule shows hours 0). The rollers ARE the display (the old
+ * separate "H:MM" preview label is gone); only RELEASED persists
+ * (minutes_total = H*60+M, 0 rejected), keeping the SPIFFS write +
+ * RTC reschedule off the drag path. */
 
 static int settings_roller_value(lv_obj_t *roller) {
     int32_t sel = lv_roller_get_selected(roller);
@@ -628,20 +632,6 @@ static int settings_roller_value(lv_obj_t *roller) {
     return atoi(buf);
 }
 
-static void settings_pomodoro_preview_update(void) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%d:%02d", settings_roller_value(objects.settings_pomodoro_roller_h),
-             settings_roller_value(objects.settings_pomodoro_roller_m));
-    lv_label_set_text(objects.settings_pomodoro_preview, buf);
-}
-
-static void event_handler_cb_settings_pomodoro_value(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
-        return;
-    }
-    settings_pomodoro_preview_update();
-}
-
 static void event_handler_cb_settings_pomodoro_released(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
@@ -650,14 +640,13 @@ static void event_handler_cb_settings_pomodoro_released(lv_event_t *e) {
                 settings_roller_value(objects.settings_pomodoro_roller_m);
     if (total < 1) {
         ESP_LOGW("settings_pomodoro", "interval 0 rejected (keeping the current rule)");
-        settings_pomodoro_preview_update();
         return;
     }
     esp_err_t r = clock_alarm_set_pomodoro_interval(total);
     ESP_LOGW("settings_pomodoro", "interval %d min -> %s", total, esp_err_to_name(r));
 }
 
-/* Seed both rollers from the stored interval (or 0:00 when none). */
+/* Seed both rollers from the stored interval (0:00 when none). */
 static void settings_pomodoro_screen_refresh(void) {
     if (!objects.settings_pomodoro_roller_h) {
         return;
@@ -667,21 +656,31 @@ static void settings_pomodoro_screen_refresh(void) {
     int m = total > 0 ? total % 60 : 0;
     lv_roller_set_selected(objects.settings_pomodoro_roller_h, h, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_pomodoro_roller_m, m, LV_ANIM_OFF);
-    settings_pomodoro_preview_update();
 }
 
-static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, int32_t x) {
+/* The shared settings roller, styled like the clock's value display:
+ * the 96 px bold numbers font (the clock label font), moon grey for
+ * the unselected rows and white for the selected one, no background
+ * box (the default theme draws a white card on LV_PART_MAIN and a
+ * blue selected row -- both overridden here). One row is visible, so
+ * each field is displayed exactly once -- the roller IS the value
+ * display (the old separate HH:MM preview labels are gone). LVGL 9.6's
+ * selected-row part is LV_PART_SELECTED (the old LV_PART_INDICATOR
+ * styling never applied). width sizes to the value: 150 for 2-digit
+ * fields, 210 for the 3-digit sleep values. */
+static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, int32_t x, int32_t width) {
     lv_obj_t *r = lv_roller_create(parent);
     lv_roller_set_options(r, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(r, 1);
-    lv_obj_set_width(r, 160);
-    lv_obj_set_height(r, 96);
+    lv_obj_set_width(r, width);
+    lv_obj_set_height(r, 110);
     lv_obj_align(r, LV_ALIGN_CENTER, x, 90);
-    lv_obj_set_style_text_font(r, &ui_font_montserrat_regular_48_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(r, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(r, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(r, SETTINGS_WHITE, LV_PART_SELECTED | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, LV_PART_SELECTED | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(r, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     return r;
 }
 
@@ -702,30 +701,22 @@ void create_screen_settings_pomodoro() {
         pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
     }
 
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -110);
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 110);
-
-    objects.settings_pomodoro_preview = lv_label_create(obj);
-    add_style_label_bold(objects.settings_pomodoro_preview);
-    lv_label_set_text(objects.settings_pomodoro_preview, "0:00");
-    lv_obj_set_size(objects.settings_pomodoro_preview, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_pomodoro_preview, LV_ALIGN_CENTER, 0, -80);
-    lv_obj_set_style_text_color(objects.settings_pomodoro_preview, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(objects.settings_pomodoro_preview, LV_OBJ_FLAG_CLICKABLE);
+    /* Lifted from the shared (x, 90) so the 110 px tall rollers clear
+     * the bottom-centre exit button (bottom edge y 358 vs 387). */
+    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -110, 150);
+    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -110, 70);
+    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 110, 150);
+    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 110, 70);
 
     objects.settings_pomodoro_caption = lv_label_create(obj);
     lv_obj_set_style_text_font(objects.settings_pomodoro_caption, &ui_font_montserrat_regular_32_ssid,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(objects.settings_pomodoro_caption, "REPEAT INTERVAL");
     lv_obj_set_size(objects.settings_pomodoro_caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_text_color(objects.settings_pomodoro_caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(objects.settings_pomodoro_caption, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_add_event_cb(objects.settings_pomodoro_roller_h, event_handler_cb_settings_pomodoro_value,
-                        LV_EVENT_VALUE_CHANGED, 0);
-    lv_obj_add_event_cb(objects.settings_pomodoro_roller_m, event_handler_cb_settings_pomodoro_value,
-                        LV_EVENT_VALUE_CHANGED, 0);
     lv_obj_add_event_cb(objects.settings_pomodoro_roller_h, event_handler_cb_settings_pomodoro_released,
                         LV_EVENT_RELEASED, 0);
     lv_obj_add_event_cb(objects.settings_pomodoro_roller_m, event_handler_cb_settings_pomodoro_released,
@@ -748,11 +739,24 @@ void tick_screen_settings_pomodoro() {}
  * adjacent wedges share seam pixels. Slice colours: moon grey
  * (unselected) / white (selected); the letter labels mirror them.
  *
- * Slice i (0 = Sunday) starts at i * 360/7 with a 270 deg rotation
- * (12 o'clock start, same convention as the seconds arcs). */
+ * Slice i (0 = Sunday) starts at i * 360/7 with a half-slice rotation
+ * (270 + span/2): the slice SEAMS, not the mid-angles, sit at 12 and
+ * 6 o'clock -- so the bottom-centre exit button (bottom middle on
+ * every sub-screen) sits on a slice seam and no weekday letter is
+ * hidden behind it. */
 
-#define ALARM_TIME_PIE_ARC_WIDTH 80
+#define ALARM_TIME_PIE_ARC_WIDTH 46 /* pressable wedge width (also the hit ring) */
 #define ALARM_TIME_PIE_SPAN ((float)(360 / 7))
+#define ALARM_TIME_PIE_ROT (270 + 180 / 7) /* half-slice offset (295.714 deg) */
+/* The pie is shrunk + lifted so its bottom ring clears the bottom-centre
+ * exit button (the reserved band, top edge y 342) and it is not clipped
+ * at the top (y 0): with the ring at R-46..R the centre must satisfy
+ * centre-y >= R and centre-y + R <= 342 -> R <= 171, so R = 170 (340 px),
+ * centre y 170. The hole (R-46 = 124, Ø 248) holds the two time rollers
+ * (120 px wide each at x +-64: the 96 px 2-digit values need ~113-118 px,
+ * so 120 is the minimum width that does not clip). */
+#define ALARM_TIME_PIE_PX 340
+#define ALARM_TIME_PIE_CY 170
 
 /* The pie's working weekday mask (the widgets persist across
  * loadScreen, so it must too; re-seeded from the rule on every entry). */
@@ -789,9 +793,6 @@ static void settings_alarm_time_screen_refresh(void) {
     }
     lv_roller_set_selected(objects.settings_alarm_time_roller_h, h, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_alarm_time_roller_m, m, LV_ANIM_OFF);
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d", h, m);
-    lv_label_set_text(objects.settings_alarm_time_preview, buf);
 
     /* The weekday state lives in the static mask (the pie widgets are
      * created once at boot); re-render each slice's colour. */
@@ -829,16 +830,6 @@ static void event_handler_cb_settings_alarm_time_pin(lv_event_t *e) {
         lv_arc_set_value(a, 1);
 }
 
-static void event_handler_cb_settings_alarm_time_value(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
-        return;
-    }
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d", settings_roller_value(objects.settings_alarm_time_roller_h),
-             settings_roller_value(objects.settings_alarm_time_roller_m));
-    lv_label_set_text(objects.settings_alarm_time_preview, buf);
-}
-
 static void event_handler_cb_settings_alarm_time_released(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
@@ -865,13 +856,16 @@ void create_screen_settings_alarm_time() {
     for (int d = 0; d < 7; d++) {
         lv_obj_t *a = lv_arc_create(obj);
         objects.settings_alarm_time_arcs[d] = a;
-        lv_obj_set_pos(a, 0, 0);
-        lv_obj_set_size(a, 466, 466);
+        /* The pie is lifted + shrunk (centre y 170, 340 px) so its bottom
+         * ring clears the bottom-centre exit button (the reserved band);
+         * the time rollers re-centre on the lifted pie below. */
+        lv_obj_set_pos(a, (466 - ALARM_TIME_PIE_PX) / 2, ALARM_TIME_PIE_CY - ALARM_TIME_PIE_PX / 2);
+        lv_obj_set_size(a, ALARM_TIME_PIE_PX, ALARM_TIME_PIE_PX);
         lv_obj_set_style_pad_left(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_right(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_top(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_bottom(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_arc_set_rotation(a, 270);
+        lv_arc_set_rotation(a, ALARM_TIME_PIE_ROT);
         lv_arc_set_bg_start_angle(a, (int32_t)(d * ALARM_TIME_PIE_SPAN));
         lv_arc_set_bg_end_angle(a, (int32_t)((d + 1) * ALARM_TIME_PIE_SPAN));
         lv_arc_set_range(a, 0, 1);
@@ -890,34 +884,30 @@ void create_screen_settings_alarm_time() {
         lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_slice, LV_EVENT_CLICKED, (void *)(intptr_t)d);
         lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_pin, LV_EVENT_VALUE_CHANGED, 0);
 
-        /* Weekday letter at the mid-angle, radius ~183 (inside the
-         * 80 px wedge ring). */
-        lv_obj_t *letter = lv_label_create(obj);
+        /* Weekday letter at the mid-angle, radius ~147 (the middle of the
+         * 46 px wedge ring, R-46..R = 124..170). A child of the arc, so it
+         * aligns to the pie centre. */
+        lv_obj_t *letter = lv_label_create(a);
         objects.settings_alarm_time_letters[d] = letter;
         lv_obj_set_style_text_font(letter, &ui_font_montserrat_regular_40_weekdays, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(letter, weekday_letters[d]);
         lv_obj_set_size(letter, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         /* Arc angles use 0 deg = right, 90 deg = down (screen coords);
-         * the 270 deg rotation puts the slice start at 12 o'clock.
-         * The letter sits at the slice's mid-angle, radius ~183. */
-        float screen_deg = (float)((d + 0.5) * 360 / 7) + 270.0f;
+         * the half-slice rotation puts the slice SEAMS at 12 and 6
+         * o'clock, so the two lowest letters sit at +/- 25.7 deg from 6
+         * o'clock (x ~169 / 297 -- outside the exit button's x 188..278)
+         * and none of them hides behind it. */
+        float screen_deg = (float)((d + 0.5) * 360 / 7) + 270.0f + 180.0f / 7;
         float ang = (screen_deg * 3.14159265f) / 180.0f;
-        int32_t dx = (int32_t)(183.0f * cosf(ang));
-        int32_t dy = (int32_t)(183.0f * sinf(ang));
+        int32_t dx = (int32_t)(147.0f * cosf(ang));
+        int32_t dy = (int32_t)(147.0f * sinf(ang));
         lv_obj_align(letter, LV_ALIGN_CENTER, dx, dy);
         lv_obj_clear_flag(letter, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* Centre (unfilled by the pie): the HH:MM preview + the two
-     * time rollers below it. */
-    objects.settings_alarm_time_preview = lv_label_create(obj);
-    add_style_label_bold(objects.settings_alarm_time_preview);
-    lv_label_set_text(objects.settings_alarm_time_preview, "12:00");
-    lv_obj_set_size(objects.settings_alarm_time_preview, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_alarm_time_preview, LV_ALIGN_CENTER, 0, -36);
-    lv_obj_set_style_text_color(objects.settings_alarm_time_preview, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(objects.settings_alarm_time_preview, LV_OBJ_FLAG_CLICKABLE);
-
+    /* Centre (unfilled by the pie): the two time rollers -- each one
+     * the single display of its field (the old HH:MM preview label is
+     * gone). */
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {
@@ -928,15 +918,15 @@ void create_screen_settings_alarm_time() {
     for (int m = 0; m < 60; m++) {
         pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
     }
-    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -110);
-    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -110, 66);
-    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 110);
-    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 110, 66);
+    /* The rollers sit in the pie's hole (Ø 248), centred on the lifted
+     * pie centre (y offset -63 puts them at y 170); 120 px wide each is
+     * the minimum width that does not clip the 96 px 2-digit values
+     * (~113-118 px), and they clear the bottom band (bottom edge y 225). */
+    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -64, 120);
+    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -64, -63);
+    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 64, 120);
+    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 64, -63);
 
-    lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_settings_alarm_time_value,
-                        LV_EVENT_VALUE_CHANGED, 0);
-    lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_settings_alarm_time_value,
-                        LV_EVENT_VALUE_CHANGED, 0);
     lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_settings_alarm_time_released,
                         LV_EVENT_RELEASED, 0);
     lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_settings_alarm_time_released,
@@ -1021,11 +1011,13 @@ static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
 }
 
 /* One 96 px moon-glyph + 32 px caption toggle row (clickable
- * container; the labels themselves are not clickable). */
+ * container; the labels themselves are not clickable). The rows sit
+ * OUTSIDE the bottom-centre exit button's x-band (188..278) and their
+ * bottom edge clears the band's top (342). */
 static void settings_anim_toggle(lv_obj_t *parent, int screen, int toggle, int32_t x) {
     lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, 200, 135);
-    lv_obj_align(row, LV_ALIGN_CENTER, x, 118);
+    lv_obj_set_size(row, 170, 120);
+    lv_obj_align(row, LV_ALIGN_CENTER, x, 108);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -1062,7 +1054,7 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(caption, screen ? "SLEEP COUNTDOWN" : "IDLE TIMEOUT");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -125);
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1071,13 +1063,13 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     for (int v = 10; v <= 300; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
-    s_sleep_roller[screen] = settings_create_roller(obj, options, 0);
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, 0);
+    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, 210);
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, -30);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
 
-    settings_anim_toggle(obj, screen, 0, -115);
-    settings_anim_toggle(obj, screen, 1, +115);
+    settings_anim_toggle(obj, screen, 0, -142);
+    settings_anim_toggle(obj, screen, 1, +142);
 
     settings_sleep_screen_refresh(screen);
 }
@@ -1108,7 +1100,11 @@ void tick_screen_settings_deep_sleep() {}
  * log-only for now -- the circular-keyboard password entry + saving
  * the credentials is the approved follow-up, so the screen carries a
  * note about it. */
-#define WIFI_SETTINGS_ROWS 12
+/* 7 rows at 24 px steps: the band between the note and the bottom-
+ * centre exit button (y ~165..342) is the list's budget -- the old
+ * 12 rows at 30 px ran OFF the bottom of the panel (rows 9-11) and
+ * the 8th row landed on the exit button. */
+#define WIFI_SETTINGS_ROWS 7
 
 static lv_obj_t *s_wifi_rows[WIFI_SETTINGS_ROWS];
 static bool s_wifi_scan_rendered = true;
@@ -1191,7 +1187,11 @@ void create_screen_settings_wifi() {
         lv_obj_set_style_text_font(row, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(row, "");
         lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_align(row, LV_ALIGN_CENTER, 0, -40 + i * 30);
+        /* 7 rows at 24 px steps, first at absolute y 185 (offset -48):
+         * the list sits in the band between the note (bottom edge ~y 162)
+         * and the bottom-centre exit button (band top y 342 -- the last
+         * row's bottom edge is ~y 314). */
+        lv_obj_align(row, LV_ALIGN_CENTER, 0, -48 + i * 24);
         lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, event_handler_cb_wifi_row, LV_EVENT_CLICKED, (void *)(intptr_t)i);
