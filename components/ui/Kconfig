@@ -187,7 +187,8 @@ menu "UI Component Configuration"
             Test hook: run the scripted settings flow N seconds after
             boot (waits out the boot sync first): settings hub ->
             pomodoro (set + save a 90-minute interval) -> alarm time
-            (set + save 12:34 on all days) -> light-sleep (set the
+            (set + save 12:35 Mon-Fri, the range-arc default) ->
+            light-sleep (set the
             idle timeout + countdown + animation flags + save) ->
             airplane, logging every transition, the scheduler /
             settings-store writes, and reading the alarm / settings
@@ -204,15 +205,16 @@ menu "UI Component Configuration"
             90-degree-step orientation pipeline (100 ms gravity
             sampling -> int4 quantization -> 1 s running mean ->
             quadrant decision -> the LVGL transform layer on all 12
-            screen roots) synthetic screen-plane gravity for ~15 s:
+            screen roots) synthetic screen-plane gravity for ~25 s:
             resting (seeds the settled reference) -> 90 deg CW tilt
-            -> 180 -> 90 deg CCW -> back to rest, so the steps
-            0 -> -90 -> -180 -> +90 -> 0 (content counter-rotation)
-            each run through the full window + decision + transform
-            path on the device -- no physical tilt needed (exercises
-            the PSRAM layer allocation and the centre pivot). The 1 s
-            window lags the step changes by ~1 s. Idle monitoring is
-            paused for the script so it does not dusk-sleep mid-run.
+            -> 180 -> 90 deg CCW -> back to rest, so the applied
+            values (with the +90 deg base orientation) log
+            +90 -> 0 -> -90 -> -180 -> +90 and each run through the
+            full window + decision + transform path on the device --
+            no physical tilt needed (exercises the PSRAM layer
+            allocation and the centre pivot). The 1 s window lags the
+            step changes by ~1 s. Idle monitoring is paused for the
+            script so it does not dusk-sleep mid-run.
             0 (default) = off.
 
     config TEST_BAKE_NO_RELIEF

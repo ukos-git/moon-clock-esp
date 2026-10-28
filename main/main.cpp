@@ -100,8 +100,8 @@ static void settings_demo_cb(lv_timer_t *timer) {
     case 2:
         loadScreen(SCREEN_ID_SETTINGS_ALARM_TIME);
         ui_tick();
-        r = clock_alarm_set_clock_alarm(12, 34, 0x7F);
-        ESP_LOGW(TAG, "TEST settings demo: clock alarm 12:34 (all days) -> %s", esp_err_to_name(r));
+        r = clock_alarm_set_clock_alarm(12, 35, 0x7E);
+        ESP_LOGW(TAG, "TEST settings demo: clock alarm 12:35 (Mon-Fri) -> %s", esp_err_to_name(r));
         break;
     case 3:
         loadScreen(SCREEN_ID_SETTINGS_LIGHT_SLEEP);
