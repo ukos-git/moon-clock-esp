@@ -1,58 +1,98 @@
 # ESP32 Moon Phase Clock
 
-## Features
+A physically correct moon-phase clock. A 466 px disk of the moon -- the current
+phase, from the last new moon to now -- is rendered in real time on an AMOLED
+panel from LROC Wide-Angle Camera albedo and LOLA relief, lit with
+displaced-normal Lambert shading at the exact Sun/Moon/Earth geometry of the
+cheap ephemeris (JPL Moon98 + ERFA EPV). The disk is baked on-chip every day,
+the free spin is a fixed-point in-plane re-gather (~40 ms/frame), and sleep is
+signalled by a pole-axis spin that carries the terminator across the disk to
+the fully unilluminated side. Time comes from NTP (brief hourly WiFi
+activation, then back to airplane mode); the PCF85063A RTC holds the clock
+between syncs.
 
-- **WiFi connectivity** with SPIFFS credential storage
-- **Automatic NTP time synchronization** with timezone support
-- **RTC integration** with PCF85063A
-- **LVGL UI** for moon phase display
-- **Configurable timezone** (defaults to Central European Time with DST)
-
-## Setup
-
-### Configure Project
+## Build
 
 ```bash
-export IDF_TOOLCHAIN=clang
-idf.py fullclean
+source ~/esp/esp-idf/export.sh
 idf.py set-target esp32s3
-idf.py reconfigure  # Apply sdkconfig.defaults
+idf.py build
+idf.py flash
 ```
 
-### WiFi Credentials Setup
+- **WiFi credentials** (before the first `idf.py flash`): two lines, SSID then
+  password, in `spiffs/wifi_credentials.txt` (the template
+  `spiffs/wifi_credentials.example.txt` is the format). The SPIFFS partition is
+  re-baked from `spiffs/` on every build.
+- **Timezone:** `idf.py menuconfig` -> Component config -> Clock Component
+  Configuration -> Default timezone. Default: `CET-1CEST,M3.5.0/2,M10.5.0/3`.
+- **Albedo/relief assets** (already in the tree, pre-generated): the
+  `moon_assets` partition holds the 864x432 equirect albedo + 2048x1024 int8
+  relief DEM. Regenerate with
+  `assets/images/moon/.venv/bin/python -m moon.assets` (LROC + LOLA sources).
 
-#### Create WiFi credentials file
+## Hardware
 
-```bash
-echo "YourWiFiSSID" > spiffs/wifi_credentials.txt
-echo "YourWiFiPassword" >> spiffs/wifi_credentials.txt
-```
+Waveshare **ESP32-S3 Touch AMOLED 1.75**, with the 16 MB flash variant:
 
-#### Build and flash
+| Block      | Part                                 |
+| ---------- | ------------------------------------ |
+| Display    | 466x466 AMOLED, RGB565               |
+| Display IF | CO5300, QSPI (GPIO4-7, 38)           |
+| Touch      | CST9217 (I2C, GPIO14/15/11)          |
+| IMU        | QMI8658C (I2C)                       |
+| RTC        | PCF85063A behind TCA9554 IO expander |
+| Flash      | 16 MB                                |
 
-```bash
-idf.py build flash
-```
+Flash layout (`partitions.csv`): fixed 80 K (bootloader + table + NVS + PHY),
+`factory` 1392 K (measured app 1.42 MB, ~1.3 KB margin), `storage` 64 K SPIFFS,
+`moon_assets` 2560 K (albedo + DEM).
 
-The SPIFFS partition will be automatically formatted on first boot if it
-doesn't exist.
+## Moon rendering
 
-#### Configure Timezone
+Per pixel of the disk the bake does: equirect gather of the 864x432 albedo
+through the per-frame view basis, displaced-normal (normal from the int8 DEM
+gradient) Lambert against the body-frame Sun direction, earthshine ramp for the
+night side, and the 8-bit -> RGB565 tone LUT. One full-disk bake at the 2048 px
+DEM takes ~1.3 s on the S3; the daily re-bake is the only lighting pass --
+everything else (spin, tilt, the dusk) re-projects the baked result with a
+fixed-point gather.
 
-Use `idf.py menuconfig` to configure:
+`host_sim/moon_sim` builds the **exact device core** on the host and writes
+PNGs at the real panel size (`--size 466`); `host_sim/check_gate.py`
+image-diffs it against NASA reference images.
 
-Component config → Clock Component Configuration → Default timezone
+## Animations
 
-Default: "CET-1CEST,M3.5.0/2,M10.5.0/3" (Central European Time)
+Rendered by `host_sim/render_demo.py` (PIL + `moon_sim` are the only deps):
+`cmake --build host_sim/build && python3 host_sim/render_demo.py --phi-star <deg>`.
+Each cell is a downscaled exact panel frame; the `--pole` flag of `moon_sim` is
+a 1:1 copy of the device's pole spin (`moon_ui.c moon_pole_geometry`).
 
-Other Time Zone Options:
+**Boot sweep** -- the synodic sweep from the last new moon to now (336 frames
+on the device, 12 shown here):
 
-- "EST5EDT,M3.2.0,M11.1.0" (Eastern US Time)
-- "PST8PDT,M3.2.0,M11.1.0" (Pacific US Time)
-- "UTC0" (UTC)
-- "JST-9" (Japan Standard Time)
+![Boot sweep](docs/img/boot_sweep.png)
 
-NTP Server: Default is "pool.ntp.org" Sync Interval: Default is 12 hours
+**Free spin** -- the settled animation: the disk rotates in-plane at the
+current phase (8 rotations at 45 deg shown):
+
+![Free spin](docs/img/free_spin.png)
+
+**Dusk** -- light-sleep entry: a pole-axis spin, 1 deg/frame, until the fully
+unilluminated side faces the viewer (phi\* = 139 deg for the demo epoch; the
+final frame keeps its earthshine + crater-rim detail, not a flat black disk):
+
+![Dusk](docs/img/dusk.png)
+
+## Measured timings (device)
+
+| Stage      | Value                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Boot sweep | 336 frames @ 240 px reduced-res bake, ~190 s (display-paced)                                                       |
+| Free spin  | ~140 ms display + ~40 ms gather per frame, 0 WDT resets                                                            |
+| Dusk       | shade-map build 1598 ms once + 156 re-projected frames in 90.7 s + final full-res bake + 30 s deep-sleep countdown |
+| Wake       | static current phase (no animation); hourly NTP re-sync on demand                                                  |
 
 ## Development
 
@@ -62,6 +102,12 @@ Before pushing, please manually run
 idf.py save-defconfig
 idf.py clang-check --exit-code --run-clang-tidy-options="-header-filter=''" main/main.cpp
 ```
+
+### Test hooks
+
+Kconfig switches for headless verification (all default off):
+`TEST_SETTINGS_DEMO_SEC` (scripted settings run after boot),
+`TEST_AUTO_WAKE_SEC`, `TEST_BAKE_NO_RELIEF`, `TEST_FORCE_NTP_SYNC`.
 
 ## Hardware Differences Affecting RTC-Driven Clocks
 

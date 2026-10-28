@@ -4,8 +4,10 @@
  * (see check_gate.py).
  *
  * Usage:
- *   moon_sim --utc "2025-06-15T12:00" [--rot deg] [--out DIR]
- *   moon_sim --utc list.txt          (one ISO [rot] per line -> sim.NNNN.png)
+ *   moon_sim --utc "2025-06-15T12:00" [--rot deg] [--pole deg] [--out DIR]
+ *   moon_sim --utc list.txt          (one ISO [rot] [pole] per line -> sim.NNNN.png)
+ *   moon_sim --pole deg              (camera basis rotation about the body
+ *                                     pole = the device's dusk spin)
  *   moon_sim --frames N --start ISO --end ISO [--out DIR]  (even spacing)
  *
  * Panel modes: --size 466 (device, r=MOON_DISK_RADIUS_PX) or
@@ -44,8 +46,34 @@ static int parse_iso(const char *s, int64_t *epoch) {
 
 /* --- one frame ---------------------------------------------------------- */
 static int g_darkzero = 0; /* --darkzero: montage path (night side -> 0x0000) */
+static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
+                            * pole (+z), deg -- the device's dusk spin
+                            * (moon_ui.c moon_pole_geometry, copied
+                            * 1:1). The pole stays at the top of the
+                            * disk; the light source S stays put, so
+                            * the terminator sweeps the disk. */
 
-static int render_one(const char *iso, int rot_deg, int size, const char *out_path, int idx) {
+/* The pole spin, host-side copy of moon_ui.c moon_pole_geometry:
+ * each basis vector's x/y components are rotated about +z (right ->
+ * up for +phi), z invariant. */
+static void pole_geometry(moon_geom_t *g, float phi) {
+    float c = cosf(phi), s = sinf(phi);
+    float x, y;
+    x = g->right[0];
+    y = g->right[1];
+    g->right[0] = c * x - s * y;
+    g->right[1] = s * x + c * y;
+    x = g->up[0];
+    y = g->up[1];
+    g->up[0] = c * x - s * y;
+    g->up[1] = s * x + c * y;
+    x = g->E[0];
+    y = g->E[1];
+    g->E[0] = c * x - s * y;
+    g->E[1] = s * x + c * y;
+}
+
+static int render_one(const char *iso, int rot_deg, int pole_deg, int size, const char *out_path, int idx) {
     int64_t epoch;
     if (!parse_iso(iso, &epoch)) {
         fprintf(stderr, "bad time '%s'\n", iso);
@@ -80,6 +108,9 @@ static int render_one(const char *iso, int rot_deg, int size, const char *out_pa
 
     moon_geom_t g;
     moon_geometry(epoch, &g);
+    if (pole_deg) {
+        pole_geometry(&g, (float)pole_deg * 0.017453292519943295f);
+    }
 
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
@@ -148,6 +179,8 @@ int main(int argc, char **argv) {
             g_darkzero = 1;
         else if (!strcmp(argv[i], "--rot"))
             rot = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--pole"))
+            g_pole_deg = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size"))
             size = atoi(argv[++i]);
     }
@@ -166,15 +199,20 @@ int main(int argc, char **argv) {
         char line[256];
         int idx = 0;
         while (fgets(line, sizeof line, f)) {
-            int r = rot;
+            int r = rot, p = g_pole_deg; /* one "ISO [rot] [pole]" per line */
             char *sp = strchr(line, ' ');
             if (sp) {
                 *sp = 0;
                 r = atoi(sp + 1);
+                char *sp2 = strchr(sp + 1, ' ');
+                if (sp2) {
+                    *sp2 = 0;
+                    p = atoi(sp2 + 1);
+                }
             }
             line[strcspn(line, "\n")] = 0;
             if (*line)
-                ok += render_one(line, r, size, out, idx);
+                ok += render_one(line, r, p, size, out, idx);
             idx++;
         }
         fclose(f);
@@ -211,16 +249,16 @@ int main(int argc, char **argv) {
                     y++;
                 snprintf(iso2, sizeof iso2, "%04d-%02d-%02dT%02d:%02d", y, m, d, h, mi);
             }
-            ok += render_one(iso2, rot, size, out, k);
+            ok += render_one(iso2, rot, g_pole_deg, size, out, k);
         }
         printf("%d frames -> %s\n", ok, out);
         return ok == frames ? 0 : 1;
     }
 
     if (iso)
-        return render_one(iso, rot, size, out, -1) ? 0 : 1;
+        return render_one(iso, rot, g_pole_deg, size, out, -1) ? 0 : 1;
 
     fprintf(stderr, "usage: moon_sim --utc ISO|--list FILE|--frames N --start S --end E\n"
-                    "                [--rot deg] [--size 400|466] [--out DIR] [--darkzero]\n");
+                    "                [--rot deg] [--pole deg] [--size 400|466] [--out DIR] [--darkzero]\n");
     return 2;
 }
