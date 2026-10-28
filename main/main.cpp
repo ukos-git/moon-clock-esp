@@ -175,28 +175,41 @@ static TaskStatus_t s_cpu_prev[CPU_STATS_MAX_TASKS];
 static UBaseType_t s_cpu_prev_n = 0;
 
 static void cpu_stats_log(const char *phase) {
+    int64_t w0 = esp_timer_get_time();
     uint32_t total = 0;
     TaskStatus_t cur[CPU_STATS_MAX_TASKS];
     UBaseType_t n = uxTaskGetSystemState(cur, CPU_STATS_MAX_TASKS, &total);
-    if (total == 0 || s_cpu_prev_n == 0) {
+    (void)total; /* cumulative since boot; not the window total */
+    if (s_cpu_prev_n == 0) {
         memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
         s_cpu_prev_n = n;
         return; /* first sample: seed, nothing to diff */
     }
-    unsigned dt = (unsigned)total; /* total run-time over this ~1 s window */
-    ESP_LOGW(TAG, "CPU %s (dt=%u):", phase, dt);
+    /* Per-task delta over this window (run-time, in the stats clock --
+     * esp_timer, so microseconds) and the window's total busy CPU (the
+     * sum of all deltas: how much of the two cores the system actually
+     * used this second). */
+    unsigned d[CPU_STATS_MAX_TASKS] = {0};
+    uint64_t busy = 0;
     for (UBaseType_t i = 0; i < n; i++) {
-        uint32_t prev = 0;
         for (UBaseType_t j = 0; j < s_cpu_prev_n; j++) {
             if (strcmp(s_cpu_prev[j].pcTaskName, cur[i].pcTaskName) == 0) {
-                prev = s_cpu_prev[j].ulRunTimeCounter;
+                d[i] = (unsigned)(cur[i].ulRunTimeCounter - s_cpu_prev[j].ulRunTimeCounter);
+                busy += d[i];
                 break;
             }
         }
-        unsigned d = (unsigned)(cur[i].ulRunTimeCounter - prev);
-        unsigned pct = (unsigned)(((uint64_t)d * 100) / dt);
-        if (pct > 0)
-            ESP_LOGW(TAG, "  %-16s %3u%%  (%u)", cur[i].pcTaskName, pct, d);
+    }
+    int64_t wall = esp_timer_get_time() - w0;
+    unsigned pct1core = (unsigned)(((uint64_t)busy * 100) / (unsigned)wall); /* 100% = one core */
+    ESP_LOGW(TAG, "CPU %s: busy %u/%uus = %u%% of one core (of 200%%):", phase, (unsigned)busy, (unsigned)wall,
+             pct1core);
+    for (UBaseType_t i = 0; i < n; i++) {
+        if (d[i] == 0)
+            continue;
+        unsigned pct = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)busy); /* share of used CPU */
+        unsigned abs = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)wall); /* of one core */
+        ESP_LOGW(TAG, "  %-16s %3u%% used  (%u%% 1-core, %uus)", cur[i].pcTaskName, pct, abs, d[i]);
     }
     memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
     s_cpu_prev_n = n;
