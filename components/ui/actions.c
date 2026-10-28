@@ -184,7 +184,8 @@ static const struct roll_script_step s_roll_script[] = {
 };
 #define ROLL_SCRIPT_END_S 28
 
-static bool s_roll_test_on; /* the synthetic gravity is feeding the roll */
+static bool s_roll_test_on;   /* the synthetic gravity is feeding the roll */
+static bool s_roll_test_done; /* the script runs once, not on every wait elapse */
 static uint32_t s_roll_test_wait_s = CONFIG_TEST_ROLL_TILT_SEC;
 static uint32_t s_roll_test_elapsed_s;
 static float s_roll_test_phi;
@@ -225,15 +226,24 @@ static void clock_roll_apply(void) {
         if (!imu_is_ready() || !imu_read_gravity(g))
         return;
     /* Rate gate: one apply per ROLL_RATE_MS (the UI tick is 10 ms awake /
-     * 100 ms light sleep, paused in deep sleep where the clock is hidden). */
+     * 100 ms light sleep, paused in deep sleep where the clock is hidden).
+     * esp_timer_get_time() is in MICROSECONDS -- convert to ms before the
+     * dt-aware low-pass and the <=5 deg/s ramp. (Comparing the us value
+     * against the ms constants made every 10 ms tick look like a 1 s
+     * pause: the gate passed every tick and dt was clamped to 1000 ms, so
+     * the "calm" ramp ran at 5 deg per 10 ms tick = 500 deg/s and the
+     * 0.25 Hz low-pass at tau 10 ms -- found via the TEST_ROLL_TILT_SEC
+     * capture, where the 25 deg ramp completed in five 10 ms steps.) */
     int64_t now = esp_timer_get_time();
-    int64_t dt_raw = now - s_roll_last_ms;
-    if (dt_raw < ROLL_RATE_MS)
+    int64_t dt_us = now - s_roll_last_ms;
+    if (dt_us < (int64_t)ROLL_RATE_MS * 1000)
         return;
-    int32_t dt_ms = (int32_t)(dt_raw > ROLL_DT_CLAMP_MS ? ROLL_DT_CLAMP_MS : dt_raw);
+    s_roll_last_ms = now;
+    int32_t dt_ms = (int32_t)(dt_us / 1000);
+    if (dt_ms > ROLL_DT_CLAMP_MS)
+        dt_ms = ROLL_DT_CLAMP_MS;
     if (dt_ms < ROLL_RATE_MS)
         dt_ms = ROLL_RATE_MS;
-    s_roll_last_ms = now;
 
     /* New input only when the roll is observable (gravity with a screen-
      * plane component). Otherwise the ramp below still runs toward the last
@@ -331,6 +341,8 @@ static void clock_roll_apply(void) {
 void action_roll_test_cb(lv_timer_t *timer) {
     (void)timer;
     if (!s_roll_test_on) {
+        if (s_roll_test_done)
+            return; /* the wait counter stays 0 after the first run */
         if (s_roll_test_wait_s > 0) {
             s_roll_test_wait_s--;
             return;
@@ -359,6 +371,7 @@ void action_roll_test_cb(lv_timer_t *timer) {
     if (s_roll_test_elapsed_s > ROLL_SCRIPT_END_S) {
         ESP_LOGW(TAG, "TEST roll tilt: done (ramp back at 0? check the 'clock roll' lines)");
         s_roll_test_on = false;
+        s_roll_test_done = true;
         clock_idle_set_enabled(true);
         clock_idle_reset_timer();
         return;
