@@ -321,13 +321,6 @@ static void screen_orientation_apply(void) {
     if (gx_q * gx_q + gy_q * gy_q < ORI_FLAT_GATE2)
         return;
 
-    if (!s_have_ref) {
-        s_ref_qx = gx_q;
-        s_ref_qy = gy_q;
-        s_have_ref = true;
-        return; /* the resting pose is the current pose: orientation 0 */
-    }
-
     /* Push the sample into the 1 s window. */
     s_win_x[s_win_head] = gx_q;
     s_win_y[s_win_head] = gy_q;
@@ -344,6 +337,21 @@ static void screen_orientation_apply(void) {
     /* The 1 Hz running mean (rounded, int4 scale). */
     int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
     int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
+
+    /* Seed the settled-pose reference from the 1 s FILTERED mean, not
+     * a single raw sample: the old first-sample seed anchored the home
+     * pose on whatever the IMU reported in the first non-flat sample
+     * (a transient while the device was being placed, picked up, or
+     * woken -> the home pose was off by a 90-degree step "from time to
+     * time"). The mean needs the full 1 s window, so the first ~1 s
+     * after the pipeline enables is seed-building (orientation stays
+     * at the base, unchanged) and the anchor is the settled pose. */
+    if (!s_have_ref) {
+        s_ref_qx = fx;
+        s_ref_qy = fy;
+        s_have_ref = true;
+        return; /* the resting pose is the current pose: orientation 0 */
+    }
 
     /* The departure: the direction of the filtered gravity from the
      * reference direction -- integer dot/cross only (no atan2). Screen
