@@ -158,15 +158,19 @@ static void settings_demo_cb(lv_timer_t *timer) {
 // the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS). Profiling
 // aid for which task burns the settings-idle CPU and the spin CPU. After
 // N seconds of waiting (so the boot sweep is done and the device rests),
-// it logs every task's share of total CPU time once per second: ~1 s on
+// it logs every task's share of the busy CPU once per second: 10 s on
 // the home screen (the coast-spin), then it loads the settings hub and
-// logs there for ~90 s. The % is the per-window delta (task run-time
-// delta / total run-time delta), so it is not skewed by the boot sweep's
-// earlier run time. 0 (default) = off.
+// logs there for 30 s. The % is the per-window delta: each task's
+// run-time delta over the window's busy total (the sum of the per-task
+// deltas), plus its absolute one-core percentage. 0 (default) = off.
 #ifndef CONFIG_TEST_CPU_STATS_SEC
 #define CONFIG_TEST_CPU_STATS_SEC 0
 #endif
 
+/* The run-time stats API (uxTaskGetSystemState) only exists with the
+ * FreeRTOS trace facility + run-time stats enabled; without them the
+ * log function is a no-op. */
+#if defined(CONFIG_FREERTOS_USE_TRACE_FACILITY) && defined(CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS)
 #define CPU_STATS_MAX_TASKS 32
 #define CPU_STATS_HOME_SEC 10 /* seconds on the home screen before the hub */
 #define CPU_STATS_HUB_SEC 30
@@ -214,6 +218,11 @@ static void cpu_stats_log(const char *phase) {
     memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
     s_cpu_prev_n = n;
 }
+#else /* run-time stats off: the hook's log is a no-op */
+static void cpu_stats_log(const char *phase) { (void)phase; }
+#define CPU_STATS_HOME_SEC 10
+#define CPU_STATS_HUB_SEC 30
+#endif
 
 static void cpu_stats_cb(lv_timer_t *timer) {
     (void)timer;
