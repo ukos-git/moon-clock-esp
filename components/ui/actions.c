@@ -545,6 +545,19 @@ static void boot_handoff_timer_cb(lv_timer_t *timer) {
     int64_t elapsed_ms = esp_timer_get_time() - s_boot_handoff_t0_ms;
     if (!s_boot_handoff_saw_sweep && elapsed_ms < 1000)
         return;
+    /* Only the WiFi screen hands off: an interrupted boot sweep may
+     * have left the device on the alarm screen (touch to dismiss) or
+     * the user on a settings screen, and the poller must not clobber
+     * either. On any other screen the boot sync is over -- just stop
+     * polling. */
+    if (ui_current_screen() != SCREEN_ID_WIFI) {
+        ESP_LOGI(TAG, "Boot sync hand-off: not on the WiFi screen (%d); leaving it", (int)ui_current_screen());
+        if (s_boot_handoff_timer) {
+            lv_timer_delete(s_boot_handoff_timer);
+            s_boot_handoff_timer = NULL;
+        }
+        return;
+    }
     ESP_LOGI(TAG, "Boot sync hand-off: WiFi -> airplane screen");
     loadScreen(SCREEN_ID_MODEM_SLEEP);
     ui_tick();
