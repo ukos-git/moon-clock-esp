@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <string.h>
+
 #include "driver/gpio.h"
 #include "esp_err.h" // required by bsp until PR goes through
 #include "esp_io_expander.h"
@@ -14,6 +17,7 @@
 #include "ui.h"
 
 #include "clock.h"
+#include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
 #include "settings_store.h"
 #include "wifi.h"
@@ -22,6 +26,9 @@
 
 #ifndef CONFIG_TEST_AUTO_WAKE_SEC
 #define CONFIG_TEST_AUTO_WAKE_SEC 0
+#endif
+#ifndef CONFIG_TEST_SETTINGS_DEMO_SEC
+#define CONFIG_TEST_SETTINGS_DEMO_SEC 0
 #endif
 
 static const char *TAG = "main";
@@ -45,6 +52,99 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
     asleep_s = 0;
     ESP_LOGW(TAG, "TEST auto-wake: firing idle wake after %us in sleep", CONFIG_TEST_AUTO_WAKE_SEC);
     clock_idle_notify_tilt_activity();
+}
+
+// Test hook (CONFIG_TEST_SETTINGS_DEMO_SEC): the scripted settings run.
+// Headless acceptance path for the settings stack: it walks hub ->
+// pomodoro -> alarm-time -> light-sleep -> airplane one screen per
+// second, writes a real pomodoro interval (90 min -- also the cron
+// N>59 sanity case), a fixed-time alarm (12:34, all days), and the
+// sleep settings (idle timeout, countdown, animation flags), logs
+// every transition + write, and reads both SPIFFS files back. Runs in
+// the LVGL task like the real user flow; idle monitoring is off for
+// the ~5 s it runs (it would otherwise dusk-sleep mid-script).
+static void settings_demo_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_SETTINGS_DEMO_SEC <= 0)
+        return;
+    static uint32_t wait_s = (uint32_t)CONFIG_TEST_SETTINGS_DEMO_SEC;
+    static int step = 0;
+    if (step >= 6)
+        return;
+    if (wait_s > 0) {
+        if (--wait_s > 0)
+            return;
+        ESP_LOGW(TAG, "TEST settings demo: starting");
+        clock_idle_set_enabled(false);
+    }
+    /* Wait out the boot sync: a hub switch during the transient WiFi
+     * screen would race the sync-complete pickup. */
+    if (step == 0 && ui_current_screen() == SCREEN_ID_WIFI)
+        return;
+    esp_err_t r;
+    switch (step++) {
+    case 0:
+        loadScreen(SCREEN_ID_SETTINGS_HUB);
+        ui_tick();
+        ESP_LOGW(TAG, "TEST settings demo: -> hub");
+        break;
+    case 1:
+        loadScreen(SCREEN_ID_SETTINGS_POMODORO);
+        ui_tick();
+        r = clock_alarm_set_pomodoro_interval(90);
+        ESP_LOGW(TAG, "TEST settings demo: pomodoro every 90 min -> %s", esp_err_to_name(r));
+        break;
+    case 2:
+        loadScreen(SCREEN_ID_SETTINGS_ALARM_TIME);
+        ui_tick();
+        r = clock_alarm_set_clock_alarm(12, 34, 0x7F);
+        ESP_LOGW(TAG, "TEST settings demo: clock alarm 12:34 (all days) -> %s", esp_err_to_name(r));
+        break;
+    case 3:
+        loadScreen(SCREEN_ID_SETTINGS_LIGHT_SLEEP);
+        ui_tick();
+        settings_set_idle_timeout_sec(60);
+        clock_idle_set_timeout_ms(60ULL * 1000ULL);
+        settings_set_deep_sleep_countdown_sec(60);
+        settings_set_boot_anim_enable(false);
+        settings_set_dusk_anim_enable(true);
+        r = settings_store_save();
+        ESP_LOGW(TAG, "TEST settings demo: sleep settings (idle=60, countdown=60, boot=off, dusk=on) -> %s",
+                 esp_err_to_name(r));
+        break;
+    case 4: {
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        clock_idle_set_enabled(true);
+        clock_idle_reset_timer();
+        ESP_LOGW(TAG, "TEST settings demo: -> airplane; reading back the SPIFFS files");
+        FILE *f = fopen("/spiffs/alarm.txt", "r");
+        if (f) {
+            char line[128];
+            while (fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\r\n")] = 0;
+                ESP_LOGW(TAG, "  alarm.txt| %s", line);
+            }
+            fclose(f);
+        } else {
+            ESP_LOGW(TAG, "  alarm.txt| (missing)");
+        }
+        f = fopen("/spiffs/settings.txt", "r");
+        if (f) {
+            char line[128];
+            while (fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\r\n")] = 0;
+                ESP_LOGW(TAG, "  settings.txt| %s", line);
+            }
+            fclose(f);
+        } else {
+            ESP_LOGW(TAG, "  settings.txt| (missing)");
+        }
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 extern "C" void app_main(void) {
@@ -182,6 +282,11 @@ extern "C" void app_main(void) {
     // (CONFIG_TEST_AUTO_WAKE_SEC; 0 = off).
     if (CONFIG_TEST_AUTO_WAKE_SEC > 0)
         lv_timer_create(auto_wake_test_cb, 1000, NULL);
+
+    // Test hook: the scripted settings run (CONFIG_TEST_SETTINGS_DEMO_SEC;
+    // 0 = off).
+    if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0)
+        lv_timer_create(settings_demo_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
     ESP_LOGI(TAG, "Sleep transitions: AIRPLANE -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");

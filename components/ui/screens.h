@@ -19,30 +19,31 @@ extern "C" {
  *    reads the same three. BASE is the index of the <screen>_clock__clock
  *    member below:
  *
- *      [0]  modem_sleep              [11]  modem_sleep_clock
- *      [1]  wifi                     [12]  modem_sleep_clock__clock        BASE 12
- *      [2]  light_sleep              [13]  ..._label_clock_time
- *      [3]  deep_sleep               [14]  ..._label_clock_alarm
- *      [4]  alarm                    [15]  arc_clock_seconds_modem
- *      [5]  settings_hub             [16]  wifi_clock
- *      [6]  settings_alarm           [17]  wifi_clock__clock               BASE 17
- *      [7]  settings_pomodoro        [18]  ..._label_clock_time
- *      [8]  settings_alarm_time      [19]  ..._label_clock_alarm
- *      [9]  settings_light_sleep     [20]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [21]  light_sleep_clock
- *                                 [22]  light_sleep_clock__clock          BASE 22
- *                                 [23]  ..._label_clock_time
- *                                 [24]  ..._label_clock_alarm
- *                                 [25]  deep_sleep_clock
- *                                 [26]  deep_sleep_clock__clock           BASE 26
- *                                 [27]  ..._label_clock_time
- *                                 [28]  ..._label_clock_alarm
- *                                 [29]  screen_indicator_sleep1
- *                                 [30]  alarm_clock
- *                                 [31]  alarm_clock__clock                BASE 31
- *                                 [32]  ..._label_clock_time
- *                                 [33]  ..._label_clock_alarm
- *                                 [34]  screen_indicator_alarm
+ *      [0]  modem_sleep              [12]  modem_sleep_clock
+ *      [1]  wifi                     [13]  modem_sleep_clock__clock        BASE 13
+ *      [2]  light_sleep              [14]  ..._label_clock_time
+ *      [3]  deep_sleep               [15]  ..._label_clock_alarm
+ *      [4]  alarm                    [16]  arc_clock_seconds_modem
+ *      [5]  settings_hub             [17]  wifi_clock
+ *      [6]  settings_alarm           [18]  wifi_clock__clock               BASE 18
+ *      [7]  settings_pomodoro        [19]  ..._label_clock_time
+ *      [8]  settings_alarm_time      [20]  ..._label_clock_alarm
+ *      [9]  settings_light_sleep     [21]  arc_clock_seconds_wifi
+ *      [10] settings_deep_sleep      [22]  light_sleep_clock
+ *      [11] settings_wifi            [23]  light_sleep_clock__clock        BASE 23
+ *                                 [24]  ..._label_clock_time
+ *                                 [25]  ..._label_clock_alarm
+ *                                 [26]  deep_sleep_clock
+ *                                 [27]  deep_sleep_clock__clock           BASE 27
+ *                                 [28]  ..._label_clock_time
+ *                                 [29]  ..._label_clock_alarm
+ *                                 [30]  screen_indicator_sleep1
+ *                                 [31]  alarm_clock
+ *                                 [32]  alarm_clock__clock                BASE 32
+ *                                 [33]  ..._label_clock_time
+ *                                 [34]  ..._label_clock_alarm
+ *                                 [35]  screen_indicator_alarm
+ *                                 [36]  settings_hub_exit        (the settings hub's central exit)
  */
 typedef struct _objects_t {
     /* Screen roots (loadScreen index = ScreensEnum value - 1). */
@@ -57,6 +58,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_alarm_time;
     lv_obj_t *settings_light_sleep;
     lv_obj_t *settings_deep_sleep;
+    lv_obj_t *settings_wifi;
     /* Per-screen children (see the layout contract above). */
     lv_obj_t *modem_sleep_clock;
     lv_obj_t *modem_sleep_clock__clock;
@@ -82,6 +84,7 @@ typedef struct _objects_t {
     lv_obj_t *alarm_clock__label_clock_time;
     lv_obj_t *alarm_clock__label_clock_alarm;
     lv_obj_t *screen_indicator_alarm;
+    lv_obj_t *settings_hub_exit;
 } objects_t;
 
 extern objects_t objects;
@@ -98,6 +101,7 @@ enum ScreensEnum {
     SCREEN_ID_SETTINGS_ALARM_TIME,
     SCREEN_ID_SETTINGS_LIGHT_SLEEP,
     SCREEN_ID_SETTINGS_DEEP_SLEEP,
+    SCREEN_ID_SETTINGS_WIFI,
 };
 
 void create_screen_modem_sleep();
@@ -135,6 +139,16 @@ void tick_screen_settings_light_sleep();
 
 void create_screen_settings_deep_sleep();
 void tick_screen_settings_deep_sleep();
+
+void create_screen_settings_wifi();
+void tick_screen_settings_wifi();
+
+/* Shared concentric exit button (grey ring + black inner disc + white
+ * xmark), used by the settings hub (central) and every sub-screen
+ * (top-centre). Returns the outer ring obj; a tap on it fires
+ * LV_EVENT_CLICKED on it. The xmark label sits centred on the ring and
+ * is non-clickable (the ring catches the tap). */
+lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size);
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex);
 void tick_user_widget_clock(int startWidgetIndex);

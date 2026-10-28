@@ -179,6 +179,22 @@ menu "UI Component Configuration"
             re-bake/animation) be exercised repeatedly without touching
             the device. 0 (default) = off.
 
+    config TEST_SETTINGS_DEMO_SEC
+        int "Test: scripted settings run N seconds after boot (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: run the scripted settings flow N seconds after
+            boot (waits out the boot sync first): settings hub ->
+            pomodoro (set + save a 90-minute interval) -> alarm time
+            (set + save 12:34 on all days) -> light-sleep (set the
+            idle timeout + countdown + animation flags + save) ->
+            airplane, logging every transition, the scheduler /
+            settings-store writes, and reading the alarm / settings
+            files back. Headless acceptance path for the whole
+            settings stack (state machine, persistence, scheduler
+            math). 0 (default) = off.
+
     config TEST_BAKE_NO_RELIEF
         bool "Test: bake without the relief gradient cache (perf A/B)"
         default n
