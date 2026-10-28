@@ -311,6 +311,16 @@ static volatile float s_spin_last_rad;  /* the on-screen orientation (the last
                                          * orbit sweep or a re-bake re-anchor).
                                          * Read on wake to resume the spin from
                                          * exactly where it paused. */
+/* The angle of the last frame the DISPLAY actually showed (rad). The
+ * coast-skip gate: while the on-screen frame is still "good enough"
+ * (the accumulated rotation since it moved the rim by < 1 px) the
+ * render re-integrates the angle but skips the gather AND the display
+ * flush (see the loop) -- a settled burn-in coast is sub-pixel per
+ * frame, so both cores go idle between the occasional 1-px step
+ * instead of re-flushing the whole moon ~4x/s for a motion that is not
+ * visible. The on-screen pose (s_spin_last_rad) and the skip gate use
+ * the same value, so wake resumes from exactly the last shown pose. */
+static volatile float s_spin_shown_rad;
 static TaskHandle_t s_spin_task;
 static SemaphoreHandle_t s_spin_shown; /* the display has drained s_rgb */
 static SemaphoreHandle_t s_rgb_mtx;    /* guards s_rgb (+ s_frame while baking) */
@@ -646,13 +656,36 @@ static void moon_spin_task(void *arg) {
         s_spin_omega += (w_target - s_spin_omega) * alpha;
         s_spin_theta += s_spin_omega * dt;
         float rad = (float)fmod(s_spin_theta, 6.283185307179586);
+        /* Coast-skip (see s_spin_shown_rad): the rotation since the last
+         * DISPLAYED frame moves the rim (r = MOON_PX/2) by |d|*R px.
+         * While that is < 1 px the on-screen frame is still
+         * indistinguishable, so re-integrate (theta already advanced
+         * above) but SKIP the gather AND the display flush -- a settled
+         * burn-in coast is sub-pixel per frame, so both cores go idle
+         * between the occasional 1-px step instead of re-flushing the
+         * whole moon ~4x/s for motion that is not visible. An active
+         * spin (>= 1 px/frame) always passes the gate. */
+        float d = rad - s_spin_shown_rad;
+        while (d > 3.14159265f)
+            d -= 6.283185307179586f;
+        while (d < -3.14159265f)
+            d += 6.283185307179586f;
+        if (d < 0.0f)
+            d = -d;
+        if (d * (MOON_PX / 2.0f) < 1.0f) {
+            xSemaphoreGive(s_rgb_mtx);
+            xSemaphoreGive(s_spin_shown); /* the loop re-takes + re-integrates */
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
         moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                     moon_cos15(rad), moon_sin15(rad));
-        s_spin_last_rad = rad; /* the on-screen orientation once this frame
-                                * is drained (its pixels cannot be overwritten
-                                * until s_spin_shown); the wake path resumes
-                                * the spin from exactly this angle. */
-        s_spin_ready = true;   /* the display shows it in batches */
+        s_spin_last_rad = rad;  /* the on-screen orientation once this frame
+                                 * is drained (its pixels cannot be overwritten
+                                 * until s_spin_shown); the wake path resumes
+                                 * the spin from exactly this angle. */
+        s_spin_shown_rad = rad; /* the coast-skip gate's baseline */
+        s_spin_ready = true;    /* the display shows it in batches */
         xSemaphoreGive(s_rgb_mtx);
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
         /* Pace: the display is the bottleneck (a batch takes longer than
@@ -679,6 +712,9 @@ static void moon_spin_reanchor(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     s_spin_theta = 0.0;
     s_spin_last_rad = 0.0f;
+    s_spin_shown_rad = 0.0f; /* the on-screen frame is now the identity
+                              * (angle-0) pose; the coast-skip baseline
+                              * follows it */
     xSemaphoreGive(s_rgb_mtx);
 }
 
