@@ -41,6 +41,17 @@ CONFIG_CODEC_ES8374_SUPPORT=n
 CONFIG_CODEC_ES8388_SUPPORT=n
 CONFIG_CODEC_TAS5805M_SUPPORT=n
 CONFIG_IO_EXPANDER_ENABLE_GPIO_API_WRAPPER=n
+# LVGL allocator backend: the C library (NOT the built-in 64 KB static
+# internal pool). The tilt clock-roll sets a style transform_rotation on
+# the full-screen 466x466 clock containers; LVGL renders a transformed
+# object into ONE unchunked layer of its whole rotated bounding box
+# (up to ~659x659 @ RGB565 ~= 0.9 MB), allocated via lv_malloc. The
+# built-in pool (LV_MEM_SIZE, 64 KB static internal RAM) cannot hold that,
+# the alloc returns NULL and LVGL dereferences the NULL layer on the first
+# tilt (crash). With the clib backend lv_malloc is libc malloc, which on the
+# SPIRAM-enabled S3 places the large layer in PSRAM (7.7 MB free). Only cost:
+# LV_USE_MEM_MONITOR (depends on builtin) -- unused by this UI.
+CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_MEM_SIZE_KILOBYTES=64
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_COLOR_MIX_ROUND_OFS=128

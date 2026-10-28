@@ -120,30 +120,44 @@ static void wifi_sync_kickoff(void) {
  * screen normal and the in-plane angle is undefined -- then the last
  * correction is kept (0 at a fixed resting pose).
  *
- * The correction is the roll's DEPARTURE from a settled-pose reference (a
- * slow EMA updated only while the tilt monitor reports settled --
+ * The correction is the roll's DEPARTURE from a settled-pose reference
+ * (updated only while the tilt monitor reports settled --
  * moon_ui_tilt_settled -- so at-rest drift does not walk the text around),
  * dead-zoned to 1 deg. Steady state (settled pose) => correction 0 => LVGL
  * takes its direct draw path: zero cost. The cost is only paid while the
  * device is actively tilted. UI_CLOCK_ROLL_SIGN flips it for a mirrored
  * board mount (if the text counter-rotates the wrong way, set it to -1).
- */
+ *
+ * The motion is CALM: the raw roll is rounded to 5 deg, low-passed at
+ * 0.25 Hz (a dt-aware running mean that absorbs the 5-deg rounding and the
+ * tick delay), and the applied correction ramps toward that target at at
+ * most 5 deg/s in intermediate steps -- each step is its own LVGL frame,
+ * new tilt inputs simply re-target the ramp on the next tick. The rotation
+ * pivot is the screen centre (LVGL's transform_pivot default is the
+ * top-left, which swung the full-screen container off the panel). */
 #ifndef CONFIG_UI_IMU_ENABLE
 #define CONFIG_UI_IMU_ENABLE 1
 #endif
 #ifndef CONFIG_UI_CLOCK_ROLL_SIGN
 #define CONFIG_UI_CLOCK_ROLL_SIGN 1
 #endif
-#define ROLL_ALPHA 0.2f                /* shortest-path EMA of the current roll */
-#define ROLL_REF_ALPHA 0.2f            /* the settled reference (tracks only while settled) */
-#define ROLL_DEADZONE_RAD 0.017453293f /* 1 deg */
-#define ROLL_FLAT_GATE 0.25f           /* below |g_xy| the roll is undefined */
-#define ROLL_RATE_MS 50                /* apply-rate gate (the UI tick is 10 ms awake) */
+#define ROLL_LPF_TAU_MS 637         /* 0.25 Hz 1st-order low-pass: tau = 1/(2*pi*0.25) s */
+#define ROLL_ROUND5_DEG 5.0f        /* the filter input is rounded to 5 deg */
+#define ROLL_REF_ALPHA 0.2f         /* settled-reference EMA (tracks only while settled) */
+#define ROLL_SPEED_100_PER_S 500.0f /* calm ramp: 5 deg/s in 1/100 deg units */
+#define ROLL_DEADZONE_DEG 1.0f      /* below this the departure is 0 (relax to rest) */
+#define ROLL_FLAT_GATE 0.25f        /* below |g_xy| the roll is undefined */
+#define ROLL_RATE_MS 50             /* apply-rate gate (the UI tick is 10 ms awake) */
+#define ROLL_DT_CLAMP_MS 1000       /* clamp dt after a tick pause */
+#define ROLL_DEG_TO_RAD 0.017453293f
+#define ROLL_RAD_TO_100 5729.578f /* radians -> 1/100 deg (LVGL transform is 1/10 deg) */
 
-static float s_roll_ema;  /* shortest-path EMA of the in-plane roll, rad */
-static float s_roll0_ema; /* the settled-pose roll reference, rad */
+static float s_lp_roll;    /* 0.25 Hz low-pass of the 5-deg-rounded departure, rad */
+static float s_ref_roll;   /* the settled-pose reference roll, rad */
+static int32_t s_cur_100;  /* the applied rotation, 1/100 deg (the ramp position) */
+static int32_t s_last_v10; /* the last value pushed to LVGL, 1/10 deg (dedupe) */
 static bool s_have_roll;
-static int32_t s_roll_v10; /* the last applied correction, 1/10 deg */
+static bool s_pivot_done; /* the centre pivot is set once */
 static int64_t s_roll_last_ms;
 
 /* Wrap an angle difference to [-pi, pi] (the shortest path). */
@@ -157,56 +171,104 @@ static float roll_wrap(float a) {
 
 /* Called from the UI tick (LVGL task): counter-rotate the clock containers
  * + seconds arcs by the device's in-plane roll departure from the settled
- * pose, so the clock text/arc stay horizontal while the device is tilted. */
+ * pose, so the clock text/arc stay horizontal while the device is tilted.
+ *
+ * The applied value (s_cur_100, 1/100 deg) ramps toward the 0.25 Hz
+ * low-passed, 5-deg-rounded departure at at most 5 deg/s (intermediate
+ * frames; new tilt inputs re-target the ramp on the next apply). LVGL's
+ * transform_rotation is 1/10 deg, so the ramp value is divided by 10 when
+ * pushed. The rotation pivot is the screen centre (LVGL's default is the
+ * top-left, which swung the full-screen container off the panel). */
 static void clock_roll_apply(void) {
     if (!CONFIG_UI_IMU_ENABLE || !imu_is_ready())
         return;
     float g[3];
     if (!imu_read_gravity(g))
         return;
-    /* Roll undefined when gravity is parallel to the screen normal
-     * (exactly vertical or flat): keep the last correction. */
-    float m = hypotf(g[0], g[1]);
-    if (m < ROLL_FLAT_GATE)
-        return;
-    float roll = atan2f(g[1], g[0]);
-    if (!s_have_roll) {
-        s_roll_ema = roll;
-        s_roll0_ema = roll;
-        s_have_roll = true;
-        s_roll_v10 = 0;
-        return; /* seed both EMAs: zero correction */
-    }
-    /* Shortest-path EMA of the current roll (per-sample noise suppressed). */
-    s_roll_ema += ROLL_ALPHA * roll_wrap(roll - s_roll_ema);
-    /* The settled reference tracks only while settled, so at-rest drift
-     * (the reference follows the pose) cannot walk the text around. */
-    if (moon_ui_tilt_settled())
-        s_roll0_ema += ROLL_REF_ALPHA * roll_wrap(s_roll_ema - s_roll0_ema);
-    float corr = roll_wrap(s_roll_ema - s_roll0_ema);
-    if (fabsf(corr) < ROLL_DEADZONE_RAD) /* 1 deg dead zone */
-        corr = 0.0f;
-    int32_t v10 = (int32_t)lrintf(corr * 5729.578f * (float)CONFIG_UI_CLOCK_ROLL_SIGN);
-    /* Apply only on a change and rate-gated (the UI tick is 10 ms awake /
+    /* Rate gate: one apply per ROLL_RATE_MS (the UI tick is 10 ms awake /
      * 100 ms light sleep, paused in deep sleep where the clock is hidden). */
     int64_t now = esp_timer_get_time();
-    if (v10 == s_roll_v10 || now - s_roll_last_ms < ROLL_RATE_MS)
+    int64_t dt_raw = now - s_roll_last_ms;
+    if (dt_raw < ROLL_RATE_MS)
         return;
+    int32_t dt_ms = (int32_t)(dt_raw > ROLL_DT_CLAMP_MS ? ROLL_DT_CLAMP_MS : dt_raw);
+    if (dt_ms < ROLL_RATE_MS)
+        dt_ms = ROLL_RATE_MS;
     s_roll_last_ms = now;
-    int32_t old = s_roll_v10;
-    s_roll_v10 = v10;
-    if (objects.modem_sleep_clock)
-        lv_obj_set_style_transform_rotation(objects.modem_sleep_clock, v10, 0);
-    if (objects.wifi_clock)
-        lv_obj_set_style_transform_rotation(objects.wifi_clock, v10, 0);
-    if (objects.light_sleep_clock)
-        lv_obj_set_style_transform_rotation(objects.light_sleep_clock, v10, 0);
-    if (objects.deep_sleep_clock)
-        lv_obj_set_style_transform_rotation(objects.deep_sleep_clock, v10, 0);
+
+    /* New input only when the roll is observable (gravity with a screen-
+     * plane component). Otherwise the ramp below still runs toward the last
+     * low-passed target: the last correction is kept. */
+    float m = hypotf(g[0], g[1]);
+    if (m >= ROLL_FLAT_GATE) {
+        float roll = atan2f(g[1], g[0]);
+        if (!s_have_roll) {
+            s_ref_roll = roll;
+            s_lp_roll = 0.0f;
+            s_cur_100 = 0;
+            s_last_v10 = 0;
+            s_have_roll = true;
+        }
+        /* The settled reference tracks only while settled, so at-rest drift
+         * (the reference follows the pose) cannot walk the text around. */
+        if (moon_ui_tilt_settled())
+            s_ref_roll += ROLL_REF_ALPHA * roll_wrap(roll - s_ref_roll);
+        /* Filter input: the departure from the settled pose, dead-zoned to
+         * 1 deg and ROUNDED to 5 deg. */
+        float dep = roll_wrap(roll - s_ref_roll);
+        if (fabsf(dep) < ROLL_DEADZONE_DEG * ROLL_DEG_TO_RAD)
+            dep = 0.0f;
+        float r5 = ROLL_ROUND5_DEG * ROLL_DEG_TO_RAD;
+        float rounded = lrintf(dep / r5) * r5;
+        /* 0.25 Hz first-order low-pass (dt-aware running mean). */
+        s_lp_roll += (1.0f - expf(-(float)dt_ms / (float)ROLL_LPF_TAU_MS)) * roll_wrap(rounded - s_lp_roll);
+    }
+
+    /* Ramp the applied value toward the low-passed target, <= 5 deg/s. */
+    float target_100 = s_lp_roll * ROLL_RAD_TO_100 * (float)CONFIG_UI_CLOCK_ROLL_SIGN;
+    float max_step = ROLL_SPEED_100_PER_S * ((float)dt_ms / 1000.0f);
+    float delta = target_100 - (float)s_cur_100;
+    if (delta > max_step)
+        delta = max_step;
+    else if (delta < -max_step)
+        delta = -max_step;
+    s_cur_100 = (int32_t)lrintf((float)s_cur_100 + delta);
+
+    int32_t v10 = s_cur_100 / 10; /* 1/100 deg -> 1/10 deg (LVGL transform unit) */
+    if (v10 == s_last_v10)
+        return; /* nothing new to draw */
+    int32_t old = s_last_v10;
+    s_last_v10 = v10;
+    float deg = (float)v10 / 10.0f;
+    /* The clock containers rotate via the LVGL transform (pivot = screen
+     * centre; LVGL's default is the top-left, which swung the full-screen
+     * container off the panel). The rotated layer of a full-screen
+     * container needs ~0.5-1.8 MB and comes from the C-library malloc
+     * (sdkconfig.defaults: clib backend), so it lands in PSRAM -- the
+     * built-in 64 KB LVGL pool cannot hold it (crash on first tilt). */
+    lv_obj_t *conts[4] = {
+        objects.modem_sleep_clock,
+        objects.wifi_clock,
+        objects.light_sleep_clock,
+        objects.deep_sleep_clock,
+    };
+    for (int i = 0; i < 4; i++) {
+        if (!conts[i])
+            continue;
+        if (!s_pivot_done) {
+            lv_obj_set_style_transform_pivot_x(conts[i], LV_PCT(50), 0);
+            lv_obj_set_style_transform_pivot_y(conts[i], LV_PCT(50), 0);
+        }
+        lv_obj_set_style_transform_rotation(conts[i], v10, 0);
+    }
+    s_pivot_done = true;
+    /* The seconds arcs rotate NATIVELY (lv_arc's own 0-360 deg offset,
+     * drawn directly -- no transform layer) about their own centre, which
+     * is the screen centre: same rigid body as the containers. */
     if (objects.arc_clock_seconds_modem)
-        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds_modem, v10, 0);
+        lv_arc_set_rotation(objects.arc_clock_seconds_modem, (int32_t)lrintf(270.0f + deg));
     if (objects.arc_clock_seconds_wifi)
-        lv_obj_set_style_transform_rotation(objects.arc_clock_seconds_wifi, v10, 0);
+        lv_arc_set_rotation(objects.arc_clock_seconds_wifi, (int32_t)lrintf(270.0f + deg));
     if (old != 0 || v10 != 0)
         ESP_LOGI(TAG, "clock roll %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
 }
