@@ -1,0 +1,231 @@
+/* UI simulator: stand-ins for the device externs screens.c uses
+ * (clock/settings/wifi/vars/ui). Deterministic canned state so every
+ * screen renders in its populated "at rest" state:
+ *
+ *   clock 12:35, seconds 37
+ *   fixed alarm rule 12:35 Mon-Fri (0x3E)   -- the range-arc default
+ *   pomodoro interval 45 min (0:45)
+ *   idle timeout 60 s, deep-sleep countdown 60 s, dusk anim on
+ *   wifi scan complete, 5 canned APs
+ *
+ * moon_ui_create_image bakes the REAL current-phase moon (the portable
+ * core + generated assets, dark_zero = 0 like the device wake frame)
+ * into one shared 400x400 RGB565 buffer, exactly where the device's
+ * moon image sits (33,33 on the 466x466 panel).
+ */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#include "clock_alarm_scheduler.h"
+#include "clock_idle.h"
+#include "esp_err.h"
+#include "lvgl.h"
+#include "moon.h"
+#include "moon_assets.h"
+#include "moon_consts.h"
+#include "moon_ui.h"
+#include "screens.h"
+#include "settings_store.h"
+#include "ui.h"
+#include "vars.h"
+#include "wifi.h"
+
+/* ---- esp_err (device idf header replaced) ---- */
+
+const char *esp_err_to_name(esp_err_t code) {
+    switch (code) {
+    case ESP_OK:
+        return "ESP_OK";
+    case ESP_FAIL:
+        return "ESP_FAIL";
+    case ESP_ERR_TIMEOUT:
+        return "ESP_ERR_TIMEOUT";
+    case ESP_ERR_NOT_FOUND:
+        return "ESP_ERR_NOT_FOUND";
+    default:
+        return "ESP_ERR_UNKNOWN";
+    }
+}
+
+/* ---- global clock vars (vars.c) ---- */
+
+static int32_t s_clock_seconds = 37;
+static const char *s_clock_label = "12:35";
+static const char *s_alarm_label = "";
+
+int32_t get_var_clock_seconds() { return s_clock_seconds; }
+void set_var_clock_seconds(int32_t value) { s_clock_seconds = value; }
+const char *get_var_clock_label() { return s_clock_label; }
+void set_var_clock_label(const char *value) { s_clock_label = value; }
+const char *get_var_alarm_label() { return s_alarm_label; }
+void set_var_alarm_label(const char *value) { s_alarm_label = value; }
+
+/* ---- clock (clock.c / clock_idle.c) ---- */
+
+bool clock_is_idle(void) { return false; } /* awake at rest */
+void clock_idle_set_timeout_ms(uint64_t ms) { (void)ms; }
+
+/* ---- alarm scheduler (canned rule state) ---- */
+
+static int s_pomo_minutes = 45; /* -1 = none */
+static int s_alarm_h = 12, s_alarm_m = 35;
+static uint8_t s_alarm_mask = 0x3E; /* Mon-Fri */
+
+uint8_t clock_alarm_rule_types(void) {
+    uint8_t t = 0;
+    if (s_pomo_minutes > 0)
+        t |= 0x01;
+    if (s_alarm_mask != 0x00)
+        t |= 0x02;
+    return t;
+}
+
+int clock_alarm_get_interval_rule(void) { return s_pomo_minutes; }
+
+esp_err_t clock_alarm_get_fixed_rule(int *hour, int *minute, uint8_t *dow_mask) {
+    *hour = s_alarm_h;
+    *minute = s_alarm_m;
+    *dow_mask = s_alarm_mask;
+    return s_alarm_mask ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t clock_alarm_set_pomodoro_interval(int minutes_total) {
+    s_pomo_minutes = minutes_total;
+    printf("[stub] set_pomodoro_interval %d\n", minutes_total);
+    return ESP_OK;
+}
+
+esp_err_t clock_alarm_set_clock_alarm(int hour, int minute, uint8_t dow_mask) {
+    s_alarm_h = hour;
+    s_alarm_m = minute;
+    s_alarm_mask = dow_mask;
+    printf("[stub] set_clock_alarm %02d:%02d mask 0x%02X\n", hour, minute, dow_mask);
+    return ESP_OK;
+}
+
+esp_err_t clock_alarm_deactivate_all(void) {
+    s_pomo_minutes = -1;
+    s_alarm_mask = 0;
+    printf("[stub] deactivate_all\n");
+    return ESP_OK;
+}
+
+/* ---- runtime settings store (canned values) ---- */
+
+static uint32_t s_idle_sec = 60, s_countdown_sec = 60;
+static bool s_dusk_on = true;
+
+uint32_t settings_idle_timeout_sec(void) { return s_idle_sec; }
+void settings_set_idle_timeout_sec(uint32_t sec) {
+    s_idle_sec = sec;
+    printf("[stub] idle timeout %u s\n", sec);
+}
+
+uint32_t settings_deep_sleep_countdown_sec(void) { return s_countdown_sec; }
+void settings_set_deep_sleep_countdown_sec(uint32_t sec) {
+    s_countdown_sec = sec;
+    printf("[stub] deep-sleep countdown %u s\n", sec);
+}
+
+bool settings_boot_anim_enable(void) { return true; }
+void settings_set_boot_anim_enable(bool on) { (void)on; }
+
+bool settings_dusk_anim_enable(void) { return s_dusk_on; }
+void settings_set_dusk_anim_enable(bool on) {
+    s_dusk_on = on;
+    printf("[stub] dusk anim %s\n", on ? "on" : "off");
+}
+
+esp_err_t settings_store_save(void) { return ESP_OK; }
+
+/* ---- wifi scan (canned AP list) ---- */
+
+typedef struct {
+    char ssid[33];
+    int8_t rssi;
+    uint8_t auth;
+} ap_stub_t;
+
+static const ap_stub_t s_aps[] = {
+    {"MOONHOME-5G", -38, 3},  {"MOONHOME-2G", -44, 3},  {"FIBERLINK-88", -52, 3},
+    {"CAFE_HOTSPOT", -61, 0}, {"OFFICE-GUEST", -73, 3},
+};
+
+/* The sim shows the home screen as connected (white indicator). */
+bool wifi_manager_is_connected(void) { return true; }
+
+void wifi_scan_start(void) { printf("[stub] wifi_scan_start\n"); }
+bool wifi_scan_in_progress(void) { return false; }
+int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
+    int n = (int)(sizeof s_aps / sizeof s_aps[0]);
+    if (n > max)
+        n = max;
+    for (int i = 0; i < n; i++) {
+        snprintf(out[i].ssid, sizeof out[i].ssid, "%s", s_aps[i].ssid);
+        out[i].rssi = s_aps[i].rssi;
+        out[i].auth = s_aps[i].auth;
+    }
+    return n;
+}
+
+/* ---- screen switching / tick (ui.c) ---- */
+
+static int s_cur_screen = -1;
+
+void loadScreen(enum ScreensEnum screenId) {
+    s_cur_screen = screenId - 1;
+    lv_obj_t *screen = ((lv_obj_t **)&objects)[s_cur_screen];
+    lv_scr_load(screen);
+}
+
+enum ScreensEnum ui_current_screen(void) { return (enum ScreensEnum)(s_cur_screen + 1); }
+
+/* Drive one screen tick (the device's ui_tick dispatches the same
+ * tick_screen_funcs table; here only the loaded screen is ticked). */
+void ui_tick(void) {
+    if (s_cur_screen >= 0)
+        tick_screen_by_id((enum ScreensEnum)(s_cur_screen + 1));
+}
+
+/* ---- moon image (moon_ui.c): bake the real current phase once ---- */
+
+#define MOON_PX 400
+#define MOON_IMG_POS 33 /* (466 - MOON_PX) / 2 */
+
+static uint8_t s_gray[MOON_PX * MOON_PX];
+static uint16_t s_rgb[MOON_PX * MOON_PX];
+static lv_image_dsc_t s_dsc;
+
+lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
+    if (!s_dsc.data) {
+        static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
+        moon_geom_t g;
+        moon_geometry(utc_epoch, &g);
+        moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_DISK_RADIUS_PX, MOON_PX / 2.0f,
+                  MOON_PX / 2.0f, MOON_ALB_W, MOON_ALB_H, 0);
+        for (int i = 0; i < MOON_PX * MOON_PX; i++)
+            s_rgb[i] = moon_gray565(s_gray[i]);
+        s_dsc = (lv_image_dsc_t){
+            .header = {.magic = LV_IMAGE_HEADER_MAGIC,
+                       .cf = LV_COLOR_FORMAT_RGB565,
+                       .w = MOON_PX,
+                       .h = MOON_PX,
+                       .stride = MOON_PX * sizeof(uint16_t)},
+            .data_size = sizeof s_rgb,
+            .data = (uint8_t *)s_rgb,
+        };
+        printf("[stub] moon baked: illum %.2f phase %.1f deg\n", g.illum, g.phase_angle_deg);
+    }
+    lv_obj_t *img = lv_image_create(parent);
+    lv_obj_set_pos(img, MOON_IMG_POS, MOON_IMG_POS);
+    lv_obj_set_size(img, MOON_PX, MOON_PX);
+    lv_image_set_src(img, &s_dsc);
+    return img;
+}
+
+void moon_ui_refresh(void) {}
+void moon_ui_init(void) {}
+void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
+void moon_ui_start(void) {}
