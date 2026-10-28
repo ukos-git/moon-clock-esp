@@ -88,7 +88,10 @@ static bool parse_day_pattern(const char *pattern, uint8_t *day_mask, bool *all_
     return true;
 }
 
-// Parse minute or hour field (supports *, */N, or number)
+// Parse minute or hour field (supports *, */N, or number).
+// For the minute field the */N interval may span the whole day (N up to
+// 1440, the pomodoro "repeat every N minutes" setting); the hour field
+// is capped at its own range.
 static bool parse_time_field(const char *field, int *value, int *interval, int max_value) {
     *value = -1;   // -1 means wildcard
     *interval = 0; // 0 means no interval
@@ -101,7 +104,8 @@ static bool parse_time_field(const char *field, int *value, int *interval, int m
     // Check for */N pattern
     if (strncmp(field, "*/", 2) == 0) {
         int n = atoi(field + 2);
-        if (n <= 0 || n > max_value) {
+        int interval_max = (max_value == 59) ? 1440 : max_value; /* minutes may span the day */
+        if (n <= 0 || n > interval_max) {
             return false;
         }
         *interval = n;
@@ -213,7 +217,67 @@ esp_err_t clock_alarm_scheduler_init(void) {
 static bool calculate_next_alarm_time(const alarm_rule_t *rule, const clock_time_t *current, clock_time_t *next) {
     // Handle interval-based alarms (*/N syntax)
     if (rule->minute_interval > 0) {
-        // Every N minutes
+        if (rule->minute_interval > 59) {
+            // Interval spans the whole day (pomodoro "every N minutes", N up
+            // to 1440): the grid is anchored at midnight, so the next ring is
+            // the first total-minutes-of-day multiple of N strictly after
+            // now, or 00:00 of the next day once today's grid is exhausted.
+            int total = current->hour * 60 + current->minute + 1;
+            int next_total = ((total + rule->minute_interval - 1) / rule->minute_interval) * rule->minute_interval;
+
+            if (next_total >= 1440) {
+                // Today's grid is exhausted: 00:00 of the next day.
+                struct tm time_info = {0};
+                time_info.tm_year = current->year - 1900;
+                time_info.tm_mon = current->month - 1;
+                time_info.tm_mday = current->day + 1;
+                time_info.tm_hour = 0;
+                time_info.tm_min = 0;
+                mktime(&time_info);
+                next->year = time_info.tm_year + 1900;
+                next->month = time_info.tm_mon + 1;
+                next->day = time_info.tm_mday;
+                next->hour = 0;
+                next->minute = 0;
+            } else {
+                next->year = current->year;
+                next->month = current->month;
+                next->day = current->day;
+                next->hour = next_total / 60;
+                next->minute = next_total % 60;
+            }
+            next->second = 0;
+
+            // Check if this day matches the rule's day mask (pomodoro writes
+            // "*", so it is all days).
+            int day_of_week = get_day_of_week(next->year, next->month, next->day);
+            if (!rule->all_days && !(rule->day_mask & (1 << day_of_week))) {
+                // This day doesn't match, find the next matching day (the
+                // grid restarts at 00:00, a multiple of any interval).
+                for (int day_offset = 1; day_offset < 8; day_offset++) {
+                    struct tm time_info = {0};
+                    time_info.tm_year = next->year - 1900;
+                    time_info.tm_mon = next->month - 1;
+                    time_info.tm_mday = next->day + day_offset;
+                    time_info.tm_hour = 0;
+                    time_info.tm_min = 0;
+                    mktime(&time_info);
+
+                    int dow = get_day_of_week(time_info.tm_year + 1900, time_info.tm_mon + 1, time_info.tm_mday);
+                    if (rule->day_mask & (1 << dow)) {
+                        next->year = time_info.tm_year + 1900;
+                        next->month = time_info.tm_mon + 1;
+                        next->day = time_info.tm_mday;
+                        next->hour = 0;
+                        next->minute = 0;
+                        return true;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // Every N minutes (N <= 59: at most one ring per hour)
         next->year = current->year;
         next->month = current->month;
         next->day = current->day;
@@ -411,4 +475,142 @@ esp_err_t clock_alarm_get_next_scheduled(clock_time_t *time) {
 
     *time = s_next_alarm;
     return ESP_OK;
+}
+
+// Write the alarm file (full replace). The content is cron rules, one per
+// line, or comments only for "no alarms".
+esp_err_t clock_alarm_scheduler_write(const char *content) {
+    if (!content) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *f = fopen(ALARM_FILE_PATH, "w");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open alarm file for writing: %s", ALARM_FILE_PATH);
+        return ESP_FAIL;
+    }
+    int n = fputs(content, f);
+    fclose(f);
+    if (n < 0) {
+        ESP_LOGE(TAG, "Alarm file write failed");
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Alarm file written (%d bytes)", (int)strlen(content));
+    return ESP_OK;
+}
+
+// Re-parse the alarm file and reschedule from the current RTC time. 0
+// valid rules (missing file or comments only) disarms the hardware
+// alarm -- the PCF85063A's ALM register persists on the RTC, so a stale
+// armed time would otherwise fire a phantom alarm.
+esp_err_t clock_alarm_scheduler_reload(void) {
+    esp_err_t ret = clock_alarm_scheduler_init();
+    if (ret != ESP_OK) {
+        s_alarm_count = 0;
+        s_alarm_scheduled = false;
+    }
+
+    if (s_alarm_count == 0) {
+        ESP_LOGI(TAG, "Alarm reload: 0 rules -- disarming the RTC alarm");
+        esp_err_t clear = clock_clear_alarm();
+        if (clear != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(clear));
+        }
+        return ESP_OK;
+    }
+
+    clock_time_t now;
+    ret = clock_get_time(&now);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Alarm reload: failed to read RTC time: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    return clock_alarm_schedule_next(&now);
+}
+
+uint8_t clock_alarm_rule_types(void) {
+    uint8_t types = 0;
+    for (int i = 0; i < s_alarm_count; i++) {
+        if (s_alarm_rules[i].minute_interval > 0) {
+            types |= 1u << 0; /* interval rule (pomodoro) */
+        } else if (s_alarm_rules[i].minute >= 0 && s_alarm_rules[i].hour >= 0) {
+            types |= 1u << 1; /* fixed-time rule */
+        }
+    }
+    return types;
+}
+
+int clock_alarm_get_interval_rule(void) {
+    for (int i = 0; i < s_alarm_count; i++) {
+        if (s_alarm_rules[i].minute_interval > 0) {
+            return s_alarm_rules[i].minute_interval;
+        }
+    }
+    return -1;
+}
+
+// Render a day-of-week mask as the cron dow field: "*" for all 7 days,
+// otherwise a comma list (0=Sunday .. 6=Saturday).
+static bool alarm_dow_mask_to_str(uint8_t mask, char *out, size_t out_len) {
+    if (mask == 0) {
+        return false;
+    }
+    if (mask == 0x7F) {
+        snprintf(out, out_len, "*");
+        return true;
+    }
+    size_t pos = 0;
+    for (int d = 0; d < 7; d++) {
+        if (!(mask & (1u << d))) {
+            continue;
+        }
+        int n = snprintf(out + pos, out_len - pos, "%s%d", pos > 0 ? "," : "", d);
+        if (n < 0 || (size_t)n >= out_len - pos) {
+            return false;
+        }
+        pos += (size_t)n;
+    }
+    return true;
+}
+
+esp_err_t clock_alarm_set_pomodoro_interval(int minutes_total) {
+    if (minutes_total < 1 || minutes_total > 1440) {
+        ESP_LOGE(TAG, "Invalid pomodoro interval: %d minutes", minutes_total);
+        return ESP_ERR_INVALID_ARG;
+    }
+    char content[96];
+    snprintf(content, sizeof(content), "# pomodoro: ring every %d minutes\n*/%d * * * *\n", minutes_total,
+             minutes_total);
+    esp_err_t ret = clock_alarm_scheduler_write(content);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return clock_alarm_scheduler_reload();
+}
+
+esp_err_t clock_alarm_set_clock_alarm(int hour, int minute, uint8_t dow_mask) {
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        ESP_LOGE(TAG, "Invalid alarm time: %02d:%02d", hour, minute);
+        return ESP_ERR_INVALID_ARG;
+    }
+    char dow[32];
+    if (!alarm_dow_mask_to_str(dow_mask, dow, sizeof(dow))) {
+        ESP_LOGE(TAG, "Invalid day mask: 0x%02x (no day selected)", dow_mask);
+        return ESP_ERR_INVALID_ARG;
+    }
+    char content[96];
+    snprintf(content, sizeof(content), "# alarm: %02d:%02d on %s\n%d %d * * %s\n", minute, hour, dow, minute, hour,
+             dow);
+    esp_err_t ret = clock_alarm_scheduler_write(content);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return clock_alarm_scheduler_reload();
+}
+
+esp_err_t clock_alarm_deactivate_all(void) {
+    esp_err_t ret = clock_alarm_scheduler_write("# no alarms\n");
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return clock_alarm_scheduler_reload();
 }
