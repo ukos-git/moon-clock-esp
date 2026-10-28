@@ -65,11 +65,14 @@ typedef struct {
  * cached per-cell slope (quantized, see moon_bake.c) replaces the old
  * per-pixel 4-neighbor DEM gather: same displaced-normal model, 2
  * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6.
- * dark_zero writes the dark side flat 0 (0x0000) instead of the
- * earthshine gradient -- the wake-sweep montage uses it: the ~17-step
- * earthshine ramp shows up as banded/dithered speckle in the fast
- * animation, and the dark side carries no phase information there
- * anyway. Static/spin bakes keep the earthshine (dark_zero = 0). */
+ * dark_zero writes the dark side as a CONSTANT night floor
+ * (MOON_NIGHT_FLOOR, moon_consts.h) instead of the earthshine
+ * gradient -- the device wake-sweep / dusk / static phase use it: the
+ * ~17-step earthshine ramp shows up as banded/dithered speckle that
+ * reads as "moving earthshine" in the fast animation, and a constant
+ * floor keeps the far side faintly visible on the AMOLED (flat 0x0000
+ * was invisible). Static/spin bakes keep the earthshine (dark_zero =
+ * 0). */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero);
 
