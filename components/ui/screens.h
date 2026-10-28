@@ -109,6 +109,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_alarm_time_handle_start; /* the range-start drag handle (a day knob) */
     lv_obj_t *settings_alarm_time_handle_end;   /* the range-end drag handle (a day knob) */
     lv_obj_t *settings_alarm_time_letters[7];   /* Monday..Sunday day letters */
+    lv_obj_t *modem_sleep_indicator_wifi;       /* home-screen WiFi indicator (below the clock) */
 } objects_t;
 
 extern objects_t objects;

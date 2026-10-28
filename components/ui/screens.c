@@ -171,18 +171,16 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     return ring;
 }
 
-/* The hub's central exit: leaving settings goes to the WiFi screen
- * directly -- the AP-scan settings screen, the one headed by the wifi
- * icon (the airplane / no-wifi screen has no icon, so the two are
- * differentiable at a glance). No background sync is kicked off; the
- * user lands on the WiFi settings screen and can act from there. */
+/* The hub's central exit: leaving settings goes back to the HOME
+ * screen -- the airplane (modem-sleep) clock screen, the one carrying
+ * the wifi indicator below the clock. No background sync is kicked
+ * off; the home tick shows the current time + connection state. */
 static void event_handler_cb_hub_exit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    loadScreen(SCREEN_ID_SETTINGS_WIFI);
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
     ui_tick();
-    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
 }
 
 /* A sub-screen's bottom-centre exit returns to the CALLING level, not
@@ -242,6 +240,18 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
+        {
+            // screen-indicator-wifi
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.modem_sleep_indicator_wifi = obj;
+            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            add_style_label_icon_solid(obj);
+            lv_label_set_text(obj, GLYPH_WIFI);
+            /* Non-clickable: a tap on the indicator must still open the
+             * settings hub (the screen-root handler), not die here. */
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        }
     }
 
     /* Touch pass-through (tap = open the settings hub): the full-screen
@@ -263,6 +273,18 @@ void tick_screen_modem_sleep() {
             tick_value_change_obj = objects.arc_clock_seconds_modem;
             lv_arc_set_value(objects.arc_clock_seconds_modem, new_val);
             tick_value_change_obj = NULL;
+        }
+    }
+    /* The WiFi indicator (white = connected, moon grey = off). The
+     * connection state flips rarely (boot / sync / airplane), so only
+     * recolor on a change -- the tick itself is a state compare. */
+    {
+        static bool s_wifi_ind_state = true;
+        bool connected = wifi_manager_is_connected();
+        if (connected != s_wifi_ind_state) {
+            s_wifi_ind_state = connected;
+            lv_obj_set_style_text_color(objects.modem_sleep_indicator_wifi, connected ? SETTINGS_WHITE : SETTINGS_GREY,
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
         }
     }
 }
@@ -706,30 +728,39 @@ void create_screen_settings_pomodoro() {
     }
 
     /* The two rollers read like the clock's "HH:MM": a `:` sits between
-     * them (the bold 96 numbers font carries the colon) and they are
-     * tightened from the old +-110/150 spread -- the old distance was too
-     * wide for the clock-like look. Lifted from the shared (x, 90) so the
-     * 110 px tall rollers clear the bottom-centre exit button (bottom
-     * edge y 358 vs 387). */
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -88, 130);
-    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -88, 70);
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 88, 130);
-    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 88, 70);
+     * them (the bold 96 numbers font carries the colon) and the WHOLE
+     * display sits at the home clock label's position -- centred on the
+     * screen, vertical centre y 210 (the clock label's centre), so the
+     * `:` is centred on the screen exactly where the clock's `:` is.
+     * The 110 px tall rollers span y 155..265 -- clear of the
+     * bottom-centre exit button's band (top edge y 342).
+     * The x offsets replicate the clock label's own glyph centres
+     * (its "12" centres at screen x ~181, "35" at ~291, the `:` at
+     * ~223 -- the label is centred at 234.5, 10 px off the panel
+     * centre): the hour slot centres at 153 (-80), the minute slot
+     * at 303 (+70), and the `:` at 223 (-10), so the whole display
+     * lands exactly where the home clock's "HH:MM" would. */
+    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -80, 120);
+    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -80, -23);
+    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 70, 120);
+    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 70, -23);
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, 0, 70);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
+    /* The caption above the display (the clock label has none -- this
+     * screen needs one to say what the value IS). */
     objects.settings_pomodoro_caption = lv_label_create(obj);
     lv_obj_set_style_text_font(objects.settings_pomodoro_caption, &ui_font_montserrat_regular_32_ssid,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(objects.settings_pomodoro_caption, "REPEAT INTERVAL");
     lv_obj_set_size(objects.settings_pomodoro_caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -80);
+    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -100);
     lv_obj_set_style_text_color(objects.settings_pomodoro_caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(objects.settings_pomodoro_caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -763,16 +794,18 @@ void tick_screen_settings_pomodoro() {}
  * stored arc angle off the 360/0 wrap edge (an indicator end angle of
  * exactly 360 stores as 360 and the SW arc mask clamps it to 359,
  * drawing a 1 deg gap at the right edge of the band). The arc centre
- * is (233, 300), R = 100 (zero pad, the 200 px object at (133, 200)):
- * the ring is 46 px wide (r 54..100), the handles sit at r 77 (the
- * ring midline) and the letters at r 140 (just outside the ring).
- * Because the band is only the UPPER half-circle, its lowest drawn
- * pixels are the two ends (y ~300) -- 42 px clear of the bottom-centre
- * exit button's band (top edge y 342). The letters are children of the
- * SCREEN ROOT, not the band: at r 140 they would lie 40 px outside the
- * 200 px band object and LVGL clips children to the parent's bounds.
- * The time rollers sit up top (y 5..115) -- the top letter (271 deg,
- * y 160) clears them by 45 px.
+ * is the SCREEN centre (233, 233), R = 190 (zero pad, the 380 px
+ * object at (43, 43)): the ring is 44 px wide (r 146..190), the
+ * handles sit at r 168 (the ring midline) and the day letters at
+ * r 216 (outside the ring, inside the panel). Because the band is
+ * only the UPPER half-circle, its lowest drawn pixels are the two
+ * ends (y ~233) -- 109 px clear of the bottom-centre exit button's
+ * band (top edge y 342). The letters are children of the SCREEN ROOT,
+ * not the band: at r 216 they would lie 26 px outside the 380 px band
+ * object and LVGL clips children to the parent's bounds. The time
+ * rollers sit at the clock position (vertical centre y 210, the
+ * home clock label's centre) inside the ring's hole (r < 146); the
+ * "Mo-Fr" range text sits above them at y 133.
  *
  * State: s_alarm_range_{start,end} (day indices, Mon..Sun order) -- the
  * working range (the widgets persist across loadScreen, so it must
@@ -784,11 +817,11 @@ void tick_screen_settings_pomodoro() {}
  * time. */
 
 #define ALARM_TIME_ARC_CX 233
-#define ALARM_TIME_ARC_CY 300
-#define ALARM_TIME_ARC_R 100
-#define ALARM_TIME_ARC_WIDTH 46
-#define ALARM_TIME_HANDLE_R 77  /* the day handles' radius (the ring midline) */
-#define ALARM_TIME_LETTER_R 140 /* the day letters' radius (just outside the ring) */
+#define ALARM_TIME_ARC_CY 233
+#define ALARM_TIME_ARC_R 190
+#define ALARM_TIME_ARC_WIDTH 44
+#define ALARM_TIME_HANDLE_R 168 /* the day handles' radius (the ring midline) */
+#define ALARM_TIME_LETTER_R 216 /* the day letters' radius (outside the ring) */
 
 #define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
@@ -796,6 +829,27 @@ void tick_screen_settings_pomodoro() {}
  * Sunday; re-seeded from the stored rule on every entry). */
 static int s_alarm_range_start = 0;
 static int s_alarm_range_end = 4;
+static lv_obj_t *s_alarm_range_label; /* the "Mo-Fr" summary above the time */
+
+/* Day abbreviations (Monday..Sunday) for the range text. */
+static const char *const ALARM_DAY_ABBR[7] = {"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"};
+
+/* The range summary text: "We" for a single day, "Mo-Fr" for a range
+ * (wrap included: "Fr-Mo"). Shown above the time display in the small
+ * range font (lowercase + hyphen -- the SSID font has neither). */
+static void settings_alarm_time_range_text(void) {
+    if (!s_alarm_range_label) {
+        return;
+    }
+    char buf[16];
+    int s = s_alarm_range_start, e = s_alarm_range_end;
+    if (s == e) {
+        snprintf(buf, sizeof buf, "%s", ALARM_DAY_ABBR[s]);
+    } else {
+        snprintf(buf, sizeof buf, "%s-%s", ALARM_DAY_ABBR[s], ALARM_DAY_ABBR[e]);
+    }
+    lv_label_set_text(s_alarm_range_label, buf);
+}
 
 static bool alarm_range_contains(int s, int e, int d) {
     if (e >= s) {
@@ -844,6 +898,7 @@ static void settings_alarm_time_apply_range(void) {
         lv_obj_align(handles[i], LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_HANDLE_R * cosf(ang)),
                      (int32_t)(ALARM_TIME_HANDLE_R * sinf(ang)));
     }
+    settings_alarm_time_range_text();
 }
 
 /* Map the indev point (display coords) to the arc's local frame and
@@ -1043,9 +1098,12 @@ void create_screen_settings_alarm_time() {
         lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_save, LV_EVENT_RELEASED, 0);
     }
 
-    /* The time rollers up top: hours 0-23, minutes in x5 steps, a `:`
-     * between them (the clock's "HH:MM" look). The 110 px tall
-     * rollers span y 5..115 -- clear of the arc's top edge (y 140). */
+    /* The time rollers at the home clock label's position (vertical
+     * centre y 210, the clock label's centre): hours 0-23, minutes in
+     * x5 steps, a `:` between them -- the clock's "HH:MM" look, same
+     * margins. The 110 px tall rollers span y 155..265 -- inside the
+     * arc's hole (ring inner edge r 146 -> y 87..379 at x 0) and clear
+     * of the exit band (top edge y 342). */
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {
@@ -1056,18 +1114,33 @@ void create_screen_settings_alarm_time() {
     for (int m = 0; m < 60; m += 5) {
         pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
     }
-    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -64, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -64, -173);
-    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 64, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 64, -173);
+    /* Same glyph-centre offsets as the pomodoro display (hour slot at
+     * 153, minute slot at 303, the `:` at 223 = the home clock's own
+     * colon position). */
+    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -80, 120);
+    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -80, -23);
+    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 70, 120);
+    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 70, -23);
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, 0, -173);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The selected day-range summary ("Mo-Fr", "We", "Fr-Mo"): above
+     * the time display, centred (y 133 absolute). The small range font
+     * carries lowercase + the hyphen. */
+    s_alarm_range_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(s_alarm_range_label, &ui_font_montserrat_regular_32_range,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_alarm_range_label, "Mo-Fr");
+    lv_obj_set_size(s_alarm_range_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_alarm_range_label, LV_ALIGN_CENTER, 0, -100);
+    lv_obj_set_style_text_color(s_alarm_range_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_alarm_range_label, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_settings_alarm_time_save,
                         LV_EVENT_RELEASED, 0);
@@ -1082,9 +1155,12 @@ void tick_screen_settings_alarm_time() {}
 /* --- sleep settings: one parameterized builder (the two screens are
  * near-identical; the plan's fallback 5) ------------------------------
  *
- * SETTINGS_LIGHT_SLEEP: the idle-timeout roller (10-300 s, the
- * airplane -> light-sleep transition). SETTINGS_DEEP_SLEEP: the
- * deep-sleep countdown roller (light -> deep).
+ * SETTINGS_LIGHT_SLEEP: the idle-timeout roller (1-30 MINUTES, the
+ * airplane -> light-sleep transition; stored as seconds).
+ * SETTINGS_DEEP_SLEEP: the deep-sleep countdown roller (light ->
+ * deep), also in minutes. The value roller and the animation toggle
+ * sit on ONE horizontal line (roller left of centre, toggle right of
+ * centre).
  *
  * One icon-only animation toggle per screen (no caption): a 96 px
  * solid moon glyph, white (on) / moon grey (off) -- no switch widget
@@ -1113,26 +1189,39 @@ static void settings_sleep_screen_refresh(int screen) {
     if (!s_sleep_roller[screen]) {
         return;
     }
-    int v = screen ? (int)settings_deep_sleep_countdown_sec() : (int)settings_idle_timeout_sec();
-    lv_roller_set_selected(s_sleep_roller[screen], v - 10, LV_ANIM_OFF);
+    int sec = screen ? (int)settings_deep_sleep_countdown_sec() : (int)settings_idle_timeout_sec();
+    /* The roller is in MINUTES (1..30); the store is in seconds. */
+    int minutes = sec / 60;
+    if (minutes < 1) {
+        minutes = 1;
+    }
+    if (minutes > 30) {
+        minutes = 30;
+    }
+    lv_roller_set_selected(s_sleep_roller[screen], minutes - 1, LV_ANIM_OFF);
     settings_anim_apply_colors(screen);
 }
 
-/* user_data = screen (0/1). */
+/* user_data = screen (0/1). The roller value is MINUTES (1..30); the
+ * store and the live idle timer are in seconds. */
 static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
     }
     int screen = (int)(intptr_t)lv_event_get_user_data(e);
-    int v = settings_roller_value(s_sleep_roller[screen]);
+    int minutes = settings_roller_value(s_sleep_roller[screen]);
+    if (minutes < 1) {
+        minutes = 1;
+    }
+    uint32_t sec = (uint32_t)minutes * 60u;
     if (screen) {
-        settings_set_deep_sleep_countdown_sec((uint32_t)v);
+        settings_set_deep_sleep_countdown_sec(sec);
     } else {
-        settings_set_idle_timeout_sec((uint32_t)v);
-        clock_idle_set_timeout_ms((uint64_t)v * 1000ULL);
+        settings_set_idle_timeout_sec(sec);
+        clock_idle_set_timeout_ms((uint64_t)sec * 1000ULL);
     }
     esp_err_t r = settings_store_save();
-    ESP_LOGW("settings_sleep", "screen %d value %d s -> %s", screen, v, esp_err_to_name(r));
+    ESP_LOGW("settings_sleep", "screen %d value %d min -> %s", screen, minutes, esp_err_to_name(r));
 }
 
 /* user_data = screen (0/1): flip the sleep-transition (dusk) animation. */
@@ -1149,14 +1238,20 @@ static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
 }
 
 /* The single icon-only animation toggle: a 96 px solid moon glyph in a
- * 100 px clickable container (no caption). Centre (0, +58) absolute
- * 241..341: clears the roller (bottom edge 238) above and the
- * bottom-centre exit button's band (top edge 342) below. */
+ * 100 px clickable container (no caption). On the same horizontal line
+ * as the minutes roller (offset +90 from screen centre, spans x
+ * 273..373): the roller sits at -90 (spans 38..248), so the two share
+ * the line with a 25 px gap between them. Vertically centred, so the
+ * row clears the bottom-centre exit button's band (top edge y 342). */
 static void settings_anim_toggle(lv_obj_t *parent, int screen) {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_size(row, 100, 100);
-    lv_obj_align(row, LV_ALIGN_CENTER, 0, 58);
+    lv_obj_align(row, LV_ALIGN_CENTER, 90, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* Kill the theme's default border (a visible square around the glyph)
+     * and the shadow: the glyph is the only visible thing. */
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED, (void *)(intptr_t)screen);
@@ -1182,15 +1277,16 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
-    char options[1200];
+    /* Minutes, 1..30 (stored internally as seconds, min 60 / max 1800,
+     * default 1 min): the value picker is ONE roller on the shared
+     * horizontal line, the animation toggle on the right of it. */
+    char options[512];
     int pos = 0;
-    for (int v = 10; v <= 300; v++) {
+    for (int v = 1; v <= 30; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
-    /* Lifted to (0, -50) so the icon-only toggle below (241..341)
-     * clears the roller's bottom edge (238). */
     s_sleep_roller[screen] = settings_create_roller(obj, options, 0, 210);
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, -50);
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -90, 0);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
 

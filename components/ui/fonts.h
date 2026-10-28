@@ -13,6 +13,7 @@ extern const lv_font_t ui_font_fontawesome7_regular_96_icons;
 extern const lv_font_t ui_font_fontawesome7_solid_96_icons;
 extern const lv_font_t ui_font_montserrat_regular_40_weekdays;
 extern const lv_font_t ui_font_montserrat_regular_32_ssid;
+extern const lv_font_t ui_font_montserrat_regular_32_range;
 
 #ifdef __cplusplus
 }
