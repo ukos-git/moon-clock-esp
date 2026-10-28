@@ -195,6 +195,22 @@ menu "UI Component Configuration"
             settings stack (state machine, persistence, scheduler
             math). 0 (default) = off.
 
+    config TEST_ROLL_TILT_SEC
+        int "Test: headless clock-roll tilt script N seconds after boot (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: N seconds after boot, feed the real clock-roll
+            pipeline (5-deg round -> 0.25 Hz low-pass -> <=5 deg/s
+            ramp -> the LVGL transform layer) synthetic in-plane
+            gravity for ~28 s: 25 deg (seeds the settled reference)
+            -> 50 -> 75 -> back to 25, so the ramp runs 0 -> 25 ->
+            50 -> 0 through the full transform path on the device --
+            no physical tilt needed (exercises the PSRAM layer
+            allocation and the centre pivot). Idle monitoring is
+            paused for the script so it does not dusk-sleep mid-run.
+            0 (default) = off.
+
     config TEST_BAKE_NO_RELIEF
         bool "Test: bake without the relief gradient cache (perf A/B)"
         default n

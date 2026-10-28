@@ -160,6 +160,36 @@ static bool s_have_roll;
 static bool s_pivot_done; /* the centre pivot is set once */
 static int64_t s_roll_last_ms;
 
+/* Test hook: the headless tilt script (TEST_ROLL_TILT_SEC). After N s of
+ * boot it feeds the roll pipeline synthetic in-plane gravity instead of
+ * the IMU, so the full transform path runs on the device without a
+ * physical tilt (the crash/visual checks on the PSRAM layer + pivot). */
+#ifndef CONFIG_TEST_ROLL_TILT_SEC
+#define CONFIG_TEST_ROLL_TILT_SEC 0
+#endif
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+/* The script: the in-plane roll angle, by second. 25 deg for 4 s seeds
+ * the settled reference (the first observable sample becomes the
+ * reference); 50 and 75 deg drive the ramp 0 -> 25 -> 50 (<= 5 deg/s);
+ * back to 25 relaxes it 50 -> 0 over the final 12 s. */
+struct roll_script_step {
+    uint32_t t_s;
+    float phi_deg;
+};
+static const struct roll_script_step s_roll_script[] = {
+    {0, 25.0f},
+    {4, 50.0f},
+    {10, 75.0f},
+    {16, 25.0f},
+};
+#define ROLL_SCRIPT_END_S 28
+
+static bool s_roll_test_on; /* the synthetic gravity is feeding the roll */
+static uint32_t s_roll_test_wait_s = CONFIG_TEST_ROLL_TILT_SEC;
+static uint32_t s_roll_test_elapsed_s;
+static float s_roll_test_phi;
+#endif /* CONFIG_TEST_ROLL_TILT_SEC > 0 */
+
 /* Wrap an angle difference to [-pi, pi] (the shortest path). */
 static float roll_wrap(float a) {
     while (a > 3.14159265f)
@@ -180,10 +210,19 @@ static float roll_wrap(float a) {
  * pushed. The rotation pivot is the screen centre (LVGL's default is the
  * top-left, which swung the full-screen container off the panel). */
 static void clock_roll_apply(void) {
-    if (!CONFIG_UI_IMU_ENABLE || !imu_is_ready())
+    if (!CONFIG_UI_IMU_ENABLE)
         return;
     float g[3];
-    if (!imu_read_gravity(g))
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+    if (s_roll_test_on) {
+        /* Synthetic in-plane gravity at the script's roll angle (unit
+         * magnitude: |g_xy| = 1, well above the flat gate). */
+        g[0] = cosf(s_roll_test_phi * ROLL_DEG_TO_RAD);
+        g[1] = sinf(s_roll_test_phi * ROLL_DEG_TO_RAD);
+        g[2] = 0.0f;
+    } else
+#endif
+        if (!imu_is_ready() || !imu_read_gravity(g))
         return;
     /* Rate gate: one apply per ROLL_RATE_MS (the UI tick is 10 ms awake /
      * 100 ms light sleep, paused in deep sleep where the clock is hidden). */
@@ -210,8 +249,16 @@ static void clock_roll_apply(void) {
             s_have_roll = true;
         }
         /* The settled reference tracks only while settled, so at-rest drift
-         * (the reference follows the pose) cannot walk the text around. */
-        if (moon_ui_tilt_settled())
+         * (the reference follows the pose) cannot walk the text around.
+         * Frozen while the headless tilt script is active (otherwise the
+         * settled-on-bench state would track the synthetic pose and
+         * erase the departure the script is driving). */
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+        bool settled = moon_ui_tilt_settled() && !s_roll_test_on;
+#else
+        bool settled = moon_ui_tilt_settled();
+#endif
+        if (settled)
             s_ref_roll += ROLL_REF_ALPHA * roll_wrap(roll - s_ref_roll);
         /* Filter input: the departure from the settled pose, dead-zoned to
          * 1 deg and ROUNDED to 5 deg. */
@@ -272,6 +319,57 @@ static void clock_roll_apply(void) {
     if (old != 0 || v10 != 0)
         ESP_LOGI(TAG, "clock roll %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
 }
+
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+/* Headless tilt script (1 s LVGL timer, LVGL task). After
+ * TEST_ROLL_TILT_SEC of boot it runs s_roll_script through the REAL
+ * clock_roll_apply pipeline -- the 5-deg rounding, the 0.25 Hz low-pass,
+ * the <= 5 deg/s ramp and the LVGL transform layer (the PSRAM alloc +
+ * the centre pivot) all execute for real. Idle monitoring is paused for
+ * the run (the script would otherwise dusk-sleep mid-way and the clock
+ * would be hidden). */
+void action_roll_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (!s_roll_test_on) {
+        if (s_roll_test_wait_s > 0) {
+            s_roll_test_wait_s--;
+            return;
+        }
+        /* By the time the wait elapses the device is whatever state its
+         * boot flow left it in (usually asleep -- the five-minute alarm
+         * rule keeps re-firing the alarm screen, the clock still ticks).
+         * If idle, force the real idle-wake path (clears the idle flag
+         * BEFORE running the wake callback, exactly like
+         * TEST_AUTO_WAKE_SEC); a wake is a static current phase + the
+         * on-demand WiFi sync, then the airplane screen below. */
+        if (clock_is_idle())
+            clock_idle_notify_tilt_activity();
+        ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ROLL_SCRIPT_END_S);
+        bsp_display_backlight_on();
+        clock_timer_disable(); /* the light-sleep countdown may still be armed */
+        clock_idle_set_enabled(false);
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        s_roll_test_on = true;
+        s_roll_test_elapsed_s = 0;
+        s_roll_test_phi = s_roll_script[0].phi_deg;
+        return;
+    }
+    s_roll_test_elapsed_s++;
+    if (s_roll_test_elapsed_s > ROLL_SCRIPT_END_S) {
+        ESP_LOGW(TAG, "TEST roll tilt: done (ramp back at 0? check the 'clock roll' lines)");
+        s_roll_test_on = false;
+        clock_idle_set_enabled(true);
+        clock_idle_reset_timer();
+        return;
+    }
+    for (const struct roll_script_step *row = s_roll_script; row->t_s <= ROLL_SCRIPT_END_S; row++) {
+        if (row->t_s <= s_roll_test_elapsed_s)
+            s_roll_test_phi = row->phi_deg;
+    }
+    ESP_LOGW(TAG, "TEST roll tilt: t+%us phi %+d deg", s_roll_test_elapsed_s, (int)s_roll_test_phi);
+}
+#endif
 
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) {

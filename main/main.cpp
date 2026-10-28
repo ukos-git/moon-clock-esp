@@ -30,6 +30,9 @@
 #ifndef CONFIG_TEST_SETTINGS_DEMO_SEC
 #define CONFIG_TEST_SETTINGS_DEMO_SEC 0
 #endif
+#ifndef CONFIG_TEST_ROLL_TILT_SEC
+#define CONFIG_TEST_ROLL_TILT_SEC 0
+#endif
 
 static const char *TAG = "main";
 
@@ -287,6 +290,12 @@ extern "C" void app_main(void) {
     // 0 = off).
     if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0)
         lv_timer_create(settings_demo_cb, 1000, NULL);
+
+    // Test hook: the headless clock-roll tilt script (TEST_ROLL_TILT_SEC;
+    // 0 = off). Feeds the real roll pipeline synthetic gravity -- the
+    // transform layer (PSRAM alloc) + centre pivot run without a tilt.
+    if (CONFIG_TEST_ROLL_TILT_SEC > 0)
+        lv_timer_create(action_roll_test_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
     ESP_LOGI(TAG, "Sleep transitions: AIRPLANE -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");
