@@ -63,13 +63,13 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 
 /* FontAwesome 7 code points (this repo's OTFs carry the legacy
  * mapping), as UTF-8: xmark U+F00D, moon U+F186, wifi U+F1EB,
- * stopwatch U+F302 (the solid font's code point for the stopwatch
- * glyph -- 62210, probed with fontTools); alarm-clock U+F34E (the
- * regular font). */
+ * stopwatch U+F2F2 (the solid font's stopwatch glyph -- 62194, probed
+ * with fontTools; U+F302 in these OTFs is "images", NOT the stopwatch);
+ * alarm-clock U+F34E (the regular font). */
 #define GLYPH_XMARK "\xEF\x80\x8D"     /* U+F00D */
 #define GLYPH_MOON "\xEF\x86\x86"      /* U+F186 */
 #define GLYPH_WIFI "\xEF\x87\xAB"      /* U+F1EB */
-#define GLYPH_STOPWATCH "\xEF\x8C\x82" /* U+F302 */
+#define GLYPH_STOPWATCH "\xEF\xA7\xB2" /* U+F2F2 */
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
@@ -814,6 +814,21 @@ static void event_handler_cb_settings_alarm_time_slice(lv_event_t *e) {
     settings_alarm_time_apply_day_colors();
 }
 
+/* Keep the slice's value pinned at 1 (the indicator fills the full
+ * span). The arc's built-in PRESSING drag handler maps a press angle
+ * into the 0..1 value range and would collapse the wedge while it is
+ * pressed (the slice is still toggled by the CLICKED on release); the
+ * pin re-fills it on the very next event. lv_arc_set_value early-
+ * returns when the value is unchanged, so the re-pin cannot loop. */
+static void event_handler_cb_settings_alarm_time_pin(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
+        return;
+    }
+    lv_obj_t *a = lv_event_get_target(e);
+    if (lv_arc_get_value(a) != 1)
+        lv_arc_set_value(a, 1);
+}
+
 static void event_handler_cb_settings_alarm_time_value(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
         return;
@@ -865,11 +880,15 @@ void create_screen_settings_alarm_time() {
         lv_obj_set_style_arc_width(a, ALARM_TIME_PIE_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_opa(a, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_opa(a, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_opa(a, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+        /* The theme draws the KNOB as a blue-filled rect at the value
+         * angle (arc_opa styles the arc LINE, not the knob rect) -- the
+         * blue dot at each slice's edge. Kill it with the knob's bg. */
+        lv_obj_set_style_bg_opa(a, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_rounded(a, false, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_rounded(a, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
         lv_obj_add_flag(a, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_slice, LV_EVENT_CLICKED, (void *)(intptr_t)d);
+        lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_pin, LV_EVENT_VALUE_CHANGED, 0);
 
         /* Weekday letter at the mid-angle, radius ~183 (inside the
          * 80 px wedge ring). */
