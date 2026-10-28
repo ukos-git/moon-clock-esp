@@ -503,11 +503,15 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  * (the bake's 1e-4 polar-cap floor cannot fire on a 432-row grid: the
  * row-center coslat is >= 0.0036 -- the same behavior as bake_px there).
  * L <= 0 cells skip the albedo load exactly as the bake (dark color =
- * TONE_LUT[0] + earthshine(d); dark_zero stays 0: the dark side keeps
- * its earthshine + relief-lit contrast). Row-range build so the caller
- * (the dusk task) can honor an abort between rows. */
+ * TONE_LUT[0] + earthshine(d)); with dark_zero set, every geometrically
+ * dark cell (d < 0, or L <= 0 once the gradient tip lights the far side)
+ * is written 0 instead -- the flat-black night side, so the map's dark
+ * cells carry no earthshine/relief speckle that a re-projected frame
+ * would pick up at the rim (the dusk's "bright fragment on the edge").
+ * Row-range build so the caller (the dusk task) can honor an abort
+ * between rows. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1) {
+                         int map_h, int y0, int y1, int dark_zero) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
     const float dlon = 2.0f * (float)M_PI / (float)map_w;
     const float cosd = cosf(dlon), sind = sinf(dlon);
@@ -557,7 +561,9 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
                     L = 1.0f;
             }
             float out;
-            if (L <= 0.0f) {
+            if (dark_zero && (d < 0.0f || L <= 0.0f)) {
+                out = 0.0f; /* the flat-black night side */
+            } else if (L <= 0.0f) {
                 out = MOON_TONE_LUT[0] + earthshine(d); /* no albedo load */
             } else {
                 const int idx = (int)((float)arow[x] * L + 0.5f);
@@ -575,8 +581,8 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
 /* Build the whole shade map (see the section header). One-time cost per
  * dusk epoch (~2 s on the S3 for the 864 x 432 map). */
 void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h) {
-    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h);
+                          int map_h, int dark_zero) {
+    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h, dark_zero);
 }
 
 /* One pixel of the re-projection: bake_px WITHOUT the lighting -- the

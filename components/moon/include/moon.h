@@ -94,15 +94,17 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
 /* Build one row range [y0, y1) of the pre-shaded body-frame equirect map
  * (map_w x map_h bytes == the albedo's dimensions, row 0 = north, column
  * 0 = the texture column): map cell (c, r) = the full bake color (albedo
- * x displaced-normal Lambert x tone LUT + earthshine, dark_zero = 0) of
- * that cell's body direction, at S = g->S. Row-range build so the caller
- * can honor an abort between rows; grel NULL = relief-free Lambert. */
+ * x displaced-normal Lambert x tone LUT + earthshine) of that cell's
+ * body direction, at S = g->S; dark_zero = 0 keeps the earthshine dark
+ * side, 1 writes every geometrically dark cell (d < 0 or L <= 0) 0 (the
+ * flat-black night side). Row-range build so the caller can honor an
+ * abort between rows; grel NULL = relief-free Lambert. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1);
+                         int map_h, int y0, int y1, int dark_zero);
 
 /* Build the whole shade map (see moon_bake.c): one-time per epoch. */
 void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h);
+                          int map_h, int dark_zero);
 
 /* Re-project the pre-shaded map (moon_shade_map_build) through the camera
  * basis g into an 8-bit frame (size x size, row-major, 0 outside the

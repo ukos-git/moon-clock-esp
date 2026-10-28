@@ -14,6 +14,9 @@
  *      disk as dark as the geometry allows), and the rendered frame at
  *      phi* must show the dark side with some contrast (earthshine +
  *      relief-lit rims, dark_zero = 0) -- the deep-sleep entry frame.
+ *      NOTE: this probe keeps dark_zero = 0 to verify the earthshine
+ *      MODEL; the DEVICE dusk/endpoint now renders the night side flat
+ *      black (dark_zero = 1, T2/T3), so it never displays this contrast.
  *
  * Build:
  *   cc -O2 -Imoon/include -I. pole_test.c <core objs> -lm -o pole_test
@@ -249,7 +252,10 @@ int main(void) {
         moon_geometry(epoch, &g0);
         /* Build the map ONCE from the unfolded geometry (S is never folded:
          * the folds only touch the camera basis). */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H);
+        /* dark_zero = 0: the host gate keeps the earthshine dark side and
+         * verifies the re-projected map matches the full bake. The device
+         * dusk passes dark_zero = 1 (flat black). */
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
         for (unsigned t = 0; t < 4; t++) {
