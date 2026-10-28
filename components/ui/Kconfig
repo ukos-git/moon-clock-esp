@@ -2,8 +2,8 @@ menu "UI Component Configuration"
 
     config UI_DEEP_SLEEP_COUNTDOWN_SEC
         int "Deep sleep countdown duration (seconds)"
-        default 30
-        range 10 300
+        default 60
+        range 60 1800
         help
             Duration in seconds for the countdown timer from light sleep
             to deep sleep. The timer is armed by the moon tick on the

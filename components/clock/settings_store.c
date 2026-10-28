@@ -14,13 +14,19 @@
 static const char *TAG = "settings_store";
 #define SETTINGS_PATH "/spiffs/settings.txt"
 
+/* The two transition timeouts are user-facing in MINUTES (the settings
+ * screens show a 1..30 minute picker). Stored internally in seconds:
+ * 1 min .. 30 min = 60 .. 1800 s, default 1 min (60 s). */
+#define SETTINGS_TIMEOUT_MIN_SEC 60
+#define SETTINGS_TIMEOUT_MAX_SEC 1800
+
 /* Kconfig-seeded defaults (#ifndef fallbacks for the Kconfig-`n`-leaves-
  * the-macro-undefined gotcha). */
 #ifndef CONFIG_CLOCK_IDLE_TIMEOUT_SEC
-#define CONFIG_CLOCK_IDLE_TIMEOUT_SEC 10
+#define CONFIG_CLOCK_IDLE_TIMEOUT_SEC 60
 #endif
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
-#define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
+#define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 60
 #endif
 #ifndef CONFIG_UI_MOON_ANIM_ENABLE
 #define CONFIG_UI_MOON_ANIM_ENABLE 1
@@ -72,9 +78,10 @@ esp_err_t settings_store_load(void) {
         lines++;
         if (line[0] == '#' || line[0] == '\n')
             continue;
-        if (parse_kv(line, "idle_timeout_sec", &v) && v >= 10 && v <= 300)
+        if (parse_kv(line, "idle_timeout_sec", &v) && v >= SETTINGS_TIMEOUT_MIN_SEC && v <= SETTINGS_TIMEOUT_MAX_SEC)
             s_idle_timeout_sec = (uint32_t)v;
-        else if (parse_kv(line, "deep_sleep_countdown_sec", &v) && v >= 10 && v <= 300)
+        else if (parse_kv(line, "deep_sleep_countdown_sec", &v) && v >= SETTINGS_TIMEOUT_MIN_SEC &&
+                 v <= SETTINGS_TIMEOUT_MAX_SEC)
             s_deep_sleep_countdown_sec = (uint32_t)v;
         else if (parse_kv(line, "boot_anim_enable", &v))
             s_boot_anim_enable = (v != 0);
@@ -119,20 +126,20 @@ esp_err_t settings_store_save(void) {
 uint32_t settings_idle_timeout_sec(void) { return s_idle_timeout_sec; }
 
 void settings_set_idle_timeout_sec(uint32_t sec) {
-    if (sec < 10)
-        sec = 10;
-    if (sec > 300)
-        sec = 300;
+    if (sec < SETTINGS_TIMEOUT_MIN_SEC)
+        sec = SETTINGS_TIMEOUT_MIN_SEC;
+    if (sec > SETTINGS_TIMEOUT_MAX_SEC)
+        sec = SETTINGS_TIMEOUT_MAX_SEC;
     s_idle_timeout_sec = sec;
 }
 
 uint32_t settings_deep_sleep_countdown_sec(void) { return s_deep_sleep_countdown_sec; }
 
 void settings_set_deep_sleep_countdown_sec(uint32_t sec) {
-    if (sec < 10)
-        sec = 10;
-    if (sec > 300)
-        sec = 300;
+    if (sec < SETTINGS_TIMEOUT_MIN_SEC)
+        sec = SETTINGS_TIMEOUT_MIN_SEC;
+    if (sec > SETTINGS_TIMEOUT_MAX_SEC)
+        sec = SETTINGS_TIMEOUT_MAX_SEC;
     s_deep_sleep_countdown_sec = sec;
 }
 

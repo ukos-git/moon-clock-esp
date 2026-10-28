@@ -51,8 +51,8 @@ menu "Clock Component Configuration"
 
     config CLOCK_IDLE_TIMEOUT_SEC
         int "Idle timeout in seconds"
-        default 10
-        range 10 300
+        default 60
+        range 60 1800
         help
             Time in seconds of no user interaction before switching to deep sleep screen.
             The timer resets on any touch/display interaction.
