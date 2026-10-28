@@ -44,6 +44,18 @@ extern "C" {
  *                                 [34]  ..._label_clock_alarm
  *                                 [35]  screen_indicator_alarm
  *                                 [36]  settings_hub_exit        (the settings hub's central exit)
+ *                                 [37]  settings_alarm_master    (deactivate-all toggle)
+ *                                 [38]  settings_alarm_pomodoro  (pomodoro entry)
+ *                                 [39]  settings_alarm_clock     (real-alarm entry)
+ *                                 [40]  settings_pomodoro_roller_h
+ *                                 [41]  settings_pomodoro_roller_m
+ *                                 [42]  settings_pomodoro_preview
+ *                                 [43]  settings_pomodoro_caption
+ *                                 [44]  settings_alarm_time_preview
+ *                                 [45]  settings_alarm_time_roller_h
+ *                                 [46]  settings_alarm_time_roller_m
+ *                                 [47..53]  settings_alarm_time_arcs[0..6]   (Sunday..Saturday)
+ *                                 [54..60]  settings_alarm_time_letters[0..6]
  */
 typedef struct _objects_t {
     /* Screen roots (loadScreen index = ScreensEnum value - 1). */
@@ -85,6 +97,18 @@ typedef struct _objects_t {
     lv_obj_t *alarm_clock__label_clock_alarm;
     lv_obj_t *screen_indicator_alarm;
     lv_obj_t *settings_hub_exit;
+    lv_obj_t *settings_alarm_master;
+    lv_obj_t *settings_alarm_pomodoro;
+    lv_obj_t *settings_alarm_clock;
+    lv_obj_t *settings_pomodoro_roller_h;
+    lv_obj_t *settings_pomodoro_roller_m;
+    lv_obj_t *settings_pomodoro_preview;
+    lv_obj_t *settings_pomodoro_caption;
+    lv_obj_t *settings_alarm_time_preview;
+    lv_obj_t *settings_alarm_time_roller_h;
+    lv_obj_t *settings_alarm_time_roller_m;
+    lv_obj_t *settings_alarm_time_arcs[7];
+    lv_obj_t *settings_alarm_time_letters[7];
 } objects_t;
 
 extern objects_t objects;

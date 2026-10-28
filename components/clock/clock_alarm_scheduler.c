@@ -548,6 +548,21 @@ int clock_alarm_get_interval_rule(void) {
     return -1;
 }
 
+esp_err_t clock_alarm_get_fixed_rule(int *hour, int *minute, uint8_t *dow_mask) {
+    for (int i = 0; i < s_alarm_count; i++) {
+        if (s_alarm_rules[i].minute >= 0 && s_alarm_rules[i].hour >= 0) {
+            if (hour)
+                *hour = s_alarm_rules[i].hour;
+            if (minute)
+                *minute = s_alarm_rules[i].minute;
+            if (dow_mask)
+                *dow_mask = s_alarm_rules[i].all_days ? 0x7F : s_alarm_rules[i].day_mask;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
 // Render a day-of-week mask as the cron dow field: "*" for all 7 days,
 // otherwise a comma list (0=Sunday .. 6=Saturday).
 static bool alarm_dow_mask_to_str(uint8_t mask, char *out, size_t out_len) {

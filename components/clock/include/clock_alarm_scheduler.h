@@ -102,6 +102,16 @@ uint8_t clock_alarm_rule_types(void);
 int clock_alarm_get_interval_rule(void);
 
 /**
+ * @brief Get the loaded fixed-time rule (hour, minute, day mask)
+ *
+ * @param hour     out 0..23
+ * @param minute   out 0..59
+ * @param dow_mask out day mask (0x7F for an all-days rule)
+ * @return esp_err_t ESP_OK when a fixed-time rule is loaded
+ */
+esp_err_t clock_alarm_get_fixed_rule(int *hour, int *minute, uint8_t *dow_mask);
+
+/**
  * @brief Set the pomodoro timer: ring every N minutes (whole-day grid)
  *
  * Writes the star-slash-N minutes cron rule to the alarm file and reloads.
