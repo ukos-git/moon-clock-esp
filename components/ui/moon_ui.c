@@ -241,6 +241,8 @@ static uint8_t *s_shade_map;   /* the dusk's pre-shaded body-frame equirect
 static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
 static lv_obj_t *s_images[8];  /* 4 moon screens today; headroom for more */
 static int s_n_images;
+static lv_obj_t *s_moon_roots[8];          /* the screen root each image was created in */
+static volatile bool s_moon_screen = true; /* the active screen carries a moon image */
 static lv_timer_t *s_tick;
 static bool s_ready;
 static bool s_started; /* moon_ui_start() called; ticks may run */
@@ -1641,8 +1643,12 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * still pending for display must not be drained into s_rgb while a
      * bake rewrites it row by row (that would put one mixed frame --
      * new top rows over old bottom rows -- on screen). It waits and is
-     * dropped at the pipeline's completion, like the orbit path does. */
-    if (s_spin_ready && !s_orbit_baking && !s_orbit_sweeping && !s_sweep_baking && !s_dusk_baking) {
+     * dropped at the pipeline's completion, like the orbit path does.
+     * Also guarded on s_moon_screen: the spin render is stopped on a
+     * moon-less screen, so a straggler frame waits (dropped when the
+     * spin restarts) instead of forcing a full-panel flush onto the
+     * settings screen. */
+    if (s_spin_ready && s_moon_screen && !s_orbit_baking && !s_orbit_sweeping && !s_sweep_baking && !s_dusk_baking) {
         int end = s_spin_strip + MOON_SPIN_BATCH;
         if (end > MOON_NSTRIPS)
             end = MOON_NSTRIPS;
@@ -1749,9 +1755,14 @@ static void moon_tick_cb(lv_timer_t *timer) {
              * start one -- the sweep owns the buffers), so start it here,
              * after the re-anchor: the render integrates theta from
              * zero on the fresh last frame (moon_spin_begin is a
-             * no-op if a spin task is already running). */
+             * no-op if a spin task is already running). Only while a
+             * moon screen is active: on a moon-less screen the render
+             * would park on the (withheld) display handshake, and the
+             * screen switch back to the moon starts it then (the
+             * re-anchored theta is already zero). */
             moon_spin_reanchor();
-            moon_spin_begin();
+            if (s_moon_screen)
+                moon_spin_begin();
             if (s_orbit_epoch <= 0) {
                 /* Boot sweep: the first static frame of the session.
                  * The orbit pipeline needs the phase epoch (the sweep's
@@ -1896,8 +1907,11 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
     lv_obj_set_size(img, MOON_PX, MOON_PX);
     lv_image_set_src(img, &s_dsc);
     lv_obj_set_clickable(img, false);
-    if (s_n_images < 8)
-        s_images[s_n_images++] = img;
+    if (s_n_images < 8) {
+        s_images[s_n_images] = img;
+        s_moon_roots[s_n_images] = parent;
+        s_n_images++;
+    }
     return img;
 }
 
@@ -2066,7 +2080,12 @@ void moon_ui_day_tick(void) {
         ESP_LOGI(TAG, "new day; re-baking moon phase");
         s_baked_day = day;
         moon_bake_epoch(now);
-        moon_spin_begin();
+        /* Only while a moon screen is active: starting the render on a
+         * moon-less screen would park it on the (withheld) display
+         * handshake; the screen switch back to the moon starts/primed it
+         * then, from this fresh s_frame. */
+        if (s_moon_screen)
+            moon_spin_begin();
     }
 }
 
@@ -2181,7 +2200,54 @@ void moon_ui_pause(bool pause) {
  * overflows the 3.5 KB main task at boot; off it the invalidated screen
  * is painted by the LVGL task's async refresh (a boot crawl is
  * acceptable, the moon is not baked yet anyway). */
+
+/* Does the screen just loaded carry a moon image? The images persist
+ * (created once at boot); only the ACTIVE screen matters. The moon
+ * spin is pointless on a moon-less screen (the settings screens idle
+ * at ~50% CPU with the spin render task + the tick's full-panel
+ * lv_refr_now both running at the spin's cadence), so this is the
+ * lever that starts/stops the render task on screen change. */
+static bool moon_screen_has_image(void) {
+    lv_obj_t *active = lv_screen_active();
+    for (int i = 0; i < s_n_images; i++) {
+        if (s_moon_roots[i] == active)
+            return true;
+    }
+    return false;
+}
+
 void moon_ui_screen_switched(void) {
+    if (s_ready && moon_on_lvgl()) {
+        /* Start/stop the spin render with the active screen (LVGL task:
+         * the task create/delete belongs here). While a bake pipeline
+         * owns the buffers it manages the spin itself, so leave it alone. */
+        bool moon_here = moon_screen_has_image();
+        if (moon_here != s_moon_screen) {
+            s_moon_screen = moon_here;
+            if (!s_orbit_baking && !s_sweep_baking && !s_dusk_baking) {
+                if (moon_here) {
+                    /* The free spin's angle/rate persist across the
+                     * stop (the render clamps its first dt to 0.5 s), so
+                     * the moon resumes from the exact pose it showed. */
+                    moon_spin_begin();
+                    if (s_spin_running) {
+                        /* A task left running on a moon-less screen (the
+                         * day tick re-baked while the user was in the
+                         * settings) is parked on the display handshake --
+                         * prime it so it renders the next frame instead of
+                         * polling the semaphore forever. (If begin() just
+                         * created the task the prime leaves the token it
+                         * primed: one in, one out, one in.) */
+                        (void)xSemaphoreTake(s_spin_shown, 0);
+                        (void)xSemaphoreGive(s_spin_shown);
+                    }
+                } else {
+                    moon_spin_stop();
+                    ESP_LOGI(TAG, "spin render stopped (active screen has no moon image)");
+                }
+            }
+        }
+    }
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking)
         return;
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
