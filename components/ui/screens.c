@@ -69,7 +69,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_XMARK "\xEF\x80\x8D"     /* U+F00D */
 #define GLYPH_MOON "\xEF\x86\x86"      /* U+F186 */
 #define GLYPH_WIFI "\xEF\x87\xAB"      /* U+F1EB */
-#define GLYPH_STOPWATCH "\xEF\xA7\xB2" /* U+F2F2 */
+#define GLYPH_STOPWATCH "\xEF\x8B\xB2" /* U+F2F2 (was \xEF\xA7\xB2 = U+F9F2, absent -> a box) */
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
@@ -139,36 +139,29 @@ static lv_obj_t *settings_hub_icon(lv_obj_t *parent, const char *glyph, const lv
     return icon;
 }
 
-/* The concentric exit button: a grey ring with a black inner disc
- * (grey border) and a white xmark centred on it. The ring is the only
- * clickable part; a tap on it fires LV_EVENT_CLICKED on the returned
- * obj. Used central (150 px) on the hub and bottom-centre (90 px) on
- * every sub-screen -- the middle of the screen is occupied by the
- * settings' working widgets, so the exit lives at the bottom edge and
- * the sub-screens' layouts keep the band around it clear. */
+/* The exit button: a clean FA xmark icon in a thin grey circle outline
+ * (the old concentric grey-donut + nested black disc read as "ugly"; the
+ * flash budget leaves no room for a new glyph, so the F00D xmark is kept
+ * and the chrome reduced to one thin ring). The whole circle is the tap
+ * target; a tap on it fires LV_EVENT_CLICKED on the returned obj. Used
+ * central (150 px) on the hub and bottom-centre (90 px) on every
+ * sub-screen -- the middle of the screen is occupied by the settings'
+ * working widgets, so the exit lives at the bottom edge and the
+ * sub-screens' layouts keep the band around it clear. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     lv_obj_t *ring = lv_obj_create(parent);
     lv_obj_set_size(ring, size, size);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ring, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* Black fill (blends into the screen) + a thin grey outline: the
+     * ring is the only visible chrome and the tap target at once. */
+    lv_obj_set_style_bg_color(ring, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(ring, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 
-    int inner = size * 2 / 3;
-    lv_obj_t *disc = lv_obj_create(ring);
-    lv_obj_set_size(disc, inner, inner);
-    lv_obj_center(disc);
-    lv_obj_set_style_radius(disc, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(disc, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(disc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(disc, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_color(disc, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(disc, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(disc, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *xmark = lv_label_create(disc);
+    lv_obj_t *xmark = lv_label_create(ring);
     add_style_label_icon_solid(xmark);
     lv_label_set_text(xmark, GLYPH_XMARK);
     lv_obj_set_size(xmark, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -178,23 +171,33 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     return ring;
 }
 
-/* The hub's central exit: reconnecting WiFi from the settings means
- * "leave settings" -- it runs the on-demand sync (transient WiFi
- * screen) and drops back to the airplane screen when it completes. */
+/* The hub's central exit: leaving settings goes to the WiFi screen
+ * directly -- the AP-scan settings screen, the one headed by the wifi
+ * icon (the airplane / no-wifi screen has no icon, so the two are
+ * differentiable at a glance). No background sync is kicked off; the
+ * user lands on the WiFi settings screen and can act from there. */
 static void event_handler_cb_hub_exit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    action_start_wifi_sync();
+    loadScreen(SCREEN_ID_SETTINGS_WIFI);
+    ui_tick();
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
 }
 
-/* Every sub-screen's bottom-centre exit goes back to the hub. */
+/* A sub-screen's bottom-centre exit returns to the CALLING level, not
+ * always the hub: the two screens reached FROM the alarm screen (the
+ * pomodoro interval + the real-alarm time) go back to the alarm screen,
+ * the rest (reached from the hub) go back to the hub. The target rides
+ * in the event's user_data (one handler for every sub-screen). */
 static void event_handler_cb_settings_exit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    loadScreen(SCREEN_ID_SETTINGS_HUB);
+    enum ScreensEnum target = (enum ScreensEnum)(intptr_t)lv_event_get_user_data(e);
+    loadScreen(target);
     ui_tick();
+    settings_screen_refresh_for(target);
 }
 
 void create_screen_modem_sleep() {
@@ -482,10 +485,11 @@ void create_screen_settings_hub() {
 void tick_screen_settings_hub() {}
 
 /* One sub-screen shell: black root (non-clickable) + the shared
- * bottom-centre exit button (90 px) back to the hub. The sub-screens
- * add their own widgets on top in the later settings steps; the band
- * around the exit (x 188..278, y 342..432) stays free of widgets. */
-static void settings_sub_screen_prepare(lv_obj_t *obj) {
+ * bottom-centre exit button (90 px) back to the CALLING level (the
+ * hub, or the alarm screen for its two sub-screens). The sub-screens
+ * add their own widgets on top; the band around the exit (x 188..278,
+ * y 342..432) stays free of widgets. */
+static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
     settings_screen_prepare(obj);
@@ -493,7 +497,7 @@ static void settings_sub_screen_prepare(lv_obj_t *obj) {
 
     lv_obj_t *exit = settings_create_exit_button(obj, 90);
     lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -34);
-    lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, 0);
+    lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, (void *)(intptr_t)exit_target);
 }
 
 /* --- alarm settings: deactivate-all / pomodoro / real alarm ---------
@@ -572,7 +576,7 @@ static void event_handler_cb_settings_alarm_entry(lv_event_t *e) {
 void create_screen_settings_alarm() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_alarm = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
 
     /* Master deactivate-all (central, 96 px regular). */
     objects.settings_alarm_master = lv_label_create(obj);
@@ -687,7 +691,7 @@ static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, i
 void create_screen_settings_pomodoro() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_pomodoro = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_ALARM);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     char hours[512];
@@ -701,12 +705,24 @@ void create_screen_settings_pomodoro() {
         pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
     }
 
-    /* Lifted from the shared (x, 90) so the 110 px tall rollers clear
-     * the bottom-centre exit button (bottom edge y 358 vs 387). */
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -110, 150);
-    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -110, 70);
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 110, 150);
-    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 110, 70);
+    /* The two rollers read like the clock's "HH:MM": a `:` sits between
+     * them (the bold 96 numbers font carries the colon) and they are
+     * tightened from the old +-110/150 spread -- the old distance was too
+     * wide for the clock-like look. Lifted from the shared (x, 90) so the
+     * 110 px tall rollers clear the bottom-centre exit button (bottom
+     * edge y 358 vs 387). */
+    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -88, 130);
+    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -88, 70);
+    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 88, 130);
+    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 88, 70);
+
+    lv_obj_t *colon = lv_label_create(obj);
+    lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(colon, ":");
+    lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(colon, LV_ALIGN_CENTER, 0, 70);
+    lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
     objects.settings_pomodoro_caption = lv_label_create(obj);
     lv_obj_set_style_text_font(objects.settings_pomodoro_caption, &ui_font_montserrat_regular_32_ssid,
@@ -727,209 +743,328 @@ void create_screen_settings_pomodoro() {
 
 void tick_screen_settings_pomodoro() {}
 
-/* --- real alarm: time rollers + weekday pie of arc wedges ------------
+/* --- real alarm: time rollers + two-ended day-range arc --------------
  *
- * The pie: 7 full-size lv_arcs (466x466, zero MAIN pad -> R = 233)
- * sharing one centre, each slice a wedge via the BG part
- * (bg_start/end_angle) and the INDICATOR (value pinned at max, so it
- * fills end-to-end). The hit test only accepts points OUTSIDE
- * R - arc_width(MAIN), so the 80 px MAIN arc_width defines the wedge's
- * clickable ring while the centre hole (Ø ~306) rejects every arc and
- * reaches the time widgets. Square caps (arc_rounded = false) make
- * adjacent wedges share seam pixels. Slice colours: moon grey
- * (unselected) / white (selected); the letter labels mirror them.
+ * The day arc: the upper half-circle that cuts out the bottom-centre
+ * exit button (the old full pie's ring ended up behind it, and its
+ * 51 deg wedges were hard to press and hard to tell apart). The grey
+ * track (LV_PART_MAIN) spans the whole arc, Monday (left) to Sunday
+ * (right); the white INDICATOR spans the two draggable day handles
+ * (the range, inclusive). The vendored arc is single-knob and two
+ * overlapping knob arcs could not both take a press, so the range
+ * endpoints are two plain objects on the ring (the arc itself is
+ * non-clickable): a press snaps the handle to the nearest day under
+ * the touch point and follows the drag. The day letters sit just
+ * OUTSIDE the ring, so every day is identifiable even when a handle
+ * covers its slot.
  *
- * Slice i (0 = Sunday) starts at i * 360/7 with a half-slice rotation
- * (270 + span/2): the slice SEAMS, not the mid-angles, sit at 12 and
- * 6 o'clock -- so the bottom-centre exit button (bottom middle on
- * every sub-screen) sits on a slice seam and no weekday letter is
- * hidden behind it. */
+ * Geometry (screen coords, 0 deg = right, 90 deg = down): day d
+ * (0 = Mon) sits at 181 + 30d degrees -- the +1 deg offset keeps every
+ * stored arc angle off the 360/0 wrap edge (an indicator end angle of
+ * exactly 360 stores as 360 and the SW arc mask clamps it to 359,
+ * drawing a 1 deg gap at the right edge of the band). The arc centre
+ * is (233, 240), R = 100 (zero pad, the 200 px object at (133, 140));
+ * the ring is 46 px wide (r 54..100), the handles sit at r 77 (the
+ * ring midline) and the letters at r 140 (just outside the ring). The
+ * time rollers sit up top (y ~60) -- the arc's centre hole no longer
+ * hosts them, because the horizontal day positions (y ~240) would
+ * collide with centred rollers.
+ *
+ * State: s_alarm_range_{start,end} (day indices, Mon..Sun order) -- the
+ * working range (the widgets persist across loadScreen, so it must
+ * too; re-seeded from the rule on every entry). The range maps to the
+ * scheduler's weekday mask (bit 0 = Sunday .. 6 = Saturday); the
+ * Mon-Fri default is 0x7E. A stored non-contiguous mask is displayed
+ * rounded to its outermost days (a two-ended range is always
+ * contiguous). Minutes are multiples of 5 -- 10:03 is not a wake-up
+ * time. */
 
-#define ALARM_TIME_PIE_ARC_WIDTH 46 /* pressable wedge width (also the hit ring) */
-#define ALARM_TIME_PIE_SPAN ((float)(360 / 7))
-#define ALARM_TIME_PIE_ROT (270 + 180 / 7) /* half-slice offset (295.714 deg) */
-/* The pie is shrunk + lifted so its bottom ring clears the bottom-centre
- * exit button (the reserved band, top edge y 342) and it is not clipped
- * at the top (y 0): with the ring at R-46..R the centre must satisfy
- * centre-y >= R and centre-y + R <= 342 -> R <= 171, so R = 170 (340 px),
- * centre y 170. The hole (R-46 = 124, Ø 248) holds the two time rollers
- * (120 px wide each at x +-64: the 96 px 2-digit values need ~113-118 px,
- * so 120 is the minimum width that does not clip). */
-#define ALARM_TIME_PIE_PX 340
-#define ALARM_TIME_PIE_CY 170
+#define ALARM_TIME_ARC_CX 233
+#define ALARM_TIME_ARC_CY 240
+#define ALARM_TIME_ARC_R 100
+#define ALARM_TIME_ARC_WIDTH 46
+#define ALARM_TIME_HANDLE_R 77  /* the day handles' radius (the ring midline) */
+#define ALARM_TIME_LETTER_R 140 /* the day letters' radius (just outside the ring) */
 
-/* The pie's working weekday mask (the widgets persist across
- * loadScreen, so it must too; re-seeded from the rule on every entry). */
-static uint8_t s_alarm_time_dow_mask = 0x7F;
+#define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
-static void settings_alarm_time_apply_day_colors(void) {
-    uint8_t types = clock_alarm_rule_types();
-    uint8_t mask = 0;
-    int h = 12, m = 0;
-    if (types & 2) {
-        clock_alarm_get_fixed_rule(&h, &m, &mask);
+/* The range's working endpoints (day indices, 0 = Monday .. 6 =
+ * Sunday; re-seeded from the stored rule on every entry). */
+static int s_alarm_range_start = 0;
+static int s_alarm_range_end = 4;
+
+static bool alarm_range_contains(int s, int e, int d) {
+    if (e >= s) {
+        return d >= s && d <= e;
+    }
+    return d >= s || d <= e; /* the range wraps past Sunday */
+}
+
+/* Range -> scheduler weekday mask (bit 0 = Sunday .. bit 6 =
+ * Saturday), walking the range clockwise, endpoints inclusive. */
+static uint8_t alarm_range_to_mask(int s, int e) {
+    uint8_t m = 0;
+    for (int d = s;; d = (d + 1) % 7) {
+        m |= (uint8_t)(1u << ((d + 1) % 7));
+        if (d == e) {
+            break;
+        }
+    }
+    return m;
+}
+
+/* Band indicator + letter colours + handle positions from the current
+ * range. The arc's stored angles: start = 181+30s, end = (181+30e)
+ * % 360; the wrap case (e < s) stores a start > end pair, which the
+ * SW arc mask draws as the arc through 360/0. A single-day range
+ * (s == e) draws a 6 deg sliver at the day -- an arc cannot draw a
+ * zero-length span. */
+static void settings_alarm_time_apply_range(void) {
+    int s = s_alarm_range_start, e = s_alarm_range_end;
+    if (s == e) {
+        int a = ALARM_DAY_ANG(s) % 360;
+        lv_arc_set_angles(objects.settings_alarm_time_band, (lv_value_precise_t)a, (lv_value_precise_t)(a + 6));
+    } else {
+        lv_arc_set_angles(objects.settings_alarm_time_band, (lv_value_precise_t)ALARM_DAY_ANG(s),
+                          (lv_value_precise_t)(ALARM_DAY_ANG(e) % 360));
     }
     for (int d = 0; d < 7; d++) {
-        bool sel = mask & (1u << d);
-        lv_obj_set_style_arc_color(objects.settings_alarm_time_arcs[d], sel ? SETTINGS_WHITE : SETTINGS_GREY,
-                                   LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_set_style_text_color(objects.settings_alarm_time_letters[d], sel ? SETTINGS_WHITE : SETTINGS_GREY,
+        lv_obj_set_style_text_color(objects.settings_alarm_time_letters[d],
+                                    alarm_range_contains(s, e, d) ? SETTINGS_WHITE : SETTINGS_GREY,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+    lv_obj_t *handles[2] = {objects.settings_alarm_time_handle_start, objects.settings_alarm_time_handle_end};
+    int ends[2] = {s, e};
+    for (int i = 0; i < 2; i++) {
+        float ang = (float)ALARM_DAY_ANG(ends[i]) * 3.14159265f / 180.0f;
+        lv_obj_align(handles[i], LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_HANDLE_R * cosf(ang)),
+                     (int32_t)(ALARM_TIME_HANDLE_R * sinf(ang)));
     }
 }
 
-/* Seed the preview + rollers from the stored fixed-time rule (or
- * 12:00, all days, when none). */
-static void settings_alarm_time_screen_refresh(void) {
-    if (!objects.settings_alarm_time_roller_h) {
-        return;
+/* Map the indev point (display coords) to the arc's local frame and
+ * snap to the nearest day. The screen root may carry the orientation
+ * roll -- inverse it first (a no-op at rest). */
+static bool alarm_time_point_to_day(int *out_day) {
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == NULL) {
+        return false;
     }
-    int h = 12, m = 0;
-    uint8_t mask = 0x7F;
-    if (clock_alarm_get_fixed_rule(&h, &m, &mask) != ESP_OK) {
-        h = 12;
-        m = 0;
-        mask = 0x7F;
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_obj_transform_point(objects.settings_alarm_time, &p, LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE);
+    int32_t dx = p.x - ALARM_TIME_ARC_CX;
+    int32_t dy = p.y - ALARM_TIME_ARC_CY;
+    if (dx == 0 && dy == 0) {
+        return false;
     }
-    lv_roller_set_selected(objects.settings_alarm_time_roller_h, h, LV_ANIM_OFF);
-    lv_roller_set_selected(objects.settings_alarm_time_roller_m, m, LV_ANIM_OFF);
-
-    /* The weekday state lives in the static mask (the pie widgets are
-     * created once at boot); re-render each slice's colour. */
+    /* atan2f (not lv_atan2, which reports 90 deg minus the screen
+     * angle): radians, 0 = right, 90 = down -- the day-angle convention. */
+    float theta = atan2f((float)dy, (float)dx) * 180.0f / 3.14159265f;
+    while (theta < 0.0f) {
+        theta += 360.0f;
+    }
+    while (theta >= 360.0f) {
+        theta -= 360.0f;
+    }
+    int best = 0;
+    float best_diff = 1e9f;
     for (int d = 0; d < 7; d++) {
-        bool sel = mask & (1u << d);
-        lv_obj_set_style_arc_color(objects.settings_alarm_time_arcs[d], sel ? SETTINGS_WHITE : SETTINGS_GREY,
-                                   LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_set_style_text_color(objects.settings_alarm_time_letters[d], sel ? SETTINGS_WHITE : SETTINGS_GREY,
-                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+        float diff = theta - (float)(ALARM_DAY_ANG(d) % 360);
+        while (diff > 180.0f) {
+            diff -= 360.0f;
+        }
+        while (diff < -180.0f) {
+            diff += 360.0f;
+        }
+        float ad = diff < 0.0f ? -diff : diff;
+        if (ad < best_diff) {
+            best_diff = ad;
+            best = d;
+        }
     }
-    s_alarm_time_dow_mask = mask;
+    *out_day = best;
+    return true;
 }
 
-static void event_handler_cb_settings_alarm_time_slice(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+/* Drag: the pressed handle is the endpoint being moved (PRESS_LOCK
+ * keeps it under the finger while it leaves the handle). PRESSED +
+ * PRESSING snap the endpoint to the nearest day under the touch
+ * point (a press on the handle's own day is a no-op). */
+static void event_handler_cb_settings_alarm_time_handle(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) {
         return;
     }
-    int d = (int)(intptr_t)lv_event_get_user_data(e);
-    s_alarm_time_dow_mask ^= (1u << d);
-    settings_alarm_time_apply_day_colors();
-}
-
-/* Keep the slice's value pinned at 1 (the indicator fills the full
- * span). The arc's built-in PRESSING drag handler maps a press angle
- * into the 0..1 value range and would collapse the wedge while it is
- * pressed (the slice is still toggled by the CLICKED on release); the
- * pin re-fills it on the very next event. lv_arc_set_value early-
- * returns when the value is unchanged, so the re-pin cannot loop. */
-static void event_handler_cb_settings_alarm_time_pin(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    int day = 0;
+    if (!alarm_time_point_to_day(&day)) {
         return;
     }
-    lv_obj_t *a = lv_event_get_target(e);
-    if (lv_arc_get_value(a) != 1)
-        lv_arc_set_value(a, 1);
+    if (idx == 0) {
+        if (day != s_alarm_range_start) {
+            s_alarm_range_start = day;
+            settings_alarm_time_apply_range();
+        }
+    } else if (day != s_alarm_range_end) {
+        s_alarm_range_end = day;
+        settings_alarm_time_apply_range();
+    }
 }
 
-static void event_handler_cb_settings_alarm_time_released(lv_event_t *e) {
+/* Persist time + day range (only on RELEASED: the SPIFFS write + the
+ * RTC reschedule stay off the drag path). The range always covers at
+ * least one day, so no empty-mask rejection is needed. */
+static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
-    if (s_alarm_time_dow_mask == 0) {
-        ESP_LOGW("settings_alarm_time", "save rejected: no weekday selected");
         return;
     }
     int h = settings_roller_value(objects.settings_alarm_time_roller_h);
     int m = settings_roller_value(objects.settings_alarm_time_roller_m);
-    esp_err_t r = clock_alarm_set_clock_alarm(h, m, s_alarm_time_dow_mask);
-    ESP_LOGW("settings_alarm_time", "alarm %02d:%02d mask 0x%02x -> %s", h, m, s_alarm_time_dow_mask,
-             esp_err_to_name(r));
+    uint8_t mask = alarm_range_to_mask(s_alarm_range_start, s_alarm_range_end);
+    esp_err_t r = clock_alarm_set_clock_alarm(h, m, mask);
+    ESP_LOGW("settings_alarm_time", "alarm %02d:%02d mask 0x%02x (days %d..%d) -> %s", h, m, mask, s_alarm_range_start,
+             s_alarm_range_end, esp_err_to_name(r));
+}
+
+/* Seed the rollers + range from the stored fixed-time rule (or 12:00,
+ * Mon-Fri, when none). A non-contiguous mask is displayed rounded to
+ * its outermost days (a two-ended range is always contiguous). */
+static void settings_alarm_time_screen_refresh(void) {
+    if (!objects.settings_alarm_time_band) {
+        return;
+    }
+    int h = 12, m = 0;
+    uint8_t mask = 0x7E;
+    if (clock_alarm_get_fixed_rule(&h, &m, &mask) != ESP_OK) {
+        h = 12;
+        m = 0;
+        mask = 0x7E;
+    }
+    lv_roller_set_selected(objects.settings_alarm_time_roller_h, h, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_alarm_time_roller_m, m / 5, LV_ANIM_OFF); /* x5 steps */
+    int s = -1, e = -1;
+    for (int d = 0; d < 7; d++) {
+        if (mask & (1u << ((d + 1) % 7))) {
+            if (s < 0) {
+                s = d;
+            }
+            e = d;
+        }
+    }
+    if (s < 0) {
+        s = 0;
+        e = 4;
+    }
+    s_alarm_range_start = s;
+    s_alarm_range_end = e;
+    settings_alarm_time_apply_range();
 }
 
 void create_screen_settings_alarm_time() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_alarm_time = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_ALARM);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* The 7 pie wedges, created first (behind the centre widgets). */
-    static const char *weekday_letters[7] = {"S", "M", "T", "W", "T", "F", "S"};
-    for (int d = 0; d < 7; d++) {
-        lv_obj_t *a = lv_arc_create(obj);
-        objects.settings_alarm_time_arcs[d] = a;
-        /* The pie is lifted + shrunk (centre y 170, 340 px) so its bottom
-         * ring clears the bottom-centre exit button (the reserved band);
-         * the time rollers re-centre on the lifted pie below. */
-        lv_obj_set_pos(a, (466 - ALARM_TIME_PIE_PX) / 2, ALARM_TIME_PIE_CY - ALARM_TIME_PIE_PX / 2);
-        lv_obj_set_size(a, ALARM_TIME_PIE_PX, ALARM_TIME_PIE_PX);
-        lv_obj_set_style_pad_left(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_pad_right(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_pad_top(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_pad_bottom(a, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_arc_set_rotation(a, ALARM_TIME_PIE_ROT);
-        lv_arc_set_bg_start_angle(a, (int32_t)(d * ALARM_TIME_PIE_SPAN));
-        lv_arc_set_bg_end_angle(a, (int32_t)((d + 1) * ALARM_TIME_PIE_SPAN));
-        lv_arc_set_range(a, 0, 1);
-        lv_arc_set_value(a, 1);
-        lv_obj_set_style_arc_width(a, ALARM_TIME_PIE_ARC_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_width(a, ALARM_TIME_PIE_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_opa(a, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_opa(a, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        /* The theme draws the KNOB as a blue-filled rect at the value
-         * angle (arc_opa styles the arc LINE, not the knob rect) -- the
-         * blue dot at each slice's edge. Kill it with the knob's bg. */
-        lv_obj_set_style_bg_opa(a, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_rounded(a, false, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_arc_rounded(a, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_add_flag(a, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_slice, LV_EVENT_CLICKED, (void *)(intptr_t)d);
-        lv_obj_add_event_cb(a, event_handler_cb_settings_alarm_time_pin, LV_EVENT_VALUE_CHANGED, 0);
+    /* The day-range band: the upper half-circle (Monday left, Sunday
+     * right), its ring clearing the bottom-centre exit button. */
+    lv_obj_t *band = lv_arc_create(obj);
+    objects.settings_alarm_time_band = band;
+    lv_obj_set_pos(band, (466 - ALARM_TIME_ARC_R * 2) / 2, ALARM_TIME_ARC_CY - ALARM_TIME_ARC_R);
+    lv_obj_set_size(band, ALARM_TIME_ARC_R * 2, ALARM_TIME_ARC_R * 2);
+    lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(band, 181, 1); /* the grey full track (the 180 deg wrap) */
+    lv_arc_set_angles(band, 181, 181);  /* the indicator: re-seeded on entry */
+    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(band, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(band, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(band, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(band, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    /* The theme draws the KNOB as a blue-filled rect at the value
+     * angle -- kill it (the range endpoints are the two custom
+     * handles below). */
+    lv_obj_set_style_bg_opa(band, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    /* The arc must not swallow the ring presses: the handles (its
+     * children) catch them, everything else falls through. */
+    lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
 
-        /* Weekday letter at the mid-angle, radius ~147 (the middle of the
-         * 46 px wedge ring, R-46..R = 124..170). A child of the arc, so it
-         * aligns to the pie centre. */
-        lv_obj_t *letter = lv_label_create(a);
+    /* The day letters, just outside the ring (children of the band so
+     * they align to the arc centre), created before the handles so the
+     * handles render on top. */
+    static const char *weekday_letters[7] = {"M", "T", "W", "T", "F", "S", "S"};
+    for (int d = 0; d < 7; d++) {
+        lv_obj_t *letter = lv_label_create(band);
         objects.settings_alarm_time_letters[d] = letter;
         lv_obj_set_style_text_font(letter, &ui_font_montserrat_regular_40_weekdays, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(letter, weekday_letters[d]);
         lv_obj_set_size(letter, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        /* Arc angles use 0 deg = right, 90 deg = down (screen coords);
-         * the half-slice rotation puts the slice SEAMS at 12 and 6
-         * o'clock, so the two lowest letters sit at +/- 25.7 deg from 6
-         * o'clock (x ~169 / 297 -- outside the exit button's x 188..278)
-         * and none of them hides behind it. */
-        float screen_deg = (float)((d + 0.5) * 360 / 7) + 270.0f + 180.0f / 7;
-        float ang = (screen_deg * 3.14159265f) / 180.0f;
-        int32_t dx = (int32_t)(147.0f * cosf(ang));
-        int32_t dy = (int32_t)(147.0f * sinf(ang));
-        lv_obj_align(letter, LV_ALIGN_CENTER, dx, dy);
+        float ang = (float)ALARM_DAY_ANG(d) * 3.14159265f / 180.0f;
+        lv_obj_align(letter, LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_LETTER_R * cosf(ang)),
+                     (int32_t)(ALARM_TIME_LETTER_R * sinf(ang)));
         lv_obj_clear_flag(letter, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* Centre (unfilled by the pie): the two time rollers -- each one
-     * the single display of its field (the old HH:MM preview label is
-     * gone). */
+    /* The two day handles on the ring (white, grey border): the range
+     * endpoints. Draggable -- snap to the nearest day under the
+     * finger. */
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *h = lv_obj_create(band);
+        if (i == 0) {
+            objects.settings_alarm_time_handle_start = h;
+        } else {
+            objects.settings_alarm_time_handle_end = h;
+        }
+        lv_obj_set_size(h, 34, 34);
+        lv_obj_set_style_radius(h, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_color(h, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(h, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(h, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_ext_click_area(h, 4);
+        lv_obj_add_flag(h, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(h, LV_OBJ_FLAG_PRESS_LOCK);
+        lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_handle, LV_EVENT_PRESSED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_handle, LV_EVENT_PRESSING, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_save, LV_EVENT_RELEASED, 0);
+    }
+
+    /* The time rollers up top: hours 0-23, minutes in x5 steps, a `:`
+     * between them (the clock's "HH:MM" look). The 110 px tall
+     * rollers span y 5..115 -- clear of the arc's top edge (y 140). */
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {
         pos += snprintf(hours + pos, sizeof(hours) - pos, "%d\n", h);
     }
-    char minutes[600];
+    char minutes[200];
     pos = 0;
-    for (int m = 0; m < 60; m++) {
+    for (int m = 0; m < 60; m += 5) {
         pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
     }
-    /* The rollers sit in the pie's hole (Ø 248), centred on the lifted
-     * pie centre (y offset -63 puts them at y 170); 120 px wide each is
-     * the minimum width that does not clip the 96 px 2-digit values
-     * (~113-118 px), and they clear the bottom band (bottom edge y 225). */
     objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -64, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -64, -63);
+    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -64, -173);
     objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 64, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 64, -63);
+    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 64, -173);
 
-    lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_settings_alarm_time_released,
+    lv_obj_t *colon = lv_label_create(obj);
+    lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(colon, ":");
+    lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(colon, LV_ALIGN_CENTER, 0, -173);
+    lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_settings_alarm_time_save,
                         LV_EVENT_RELEASED, 0);
-    lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_settings_alarm_time_released,
+    lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_settings_alarm_time_save,
                         LV_EVENT_RELEASED, 0);
 
     settings_alarm_time_screen_refresh();
@@ -942,29 +1077,29 @@ void tick_screen_settings_alarm_time() {}
  *
  * SETTINGS_LIGHT_SLEEP: the idle-timeout roller (10-300 s, the
  * airplane -> light-sleep transition). SETTINGS_DEEP_SLEEP: the
- * deep-sleep countdown roller (light -> deep). Both screens carry
- * both animation toggles (the spec): a moon glyph + upper-cased
- * caption, coloured white (on) / moon grey (off) -- no switch widget
- * (LV_USE_SWITCH is off). A tap on the toggle row flips the flag,
- * saves, and recolors. The countdown takes effect at the next dusk
- * arming; the idle timeout is applied live via
- * clock_idle_set_timeout_ms().
+ * deep-sleep countdown roller (light -> deep).
+ *
+ * One icon-only animation toggle per screen (no caption): a 96 px
+ * solid moon glyph, white (on) / moon grey (off) -- no switch widget
+ * (LV_USE_SWITCH is off). A tap flips the flag, saves, and recolors.
+ * The toggle is the SLEEP-TRANSITION animation (the dusk: the pole
+ * spin from the current phase to the dark side, the light-sleep
+ * transition). The deep-sleep transition itself ends on the flat-black
+ * disk with the backlight off, so it carries no separate animation --
+ * both sleep screens show the one sleep-transition toggle. (The boot
+ * sweep's boot_anim_enable flag stays in the store; it is a BOOT
+ * animation, not a sleep transition, so it is not exposed here.)
+ * The countdown takes effect at the next dusk arming; the idle
+ * timeout is applied live via clock_idle_set_timeout_ms().
  *
  * The widgets are created once (loadScreen never destroys them), so
  * the pointers live here; [0] = light-sleep screen, [1] = deep. */
 static lv_obj_t *s_sleep_roller[2];
-static lv_obj_t *s_anim_glyph[2][2]; /* [screen][0=boot, 1=dusk] */
-static lv_obj_t *s_anim_cap[2][2];
+static lv_obj_t *s_anim_glyph[2]; /* [screen] the single icon-only dusk toggle */
 
 static void settings_anim_apply_colors(int screen) {
-    bool boot = settings_boot_anim_enable();
-    bool dusk = settings_dusk_anim_enable();
-    lv_color_t c0 = boot ? SETTINGS_WHITE : SETTINGS_GREY;
-    lv_color_t c1 = dusk ? SETTINGS_WHITE : SETTINGS_GREY;
-    lv_obj_set_style_text_color(s_anim_glyph[screen][0], c0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(s_anim_cap[screen][0], c0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(s_anim_glyph[screen][1], c1, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_color(s_anim_cap[screen][1], c1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_color_t c = settings_dusk_anim_enable() ? SETTINGS_WHITE : SETTINGS_GREY;
+    lv_obj_set_style_text_color(s_anim_glyph[screen], c, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 static void settings_sleep_screen_refresh(int screen) {
@@ -976,7 +1111,7 @@ static void settings_sleep_screen_refresh(int screen) {
     settings_anim_apply_colors(screen);
 }
 
-/* user_data = screen (0/1) on the roller; screen*2+toggle on a row. */
+/* user_data = screen (0/1). */
 static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
@@ -993,58 +1128,40 @@ static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
     ESP_LOGW("settings_sleep", "screen %d value %d s -> %s", screen, v, esp_err_to_name(r));
 }
 
+/* user_data = screen (0/1): flip the sleep-transition (dusk) animation. */
 static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    int sel = (int)(intptr_t)lv_event_get_user_data(e);
-    int screen = sel / 2;
-    int toggle = sel % 2;
-    if (toggle == 0) {
-        settings_set_boot_anim_enable(!settings_boot_anim_enable());
-    } else {
-        settings_set_dusk_anim_enable(!settings_dusk_anim_enable());
-    }
+    int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    settings_set_dusk_anim_enable(!settings_dusk_anim_enable());
     esp_err_t r = settings_store_save();
-    ESP_LOGW("settings_anim", "toggle %d on screen %d -> %s", toggle, screen, esp_err_to_name(r));
+    ESP_LOGW("settings_anim", "sleep-transition (dusk) anim -> %d (screen %d) -> %s",
+             settings_dusk_anim_enable() ? 1 : 0, screen, esp_err_to_name(r));
     settings_anim_apply_colors(screen);
 }
 
-/* One 96 px moon-glyph + 32 px caption toggle row (clickable
- * container; the labels themselves are not clickable). The rows sit
- * OUTSIDE the bottom-centre exit button's x-band (188..278) and their
- * bottom edge clears the band's top (342). */
-static void settings_anim_toggle(lv_obj_t *parent, int screen, int toggle, int32_t x) {
+/* The single icon-only animation toggle: a 96 px solid moon glyph in a
+ * 100 px clickable container (no caption). Centre (0, +58) absolute
+ * 241..341: clears the roller (bottom edge 238) above and the
+ * bottom-centre exit button's band (top edge 342) below. */
+static void settings_anim_toggle(lv_obj_t *parent, int screen) {
     lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, 170, 120);
-    lv_obj_align(row, LV_ALIGN_CENTER, x, 108);
+    lv_obj_set_size(row, 100, 100);
+    lv_obj_align(row, LV_ALIGN_CENTER, 0, 58);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)(screen * 2 + toggle));
+    lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED, (void *)(intptr_t)screen);
 
-    const bool solid = (toggle != 0);
     lv_obj_t *glyph = lv_label_create(row);
-    if (solid) {
-        add_style_label_icon_solid(glyph);
-    } else {
-        add_style_label_icon_regular(glyph);
-    }
+    add_style_label_icon_solid(glyph);
     lv_label_set_text(glyph, GLYPH_MOON);
     lv_obj_set_size(glyph, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(glyph, LV_ALIGN_CENTER, 0, -18);
+    lv_obj_align(glyph, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(glyph, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *cap = lv_label_create(row);
-    lv_obj_set_style_text_font(cap, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(cap, toggle == 0 ? "BOOT ANIM" : "DUSK ANIM");
-    lv_obj_set_size(cap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(cap, LV_ALIGN_CENTER, 0, +44);
-    lv_obj_clear_flag(cap, LV_OBJ_FLAG_CLICKABLE);
-
-    s_anim_glyph[screen][toggle] = glyph;
-    s_anim_cap[screen][toggle] = cap;
+    s_anim_glyph[screen] = glyph;
 }
 
 static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
@@ -1063,13 +1180,14 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     for (int v = 10; v <= 300; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
+    /* Lifted to (0, -50) so the icon-only toggle below (241..341)
+     * clears the roller's bottom edge (238). */
     s_sleep_roller[screen] = settings_create_roller(obj, options, 0, 210);
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, -30);
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, -50);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
 
-    settings_anim_toggle(obj, screen, 0, -142);
-    settings_anim_toggle(obj, screen, 1, +142);
+    settings_anim_toggle(obj, screen);
 
     settings_sleep_screen_refresh(screen);
 }
@@ -1077,7 +1195,7 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
 void create_screen_settings_light_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_light_sleep = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
     settings_create_sleep_screen(obj, 0);
 }
 
@@ -1086,7 +1204,7 @@ void tick_screen_settings_light_sleep() {}
 void create_screen_settings_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_deep_sleep = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
     settings_create_sleep_screen(obj, 1);
 }
 
@@ -1094,34 +1212,54 @@ void tick_screen_settings_deep_sleep() {}
 
 /* --- WiFi settings: the AP scan list ---------------------------------
  *
- * A background scan (wifi_scan_start) runs while the screen is open;
- * the rows below render the results when the scan finishes (the 10 ms
- * tick polls wifi_scan_in_progress() and renders once). Selection is
- * log-only for now -- the circular-keyboard password entry + saving
- * the credentials is the approved follow-up, so the screen carries a
- * note about it. */
-/* 7 rows at 24 px steps: the band between the note and the bottom-
+ * "NETWORKS" header (wifi icon) + the AP scan results below. A
+ * background scan (wifi_scan_start) runs while the screen is open; the
+ * rows render when the scan finishes (the 10 ms tick polls
+ * wifi_scan_in_progress() and renders once). The selected row is
+ * marked by a white bar in the left margin (the SSID font has no
+ * bullet/arrow glyph, so the indicator is a plain object, not text)
+ * plus the white-on-grey text colour. Selection is log-only for now --
+ * the circular-keyboard password entry + saving the credentials is the
+ * approved follow-up. Row text is font-safe: the SSID font covers only
+ * space, '-', ':', digits 0-9 and UPPERCASE A-Z (lowercase dBm would
+ * render as missing-glyph boxes), so the strength is shown as "DBM". */
+/* 7 rows at 24 px steps: the band between the header and the bottom-
  * centre exit button (y ~165..342) is the list's budget -- the old
  * 12 rows at 30 px ran OFF the bottom of the panel (rows 9-11) and
  * the 8th row landed on the exit button. */
 #define WIFI_SETTINGS_ROWS 7
 
 static lv_obj_t *s_wifi_rows[WIFI_SETTINGS_ROWS];
-static bool s_wifi_scan_rendered = true;
+static lv_obj_t *s_wifi_sel_bar;
+static bool s_wifi_scan_rendered = true;   /* the results are on the rows */
+static bool s_wifi_scanning_shown = false; /* the SCANNING placeholder is up */
 static int s_wifi_selected = -1;
+
+/* Move the selection bar to the row at the given index (or hide it).
+ * Row i sits at absolute y 233 + (-48 + i*24) = 185 + i*24. */
+static void settings_wifi_place_sel_bar(int i) {
+    if (!s_wifi_sel_bar) {
+        return;
+    }
+    if (i < 0 || i >= WIFI_SETTINGS_ROWS) {
+        lv_obj_add_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(s_wifi_sel_bar, 14, 185 + i * 24 - 11);
+}
 
 static void settings_wifi_render_rows(void) {
     wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
     int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
+    int selected_shown = -1;
     if (n == 0) {
         for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
-            lv_label_set_text(s_wifi_rows[i], i == 0 ? "NO APs FOUND" : "");
+            lv_label_set_text(s_wifi_rows[i], i == 0 ? "NO APS FOUND" : "");
         }
-        return;
     }
     for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
-        if (i >= n) {
-            lv_label_set_text(s_wifi_rows[i], "");
+        if (n == 0 || i >= n) {
             continue;
         }
         char buf[40];
@@ -1134,11 +1272,17 @@ static void settings_wifi_render_rows(void) {
             buf[pos++] = ch;
         }
         buf[pos++] = 0;
-        pos += snprintf(buf + pos, sizeof(buf) - pos, " %ddBm", (int)aps[i].rssi);
+        /* Uppercase "DBM": the SSID font lacks lowercase (see above). */
+        pos += snprintf(buf + pos, sizeof(buf) - pos, " %dDBM", (int)aps[i].rssi);
         lv_label_set_text(s_wifi_rows[i], buf);
-        lv_obj_set_style_text_color(s_wifi_rows[i], i == s_wifi_selected ? SETTINGS_WHITE : SETTINGS_GREY,
+        bool sel = (i == s_wifi_selected);
+        lv_obj_set_style_text_color(s_wifi_rows[i], sel ? SETTINGS_WHITE : SETTINGS_GREY,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
+        if (sel) {
+            selected_shown = i;
+        }
     }
+    settings_wifi_place_sel_bar(selected_shown);
 }
 
 /* user_data = the row index. */
@@ -1156,13 +1300,15 @@ static void event_handler_cb_wifi_row(lv_event_t *e) {
 static void settings_wifi_screen_refresh(void) {
     s_wifi_selected = -1;
     s_wifi_scan_rendered = false;
+    s_wifi_scanning_shown = false;
+    settings_wifi_place_sel_bar(-1);
     wifi_scan_start();
 }
 
 void create_screen_settings_wifi() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_wifi = obj;
-    settings_sub_screen_prepare(obj);
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *header = lv_label_create(obj);
@@ -1173,13 +1319,25 @@ void create_screen_settings_wifi() {
     lv_obj_set_style_text_color(header, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *note = lv_label_create(obj);
-    lv_obj_set_style_text_font(note, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(note, "PASSWORD ENTRY: FOLLOW-UP");
-    lv_obj_set_size(note, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(note, LV_ALIGN_CENTER, 0, -84);
-    lv_obj_set_style_text_color(note, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(note, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *title = lv_label_create(obj);
+    lv_obj_set_style_text_font(title, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(title, "NETWORKS");
+    lv_obj_set_size(title, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -84);
+    lv_obj_set_style_text_color(title, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The selected-row indicator: a short white bar in the left margin
+     * (created first so the rows render on top where they could
+     * overlap it). */
+    s_wifi_sel_bar = lv_obj_create(obj);
+    lv_obj_set_size(s_wifi_sel_bar, 6, 22);
+    lv_obj_set_style_radius(s_wifi_sel_bar, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_wifi_sel_bar, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wifi_sel_bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_wifi_sel_bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
 
     for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
         lv_obj_t *row = lv_label_create(obj);
@@ -1188,9 +1346,9 @@ void create_screen_settings_wifi() {
         lv_label_set_text(row, "");
         lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         /* 7 rows at 24 px steps, first at absolute y 185 (offset -48):
-         * the list sits in the band between the note (bottom edge ~y 162)
-         * and the bottom-centre exit button (band top y 342 -- the last
-         * row's bottom edge is ~y 314). */
+         * the list sits in the band between the title (bottom edge ~y
+         * 162) and the bottom-centre exit button (band top y 342 --
+         * the last row's bottom edge is ~y 314). */
         lv_obj_align(row, LV_ALIGN_CENTER, 0, -48 + i * 24);
         lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -1199,11 +1357,22 @@ void create_screen_settings_wifi() {
 }
 
 void tick_screen_settings_wifi() {
-    if (s_wifi_scan_rendered || wifi_scan_in_progress()) {
+    if (wifi_scan_in_progress()) {
+        /* Show a "SCANNING" placeholder while the scan runs (set once --
+         * a per-tick set_text would invalidate every 10 ms even though
+         * the text never changes). */
+        if (!s_wifi_scanning_shown) {
+            lv_label_set_text(s_wifi_rows[0], "SCANNING");
+            s_wifi_scanning_shown = true;
+        }
+        return;
+    }
+    if (s_wifi_scan_rendered) {
         return;
     }
     settings_wifi_render_rows();
     s_wifi_scan_rendered = true;
+    s_wifi_scanning_shown = false;
 }
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {

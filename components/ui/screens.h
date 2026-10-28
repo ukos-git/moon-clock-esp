@@ -49,13 +49,13 @@ extern "C" {
  *                                 [39]  settings_alarm_clock     (real-alarm entry)
  *                                 [40]  settings_pomodoro_roller_h
  *                                 [41]  settings_pomodoro_roller_m
- *                                 [42]  settings_pomodoro_preview
- *                                 [43]  settings_pomodoro_caption
- *                                 [44]  settings_alarm_time_preview
- *                                 [45]  settings_alarm_time_roller_h
- *                                 [46]  settings_alarm_time_roller_m
- *                                 [47..53]  settings_alarm_time_arcs[0..6]   (Sunday..Saturday)
- *                                 [54..60]  settings_alarm_time_letters[0..6]
+ *                                 [42]  settings_pomodoro_caption
+ *                                 [43]  settings_alarm_time_roller_h
+ *                                 [44]  settings_alarm_time_roller_m
+ *                                 [45]  settings_alarm_time_band        (the day-range arc)
+ *                                 [46]  settings_alarm_time_handle_start
+ *                                 [47]  settings_alarm_time_handle_end
+ *                                 [48..54]  settings_alarm_time_letters[0..6]   (Monday..Sunday)
  */
 typedef struct _objects_t {
     /* Screen roots (loadScreen index = ScreensEnum value - 1). */
@@ -105,8 +105,10 @@ typedef struct _objects_t {
     lv_obj_t *settings_pomodoro_caption;
     lv_obj_t *settings_alarm_time_roller_h;
     lv_obj_t *settings_alarm_time_roller_m;
-    lv_obj_t *settings_alarm_time_arcs[7];
-    lv_obj_t *settings_alarm_time_letters[7];
+    lv_obj_t *settings_alarm_time_band;         /* the day-range arc (upper half circle) */
+    lv_obj_t *settings_alarm_time_handle_start; /* the range-start drag handle (a day knob) */
+    lv_obj_t *settings_alarm_time_handle_end;   /* the range-end drag handle (a day knob) */
+    lv_obj_t *settings_alarm_time_letters[7];   /* Monday..Sunday day letters */
 } objects_t;
 
 extern objects_t objects;
@@ -165,11 +167,11 @@ void tick_screen_settings_deep_sleep();
 void create_screen_settings_wifi();
 void tick_screen_settings_wifi();
 
-/* Shared concentric exit button (grey ring + black inner disc + white
- * xmark), used by the settings hub (central) and every sub-screen
- * (top-centre). Returns the outer ring obj; a tap on it fires
- * LV_EVENT_CLICKED on it. The xmark label sits centred on the ring and
- * is non-clickable (the ring catches the tap). */
+/* Shared exit button: a white FA xmark in a thin grey circle outline,
+ * used central on the settings hub and bottom-centre on every
+ * sub-screen. Returns the ring obj; a tap on it fires LV_EVENT_CLICKED
+ * on it. The xmark label sits centred on the ring and is
+ * non-clickable (the ring catches the tap). */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size);
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex);
