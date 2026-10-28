@@ -61,7 +61,8 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
 // Headless acceptance path for the settings stack: it walks hub ->
 // pomodoro -> alarm-time -> light-sleep -> airplane one screen per
 // second, writes a real pomodoro interval (90 min -- also the cron
-// N>59 sanity case), a fixed-time alarm (12:34, all days), and the
+// N>59 sanity case), a fixed-time alarm (12:35, Mon-Fri -- the
+// range-arc default), and the
 // sleep settings (idle timeout, countdown, animation flags), logs
 // every transition + write, and reads both SPIFFS files back. Runs in
 // the LVGL task like the real user flow; idle monitoring is off for
@@ -100,7 +101,8 @@ static void settings_demo_cb(lv_timer_t *timer) {
     case 2:
         loadScreen(SCREEN_ID_SETTINGS_ALARM_TIME);
         ui_tick();
-        r = clock_alarm_set_clock_alarm(12, 35, 0x7E);
+        /* Mon-Fri: bit 0 = Sunday, so bits 1..5 (NOT 0x7E = Mon-Sat). */
+        r = clock_alarm_set_clock_alarm(12, 35, 0x3E);
         ESP_LOGW(TAG, "TEST settings demo: clock alarm 12:35 (Mon-Fri) -> %s", esp_err_to_name(r));
         break;
     case 3:
