@@ -211,6 +211,11 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
+    // Base screen orientation (the panel's 90 deg CW mount offset): the
+    // IMU's first sample arrives late and the pipeline only pushes on a
+    // change, so the rotation must be in place before the first frame.
+    action_orientation_init();
+
     // Register clock component callbacks for UI updates
     // Cast action functions to callback type (they accept NULL as lv_event_t*)
     clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);

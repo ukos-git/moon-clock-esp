@@ -30,6 +30,11 @@ extern void action_boot_handoff_start(void);
  * touch while the device is awake (the idle-wake path only covers the
  * asleep case). Call after the input device exists (post ui_init). */
 esp_err_t action_register_alarm_touch(void);
+/* Push the base screen orientation (the panel's 90 deg CW mount offset)
+ * to every screen root. Call after ui_init (the roots must exist) and
+ * before the first frame: the IMU's first sample arrives late, and the
+ * orientation pipeline only pushes on a change. */
+extern void action_orientation_init(void);
 extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 /* Test hook (CONFIG_TEST_ROLL_TILT_SEC): 1 s LVGL timer callback for the
  * headless orientation tilt script -- after N s of boot it feeds the real

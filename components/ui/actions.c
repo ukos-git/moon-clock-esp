@@ -152,6 +152,11 @@ static void wifi_sync_kickoff(void) {
 #define ORI_WINDOW 10     /* the 1 Hz low-pass: a 1 s running mean (10 samples) */
 #define ORI_Q_SCALE 8     /* int4 quantization: 1 level = 1/8 g (clamped +-1 g) */
 #define ORI_FLAT_GATE2 4  /* squared flat gate: below |g_xy| = 0.25 g the pose is undefined */
+/* The base orientation (LVGL units, positive = clockwise): the panel is
+ * physically mounted 90 deg off, so even the "no tilt" state (step 0)
+ * displays rotated +90 deg CW. Applied at init (action_orientation_init)
+ * and baked into every correction below. */
+#define ORI_BASE_V10 900
 
 static int32_t s_win_x[ORI_WINDOW]; /* the sample window (int4-quantized) */
 static int32_t s_win_y[ORI_WINDOW];
@@ -184,7 +189,9 @@ static int8_t ori_clamp(int v, int limit) {
 /* Test hook: the headless tilt script (TEST_ROLL_TILT_SEC). After N s of
  * boot it feeds the orientation pipeline synthetic in-plane gravity
  * instead of the IMU, so the full transform path (the PSRAM layer, the
- * centre pivot) runs on the device without a physical tilt. */
+ * centre pivot) runs on the device without a physical tilt. With the
+ * base orientation (+90 deg, ORI_BASE_V10) the applied values log as
+ * +90 -> 0 -> -90 -> -180 -> +90 (step 0 now shows the base, not 0). */
 #ifndef CONFIG_TEST_ROLL_TILT_SEC
 #define CONFIG_TEST_ROLL_TILT_SEC 0
 #endif
@@ -250,11 +257,27 @@ static void ori_apply_v10(int32_t v10) {
     }
 }
 
+/* Push the base orientation to every screen root (app_main, after
+ * ui_init: the roots must exist). The IMU's first sample can arrive
+ * well after the first frame is drawn, and the pipeline only pushes on
+ * a CHANGE -- so the panel's 90 deg CW mount offset must be in place
+ * from frame one. Seeds s_last_v10 so the pipeline's first step-0
+ * evaluation dedupes (no double push). */
+void action_orientation_init(void) {
+    int32_t v10 = ORI_BASE_V10;
+    if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
+        v10 = -v10;
+    s_last_v10 = v10;
+    ori_apply_v10(v10);
+}
+
 /* Called from the UI tick (LVGL task): pick the whole-screen orientation
  * (a 90-degree step) from the screen-plane gravity and push it to every
- * screen root. No-op at the resting orientation (transform 0 -> LVGL's
- * direct draw path) and while the pose is unobservable (near-vertical or
+ * screen root. No-op while the pose is unobservable (near-vertical or
  * flat: the in-plane angle is undefined, the last orientation is kept).
+ * With the base offset the resting transform is +90 (not 0), so the
+ * rotated root's ~0.4 MB PSRAM layer is always allocated; the pipeline
+ * itself still only PUSHES on a change (the s_last_v10 dedupe).
  *
  * 100 ms sampling: the gate below (the UI tick is 10 ms awake, 100 ms in
  * light sleep, paused in deep sleep). esp_timer_get_time() is in
@@ -322,25 +345,19 @@ static void screen_orientation_apply(void) {
     int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
     int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
 
-    /* The settled-pose reference tracks only while settled, so at-rest
-     * drift cannot walk the orientation around. Frozen while the headless
-     * script is active (otherwise the settled-on-bench state would track
-     * the synthetic pose and erase the driven departure). */
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
-    bool settled = moon_ui_tilt_settled() && !s_ori_test_on;
-#else
-    bool settled = moon_ui_tilt_settled();
-#endif
-    if (settled) {
-        s_ref_qx = fx;
-        s_ref_qy = fy;
-    }
-
     /* The departure: the direction of the filtered gravity from the
      * reference direction -- integer dot/cross only (no atan2). Screen
      * coords (y down): the gravity vector sweeps visually
      * counter-clockwise as the device tilts clockwise, so the quadrant
-     * picks the CW-positive tilt step directly. */
+     * picks the CW-positive tilt step directly. The step is decided
+     * BEFORE the reference re-tracks: a fast 180-degree flip settles into
+     * the NEW pose, and re-tracking there would adopt it as the new home
+     * (the departure would read 0 and the upside-down UI would be
+     * confirmed). The reference re-tracks only on step 0 -- the device
+     * returning to the home pose -- so a deliberate re-pose keeps its
+     * absolute correction instead of being re-anchored. (Frozen while the
+     * headless script is active: the settled-on-bench state would track
+     * the synthetic pose and erase the driven departure.) */
     int32_t dot = fx * s_ref_qx + fy * s_ref_qy;
     int32_t cross = fx * s_ref_qy - fy * s_ref_qx;
     if (dot == 0 && cross == 0)
@@ -355,6 +372,16 @@ static void screen_orientation_apply(void) {
         step = 180;
     else
         step = cross > 0 ? 90 : 270;
+
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+    bool settled = moon_ui_tilt_settled() && !s_ori_test_on;
+#else
+    bool settled = moon_ui_tilt_settled();
+#endif
+    if (settled && step == 0) {
+        s_ref_qx = fx;
+        s_ref_qy = fy;
+    }
 
     /* Confirm the step on a sustained window of samples (see
      * s_pending_step). The pipeline runs at 10 Hz, so requiring
@@ -374,10 +401,11 @@ static void screen_orientation_apply(void) {
         return;
 
     /* The correction: counter-rotate the content by the departure so the
-     * UI keeps the resting-pose upright (LVGL units: 1/10 deg, positive =
-     * clockwise). UI_CLOCK_ROLL_SIGN flips the correction for a mirrored
-     * board mount. */
-    int32_t v10 = -(int32_t)step * 10;
+     * UI keeps the resting-pose upright, plus the base orientation (the
+     * panel's 90 deg CW mount offset; step 0 shows the base, not 0).
+     * LVGL units: 1/10 deg, positive = clockwise. UI_CLOCK_ROLL_SIGN flips
+     * the whole orientation for a mirrored board mount. */
+    int32_t v10 = ORI_BASE_V10 - (int32_t)step * 10;
     if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
         v10 = -v10;
     if (v10 == s_last_v10)
