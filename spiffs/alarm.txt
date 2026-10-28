@@ -12,5 +12,5 @@
 # 0 8 * * 1-5 = Monday to Friday at 8:00
 # 15 20 * * 0,6 = Sunday and Saturday at 20:15
 #
-# Debug alarm: Every 5 minutes (PAUSED for the unattended capture)
-#*/5 * * * *
+# Debug alarm: Every 5 minutes
+*/5 * * * *
