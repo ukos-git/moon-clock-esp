@@ -106,245 +106,269 @@ static void wifi_sync_kickoff(void) {
     }
 }
 
-/* ---------------- tilt -> clock orientation (keep the clock horizontal) ---
+/* ---------------- tilt -> screen orientation (90-degree steps) ---------
  *
- * The in-plane ROLL of the device (the angle of the gravity vector in the
- * screen plane) counter-rotates the clock text + seconds arc so the clock
- * stays HORIZONTAL as the device is tilted in its own plane. With the orbit
- * (UI_MOON_ORBIT_ENABLE) off on the S3 this is the tilt's only moon-UI
+ * The screen-plane gravity vector (the IMU x/y gravity; screen coords,
+ * x right / y down) picks the WHOLE-SCREEN orientation: one of the four
+ * 90-degree multiples that keeps the UI upright relative to the resting
+ * pose. Every screen rotates (the clock, the seconds arcs, the settings
+ * and the alarm screens -- all widgets are children of their screen root,
+ * so the one root transform covers them all). With the orbit
+ * (UI_MOON_ORBIT_ENABLE) off on the S3 this is the tilt's only UI
  * coupling.
  *
- * The roll is only observable when the screen plane has a gravity component
- * (|g_xy| well above 0: the device tilted between vertical and flat). At
- * exactly vertical or exactly flat the gravity vector is parallel to the
- * screen normal and the in-plane angle is undefined -- then the last
- * correction is kept (0 at a fixed resting pose).
+ * Math per spec: the gravity x/y is sampled at 10 Hz (a 100 ms gate on
+ * the UI tick), a 1 s windowed running mean (10 samples per axis) is the
+ * 1 Hz low-pass, and the filtered axis values are quantized to int4
+ * (16 levels of ~0.125 g). The orientation is the DEPARTURE of the
+ * filtered gravity vector from the settled-pose reference vector,
+ * quantized to the nearest 90 degrees with integer dot/cross only (no
+ * atan2, no floats in the decision). The reference tracks only while the
+ * tilt monitor reports settled (moon_ui_tilt_settled), so at-rest drift
+ * cannot walk the orientation around; near-vertical or flat poses
+ * (gravity with almost no screen-plane component) keep the last
+ * orientation (the in-plane angle is undefined there, like the old roll's
+ * flat gate).
  *
- * The correction is the roll's DEPARTURE from a settled-pose reference
- * (updated only while the tilt monitor reports settled --
- * moon_ui_tilt_settled -- so at-rest drift does not walk the text around),
- * dead-zoned to 1 deg. Steady state (settled pose) => correction 0 => LVGL
- * takes its direct draw path: zero cost. The cost is only paid while the
- * device is actively tilted. UI_CLOCK_ROLL_SIGN flips it for a mirrored
- * board mount (if the text counter-rotates the wrong way, set it to -1).
- *
- * The motion is CALM: the raw roll is rounded to 5 deg, low-passed at
- * 0.25 Hz (a dt-aware running mean that absorbs the 5-deg rounding and the
- * tick delay), and the applied correction ramps toward that target at at
- * most 5 deg/s in intermediate steps -- each step is its own LVGL frame,
- * new tilt inputs simply re-target the ramp on the next tick. The rotation
- * pivot is the screen centre (LVGL's transform_pivot default is the
- * top-left, which swung the full-screen container off the panel). */
+ * The change is INSTANT (no ramp, no intermediate frames): a 90-degree
+ * rotation of the 466x466 square panel about its centre maps the panel
+ * onto itself, so one transform push per step is the whole animation.
+ * LVGL's hit test is inverse-mapped through the transform
+ * (lv_indev_search_obj), so touch lands on the right widget in any
+ * orientation. At the resting orientation (0) the transform is 0 and
+ * LVGL takes its direct draw path: zero cost. The rotated root's layer
+ * is panel-sized (466x466 RGB565 ~= 0.4 MB) and comes from the C-library
+ * malloc (sdkconfig.defaults: clib backend) -> PSRAM; the built-in 64 KB
+ * LVGL pool cannot hold it. UI_CLOCK_ROLL_SIGN flips the correction for a
+ * mirrored board mount (if the UI rotates the wrong way, set it to -1).
+ */
 #ifndef CONFIG_UI_IMU_ENABLE
 #define CONFIG_UI_IMU_ENABLE 1
 #endif
 #ifndef CONFIG_UI_CLOCK_ROLL_SIGN
 #define CONFIG_UI_CLOCK_ROLL_SIGN 1
 #endif
-#define ROLL_LPF_TAU_MS 637         /* 0.25 Hz 1st-order low-pass: tau = 1/(2*pi*0.25) s */
-#define ROLL_ROUND5_DEG 5.0f        /* the filter input is rounded to 5 deg */
-#define ROLL_REF_ALPHA 0.2f         /* settled-reference EMA (tracks only while settled) */
-#define ROLL_SPEED_100_PER_S 500.0f /* calm ramp: 5 deg/s in 1/100 deg units */
-#define ROLL_DEADZONE_DEG 1.0f      /* below this the departure is 0 (relax to rest) */
-#define ROLL_FLAT_GATE 0.25f        /* below |g_xy| the roll is undefined */
-#define ROLL_RATE_MS 50             /* apply-rate gate (the UI tick is 10 ms awake) */
-#define ROLL_DT_CLAMP_MS 1000       /* clamp dt after a tick pause */
-#define ROLL_DEG_TO_RAD 0.017453293f
-#define ROLL_RAD_TO_100 5729.578f /* radians -> 1/100 deg (LVGL transform is 1/10 deg) */
+#define ORI_SAMPLE_MS 100 /* one gravity sample per 100 ms (10 Hz) */
+#define ORI_WINDOW 10     /* the 1 Hz low-pass: a 1 s running mean (10 samples) */
+#define ORI_Q_SCALE 8     /* int4 quantization: 1 level = 1/8 g (clamped +-1 g) */
+#define ORI_FLAT_GATE2 4  /* squared flat gate: below |g_xy| = 0.25 g the pose is undefined */
 
-static float s_lp_roll;    /* 0.25 Hz low-pass of the 5-deg-rounded departure, rad */
-static float s_ref_roll;   /* the settled-pose reference roll, rad */
-static int32_t s_cur_100;  /* the applied rotation, 1/100 deg (the ramp position) */
+static int32_t s_win_x[ORI_WINDOW]; /* the sample window (int4-quantized) */
+static int32_t s_win_y[ORI_WINDOW];
+static int32_t s_win_head;
+static int32_t s_win_count;
+static int8_t s_ref_qx, s_ref_qy; /* the settled-pose reference, int4 scale */
+static bool s_have_ref;
 static int32_t s_last_v10; /* the last value pushed to LVGL, 1/10 deg (dedupe) */
-static bool s_have_roll;
-static bool s_pivot_done; /* the centre pivot is set once */
-static int64_t s_roll_last_ms;
+static int64_t s_ori_last_ms;
+
+/* Clamp an int to +-limit (the int4 quantizer). */
+static int8_t ori_clamp(int v, int limit) {
+    if (v > limit)
+        return (int8_t)limit;
+    if (v < -limit)
+        return (int8_t)(-limit);
+    return (int8_t)v;
+}
 
 /* Test hook: the headless tilt script (TEST_ROLL_TILT_SEC). After N s of
- * boot it feeds the roll pipeline synthetic in-plane gravity instead of
- * the IMU, so the full transform path runs on the device without a
- * physical tilt (the crash/visual checks on the PSRAM layer + pivot). */
+ * boot it feeds the orientation pipeline synthetic in-plane gravity
+ * instead of the IMU, so the full transform path (the PSRAM layer, the
+ * centre pivot) runs on the device without a physical tilt. */
 #ifndef CONFIG_TEST_ROLL_TILT_SEC
 #define CONFIG_TEST_ROLL_TILT_SEC 0
 #endif
 #if CONFIG_TEST_ROLL_TILT_SEC > 0
-/* The script: the in-plane roll angle, by second. 25 deg for 4 s seeds
- * the settled reference (the first observable sample becomes the
- * reference); 50 and 75 deg drive the ramp 0 -> 25 -> 50 (<= 5 deg/s);
- * back to 25 relaxes it 50 -> 0 over the final 12 s. */
-struct roll_script_step {
+/* The script: the synthetic screen-plane gravity (quantized unit
+ * vectors: |g| = 1 g, well above the flat gate), by second: the
+ * resting pose (seeds the reference) -> 90 deg CW tilt -> 180 ->
+ * 90 deg CCW -> back to rest, so the steps 0 -> -90 -> -180 -> +90
+ * -> 0 each run through the full window + decision + transform path
+ * (the 1 s window lags the step changes by ~1 s). */
+struct ori_script_step {
     uint32_t t_s;
-    float phi_deg;
+    int8_t gx, gy;
 };
-static const struct roll_script_step s_roll_script[] = {
-    {0, 25.0f},
-    {4, 50.0f},
-    {10, 75.0f},
-    {16, 25.0f},
+static const struct ori_script_step s_ori_script[] = {
+    {0, 0, 8}, {3, 8, 0}, {6, 0, -8}, {9, -8, 0}, {12, 0, 8},
 };
-#define ROLL_SCRIPT_END_S 28
+#define ORI_SCRIPT_END_S 15
 
-static bool s_roll_test_on;   /* the synthetic gravity is feeding the roll */
-static bool s_roll_test_done; /* the script runs once, not on every wait elapse */
-static uint32_t s_roll_test_wait_s = CONFIG_TEST_ROLL_TILT_SEC;
-static uint32_t s_roll_test_elapsed_s;
-static float s_roll_test_phi;
+static bool s_ori_test_on;   /* the synthetic gravity is feeding the pipeline */
+static bool s_ori_test_done; /* the script runs once, not on every wait elapse */
+static uint32_t s_ori_test_wait_s = CONFIG_TEST_ROLL_TILT_SEC;
+static uint32_t s_ori_test_elapsed_s;
+static int8_t s_ori_test_gx, s_ori_test_gy;
 #endif /* CONFIG_TEST_ROLL_TILT_SEC > 0 */
 
-/* Wrap an angle difference to [-pi, pi] (the shortest path). */
-static float roll_wrap(float a) {
-    while (a > 3.14159265f)
-        a -= 6.28318531f;
-    while (a < -3.14159265f)
-        a += 6.28318531f;
-    return a;
+/* Push one orientation to all 12 screen roots (LVGL transform units:
+ * 1/10 deg, positive = clockwise). The pivot is the panel centre (LVGL's
+ * default is the top-left, which swung the full-screen container off the
+ * panel -- the old roll's first crash). A 90-degree step of the 466x466
+ * panel maps the panel onto itself, so one push is the whole change (the
+ * old ramp's intermediate frames are gone). The rotated root's layer is
+ * panel-sized (~0.4 MB RGB565) and comes from the C-library malloc (clib
+ * backend, sdkconfig.defaults) -> PSRAM; the built-in 64 KB LVGL pool
+ * cannot hold it. Every screen's widgets are children of its root, so the
+ * one transform covers the clock, the seconds arcs, the settings and the
+ * alarm screens alike; LVGL's hit test is inverse-mapped through the
+ * transform (lv_indev_search_obj), so touch lands on the right widget in
+ * any orientation. */
+static void ori_apply_v10(int32_t v10) {
+    lv_obj_t *roots[12] = {
+        objects.modem_sleep,
+        objects.wifi,
+        objects.light_sleep,
+        objects.deep_sleep,
+        objects.alarm,
+        objects.settings_hub,
+        objects.settings_alarm,
+        objects.settings_pomodoro,
+        objects.settings_alarm_time,
+        objects.settings_light_sleep,
+        objects.settings_deep_sleep,
+        objects.settings_wifi,
+    };
+    for (int i = 0; i < 12; i++) {
+        if (!roots[i])
+            continue;
+        lv_obj_set_style_transform_pivot_x(roots[i], LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(roots[i], LV_PCT(50), 0);
+        lv_obj_set_style_transform_rotation(roots[i], v10, 0);
+    }
 }
 
-/* Called from the UI tick (LVGL task): counter-rotate the clock containers
- * + seconds arcs by the device's in-plane roll departure from the settled
- * pose, so the clock text/arc stay horizontal while the device is tilted.
+/* Called from the UI tick (LVGL task): pick the whole-screen orientation
+ * (a 90-degree step) from the screen-plane gravity and push it to every
+ * screen root. No-op at the resting orientation (transform 0 -> LVGL's
+ * direct draw path) and while the pose is unobservable (near-vertical or
+ * flat: the in-plane angle is undefined, the last orientation is kept).
  *
- * The applied value (s_cur_100, 1/100 deg) ramps toward the 0.25 Hz
- * low-passed, 5-deg-rounded departure at at most 5 deg/s (intermediate
- * frames; new tilt inputs re-target the ramp on the next apply). LVGL's
- * transform_rotation is 1/10 deg, so the ramp value is divided by 10 when
- * pushed. The rotation pivot is the screen centre (LVGL's default is the
- * top-left, which swung the full-screen container off the panel). */
-static void clock_roll_apply(void) {
+ * 100 ms sampling: the gate below (the UI tick is 10 ms awake, 100 ms in
+ * light sleep, paused in deep sleep). esp_timer_get_time() is in
+ * MICROSECONDS -- the gate compares against us, so no unit conversion is
+ * needed (the old roll's us/ms bug made the "calm ramp" run at 500 deg/s;
+ * found via the TEST_ROLL_TILT_SEC capture). The decision is integer-only
+ * (quantized dot/cross, no atan2, no floats). */
+static void screen_orientation_apply(void) {
     if (!CONFIG_UI_IMU_ENABLE)
         return;
-    float g[3];
+    int64_t now_us = esp_timer_get_time();
+    int64_t dt_us = now_us - s_ori_last_ms;
+    if (dt_us < (int64_t)ORI_SAMPLE_MS * 1000)
+        return;
+    s_ori_last_ms = now_us;
+
+    int8_t gx_q = 0, gy_q = 0;
+    bool have = false;
 #if CONFIG_TEST_ROLL_TILT_SEC > 0
-    if (s_roll_test_on) {
-        /* Synthetic in-plane gravity at the script's roll angle (unit
-         * magnitude: |g_xy| = 1, well above the flat gate). */
-        g[0] = cosf(s_roll_test_phi * ROLL_DEG_TO_RAD);
-        g[1] = sinf(s_roll_test_phi * ROLL_DEG_TO_RAD);
-        g[2] = 0.0f;
+    if (s_ori_test_on) {
+        /* The script feeds quantized unit vectors directly (|g| = 1 g). */
+        gx_q = s_ori_test_gx;
+        gy_q = s_ori_test_gy;
+        have = true;
     } else
 #endif
-        if (!imu_is_ready() || !imu_read_gravity(g))
-        return;
-    /* Rate gate: one apply per ROLL_RATE_MS (the UI tick is 10 ms awake /
-     * 100 ms light sleep, paused in deep sleep where the clock is hidden).
-     * esp_timer_get_time() is in MICROSECONDS -- convert to ms before the
-     * dt-aware low-pass and the <=5 deg/s ramp. (Comparing the us value
-     * against the ms constants made every 10 ms tick look like a 1 s
-     * pause: the gate passed every tick and dt was clamped to 1000 ms, so
-     * the "calm" ramp ran at 5 deg per 10 ms tick = 500 deg/s and the
-     * 0.25 Hz low-pass at tau 10 ms -- found via the TEST_ROLL_TILT_SEC
-     * capture, where the 25 deg ramp completed in five 10 ms steps.) */
-    int64_t now = esp_timer_get_time();
-    int64_t dt_us = now - s_roll_last_ms;
-    if (dt_us < (int64_t)ROLL_RATE_MS * 1000)
-        return;
-    s_roll_last_ms = now;
-    int32_t dt_ms = (int32_t)(dt_us / 1000);
-    if (dt_ms > ROLL_DT_CLAMP_MS)
-        dt_ms = ROLL_DT_CLAMP_MS;
-    if (dt_ms < ROLL_RATE_MS)
-        dt_ms = ROLL_RATE_MS;
-
-    /* New input only when the roll is observable (gravity with a screen-
-     * plane component). Otherwise the ramp below still runs toward the last
-     * low-passed target: the last correction is kept. */
-    float m = hypotf(g[0], g[1]);
-    if (m >= ROLL_FLAT_GATE) {
-        float roll = atan2f(g[1], g[0]);
-        if (!s_have_roll) {
-            s_ref_roll = roll;
-            s_lp_roll = 0.0f;
-            s_cur_100 = 0;
-            s_last_v10 = 0;
-            s_have_roll = true;
+    {
+        float g[3];
+        if (imu_is_ready() && imu_read_gravity(g)) {
+            /* int4 quantization of each axis (1 level = 1/8 g). */
+            gx_q = ori_clamp(lrintf(g[0] * (float)ORI_Q_SCALE), ORI_Q_SCALE);
+            gy_q = ori_clamp(lrintf(g[1] * (float)ORI_Q_SCALE), ORI_Q_SCALE);
+            have = true;
         }
-        /* The settled reference tracks only while settled, so at-rest drift
-         * (the reference follows the pose) cannot walk the text around.
-         * Frozen while the headless tilt script is active (otherwise the
-         * settled-on-bench state would track the synthetic pose and
-         * erase the departure the script is driving). */
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
-        bool settled = moon_ui_tilt_settled() && !s_roll_test_on;
-#else
-        bool settled = moon_ui_tilt_settled();
-#endif
-        if (settled)
-            s_ref_roll += ROLL_REF_ALPHA * roll_wrap(roll - s_ref_roll);
-        /* Filter input: the departure from the settled pose, dead-zoned to
-         * 1 deg and ROUNDED to 5 deg. */
-        float dep = roll_wrap(roll - s_ref_roll);
-        if (fabsf(dep) < ROLL_DEADZONE_DEG * ROLL_DEG_TO_RAD)
-            dep = 0.0f;
-        float r5 = ROLL_ROUND5_DEG * ROLL_DEG_TO_RAD;
-        float rounded = lrintf(dep / r5) * r5;
-        /* 0.25 Hz first-order low-pass (dt-aware running mean). */
-        s_lp_roll += (1.0f - expf(-(float)dt_ms / (float)ROLL_LPF_TAU_MS)) * roll_wrap(rounded - s_lp_roll);
+    }
+    if (!have)
+        return;
+    /* Flat gate (squared, quantized units): with almost no screen-plane
+     * gravity the in-plane pose is undefined -- keep the last orientation
+     * (the window and the reference are frozen too). */
+    if (gx_q * gx_q + gy_q * gy_q < ORI_FLAT_GATE2)
+        return;
+
+    if (!s_have_ref) {
+        s_ref_qx = gx_q;
+        s_ref_qy = gy_q;
+        s_have_ref = true;
+        return; /* the resting pose is the current pose: orientation 0 */
     }
 
-    /* Ramp the applied value toward the low-passed target, <= 5 deg/s. */
-    float target_100 = s_lp_roll * ROLL_RAD_TO_100 * (float)CONFIG_UI_CLOCK_ROLL_SIGN;
-    float max_step = ROLL_SPEED_100_PER_S * ((float)dt_ms / 1000.0f);
-    float delta = target_100 - (float)s_cur_100;
-    if (delta > max_step)
-        delta = max_step;
-    else if (delta < -max_step)
-        delta = -max_step;
-    s_cur_100 = (int32_t)lrintf((float)s_cur_100 + delta);
+    /* Push the sample into the 1 s window. */
+    s_win_x[s_win_head] = gx_q;
+    s_win_y[s_win_head] = gy_q;
+    s_win_head = (s_win_head + 1) % ORI_WINDOW;
+    if (s_win_count < ORI_WINDOW)
+        s_win_count++;
+    if (s_win_count < ORI_WINDOW)
+        return; /* the running mean needs the full 1 s window */
+    int32_t sx = 0, sy = 0;
+    for (int i = 0; i < ORI_WINDOW; i++) {
+        sx += s_win_x[i];
+        sy += s_win_y[i];
+    }
+    /* The 1 Hz running mean (rounded, int4 scale). */
+    int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
+    int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
 
-    int32_t v10 = s_cur_100 / 10; /* 1/100 deg -> 1/10 deg (LVGL transform unit) */
+    /* The settled-pose reference tracks only while settled, so at-rest
+     * drift cannot walk the orientation around. Frozen while the headless
+     * script is active (otherwise the settled-on-bench state would track
+     * the synthetic pose and erase the driven departure). */
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+    bool settled = moon_ui_tilt_settled() && !s_ori_test_on;
+#else
+    bool settled = moon_ui_tilt_settled();
+#endif
+    if (settled) {
+        s_ref_qx = fx;
+        s_ref_qy = fy;
+    }
+
+    /* The departure: the direction of the filtered gravity from the
+     * reference direction -- integer dot/cross only (no atan2). Screen
+     * coords (y down): the gravity vector sweeps visually
+     * counter-clockwise as the device tilts clockwise, so the quadrant
+     * picks the CW-positive tilt step directly. */
+    int32_t dot = fx * s_ref_qx + fy * s_ref_qy;
+    int32_t cross = fx * s_ref_qy - fy * s_ref_qx;
+    if (dot == 0 && cross == 0)
+        return;                        /* degenerate reference: keep the last orientation */
+    int32_t step;                      /* the device tilt, CW-positive, a 90-degree step */
+    if (dot >= cross && dot >= -cross) /* |dot| >= |cross|: 0 or 180 */
+        step = dot > 0 ? 0 : 180;
+    else
+        step = cross > 0 ? 90 : 270;
+
+    /* The correction: counter-rotate the content by the departure so the
+     * UI keeps the resting-pose upright (LVGL units: 1/10 deg, positive =
+     * clockwise). UI_CLOCK_ROLL_SIGN flips the correction for a mirrored
+     * board mount. */
+    int32_t v10 = -(int32_t)step * 10;
+    if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
+        v10 = -v10;
     if (v10 == s_last_v10)
         return; /* nothing new to draw */
     int32_t old = s_last_v10;
     s_last_v10 = v10;
-    float deg = (float)v10 / 10.0f;
-    /* The clock containers rotate via the LVGL transform (pivot = screen
-     * centre; LVGL's default is the top-left, which swung the full-screen
-     * container off the panel). The rotated layer of a full-screen
-     * container needs ~0.5-1.8 MB and comes from the C-library malloc
-     * (sdkconfig.defaults: clib backend), so it lands in PSRAM -- the
-     * built-in 64 KB LVGL pool cannot hold it (crash on first tilt). */
-    lv_obj_t *conts[4] = {
-        objects.modem_sleep_clock,
-        objects.wifi_clock,
-        objects.light_sleep_clock,
-        objects.deep_sleep_clock,
-    };
-    for (int i = 0; i < 4; i++) {
-        if (!conts[i])
-            continue;
-        if (!s_pivot_done) {
-            lv_obj_set_style_transform_pivot_x(conts[i], LV_PCT(50), 0);
-            lv_obj_set_style_transform_pivot_y(conts[i], LV_PCT(50), 0);
-        }
-        lv_obj_set_style_transform_rotation(conts[i], v10, 0);
-    }
-    s_pivot_done = true;
-    /* The seconds arcs rotate NATIVELY (lv_arc's own 0-360 deg offset,
-     * drawn directly -- no transform layer) about their own centre, which
-     * is the screen centre: same rigid body as the containers. */
-    if (objects.arc_clock_seconds_modem)
-        lv_arc_set_rotation(objects.arc_clock_seconds_modem, (int32_t)lrintf(270.0f + deg));
-    if (objects.arc_clock_seconds_wifi)
-        lv_arc_set_rotation(objects.arc_clock_seconds_wifi, (int32_t)lrintf(270.0f + deg));
-    if (old != 0 || v10 != 0)
-        ESP_LOGI(TAG, "clock roll %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
+    ori_apply_v10(v10);
+    ESP_LOGI(TAG, "screen orientation %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
 }
 
 #if CONFIG_TEST_ROLL_TILT_SEC > 0
 /* Headless tilt script (1 s LVGL timer, LVGL task). After
- * TEST_ROLL_TILT_SEC of boot it runs s_roll_script through the REAL
- * clock_roll_apply pipeline -- the 5-deg rounding, the 0.25 Hz low-pass,
- * the <= 5 deg/s ramp and the LVGL transform layer (the PSRAM alloc +
- * the centre pivot) all execute for real. Idle monitoring is paused for
- * the run (the script would otherwise dusk-sleep mid-way and the clock
- * would be hidden). */
+ * TEST_ROLL_TILT_SEC of boot it runs s_ori_script through the REAL
+ * screen_orientation_apply pipeline -- the int4 quantization, the 1 s
+ * running mean, the quadrant decision and the LVGL transform layer (the
+ * PSRAM alloc + the centre pivot) all execute for real. Idle monitoring
+ * is paused for the run (the script would otherwise dusk-sleep mid-way
+ * and the clock would be hidden). */
 void action_roll_test_cb(lv_timer_t *timer) {
     (void)timer;
-    if (!s_roll_test_on) {
-        if (s_roll_test_done)
+    if (!s_ori_test_on) {
+        if (s_ori_test_done)
             return; /* the wait counter stays 0 after the first run */
-        if (s_roll_test_wait_s > 0) {
-            s_roll_test_wait_s--;
+        if (s_ori_test_wait_s > 0) {
+            s_ori_test_wait_s--;
             return;
         }
         /* By the time the wait elapses the device is whatever state its
@@ -356,39 +380,43 @@ void action_roll_test_cb(lv_timer_t *timer) {
          * on-demand WiFi sync, then the airplane screen below. */
         if (clock_is_idle())
             clock_idle_notify_tilt_activity();
-        ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ROLL_SCRIPT_END_S);
+        ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ORI_SCRIPT_END_S);
         bsp_display_backlight_on();
         clock_timer_disable(); /* the light-sleep countdown may still be armed */
         clock_idle_set_enabled(false);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
-        s_roll_test_on = true;
-        s_roll_test_elapsed_s = 0;
-        s_roll_test_phi = s_roll_script[0].phi_deg;
+        s_ori_test_on = true;
+        s_ori_test_elapsed_s = 0;
+        s_ori_test_gx = s_ori_script[0].gx;
+        s_ori_test_gy = s_ori_script[0].gy;
         return;
     }
-    s_roll_test_elapsed_s++;
-    if (s_roll_test_elapsed_s > ROLL_SCRIPT_END_S) {
-        ESP_LOGW(TAG, "TEST roll tilt: done (ramp back at 0? check the 'clock roll' lines)");
-        s_roll_test_on = false;
-        s_roll_test_done = true;
+    s_ori_test_elapsed_s++;
+    if (s_ori_test_elapsed_s > ORI_SCRIPT_END_S) {
+        ESP_LOGW(TAG, "TEST roll tilt: done (back at 0? check the 'screen orientation' lines)");
+        s_ori_test_on = false;
+        s_ori_test_done = true;
         clock_idle_set_enabled(true);
         clock_idle_reset_timer();
         return;
     }
-    for (const struct roll_script_step *row = s_roll_script; row->t_s <= ROLL_SCRIPT_END_S; row++) {
-        if (row->t_s <= s_roll_test_elapsed_s)
-            s_roll_test_phi = row->phi_deg;
+    for (const struct ori_script_step *row = s_ori_script; row->t_s <= ORI_SCRIPT_END_S; row++) {
+        if (row->t_s <= s_ori_test_elapsed_s) {
+            s_ori_test_gx = row->gx;
+            s_ori_test_gy = row->gy;
+        }
     }
-    ESP_LOGW(TAG, "TEST roll tilt: t+%us phi %+d deg", s_roll_test_elapsed_s, (int)s_roll_test_phi);
+    ESP_LOGW(TAG, "TEST roll tilt: t+%us g (%d, %d) / 8", s_ori_test_elapsed_s, s_ori_test_gx, s_ori_test_gy);
 }
 #endif
 
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) {
-    // Keep the clock horizontal while the device is tilted in its own plane
-    // (no-op at the settled pose: zero correction -> LVGL direct draw path).
-    clock_roll_apply();
+    // Keep the UI upright: whole-screen 90-degree-step orientation from the
+    // screen-plane gravity (no-op at the resting orientation: transform 0
+    // -> LVGL direct draw path).
+    screen_orientation_apply();
     // Finished background WiFi + NTP sync: drop to the airplane screen
     // from here (the LVGL task; loadScreen touches LVGL state). Deferred
     // to the tick so the handshake never blocks the display. Both

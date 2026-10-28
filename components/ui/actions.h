@@ -32,11 +32,12 @@ extern void action_boot_handoff_start(void);
 esp_err_t action_register_alarm_touch(void);
 extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 /* Test hook (CONFIG_TEST_ROLL_TILT_SEC): 1 s LVGL timer callback for the
- * headless clock-roll tilt script -- after N s of boot it feeds the real
- * roll pipeline synthetic in-plane gravity for ~28 s, so the full
- * transform path (the PSRAM layer, the centre pivot, the calm ramp) runs
- * on the device without a physical tilt. Create the timer only when the
- * hook is on (LVGL task context). */
+ * headless orientation tilt script -- after N s of boot it feeds the real
+ * 90-degree-step orientation pipeline synthetic screen-plane gravity for
+ * ~15 s (resting -> 90 CW -> 180 -> 90 CCW -> rest), so the full
+ * transform path (the PSRAM layer, the centre pivot) runs on the device
+ * without a physical tilt. Create the timer only when the hook is on
+ * (LVGL task context). */
 void action_roll_test_cb(lv_timer_t *timer);
 
 #ifdef __cplusplus

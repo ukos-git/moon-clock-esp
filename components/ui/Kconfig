@@ -196,18 +196,22 @@ menu "UI Component Configuration"
             math). 0 (default) = off.
 
     config TEST_ROLL_TILT_SEC
-        int "Test: headless clock-roll tilt script N seconds after boot (0 = off)"
+        int "Test: headless screen-orientation tilt script N seconds after boot (0 = off)"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot, feed the real clock-roll
-            pipeline (5-deg round -> 0.25 Hz low-pass -> <=5 deg/s
-            ramp -> the LVGL transform layer) synthetic in-plane
-            gravity for ~28 s: 25 deg (seeds the settled reference)
-            -> 50 -> 75 -> back to 25, so the ramp runs 0 -> 25 ->
-            50 -> 0 through the full transform path on the device --
-            no physical tilt needed (exercises the PSRAM layer
-            allocation and the centre pivot). Idle monitoring is
+            Test hook: N seconds after boot, feed the real
+            90-degree-step orientation pipeline (100 ms gravity
+            sampling -> int4 quantization -> 1 s running mean ->
+            quadrant decision -> the LVGL transform layer on all 12
+            screen roots) synthetic screen-plane gravity for ~15 s:
+            resting (seeds the settled reference) -> 90 deg CW tilt
+            -> 180 -> 90 deg CCW -> back to rest, so the steps
+            0 -> -90 -> -180 -> +90 -> 0 (content counter-rotation)
+            each run through the full window + decision + transform
+            path on the device -- no physical tilt needed (exercises
+            the PSRAM layer allocation and the centre pivot). The 1 s
+            window lags the step changes by ~1 s. Idle monitoring is
             paused for the script so it does not dusk-sleep mid-run.
             0 (default) = off.
 
@@ -290,26 +294,32 @@ menu "UI Component Configuration"
             Kept so existing sdkconfig files keep validating.
 
     config UI_CLOCK_ROLL_SIGN
-        int "Clock-roll correction sign (+1 or -1)"
+        int "Screen-orientation correction sign (+1 or -1)"
         default 1
         range -1 1
         help
-            The in-plane ROLL of the device (the angle of the gravity
-            vector in the screen plane) counter-rotates the clock text +
-            seconds arc (lv_obj_set_style_transform_rotation) so the
-            clock stays HORIZONTAL as the device is tilted in its own
-            plane (with the orbit, UI_MOON_ORBIT_ENABLE, off on the S3
-            this is the tilt's only moon-UI coupling). The correction is
-            the roll's departure from a settled-pose reference (updated
-            only while the device is settled, so at-rest drift does not
-            walk the text around), dead-zoned to 1 deg, and only applied
-            when the screen plane has a gravity component (near-flat the
-            roll is undefined and the last value is kept). 0 correction
-            (the settled pose) costs nothing -- LVGL takes its direct
-            draw path -- so the cost is only paid while the device is
-            actively tilted. The board's IMU mounting orientation may
-            flip the measured roll; if the text counter-rotates the
-            WRONG way when the device is tilted, set this to -1.
+            The screen-plane gravity vector (the IMU x/y gravity) picks
+            the WHOLE-SCREEN orientation: the UI content counter-rotates
+            (lv_obj_set_style_transform_rotation on every screen root)
+            in 90-degree steps so the UI stays upright relative to the
+            resting pose, on the clock, the settings and the alarm
+            screens alike (with the orbit, UI_MOON_ORBIT_ENABLE, off on
+            the S3 this is the tilt's only UI coupling). The gravity
+            x/y is sampled at 10 Hz, a 1 s running mean is the 1 Hz
+            low-pass, both axes are quantized to int4, and the
+            orientation is the departure of the filtered gravity vector
+            from a settled-pose reference (updated only while the
+            device is settled, so at-rest drift does not walk the
+            orientation around), decided with integer dot/cross only
+            (no atan2). Only applied when the screen plane has a
+            gravity component (near-vertical or flat the pose is
+            undefined and the last orientation is kept). The resting
+            orientation (0) costs nothing -- LVGL takes its direct draw
+            path -- so the PSRAM transform layer is only paid while the
+            device sits in a tilted 90-degree pose. The board's IMU
+            mounting orientation may flip the measured tilt; if the UI
+            rotates the WRONG way when the device is tilted, set this
+            to -1.
 
     config UI_MOON_ORBIT_ENABLE
         bool "Sphere model: peek at the dark side via out-of-plane tilt"
