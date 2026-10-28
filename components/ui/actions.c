@@ -161,6 +161,16 @@ static int8_t s_ref_qx, s_ref_qy; /* the settled-pose reference, int4 scale */
 static bool s_have_ref;
 static int32_t s_last_v10; /* the last value pushed to LVGL, 1/10 deg (dedupe) */
 static int64_t s_ori_last_ms;
+/* Sustained confirmation (same idiom as the tilt monitor's streak): a
+ * step change applies only when ~1 s of consecutive samples agree on it
+ * (ORI_WINDOW samples at the 10 Hz pipeline). A single transient sample,
+ * or a short I2C glitch during a heavy bake (seen once under the sweep:
+ * the UI walked to -270 deg while the device sat flat on the bench), is
+ * diluted out by the 1 s running mean and cannot stick for the full
+ * second. A deliberate 90-degree move is held far longer, so the
+ * confirmation costs at most ~1 s of latency on a real tilt. */
+static int32_t s_pending_step;  /* the step the last sample produced */
+static int32_t s_pending_count; /* consecutive samples producing it */
 
 /* Clamp an int to +-limit (the int4 quantizer). */
 static int8_t ori_clamp(int v, int limit) {
@@ -182,17 +192,19 @@ static int8_t ori_clamp(int v, int limit) {
 /* The script: the synthetic screen-plane gravity (quantized unit
  * vectors: |g| = 1 g, well above the flat gate), by second: the
  * resting pose (seeds the reference) -> 90 deg CW tilt -> 180 ->
- * 90 deg CCW -> back to rest, so the steps 0 -> -90 -> -180 -> +90
+ * 90 deg CCW -> back to rest, so the steps 0 -> -90 -> -180 -> -270
  * -> 0 each run through the full window + decision + transform path
- * (the 1 s window lags the step changes by ~1 s). */
+ * (the 1 s window lags the step changes by ~1 s, and the sustained
+ * confirmation needs a second ~1 s on top -- the phases run 5 s so
+ * every step clears both). */
 struct ori_script_step {
     uint32_t t_s;
     int8_t gx, gy;
 };
 static const struct ori_script_step s_ori_script[] = {
-    {0, 0, 8}, {3, 8, 0}, {6, 0, -8}, {9, -8, 0}, {12, 0, 8},
+    {0, 0, 8}, {5, 8, 0}, {10, 0, -8}, {15, -8, 0}, {20, 0, 8},
 };
-#define ORI_SCRIPT_END_S 15
+#define ORI_SCRIPT_END_S 25
 
 static bool s_ori_test_on;   /* the synthetic gravity is feeding the pipeline */
 static bool s_ori_test_done; /* the script runs once, not on every wait elapse */
@@ -332,12 +344,34 @@ static void screen_orientation_apply(void) {
     int32_t dot = fx * s_ref_qx + fy * s_ref_qy;
     int32_t cross = fx * s_ref_qy - fy * s_ref_qx;
     if (dot == 0 && cross == 0)
-        return;                        /* degenerate reference: keep the last orientation */
-    int32_t step;                      /* the device tilt, CW-positive, a 90-degree step */
-    if (dot >= cross && dot >= -cross) /* |dot| >= |cross|: 0 or 180 */
-        step = dot > 0 ? 0 : 180;
+        return;   /* degenerate reference: keep the last orientation */
+    int32_t step; /* the device tilt, CW-positive, a 90-degree step */
+    /* |dot| >= |cross|: the 0/180 axis (the dot's sign picks the end; the
+     * tie goes to the axis). |cross| > |dot|: the 90/270 axis (the
+     * cross's sign picks the end). */
+    if (dot >= cross && dot >= -cross)
+        step = 0;
+    else if (dot <= cross && dot <= -cross)
+        step = 180;
     else
         step = cross > 0 ? 90 : 270;
+
+    /* Confirm the step on a sustained window of samples (see
+     * s_pending_step). The pipeline runs at 10 Hz, so requiring
+     * ORI_WINDOW (10) consecutive samples agreeing = ~1 s of sustained
+     * agreement: a single transient sample (or a short I2C glitch) is
+     * diluted out by the 1 s running mean above, and even a brief
+     * spurious step cannot stick for the full second. A deliberate 90
+     * degree move is held far longer, so the extra confirmation costs
+     * at most ~1 s of latency on a real tilt. */
+    if (step == s_pending_step)
+        s_pending_count++;
+    else {
+        s_pending_step = step;
+        s_pending_count = 1;
+    }
+    if (s_pending_count < ORI_WINDOW)
+        return;
 
     /* The correction: counter-rotate the content by the departure so the
      * UI keeps the resting-pose upright (LVGL units: 1/10 deg, positive =
@@ -351,7 +385,11 @@ static void screen_orientation_apply(void) {
     int32_t old = s_last_v10;
     s_last_v10 = v10;
     ori_apply_v10(v10);
-    ESP_LOGI(TAG, "screen orientation %+d -> %+d deg (sign %d)", old / 10, v10 / 10, CONFIG_UI_CLOCK_ROLL_SIGN);
+    /* f = the 1 s filtered gravity, ref = the settled reference (int4):
+     * the two vectors that produced the step, for diagnosing spurious
+     * steps (the filter output should mirror ref while the pose is held). */
+    ESP_LOGI(TAG, "screen orientation %+d -> %+d deg (sign %d, f=(%d,%d) ref=(%d,%d))", old / 10, v10 / 10,
+             CONFIG_UI_CLOCK_ROLL_SIGN, fx, fy, s_ref_qx, s_ref_qy);
 }
 
 #if CONFIG_TEST_ROLL_TILT_SEC > 0

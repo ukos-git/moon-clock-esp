@@ -287,9 +287,14 @@ extern "C" void app_main(void) {
         lv_timer_create(auto_wake_test_cb, 1000, NULL);
 
     // Test hook: the scripted settings run (CONFIG_TEST_SETTINGS_DEMO_SEC;
-    // 0 = off).
-    if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0)
+    // 0 = off). Idle monitoring stays off from boot so the device holds the
+    // rest-on-airplane pose while the boot sweep runs (the demo would
+    // otherwise fire mid-light-sleep, with the dusk bake suppressing the
+    // spin-render stop it is meant to exercise).
+    if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0) {
         lv_timer_create(settings_demo_cb, 1000, NULL);
+        clock_idle_set_enabled(false);
+    }
 
     // Test hook: the headless clock-roll tilt script (TEST_ROLL_TILT_SEC;
     // 0 = off). Feeds the real roll pipeline synthetic gravity -- the
