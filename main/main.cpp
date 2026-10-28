@@ -10,6 +10,7 @@
 
 #include "bsp/display.h"
 #include "bsp/esp-bsp.h"
+#include "esp_lv_adapter.h"
 
 #include "lvgl.h"
 
@@ -177,18 +178,29 @@ static void settings_demo_cb(lv_timer_t *timer) {
 
 static TaskStatus_t s_cpu_prev[CPU_STATS_MAX_TASKS];
 static UBaseType_t s_cpu_prev_n = 0;
+static int64_t s_cpu_wall_prev_us = 0;
 
 static void cpu_stats_log(const char *phase) {
-    int64_t w0 = esp_timer_get_time();
+    int64_t now_us = esp_timer_get_time();
+    /* Loop-rate sample (the worker's passes + raw sleep delay since the
+     * last call): distinguishes a spinning loop (high Hz, 1 ms floor) from
+     * a correct 10 ms cadence (low Hz). Same task, so no lock. */
+    uint32_t iters, dmin, dmax;
+    esp_lv_adapter_test_sample_loop(&iters, &dmin, &dmax);
     uint32_t total = 0;
     TaskStatus_t cur[CPU_STATS_MAX_TASKS];
     UBaseType_t n = uxTaskGetSystemState(cur, CPU_STATS_MAX_TASKS, &total);
     (void)total; /* cumulative since boot; not the window total */
-    if (s_cpu_prev_n == 0) {
+    if (s_cpu_wall_prev_us == 0) {
         memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
         s_cpu_prev_n = n;
+        s_cpu_wall_prev_us = now_us;
         return; /* first sample: seed, nothing to diff */
     }
+    /* The real window wall = since the last 1 s call (NOT the call's own
+     * duration -- that was the bug that made the % read 300000%). */
+    int64_t wall_us = now_us - s_cpu_wall_prev_us;
+    s_cpu_wall_prev_us = now_us;
     /* Per-task delta over this window (run-time, in the stats clock --
      * esp_timer, so microseconds) and the window's total busy CPU (the
      * sum of all deltas: how much of the two cores the system actually
@@ -204,16 +216,15 @@ static void cpu_stats_log(const char *phase) {
             }
         }
     }
-    int64_t wall = esp_timer_get_time() - w0;
-    unsigned pct1core = (unsigned)(((uint64_t)busy * 100) / (unsigned)wall); /* 100% = one core */
-    ESP_LOGW(TAG, "CPU %s: busy %u/%uus = %u%% of one core (of 200%%):", phase, (unsigned)busy, (unsigned)wall,
-             pct1core);
+    unsigned pct1core = (unsigned)(((uint64_t)busy * 100) / (unsigned)wall_us); /* 100% = one core */
+    ESP_LOGW(TAG, "CPU %s: busy %uus/wall %uus = %u%% 1-core | lvgl loop %u Hz, raw delay %u-%ums:", phase,
+             (unsigned)busy, (unsigned)wall_us, pct1core, iters, dmin, dmax);
     for (UBaseType_t i = 0; i < n; i++) {
         if (d[i] == 0)
             continue;
-        unsigned pct = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)busy); /* share of used CPU */
-        unsigned abs = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)wall); /* of one core */
-        ESP_LOGW(TAG, "  %-16s %3u%% used  (%u%% 1-core, %uus)", cur[i].pcTaskName, pct, abs, d[i]);
+        unsigned pct = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)busy);     /* share of used CPU */
+        unsigned abs1 = (unsigned)(((uint64_t)d[i] * 100) / (unsigned)wall_us); /* of one core */
+        ESP_LOGW(TAG, "  %-16s %3u%% used  (%u%% 1-core, %uus)", cur[i].pcTaskName, pct, abs1, d[i]);
     }
     memcpy(s_cpu_prev, cur, (size_t)n * sizeof(cur[0]));
     s_cpu_prev_n = n;
