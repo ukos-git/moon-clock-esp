@@ -10,7 +10,6 @@
 
 #include "bsp/display.h"
 #include "bsp/esp-bsp.h"
-#include "esp_lv_adapter.h"
 
 #include "lvgl.h"
 
@@ -156,14 +155,17 @@ static void settings_demo_cb(lv_timer_t *timer) {
 }
 
 // Test hook (CONFIG_TEST_CPU_STATS_SEC): per-second per-task CPU % from
-// the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS). Profiling
-// aid for which task burns the settings-idle CPU and the spin CPU. After
-// N seconds of waiting (so the boot sweep is done and the device rests),
-// it logs every task's share of the busy CPU once per second: 10 s on
-// the home screen (the coast-spin), then it loads the settings hub and
-// logs there for 30 s. The % is the per-window delta: each task's
-// run-time delta over the window's busy total (the sum of the per-task
-// deltas), plus its absolute one-core percentage. 0 (default) = off.
+// the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS, the stats
+// clock = esp_timer, so microseconds). Profiling aid for which task burns
+// the settings-idle CPU and the spin CPU. After N seconds of waiting (so
+// the boot sweep is done and the device rests) it logs once per second,
+// 10 s on the home screen then 30 s on the settings hub (loading it). The
+// window's "busy" total excludes the IDLE tasks (they account for the idle
+// time on each core, so including them reads ~200 % = both cores); the
+// per-task lines still report IDLE0/IDLE1 so the idle share is visible.
+// Note: it holds the idle timer awake each second, which ALSO keeps the
+// moon spin at its ACTIVE rate (activity < SETTLE_S), so the home window
+// shows the active spin, not the settled coast-skip. 0 (default) = off.
 #ifndef CONFIG_TEST_CPU_STATS_SEC
 #define CONFIG_TEST_CPU_STATS_SEC 0
 #endif
@@ -182,11 +184,6 @@ static int64_t s_cpu_wall_prev_us = 0;
 
 static void cpu_stats_log(const char *phase) {
     int64_t now_us = esp_timer_get_time();
-    /* Loop-rate sample (the worker's passes + raw sleep delay since the
-     * last call): distinguishes a spinning loop (high Hz, 1 ms floor) from
-     * a correct 10 ms cadence (low Hz). Same task, so no lock. */
-    uint32_t iters, dmin, dmax;
-    esp_lv_adapter_test_sample_loop(&iters, &dmin, &dmax);
     uint32_t total = 0;
     TaskStatus_t cur[CPU_STATS_MAX_TASKS];
     UBaseType_t n = uxTaskGetSystemState(cur, CPU_STATS_MAX_TASKS, &total);
@@ -202,23 +199,25 @@ static void cpu_stats_log(const char *phase) {
     int64_t wall_us = now_us - s_cpu_wall_prev_us;
     s_cpu_wall_prev_us = now_us;
     /* Per-task delta over this window (run-time, in the stats clock --
-     * esp_timer, so microseconds) and the window's total busy CPU (the
-     * sum of all deltas: how much of the two cores the system actually
-     * used this second). */
+     * esp_timer, so microseconds). The window's "busy" total EXCLUDES the
+     * IDLE tasks (IDLE0/IDLE1 account for the remaining time on each core,
+     * so including them would make the total read ~200 % = both cores);
+     * the per-task lines still report IDLE so the idle share is visible. */
     unsigned d[CPU_STATS_MAX_TASKS] = {0};
     uint64_t busy = 0;
     for (UBaseType_t i = 0; i < n; i++) {
         for (UBaseType_t j = 0; j < s_cpu_prev_n; j++) {
             if (strcmp(s_cpu_prev[j].pcTaskName, cur[i].pcTaskName) == 0) {
                 d[i] = (unsigned)(cur[i].ulRunTimeCounter - s_cpu_prev[j].ulRunTimeCounter);
-                busy += d[i];
+                if (strncmp(cur[i].pcTaskName, "IDLE", 4) != 0)
+                    busy += d[i];
                 break;
             }
         }
     }
     unsigned pct1core = (unsigned)(((uint64_t)busy * 100) / (unsigned)wall_us); /* 100% = one core */
-    ESP_LOGW(TAG, "CPU %s: busy %uus/wall %uus = %u%% 1-core | lvgl loop %u Hz, raw delay %u-%ums:", phase,
-             (unsigned)busy, (unsigned)wall_us, pct1core, iters, dmin, dmax);
+    ESP_LOGW(TAG, "CPU %s: busy %uus/wall %uus = %u%% 1-core (IDLE excluded):", phase, (unsigned)busy,
+             (unsigned)wall_us, pct1core);
     for (UBaseType_t i = 0; i < n; i++) {
         if (d[i] == 0)
             continue;
