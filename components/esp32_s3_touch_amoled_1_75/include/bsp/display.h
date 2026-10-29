@@ -66,6 +66,13 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
                           esp_lcd_panel_io_handle_t *ret_io);
 
 /**
+ * @brief Get the LCD panel handle
+ *
+ * @return the panel handle created by bsp_display_start, or NULL before it
+ */
+esp_lcd_panel_handle_t bsp_display_get_panel(void);
+
+/**
  * @brief Initialize display's brightness
  *
  * Brightness is controlled with PWM signal to a pin controlling backlight.

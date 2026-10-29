@@ -414,4 +414,22 @@ menu "UI Component Configuration"
             eliminates sensor stutter; raise it for a snappier
             (jitterier) response, lower it for a heavier low-pass.
 
+    config UI_SCREEN_SWITCH_REVEAL
+        bool "Concentric (center-out) reveal on screen switches"
+        default y
+        select LV_USE_SNAPSHOT
+        help
+            A screen switch (e.g. into the settings hub) is normally
+            displayed by LVGL's top-to-bottom 25-row strip flush. With
+            this option the new screen is rendered once into a full-
+            screen snapshot (LV_USE_SNAPSHOT) and the panel is written in
+            the same 25-row windows but ordered from the vertical
+            center outward -- the new screen "blooms" in concentrically
+            instead of sweeping down. Only switches TO a moon-less
+            screen (the settings screens) take this path; the moon
+            screens keep the atomic whole-panel flush (the moon
+            pipeline invariant). No speed gain: the same bytes reach the
+            panel, only the light-up order differs. A snapshot or panel
+            failure falls back to the normal atomic flush.
+
 endmenu

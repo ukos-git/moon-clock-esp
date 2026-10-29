@@ -131,6 +131,12 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
+#if CONFIG_UI_SCREEN_SWITCH_REVEAL
+#include "esp_lcd_panel_ops.h"
+
+#include "bsp/display.h"
+#endif
+
 #include "clock.h"
 #include "clock_idle.h"
 #include "clock_timer.h"
@@ -2295,6 +2301,105 @@ static bool moon_screen_has_image(void) {
     return false;
 }
 
+#if CONFIG_UI_SCREEN_SWITCH_REVEAL
+/* One strip matches the BSP adapter's buffer_height: a QSPI transfer
+ * must fit the S3's internal-RAM DMA staging budget (25 rows * 466 *
+ * 2 = 23.3 KiB, under the 32 KiB SPI DMA cap). */
+#define REVEAL_STRIP_ROWS 25
+
+static int reveal_strip_center(int i, int h) {
+    const int y0 = i * REVEAL_STRIP_ROWS;
+    const int y1 = y0 + REVEAL_STRIP_ROWS < h ? y0 + REVEAL_STRIP_ROWS : h;
+    return (y0 + y1 - 1) / 2;
+}
+
+/* Render the active (moon-less) screen into a full-screen RGB565
+ * snapshot and write the panel in the same 25-row windows ordered
+ * from the vertical center out, so the new screen blooms in
+ * concentrically instead of being drained top to bottom. The pixel
+ * result is exactly what the whole-panel flush would show: the
+ * snapshot uses the normal draw path (including the 90-degree
+ * base-orientation transform on the screen root, which is an LVGL
+ * transform -- the panel is always driven in display coordinates) and
+ * the direct write goes through the same windowed CO5300 driver
+ * (including its 0x06 x_gap). The caller still runs the atomic
+ * lv_refr_now afterwards -- it displays identical pixels and drains
+ * LVGL's pending invalidation (the FADE_IN bug class must not come
+ * back). Must be on the LVGL task (the snapshot draw path is the
+ * refresh draw path, which fits the 8 KB LVGL stack). On any failure
+ * returns false: the caller falls back to the plain atomic flush. */
+static bool concentric_reveal(void) {
+    lv_obj_t *screen = lv_screen_active();
+    lv_draw_buf_t *shot = screen ? lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565) : NULL;
+    if (!shot)
+        return false;
+    const uint32_t w = shot->header.w, h = shot->header.h;
+    const uint32_t stride = shot->header.stride;
+    /* Full-screen row-major 16bpp, exactly the panel's native
+     * format. Anything else (a non-full-screen root, a padded
+     * stride) falls back to the atomic flush. */
+    if (w != (uint32_t)BSP_LCD_H_RES || h != (uint32_t)BSP_LCD_V_RES || stride != (uint32_t)BSP_LCD_H_RES * 2 ||
+        !shot->data) {
+        lv_draw_buf_destroy(shot);
+        return false;
+    }
+    const esp_lcd_panel_handle_t panel = bsp_display_get_panel();
+    if (!panel) {
+        lv_draw_buf_destroy(shot);
+        return false;
+    }
+    /* The adapter bridge byte-swaps the LVGL-native RGB565 for the
+     * QSPI panel (the OTHER interface sends 16-bit pixels
+     * MSB-first); the direct write must match. */
+    uint8_t *p = shot->data;
+    const size_t npix = (size_t)BSP_LCD_H_RES * BSP_LCD_V_RES;
+    for (size_t i = 0; i < npix; i++) {
+        const uint8_t lo = p[2 * i], hi = p[2 * i + 1];
+        p[2 * i] = hi;
+        p[2 * i + 1] = lo;
+    }
+    /* 19 strips (18 x 25 rows + a 16-row tail) ordered by the
+     * distance of the strip center from the vertical center: the
+     * middle lights up first and the screen blooms out. */
+    const int nstrips = (h + REVEAL_STRIP_ROWS - 1) / REVEAL_STRIP_ROWS;
+    int order[19];
+    if (nstrips > (int)(sizeof(order) / sizeof(order[0]))) {
+        lv_draw_buf_destroy(shot);
+        return false;
+    }
+    const int mid = (int)h / 2;
+    for (int i = 0; i < nstrips; i++)
+        order[i] = i;
+    for (int a = 0; a < nstrips; a++) {
+        int best = a;
+        for (int b = a + 1; b < nstrips; b++) {
+            int db = reveal_strip_center(order[b], (int)h) - mid;
+            int dt = reveal_strip_center(order[best], (int)h) - mid;
+            if (db < 0)
+                db = -db;
+            if (dt < 0)
+                dt = -dt;
+            if (db < dt)
+                best = b;
+        }
+        const int t = order[a];
+        order[a] = order[best];
+        order[best] = t;
+    }
+    bool ok = true;
+    for (int a = 0; a < nstrips && ok; a++) {
+        const int i = order[a];
+        const int y0 = i * REVEAL_STRIP_ROWS;
+        const int y1 = y0 + REVEAL_STRIP_ROWS < (int)h ? y0 + REVEAL_STRIP_ROWS : (int)h;
+        const uint8_t *strip = p + (size_t)y0 * (size_t)stride;
+        if (esp_lcd_panel_draw_bitmap(panel, 0, y0, (int)w, y1, strip) != ESP_OK)
+            ok = false;
+    }
+    lv_draw_buf_destroy(shot);
+    return ok;
+}
+#endif
+
 void moon_ui_screen_switched(void) {
     if (s_ready && moon_on_lvgl()) {
         /* Start/stop the spin render with the active screen (LVGL task:
@@ -2330,6 +2435,19 @@ void moon_ui_screen_switched(void) {
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking)
         return;
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+#if CONFIG_UI_SCREEN_SWITCH_REVEAL
+    /* Concentric reveal for switches TO a moon-less screen (the
+     * settings direction): the new screen is rendered into a
+     * snapshot and written center-out before LVGL's own flush. The
+     * trailing lv_refr_now re-displays identical pixels; moon screens
+     * keep the atomic whole-panel flush alone. */
+    if (!moon_screen_has_image()) {
+        if (concentric_reveal())
+            ESP_LOGI(TAG, "concentric reveal: switch shown center-out");
+        else
+            ESP_LOGW(TAG, "concentric reveal failed; plain atomic flush");
+    }
+#endif
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
 }

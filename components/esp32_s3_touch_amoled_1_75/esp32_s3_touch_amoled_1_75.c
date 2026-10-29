@@ -607,6 +607,8 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg) {
 
 lv_indev_t *bsp_display_get_input_dev(void) { return disp_indev; }
 
+esp_lcd_panel_handle_t bsp_display_get_panel(void) { return panel_handle; }
+
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation) {
     if (panel_handle == NULL || io_handle == NULL) {
         ESP_LOGE(TAG, "Panel or IO handle is not initialized");
