@@ -577,6 +577,21 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg) {
      * 0 keeps the LVGL task responsive on the other core, which is the
      * design the moon pipeline relies on (components/ui/moon_ui.c). */
     cfg->lv_adapter_cfg.task_core_id = 0;
+    /* Pace the LVGL task on the 10 ms UI tick, not the 1 ms adapter
+     * default. The loop sleeps on lv_timer_handler()'s return clamped to
+     * [task_min_delay_ms, task_max_delay_ms] via vTaskDelay(pdMS_TO_TICKS)
+     * -- and this build runs FreeRTOS at 100 Hz ticks
+     * (CONFIG_FREERTOS_HZ=100), so the default 1 ms floor is
+     * pdMS_TO_TICKS(1) == 0 ticks: vTaskDelay(0) yields instead of
+     * sleeping. Whenever the shortest live LVGL timer's remaining time is
+     * < 10 ms (i.e. almost every pass, right after the 10 ms UI tick
+     * fires) the loop spins at ~3500 Hz and the lvgl task burns ~95 % of
+     * core 0 on static screens (measured: the "30 % CPU at idle" report).
+     * A 10 ms floor makes the floor 1 real tick, so the task sleeps on
+     * the UI tick's cadence (<= 100 Hz) when nothing is dirty. Touch
+     * latency cost is <= 10 ms (the indev read timer is 33 ms anyway);
+     * the 50 ms moon tick and the 1 s timers are unaffected. */
+    cfg->lv_adapter_cfg.task_min_delay_ms = 10;
     BSP_ERROR_CHECK_RETURN_NULL(esp_lv_adapter_init(&cfg->lv_adapter_cfg));
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
