@@ -115,7 +115,7 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
     float fcy = size == 400 ? 199.5f : (float)(size / 2);
-    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero);
+    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero, 0.0f);
 
     float th = (float)rot_deg * 0.017453292519943295f;
     int32_t c15 = moon_cos15(th);

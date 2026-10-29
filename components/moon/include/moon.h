@@ -72,18 +72,25 @@ typedef struct {
  * reads as "moving earthshine" in the fast animation, and a constant
  * floor keeps the far side faintly visible on the AMOLED (flat 0x0000
  * was invisible). Static/spin bakes keep the earthshine (dark_zero =
- * 0). */
+ * 0). dk_sup (dusk only; 0.0f = the plain d < 0 terminator): the
+ * night floor is written for d < dk_sup instead of d < 0 -- the dusk's
+ * endpoint view still carries a geometrically lit rim sliver (the pole
+ * spin never changes the view latitude, d up to sqrt(1 - E.S(phi*)^2)),
+ * which would otherwise linger on the dark sleep screen as a bright arc
+ * around the disk edge (the "white ray"). The dusk passes that bound;
+ * every other caller passes 0.0f (byte-identical to the old bake). */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup);
 
 /* Row-range bake: identical per-pixel math as moon_bake() for rows
  * [y0, y1). The device boot animation bakes row by row and converts each
  * row to RGB565 immediately, so the display can show finished rows (as
  * progressive strips) while the rest of the frame is still being
  * computed -- the frame "sweeps" in instead of popping in.
- * dark_zero: see moon_bake. */
+ * dark_zero / dk_sup: see moon_bake. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero);
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero,
+                    float dk_sup);
 
 /* Constant-projection pass (the light-sleep dusk): the renderer's color
  * depends only on the body direction and the epoch's fixed body-frame
@@ -100,8 +107,10 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * x displaced-normal Lambert x tone LUT + earthshine) of that cell's
  * body direction, at S = g->S; dark_zero = 0 keeps the earthshine dark
  * side, 1 writes every geometrically dark cell (d < 0 or L <= 0) 0 (the
- * flat-black night side). Row-range build so the caller can honor an
- * abort between rows; grel NULL = relief-free Lambert. */
+ * flat-black night side). The map keeps the plain d < 0 terminator (NOT
+ * the dusk's dk_sup sliver kill -- that belongs to the dusk's final bake
+ * only, see moon_bake). Row-range build so the caller can honor an abort
+ * between rows; grel NULL = relief-free Lambert. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
                          int map_h, int y0, int y1, int dark_zero);
 

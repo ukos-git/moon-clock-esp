@@ -276,6 +276,8 @@ typedef struct {
     float radius, cx, v;
     float per_deg; /* albedo columns per degree */
     int dark_zero; /* dark side written 0 (flat black) instead of earthshine */
+    float dk_sup;  /* dark_zero only: the night floor for d < dk_sup (0.0f = the plain d < 0 terminator; the dusk's
+                      rim-sliver kill, see moon_shade_map_rows) */
 } bake_ctx_t;
 
 static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) {
@@ -301,8 +303,16 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
      * lookup, no packed-gradient PSRAM load, and no albedo load, so this
      * early return skips all of them -- the night side is free (a win for the
      * crescent end of the sweep). The static/spin path (dark_zero = 0) and the
-     * gate (host, dark_zero = 0) are untouched and remain byte-identical. */
-    if (c->dark_zero && d < 0.0f) {
+     * gate (host, dark_zero = 0) are untouched and remain byte-identical.
+     * dk_sup (dusk only, 0.0f everywhere else): the geometrically dark
+     * condition is d < 0 -- but the dusk's endpoint view still carries a
+     * geometrically LIT rim sliver (d up to dk_sup = sqrt(1 - E.S(phi*)^2),
+     * the pole spin never changes the view latitude): left lit it lingers
+     * on the otherwise-dark sleep screen as a bright arc around the disk
+     * edge (the "white ray"). The dusk bakes the night floor for d < dk_sup
+     * instead, so the endpoint is a pure dark disk; every other bake passes
+     * 0.0f, i.e. exactly the old d < 0. */
+    if (c->dark_zero && d < c->dk_sup) {
         c->row[x] = MOON_NIGHT_FLOOR; /* the constant night floor (moon_consts.h) */
         return;
     }
@@ -417,7 +427,8 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
  * old per-pixel 4-neighbor gather's ~3.3 s). The remaining per-frame
  * cost is the FPU + PSRAM bandwidth floor, not load latency. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero) {
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero,
+                    float dk_sup) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)alb_w / 360.0f;
@@ -434,6 +445,7 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
         c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
         c.per_deg = per_deg;
         c.dark_zero = dark_zero;
+        c.dk_sup = dk_sup;
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             bake_px(&c, x0);
@@ -448,8 +460,8 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
 }
 
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero) {
-    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup) {
+    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero, dk_sup);
 }
 
 /* ---------------- constant-projection pass (the light-sleep dusk) ------
@@ -510,8 +522,13 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  * is written 0 instead -- the flat-black night side, so the map's dark
  * cells carry no earthshine/relief speckle that a re-projected frame
  * would pick up at the rim (the dusk's "bright fragment on the edge").
- * Row-range build so the caller (the dusk task) can honor an abort
- * between rows. */
+ * The map keeps the plain d < 0 terminator (NOT the dusk's dk_sup sliver
+ * kill): it is the constant-projection map the intermediate frames
+ * re-project, and a shifted terminator would jump at the dusk's start
+ * (the parked pose's true terminator) and shrink the crescent in every
+ * frame. The sliver is killed in the dusk's FINAL bake only (see
+ * moon_bake_rows). Row-range build so the caller (the dusk task) can
+ * honor an abort between rows. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
                          int map_h, int y0, int y1, int dark_zero) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];

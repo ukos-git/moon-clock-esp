@@ -172,9 +172,8 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
 }
 
 /* The hub's central exit: leaving settings goes back to the HOME
- * screen -- the airplane (modem-sleep) clock screen, the one carrying
- * the wifi indicator below the clock. No background sync is kicked
- * off; the home tick shows the current time + connection state. */
+ * screen -- the airplane (modem-sleep) clock screen. No background
+ * sync is kicked off; the home tick shows the current time. */
 static void event_handler_cb_hub_exit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -240,18 +239,6 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
-        {
-            // screen-indicator-wifi
-            lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.modem_sleep_indicator_wifi = obj;
-            lv_obj_set_pos(obj, 185, 320);
-            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            add_style_label_icon_solid(obj);
-            lv_label_set_text(obj, GLYPH_WIFI);
-            /* Non-clickable: a tap on the indicator must still open the
-             * settings hub (the screen-root handler), not die here. */
-            lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-        }
     }
 
     /* Touch pass-through (tap = open the settings hub): the full-screen
@@ -273,18 +260,6 @@ void tick_screen_modem_sleep() {
             tick_value_change_obj = objects.arc_clock_seconds_modem;
             lv_arc_set_value(objects.arc_clock_seconds_modem, new_val);
             tick_value_change_obj = NULL;
-        }
-    }
-    /* The WiFi indicator (white = connected, moon grey = off). The
-     * connection state flips rarely (boot / sync / airplane), so only
-     * recolor on a change -- the tick itself is a state compare. */
-    {
-        static bool s_wifi_ind_state = true;
-        bool connected = wifi_manager_is_connected();
-        if (connected != s_wifi_ind_state) {
-            s_wifi_ind_state = connected;
-            lv_obj_set_style_text_color(objects.modem_sleep_indicator_wifi, connected ? SETTINGS_WHITE : SETTINGS_GREY,
-                                        LV_PART_MAIN | LV_STATE_DEFAULT);
         }
     }
 }
@@ -337,6 +312,23 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
+        {
+            // screen-indicator-wifi (the connection state: the transient
+            // WiFi screen is where the handshake happens, so the icon
+            // lives here, not on the airplane screen)
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.wifi_indicator_wifi = obj;
+            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            add_style_label_icon_solid(obj);
+            lv_label_set_text(obj, GLYPH_WIFI);
+            /* Start grey = "still connecting": the tick recolours it white
+             * once wifi_manager_is_connected() flips (see tick_screen_wifi). */
+            lv_obj_set_style_text_color(obj, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+            /* Non-clickable: a tap on the indicator must still open the
+             * settings hub (the screen-root handler), not die here. */
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        }
     }
 
     /* Touch pass-through (tap = open the settings hub), same as the
@@ -356,6 +348,18 @@ void tick_screen_wifi() {
             tick_value_change_obj = objects.arc_clock_seconds_wifi;
             lv_arc_set_value(objects.arc_clock_seconds_wifi, new_val);
             tick_value_change_obj = NULL;
+        }
+    }
+    /* The connection indicator (grey = still connecting, white =
+     * connected). The state flips at most once per sync, so only
+     * recolour on a change -- the tick itself is a state compare. */
+    {
+        static bool s_wifi_ind_state = false; /* starts connecting */
+        bool connected = wifi_manager_is_connected();
+        if (connected != s_wifi_ind_state) {
+            s_wifi_ind_state = connected;
+            lv_obj_set_style_text_color(objects.wifi_indicator_wifi, connected ? SETTINGS_WHITE : SETTINGS_GREY,
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
         }
     }
 }

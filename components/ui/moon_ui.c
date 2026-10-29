@@ -172,7 +172,7 @@ static const char *TAG = "moon_ui";
 #define CONFIG_UI_MOON_SPIN_ENABLE 1
 #endif
 #ifndef CONFIG_UI_MOON_SPIN_PERIOD_S
-#define CONFIG_UI_MOON_SPIN_PERIOD_S 180
+#define CONFIG_UI_MOON_SPIN_PERIOD_S 300
 #endif
 #ifndef CONFIG_UI_IMU_ENABLE
 #define CONFIG_UI_IMU_ENABLE 1
@@ -525,7 +525,8 @@ static void moon_bake_epoch(int64_t epoch) {
      * re-anchors). */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-              MOON_ALB_H, 1); /* dark_zero: the flat-black night side (T3) */
+              MOON_ALB_H, 1,
+              0.0f); /* dark_zero: the flat-black night side (T3); dk_sup 0.0f = the plain d < 0 terminator */
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     s_dusk_done = false;   /* a fresh bake supersedes any dusk pre-bake */
@@ -556,7 +557,7 @@ static void moon_bake_epoch(int64_t epoch) {
  *   - ACTIVE (the device was used -- touched or tilted -- within
  *     CONFIG_UI_MOON_SPIN_SETTLE_S, which the idle system's activity
  *     timer tracks): 2*pi / CONFIG_UI_MOON_SPIN_PERIOD_S, the fast
- *     ball-in-hand feel (default 180 s per full turn).
+ *     ball-in-hand feel (default 300 s per full turn).
  *   - SETTLED: the PHASE-TRUE COAST, 2*pi / MOON_SYNODIC_S -- one full
  *     turn per synodic moon month (29.53 days, ~12 deg/day). The
  *     display keeps turning continuously (the AMOLED burn-in
@@ -658,13 +659,20 @@ static void moon_spin_task(void *arg) {
         float rad = (float)fmod(s_spin_theta, 6.283185307179586);
         /* Coast-skip (see s_spin_shown_rad): the rotation since the last
          * DISPLAYED frame moves the rim (r = MOON_PX/2) by |d|*R px.
-         * While that is < 1 px the on-screen frame is still
-         * indistinguishable, so re-integrate (theta already advanced
-         * above) but SKIP the gather AND the display flush -- a settled
-         * burn-in coast is sub-pixel per frame, so both cores go idle
-         * between the occasional 1-px step instead of re-flushing the
-         * whole moon ~4x/s for motion that is not visible. An active
-         * spin (>= 1 px/frame) always passes the gate. */
+         * While that is < the display threshold (4 px = 1.15 deg) the
+         * on-screen frame is still close enough that a re-draw is not
+         * worth the cost, so re-integrate (theta already advanced above)
+         * but SKIP the gather AND the whole-frame display flush. The
+         * flush is the bottleneck: a full 400x400 panel re-draw is ~175 ms
+         * of core-0 work (LVGL/QSPI), while the gather is ~6 ms -- so the
+         * spin is display-bound, not compute-bound. Raising the threshold
+         * from 1 px to 4 px cuts the flush count (and core-0 duty) by 4x
+         * at every spin rate: the active rate flushes every ~0.6 s instead
+         * of every tick, so the display duty drops from ~80% to ~30% and
+         * the LVGL task (touch) is no longer starved mid-flush. A settled
+         * coast (sub-pixel per frame) still skips almost every frame, so
+         * both cores go idle between the occasional step. The 4-px step is
+         * a 1.15 deg angular jump -- smooth for a stately moon rotation. */
         float d = rad - s_spin_shown_rad;
         while (d > 3.14159265f)
             d -= 6.283185307179586f;
@@ -672,7 +680,7 @@ static void moon_spin_task(void *arg) {
             d += 6.283185307179586f;
         if (d < 0.0f)
             d = -d;
-        if (d * (MOON_PX / 2.0f) < 1.0f) {
+        if (d * (MOON_PX / 2.0f) < 4.0f) { /* 4 px rim-motion threshold (see the note above) */
             xSemaphoreGive(s_rgb_mtx);
             xSemaphoreGive(s_spin_shown); /* the loop re-takes + re-integrates */
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -841,7 +849,8 @@ static void moon_orbit_task(void *arg) {
          * than a row (~6 ms) at a time, so a cancel is honored quickly. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-                       MOON_ALB_H, y, y + 1, 1); /* dark_zero: the flat-black night side (T3) */
+                       MOON_ALB_H, y, y + 1, 1,
+                       0.0f); /* dark_zero (T3); dk_sup 0.0f = the plain d < 0 terminator (the true orbit phase) */
         /* Fixed viewport: the row maps straight to RGB565 (no rotation). */
         const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
         uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
@@ -1114,7 +1123,8 @@ static void moon_sweep_task(void *arg) {
              * (converted below, under the mutex). A cancel is honored
              * within a row. */
             moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
-                           MOON_ALB_H, y, y + 1, dark_zero);
+                           MOON_ALB_H, y, y + 1, dark_zero,
+                           0.0f); /* the sweep shows the true moving phase: dk_sup 0.0f */
             if ((y & 15) == 15)
                 vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
         }
@@ -1300,6 +1310,18 @@ static void moon_dusk_task(void *arg) {
     float B = g1.E[0] * g1.S[1] - g1.E[1] * g1.S[0];
     float phi_star = atan2f(-B, -A); /* the fully unilluminated view */
     float phi_end = phi_star;
+    /* The endpoint's rim-sliver kill (the dusk's "white ray"): the pole
+     * spin never changes the view latitude, so the endpoint view still
+     * carries a geometrically LIT rim sliver -- the visible disk stays
+     * d > 0 within 180 deg - (the pole's angular distance to the
+     * anti-solar point) of the horizon, i.e. d up to sqrt(1 - E.S(phi*)^2).
+     * Left lit it lingers on the otherwise-dark sleep screen as a bright
+     * arc hugging the disk edge. The FINAL bake (below) writes the night
+     * floor for d < dk_sup, so the endpoint is a pure dark disk; the
+     * intermediate frames re-project the shade map, which keeps the true
+     * d < 0 terminator (a shifted map would jump at the dusk's start). */
+    float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
+    float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
     /* One-time: the fully-lit body-frame equirect map for this epoch
@@ -1349,7 +1371,8 @@ static void moon_dusk_task(void *arg) {
              * lingers on the sleep screens through the countdown. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1);
+                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
+                               dk_sup); /* kill the endpoint's lit rim sliver (the "white ray") */
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -1406,9 +1429,11 @@ abort_out: /* the map-build abort lands here: the else-branch below handles it
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
                 /* dark_zero 1: the wake frame's night side is flat black
-                 * too (T3), matching the static phase. */
+                 * too (T3), matching the static phase. This is the
+                 * CURRENT phase (not the dusk's dark endpoint), so it
+                 * keeps the true d < 0 terminator: dk_sup 0.0f. */
                 moon_bake_rows(&g1, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1);
+                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f);
                 xSemaphoreGive(s_rgb_mtx);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1));

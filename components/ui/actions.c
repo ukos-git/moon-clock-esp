@@ -525,47 +525,14 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
  * visible seam.
  */
 
-// The boot hand-off: after boot lands on the WiFi screen (the boot NTP
-// succeeded), this 100 ms poller switches to the airplane screen once
-// the boot sweep is out of the way -- when the sweep has finished
-// baking, or when 1 s elapsed without it starting (animation disabled,
-// no trustworthy time). Both screens share the one moon image, so the
-// switch is the existing atomic flush: the sweep plays seamlessly
-// across WiFi -> airplane.
-static lv_timer_t *s_boot_handoff_timer = NULL;
-static bool s_boot_handoff_saw_sweep = false;
-static int64_t s_boot_handoff_t0_ms = 0;
-
-static void boot_handoff_timer_cb(lv_timer_t *timer) {
-    (void)timer;
-    if (s_wifi_sync_running || moon_ui_sweeping()) {
-        s_boot_handoff_saw_sweep = true;
-        return;
-    }
-    int64_t elapsed_ms = esp_timer_get_time() - s_boot_handoff_t0_ms;
-    if (!s_boot_handoff_saw_sweep && elapsed_ms < 1000)
-        return;
-    /* Only the WiFi screen hands off: an interrupted boot sweep may
-     * have left the device on the alarm screen (touch to dismiss) or
-     * the user on a settings screen, and the poller must not clobber
-     * either. On any other screen the boot sync is over -- just stop
-     * polling. */
-    if (ui_current_screen() != SCREEN_ID_WIFI) {
-        ESP_LOGI(TAG, "Boot sync hand-off: not on the WiFi screen (%d); leaving it", (int)ui_current_screen());
-        if (s_boot_handoff_timer) {
-            lv_timer_delete(s_boot_handoff_timer);
-            s_boot_handoff_timer = NULL;
-        }
-        return;
-    }
-    ESP_LOGI(TAG, "Boot sync hand-off: WiFi -> airplane screen");
-    loadScreen(SCREEN_ID_MODEM_SLEEP);
-    ui_tick();
-    if (s_boot_handoff_timer) {
-        lv_timer_delete(s_boot_handoff_timer);
-        s_boot_handoff_timer = NULL;
-    }
-}
+/* The transient WiFi screen is only shown while a WiFi + NTP sync is in
+ * flight (wake / manual / hourly / boot-NTP-failed). The boot hand-off
+ * poller is gone: at boot the clock is acquired by the blocking boot
+ * sync BEFORE the UI appears, so the success path lands straight on the
+ * home (airplane) screen and the boot sweep plays there (both screens
+ * share the one moon image, s_rgb). The NTP-failed boot path shows the
+ * WiFi screen via action_start_wifi_sync (above) and drops to airplane
+ * through the s_wifi_sync_done pickup in ui_tick_timer_cb -- no poller. */
 
 void action_start_wifi_sync(void) {
     if (s_wifi_sync_running) {
@@ -580,17 +547,6 @@ void action_start_wifi_sync(void) {
     ui_tick();
     ESP_LOGI(TAG, "WiFi screen loaded (on-demand sync)");
     wifi_sync_kickoff();
-}
-
-/* Start the boot hand-off poller (called from app_main only when boot
- * landed on the WiFi screen). */
-void action_boot_handoff_start(void) {
-    if (s_boot_handoff_timer)
-        return;
-    s_boot_handoff_saw_sweep = false;
-    s_boot_handoff_t0_ms = esp_timer_get_time();
-    s_boot_handoff_timer = lv_timer_create(boot_handoff_timer_cb, 100, NULL);
-    ESP_LOGI(TAG, "Boot hand-off poller started (100 ms)");
 }
 
 // Global reference to UI tick timer for dynamic adjustment

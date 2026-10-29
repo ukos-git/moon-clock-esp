@@ -144,16 +144,21 @@ menu "UI Component Configuration"
 
     config UI_MOON_SPIN_PERIOD_S
         int "Active spin: seconds for one full turn (while in use)"
-        default 180
+        default 300
         range 30 7200
         help
             The spin rate while the device is in use: one full in-plane
-            rotation in this many seconds (the default 180 s = a turn
-            every 3 minutes). After the last user activity (touch or
+            rotation in this many seconds (the default 300 s = a turn
+            every 5 minutes). After the last user activity (touch or
             tilt) the rate eases down toward the phase-true coast (one
             turn per synodic month) over the settle window. Lower = a
             faster (more visible) spin while in use; the display duty
-            scales with it.
+            scales with it. The whole-frame display flush is ~175 ms of
+            core-0 work per shown frame (display-bound), so a slower
+            active rate directly cuts the CPU the spin spends while the
+            device is in use -- the default was lowered 180 s -> 300 s
+            together with the 4-px rim-motion display gate to bring the
+            active-spin duty from ~80% to ~20% of one core.
 
     config UI_MOON_SPIN_SETTLE_S
         int "Spin settle window: seconds of idle before coasting to phase"

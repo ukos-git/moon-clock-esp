@@ -381,19 +381,16 @@ extern "C" void app_main(void) {
     // during the handshake, airplane when it completes).
     action_wake_screen(NULL);
 
-    // Boot NTP succeeded: the startup animation plays on the transient
-    // WiFi screen (the spec: the boot sweep flows seamlessly WiFi ->
-    // airplane). The hand-off poller moves to the airplane screen once
-    // the sweep is done (or never started); both screens share the one
-    // moon image, so the switch is the atomic whole-panel flush. Test
-    // the NTP outcome, not the radio state: the fresh-NTP branch of
-    // action_wake_screen already deinit'd the radio on the way to the
-    // airplane screen.
-    if (wifi_available && !clock_sntp_needs_sync()) {
-        loadScreen(SCREEN_ID_WIFI);
-        ui_tick();
-        action_boot_handoff_start();
-    }
+    // Boot NTP outcome: by the time the UI is shown the blocking boot
+    // sync (wifi_manager_init + NTP, before bsp_display_start) has ALREADY
+    // acquired the clock, so action_wake_screen above is already on the
+    // home (airplane) screen -- the startup animation plays THERE (both
+    // screens share the one moon image, s_rgb, so nothing is lost by not
+    // lingering on the transient WiFi screen). The user's decision: the
+    // WiFi screen is only shown while a sync is in flight (wake / manual /
+    // hourly), and drops to airplane as soon as the clock is acquired --
+    // which at boot is before the UI appears, so it is never shown at boot
+    // on the success path.
 
     // Moon phase: start the free spin (phase-anchored: active rate while
     // in use, one turn per synodic month when settled -- the AMOLED

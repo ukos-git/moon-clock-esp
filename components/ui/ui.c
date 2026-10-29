@@ -51,9 +51,12 @@ void loadScreen(enum ScreensEnum screenId) {
 
 void ui_init() {
     create_screens();
-    /* The airplane (modem-sleep) screen is the home screen; the boot
-     * flow (app_main) loads the transient WiFi screen when the boot NTP
-     * succeeded and hands it off to airplane (action_boot_handoff_start). */
+    /* The airplane (modem-sleep) screen is the home screen. The boot
+     * sweep plays on it: at boot the clock is acquired by the blocking
+     * boot sync (app_main, before the UI) and action_wake_screen lands
+     * here. The transient WiFi screen is only shown while a sync is in
+     * flight (wake / manual / hourly) and drops to airplane on
+     * s_wifi_sync_done (ui_tick_timer_cb). */
     loadScreen(SCREEN_ID_MODEM_SLEEP);
 }
 
