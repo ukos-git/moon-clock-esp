@@ -256,7 +256,7 @@ int main(void) {
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
          * dusk passes dark_zero = 1 (flat black). */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
         for (unsigned t = 0; t < 4; t++) {
@@ -264,8 +264,9 @@ int main(void) {
             moon_inplane_geometry(&g0, thetas3[t], &gb);
             moon_pole_geometry(&gb, phis3[t], &gb);
             moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0,
-                      0.0f);                                                              /* reference */
-            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR); /* the dusk's frame */
+                      0.0f); /* reference */
+            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR,
+                           0.0f); /* the dusk's frame (dk_sup = 0: earthshine dark side) */
             double sum = 0;
             int mx = 0, n = 0, big = 0;
             for (int y = 0; y < PX; y++)
@@ -300,8 +301,8 @@ int main(void) {
         moon_inplane_geometry(&g0, 0.0f, &ga);
         moon_pole_geometry(&ga, 0.0f, &ga);
         moon_pole_geometry(&g0, 0.17453293f, &gaa); /* +10 deg */
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR);
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR, 0.0f);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR, 0.0f);
         moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         static uint8_t bb[PX * PX];
         moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);

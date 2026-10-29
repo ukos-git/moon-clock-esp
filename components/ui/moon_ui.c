@@ -1316,10 +1316,17 @@ static void moon_dusk_task(void *arg) {
      * d > 0 within 180 deg - (the pole's angular distance to the
      * anti-solar point) of the horizon, i.e. d up to sqrt(1 - E.S(phi*)^2).
      * Left lit it lingers on the otherwise-dark sleep screen as a bright
-     * arc hugging the disk edge. The FINAL bake (below) writes the night
-     * floor for d < dk_sup, so the endpoint is a pure dark disk; the
-     * intermediate frames re-project the shade map, which keeps the true
-     * d < 0 terminator (a shifted map would jump at the dusk's start). */
+     * arc hugging the disk edge -- AND in every re-projected frame: the
+     * map's 0 < d < dk_sup band (relief-boosted, up to gray 137) sweeps
+     * the disk as a latitudinal arc while the pole spins (the "white
+     * ray" the user reported on 2026-10-29). So BOTH the shade map (the
+     * one-time build below) and the FINAL bake (below) write the night
+     * floor for d < dk_sup: the lit region the frames show is the
+     * body-fixed d > dk_sup crescent -- constant (it only rotates) and
+     * in agreement with the final bake at the endpoint (no pop). The
+     * one step change is at frame 1 (the parked pose's true terminator
+     * -> the shifted one, ~7 deg of crescent edge today): the user-
+     * accepted look over the ray. */
     float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
     int64_t t0 = esp_timer_get_time();
@@ -1331,7 +1338,10 @@ static void moon_dusk_task(void *arg) {
      * does not use the map). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1); /* dark_zero (T2/T3) */
+        /* dark_zero (T2/T3) + dk_sup: kill the 0 < d < dk_sup rim sliver
+         * in the MAP itself (the "white ray" on the re-projected frames,
+         * see above). */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_sup);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -1383,7 +1393,8 @@ static void moon_dusk_task(void *arg) {
              * lands within a row. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_reproject_rows(s_shade_map, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1);
+                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1,
+                                    dk_sup); /* the same dark-side bound as the map + final bake */
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }

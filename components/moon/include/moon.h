@@ -107,16 +107,27 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * x displaced-normal Lambert x tone LUT + earthshine) of that cell's
  * body direction, at S = g->S; dark_zero = 0 keeps the earthshine dark
  * side, 1 writes every geometrically dark cell (d < 0 or L <= 0) 0 (the
- * flat-black night side). The map keeps the plain d < 0 terminator (NOT
- * the dusk's dk_sup sliver kill -- that belongs to the dusk's final bake
- * only, see moon_bake). Row-range build so the caller can honor an abort
- * between rows; grel NULL = relief-free Lambert. */
+ * flat-black night side). dk_sup (dusk only; 0.0f = the plain d < 0
+ * terminator): with dark_zero, the night floor is written for d < dk_sup
+ * instead of d < 0 -- the same sliver kill the dusk's FINAL bake applies
+ * (see moon_bake), applied to the MAP so the intermediate re-projected
+ * frames carry no lit rim sliver either (the "white ray": the relief-
+ * boosted 0 < d < dk_sup band sweeping the disk as a latitudinal arc
+ * while the pole spins). The lit region the frames then show is the
+ * body-fixed d > dk_sup region -- constant across frames (it only
+ * rotates), and it AGREES with the final dk_sup bake at the endpoint (no
+ * pop between the last re-projected frame and the dark-side bake). The
+ * dusk builds the map with its endpoint dk_sup; every other caller
+ * passes 0.0f (byte-identical to the old map). Row-range build so the
+ * caller can honor an abort between rows; grel NULL = relief-free
+ * Lambert. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero);
+                         int map_h, int y0, int y1, int dark_zero, float dk_sup);
 
-/* Build the whole shade map (see moon_bake.c): one-time per epoch. */
+/* Build the whole shade map (see moon_bake.c): one-time per epoch.
+ * dark_zero / dk_sup: see moon_shade_map_rows. */
 void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero);
+                          int map_h, int dark_zero, float dk_sup);
 
 /* Re-project the pre-shaded map (moon_shade_map_build) through the camera
  * basis g into an 8-bit frame (size x size, row-major, 0 outside the
@@ -124,11 +135,20 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * the bake's (theta, row_frac) table pass, then the nearest-neighbor map
  * sample -- the bake WITHOUT the lighting (the map carries the color).
  * g = the epoch's geometry folded by the orbit / in-plane / pole basis
- * rotations. */
+ * rotations. dk_sup (dusk only; 0.0f = the plain d < 0 terminator,
+ * byte-identical to the old reproject): the same dark-side bound the bake
+ * and the map apply (see moon_bake / moon_shade_map_rows) -- every pixel
+ * whose TRUE body direction d = r . S is below dk_sup resolves to the
+ * constant night floor instead of the map sample, so the re-projected
+ * frames agree with the dusk's FINAL dk_sup bake at the endpoint (no pop)
+ * and the 1-2 px "white ray" (a +-y seam band of the map's mirror
+ * carrying the mirrored direction's lit value) can never light a dark
+ * pixel. Row-range variant so the dusk task can honor an abort between
+ * rows. */
 void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1);
+                         float radius, float cx, float cy, int y0, int y1, float dk_sup);
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                    float radius, float cx, float cy);
+                    float radius, float cx, float cy, float dk_sup);
 
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =
