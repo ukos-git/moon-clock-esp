@@ -723,12 +723,12 @@ void create_screen_settings_pomodoro() {
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {
-        pos += snprintf(hours + pos, sizeof(hours) - pos, "%d\n", h);
+        pos += snprintf(hours + pos, sizeof(hours) - pos, "%02d\n", h);
     }
     char minutes[600];
     pos = 0;
     for (int m = 0; m < 60; m++) {
-        pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
+        pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%02d\n", m);
     }
 
     /* The two rollers read like the clock's "HH:MM": a `:` sits between
@@ -988,6 +988,17 @@ static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
     esp_err_t r = clock_alarm_set_clock_alarm(h, m, mask);
     ESP_LOGW("settings_alarm_time", "alarm %02d:%02d mask 0x%02x (days %d..%d) -> %s", h, m, mask, s_alarm_range_start,
              s_alarm_range_end, esp_err_to_name(r));
+    /* Read-back (self-diagnosis): what the scheduler actually holds AFTER
+     * the write + re-parse. A MISMATCH pins the fault to the write/re-parse
+     * layer; a MATCH with the button still grey would pin it to the UI
+     * colour refresh (settings_alarm_screen_refresh / rule_types read). */
+    int rh = -1, rm = -1;
+    uint8_t rmask = 0;
+    uint8_t types = clock_alarm_rule_types();
+    esp_err_t rr = clock_alarm_get_fixed_rule(&rh, &rm, &rmask);
+    ESP_LOGW("settings_alarm_time", "read-back: rule_types=0x%02x fixed=%s got %02d:%02d mask 0x%02x %s", types,
+             rr == ESP_OK ? "ok" : esp_err_to_name(rr), rh, rm, rmask,
+             (rr == ESP_OK && rh == h && rm == m && rmask == mask && (types & 0x02)) ? "MATCH" : "MISMATCH");
 }
 
 /* Seed the rollers + range from the stored fixed-time rule (or 12:00,
@@ -1111,12 +1122,12 @@ void create_screen_settings_alarm_time() {
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {
-        pos += snprintf(hours + pos, sizeof(hours) - pos, "%d\n", h);
+        pos += snprintf(hours + pos, sizeof(hours) - pos, "%02d\n", h);
     }
     char minutes[200];
     pos = 0;
     for (int m = 0; m < 60; m += 5) {
-        pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%d\n", m);
+        pos += snprintf(minutes + pos, sizeof(minutes) - pos, "%02d\n", m);
     }
     /* Same glyph-centre offsets as the pomodoro display (hour slot at
      * 153, minute slot at 303, the `:` at 223 = the home clock's own
