@@ -903,17 +903,17 @@ What this project uses, and what the chip/board would not do:
 
 **Hard limits the design works around**
 
-| Limit                                              | Consequence in this project                                                                                                                                                                                                                        |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix) |
-| 1392 K app partition                               | the flash budget is a standing constraint (current: 3,456 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                    |
-| LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                      |
-| 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                   |
-| Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                    |
-| No GPU / no hardware 2-D                           | the spin is a CPU fixed-point gather (~40 ms), the reveal snapshot is the SW renderer — both fit, neither is fast; the display, not the CPU, is the bottleneck (~175 ms/frame)                                                                     |
-| FreeRTOS 100 Hz                                    | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                 |
-| RTC INT not wired to a GPIO                        | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                    |
-| AMOLED burn-in                                     | the design-level constraint of §8                                                                                                                                                                                                                  |
+| Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                                       |
+| 1392 K app partition                               | the flash budget is a standing constraint (current: 3,456 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                                                                                                          |
+| LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                            |
+| 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                         |
+| Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                          |
+| No GPU / no hardware 2-D                           | the spin is a CPU fixed-point gather (~40 ms), the reveal snapshot is the SW renderer — both fit, neither is fast; the display, not the CPU, is the bottleneck (~175 ms/frame); LVGL's glTF 3D extension is unusable on this chip (and on the P4) for the same reason — investigated 2026-10-30, see `docs/research/gltf-feasibility.md` |
+| FreeRTOS 100 Hz                                    | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                                                                                                       |
+| RTC INT not wired to a GPIO                        | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                                                                                                          |
+| AMOLED burn-in                                     | the design-level constraint of §8                                                                                                                                                                                                                                                                                                        |
 
 **Not used (and why):** the ES8311 audio (no product need), PPA acceleration
 (off — the reveal/snapshot paths don't need it), LVGL themes other than the
@@ -1031,7 +1031,7 @@ generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200; main
 
 `docs/` holds this document, its generator, the media, and the research notes:
 
-- `docs/doc_template.md` (66,589 B)
+- `docs/doc_template.md` (67,538 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (6,336 B)
 - `docs/img/boot_sweep.mp4` (1,884,289 B)
@@ -1058,6 +1058,7 @@ generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200; main
 - `docs/img/screens/settings_pomodoro.png` (14,643 B)
 - `docs/img/screens/settings_wifi.png` (14,332 B)
 - `docs/img/screens/wifi.png` (154,686 B)
+- `docs/research/gltf-feasibility.md` (4,852 B)
 - `docs/research/moon-rendering.md` (14,427 B)
 
 The standing rule (full text embedded below) is what keeps this document from
@@ -19924,15 +19925,6 @@ static void reveal_transpose(uint16_t *p, int n) {
         }
 }
 
-/* Rotate the snapshot buffer in place so it matches the panel's current
- * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
- * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
- * transform -- proven by the host probe uisim --rottest), while the
- * panel holds the content rotated by the root's transform_rotation
- * (the orientation pipeline's 90-degree steps); the strip write must
- * match the panel. q = 0 is a no-op; the caller verifies the value is a
- * multiple of 90 degrees before calling (it always is: the pipeline
- * pushes only 90-degree steps). */
 /* Reverse each row of an n x n row-major buffer in place. */
 static void reveal_reverse_rows(uint16_t *p, int n) {
     for (int y = 0; y < n; y++) {
@@ -19945,6 +19937,19 @@ static void reveal_reverse_rows(uint16_t *p, int n) {
     }
 }
 
+/* Rotate the snapshot buffer in place so it matches the panel's current
+ * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
+ * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
+ * transform -- proven by the host probe uisim --rottest), while the
+ * panel holds the content rotated by the root's transform_rotation
+ * (the orientation pipeline's 90-degree steps); the strip write must
+ * match the panel. q = 0 is a no-op; the caller verifies the value is a
+ * multiple of 90 degrees before calling (it always is: the pipeline
+ * pushes only 90-degree steps). A 90-degree CW rotation moves the top
+ * row to the RIGHT column: transpose + reverse each row (case 1 is the
+ * 2026-10-30 direction fix -- it was reverse + transpose = 90 CCW, which
+ * wrote the previous screen as a mis-oriented ghost, the alarm-screen
+ * "draw artifacts"). */
 static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
     switch (q) {
     case 1: /* 90 CW: transpose, then reverse each row */
