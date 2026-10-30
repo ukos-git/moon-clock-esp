@@ -58,18 +58,22 @@ static void reveal_transpose(uint16_t *p, int n) {
         }
 }
 
+static void reveal_reverse_rows(uint16_t *p, int n) {
+    for (int y = 0; y < n; y++) {
+        uint16_t *row = p + (size_t)y * n;
+        for (int a = 0, b = n - 1; a < b; a++, b--) {
+            const uint16_t t = row[a];
+            row[a] = row[b];
+            row[b] = t;
+        }
+    }
+}
+
 static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
     switch (q) {
-    case 1:
-        for (int y = 0; y < n; y++) {
-            uint16_t *row = p + (size_t)y * n;
-            for (int a = 0, b = n - 1; a < b; a++, b--) {
-                const uint16_t t = row[a];
-                row[a] = row[b];
-                row[b] = t;
-            }
-        }
+    case 1: /* 90 CW: transpose, then reverse each row */
         reveal_transpose(p, n);
+        reveal_reverse_rows(p, n);
         break;
     case 2:
         for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
@@ -78,16 +82,9 @@ static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
             p[b] = t;
         }
         break;
-    case 3:
+    case 3: /* 270 CW: reverse each row, then transpose */
+        reveal_reverse_rows(p, n);
         reveal_transpose(p, n);
-        for (int y = 0; y < n; y++) {
-            uint16_t *row = p + (size_t)y * n;
-            for (int a = 0, b = n - 1; a < b; a++, b--) {
-                const uint16_t t = row[a];
-                row[a] = row[b];
-                row[b] = t;
-            }
-        }
         break;
     default:
         break;
@@ -205,17 +202,23 @@ int main(int argc, char **argv) {
     }
 
     /* --reveal: prove the device's reveal strip write matches the
-     * trailing lv_refr_now flush. The hub screen (moon-less) gets the
-     * root rotation the device's orientation pipeline applies; the
+     * trailing lv_refr_now flush. The given screen (default hub) gets
+     * the root rotation the device's orientation pipeline applies; the
      * snapshot (screen-local, unrotated -- lv_snapshot ignores the
      * transform) is rotated in place exactly as concentric_reveal
      * does, then compared pixel-by-pixel with the front buffer of the
      * real rotated flush. Both are LVGL-native RGB565 (the panel
      * byte-swap is self-inverse and cancels). Usage: --reveal <q>
-     * with q = 0..3 clockwise 90-degree steps (1 = the base +90). */
+     * [screen] with q = 0..3 clockwise 90-degree steps (1 = the base
+     * +90). */
     if (argc > 1 && !strcmp(argv[1], "--reveal")) {
         const int q = (argc > 2) ? atoi(argv[2]) : 1;
-        const enum ScreensEnum id = SCREEN_ID_SETTINGS_HUB;
+        enum ScreensEnum id = SCREEN_ID_SETTINGS_HUB;
+        if (argc > 3) {
+            for (size_t j = 0; j < sizeof s_entries / sizeof s_entries[0]; j++)
+                if (!strcmp(s_entries[j].name, argv[3]))
+                    id = s_entries[j].id;
+        }
         loadScreen(id);
         ui_tick();
         pump(disp, 100);
@@ -236,6 +239,11 @@ int main(int argc, char **argv) {
         }
         /* The real flush renders the rotated screen into s_fb. */
         lv_refr_now(disp);
+        /* Dump the RAW snapshot (before the in-place rotation) so the
+         * transform behaviour of lv_snapshot_take is visible directly. */
+        char rp[64];
+        snprintf(rp, sizeof rp, "out/snap_raw_q%d.png", q);
+        (void)write_png(rp, buf);
         /* The reveal's in-place rotation (the byte-swap is self-inverse
          * and applies to both sides, so compare pre-swap). */
         reveal_rotate_cw90((uint16_t *)buf->data, W, q);
@@ -279,7 +287,10 @@ int main(int argc, char **argv) {
             diffm[i * 3] = diffm[i * 3 + 1] = diffm[i * 3 + 2] = (d != 0) ? 0xFF : 0;
             diffm[i * 3 + 0] += 0; /* keep it pure: white = differs */
         }
-        (void)stbi_write_png("out/flush_qN.png", W, H, 3, rgb2, W * 3);
+        char fp[64];
+        snprintf(fp, sizeof fp, "out/flush_q%d.png", q);
+        (void)stbi_write_png(fp, W, H, 3, rgb2, W * 3);
+        printf("wrote %s\n", fp);
         (void)stbi_write_png("out/reveal_diff.png", W, H, 3, diffm, W * 3);
         int rc = write_png("out/reveal_rotated.png", buf);
         lv_draw_buf_destroy(buf);

@@ -181,11 +181,28 @@ static int32_t s_pending_count; /* consecutive samples producing it */
  * the home pose to the pose currently held. s_press_start_us is stamped
  * on PRESSED; RELEASED sets s_ori_resync_req if the press lasted long
  * enough. Both callbacks and the pipeline run on the LVGL task (the
- * indev events land in lv_timer_handler), so no atomics are needed. */
+ * indev events land in lv_timer_handler), so no atomics are needed.
+ *
+ * The request is only ACTIONED while the pose is stable (s_stable_count,
+ * below) and, once an anchor exists, on the anchor's home axis -- see
+ * the resync block in screen_orientation_apply. A palm on the screen
+ * while the device is being flipped releases into a pose that is not
+ * stable yet (and a 90-degree pose is off-axis), so it is dropped: the
+ * un-gated version adopted the mid-flip pose as home and broke the
+ * flips (the 2026-10-30 "flipping does not reliably work" report). */
 #define ORI_RESYNC_PRESS_MS 2000
 static int64_t s_press_start_us;
 static bool s_in_press;
 static bool s_ori_resync_req;
+/* Pose stability: the 1 s filtered gravity must not move more than one
+ * int4 level (1/8 g) for ORI_STABLE_SAMPLES (~1.5 s) before the pose may
+ * anchor (the boot seed) or be re-anchored (the 2 s press). At rest the
+ * filtered mean wanders far less than one level per 100 ms sample (the
+ * at-rest drift is ~0.5 deg/s = ~0.005 level/s), so the count
+ * accumulates; any deliberate move resets it. */
+#define ORI_STABLE_SAMPLES 15
+static int8_t s_stable_x, s_stable_y;
+static int s_stable_count;
 
 /* Clamp an int to +-limit (the int4 quantizer). */
 static int8_t ori_clamp(int v, int limit) {
@@ -385,6 +402,30 @@ static void screen_orientation_apply(void) {
     int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
     int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
 
+    /* Pose stability (see s_stable_count): the 1 s filtered mean must
+     * hold within one int4 level of the previous filter output for
+     * ORI_STABLE_SAMPLES consecutive samples (~1.5 s) before the pose
+     * may anchor or be re-anchored. At rest the filtered mean wanders
+     * far less than one level per sample, so the count accumulates;
+     * any deliberate move (or a palm pressing on the screen while the
+     * device is being flipped) resets it. */
+    if (s_stable_count > 0) {
+        int dx = fx - s_stable_x, dy = fy - s_stable_y;
+        if (dx < 0)
+            dx = -dx;
+        if (dy < 0)
+            dy = -dy;
+        if (dx <= 1 && dy <= 1)
+            s_stable_count++;
+        else
+            s_stable_count = 0;
+    } else {
+        s_stable_count = 1;
+    }
+    s_stable_x = fx;
+    s_stable_y = fy;
+    bool stable = s_stable_count >= ORI_STABLE_SAMPLES;
+
     /* A 2 s press re-syncs the home pose (the request is set by the
      * indev callback, action_register_orientation_touch). The anchor
      * latches from the first 1 s of samples after boot; if the device
@@ -402,6 +443,29 @@ static void screen_orientation_apply(void) {
             return;
         }
 #endif
+        if (!stable) {
+            ESP_LOGW(TAG, "orientation resync dropped (pose not stable; the press ends while moving)");
+            return;
+        }
+        if (s_have_ref) {
+            /* The press is a home-pose declaration: it must sit on the
+             * current anchor's home axis -- within ~35 degrees of
+             * upright or upside-down (|dot|^2 >= 3 |cross|^2, integer
+             * math, same quadrant test as the step decision below). A
+             * palm released while the device lies on its side, or mid
+             * flip, is off-axis and must NOT re-anchor home to that
+             * pose: the un-gated version did exactly that and broke
+             * the flips (the 2026-10-30 reliability report). */
+            int32_t d = fx * s_ref_qx + fy * s_ref_qy;
+            int32_t c = fx * s_ref_qy - fy * s_ref_qx;
+            int32_t d2 = d < 0 ? -d : d;
+            int32_t c2 = c < 0 ? -c : c;
+            if (d2 * d2 < 3 * c2 * c2) {
+                ESP_LOGW(TAG, "orientation resync dropped (pose off the home axis, f=(%d,%d) ref=(%d,%d))", fx, fy,
+                         s_ref_qx, s_ref_qy);
+                return;
+            }
+        }
         ESP_LOGI(TAG, "orientation resync: 2 s press re-anchors the home pose (ref (%d,%d) -> (%d,%d))", s_ref_qx,
                  s_ref_qy, fx, fy);
         s_ref_qx = fx;
@@ -428,8 +492,14 @@ static void screen_orientation_apply(void) {
      * woken -> the home pose was off by a 90-degree step "from time to
      * time"). The mean needs the full 1 s window, so the first ~1 s
      * after the pipeline enables is seed-building (orientation stays
-     * at the base, unchanged) and the anchor is the settled pose. */
+     * at the base, unchanged) and the anchor is the settled pose. The
+     * stability gate (stable, above) on top of the 1 s window means the
+     * device must sit still for ~1.5 s before the anchor takes -- a
+     * boot while the device is still being placed cannot latch a
+     * transient pose as home. */
     if (!s_have_ref) {
+        if (!stable)
+            return; /* seed-building: wait for the settled pose */
         s_ref_qx = fx;
         s_ref_qy = fy;
         s_have_ref = true;

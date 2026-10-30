@@ -2323,6 +2323,18 @@ static void reveal_transpose(uint16_t *p, int n) {
         }
 }
 
+/* Reverse each row of an n x n row-major buffer in place. */
+static void reveal_reverse_rows(uint16_t *p, int n) {
+    for (int y = 0; y < n; y++) {
+        uint16_t *row = p + (size_t)y * n;
+        for (int a = 0, b = n - 1; a < b; a++, b--) {
+            const uint16_t t = row[a];
+            row[a] = row[b];
+            row[b] = t;
+        }
+    }
+}
+
 /* Rotate the snapshot buffer in place so it matches the panel's current
  * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
  * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
@@ -2331,19 +2343,16 @@ static void reveal_transpose(uint16_t *p, int n) {
  * (the orientation pipeline's 90-degree steps); the strip write must
  * match the panel. q = 0 is a no-op; the caller verifies the value is a
  * multiple of 90 degrees before calling (it always is: the pipeline
- * pushes only 90-degree steps). */
+ * pushes only 90-degree steps). A 90-degree CW rotation moves the top
+ * row to the RIGHT column: transpose + reverse each row (case 1 is the
+ * 2026-10-30 direction fix -- it was reverse + transpose = 90 CCW, which
+ * wrote the previous screen as a mis-oriented ghost, the alarm-screen
+ * "draw artifacts"). */
 static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
     switch (q) {
-    case 1: /* 90 CW: reverse each row, then transpose */
-        for (int y = 0; y < n; y++) {
-            uint16_t *row = p + (size_t)y * n;
-            for (int a = 0, b = n - 1; a < b; a++, b--) {
-                const uint16_t t = row[a];
-                row[a] = row[b];
-                row[b] = t;
-            }
-        }
+    case 1: /* 90 CW: transpose, then reverse each row */
         reveal_transpose(p, n);
+        reveal_reverse_rows(p, n);
         break;
     case 2: /* 180: reverse the whole row-major array */
         for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
@@ -2352,16 +2361,9 @@ static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
             p[b] = t;
         }
         break;
-    case 3: /* 270 CW: transpose, then reverse each row */
+    case 3: /* 270 CW: reverse each row, then transpose */
+        reveal_reverse_rows(p, n);
         reveal_transpose(p, n);
-        for (int y = 0; y < n; y++) {
-            uint16_t *row = p + (size_t)y * n;
-            for (int a = 0, b = n - 1; a < b; a++, b--) {
-                const uint16_t t = row[a];
-                row[a] = row[b];
-                row[b] = t;
-            }
-        }
         break;
     default:
         break;
