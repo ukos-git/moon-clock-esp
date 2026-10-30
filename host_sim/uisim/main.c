@@ -47,6 +47,53 @@ static void pump(lv_display_t *disp, uint32_t ms) {
     lv_refr_now(disp);
 }
 
+/* The device's concentric-reveal rotation (moon_ui.c, copied verbatim
+ * so the probe exercises the exact transform). */
+static void reveal_transpose(uint16_t *p, int n) {
+    for (int i = 1; i < n; i++)
+        for (int j = 0; j < i; j++) {
+            const uint16_t t = p[(size_t)i * n + j];
+            p[(size_t)i * n + j] = p[(size_t)j * n + i];
+            p[(size_t)j * n + i] = t;
+        }
+}
+
+static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
+    switch (q) {
+    case 1:
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        reveal_transpose(p, n);
+        break;
+    case 2:
+        for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
+            const uint16_t t = p[a];
+            p[a] = p[b];
+            p[b] = t;
+        }
+        break;
+    case 3:
+        reveal_transpose(p, n);
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 static int write_png(const char *path, const lv_draw_buf_t *buf) {
     uint8_t *rgb565 = buf->data;
     uint32_t w = buf->header.w, h = buf->header.h, stride = buf->header.stride;
@@ -130,6 +177,114 @@ int main(int argc, char **argv) {
 
     create_screens(); /* real device code: theme + all 12 screens */
     pump(disp, 200);
+
+    /* --rottest: prove whether lv_snapshot_take honors the root's LVGL
+     * transform (the concentric reveal assumes the +90 deg base rotation
+     * lands in the snapshot buffer). The alarm screen is asymmetric:
+     * header icon top-centre, read-back text near the bottom. A +90 deg
+     * CW rotation about the centre must move the header to the RIGHT
+     * edge and the text to the LEFT edge in the snapshot. */
+    if (argc > 1 && !strcmp(argv[1], "--rottest")) {
+        const enum ScreensEnum id = SCREEN_ID_SETTINGS_ALARM;
+        loadScreen(id);
+        ui_tick();
+        pump(disp, 100);
+        lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+        lv_obj_set_style_transform_pivot_x(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_rotation(root, 900, 0);
+        pump(disp, 100);
+        lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        if (!buf) {
+            fprintf(stderr, "rottest: snapshot failed\n");
+            return 1;
+        }
+        int rc = write_png("out/rottest_90.png", buf);
+        lv_draw_buf_destroy(buf);
+        return rc;
+    }
+
+    /* --reveal: prove the device's reveal strip write matches the
+     * trailing lv_refr_now flush. The hub screen (moon-less) gets the
+     * root rotation the device's orientation pipeline applies; the
+     * snapshot (screen-local, unrotated -- lv_snapshot ignores the
+     * transform) is rotated in place exactly as concentric_reveal
+     * does, then compared pixel-by-pixel with the front buffer of the
+     * real rotated flush. Both are LVGL-native RGB565 (the panel
+     * byte-swap is self-inverse and cancels). Usage: --reveal <q>
+     * with q = 0..3 clockwise 90-degree steps (1 = the base +90). */
+    if (argc > 1 && !strcmp(argv[1], "--reveal")) {
+        const int q = (argc > 2) ? atoi(argv[2]) : 1;
+        const enum ScreensEnum id = SCREEN_ID_SETTINGS_HUB;
+        loadScreen(id);
+        ui_tick();
+        pump(disp, 100);
+        lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+        lv_obj_set_style_transform_pivot_x(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_rotation(root, 900 * q, 0);
+        pump(disp, 100);
+        lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        if (!buf) {
+            fprintf(stderr, "reveal: snapshot failed\n");
+            return 1;
+        }
+        if (buf->header.w != W || buf->header.h != H || buf->header.stride != W * 2) {
+            fprintf(stderr, "reveal: snapshot %ux%u stride %u unexpected\n", buf->header.w, buf->header.h,
+                    buf->header.stride);
+            return 1;
+        }
+        /* The real flush renders the rotated screen into s_fb. */
+        lv_refr_now(disp);
+        /* The reveal's in-place rotation (the byte-swap is self-inverse
+         * and applies to both sides, so compare pre-swap). */
+        reveal_rotate_cw90((uint16_t *)buf->data, W, q);
+        uint32_t bad = 0, tot = 0;
+        int32_t maxd = 0;
+        for (int i = 0; i < W * H; i++) {
+            int32_t d = (int32_t)buf->data[2 * i] - (int32_t)s_fb[2 * i];
+            int32_t d2 = (int32_t)buf->data[2 * i + 1] - (int32_t)s_fb[2 * i + 1];
+            int32_t a = d < 0 ? -d : d;
+            int32_t b = d2 < 0 ? -d2 : d2;
+            tot += (a > b ? a : b);
+            if (b > a)
+                a = b;
+            if (a > maxd)
+                maxd = a;
+            if (d != 0 || d2 != 0)
+                bad++;
+        }
+        printf("reveal q=%d: %u/%d px differ, max byte diff %d, mean %u\n", q, bad, W * H, maxd, tot / (W * H));
+        /* Save the flush front buffer and a diff map (white = differs,
+         * grey = the rotated snapshot) for localization. */
+        static uint8_t *rgb2, *diffm;
+        if (!rgb2) {
+            rgb2 = malloc((size_t)W * H * 3);
+            diffm = malloc((size_t)W * H * 3);
+        }
+        for (int i = 0; i < W * H; i++) {
+            uint16_t p = ((const uint16_t *)s_fb)[i];
+            rgb2[i * 3] = (uint8_t)((p >> 11) * 255 / 31);
+            rgb2[i * 3 + 1] = (uint8_t)((p >> 5 & 0x3F) * 255 / 63);
+            rgb2[i * 3 + 2] = (uint8_t)((p & 0x1F) * 255 / 31);
+            uint16_t s = ((const uint16_t *)buf->data)[i];
+            int d = 0;
+            for (int k = 0; k < 2; k++) {
+                int a = (int)buf->data[2 * i + k] - (int)s_fb[2 * i + k];
+                if (a < 0)
+                    a = -a;
+                if (a > d)
+                    d = a;
+            }
+            diffm[i * 3] = diffm[i * 3 + 1] = diffm[i * 3 + 2] = (d != 0) ? 0xFF : 0;
+            diffm[i * 3 + 0] += 0; /* keep it pure: white = differs */
+        }
+        (void)stbi_write_png("out/flush_qN.png", W, H, 3, rgb2, W * 3);
+        (void)stbi_write_png("out/reveal_diff.png", W, H, 3, diffm, W * 3);
+        int rc = write_png("out/reveal_rotated.png", buf);
+        lv_draw_buf_destroy(buf);
+        return rc;
+    }
 
     int fail = 0;
     if (argc > 1) {

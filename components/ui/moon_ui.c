@@ -2313,21 +2313,82 @@ static int reveal_strip_center(int i, int h) {
     return (y0 + y1 - 1) / 2;
 }
 
+/* In-place transpose of an n x n matrix (row-major). */
+static void reveal_transpose(uint16_t *p, int n) {
+    for (int i = 1; i < n; i++)
+        for (int j = 0; j < i; j++) {
+            const uint16_t t = p[(size_t)i * n + j];
+            p[(size_t)i * n + j] = p[(size_t)j * n + i];
+            p[(size_t)j * n + i] = t;
+        }
+}
+
+/* Rotate the snapshot buffer in place so it matches the panel's current
+ * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
+ * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
+ * transform -- proven by the host probe uisim --rottest), while the
+ * panel holds the content rotated by the root's transform_rotation
+ * (the orientation pipeline's 90-degree steps); the strip write must
+ * match the panel. q = 0 is a no-op; the caller verifies the value is a
+ * multiple of 90 degrees before calling (it always is: the pipeline
+ * pushes only 90-degree steps). */
+static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
+    switch (q) {
+    case 1: /* 90 CW: reverse each row, then transpose */
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        reveal_transpose(p, n);
+        break;
+    case 2: /* 180: reverse the whole row-major array */
+        for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
+            const uint16_t t = p[a];
+            p[a] = p[b];
+            p[b] = t;
+        }
+        break;
+    case 3: /* 270 CW: transpose, then reverse each row */
+        reveal_transpose(p, n);
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 /* Render the active (moon-less) screen into a full-screen RGB565
  * snapshot and write the panel in the same 25-row windows ordered
  * from the vertical center out, so the new screen blooms in
  * concentrically instead of being drained top to bottom. The pixel
  * result is exactly what the whole-panel flush would show: the
- * snapshot uses the normal draw path (including the 90-degree
- * base-orientation transform on the screen root, which is an LVGL
- * transform -- the panel is always driven in display coordinates) and
- * the direct write goes through the same windowed CO5300 driver
- * (including its 0x06 x_gap). The caller still runs the atomic
- * lv_refr_now afterwards -- it displays identical pixels and drains
- * LVGL's pending invalidation (the FADE_IN bug class must not come
- * back). Must be on the LVGL task (the snapshot draw path is the
- * refresh draw path, which fits the 8 KB LVGL stack). On any failure
- * returns false: the caller falls back to the plain atomic flush. */
+ * snapshot uses the normal draw path and the direct write goes
+ * through the same windowed CO5300 driver (including its 0x06 x_gap).
+ * One catch: lv_snapshot_take renders in the screen's LOCAL
+ * coordinates -- it ignores the root's LVGL rotation transform
+ * (proven by the host probe uisim --rottest), while the panel holds
+ * the content rotated by the orientation pipeline's 90-degree steps
+ * (the base +90 deg mount offset included). The snapshot buffer is
+ * therefore rotated in place by the root's current transform
+ * rotation (a multiple of 90 deg) before the strip write; anything
+ * else falls back to the plain atomic flush. The caller still runs
+ * the atomic lv_refr_now afterwards -- it displays identical pixels
+ * and drains LVGL's pending invalidation (the FADE_IN bug class must
+ * not come back). Must be on the LVGL task (the snapshot draw path
+ * is the refresh draw path, which fits the 8 KB LVGL stack). On any
+ * failure returns false: the caller falls back to the plain atomic
+ * flush. */
 static bool concentric_reveal(void) {
     lv_obj_t *screen = lv_screen_active();
     lv_draw_buf_t *shot = screen ? lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565) : NULL;
@@ -2358,6 +2419,22 @@ static bool concentric_reveal(void) {
         p[2 * i] = hi;
         p[2 * i + 1] = lo;
     }
+    /* The snapshot is screen-local (the root's rotation transform is
+     * NOT applied by lv_snapshot_take), but the panel holds the
+     * content rotated by the root's transform_rotation (the
+     * orientation pipeline's 90-degree steps, the base +90 deg mount
+     * offset included). Rotate the buffer to that step so the strip
+     * write shows the same pixels the trailing lv_refr_now will. */
+    const int32_t rot10 = lv_obj_get_style_transform_rotation(screen, LV_PART_MAIN);
+    const int32_t r10 = ((rot10 % 3600) + 3600) % 3600;
+    if (r10 % 900 != 0) {
+        /* A non-90-degree-multiple transform (the pipeline only ever
+         * pushes 90-degree steps): cannot match the panel -- fall
+         * back to the plain atomic flush. */
+        lv_draw_buf_destroy(shot);
+        return false;
+    }
+    reveal_rotate_cw90((uint16_t *)p, (int)w, (int)(r10 / 900));
     /* 19 strips (18 x 25 rows + a 16-row tail) ordered by the
      * distance of the strip center from the vertical center: the
      * middle lights up first and the screen blooms out. */

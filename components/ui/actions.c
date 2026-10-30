@@ -176,6 +176,16 @@ static int64_t s_ori_last_ms;
  * confirmation costs at most ~1 s of latency on a real tilt. */
 static int32_t s_pending_step;  /* the step the last sample produced */
 static int32_t s_pending_count; /* consecutive samples producing it */
+/* The 2 s press re-sync (action_register_orientation_touch): a press of
+ * >= ORI_RESYNC_PRESS_MS on the display asks the pipeline to re-anchor
+ * the home pose to the pose currently held. s_press_start_us is stamped
+ * on PRESSED; RELEASED sets s_ori_resync_req if the press lasted long
+ * enough. Both callbacks and the pipeline run on the LVGL task (the
+ * indev events land in lv_timer_handler), so no atomics are needed. */
+#define ORI_RESYNC_PRESS_MS 2000
+static int64_t s_press_start_us;
+static bool s_in_press;
+static bool s_ori_resync_req;
 
 /* Clamp an int to +-limit (the int4 quantizer). */
 static int8_t ori_clamp(int v, int limit) {
@@ -271,6 +281,43 @@ void action_orientation_init(void) {
     ori_apply_v10(v10);
 }
 
+/* Indev callback for the 2 s press re-sync: fires on every press
+ * regardless of the hit-tested object (like the alarm dismiss callback
+ * below it). The LVGL event queue drains it on the LVGL task inside
+ * lv_timer_handler, so the shared state above is single-task. */
+static void orientation_resync_indev_cb(lv_event_t *e) {
+    lv_indev_state_t st = lv_indev_get_state(lv_event_get_target(e));
+    if (st == LV_INDEV_STATE_PRESSED) {
+        s_press_start_us = esp_timer_get_time();
+        s_in_press = true;
+    } else if (st == LV_INDEV_STATE_RELEASED && s_in_press) {
+        s_in_press = false;
+        if (esp_timer_get_time() - s_press_start_us >= (int64_t)ORI_RESYNC_PRESS_MS * 1000) {
+            s_ori_resync_req = true;
+            ESP_LOGI(TAG, "orientation resync requested (2 s press)");
+        }
+    }
+}
+
+/* Register the 2 s press re-sync on the (one) input device. The
+ * pipeline's home-pose anchor latches from the first 1 s of IMU
+ * samples after boot; if the device was flipped while that window
+ * filled, the UI is upside down and no tilt recovers it (the T4 rule
+ * re-tracks only on step 0). A deliberate 2 s press re-anchors the
+ * home pose to the pose held while pressing, and the pipeline pushes
+ * the base orientation on its next sample (~100 ms). */
+esp_err_t action_register_orientation_touch(void) {
+    lv_indev_t *indev = lv_indev_get_next(NULL);
+    if (!indev) {
+        ESP_LOGE(TAG, "no input device; orientation resync unavailable");
+        return ESP_FAIL;
+    }
+    lv_indev_add_event_cb(indev, orientation_resync_indev_cb, LV_EVENT_PRESSED, NULL);
+    lv_indev_add_event_cb(indev, orientation_resync_indev_cb, LV_EVENT_RELEASED, NULL);
+    ESP_LOGI(TAG, "Orientation resync (2 s press) registered");
+    return ESP_OK;
+}
+
 /* Called from the UI tick (LVGL task): pick the whole-screen orientation
  * (a 90-degree step) from the screen-plane gravity and push it to every
  * screen root. No-op while the pose is unobservable (near-vertical or
@@ -337,6 +384,42 @@ static void screen_orientation_apply(void) {
     /* The 1 Hz running mean (rounded, int4 scale). */
     int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
     int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
+
+    /* A 2 s press re-syncs the home pose (the request is set by the
+     * indev callback, action_register_orientation_touch). The anchor
+     * latches from the first 1 s of samples after boot; if the device
+     * was flipped while that window filled, the anchor is 180 deg off
+     * and the UI stays upside down forever (the T4 rule re-tracks only
+     * on step 0, so no tilt can self-heal it -- the user just sees a
+     * flipped display). The press is the user's "this pose is the home
+     * pose": re-anchor the reference to the current filtered gravity
+     * and push the base orientation immediately. */
+    if (s_ori_resync_req) {
+        s_ori_resync_req = false;
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+        if (s_ori_test_on) {
+            ESP_LOGW(TAG, "orientation resync ignored (test script active)");
+            return;
+        }
+#endif
+        ESP_LOGI(TAG, "orientation resync: 2 s press re-anchors the home pose (ref (%d,%d) -> (%d,%d))", s_ref_qx,
+                 s_ref_qy, fx, fy);
+        s_ref_qx = fx;
+        s_ref_qy = fy;
+        s_have_ref = true;
+        int32_t v10 = ORI_BASE_V10;
+        if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
+            v10 = -v10;
+        s_pending_step = 0;
+        s_pending_count = 0;
+        if (v10 != s_last_v10) {
+            int32_t old = s_last_v10;
+            s_last_v10 = v10;
+            ori_apply_v10(v10);
+            ESP_LOGI(TAG, "screen orientation %+d -> %+d deg (resync)", old / 10, v10 / 10);
+        }
+        return;
+    }
 
     /* Seed the settled-pose reference from the 1 s FILTERED mean, not
      * a single raw sample: the old first-sample seed anchored the home

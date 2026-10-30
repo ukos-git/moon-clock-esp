@@ -120,9 +120,15 @@ def main():
 
     # 4. concentric reveal: airplane (from) -> settings hub (to), the same
     #    25-row strips in the same center-out order the device writes.
+    #    The device's orientation pipeline rotates every screen +90 deg CW
+    #    (the base mount offset), so both frames are rotated the same way
+    #    first; the strip composite then runs in panel coordinates,
+    #    exactly as concentric_reveal() does.
     print("== concentric reveal ==")
     frm = Image.open(UISIM / "modem_sleep.png").convert("RGB")
     to = Image.open(UISIM / "settings_hub.png").convert("RGB")
+    frm = frm.rotate(-90, expand=False)
+    to = to.rotate(-90, expand=False)
     W, H = to.size
     strips = []
     i = 0

@@ -343,6 +343,12 @@ extern "C" void app_main(void) {
     // change, so the rotation must be in place before the first frame.
     action_orientation_init();
 
+    // 2 s press re-anchors the orientation's home pose: the one-shot 1 s
+    // seed can latch 180 deg off if the device was flipped while the
+    // first window filled, and no tilt recovers that (the pipeline
+    // re-tracks only on step 0).
+    action_register_orientation_touch();
+
     // Register clock component callbacks for UI updates
     // Cast action functions to callback type (they accept NULL as lv_event_t*)
     clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);

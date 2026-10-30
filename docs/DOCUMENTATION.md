@@ -11,10 +11,12 @@ the fully unilluminated side. Time comes from NTP (brief on-demand WiFi
 activation, then back to airplane mode); the PCF85063A RTC holds the clock
 between syncs.
 
-_State of this document: 2026-10-29, after commit `9dad4fe` (ui: concentric
-screen-switch reveal). See the standing rule in [CLAUDE.md](../CLAUDE.md) —
-this document is regenerated with `python3 docs/gen_doc.py` and must stay in
-sync with the code._
+_State of this document: 2026-10-30, after the reveal-rotation fix (the
+snapshot is screen-local and is rotated in place by the root's current
+orientation step before the panel write) and the 2 s press orientation re-sync
+(a latched 180° home pose is resettable by the user). See the standing rule in
+[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+`python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
 
@@ -185,7 +187,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                |
 | -------------- | ------ | ------------------------ | -------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                  |
-| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15abf0` (1,424,432 B), 5,136 B free |
+| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15b0c0` (1,421,504 B), 3,904 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)          |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                           |
 
@@ -628,7 +630,9 @@ on-device the final frame is a pixel-exact bake at φ\* = +134.78° for the
 
 **Concentric screen-switch reveal** — airplane → settings hub: the same 25- row
 QSPI strips the adapter writes, ordered from the vertical center outward
-(`UI_SCREEN_SWITCH_REVEAL`, `9dad4fe`):
+(`UI_SCREEN_SWITCH_REVEAL`, `9dad4fe`). Both frames are rotated +90° CW first —
+the device's orientation pipeline applies the base orientation to every screen
+root, and the reveal writes the rotated pixels to the panel:
 
 <video src="img/reveal.mp4" controls width="466"></video>
 
@@ -670,25 +674,54 @@ upgrade from the UI tick.
   roots; the 180°-flip reference re-tracks only on `step == 0` (T4). A rotated
   root's ~0.4 MB layer is allocated via CLIB malloc (the 64 KB LVGL pool OOM
   was the original "off-screen + crash").
+- **2 s press re-sync** (2026-10-30): the home-pose anchor latches from the
+  first 1 s of IMU samples after boot; if the device was flipped while that
+  window filled, the anchor is 180° off and the UI stays upside down — and the
+  T4 rule (re-track only on step 0) means no tilt recovers it. A deliberate
+  press of 2 s or more (`action_register_orientation_touch`, the indev
+  PRESSED/RELEASED pair) re-anchors the reference to the pose held while
+  pressing and restores the base orientation on the next sample (~100 ms). The
+  press is the user's "this pose is the home pose".
 
-### 10.4 The concentric screen-switch reveal (`9dad4fe`)
+### 10.4 The concentric screen-switch reveal (`9dad4fe`, rotation fix
+
+2026-10-30)
 
 `CONFIG_UI_SCREEN_SWITCH_REVEAL` (default y, selects `LV_USE_SNAPSHOT`): on a
 switch **to a moon-less screen** (the settings direction), the new screen is
-rendered once into a full-screen RGB565 snapshot (`lv_snapshot_take` — the
-normal draw path, so the 90° base transform is included and the buffer is
-directly panel-ready), byte-swapped to the panel's native RGB565 (the adapter
-bridge does this swap for its own flushes on the OTHER interface), and written
-to the panel in the same 25- row windows (the BSP `buffer_height` budget)
-**ordered by strip-center distance from the vertical middle** — 19 strips,
-center out. The trailing atomic `lv_refr_now` then re-displays identical pixels
-and drains LVGL's pending invalidation (the FADE_IN bug class must not return).
-Any failure (NULL snapshot, odd dims/stride, NULL panel, write error) falls
-back to the plain atomic flush. Moon screens keep the atomic whole-panel flush
-alone. The adapter's TEAR_AVOID_NONE panel-IO completion callback (which fires
-on every direct QSPI transfer) only clears an already-cleared `flushing` flag —
-verified harmless. No speed change: the same bytes reach the panel, only the
-light-up order differs.
+rendered once into a full-screen RGB565 snapshot via `lv_snapshot_take`,
+byte-swapped to the panel's native RGB565 (the adapter bridge does this swap
+for its own flushes on the OTHER interface), **rotated in place by the root's
+current orientation step**, and written to the panel in the same 25- row
+windows (the BSP `buffer_height` budget) **ordered by strip-center distance
+from the vertical middle** — 19 strips, center out. The trailing atomic
+`lv_refr_now` then re-displays identical pixels and drains LVGL's pending
+invalidation (the FADE_IN bug class must not return). Any failure (NULL
+snapshot, odd dims/stride, NULL panel, non-90°-multiple transform, write error)
+falls back to the plain atomic flush. Moon screens keep the atomic whole-panel
+flush alone. The adapter's TEAR_AVOID_NONE panel-IO completion callback (which
+fires on every direct QSPI transfer) only clears an already-cleared `flushing`
+flag — verified harmless. No speed change: the same bytes reach the panel, only
+the light-up order differs.
+
+**The rotation (the 2026-10-30 fix).** The first version assumed
+`lv_snapshot_take` renders through the root's LVGL transform — it does **not**:
+it renders the screen in its _local_ coordinates (proven by the host probe
+`uisim --rottest`: with a +90° root rotation the snapshot's header icon stayed
+top-centre). The panel, meanwhile, holds the content rotated by the orientation
+pipeline's step (base +90° CW mount offset included). The reveal therefore
+wrote _unrotated_ content center-out — a 90°-off bloom that read as
+"intermediate lines". The fix: `reveal_rotate_cw90` rotates the 466×466 buffer
+in place (90° CW = reverse rows + transpose; 180° = reverse the array; 270° =
+transpose + reverse rows) by `lv_obj_get_style_transform_rotation(root) / 900`,
+taken modulo 3600. The device's own transform render (`lv_draw_sw_transform.c`)
+is nearest-neighbour but re-samples glyph anti-aliasing, so a byte-exact match
+against the real flush is not expected at glyph edges — the host probe
+`uisim --reveal q` measured it: 0/217156 px differ at q=0; at q=1..3 the
+residual is confined to glyph edges (max byte diff ≤ 231, every solid area
+exact) and the trailing `lv_refr_now` replaces those pixels with the exact
+transform render a moment later. So the bloom shows the right pixels in the
+right place from strip one.
 
 ### 10.5 Alarms, settings store, cron
 
@@ -731,7 +764,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (settings, reveal)              | snapshot render + 19 center-out strips + trailing identical atomic flush                                                                                                                        |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                  |
-| Binary                                        | `0x15abf0` = 1,424,432 B in the 1,425,408 B partition (**5,136 B free**)                                                                                                                        |
+| Binary                                        | `0x15b0c0` = 1,421,504 B in the 1,425,408 B partition (**3,904 B free**)                                                                                                                        |
 
 ---
 
@@ -789,7 +822,15 @@ the SVS 5415 400x400 lunar image series, gitignored):
   gray).
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466, ESP stubs) → per-screen PNG snapshots
-  (`build.sh run`) — the source of every screenshot in §7.
+  (`build.sh run`) — the source of every screenshot in §7. Two diagnostic
+  probes (2026-10-30): `--rottest` proves `lv_snapshot_take` renders in the
+  screen's **local** coordinates (the root's LVGL rotation is ignored — the
+  finding behind the reveal's rotation fix, §10.4); `--reveal <q>` runs the
+  device's exact reveal permutation (copied verbatim into `main.c`) and
+  compares it pixel-by-pixel against the real rotated `lv_refr_now` flush of
+  the same screen — q=0 gives 0/217156 differing pixels; q=1..3 differ only at
+  glyph anti-aliasing edges (LVGL's transform re-samples them; the trailing
+  flush corrects them).
 - `host_sim/render_demo.py` — the README montages (PIL + `moon_sim` only).
 - Venvs: `host_sim/.venv` (astropy, scikit-image, imagecodecs, numpy, PIL) and
   `assets/images/moon/.venv` — both gitignored; recreate with `uv venv` +
@@ -831,7 +872,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 1392 K app (5,136 B free — the app sits at 99.6 % of its partition; every feature costs bytes, the LVGL monitor removal bought the reveal's ~5 KiB) + 64 K SPIFFS + 2560 K assets       |
+| 16 MB flash                         | 1392 K app (3,904 B free — the app sits at 99.7 % of its partition; every feature costs bytes, the LVGL monitor removal bought the reveal's ~5 KiB) + 64 K SPIFFS + 2560 K assets       |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -841,7 +882,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                        |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix) |
-| 1392 K app partition                               | the flash budget is a standing constraint (current: 5,136 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                    |
+| 1392 K app partition                               | the flash budget is a standing constraint (current: 3,904 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                    |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                      |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                   |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                    |
@@ -966,21 +1007,21 @@ generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200; main
 
 `docs/` holds this document, its generator, the media, and the research notes:
 
-- `docs/doc_template.md` (51,049 B)
+- `docs/doc_template.md` (64,855 B)
 - `docs/gen_doc.py` (3,283 B)
-- `docs/gen_media.py` (5,995 B)
-- `docs/img/boot_sweep.mp4` (1,852,432 B)
+- `docs/gen_media.py` (6,336 B)
+- `docs/img/boot_sweep.mp4` (1,884,289 B)
 - `docs/img/boot_sweep.png` (326,556 B)
-- `docs/img/dusk.mp4` (699,032 B)
+- `docs/img/dusk.mp4` (681,862 B)
 - `docs/img/dusk.png` (246,903 B)
-- `docs/img/free_spin.mp4` (857,907 B)
+- `docs/img/free_spin.mp4` (830,201 B)
 - `docs/img/free_spin.png` (353,922 B)
 - `docs/img/nasa/nasa_00000.png` (155,164 B)
 - `docs/img/nasa/nasa_02190.png` (189,779 B)
 - `docs/img/nasa/nasa_04380.png` (214,721 B)
 - `docs/img/nasa/nasa_06570.png` (222,560 B)
 - `docs/img/nasa/nasa_08759.png` (234,030 B)
-- `docs/img/reveal.mp4` (58,715 B)
+- `docs/img/reveal.mp4` (58,406 B)
 - `docs/img/screens/alarm.png` (13,599 B)
 - `docs/img/screens/deep_sleep.png` (143,028 B)
 - `docs/img/screens/light_sleep.png` (150,746 B)
@@ -1103,6 +1144,74 @@ repos:
       - id: prettier
         types: [markdown]
 ```
+
+### `CLAUDE.md`
+
+````markdown
+# Moon Phase Clock — project instructions
+
+Physically correct moon-phase clock on the Waveshare ESP32-S3 Touch AMOLED 1.75
+(466x466 RGB565 CO5300 QSPI panel, CST9217 touch, QMI8658C IMU, PCF85063A RTC
+behind a TCA9554, 16 MB flash + octal PSRAM). ESP-IDF 5.5.1, LVGL 9.6. The
+portable moon core (`components/moon/core`) is shared verbatim with the host
+simulator (`host_sim/`).
+
+## Standing rule: keep the documentation current
+
+**After every change to the project** (code, Kconfig, screens, timings,
+hardware facts, test system, build steps) **update the project documentation**
+— do not let `docs/DOCUMENTATION.md` drift:
+
+1. The prose lives in `docs/doc_template.md`. Fix any statement the change
+   invalidated (timings, sizes, options, flow, limits) there.
+2. The complete source code is embedded in the generated
+   `docs/DOCUMENTATION.md` by `docs/gen_doc.py` — **regenerate it**:
+   `python3 docs/gen_doc.py` (embeds every tracked source file verbatim, plus
+   the docs/ inventory and this CLAUDE.md). Commit template, generator output,
+   and the code change together.
+3. If the change adds/reworks a screen, regenerate the screenshots:
+   `host_sim/uisim/build.sh run` and copy `host_sim/uisim/out/*.png` into
+   `docs/img/screens/`. New animations: `python3 docs/gen_media.py` (needs
+   `host_sim/.venv`, PIL, ffmpeg).
+4. If the change touches the moon bake path, the host image gate must pass
+   before the doc's numbers are trustworthy:
+   `host_sim/.venv/bin/python host_sim/check_gate.py`.
+
+## Hard invariants (violations ship visible bugs)
+
+- Every moon-pipeline frame hits the panel as ONE atomic whole-panel
+  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). The only
+  exception: the concentric screen-switch reveal (`UI_SCREEN_SWITCH_REVEAL`)
+  for switches TO a moon-less screen.
+- `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
+  either; `spiffs/` edits are separate `spiffs:` commits.
+- The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are
+  staged through internal RAM; keep the BSP `buffer_height` at 25 and the flush
+  queue depth at 1 (32 KiB S3 SPI DMA cap).
+- Flash budget: `factory` partition 1,425,408 B; check the binary size after
+  every build.
+- Kconfig `n` leaves the macro UNDEFINED — all runtime values go through
+  `#ifndef`-seeded getters, never `#define` redefinitions of the Kconfig
+  macros.
+- `managed_components/` is gitignored — depend on its public API only, never on
+  modified vendor files.
+
+## Commands
+
+```bash
+source ~/esp/esp-idf/export.sh
+idf.py build && idf.py flash -p /dev/ttyACM0   # S3 (P4 on /dev/ttyACM1 steals ports)
+idf.py save-defconfig                          # sync sdkconfig.defaults
+python3 docs/gen_doc.py                        # regenerate docs/DOCUMENTATION.md
+host_sim/.venv/bin/python host_sim/check_gate.py   # moon image gate (NASA refs)
+host_sim/uisim/build.sh run                    # real screens -> PNG snapshots
+python3 docs/gen_media.py                      # docs videos (moon_sim frames)
+```
+
+zsh: quote globs (`--include='*.c'`). Pre-commit runs clang-format on C/H only
+— **never run clang-format on Kconfig/other extensionless files** (it mangles
+them; the hook's own filter keeps it safe).
+````
 
 ### `CMakeLists.txt`
 
@@ -12123,6 +12232,16 @@ static int64_t s_ori_last_ms;
  * confirmation costs at most ~1 s of latency on a real tilt. */
 static int32_t s_pending_step;  /* the step the last sample produced */
 static int32_t s_pending_count; /* consecutive samples producing it */
+/* The 2 s press re-sync (action_register_orientation_touch): a press of
+ * >= ORI_RESYNC_PRESS_MS on the display asks the pipeline to re-anchor
+ * the home pose to the pose currently held. s_press_start_us is stamped
+ * on PRESSED; RELEASED sets s_ori_resync_req if the press lasted long
+ * enough. Both callbacks and the pipeline run on the LVGL task (the
+ * indev events land in lv_timer_handler), so no atomics are needed. */
+#define ORI_RESYNC_PRESS_MS 2000
+static int64_t s_press_start_us;
+static bool s_in_press;
+static bool s_ori_resync_req;
 
 /* Clamp an int to +-limit (the int4 quantizer). */
 static int8_t ori_clamp(int v, int limit) {
@@ -12218,6 +12337,43 @@ void action_orientation_init(void) {
     ori_apply_v10(v10);
 }
 
+/* Indev callback for the 2 s press re-sync: fires on every press
+ * regardless of the hit-tested object (like the alarm dismiss callback
+ * below it). The LVGL event queue drains it on the LVGL task inside
+ * lv_timer_handler, so the shared state above is single-task. */
+static void orientation_resync_indev_cb(lv_event_t *e) {
+    lv_indev_state_t st = lv_indev_get_state(lv_event_get_target(e));
+    if (st == LV_INDEV_STATE_PRESSED) {
+        s_press_start_us = esp_timer_get_time();
+        s_in_press = true;
+    } else if (st == LV_INDEV_STATE_RELEASED && s_in_press) {
+        s_in_press = false;
+        if (esp_timer_get_time() - s_press_start_us >= (int64_t)ORI_RESYNC_PRESS_MS * 1000) {
+            s_ori_resync_req = true;
+            ESP_LOGI(TAG, "orientation resync requested (2 s press)");
+        }
+    }
+}
+
+/* Register the 2 s press re-sync on the (one) input device. The
+ * pipeline's home-pose anchor latches from the first 1 s of IMU
+ * samples after boot; if the device was flipped while that window
+ * filled, the UI is upside down and no tilt recovers it (the T4 rule
+ * re-tracks only on step 0). A deliberate 2 s press re-anchors the
+ * home pose to the pose held while pressing, and the pipeline pushes
+ * the base orientation on its next sample (~100 ms). */
+esp_err_t action_register_orientation_touch(void) {
+    lv_indev_t *indev = lv_indev_get_next(NULL);
+    if (!indev) {
+        ESP_LOGE(TAG, "no input device; orientation resync unavailable");
+        return ESP_FAIL;
+    }
+    lv_indev_add_event_cb(indev, orientation_resync_indev_cb, LV_EVENT_PRESSED, NULL);
+    lv_indev_add_event_cb(indev, orientation_resync_indev_cb, LV_EVENT_RELEASED, NULL);
+    ESP_LOGI(TAG, "Orientation resync (2 s press) registered");
+    return ESP_OK;
+}
+
 /* Called from the UI tick (LVGL task): pick the whole-screen orientation
  * (a 90-degree step) from the screen-plane gravity and push it to every
  * screen root. No-op while the pose is unobservable (near-vertical or
@@ -12284,6 +12440,42 @@ static void screen_orientation_apply(void) {
     /* The 1 Hz running mean (rounded, int4 scale). */
     int8_t fx = ori_clamp(lrintf((float)sx / (float)ORI_WINDOW), ORI_Q_SCALE);
     int8_t fy = ori_clamp(lrintf((float)sy / (float)ORI_WINDOW), ORI_Q_SCALE);
+
+    /* A 2 s press re-syncs the home pose (the request is set by the
+     * indev callback, action_register_orientation_touch). The anchor
+     * latches from the first 1 s of samples after boot; if the device
+     * was flipped while that window filled, the anchor is 180 deg off
+     * and the UI stays upside down forever (the T4 rule re-tracks only
+     * on step 0, so no tilt can self-heal it -- the user just sees a
+     * flipped display). The press is the user's "this pose is the home
+     * pose": re-anchor the reference to the current filtered gravity
+     * and push the base orientation immediately. */
+    if (s_ori_resync_req) {
+        s_ori_resync_req = false;
+#if CONFIG_TEST_ROLL_TILT_SEC > 0
+        if (s_ori_test_on) {
+            ESP_LOGW(TAG, "orientation resync ignored (test script active)");
+            return;
+        }
+#endif
+        ESP_LOGI(TAG, "orientation resync: 2 s press re-anchors the home pose (ref (%d,%d) -> (%d,%d))",
+                 s_ref_qx, s_ref_qy, fx, fy);
+        s_ref_qx = fx;
+        s_ref_qy = fy;
+        s_have_ref = true;
+        int32_t v10 = ORI_BASE_V10;
+        if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
+            v10 = -v10;
+        s_pending_step = 0;
+        s_pending_count = 0;
+        if (v10 != s_last_v10) {
+            int32_t old = s_last_v10;
+            s_last_v10 = v10;
+            ori_apply_v10(v10);
+            ESP_LOGI(TAG, "screen orientation %+d -> %+d deg (resync)", old / 10, v10 / 10);
+        }
+        return;
+    }
 
     /* Seed the settled-pose reference from the 1 s FILTERED mean, not
      * a single raw sample: the old first-sample seed anchored the home
@@ -13040,6 +13232,14 @@ esp_err_t action_register_alarm_touch(void);
  * before the first frame: the IMU's first sample arrives late, and the
  * orientation pipeline only pushes on a change. */
 extern void action_orientation_init(void);
+/* Register the input-device callback for the 2 s press re-sync: a press
+ * of 2 s or more re-anchors the orientation pipeline's home pose to the
+ * pose held while pressing (and restores the base orientation). Needed
+ * because the one-shot 1 s seed can latch 180 deg off if the device was
+ * flipped while the first window filled -- no tilt then recovers it (the
+ * T4 rule re-tracks only on step 0). Call after ui_init (the input
+ * device must exist). */
+esp_err_t action_register_orientation_touch(void);
 extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 /* Test hook (CONFIG_TEST_ROLL_TILT_SEC): 1 s LVGL timer callback for the
  * headless orientation tilt script -- after N s of boot it feeds the real
@@ -19620,21 +19820,82 @@ static int reveal_strip_center(int i, int h) {
     return (y0 + y1 - 1) / 2;
 }
 
+/* In-place transpose of an n x n matrix (row-major). */
+static void reveal_transpose(uint16_t *p, int n) {
+    for (int i = 1; i < n; i++)
+        for (int j = 0; j < i; j++) {
+            const uint16_t t = p[(size_t)i * n + j];
+            p[(size_t)i * n + j] = p[(size_t)j * n + i];
+            p[(size_t)j * n + i] = t;
+        }
+}
+
+/* Rotate the snapshot buffer in place so it matches the panel's current
+ * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
+ * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
+ * transform -- proven by the host probe uisim --rottest), while the
+ * panel holds the content rotated by the root's transform_rotation
+ * (the orientation pipeline's 90-degree steps); the strip write must
+ * match the panel. q = 0 is a no-op; the caller verifies the value is a
+ * multiple of 90 degrees before calling (it always is: the pipeline
+ * pushes only 90-degree steps). */
+static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
+    switch (q) {
+    case 1: /* 90 CW: reverse each row, then transpose */
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        reveal_transpose(p, n);
+        break;
+    case 2: /* 180: reverse the whole row-major array */
+        for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
+            const uint16_t t = p[a];
+            p[a] = p[b];
+            p[b] = t;
+        }
+        break;
+    case 3: /* 270 CW: transpose, then reverse each row */
+        reveal_transpose(p, n);
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 /* Render the active (moon-less) screen into a full-screen RGB565
  * snapshot and write the panel in the same 25-row windows ordered
  * from the vertical center out, so the new screen blooms in
  * concentrically instead of being drained top to bottom. The pixel
  * result is exactly what the whole-panel flush would show: the
- * snapshot uses the normal draw path (including the 90-degree
- * base-orientation transform on the screen root, which is an LVGL
- * transform -- the panel is always driven in display coordinates) and
- * the direct write goes through the same windowed CO5300 driver
- * (including its 0x06 x_gap). The caller still runs the atomic
- * lv_refr_now afterwards -- it displays identical pixels and drains
- * LVGL's pending invalidation (the FADE_IN bug class must not come
- * back). Must be on the LVGL task (the snapshot draw path is the
- * refresh draw path, which fits the 8 KB LVGL stack). On any failure
- * returns false: the caller falls back to the plain atomic flush. */
+ * snapshot uses the normal draw path and the direct write goes
+ * through the same windowed CO5300 driver (including its 0x06 x_gap).
+ * One catch: lv_snapshot_take renders in the screen's LOCAL
+ * coordinates -- it ignores the root's LVGL rotation transform
+ * (proven by the host probe uisim --rottest), while the panel holds
+ * the content rotated by the orientation pipeline's 90-degree steps
+ * (the base +90 deg mount offset included). The snapshot buffer is
+ * therefore rotated in place by the root's current transform
+ * rotation (a multiple of 90 deg) before the strip write; anything
+ * else falls back to the plain atomic flush. The caller still runs
+ * the atomic lv_refr_now afterwards -- it displays identical pixels
+ * and drains LVGL's pending invalidation (the FADE_IN bug class must
+ * not come back). Must be on the LVGL task (the snapshot draw path
+ * is the refresh draw path, which fits the 8 KB LVGL stack). On any
+ * failure returns false: the caller falls back to the plain atomic
+ * flush. */
 static bool concentric_reveal(void) {
     lv_obj_t *screen = lv_screen_active();
     lv_draw_buf_t *shot = screen ? lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565) : NULL;
@@ -19665,6 +19926,22 @@ static bool concentric_reveal(void) {
         p[2 * i] = hi;
         p[2 * i + 1] = lo;
     }
+    /* The snapshot is screen-local (the root's rotation transform is
+     * NOT applied by lv_snapshot_take), but the panel holds the
+     * content rotated by the root's transform_rotation (the
+     * orientation pipeline's 90-degree steps, the base +90 deg mount
+     * offset included). Rotate the buffer to that step so the strip
+     * write shows the same pixels the trailing lv_refr_now will. */
+    const int32_t rot10 = lv_obj_get_style_transform_rotation(screen, LV_PART_MAIN);
+    const int32_t r10 = ((rot10 % 3600) + 3600) % 3600;
+    if (r10 % 900 != 0) {
+        /* A non-90-degree-multiple transform (the pipeline only ever
+         * pushes 90-degree steps): cannot match the panel -- fall
+         * back to the plain atomic flush. */
+        lv_draw_buf_destroy(shot);
+        return false;
+    }
+    reveal_rotate_cw90((uint16_t *)p, (int)w, (int)(r10 / 900));
     /* 19 strips (18 x 25 rows + a 16-row tail) ordered by the
      * distance of the strip center from the vertical center: the
      * middle lights up first and the screen blooms out. */
@@ -26227,6 +26504,53 @@ static void pump(lv_display_t *disp, uint32_t ms) {
     lv_refr_now(disp);
 }
 
+/* The device's concentric-reveal rotation (moon_ui.c, copied verbatim
+ * so the probe exercises the exact transform). */
+static void reveal_transpose(uint16_t *p, int n) {
+    for (int i = 1; i < n; i++)
+        for (int j = 0; j < i; j++) {
+            const uint16_t t = p[(size_t)i * n + j];
+            p[(size_t)i * n + j] = p[(size_t)j * n + i];
+            p[(size_t)j * n + i] = t;
+        }
+}
+
+static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
+    switch (q) {
+    case 1:
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        reveal_transpose(p, n);
+        break;
+    case 2:
+        for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
+            const uint16_t t = p[a];
+            p[a] = p[b];
+            p[b] = t;
+        }
+        break;
+    case 3:
+        reveal_transpose(p, n);
+        for (int y = 0; y < n; y++) {
+            uint16_t *row = p + (size_t)y * n;
+            for (int a = 0, b = n - 1; a < b; a++, b--) {
+                const uint16_t t = row[a];
+                row[a] = row[b];
+                row[b] = t;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 static int write_png(const char *path, const lv_draw_buf_t *buf) {
     uint8_t *rgb565 = buf->data;
     uint32_t w = buf->header.w, h = buf->header.h, stride = buf->header.stride;
@@ -26310,6 +26634,115 @@ int main(int argc, char **argv) {
 
     create_screens(); /* real device code: theme + all 12 screens */
     pump(disp, 200);
+
+    /* --rottest: prove whether lv_snapshot_take honors the root's LVGL
+     * transform (the concentric reveal assumes the +90 deg base rotation
+     * lands in the snapshot buffer). The alarm screen is asymmetric:
+     * header icon top-centre, read-back text near the bottom. A +90 deg
+     * CW rotation about the centre must move the header to the RIGHT
+     * edge and the text to the LEFT edge in the snapshot. */
+    if (argc > 1 && !strcmp(argv[1], "--rottest")) {
+        const enum ScreensEnum id = SCREEN_ID_SETTINGS_ALARM;
+        loadScreen(id);
+        ui_tick();
+        pump(disp, 100);
+        lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+        lv_obj_set_style_transform_pivot_x(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_rotation(root, 900, 0);
+        pump(disp, 100);
+        lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        if (!buf) {
+            fprintf(stderr, "rottest: snapshot failed\n");
+            return 1;
+        }
+        int rc = write_png("out/rottest_90.png", buf);
+        lv_draw_buf_destroy(buf);
+        return rc;
+    }
+
+    /* --reveal: prove the device's reveal strip write matches the
+     * trailing lv_refr_now flush. The hub screen (moon-less) gets the
+     * root rotation the device's orientation pipeline applies; the
+     * snapshot (screen-local, unrotated -- lv_snapshot ignores the
+     * transform) is rotated in place exactly as concentric_reveal
+     * does, then compared pixel-by-pixel with the front buffer of the
+     * real rotated flush. Both are LVGL-native RGB565 (the panel
+     * byte-swap is self-inverse and cancels). Usage: --reveal <q>
+     * with q = 0..3 clockwise 90-degree steps (1 = the base +90). */
+    if (argc > 1 && !strcmp(argv[1], "--reveal")) {
+        const int q = (argc > 2) ? atoi(argv[2]) : 1;
+        const enum ScreensEnum id = SCREEN_ID_SETTINGS_HUB;
+        loadScreen(id);
+        ui_tick();
+        pump(disp, 100);
+        lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+        lv_obj_set_style_transform_pivot_x(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(root, LV_PCT(50), 0);
+        lv_obj_set_style_transform_rotation(root, 900 * q, 0);
+        pump(disp, 100);
+        lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        if (!buf) {
+            fprintf(stderr, "reveal: snapshot failed\n");
+            return 1;
+        }
+        if (buf->header.w != W || buf->header.h != H || buf->header.stride != W * 2) {
+            fprintf(stderr, "reveal: snapshot %ux%u stride %u unexpected\n",
+                    buf->header.w, buf->header.h, buf->header.stride);
+            return 1;
+        }
+        /* The real flush renders the rotated screen into s_fb. */
+        lv_refr_now(disp);
+        /* The reveal's in-place rotation (the byte-swap is self-inverse
+         * and applies to both sides, so compare pre-swap). */
+        reveal_rotate_cw90((uint16_t *)buf->data, W, q);
+        uint32_t bad = 0, tot = 0;
+        int32_t maxd = 0;
+        for (int i = 0; i < W * H; i++) {
+            int32_t d = (int32_t)buf->data[2 * i] - (int32_t)s_fb[2 * i];
+            int32_t d2 = (int32_t)buf->data[2 * i + 1] - (int32_t)s_fb[2 * i + 1];
+            int32_t a = d < 0 ? -d : d;
+            int32_t b = d2 < 0 ? -d2 : d2;
+            tot += (a > b ? a : b);
+            if (b > a)
+                a = b;
+            if (a > maxd)
+                maxd = a;
+            if (d != 0 || d2 != 0)
+                bad++;
+        }
+        printf("reveal q=%d: %u/%d px differ, max byte diff %d, mean %u\n", q, bad, W * H, maxd,
+               tot / (W * H));
+        /* Save the flush front buffer and a diff map (white = differs,
+         * grey = the rotated snapshot) for localization. */
+        static uint8_t *rgb2, *diffm;
+        if (!rgb2) {
+            rgb2 = malloc((size_t)W * H * 3);
+            diffm = malloc((size_t)W * H * 3);
+        }
+        for (int i = 0; i < W * H; i++) {
+            uint16_t p = ((const uint16_t *)s_fb)[i];
+            rgb2[i * 3] = (uint8_t)((p >> 11) * 255 / 31);
+            rgb2[i * 3 + 1] = (uint8_t)((p >> 5 & 0x3F) * 255 / 63);
+            rgb2[i * 3 + 2] = (uint8_t)((p & 0x1F) * 255 / 31);
+            uint16_t s = ((const uint16_t *)buf->data)[i];
+            int d = 0;
+            for (int k = 0; k < 2; k++) {
+                int a = (int)buf->data[2 * i + k] - (int)s_fb[2 * i + k];
+                if (a < 0)
+                    a = -a;
+                if (a > d)
+                    d = a;
+            }
+            diffm[i * 3] = diffm[i * 3 + 1] = diffm[i * 3 + 2] = (d != 0) ? 0xFF : 0;
+            diffm[i * 3 + 0] += 0; /* keep it pure: white = differs */
+        }
+        (void)stbi_write_png("out/flush_qN.png", W, H, 3, rgb2, W * 3);
+        (void)stbi_write_png("out/reveal_diff.png", W, H, 3, diffm, W * 3);
+        int rc = write_png("out/reveal_rotated.png", buf);
+        lv_draw_buf_destroy(buf);
+        return rc;
+    }
 
     int fail = 0;
     if (argc > 1) {
@@ -26956,6 +27389,12 @@ extern "C" void app_main(void) {
     // IMU's first sample arrives late and the pipeline only pushes on a
     // change, so the rotation must be in place before the first frame.
     action_orientation_init();
+
+    // 2 s press re-anchors the orientation's home pose: the one-shot 1 s
+    // seed can latch 180 deg off if the device was flipped while the
+    // first window filled, and no tilt recovers that (the pipeline
+    // re-tracks only on step 0).
+    action_register_orientation_touch();
 
     // Register clock component callbacks for UI updates
     // Cast action functions to callback type (they accept NULL as lv_event_t*)

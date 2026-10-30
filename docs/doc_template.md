@@ -11,10 +11,12 @@ the fully unilluminated side. Time comes from NTP (brief on-demand WiFi
 activation, then back to airplane mode); the PCF85063A RTC holds the clock
 between syncs.
 
-_State of this document: 2026-10-29, after commit `9dad4fe` (ui: concentric
-screen-switch reveal). See the standing rule in [CLAUDE.md](../CLAUDE.md) —
-this document is regenerated with `python3 docs/gen_doc.py` and must stay in
-sync with the code._
+_State of this document: 2026-10-30, after the reveal-rotation fix (the
+snapshot is screen-local and is rotated in place by the root's current
+orientation step before the panel write) and the 2 s press orientation re-sync
+(a latched 180° home pose is resettable by the user). See the standing rule in
+[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+`python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
 
@@ -185,7 +187,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                |
 | -------------- | ------ | ------------------------ | -------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                  |
-| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15abf0` (1,424,432 B), 5,136 B free |
+| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15b0c0` (1,421,504 B), 3,904 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)          |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                           |
 
@@ -628,7 +630,9 @@ on-device the final frame is a pixel-exact bake at φ\* = +134.78° for the
 
 **Concentric screen-switch reveal** — airplane → settings hub: the same 25- row
 QSPI strips the adapter writes, ordered from the vertical center outward
-(`UI_SCREEN_SWITCH_REVEAL`, `9dad4fe`):
+(`UI_SCREEN_SWITCH_REVEAL`, `9dad4fe`). Both frames are rotated +90° CW first —
+the device's orientation pipeline applies the base orientation to every screen
+root, and the reveal writes the rotated pixels to the panel:
 
 <video src="img/reveal.mp4" controls width="466"></video>
 
@@ -670,25 +674,54 @@ upgrade from the UI tick.
   roots; the 180°-flip reference re-tracks only on `step == 0` (T4). A rotated
   root's ~0.4 MB layer is allocated via CLIB malloc (the 64 KB LVGL pool OOM
   was the original "off-screen + crash").
+- **2 s press re-sync** (2026-10-30): the home-pose anchor latches from the
+  first 1 s of IMU samples after boot; if the device was flipped while that
+  window filled, the anchor is 180° off and the UI stays upside down — and the
+  T4 rule (re-track only on step 0) means no tilt recovers it. A deliberate
+  press of 2 s or more (`action_register_orientation_touch`, the indev
+  PRESSED/RELEASED pair) re-anchors the reference to the pose held while
+  pressing and restores the base orientation on the next sample (~100 ms). The
+  press is the user's "this pose is the home pose".
 
-### 10.4 The concentric screen-switch reveal (`9dad4fe`)
+### 10.4 The concentric screen-switch reveal (`9dad4fe`, rotation fix
+
+2026-10-30)
 
 `CONFIG_UI_SCREEN_SWITCH_REVEAL` (default y, selects `LV_USE_SNAPSHOT`): on a
 switch **to a moon-less screen** (the settings direction), the new screen is
-rendered once into a full-screen RGB565 snapshot (`lv_snapshot_take` — the
-normal draw path, so the 90° base transform is included and the buffer is
-directly panel-ready), byte-swapped to the panel's native RGB565 (the adapter
-bridge does this swap for its own flushes on the OTHER interface), and written
-to the panel in the same 25- row windows (the BSP `buffer_height` budget)
-**ordered by strip-center distance from the vertical middle** — 19 strips,
-center out. The trailing atomic `lv_refr_now` then re-displays identical pixels
-and drains LVGL's pending invalidation (the FADE_IN bug class must not return).
-Any failure (NULL snapshot, odd dims/stride, NULL panel, write error) falls
-back to the plain atomic flush. Moon screens keep the atomic whole-panel flush
-alone. The adapter's TEAR_AVOID_NONE panel-IO completion callback (which fires
-on every direct QSPI transfer) only clears an already-cleared `flushing` flag —
-verified harmless. No speed change: the same bytes reach the panel, only the
-light-up order differs.
+rendered once into a full-screen RGB565 snapshot via `lv_snapshot_take`,
+byte-swapped to the panel's native RGB565 (the adapter bridge does this swap
+for its own flushes on the OTHER interface), **rotated in place by the root's
+current orientation step**, and written to the panel in the same 25- row
+windows (the BSP `buffer_height` budget) **ordered by strip-center distance
+from the vertical middle** — 19 strips, center out. The trailing atomic
+`lv_refr_now` then re-displays identical pixels and drains LVGL's pending
+invalidation (the FADE_IN bug class must not return). Any failure (NULL
+snapshot, odd dims/stride, NULL panel, non-90°-multiple transform, write error)
+falls back to the plain atomic flush. Moon screens keep the atomic whole-panel
+flush alone. The adapter's TEAR_AVOID_NONE panel-IO completion callback (which
+fires on every direct QSPI transfer) only clears an already-cleared `flushing`
+flag — verified harmless. No speed change: the same bytes reach the panel, only
+the light-up order differs.
+
+**The rotation (the 2026-10-30 fix).** The first version assumed
+`lv_snapshot_take` renders through the root's LVGL transform — it does **not**:
+it renders the screen in its _local_ coordinates (proven by the host probe
+`uisim --rottest`: with a +90° root rotation the snapshot's header icon stayed
+top-centre). The panel, meanwhile, holds the content rotated by the orientation
+pipeline's step (base +90° CW mount offset included). The reveal therefore
+wrote _unrotated_ content center-out — a 90°-off bloom that read as
+"intermediate lines". The fix: `reveal_rotate_cw90` rotates the 466×466 buffer
+in place (90° CW = reverse rows + transpose; 180° = reverse the array; 270° =
+transpose + reverse rows) by `lv_obj_get_style_transform_rotation(root) / 900`,
+taken modulo 3600. The device's own transform render (`lv_draw_sw_transform.c`)
+is nearest-neighbour but re-samples glyph anti-aliasing, so a byte-exact match
+against the real flush is not expected at glyph edges — the host probe
+`uisim --reveal q` measured it: 0/217156 px differ at q=0; at q=1..3 the
+residual is confined to glyph edges (max byte diff ≤ 231, every solid area
+exact) and the trailing `lv_refr_now` replaces those pixels with the exact
+transform render a moment later. So the bloom shows the right pixels in the
+right place from strip one.
 
 ### 10.5 Alarms, settings store, cron
 
@@ -731,7 +764,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (settings, reveal)              | snapshot render + 19 center-out strips + trailing identical atomic flush                                                                                                                        |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                  |
-| Binary                                        | `0x15abf0` = 1,424,432 B in the 1,425,408 B partition (**5,136 B free**)                                                                                                                        |
+| Binary                                        | `0x15b0c0` = 1,421,504 B in the 1,425,408 B partition (**3,904 B free**)                                                                                                                        |
 
 ---
 
@@ -789,7 +822,15 @@ the SVS 5415 400x400 lunar image series, gitignored):
   gray).
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466, ESP stubs) → per-screen PNG snapshots
-  (`build.sh run`) — the source of every screenshot in §7.
+  (`build.sh run`) — the source of every screenshot in §7. Two diagnostic
+  probes (2026-10-30): `--rottest` proves `lv_snapshot_take` renders in the
+  screen's **local** coordinates (the root's LVGL rotation is ignored — the
+  finding behind the reveal's rotation fix, §10.4); `--reveal <q>` runs the
+  device's exact reveal permutation (copied verbatim into `main.c`) and
+  compares it pixel-by-pixel against the real rotated `lv_refr_now` flush of
+  the same screen — q=0 gives 0/217156 differing pixels; q=1..3 differ only at
+  glyph anti-aliasing edges (LVGL's transform re-samples them; the trailing
+  flush corrects them).
 - `host_sim/render_demo.py` — the README montages (PIL + `moon_sim` only).
 - Venvs: `host_sim/.venv` (astropy, scikit-image, imagecodecs, numpy, PIL) and
   `assets/images/moon/.venv` — both gitignored; recreate with `uv venv` +
@@ -831,7 +872,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 1392 K app (5,136 B free — the app sits at 99.6 % of its partition; every feature costs bytes, the LVGL monitor removal bought the reveal's ~5 KiB) + 64 K SPIFFS + 2560 K assets       |
+| 16 MB flash                         | 1392 K app (3,904 B free — the app sits at 99.7 % of its partition; every feature costs bytes, the LVGL monitor removal bought the reveal's ~5 KiB) + 64 K SPIFFS + 2560 K assets       |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -841,7 +882,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                        |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix) |
-| 1392 K app partition                               | the flash budget is a standing constraint (current: 5,136 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                    |
+| 1392 K app partition                               | the flash budget is a standing constraint (current: 3,904 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                    |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                      |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                   |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                    |

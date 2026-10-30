@@ -31,6 +31,14 @@ esp_err_t action_register_alarm_touch(void);
  * before the first frame: the IMU's first sample arrives late, and the
  * orientation pipeline only pushes on a change. */
 extern void action_orientation_init(void);
+/* Register the input-device callback for the 2 s press re-sync: a press
+ * of 2 s or more re-anchors the orientation pipeline's home pose to the
+ * pose held while pressing (and restores the base orientation). Needed
+ * because the one-shot 1 s seed can latch 180 deg off if the device was
+ * flipped while the first window filled -- no tilt then recovers it (the
+ * T4 rule re-tracks only on step 0). Call after ui_init (the input
+ * device must exist). */
+esp_err_t action_register_orientation_touch(void);
 extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 /* Test hook (CONFIG_TEST_ROLL_TILT_SEC): 1 s LVGL timer callback for the
  * headless orientation tilt script -- after N s of boot it feeds the real
