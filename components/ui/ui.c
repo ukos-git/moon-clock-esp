@@ -35,18 +35,20 @@ static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
 
 /* Screen switch (UI_SCREEN_SWITCH_FADE): a switch that CROSSES the
  * moon / moon-less boundary (home <-> settings, the alarm screen)
- * fades the outgoing screen to black (moon_ui_fade_out, before
- * lv_scr_load), loads, and fades the new one in
- * (moon_ui_screen_switched). Both-moon switches (airplane / wifi /
- * the sleep screens share the one moon image) and both-moon-less
- * switches (settings <-> settings) keep the plain atomic whole-panel
- * display -- the fade would only dim the moon, which is the same disk
- * on both screens. The old FADE_IN screen-load re-invalidated the
- * whole panel for the 200 ms anim and LVGL's async refresh drained
- * it in 25-row QSPI strips -- the moon crept in top-to-bottom for
- * over a second on every screen switch; the new fade steps are each
- * one atomic whole-panel lv_refr_now (the moon pipeline's display
- * rule), so no strip crawl and no torn frames. */
+ * dims the panel's OWN hardware brightness (the CO5300 0x51 command)
+ * to black (moon_ui_fade_out, before lv_scr_load), loads, and ramps
+ * it back (moon_ui_screen_switched) -- the transition writes no
+ * pixels, so it costs nothing on the panel bus. Both-moon switches
+ * (airplane / wifi / the sleep screens share the one moon image) and
+ * both-moon-less switches (settings <-> settings) keep the plain
+ * atomic whole-panel display -- a fade there would only dim the moon,
+ * which is the same disk on both screens. History: the first
+ * screen-load fade rode LVGL's async refresh and the whole panel
+ * drained in 25-row QSPI strips (the moon crept in top-to-bottom for
+ * over a second on every switch); the overlay fade made each step one
+ * atomic whole-panel lv_refr_now, but every step still charged a
+ * full-screen re-render + ~175 ms of strip traffic; the brightness
+ * ramp needs no pixels at all. */
 void loadScreen(enum ScreensEnum screenId) {
     if (currentScreen >= 0) {
         enum ScreensEnum oldId = (enum ScreensEnum)(currentScreen + 1);

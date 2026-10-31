@@ -32,10 +32,13 @@ CONFIG_UI_MOON_ANIM_ON_WAKE=n
 # Light-sleep dusk: the pole-axis spin to the fully unilluminated side;
 # the deep-sleep countdown is armed on its last frame.
 CONFIG_UI_MOON_DUSK_ENABLE=y
-# Screen switches (e.g. into the settings hub) fade the outgoing screen
-# to black, load the new screen, and fade it in -- each step is one
-# atomic whole-panel flush under the moon buffer mutex (no strip
-# crawl). The moon screens switch atomically as always.
+# Screen switches (e.g. into the settings hub) fade to black with the
+# panel's OWN hardware brightness (the CO5300 0x51 command, the same
+# dimming the deep-sleep backlight off/on uses): the fade-out ramp
+# writes no pixels (the spin keeps moving, its frames just dim), the
+# new screen is flushed atomically while the panel is still black, and
+# the fade-in ramp brings it back. No strip crawl, no per-step
+# re-render. The moon screens switch atomically as always.
 CONFIG_UI_SCREEN_SWITCH_FADE=240
 # Burn-in spin: settled (at rest) rate 600 s/turn (visible slow creep;
 # the old phase-true coast read as a freeze), 8 panel frames/s.

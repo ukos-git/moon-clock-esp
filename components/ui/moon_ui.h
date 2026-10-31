@@ -127,16 +127,20 @@ bool moon_ui_sweeping(void);
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
  * LVGL task context. No-op while a pipeline owns the buffer (the spin
  * or a bake completion then displays the screen atomically itself).
- * When a screen-switch fade-out ran (s_fade_pending, loadScreen), the
- * new screen fades IN instead of plain-flushing (UI_SCREEN_SWITCH_FADE).
+ * When a screen-switch fade-out dimmed the panel (s_fade_pending,
+ * loadScreen), the new screen's atomic flush runs while the panel is
+ * still black and the hardware brightness then ramps back
+ * (UI_SCREEN_SWITCH_FADE).
  */
 void moon_ui_screen_switched(void);
 
 /**
- * Fade the current screen to black (LVGL task; loadScreen calls it
- * before lv_scr_load when the switch crosses the moon / moon-less
- * boundary). No-op when the fade is off, the moon UI is not ready, or
- * a bake pipeline owns the buffers.
+ * Dim the panel's OWN hardware brightness to black ahead of a screen
+ * switch (LVGL task; loadScreen calls it before lv_scr_load when the
+ * switch crosses the moon / moon-less boundary). Writes no pixels;
+ * the spin keeps running and its frames just dim. No-op when the fade
+ * is off, the moon UI is not ready, or a bake pipeline owns the
+ * buffers.
  */
 void moon_ui_fade_out(void);
 

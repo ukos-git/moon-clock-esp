@@ -31,17 +31,19 @@ hardware facts, test system, build steps) **update the project documentation**
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
   `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). Two sanctioned
-  exceptions: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, each
-  step is itself one atomic whole-panel flush) and the burn-in spin's direct
-  panel write (wrapped `esp_lcd_panel_draw_bitmap`, the render task owns the
-  panel for that frame under `s_panel_mtx`).
+  exceptions: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, a
+  hardware panel-brightness ramp that writes no pixels — the new screen's one
+  atomic flush runs while the panel is still black) and the burn-in spin's
+  direct panel write (wrapped `esp_lcd_panel_draw_bitmap`, the render task owns
+  the panel for that frame under `s_panel_mtx`).
 - `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
   either; `spiffs/` edits are separate `spiffs:` commits.
 - The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are
   staged through internal RAM; keep the BSP `buffer_height` at 25 and the flush
   queue depth at 1 (32 KiB S3 SPI DMA cap).
-- Flash budget: `factory` partition 1,425,408 B; check the binary size after
-  every build.
+- Flash budget: `factory` partition 2,097,152 B (2048 K — widened from the old
+  1392 K / 1,425,408 B ceiling when the app outgrew it); check the binary size
+  after every build.
 - Kconfig `n` leaves the macro UNDEFINED — all runtime values go through
   `#ifndef`-seeded getters, never `#define` redefinitions of the Kconfig
   macros.

@@ -120,14 +120,17 @@ def main():
     encode("dusk", 5, FR / "dusk_trim" / "sim.%04d.png", OUT / "dusk.mp4", size=240)
 
     # 4. fade-to-black screen switch: airplane (from) -> settings hub (to).
-    #    The device's fade_leg() paints a full-screen black overlay over the
-    #    outgoing screen (4 steps, one atomic whole-panel flush each), loads
-    #    the new screen off the visible path, then fades it in from black
-    #    (4 more steps). The frame at step s of the OUT leg is
-    #    screen * (1 - s/4) and of the IN leg screen * (s/4) -- a linear
-    #    blend toward/away from black. The device's orientation pipeline
-    #    rotates every screen +90 deg CW (the base mount offset), so both
-    #    frames are rotated the same way first.
+    #    The device dims the panel's OWN hardware brightness (the CO5300
+    #    0x51 command, bsp_display_brightness_set) 100 -> 0 over the
+    #    outgoing screen, loads the new screen and flushes it atomically
+    #    while the panel is still black, then ramps 0 -> 100. The ramp is
+    #    a LINEAR percentage schedule, so the frame at step s of the OUT
+    #    leg is screen * (1 - s/12) and of the IN leg screen * (s/12) --
+    #    exactly a linear blend toward/away from black, which is what we
+    #    synthesize here (12 steps = FADE_STEPS; held frames pad the film
+    #    to a readable 8 fps). The device's orientation pipeline rotates
+    #    every screen +90 deg CW (the base mount offset), so both frames
+    #    are rotated the same way first.
     print("== fade-to-black switch ==")
     frm = Image.open(UISIM / "modem_sleep.png").convert("RGB")
     to = Image.open(UISIM / "settings_hub.png").convert("RGB")
@@ -141,19 +144,19 @@ def main():
     d = FR / "fade"
     clear(d)
     k = 0
-    # hold the outgoing screen, fade it out (4 steps to black)
+    # hold the outgoing screen, dim it (12 steps to black)
     for _ in range(2):
         frm.save(d / f"sim.{k:04d}.png")
         k += 1
-    for s in range(1, 5):
-        scale(frm, 1 - s / 4).save(d / f"sim.{k:04d}.png")
+    for s in range(1, 13):
+        scale(frm, 1 - s / 12).save(d / f"sim.{k:04d}.png")
         k += 1
-    # hold on black, fade the new screen in (4 steps to full)
+    # hold on black, brighten the new screen in (12 steps to full)
     for _ in range(2):
         Image.new("RGB", (W, H), (0, 0, 0)).save(d / f"sim.{k:04d}.png")
         k += 1
-    for s in range(1, 5):
-        scale(to, s / 4).save(d / f"sim.{k:04d}.png")
+    for s in range(1, 13):
+        scale(to, s / 12).save(d / f"sim.{k:04d}.png")
         k += 1
     # hold the finished screen
     for _ in range(2):

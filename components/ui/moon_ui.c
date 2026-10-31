@@ -37,7 +37,12 @@
  * (that is the visible top-to-bottom crawl), and no pending full-screen
  * invalidation (e.g. a screen-load animation) may ride along in one of
  * these flushes -- a screen switch is a plain lv_scr_load + one atomic
- * whole-panel flush (moon_ui_screen_switched), never a fade.
+ * whole-panel flush (moon_ui_screen_switched). The two sanctioned
+ * exceptions: the burn-in spin's direct panel write (see the spin
+ * section) and the screen-switch fade (UI_SCREEN_SWITCH_FADE) -- a
+ * hardware panel-brightness ramp that writes no pixels, whose one
+ * atomic flush of the new screen runs while the panel is dimmed to
+ * black.
  *
  * Tilt input: the on-board QMI8658 (components/imu) is the ONLY input
  * to the moon (touch is the core-UI wake input, never a moon input).
@@ -356,7 +361,6 @@ static uint16_t *s_front;              /* front mirror, MOON_PX^2 (the moon area
 static uint16_t *s_disp;               /* the spin's composite buffer, MOON_PX^2 */
 static volatile int s_panel_step;      /* the orientation step 0..3 CW (90 deg each) */
 static volatile bool s_panel_wrap;     /* the draw_bitmap wrapper is installed */
-static volatile bool s_switch_fading;  /* a fade leg owns the panel; the spin holds */
 static uint8_t *s_ui_mask;             /* the per-pixel UI keep-mask, MOON_PX^2 */
 static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
                                           change); the LVGL task picks it up */
@@ -714,12 +718,12 @@ static void moon_spin_task(void *arg) {
          * screen) and the tick then displays s_rgb as one atomic whole
          * frame (the spin's display). The tick re-anchors the angle at
          * the end of each. */
-        /* Also hold while a screen-switch fade leg owns the panel
-         * (s_switch_fading): a full-brightness moon frame must not
-         * tear the dimmed overlay. The render's dt clamp turns the
-         * pause into at most a sub-degree angle step. */
-        while (!s_spin_cancel &&
-               (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_switch_fading))
+        /* Not paused for a screen-switch fade: the fade dims the
+         * panel's OWN brightness (no pixels written), so the spin's
+         * direct writes keep landing and the moon keeps moving while
+         * the screen dims -- exactly the motion the fade-out should
+         * show. */
+        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking))
             vTaskDelay(pdMS_TO_TICKS(50));
         if (s_spin_cancel)
             break;
@@ -2575,68 +2579,67 @@ static bool moon_screen_has_image(void) {
 
 /* ---------------- screen-switch fade (UI_SCREEN_SWITCH_FADE) ----------------
  *
- * A screen switch that crosses the moon / moon-less boundary fades the
- * OUTGOING screen to black (moon_ui_fade_out, in loadScreen, BEFORE
- * lv_scr_load), then the new screen fades IN from black
- * (moon_ui_screen_switched, after the spin + mask update). Each fade
- * step dims the screen with a full-screen black overlay and displays
- * it as ONE atomic whole-panel lv_refr_now under the buffer mutex (the
- * moon pipeline's display rule) -- no top-to-bottom strip crawl (the
- * "white bars" of the old reveal) and no tearing. Both-moon switches
- * (airplane / wifi / the sleep screens) keep the plain atomic
- * whole-panel switch (the moon pipeline's invariant), as do switches
- * while a bake pipeline owns the buffers. The spin's direct panel
- * write is held for the whole fade (s_switch_fading, polled in the
- * render task's loop): a full-brightness moon frame must not tear the
- * dimmed panel, and the render's dt clamp turns the pause into at
- * most a sub-degree angle step. The overlay is created per leg and
- * deleted when the leg is done (the last fade-in step has already
- * displayed the new screen at full opacity -- the atomic flush the
- * invariant wants). Must run on the LVGL task. */
-#define FADE_STEPS 4
-static bool s_fade_pending; /* the fade-out ran; the new screen must fade in */
+ * A screen switch that crosses the moon / moon-less boundary dims the
+ * WHOLE PANEL to black and back (moon_ui_fade_out in loadScreen BEFORE
+ * lv_scr_load; the fade-in leg in moon_ui_screen_switched). The dimming
+ * is the CO5300's OWN brightness control (command 0x51,
+ * bsp_display_brightness_set -- the same hardware dimming the
+ * deep-sleep backlight off/on uses), so the fade writes NO pixels: it
+ * scales everything on screen at once (the moon, the labels, the
+ * spin's direct writes) with no overlay to composite and no per-step
+ * re-render. The old overlay fade charged one full-screen lv_refr_now
+ * per step (~175 ms of QSPI strip traffic each, 4 steps per leg) and
+ * the panel's left-to-right strip fill showed as a slow crawl on every
+ * switch; here a fade step is one ~100 us SPI param transaction, so
+ * the steps are many and short.
+ *
+ *   fade-out: the brightness ramps 100 -> 0 in FADE_STEPS steps of
+ *   CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS ms. The spin KEEPS
+ *   running -- its frames just dim, so the moon keeps moving while the
+ *   screen goes dark. s_fade_pending is left set for the fade-in.
+ *
+ *   fade-in: the new screen is displayed as ONE atomic whole-panel
+ *   lv_refr_now while the panel is STILL BLACK (invisible -- the
+ *   invariant's atomic display, off the visible path), then the
+ *   brightness ramps 0 -> 100 and the fully rendered new screen comes
+ *   up at once.
+ *
+ * Both-moon switches (airplane / wifi / the sleep screens) keep the
+ * plain atomic whole-panel switch (a fade there would only dim the
+ * same moon disk), as do switches while a bake pipeline owns the
+ * buffers. Must run on the LVGL task. */
+#define FADE_STEPS 12
+static bool s_fade_pending; /* the fade-out dimmed the panel; the fade-in is owed */
 
-/* One fade leg on the given screen: from `from_opa` to `to_opa`
- * (overlay background opacity), FADE_STEPS steps, one atomic
- * whole-panel flush per step, paced CONFIG_UI_SCREEN_SWITCH_FADE /
- * FADE_STEPS ms between steps. */
-static void fade_leg(lv_obj_t *screen, int from_opa, int to_opa) {
-    lv_obj_t *ov = lv_obj_create(screen);
-    lv_obj_set_size(ov, BSP_LCD_H_RES, BSP_LCD_V_RES);
-    lv_obj_set_style_bg_color(ov, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ov, (uint8_t)from_opa, LV_PART_MAIN);
-    /* The overlay is the screen's last child -> drawn on top.
-     * Non-clickable: touches during the 240 ms transition fall
-     * through to the screen's own handlers. */
-    lv_obj_clear_flag(ov, LV_OBJ_FLAG_CLICKABLE);
+/* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
+ * (0..100) in FADE_STEPS steps, paced CONFIG_UI_SCREEN_SWITCH_FADE /
+ * FADE_STEPS ms between steps. Each step is one 0x51 SPI param
+ * transaction (~100 us): the ramp is free, so the steps are many and
+ * short (the luminance steps stay small enough not to read as
+ * discrete steps). */
+static void fade_ramp(int from_pct, int to_pct) {
     for (int s = 1; s <= FADE_STEPS; s++) {
-        lv_obj_set_style_bg_opa(ov, (uint8_t)(from_opa + (to_opa - from_opa) * s / FADE_STEPS), LV_PART_MAIN);
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        lv_refr_now(NULL);
-        xSemaphoreGive(s_rgb_mtx);
+        int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
+        bsp_display_brightness_set(pct);
         if (s < FADE_STEPS)
             vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
     }
-    lv_obj_delete(ov);
 }
 
-/* Fade the CURRENT active screen to black (LVGL task; loadScreen
- * calls it before lv_scr_load when the switch crosses the moon
- * boundary). The panel is left black for the fade-in leg
- * (s_fade_pending); s_switch_fading holds the spin's direct write for
- * the whole window (cleared by the fade-in leg in
- * moon_ui_screen_switched). No-op when the fade is off, the moon UI
- * is not ready, or a bake pipeline owns the buffers. */
+/* Dim the panel to black ahead of a screen switch (LVGL task;
+ * loadScreen calls it before lv_scr_load when the switch crosses the
+ * moon boundary). No pixels are written and the spin keeps running
+ * (its frames just dim); the fade-in leg (moon_ui_screen_switched)
+ * displays the new screen while the panel is still black and ramps the
+ * brightness back. No-op when the fade is off, the moon UI is not
+ * ready, or a bake pipeline owns the buffers. */
 void moon_ui_fade_out(void) {
     if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_sweep_baking ||
         s_dusk_baking)
         return;
-    lv_obj_t *screen = lv_screen_active();
-    if (!screen)
-        return;
     s_fade_pending = true;
-    s_switch_fading = true;
-    fade_leg(screen, 0, 255);
+    fade_ramp(100, 0);
+    ESP_LOGI(TAG, "screen switch fade-out: panel brightness 100 -> 0 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
 }
 
 /* Does the screen with this id carry a moon image (loadScreen's fade
@@ -2684,15 +2687,17 @@ void moon_ui_screen_switched(void) {
         return;
     }
     if (s_fade_pending && CONFIG_UI_SCREEN_SWITCH_FADE > 0) {
-        /* The fade-in leg: the new screen's atomic whole-panel flush
-         * happens UNDER the dimming overlay (the leg's first step);
-         * the last step lands at full opacity -- the invariant's one
-         * atomic display. The spin held the panel for the whole
-         * window (s_switch_fading, cleared here). */
+        /* The fade-in leg: the new screen's ONE atomic whole-panel
+         * flush runs while the panel is STILL BLACK (invisible -- the
+         * invariant's atomic display, off the visible path), then the
+         * hardware brightness ramps back to full and the fully
+         * rendered screen comes up at once. */
         s_fade_pending = false;
-        s_switch_fading = true;
-        fade_leg(lv_screen_active(), 255, 0);
-        s_switch_fading = false;
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        lv_refr_now(NULL);
+        xSemaphoreGive(s_rgb_mtx);
+        fade_ramp(0, 100);
+        ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
         return;
     }
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);

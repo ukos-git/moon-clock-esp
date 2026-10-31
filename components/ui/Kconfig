@@ -456,17 +456,18 @@ menu "UI Component Configuration"
         default 240
         range 0 2000
         help
-            A screen switch (e.g. into the settings hub) fades the
-            OUTGOING screen down to black (one whole-panel flush per
-            step), loads the new screen off the visible path, then
-            fades the new screen IN from black. Each step is one atomic
-            whole-panel lv_refr_now under the moon buffer mutex (the
-            moon pipeline's display rule), so no top-to-bottom strip
-            crawl and no visible tearing. The total switch cost is
-            roughly 2x this time (two fade legs). 0 = the plain
-            instant atomic switch (lv_scr_load + one whole-panel
-            flush, the old behaviour). Only screens without a moon
-            image on BOTH sides take the fade leg that renders the
-            new screen (the moon screens switch atomically as always).
+            A screen switch (e.g. into the settings hub) dims the
+            panel's OWN hardware brightness (the CO5300 0x51 command)
+            to black, loads the new screen, displays it as ONE atomic
+            whole-panel flush while the panel is still black, then
+            ramps the brightness back. The transition writes NO
+            pixels -- no overlay, no per-step re-render, no strip
+            traffic on the panel bus -- so it is cheap and shows no
+            left-to-right crawl. The total switch cost is roughly 2x
+            this time (the two ramps) plus one hidden whole-panel
+            flush. 0 = the plain instant atomic switch (lv_scr_load
+            + one whole-panel flush). Only switches that cross the
+            moon / moon-less boundary take the fade (the moon screens
+            switch atomically as always).
 
 endmenu
