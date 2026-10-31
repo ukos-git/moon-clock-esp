@@ -629,8 +629,8 @@ void action_roll_test_cb(lv_timer_t *timer) {
         if (clock_is_idle())
             clock_idle_notify_tilt_activity();
         ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ORI_SCRIPT_END_S);
-        bsp_display_backlight_on();
-        clock_timer_disable(); /* the light-sleep countdown may still be armed */
+        moon_ui_panel_brightness_set(100); /* the panel-io-serialized backlight */
+        clock_timer_disable();             /* the light-sleep countdown may still be armed */
         clock_idle_set_enabled(false);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
@@ -880,7 +880,7 @@ void action_alarm_triggered(lv_event_t *e) {
     // An alarm can fire from DEEP SLEEP (the panel backlight is off
     // there): light the panel before the alarm screen is shown.
     if (g_backlight_off) {
-        if (bsp_display_backlight_on() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(100) == ESP_OK) {
             g_backlight_off = false;
             ESP_LOGI(TAG, "Alarm: panel backlight restored");
         } else {
@@ -1007,7 +1007,7 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // before it kept it on). A wake (touch, tilt or an alarm) restores
     // it (action_wake_screen / action_alarm_triggered).
     if (!g_backlight_off) {
-        if (bsp_display_backlight_off() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(0) == ESP_OK) {
             g_backlight_off = true;
             ESP_LOGI(TAG, "Deep sleep: panel backlight off");
         } else {
@@ -1043,7 +1043,7 @@ void action_wake_screen(lv_event_t *e) {
     // A wake from deep sleep lights the panel again (the deep-sleep
     // transition turned the backlight off).
     if (g_backlight_off) {
-        if (bsp_display_backlight_on() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(100) == ESP_OK) {
             g_backlight_off = false;
             ESP_LOGI(TAG, "Wake: panel backlight restored");
         } else {

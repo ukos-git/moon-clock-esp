@@ -131,6 +131,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -365,6 +366,28 @@ static volatile bool s_panel_wrap;     /* the draw_bitmap wrapper is installed *
 static uint8_t *s_ui_mask;             /* the per-pixel UI keep-mask, MOON_PX^2 */
 static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
                                           change); the LVGL task picks it up */
+/* Forward decl: the screen-switch fade (defined later) holds the spin's panel
+ * writes while its 0x51 brightness ramp runs (the fade section). */
+static volatile bool s_fade_busy;
+
+/* The panel-io watchdog. Every QSPI panel write goes through the panel io's
+ * ONE spi_device and the GPSPI bus lock: if a queued DMA transfer's
+ * completion is ever lost (the CO5300 + QSPI driver has lost one on this
+ * board -- a deterministic repro: a whole-panel flush in flight while the
+ * spin's strip writes race it), the bus lock's background (REQ/PEND) bit
+ * is never cleared, and EVERY later spi_device_acquire_bus -- LVGL's
+ * flushes, the spin's strips, the 0x51 brightness writes -- blocks forever
+ * in dev_wait (portMAX_DELAY), with the mutex still held: a silent,
+ * no-WDT, permanent freeze (two tasks parked on one bus lock, no holder).
+ * s_panel_mtx is held only inside a write (a strip ~10 ms, the 16-strip
+ * spin frame ~30-80 ms, the boot/refresh flush <500 ms), so a hold longer
+ * than the limit below can ONLY mean the bus is stuck -- no legitimate
+ * path waits that long (the spin task is the sole other holder, and it
+ * holds no more than a frame). The watchdog takes the mutex and, when the
+ * wait overruns, restarts: a clean reboot instead of a dead screen. */
+#define PANEL_IO_WATCHDOG_LIMIT_MS 3000
+static TaskHandle_t s_panel_watchdog;
+static volatile bool s_panel_watchdog_armed; /* moon_ui_init succeeded */
 
 /* Swap the bytes of a 16-bit pixel for the QSPI panel (the panel io
  * sends 16-bit pixels MSB-first, the OTHER interface sends them
@@ -384,6 +407,25 @@ static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (
  * the mirror stores it RAW -- no swap here, no swap in the spin's
  * step-rotate. This is what keeps the spin's direct writes and
  * LVGL's flushes serialized on ONE lock at the panel boundary. */
+/* The real draw_bitmap, retried until the panel accepts the write. The P4's
+ * DPI panel copies each strip with an ASYNC DMA2D (its draw semaphore is
+ * held until the copy lands): back-to-back calls return
+ * ESP_ERR_INVALID_STATE ("previous draw operation is not finished") and the
+ * strip is DROPPED. The S3's QSPI panel writes synchronously, so the first
+ * attempt always succeeds and the retry costs nothing there. Callers must
+ * hold s_panel_mtx. */
+static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                      const void *color_data) {
+    for (int attempt = 0; attempt < 100; attempt++) {
+        esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
+        if (r == ESP_OK)
+            return ESP_OK;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    ESP_LOGW(TAG, "panel draw not accepted after ~100 ms (y %d..%d)", y_start, y_end);
+    return ESP_ERR_TIMEOUT;
+}
+
 static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                         const void *color_data) {
     (void)panel;
@@ -403,7 +445,7 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
             memcpy(dst, srow, (size_t)xw * sizeof(uint16_t));
         }
     }
-    esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
+    esp_err_t r = moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data);
     xSemaphoreGive(s_panel_mtx);
     return r;
 }
@@ -778,7 +820,18 @@ static void moon_spin_task(void *arg) {
                                 * resumes the spin from exactly this
                                 * angle. */
         xSemaphoreGive(s_rgb_mtx);
-        moon_spin_write_panel();
+        /* The screen-switch fade's 0x51 ramp (s_fade_busy) is the only
+         * panel-io traffic that may run: the spin integrates its angle
+         * (above) but SKIPS the panel write, so a 0x51 is never queued
+         * behind one of the spin's in-flight strip DMAs (a lost DMA
+         * completion parks the whole bus lock forever -- the freeze
+         * this project hit, and no interleaving of that class can
+         * happen while the ramp is owed). The angle keeps running, so
+         * the first frame after the switch lands from the exact pose.
+         * (The angle integration runs every frame; the dt clamp keeps
+         * a long pause a bounded step, not a turn.) */
+        if (!s_fade_busy)
+            moon_spin_write_panel();
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
         /* Pace to the configured frame rate (UI_MOON_SPIN_FPS): the
          * frame budget is gather ~8 ms + panel write ~30-40 ms of
@@ -1005,9 +1058,9 @@ static void moon_spin_write_panel(void) {
                 row[x] = frow[x];
     }
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
-        (void)s_orig_draw(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS, MOON_IMG_POS + MOON_PX,
-                          MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
-                          s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
+        (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
+                                   MOON_IMG_POS + MOON_PX, MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
+                                   s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
     }
     xSemaphoreGive(s_panel_mtx);
 }
@@ -2123,6 +2176,43 @@ static void moon_tick_cb(lv_timer_t *timer) {
 
 /* ---------------- public API ---------------- */
 
+/* The panel-io watchdog task (see the s_panel_mtx block): take the panel
+ * mutex with a finite timeout -- a normal take returns in <100 ms (a
+ * single strip or one spin frame), so a wait that overruns the limit
+ * means the current holder is stuck inside a panel-io write on a bus
+ * that will never free. Log and restart: the device comes back clean
+ * (the moon re-bakes from the RTC; the spin angle re-anchors) instead
+ * of freezing. Priority 3 = above the spin (configMAX_PRIORITIES - 3)
+ * and every UI task; the take is the ONLY work, so it cannot starve
+ * anything. */
+static void moon_panel_watchdog_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(PANEL_IO_WATCHDOG_LIMIT_MS));
+        if (!s_panel_watchdog_armed)
+            continue;
+        TickType_t t0 = xTaskGetTickCount();
+        BaseType_t r = xSemaphoreTake(s_panel_mtx, pdMS_TO_TICKS(PANEL_IO_WATCHDOG_LIMIT_MS));
+        if (r == pdTRUE) {
+            xSemaphoreGive(s_panel_mtx);
+            continue;
+        }
+        /* Still held after PANEL_IO_WATCHDOG_LIMIT_MS of waiting, on top
+         * of PANEL_IO_WATCHDOG_LIMIT_MS of idle -- the holder (a spin
+         * strip, a flush strip or a 0x51 write) is parked inside
+         * spi_device_acquire_bus on a bus lock that will never clear.
+         * Restart so the user gets a working clock instead of a dead
+         * one; the log marks it unambiguously for the field. */
+        ESP_LOGE(TAG,
+                 "PANEL IO STUCK: panel mutex held %lu ms after a %lu ms wait -- the QSPI "
+                 "bus lock is stuck (a DMA completion was lost); restarting",
+                 (unsigned long)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS,
+                 (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
+        vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+        esp_restart();
+    }
+}
+
 void moon_ui_init(void) {
     if (s_ready)
         return;
@@ -2228,6 +2318,20 @@ void moon_ui_init(void) {
      * caches the LVGL task handle (moon_on_lvgl), so the timer is
      * created even when UI_IMU_ENABLE is off (see the callback). */
     lv_timer_create(moon_tilt_monitor_cb, 1000, NULL);
+    /* The panel-io watchdog (the restart guard for the lost-DMA-completion
+     * bus stall; the panel handle exists, so its lock is the one to watch).
+     * Low priority on core 0: it sleeps 3 s at a time and needs only a few
+     * instructions to test the mutex, so the LVGL task (also core 0) and
+     * the spin (core 1) are never starved by it. */
+    if (s_panel) {
+        if (xTaskCreatePinnedToCore(moon_panel_watchdog_task, "panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0) !=
+            pdPASS) {
+            ESP_LOGW(TAG, "panel watchdog task failed to start");
+        } else {
+            s_panel_watchdog_armed = true;
+            ESP_LOGI(TAG, "panel-io watchdog armed (%lu ms stuck limit)", (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
+        }
+    }
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
 }
@@ -2610,18 +2714,29 @@ static bool moon_screen_has_image(void) {
  * same moon disk), as do switches while a bake pipeline owns the
  * buffers. Must run on the LVGL task. */
 #define FADE_STEPS 12
-static bool s_fade_pending; /* the fade-out dimmed the panel; the fade-in is owed */
+static bool s_fade_pending;       /* the fade-out dimmed the panel; the fade-in is owed */
+static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
+                                      panel writes so the ramp's 0x51 writes are
+                                      the ONLY panel-io traffic in flight */
 
 /* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
  * (0..100) in FADE_STEPS steps, paced CONFIG_UI_SCREEN_SWITCH_FADE /
  * FADE_STEPS ms between steps. Each step is one 0x51 SPI param
  * transaction (~100 us): the ramp is free, so the steps are many and
  * short (the luminance steps stay small enough not to read as
- * discrete steps). */
+ * discrete steps). Each write takes the panel mutex: a 0x51 write must
+ * not land in the middle of a whole-panel flush or a spin frame (the
+ * panel-io driver's bus lock serializes them, but a 0x51 queued behind
+ * a queued strip that never completes parks the ramp's writer forever --
+ * the freeze this project hit). The fade sets s_fade_busy, and the spin
+ * holds its own panel writes for the ramp's duration, so in practice the
+ * mutex is free when the ramp runs. */
 static void fade_ramp(int from_pct, int to_pct) {
     for (int s = 1; s <= FADE_STEPS; s++) {
         int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
+        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
         bsp_display_brightness_set(pct);
+        xSemaphoreGive(s_panel_mtx);
         if (s < FADE_STEPS)
             vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
     }
@@ -2629,8 +2744,12 @@ static void fade_ramp(int from_pct, int to_pct) {
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
  * loadScreen calls it before lv_scr_load when the switch crosses the
- * moon boundary). No pixels are written and the spin keeps running
- * (its frames just dim); the fade-in leg (moon_ui_screen_switched)
+ * moon boundary). No pixels are written; the spin's PANEL WRITES pause
+ * for the ramp (s_fade_busy -- the 0x51 ramp must be the only panel-io
+ * traffic in flight so a lost-DMA-completion stall cannot strand it
+ * behind a queued strip: the spin's angle keeps integrating, so the
+ * moon just holds its pose for ~240 ms and resumes from the exact angle
+ * when the switch completes). The fade-in leg (moon_ui_screen_switched)
  * displays the new screen while the panel is still black and ramps the
  * brightness back. No-op when the fade is off, the moon UI is not
  * ready, or a bake pipeline owns the buffers. */
@@ -2639,6 +2758,8 @@ void moon_ui_fade_out(void) {
         s_dusk_baking)
         return;
     s_fade_pending = true;
+    s_fade_busy = true; /* the spin holds its panel writes until the
+                         * screen switch (moon_ui_screen_switched) */
     fade_ramp(100, 0);
     ESP_LOGI(TAG, "screen switch fade-out: panel brightness 100 -> 0 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
 }
@@ -2654,6 +2775,25 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
         if (s_moon_roots[i] == root)
             return true;
     return false;
+}
+
+/* The panel's hardware brightness (0..100%), serialized with every other
+ * panel-io consumer: a 0x51 write must not be queued behind a whole-panel
+ * flush or a spin's in-flight strip DMAs -- the panel-io driver's bus lock
+ * would serialize it anyway, and if one of those DMAs never completes the
+ * queued 0x51 parks this caller forever (the settings-entry freeze). The
+ * fade ramp (same file) and the spin/LVGL flushes (s_panel_mtx) are the
+ * other users of the lock; this is the one for the wake / deep-sleep /
+ * boot backlight paths (actions.c, main.cpp). When the moon UI is not
+ * ready the BSP call runs directly (the panel is quiet at boot). */
+esp_err_t moon_ui_panel_brightness_set(int pct) {
+    if (s_ready && s_panel_mtx) {
+        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+        esp_err_t r = bsp_display_brightness_set(pct);
+        xSemaphoreGive(s_panel_mtx);
+        return r;
+    }
+    return bsp_display_brightness_set(pct);
 }
 
 void moon_ui_screen_switched(void) {
@@ -2685,6 +2825,7 @@ void moon_ui_screen_switched(void) {
     }
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking) {
         s_fade_pending = false; /* a plain async paint shows the new screen */
+        s_fade_busy = false;
         return;
     }
     if (s_fade_pending && CONFIG_UI_SCREEN_SWITCH_FADE > 0) {
@@ -2692,12 +2833,19 @@ void moon_ui_screen_switched(void) {
          * flush runs while the panel is STILL BLACK (invisible -- the
          * invariant's atomic display, off the visible path), then the
          * hardware brightness ramps back to full and the fully
-         * rendered screen comes up at once. */
+         * rendered screen comes up at once. The flush strips take the
+         * panel mutex in the draw_bitmap wrapper (per strip -- taking
+         * it here as well would self-deadlock: the mutex is
+         * non-reentrant and the wrapper IS the flush's panel path),
+         * and the ramp's 0x51 writes take it per step. The spin holds
+         * its panel writes while s_fade_busy, so the only panel-io
+         * traffic in flight is the flush's own. */
         s_fade_pending = false;
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
         fade_ramp(0, 100);
+        s_fade_busy = false; /* the spin's panel writes resume */
         ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
         return;
     }

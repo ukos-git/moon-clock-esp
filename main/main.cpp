@@ -40,6 +40,9 @@
 #ifndef CONFIG_TEST_HANG_WATCH
 #define CONFIG_TEST_HANG_WATCH 0
 #endif
+#ifndef CONFIG_TEST_WIFI_SCAN_SEC
+#define CONFIG_TEST_WIFI_SCAN_SEC 0
+#endif
 
 // Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
 // (a 200 ms lv_timer runs on it; every other lv_timer -- the RTC poll,
@@ -107,6 +110,40 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
     asleep_s = 0;
     ESP_LOGW(TAG, "TEST auto-wake: firing idle wake after %us in sleep", CONFIG_TEST_AUTO_WAKE_SEC);
     clock_idle_notify_tilt_activity();
+}
+
+// Test hook (CONFIG_TEST_WIFI_SCAN_SEC): open the settings WiFi screen N
+// seconds after boot -- the screen that starts the background AP scan
+// (wifi_scan_begin) and renders the results as rows. Headless verification
+// of the scan path (on the P4: the esp_hosted RPC scan through the remote
+// C6, including its 5 GHz APs). Like the settings demo it waits out the
+// boot sweep (a screen switch mid-sweep is guarded off) and keeps idle
+// monitoring off so the capture is not cut by the sleep transition.
+static void wifi_scan_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_WIFI_SCAN_SEC <= 0)
+        return;
+    static uint32_t wait_s = (uint32_t)CONFIG_TEST_WIFI_SCAN_SEC;
+    static bool opened = false;
+    if (wait_s > 0) {
+        if (--wait_s > 0)
+            return;
+        ESP_LOGW(TAG, "TEST wifi scan: wait done, waiting out the boot sweep");
+        clock_idle_set_enabled(false);
+    }
+    if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
+        return; // hold until the sweep is done
+    if (opened)
+        return;
+    opened = true;
+    ESP_LOGW(TAG, "TEST wifi scan: opening the WiFi settings screen");
+    loadScreen(SCREEN_ID_SETTINGS_WIFI);
+    ui_tick();
+    /* loadScreen + ui_tick only switch the root; the per-screen refresh
+     * (which calls wifi_scan_begin for the WiFi screen) is driven by the
+     * entry's event handler in the real flow. Mirror it here, else the
+     * background scan never starts. */
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
 }
 
 // Test hook (CONFIG_TEST_SETTINGS_DEMO_SEC): the scripted settings run.
@@ -373,7 +410,10 @@ extern "C" void app_main(void) {
     }
 
     bsp_display_start();
-    bsp_display_backlight_on();
+    /* Serialized backlight (direct BSP call at boot -- moon_ui_init has
+     * not run yet, so the panel-io mutex is not armed and the wrapper
+     * falls through to the raw write). */
+    moon_ui_panel_brightness_set(100);
 
     bsp_display_lock(-1);
 
@@ -495,6 +535,10 @@ extern "C" void app_main(void) {
     // transform layer (PSRAM alloc) + centre pivot run without a tilt.
     if (CONFIG_TEST_ROLL_TILT_SEC > 0)
         lv_timer_create(action_roll_test_cb, 1000, NULL);
+
+    // Test hook: the headless WiFi scan (TEST_WIFI_SCAN_SEC; 0 = off).
+    if (CONFIG_TEST_WIFI_SCAN_SEC > 0)
+        lv_timer_create(wifi_scan_test_cb, 1000, NULL);
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

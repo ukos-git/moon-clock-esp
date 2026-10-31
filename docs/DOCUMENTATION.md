@@ -162,25 +162,61 @@ appended; later file wins). The two targets resolve different managed-component
 sets (different BSP + display/touch/Wi-Fi stacks), so the P4 build runs with
 its own lock (`dependencies.lock.p4`, gitignored) and never touches the tracked
 S3 `dependencies.lock`; the vendored S3 BSP is excluded from the P4 build
-(`EXCLUDE_COMPONENTS`), and the root `CMakeLists.txt` selects
-`partitions_p4.csv` (32 MB chip, §3.2) and `FATAL_ERROR`s on a target/board
-mismatch.
+(`EXCLUDE_COMPONENTS`), and the root `CMakeLists.txt` `FATAL_ERROR`s on a
+target/board mismatch. The partition table is **not** a CMake choice: the
+`partition_table` component re-derives `PARTITION_CSV_PATH` from Kconfig at
+configure time, so a plain `set(PARTITION_CSV_PATH …)` before `project()` is
+clobbered. The S3 keeps its default `partitions.csv`; the P4 picks
+`partitions_p4.csv` (32 MB chip, §3.2) through the Kconfig value
+`CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"` in
+`sdkconfig.defaults.esp32p4` (the shared file sets
+`CONFIG_PARTITION_TABLE_CUSTOM=y`).
 
 ```bash
 idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
 idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p /dev/ttyACM1
 ```
 
-**State (2026-10-31):** the plumbing is in and the P4 target configures and
-fetches (the XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter stack resolves from
-the registry against IDF 5.5.1, rev v1.3 profile; the display, touch, 32 MB
-PSRAM @ 200 MHz and the remote C6 Wi-Fi were proven on the board in a scratch
-bring-up). The P4 product path — Wi-Fi in the app (the remote C6 over SDIO via
-`esp_hosted`), the moon at 720 px, the UI upscale, and the clock (no RTC IC:
-crystal-backed internal RTC timer + SNTP + software alarms) — is the follow-on
-work; a full P4 build + flash has not been run yet. The S3 build flow is
-unchanged; the shim + call-site migration add ~15 KB to the S3 binary
-(1,450,688 B, §3.1).
+**State (2026-10-31):** the P4 build is green and flashed — the app boots clean
+on the board (rev v1.3 profile; XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter,
+32 MB PSRAM @ 200 MHz; 0 WDT / 0 panic / 0 assert), associates over the
+**remote C6** (the `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5 pair over
+SDIO, ~7.5 s to IP) and syncs the clock by SNTP (the first clock smoke; the
+clock label then shows real time). Three P4-specific code facts:
+
+- **The remote radio is initialized exactly once.** The host-side LWIP netif
+  attach of the `esp_hosted` radio is not re-runnable: a second
+  `esp_wifi_init()` re-adds the persistent netif and asserts
+  `netif_add (netif already added)`. So on the P4 the manager inits the radio
+  once (`s_wifi_inited`) and every teardown (airplane screen, scan) is
+  `esp_wifi_stop()` only — no `esp_wifi_deinit()`. This is what the first P4
+  boot crash-looped on (the airplane→sync cycle was deinit+init).
+- **The time base is the system clock.** The P4 has no PCF85063A / no I2C bus /
+  no IO expander, so the whole PCF block in `clock_init` is S3-only;
+  `clock_get_time`/`clock_set_time` read/write the SNTP-synced system clock
+  (`time()`/`localtime_r`, `settimeofday`), `clock_is_interrupt_pending` is a
+  P4 no-op (no PCF CTRL2 to poll), and the SNTP path fills the time it writes
+  from `clock_sntp_get_system_time` (the earlier "Invalid time values" log was
+  an unfilled stack var on the NTP-success path). The crystal-backed RTC
+  timer + periodic re-sync + `esp_timer` software alarms land in M5.
+- **The DSI panel's strip writes are async.** The P4 DPI panel copies each
+  strip via DMA2D and rejects a new draw while the previous copy is in flight
+  (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
+  QSPI panel writes synchronously, so the 16 back-to-back raw panel writes of
+  the burn-in spin dropped strips on the P4. Both panel-write sites (LVGL flush
+  wrapper + spin) now retry through `moon_panel_draw_wait` (~100 ms window, 1
+  ms apart).
+
+Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
+internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
+`IRAM_ATTR` would land ~113 KB of LVGL in the scarce `sram_low` and overflow
+the link), and the CPU1 idle-task WDT check is disabled
+(`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`) because the moon sweep/spin owns
+a core for seconds (same as the S3). The remaining P4 product path — the moon
+at 720 px, the UI upscale, and the software-alarm clock path (no RTC IC:
+crystal-backed internal RTC timer + SNTP + `esp_timer` alarms) — is the
+follow-on work (M3–M5). The S3 build flow is unchanged; the shim + call-site
+migration add ~15 KB to the S3 binary (1,450,688 B, §3.1).
 
 ### 2.4 Flash + serial
 
@@ -256,7 +292,7 @@ find every partition by label, not offset, so the widening is layout-invisible;
 | MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash |
 | Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted)                                                               |
 | Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                 |
-| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4._ / `esp_wifi_remote` 0.14._: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
+| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
 | Time base | none (no RTC IC)    | the internal RTC timer, crystal-backed (32.768 kHz on the board) + SNTP; VBAT battery header (power-loss survival to be verified)                        |
 | IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                              |
 | Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                      |
@@ -324,13 +360,14 @@ docs/                  this document + media
 
 ### 4.2 Task & core model
 
-| Task           | Core | Job                                                                                                                                                                                                                        |
-| -------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, the fade-to-black switch legs, atomic whole-panel flushes; 8 KB stack                                                                                          |
-| spin render    | 1    | the free spin: one nearest-neighbor gather of the baked 400×400 frame (~8 ms) + a direct panel write of the moon area (8 fps default), rate = active period while in use, slow settled period (default 600 s/turn) at rest |
-| moon bakes     | 1    | boot sweep (336 frames), daily re-bake, dusk shade map + final bake, row-by-row so an interrupt is honored                                                                                                                 |
-| wifi sync      | 1    | background `wifi_manager_init` + NTP (never on the LVGL task — the wake-freeze bug's fix)                                                                                                                                  |
-| main           | 0    | boot, RTC polling (1.3 s), test hooks                                                                                                                                                                                      |
+| Task           | Core | Job                                                                                                                                                                                                                                                                   |
+| -------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, the fade-to-black switch legs, atomic whole-panel flushes; 8 KB stack                                                                                                                                     |
+| spin render    | 1    | the free spin: one nearest-neighbor gather of the baked 400×400 frame (~8 ms) + a direct panel write of the moon area (8 fps default), rate = active period while in use, slow settled period (default 600 s/turn) at rest                                            |
+| moon bakes     | 1    | boot sweep (336 frames), daily re-bake, dusk shade map + final bake, row-by-row so an interrupt is honored                                                                                                                                                            |
+| wifi sync      | 1    | background `wifi_manager_init` + NTP (never on the LVGL task — the wake-freeze bug's fix)                                                                                                                                                                             |
+| panel watchdog | 0    | sleeps 3 s at a time, then probes `s_panel_mtx` with a 3 s bound: if the panel mutex is still held, a QSPI bus lock was lost (a strip DMA's completion never landed) and the log says `PANEL IO STUCK` → `esp_restart()` — the settings-freeze bug's backstop (§10.4) |
+| main           | 0    | boot, RTC polling (1.3 s), test hooks                                                                                                                                                                                                                                 |
 
 All moon-pipeline frames (bake, sweep, dusk, wake) land on the panel as **one
 atomic whole-panel `lv_refr_now` under `s_rgb_mtx`** — the display invariant.
@@ -338,8 +375,10 @@ Two sanctioned exceptions, both serialized on the panel's SPI bus lock: the
 burn-in spin writes its 400×400 moon area **straight to the panel** from the
 render task (§8.1), and the screen-switch fade is a **hardware panel-brightness
 ramp** (the CO5300 0x51 command) that writes no pixels at all — its one atomic
-whole-panel flush of the new screen runs while the panel is still black
-(§10.4). No tearing either way.
+whole-panel flush of the new screen runs while the panel is still black, and
+the ramp's 0x51 steps plus the spin's panel writes are serialized on
+`s_panel_mtx` (the spin holds its writes while the fade runs, §10.4). No
+tearing either way.
 
 ### 4.3 The display pipeline
 
@@ -563,7 +602,10 @@ live.
   clock hidden**, and the **backlight off** after the countdown — the panel is
   genuinely dark (AMOLED), the RTC keeps counting; an alarm can fire from here
   and restore the backlight. Clock updates are gated while the backlight is off
-  (no live minute updates in deep sleep).
+  (no live minute updates in deep sleep). The backlight off/on (here, on wake,
+  and at boot) goes through `moon_ui_panel_brightness_set` — the 0x51 write is
+  serialized on `s_panel_mtx` so it is never queued behind a spin strip DMA
+  that could stall the bus (§10.4).
 
 ### 7.5 Alarm (fired)
 
@@ -767,8 +809,10 @@ were made and implemented:
 4. **The screen-switch fade does not add a static element** — the panel's OWN
    hardware brightness steps the whole panel to/from black (the CO5300 0x51
    command, the same dimming the deep-sleep backlight off/on uses); no overlay
-   is drawn and no pixels are written while it runs, and the content underneath
-   keeps its motion (the spin's frames just dim as the screen fades out).
+   is drawn, and while the fade ramp runs the spin holds its panel writes
+   (`s_fade_busy`) — the 0x51 ramp is the only panel-io traffic in flight, so
+   the moon's image freezes for the ~240 ms ramp (its angle keeps integrating,
+   so it resumes from the exact pose).
 5. **Residual risk, stated plainly:** the _clock digits_ are the only truly
    static elements (they move with the 90° steps and with the tilt-driven roll,
    but between rolls they sit still). At the AMOLED's always-on duty cycle the
@@ -807,8 +851,9 @@ on-device the final frame is a pixel-exact bake at φ\* = +134.78° for the
 <video src="img/dusk.mp4" controls width="466"></video>
 
 **Fade-to-black screen switch** — airplane → settings hub: the panel's OWN
-hardware brightness dims the outgoing screen to black (a linear ramp, no pixels
-written — the spin keeps moving while the screen darkens), the new screen loads
+hardware brightness dims the outgoing screen to black (a linear 0x51 ramp — no
+pixels written; the spin holds its panel writes for the ramp's ~240 ms, so the
+moon's image freezes while its angle keeps integrating), the new screen loads
 and is flushed atomically while the panel is still black, then the brightness
 ramps back and the new screen comes up at once (`UI_SCREEN_SWITCH_FADE`,
 default 240 ms per leg). Only switches that cross the moon / moon-less boundary
@@ -888,15 +933,18 @@ loads the new screen, and ramps the brightness back:
   transaction per step. A fade step therefore writes **no pixels**: the
   transition costs nothing on the panel bus and shows no strip crawl.
 - **Fade-out** (`moon_ui_fade_out`, in `loadScreen` _before_ `lv_scr_load`):
-  the brightness ramps 100 → 0 in `FADE_STEPS` = 12 steps paced
-  `UI_SCREEN_SWITCH_FADE / 12` ms (12 small luminance steps stay smooth). The
-  spin KEEPS running — its frames just dim, so the moon keeps moving while the
-  screen darkens. The flag `s_fade_pending` is left set.
+  sets `s_fade_busy` (the spin keeps integrating its angle but **skips its
+  panel writes** — see the freeze fix below) and ramps the brightness 100 → 0
+  in `FADE_STEPS` = 12 steps paced `UI_SCREEN_SWITCH_FADE / 12` ms (12 small
+  luminance steps stay smooth), each step under `s_panel_mtx`. The flag
+  `s_fade_pending` is left set.
 - **Fade-in** (`moon_ui_screen_switched`): if `s_fade_pending`, the loaded
   screen is displayed as ONE atomic whole-panel `lv_refr_now` under `s_rgb_mtx`
   **while the panel is still black** (invisible — the invariant's one atomic
-  display, off the visible path), then the brightness ramps 0 → 100 and the
-  fully rendered new screen comes up at once.
+  display, off the visible path; the per-strip panel lock comes from the flush
+  wrapper itself), then the brightness ramps 0 → 100 (under `s_panel_mtx`) and
+  the fully rendered new screen comes up at once. `s_fade_busy` clears, and the
+  spin resumes its panel writes from the exact pose it was at.
 - **No fade:** both-moon switches (airplane / WiFi / the sleep screens share
   the one moon image) and both-moon-less switches (settings ↔ settings) keep
   the plain atomic `lv_scr_load` + one whole-panel flush — a fade there would
@@ -922,10 +970,48 @@ step). That was still a _display-bound_ transition: every step charged ~175 ms
 of QSPI strip traffic, and the panel's RAMWR fill sweeps each 25-row strip
 left-to-right — the user saw each grey step "update left to right for about a
 second". The fix uses the panel's own brightness command instead, so a fade
-step writes no pixels at all: the ramp is free, the only panel traffic of the
+step writes no pixels at all: the ramp is free, and the panel traffic of the
 whole switch is the ONE atomic flush of the new screen (which happens while the
-panel is black and is invisible), and the spin's direct writes keep landing
-during the fade, so the moon visibly keeps moving while the screen dims.
+panel is black and is invisible).
+
+**The settings-entry freeze → serialization + watchdog (2026-10-31):** the
+first device field test of the hardware ramp found that the home → settings
+switch could freeze the device PERMANENTLY (white stripes stuck mid-draw). The
+coredump (UART, decoded with GDB against the app ELF + ROM ELF) showed the
+mechanism: `lvgl` and `moon_spin` both parked in
+`spi_device_acquire_bus(portMAX_DELAY)` on the SAME GPSPI bus-lock semaphore,
+and NO task held the bus inside the driver — the bus lock's background (REQ/
+PENDING) bit was stuck. A QSPI strip DMA's completion was lost, so the lock's
+FSM (`spi_bus_lock.c`: task-acquire vs background-queued ownership) routed
+ownership to a background owner that would never release: every later
+`acquire_bus` blocked forever with the panel mutex held, and the parked tasks
+kept the idle tasks alive, so no WDT ever fired. lvgl was inside the fade's
+`0x51` write; the spin inside a RAMWR strip. The fix, all app-side (no vendor
+files touched):
+
+- **Serialize the 0x51 writes on `s_panel_mtx`** — the fade's ramp steps and
+  the backlight paths (wake, deep-sleep off/on, boot) all take the panel mutex
+  around `bsp_display_brightness_set` (the boot/wake/deep-sleep call sites use
+  the new `moon_ui_panel_brightness_set` wrapper for exactly this), so a
+  brightness write is never queued while a strip DMA is in flight.
+- **The spin yields the bus to the fade** — while `s_fade_busy` the spin keeps
+  integrating its angle but skips `moon_spin_write_panel`; the 0x51 ramp is
+  then the ONLY panel-io traffic in flight during the ~240 ms ramp (the user's
+  original ask: stop the heavy panel work before the transition).
+- **A backstop against the next lost completion** — a `panel_wdg` task (core 0,
+  prio 3, 4 KB) sleeps 3 s at a time, then probes `s_panel_mtx` with a 3 s
+  bound: if it is still held, the log says
+  `PANEL IO STUCK: … the QSPI bus lock is stuck (a DMA completion was lost); restarting`
+  and the device `esp_restart()`s — the silent dead screen becomes a logged,
+  recoverable reboot. Legitimate `s_panel_mtx` holds are <100 ms (spin
+  composite + strip write; LVGL flush wrapper per strip), so the 3 s bound has
+  ~30× margin.
+
+Verified on device: the deterministic repro (home → hub fade with the free spin
+active) passes cleanly, repeatedly; 4 light-sleep/dusk/wake cycles, the
+deep-sleep backlight off and the wake-from-deep-sleep backlight on (now
+`moon_ui_panel_brightness_set`), and a full settings demo all clean — 0
+`PANEL IO STUCK`, 0 WDT, 0 panics, 0 reboots across ~18 min of runtime.
 
 ### 10.5 Alarms, settings store, cron
 
@@ -957,18 +1043,18 @@ fires from there.
 
 Device captures (pyserial 115200, unattended runs with the test hooks):
 
-| Stage                                         | Value                                                                                                                                                                                                                                                                                                    |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once                                                                                                                                                                                                                                                                                        |
-| Boot sweep                                    | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                   |
-| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets                                                                                                                                                    |
-| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown                                                                                                                                              |
-| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                    |
-| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                     |
-| Screen switch (settings, fade)                | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic |
-| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                          |
-| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                           |
-| Binary                                        | `0x15e610` = 1,435,152 B in the 2,097,152 B partition (**662,000 B free** — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; the keyboard itself is the widening's beneficiary)                                                                                                  |
+| Stage                                         | Value                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once                                                                                                                                                                                                                                                                                                                                                         |
+| Boot sweep                                    | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                    |
+| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets                                                                                                                                                                                                                     |
+| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown                                                                                                                                                                                                               |
+| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                     |
+| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                      |
+| Screen switch (settings, fade)                | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic |
+| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                           |
+| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                            |
+| Binary                                        | `0x15e610` = 1,435,152 B in the 2,097,152 B partition (**662,000 B free** — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; the keyboard itself is the widening's beneficiary)                                                                                                                                                                   |
 
 ---
 
@@ -1058,6 +1144,10 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   lv_timer ticks, ~510 s real).
 - `TEST_BAKE_NO_RELIEF` — relief-free bakes (the PSRAM-load-latency floor A/B:
   bake ~1.3 s with relief vs ~0.95 s without).
+- `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
+  out the boot sweep and disabling idle monitoring), then holds while the
+  background scan completes — the headless scan-path check for the remote-C6
+  board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
@@ -1139,27 +1229,27 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 ### 14.2 UI component (`components/ui/Kconfig`)
 
-| Option                                                                        | Default         | Meaning                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CONFIG_UI_MOON_ANIM_ENABLE`                                                  | y               | the boot synodic sweep (336 frames); `#ifndef` fallback in `moon_ui.c` re-enables it if the symbol is undefined — disable by _setting 0_                                                                                                                          |
-| `CONFIG_UI_MOON_ANIM_FRAMES`                                                  | 336             | sweep length                                                                                                                                                                                                                                                      |
-| `CONFIG_UI_MOON_ANIM_BAKE_PX`                                                 | 240             | sweep bake resolution (the reduced-res fast path)                                                                                                                                                                                                                 |
-| `CONFIG_UI_MOON_ANIM_ON_WAKE`                                                 | n               | (obsolete test hook — the sweep is boot-only)                                                                                                                                                                                                                     |
-| `CONFIG_UI_MOON_DUSK_ENABLE`                                                  | y               | the light-sleep pole spin (constant projection)                                                                                                                                                                                                                   |
-| `CONFIG_UI_MOON_SPIN_ENABLE`                                                  | y               | the free spin (direct panel write via the wrapped `esp_lcd_panel_draw_bitmap`; paused while the orbit re-bake, the boot sweep, or the dusk owns the buffer — the screen-switch fade dims the panel's brightness and does NOT pause the spin: its frames just dim) |
-| `CONFIG_UI_MOON_SPIN_PERIOD_S`                                                | 300             | active spin: seconds per full turn while in use (range 30-7200)                                                                                                                                                                                                   |
-| `CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S`                                        | 600             | settled spin: seconds per full turn at rest (range 60-7200) — the constant slow burn-in spin (the phase-true coast it read as a freeze)                                                                                                                           |
-| `CONFIG_UI_MOON_SPIN_FPS`                                                     | 8               | spin frame rate: gathered + panel-written frames per second (range 2-30)                                                                                                                                                                                          |
-| `CONFIG_UI_MOON_SPIN_SETTLE_S`                                                | 10              | activity→settled-spin window                                                                                                                                                                                                                                      |
-| `CONFIG_UI_MOON_ORBIT_ENABLE`                                                 | n               | tilt-driven viewport orbit (off on the S3 — the relief re-bake cadence doesn't fit; retry on the P4). Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `moon_ui.c` is `#define 0`                                                               |
-| `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                                                                                |
-| `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                                                                                        |
-| `CONFIG_UI_LIGHT_SLEEP_TICK_MS`                                               | 100             | LVGL tick cadence in light sleep                                                                                                                                                                                                                                  |
-| `CONFIG_UI_IMU_ENABLE`                                                        | y               | QMI8658C tilt (drive the clock roll + activity)                                                                                                                                                                                                                   |
-| `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                                                                                            |
-| `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                                                                                             |
-| `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                                                                               |
-| `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                                                                                         |
+| Option                                                                        | Default         | Meaning                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_UI_MOON_ANIM_ENABLE`                                                  | y               | the boot synodic sweep (336 frames); `#ifndef` fallback in `moon_ui.c` re-enables it if the symbol is undefined — disable by _setting 0_                                                                                                                                                                                            |
+| `CONFIG_UI_MOON_ANIM_FRAMES`                                                  | 336             | sweep length                                                                                                                                                                                                                                                                                                                        |
+| `CONFIG_UI_MOON_ANIM_BAKE_PX`                                                 | 240             | sweep bake resolution (the reduced-res fast path)                                                                                                                                                                                                                                                                                   |
+| `CONFIG_UI_MOON_ANIM_ON_WAKE`                                                 | n               | (obsolete test hook — the sweep is boot-only)                                                                                                                                                                                                                                                                                       |
+| `CONFIG_UI_MOON_DUSK_ENABLE`                                                  | y               | the light-sleep pole spin (constant projection)                                                                                                                                                                                                                                                                                     |
+| `CONFIG_UI_MOON_SPIN_ENABLE`                                                  | y               | the free spin (direct panel write via the wrapped `esp_lcd_panel_draw_bitmap`; paused while the orbit re-bake, the boot sweep, or the dusk owns the buffer — the screen-switch fade also holds the spin's panel writes (`s_fade_busy`, the angle keeps integrating) so the 0x51 ramp is the only panel-io traffic in flight, §10.4) |
+| `CONFIG_UI_MOON_SPIN_PERIOD_S`                                                | 300             | active spin: seconds per full turn while in use (range 30-7200)                                                                                                                                                                                                                                                                     |
+| `CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S`                                        | 600             | settled spin: seconds per full turn at rest (range 60-7200) — the constant slow burn-in spin (the phase-true coast it read as a freeze)                                                                                                                                                                                             |
+| `CONFIG_UI_MOON_SPIN_FPS`                                                     | 8               | spin frame rate: gathered + panel-written frames per second (range 2-30)                                                                                                                                                                                                                                                            |
+| `CONFIG_UI_MOON_SPIN_SETTLE_S`                                                | 10              | activity→settled-spin window                                                                                                                                                                                                                                                                                                        |
+| `CONFIG_UI_MOON_ORBIT_ENABLE`                                                 | n               | tilt-driven viewport orbit (off on the S3 — the relief re-bake cadence doesn't fit; retry on the P4). Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `moon_ui.c` is `#define 0`                                                                                                                                 |
+| `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                                                                                                                                                  |
+| `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                                                                                                                                                          |
+| `CONFIG_UI_LIGHT_SLEEP_TICK_MS`                                               | 100             | LVGL tick cadence in light sleep                                                                                                                                                                                                                                                                                                    |
+| `CONFIG_UI_IMU_ENABLE`                                                        | y               | QMI8658C tilt (drive the clock roll + activity)                                                                                                                                                                                                                                                                                     |
+| `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                                                                                                                                                              |
+| `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                                                                                                                                                               |
+| `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                                                                                                                                                 |
+| `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                                                                                                                                                           |
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 
@@ -1174,7 +1264,7 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 Test hooks (all default off, §12.3): `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_ROLL_TILT_SEC`, `TEST_CPU_STATS_SEC`,
-`TEST_BAKE_NO_RELIEF`.
+`TEST_BAKE_NO_RELIEF`, `TEST_WIFI_SCAN_SEC`.
 
 ### 14.4 Runtime settings store (`/spiffs/settings.txt`)
 
@@ -1249,7 +1339,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (87,218 B)
+- `docs/doc_template.md` (93,969 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -1514,15 +1604,15 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-# Set partition table by build target: the P4 has a 32 MB chip (the S3's
-# 16 MB table does not fit the layout, and vice versa). IDF_TARGET is a
-# cmake variable (idf.py cache), so this resolves before project(); the
-# P4 build passes -D IDF_TARGET=esp32p4, a plain S3 build leaves the
-# default. The target and the Kconfig BOARD choice must agree (the
-# CONFIG_* check below runs after project(), when the sdkconfig vars are
-# in scope).
+# P4 target block. (The partition table is NOT set here: the partition_table
+# component's project hook re-derives PARTITION_CSV_PATH from the Kconfig
+# values, so a plain set() before project() is clobbered. The selection
+# lives in the per-target defaults files instead — the shared
+# sdkconfig.defaults sets CONFIG_PARTITION_TABLE_CUSTOM=y, and
+# sdkconfig.defaults.esp32p4 sets
+# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv" (32 MB layout,
+# 9216K factory); the S3 keeps the default "partitions.csv".)
 if(IDF_TARGET STREQUAL "esp32p4")
-    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions_p4.csv)
     # The vendored S3 BSP is S3-only (its manifest declares
     # targets: [esp32s3]); EXCLUDE_COMPONENTS keeps it out of the P4
     # build AND of the component manager's local-manifest list (which
@@ -1536,8 +1626,6 @@ if(IDF_TARGET STREQUAL "esp32p4")
     # project(), which runs the component manager.
     idf_build_set_property(DEPENDENCIES_LOCK
         "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
-else()
-    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions.csv)
 endif()
 
 project(moon-phase)
@@ -1960,6 +2048,7 @@ idf_component_register(
 ```c
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "driver/i2c_master.h"
@@ -2058,6 +2147,9 @@ esp_err_t clock_init(const clock_config_t *cfg) {
 
     ESP_LOGI(TAG, "Initializing clock component");
 
+    esp_err_t ret;
+
+#if !defined(CONFIG_BOARD_P4)
     // Get I2C master bus handle from BSP
     s_bus_handle = bsp_i2c_get_handle();
     if (!s_bus_handle) {
@@ -2065,9 +2157,6 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t ret;
-
-#if !defined(CONFIG_BOARD_P4)
     // Initialize PCF85063A using the library
     ret = pcf85063a_init(&s_rtc_dev, s_bus_handle, PCF85063A_ADDRESS);
     if (ret != ESP_OK) {
@@ -2112,8 +2201,15 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     // Try NTP synchronization if enabled and WiFi is available
     if (cfg->enable_ntp_sync) {
         ESP_LOGI(TAG, "Attempting NTP time synchronization...");
-        if (clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS) == ESP_OK)
-            time_obtained = true;
+        if (clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS) == ESP_OK) {
+            // clock_sync_time_from_ntp already wrote the (its own, valid)
+            // value to the RTC; fill time_to_set from the now-synced system
+            // clock so the redundant clock_set_time below does not write an
+            // uninitialized stack variable (it was left unfilled on the
+            // NTP-success path and logged "Invalid time values").
+            if (clock_sntp_get_system_time(&time_to_set) == ESP_OK)
+                time_obtained = true;
+        }
     }
 
     // If NTP failed or not enabled, try to get system time
@@ -2179,6 +2275,21 @@ esp_err_t clock_get_time(clock_time_t *out) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if defined(CONFIG_BOARD_P4)
+    // No external RTC IC: the time base is the system clock (SNTP-synced;
+    // the crystal-backed internal RTC timer + NVS epoch backup land in M5).
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    out->year = timeinfo.tm_year + 1900;
+    out->month = timeinfo.tm_mon + 1;
+    out->day = timeinfo.tm_mday;
+    out->hour = timeinfo.tm_hour;
+    out->minute = timeinfo.tm_min;
+    out->second = timeinfo.tm_sec;
+    return ESP_OK;
+#else
     pcf85063a_datetime_t pcf_time;
     esp_err_t ret = pcf85063a_get_time_date(&s_rtc_dev, &pcf_time);
     if (ret != ESP_OK) {
@@ -2187,6 +2298,7 @@ esp_err_t clock_get_time(clock_time_t *out) {
 
     pcf_to_clock_time(&pcf_time, out);
     return ESP_OK;
+#endif
 }
 
 esp_err_t clock_get_utc_epoch(int64_t *out) {
@@ -2236,10 +2348,31 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if defined(CONFIG_BOARD_P4)
+    // No external RTC IC: the "RTC" is the system clock. mktime interprets
+    // the value as local time (TZ/DST-adjusted), which is what settimeofday
+    // wants.
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = time->year - 1900;
+    tm.tm_mon = time->month - 1;
+    tm.tm_mday = time->day;
+    tm.tm_hour = time->hour;
+    tm.tm_min = time->minute;
+    tm.tm_sec = time->second;
+    tm.tm_isdst = -1;
+    time_t epoch = mktime(&tm);
+    if (epoch == (time_t)-1) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct timeval tv = {.tv_sec = epoch, .tv_usec = 0};
+    return (settimeofday(&tv, NULL) == 0) ? ESP_OK : ESP_ERR_INVALID_STATE;
+#else
     pcf85063a_datetime_t pcf_time;
     clock_to_pcf_time(time, &pcf_time);
 
     return pcf85063a_set_time_date(&s_rtc_dev, pcf_time);
+#endif
 }
 ```
 
@@ -3549,6 +3682,13 @@ bool clock_is_interrupt_pending(void) {
     if (!s_initialized) {
         return false;
     }
+
+#if defined(CONFIG_BOARD_P4)
+    // No PCF85063A: there is no RTC flag register to poll (the 1.3 s poll
+    // would otherwise log an error every cycle). The software minute/alarm
+    // path lands in M5.
+    return false;
+#endif
 
     // Check EXIO 3 pin level (useful for wake-up from deep sleep detection)
     bool exio_int_active = false;
@@ -13126,7 +13266,7 @@ void action_roll_test_cb(lv_timer_t *timer) {
         if (clock_is_idle())
             clock_idle_notify_tilt_activity();
         ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ORI_SCRIPT_END_S);
-        bsp_display_backlight_on();
+        moon_ui_panel_brightness_set(100); /* the panel-io-serialized backlight */
         clock_timer_disable(); /* the light-sleep countdown may still be armed */
         clock_idle_set_enabled(false);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
@@ -13377,7 +13517,7 @@ void action_alarm_triggered(lv_event_t *e) {
     // An alarm can fire from DEEP SLEEP (the panel backlight is off
     // there): light the panel before the alarm screen is shown.
     if (g_backlight_off) {
-        if (bsp_display_backlight_on() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(100) == ESP_OK) {
             g_backlight_off = false;
             ESP_LOGI(TAG, "Alarm: panel backlight restored");
         } else {
@@ -13504,7 +13644,7 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // before it kept it on). A wake (touch, tilt or an alarm) restores
     // it (action_wake_screen / action_alarm_triggered).
     if (!g_backlight_off) {
-        if (bsp_display_backlight_off() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(0) == ESP_OK) {
             g_backlight_off = true;
             ESP_LOGI(TAG, "Deep sleep: panel backlight off");
         } else {
@@ -13540,7 +13680,7 @@ void action_wake_screen(lv_event_t *e) {
     // A wake from deep sleep lights the panel again (the deep-sleep
     // transition turned the backlight off).
     if (g_backlight_off) {
-        if (bsp_display_backlight_on() == ESP_OK) {
+        if (moon_ui_panel_brightness_set(100) == ESP_OK) {
             g_backlight_off = false;
             ESP_LOGI(TAG, "Wake: panel backlight restored");
         } else {
@@ -18562,6 +18702,7 @@ extern const ext_img_desc_t images[1];
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -18796,6 +18937,28 @@ static volatile bool s_panel_wrap;     /* the draw_bitmap wrapper is installed *
 static uint8_t *s_ui_mask;             /* the per-pixel UI keep-mask, MOON_PX^2 */
 static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
                                           change); the LVGL task picks it up */
+/* Forward decl: the screen-switch fade (defined later) holds the spin's panel
+ * writes while its 0x51 brightness ramp runs (the fade section). */
+static volatile bool s_fade_busy;
+
+/* The panel-io watchdog. Every QSPI panel write goes through the panel io's
+ * ONE spi_device and the GPSPI bus lock: if a queued DMA transfer's
+ * completion is ever lost (the CO5300 + QSPI driver has lost one on this
+ * board -- a deterministic repro: a whole-panel flush in flight while the
+ * spin's strip writes race it), the bus lock's background (REQ/PEND) bit
+ * is never cleared, and EVERY later spi_device_acquire_bus -- LVGL's
+ * flushes, the spin's strips, the 0x51 brightness writes -- blocks forever
+ * in dev_wait (portMAX_DELAY), with the mutex still held: a silent,
+ * no-WDT, permanent freeze (two tasks parked on one bus lock, no holder).
+ * s_panel_mtx is held only inside a write (a strip ~10 ms, the 16-strip
+ * spin frame ~30-80 ms, the boot/refresh flush <500 ms), so a hold longer
+ * than the limit below can ONLY mean the bus is stuck -- no legitimate
+ * path waits that long (the spin task is the sole other holder, and it
+ * holds no more than a frame). The watchdog takes the mutex and, when the
+ * wait overruns, restarts: a clean reboot instead of a dead screen. */
+#define PANEL_IO_WATCHDOG_LIMIT_MS 3000
+static TaskHandle_t s_panel_watchdog;
+static volatile bool s_panel_watchdog_armed; /* moon_ui_init succeeded */
 
 /* Swap the bytes of a 16-bit pixel for the QSPI panel (the panel io
  * sends 16-bit pixels MSB-first, the OTHER interface sends them
@@ -18815,6 +18978,25 @@ static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (
  * the mirror stores it RAW -- no swap here, no swap in the spin's
  * step-rotate. This is what keeps the spin's direct writes and
  * LVGL's flushes serialized on ONE lock at the panel boundary. */
+/* The real draw_bitmap, retried until the panel accepts the write. The P4's
+ * DPI panel copies each strip with an ASYNC DMA2D (its draw semaphore is
+ * held until the copy lands): back-to-back calls return
+ * ESP_ERR_INVALID_STATE ("previous draw operation is not finished") and the
+ * strip is DROPPED. The S3's QSPI panel writes synchronously, so the first
+ * attempt always succeeds and the retry costs nothing there. Callers must
+ * hold s_panel_mtx. */
+static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                      const void *color_data) {
+    for (int attempt = 0; attempt < 100; attempt++) {
+        esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
+        if (r == ESP_OK)
+            return ESP_OK;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    ESP_LOGW(TAG, "panel draw not accepted after ~100 ms (y %d..%d)", y_start, y_end);
+    return ESP_ERR_TIMEOUT;
+}
+
 static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                         const void *color_data) {
     (void)panel;
@@ -18834,7 +19016,7 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
             memcpy(dst, srow, (size_t)xw * sizeof(uint16_t));
         }
     }
-    esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
+    esp_err_t r = moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data);
     xSemaphoreGive(s_panel_mtx);
     return r;
 }
@@ -19209,7 +19391,18 @@ static void moon_spin_task(void *arg) {
                                 * resumes the spin from exactly this
                                 * angle. */
         xSemaphoreGive(s_rgb_mtx);
-        moon_spin_write_panel();
+        /* The screen-switch fade's 0x51 ramp (s_fade_busy) is the only
+         * panel-io traffic that may run: the spin integrates its angle
+         * (above) but SKIPS the panel write, so a 0x51 is never queued
+         * behind one of the spin's in-flight strip DMAs (a lost DMA
+         * completion parks the whole bus lock forever -- the freeze
+         * this project hit, and no interleaving of that class can
+         * happen while the ramp is owed). The angle keeps running, so
+         * the first frame after the switch lands from the exact pose.
+         * (The angle integration runs every frame; the dt clamp keeps
+         * a long pause a bounded step, not a turn.) */
+        if (!s_fade_busy)
+            moon_spin_write_panel();
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
         /* Pace to the configured frame rate (UI_MOON_SPIN_FPS): the
          * frame budget is gather ~8 ms + panel write ~30-40 ms of
@@ -19436,9 +19629,9 @@ static void moon_spin_write_panel(void) {
                 row[x] = frow[x];
     }
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
-        (void)s_orig_draw(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS, MOON_IMG_POS + MOON_PX,
-                          MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
-                          s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
+        (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS, MOON_IMG_POS + MOON_PX,
+                                   MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
+                                   s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
     }
     xSemaphoreGive(s_panel_mtx);
 }
@@ -20554,6 +20747,43 @@ static void moon_tick_cb(lv_timer_t *timer) {
 
 /* ---------------- public API ---------------- */
 
+/* The panel-io watchdog task (see the s_panel_mtx block): take the panel
+ * mutex with a finite timeout -- a normal take returns in <100 ms (a
+ * single strip or one spin frame), so a wait that overruns the limit
+ * means the current holder is stuck inside a panel-io write on a bus
+ * that will never free. Log and restart: the device comes back clean
+ * (the moon re-bakes from the RTC; the spin angle re-anchors) instead
+ * of freezing. Priority 3 = above the spin (configMAX_PRIORITIES - 3)
+ * and every UI task; the take is the ONLY work, so it cannot starve
+ * anything. */
+static void moon_panel_watchdog_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(PANEL_IO_WATCHDOG_LIMIT_MS));
+        if (!s_panel_watchdog_armed)
+            continue;
+        TickType_t t0 = xTaskGetTickCount();
+        BaseType_t r = xSemaphoreTake(s_panel_mtx, pdMS_TO_TICKS(PANEL_IO_WATCHDOG_LIMIT_MS));
+        if (r == pdTRUE) {
+            xSemaphoreGive(s_panel_mtx);
+            continue;
+        }
+        /* Still held after PANEL_IO_WATCHDOG_LIMIT_MS of waiting, on top
+         * of PANEL_IO_WATCHDOG_LIMIT_MS of idle -- the holder (a spin
+         * strip, a flush strip or a 0x51 write) is parked inside
+         * spi_device_acquire_bus on a bus lock that will never clear.
+         * Restart so the user gets a working clock instead of a dead
+         * one; the log marks it unambiguously for the field. */
+        ESP_LOGE(TAG,
+                 "PANEL IO STUCK: panel mutex held %lu ms after a %lu ms wait -- the QSPI "
+                 "bus lock is stuck (a DMA completion was lost); restarting",
+                 (unsigned long)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS,
+                 (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
+        vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+        esp_restart();
+    }
+}
+
 void moon_ui_init(void) {
     if (s_ready)
         return;
@@ -20659,6 +20889,20 @@ void moon_ui_init(void) {
      * caches the LVGL task handle (moon_on_lvgl), so the timer is
      * created even when UI_IMU_ENABLE is off (see the callback). */
     lv_timer_create(moon_tilt_monitor_cb, 1000, NULL);
+    /* The panel-io watchdog (the restart guard for the lost-DMA-completion
+     * bus stall; the panel handle exists, so its lock is the one to watch).
+     * Low priority on core 0: it sleeps 3 s at a time and needs only a few
+     * instructions to test the mutex, so the LVGL task (also core 0) and
+     * the spin (core 1) are never starved by it. */
+    if (s_panel) {
+        if (xTaskCreatePinnedToCore(moon_panel_watchdog_task, "panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0) !=
+            pdPASS) {
+            ESP_LOGW(TAG, "panel watchdog task failed to start");
+        } else {
+            s_panel_watchdog_armed = true;
+            ESP_LOGI(TAG, "panel-io watchdog armed (%lu ms stuck limit)", (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
+        }
+    }
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
 }
@@ -21042,17 +21286,28 @@ static bool moon_screen_has_image(void) {
  * buffers. Must run on the LVGL task. */
 #define FADE_STEPS 12
 static bool s_fade_pending; /* the fade-out dimmed the panel; the fade-in is owed */
+static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
+                                      panel writes so the ramp's 0x51 writes are
+                                      the ONLY panel-io traffic in flight */
 
 /* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
  * (0..100) in FADE_STEPS steps, paced CONFIG_UI_SCREEN_SWITCH_FADE /
  * FADE_STEPS ms between steps. Each step is one 0x51 SPI param
  * transaction (~100 us): the ramp is free, so the steps are many and
  * short (the luminance steps stay small enough not to read as
- * discrete steps). */
+ * discrete steps). Each write takes the panel mutex: a 0x51 write must
+ * not land in the middle of a whole-panel flush or a spin frame (the
+ * panel-io driver's bus lock serializes them, but a 0x51 queued behind
+ * a queued strip that never completes parks the ramp's writer forever --
+ * the freeze this project hit). The fade sets s_fade_busy, and the spin
+ * holds its own panel writes for the ramp's duration, so in practice the
+ * mutex is free when the ramp runs. */
 static void fade_ramp(int from_pct, int to_pct) {
     for (int s = 1; s <= FADE_STEPS; s++) {
         int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
+        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
         bsp_display_brightness_set(pct);
+        xSemaphoreGive(s_panel_mtx);
         if (s < FADE_STEPS)
             vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
     }
@@ -21060,8 +21315,12 @@ static void fade_ramp(int from_pct, int to_pct) {
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
  * loadScreen calls it before lv_scr_load when the switch crosses the
- * moon boundary). No pixels are written and the spin keeps running
- * (its frames just dim); the fade-in leg (moon_ui_screen_switched)
+ * moon boundary). No pixels are written; the spin's PANEL WRITES pause
+ * for the ramp (s_fade_busy -- the 0x51 ramp must be the only panel-io
+ * traffic in flight so a lost-DMA-completion stall cannot strand it
+ * behind a queued strip: the spin's angle keeps integrating, so the
+ * moon just holds its pose for ~240 ms and resumes from the exact angle
+ * when the switch completes). The fade-in leg (moon_ui_screen_switched)
  * displays the new screen while the panel is still black and ramps the
  * brightness back. No-op when the fade is off, the moon UI is not
  * ready, or a bake pipeline owns the buffers. */
@@ -21070,6 +21329,8 @@ void moon_ui_fade_out(void) {
         s_dusk_baking)
         return;
     s_fade_pending = true;
+    s_fade_busy = true; /* the spin holds its panel writes until the
+                          * screen switch (moon_ui_screen_switched) */
     fade_ramp(100, 0);
     ESP_LOGI(TAG, "screen switch fade-out: panel brightness 100 -> 0 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
 }
@@ -21085,6 +21346,25 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
         if (s_moon_roots[i] == root)
             return true;
     return false;
+}
+
+/* The panel's hardware brightness (0..100%), serialized with every other
+ * panel-io consumer: a 0x51 write must not be queued behind a whole-panel
+ * flush or a spin's in-flight strip DMAs -- the panel-io driver's bus lock
+ * would serialize it anyway, and if one of those DMAs never completes the
+ * queued 0x51 parks this caller forever (the settings-entry freeze). The
+ * fade ramp (same file) and the spin/LVGL flushes (s_panel_mtx) are the
+ * other users of the lock; this is the one for the wake / deep-sleep /
+ * boot backlight paths (actions.c, main.cpp). When the moon UI is not
+ * ready the BSP call runs directly (the panel is quiet at boot). */
+esp_err_t moon_ui_panel_brightness_set(int pct) {
+    if (s_ready && s_panel_mtx) {
+        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+        esp_err_t r = bsp_display_brightness_set(pct);
+        xSemaphoreGive(s_panel_mtx);
+        return r;
+    }
+    return bsp_display_brightness_set(pct);
 }
 
 void moon_ui_screen_switched(void) {
@@ -21116,6 +21396,7 @@ void moon_ui_screen_switched(void) {
     }
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking) {
         s_fade_pending = false; /* a plain async paint shows the new screen */
+        s_fade_busy = false;
         return;
     }
     if (s_fade_pending && CONFIG_UI_SCREEN_SWITCH_FADE > 0) {
@@ -21123,12 +21404,19 @@ void moon_ui_screen_switched(void) {
          * flush runs while the panel is STILL BLACK (invisible -- the
          * invariant's atomic display, off the visible path), then the
          * hardware brightness ramps back to full and the fully
-         * rendered screen comes up at once. */
+         * rendered screen comes up at once. The flush strips take the
+         * panel mutex in the draw_bitmap wrapper (per strip -- taking
+         * it here as well would self-deadlock: the mutex is
+         * non-reentrant and the wrapper IS the flush's panel path),
+         * and the ramp's 0x51 writes take it per step. The spin holds
+         * its panel writes while s_fade_busy, so the only panel-io
+         * traffic in flight is the flush's own. */
         s_fade_pending = false;
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
         fade_ramp(0, 100);
+        s_fade_busy = false; /* the spin's panel writes resume */
         ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
         return;
     }
@@ -21163,6 +21451,7 @@ void moon_ui_dump_hang_context(void) {
 
 #include <stdbool.h>
 
+#include "esp_err.h"
 #include "lvgl.h"
 
 #include "screens.h"
@@ -21308,6 +21597,16 @@ void moon_ui_fade_out(void);
  * fade decision: a switch that crosses the moon boundary fades, a
  * both-moon switch stays atomic). */
 bool moon_ui_screen_is_moon(enum ScreensEnum id);
+
+/**
+ * Set the panel's own hardware brightness (0..100 %), serialized with the
+ * spin's direct panel writes and LVGL's flushes (the one QSPI bus the panel
+ * io owns). The wake / deep-sleep / boot backlight paths use it IN PLACE
+ * OF bsp_display_brightness_set()/bsp_display_backlight_on/off() so a 0x51
+ * write is never queued behind a strip DMA that could stall the bus.
+ * Safe from any task; direct BSP call while the moon UI is not ready.
+ */
+esp_err_t moon_ui_panel_brightness_set(int pct);
 
 /**
  * Publish the current 90-degree screen orientation (0..3) to the spin
@@ -21918,8 +22217,9 @@ static void event_handler_cb_settings_alarm_master(lv_event_t *e) {
 }
 
 /* Dispatch the entry refresh for a target screen (shared by the hub
- * icons and the alarm-settings entries). */
-static void settings_screen_refresh_for(enum ScreensEnum target) {
+ * icons and the alarm-settings entries; also called directly by the
+ * TEST_WIFI_SCAN_SEC hook, which has no event handler to drive it). */
+void settings_screen_refresh_for(enum ScreensEnum target) {
     switch (target) {
     case SCREEN_ID_SETTINGS_ALARM:
         settings_alarm_screen_refresh();
@@ -22666,7 +22966,7 @@ void tick_screen_settings_deep_sleep() {}
 /* --- WiFi settings: the AP scan list ---------------------------------
  *
  * "NETWORKS" header (wifi icon) + the AP scan results below. A
- * background scan (wifi_scan_start) runs while the screen is open; the
+ * background scan (wifi_scan_begin) runs while the screen is open; the
  * rows render when the scan finishes (the 10 ms tick polls
  * wifi_scan_in_progress() and renders once). The selected row is
  * marked by a white bar in the left margin (the SSID font has no
@@ -22765,7 +23065,7 @@ static void settings_wifi_screen_refresh(void) {
     s_wifi_scan_rendered = false;
     s_wifi_scanning_shown = false;
     settings_wifi_place_sel_bar(-1);
-    wifi_scan_start();
+    wifi_scan_begin();
 }
 
 void create_screen_settings_wifi() {
@@ -23883,6 +24183,11 @@ void tick_screen(int screen_index);
 
 void create_screens();
 
+/* Dispatch a settings entry's screen refresh (the hub-icon / entry
+ * handlers call it after loadScreen + ui_tick). Exposed for the
+ * TEST_WIFI_SCAN_SEC test hook. */
+void settings_screen_refresh_for(enum ScreensEnum target);
+
 #ifdef __cplusplus
 }
 #endif
@@ -24270,6 +24575,7 @@ enum ScreensEnum ui_current_screen(void);
 ### `components/ui/vars.c`
 
 ```c
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -24287,7 +24593,7 @@ const char *get_var_clock_label() { return clock_label; }
 
 void set_var_clock_label(const char *value) {
     ESP_LOGI(TAG, "Updating Clock label with value: %s", value);
-    strncpy(clock_label, value, sizeof(clock_label) / sizeof(char));
+    snprintf(clock_label, sizeof(clock_label) / sizeof(char), "%s", value);
     clock_label[sizeof(clock_label) / sizeof(char) - 1] = 0;
 }
 
@@ -24295,7 +24601,7 @@ const char *get_var_alarm_label() { return alarm_label; }
 
 void set_var_alarm_label(const char *value) {
     ESP_LOGI(TAG, "Updating Alarm label with value: %s", value);
-    strncpy(alarm_label, value, sizeof(alarm_label) / sizeof(char));
+    snprintf(alarm_label, sizeof(alarm_label) / sizeof(char), "%s", value);
     alarm_label[sizeof(alarm_label) / sizeof(char) - 1] = 0;
 }
 
@@ -24442,8 +24748,13 @@ typedef struct {
  * mode + start, no credentials, no connection) and deinit's it again
  * when done; when the manager owns the radio the scan shares it and
  * leaves it running. No-op while a scan is already in progress.
+ *
+ * Not called `wifi_scan_start`: on the P4 (remote C6) esp_hosted is
+ * linked whole-archive and its RPC layer defines a global
+ * `wifi_scan_start(ctrl_cmd_t *)` — the two would collide at link time.
+ * Renamed on both boards so the source stays single-sourced.
  */
-void wifi_scan_start(void);
+void wifi_scan_begin(void);
 
 /**
  * @brief Whether a scan is currently running
@@ -24501,6 +24812,14 @@ static const char *TAG = "WIFI";
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_num = 0;
 static bool wifi_connected = false;
+#if defined(CONFIG_BOARD_P4)
+// The remote (esp_hosted) radio on the 4C board is initialized exactly once
+// and never deinit'd: the host-side LWIP netif attach is not re-runnable, so a
+// second esp_wifi_init() re-adds the persistent netif and asserts (netif_add
+// "netif already added"). Power-cycling the radio is stop/start only. The S3
+// (built-in radio) does not need this and deinits/reinits freely.
+static bool s_wifi_inited = false;
+#endif
 
 // Read WiFi credentials from SPIFFS file
 static esp_err_t read_wifi_credentials(char *ssid, char *password) {
@@ -24531,19 +24850,25 @@ static esp_err_t read_wifi_credentials(char *ssid, char *password) {
             continue;
         }
 
-        // First non-comment line is SSID
+        // First non-comment line is SSID. strnlen+memcpy: a plain
+        // strncpy/snprintf of the 256-byte line into the 32-byte field
+        // trips -Wstringop-truncation / -Wformat-truncation under
+        // -Werror=all (the P4's GCC 14 RISC-V toolchain) even though the
+        // truncation is the point.
         if (!ssid_found) {
-            strncpy(ssid, trimmed, MAX_SSID_LEN - 1);
-            ssid[MAX_SSID_LEN - 1] = '\0';
+            size_t n = strnlen(trimmed, MAX_SSID_LEN - 1);
+            memcpy(ssid, trimmed, n);
+            ssid[n] = '\0';
             ssid_found = true;
             ESP_LOGI(TAG, "Found SSID: %s", ssid);
             continue;
         }
 
-        // Second non-comment line is password
+        // Second non-comment line is password (same bounded copy)
         if (!password_found) {
-            strncpy(password, trimmed, MAX_PASSWORD_LEN - 1);
-            password[MAX_PASSWORD_LEN - 1] = '\0';
+            size_t n = strnlen(trimmed, MAX_PASSWORD_LEN - 1);
+            memcpy(password, trimmed, n);
+            password[n] = '\0';
             password_found = true;
             ESP_LOGI(TAG, "Found password (length: %d)", strlen(password));
             break;
@@ -24686,8 +25011,19 @@ esp_err_t wifi_manager_init(void) {
     }
 
     // Initialize WiFi
+#if defined(CONFIG_BOARD_P4)
+    // Re-bringing the (already-inited, stopped) remote radio is set_mode+start
+    // below — esp_wifi_init is not re-runnable on the host (see
+    // wifi_manager_deinit), so it runs only once.
+    if (!s_wifi_inited) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        s_wifi_inited = true;
+    }
+#else
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+#endif
 
     s_wifi_event_group = xEventGroupCreate();
 
@@ -24711,8 +25047,8 @@ esp_err_t wifi_manager_init(void) {
                 .threshold.authmode = WIFI_AUTH_WPA2_PSK,
             },
     };
-    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
-    strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+    snprintf((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), "%s", ssid);
+    snprintf((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), "%s", password);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
@@ -24744,7 +25080,11 @@ void wifi_manager_deinit(void) {
         s_wifi_event_group = NULL;
     }
     esp_wifi_stop();
+#if !defined(CONFIG_BOARD_P4)
     esp_wifi_deinit();
+#endif
+    // The remote radio stays inited on the 4C (esp_wifi_deinit would break the
+    // host netif re-attach — see s_wifi_inited). wifi_connected drops either way.
     wifi_connected = false;
 }
 
@@ -24771,6 +25111,16 @@ static void wifi_scan_task_fn(void *arg) {
          * manager's still-registered event handler will attempt
          * esp_wifi_connect() on STA_START; with no SSID configured it
          * fails fast and its event-group writes are NULL-guarded. */
+#if defined(CONFIG_BOARD_P4)
+        /* The remote radio is always inited (the manager inits it once; see
+         * s_wifi_inited) — bring it up with set_mode+start only. */
+        esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (ret == ESP_OK) {
+            we_own_radio = true;
+            esp_wifi_start();
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+#else
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
         esp_err_t ret = esp_wifi_init(&cfg);
         if (ret == ESP_OK) {
@@ -24782,6 +25132,7 @@ static void wifi_scan_task_fn(void *arg) {
                 we_own_radio = false;
             }
         }
+#endif
         if (we_own_radio) {
             ESP_LOGI(TAG, "Scan: radio brought up");
         } else {
@@ -24820,14 +25171,16 @@ static void wifi_scan_task_fn(void *arg) {
 
     if (we_own_radio) {
         esp_wifi_stop();
+#if !defined(CONFIG_BOARD_P4)
         esp_wifi_deinit();
+#endif
         ESP_LOGI(TAG, "Scan: radio down again");
     }
     s_scan_running = false;
     vTaskDelete(NULL);
 }
 
-void wifi_scan_start(void) {
+void wifi_scan_begin(void) {
     if (s_scan_running) {
         return;
     }
@@ -25217,7 +25570,7 @@ direct_dependencies:
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: e5eb2f6e436a03b5afbb5305bf41980e551bd85362d65745f219cc958cb30dfd
+manifest_hash: 61fdf624f28fd25fab5756458b5b80b6af66ceb0235d355f7121283f5bfd3f86
 target: esp32s3
 version: 2.0.0
 ```
@@ -29073,7 +29426,7 @@ static const ap_stub_t s_aps[] = {
 /* The sim shows the home screen as connected (white indicator). */
 bool wifi_manager_is_connected(void) { return true; }
 
-void wifi_scan_start(void) { printf("[stub] wifi_scan_start\n"); }
+void wifi_scan_begin(void) { printf("[stub] wifi_scan_begin\n"); }
 bool wifi_scan_in_progress(void) { return false; }
 int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
     int n = (int)(sizeof s_aps / sizeof s_aps[0]);
@@ -29202,9 +29555,24 @@ dependencies:
   # Waveshare ESP32-P4-WIFI6-Touch-LCD-XC BSP (720x720 / 800x800): P4-only,
   # gated on the build target (the vendored S3 BSP registers only on
   # esp32s3, so the two never co-resolve — both export bsp/display.h).
-  # The remote C6 Wi-Fi (esp_hosted / esp_wifi_remote) is added at M2.
   waveshare/esp32_p4_wifi6_touch_lcd_xc:
     version: 3.0.1
+    rules:
+      - if: target == "esp32p4"
+  # The P4's Wi-Fi is a REMOTE ESP32-C6 over SDIO (no on-chip radio):
+  # esp_hosted runs the C6 slave, esp_wifi_remote swaps the esp_wifi
+  # implementation for the remote one (the app keeps calling the normal
+  # esp_wifi/esp_netif API — wifi.c is board-agnostic). Exact pins: the
+  # XC 4C product firmware's versions, proven on the board at the M0
+  # bring-up (associated to the home AP in ~8 s; the C6 SDIO pins, slave
+  # target and 4-bit @ 40 MHz are the esp_hosted defaults and already
+  # match this board).
+  espressif/esp_hosted:
+    version: 1.4.7
+    rules:
+      - if: target == "esp32p4"
+  espressif/esp_wifi_remote:
+    version: 0.14.5
     rules:
       - if: target == "esp32p4"
 ```
@@ -29253,6 +29621,9 @@ dependencies:
 #endif
 #ifndef CONFIG_TEST_HANG_WATCH
 #define CONFIG_TEST_HANG_WATCH 0
+#endif
+#ifndef CONFIG_TEST_WIFI_SCAN_SEC
+#define CONFIG_TEST_WIFI_SCAN_SEC 0
 #endif
 
 // Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
@@ -29321,6 +29692,40 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
     asleep_s = 0;
     ESP_LOGW(TAG, "TEST auto-wake: firing idle wake after %us in sleep", CONFIG_TEST_AUTO_WAKE_SEC);
     clock_idle_notify_tilt_activity();
+}
+
+// Test hook (CONFIG_TEST_WIFI_SCAN_SEC): open the settings WiFi screen N
+// seconds after boot -- the screen that starts the background AP scan
+// (wifi_scan_begin) and renders the results as rows. Headless verification
+// of the scan path (on the P4: the esp_hosted RPC scan through the remote
+// C6, including its 5 GHz APs). Like the settings demo it waits out the
+// boot sweep (a screen switch mid-sweep is guarded off) and keeps idle
+// monitoring off so the capture is not cut by the sleep transition.
+static void wifi_scan_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_WIFI_SCAN_SEC <= 0)
+        return;
+    static uint32_t wait_s = (uint32_t)CONFIG_TEST_WIFI_SCAN_SEC;
+    static bool opened = false;
+    if (wait_s > 0) {
+        if (--wait_s > 0)
+            return;
+        ESP_LOGW(TAG, "TEST wifi scan: wait done, waiting out the boot sweep");
+        clock_idle_set_enabled(false);
+    }
+    if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
+        return; // hold until the sweep is done
+    if (opened)
+        return;
+    opened = true;
+    ESP_LOGW(TAG, "TEST wifi scan: opening the WiFi settings screen");
+    loadScreen(SCREEN_ID_SETTINGS_WIFI);
+    ui_tick();
+    /* loadScreen + ui_tick only switch the root; the per-screen refresh
+     * (which calls wifi_scan_begin for the WiFi screen) is driven by the
+     * entry's event handler in the real flow. Mirror it here, else the
+     * background scan never starts. */
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
 }
 
 // Test hook (CONFIG_TEST_SETTINGS_DEMO_SEC): the scripted settings run.
@@ -29587,7 +29992,10 @@ extern "C" void app_main(void) {
     }
 
     bsp_display_start();
-    bsp_display_backlight_on();
+    /* Serialized backlight (direct BSP call at boot -- moon_ui_init has
+     * not run yet, so the panel-io mutex is not armed and the wrapper
+     * falls through to the raw write). */
+    moon_ui_panel_brightness_set(100);
 
     bsp_display_lock(-1);
 
@@ -29709,6 +30117,10 @@ extern "C" void app_main(void) {
     // transform layer (PSRAM alloc) + centre pivot run without a tilt.
     if (CONFIG_TEST_ROLL_TILT_SEC > 0)
         lv_timer_create(action_roll_test_cb, 1000, NULL);
+
+    // Test hook: the headless WiFi scan (TEST_WIFI_SCAN_SEC; 0 = off).
+    if (CONFIG_TEST_WIFI_SCAN_SEC > 0)
+        lv_timer_create(wifi_scan_test_cb, 1000, NULL);
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

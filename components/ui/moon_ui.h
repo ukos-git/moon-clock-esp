@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "esp_err.h"
 #include "lvgl.h"
 
 #include "screens.h"
@@ -148,6 +149,16 @@ void moon_ui_fade_out(void);
  * fade decision: a switch that crosses the moon boundary fades, a
  * both-moon switch stays atomic). */
 bool moon_ui_screen_is_moon(enum ScreensEnum id);
+
+/**
+ * Set the panel's own hardware brightness (0..100 %), serialized with the
+ * spin's direct panel writes and LVGL's flushes (the one QSPI bus the panel
+ * io owns). The wake / deep-sleep / boot backlight paths use it IN PLACE
+ * OF bsp_display_brightness_set()/bsp_display_backlight_on/off() so a 0x51
+ * write is never queued behind a strip DMA that could stall the bus.
+ * Safe from any task; direct BSP call while the moon UI is not ready.
+ */
+esp_err_t moon_ui_panel_brightness_set(int pct);
 
 /**
  * Publish the current 90-degree screen orientation (0..3) to the spin
