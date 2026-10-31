@@ -12,5 +12,5 @@
 # 0 8 * * 1-5 = Monday to Friday at 8:00
 # 15 20 * * 0,6 = Sunday and Saturday at 20:15
 #
-# Debug alarm: Every 5 minutes
-*/5 * * * *
+# Default: weekday alarm (the */5 debug rule burned in the alarm screen)
+0 7 * * 1-5
