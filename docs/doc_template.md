@@ -11,19 +11,22 @@ terminator across the disk to the fully unilluminated side. Time comes from NTP
 (brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
-_State of this document: 2026-10-31, after the burn-in spin's **direct panel
-write** (the render task writes the 400×400 moon area straight to the panel at
-8 fps instead of routing through LVGL's ~175 ms re-render; the settled rate is
-a constant slow spin, so the moon no longer freezes before light sleep), the
-**fade-to-black screen switch** (replacing the concentric reveal that showed
-white strip bars; now a hardware panel-brightness ramp — the CO5300's own
-dimming command — so the transition writes no pixels at all), the **alarm
-weekday prefix** ("Mo 07:00" on the home screen when the next fire is >24 h
-away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is the button),
-and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm
-screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document
-is regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
-code._
+_State of this document: 2026-10-31, after the **dual-board build plumbing**
+(the repo now also builds for the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC
+"4C"**, 720×720 round IPS — §2.3, §3.2; the S3 build is unchanged and the P4's
+Wi-Fi, moon scale-up, UI upscale and clock path are the follow-on milestones),
+the burn-in spin's **direct panel write** (the render task writes the 400×400
+moon area straight to the panel at 8 fps instead of routing through LVGL's ~175
+ms re-render; the settled rate is a constant slow spin, so the moon no longer
+freezes before light sleep), the **fade-to-black screen switch** (replacing the
+concentric reveal that showed white strip bars; now a hardware panel-brightness
+ramp — the CO5300's own dimming command — so the transition writes no pixels at
+all), the **alarm weekday prefix** ("Mo 07:00" on the home screen when the next
+fire is >24 h away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is
+the button), and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule
+burned the alarm screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md)
+— this document is regenerated with `python3 docs/gen_doc.py` and must stay in
+sync with the code._
 
 ---
 
@@ -108,11 +111,10 @@ PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
 
 ### 2.2 Board wiring
 
-No wiring needed — the Waveshare **ESP32-S3 Touch AMOLED 1.75** is a finished
-board (16 MB flash variant). Connect USB (the `GPIO19/20` USB-C port) for
-flash + serial: `/dev/ttyACM0` @ 115200 on Linux. (If a second board is
-attached, the P4 board takes `/dev/ttyACM0` and the S3 moves to `/dev/ttyACM1`
-— verify with `esptool.py chip_id`.)
+No wiring needed — both boards are finished. Connect USB for flash + serial (@
+115200 on Linux). The confirmed port map (verified 2026-10-31 with esptool chip
+probes): **`/dev/ttyACM0` = the S3 board**, **`/dev/ttyACM1` = the P4 board**
+(the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS; §3.2).
 
 ### 2.3 First build
 
@@ -147,6 +149,39 @@ user alarm/settings edits are lost on a full flash).
 Component Configuration → Default timezone_ (POSIX TZ; default
 `CET-1CEST,M3.5.0/2,M10.5.0/3`).
 
+### 2.3b The P4 (4C) build
+
+The same repo builds for the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**
+(720×720 round IPS; §3.2) without call-site changes — the board choice is the
+`BOARD` Kconfig (`CONFIG_BOARD_S3` default / `CONFIG_BOARD_P4`, in
+`components/board/Kconfig.projbuild` — a root `Kconfig.projbuild` is not
+processed by ESP-IDF 5.5), and the per-target defaults are picked up
+automatically: alongside `sdkconfig.defaults` the build loads
+`sdkconfig.defaults.esp32s3` / `sdkconfig.defaults.esp32p4` (present =
+appended; later file wins). The two targets resolve different managed-component
+sets (different BSP + display/touch/Wi-Fi stacks), so the P4 build runs with
+its own lock (`dependencies.lock.p4`, gitignored) and never touches the tracked
+S3 `dependencies.lock`; the vendored S3 BSP is excluded from the P4 build
+(`EXCLUDE_COMPONENTS`), and the root `CMakeLists.txt` selects
+`partitions_p4.csv` (32 MB chip, §3.2) and `FATAL_ERROR`s on a target/board
+mismatch.
+
+```bash
+idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
+idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p /dev/ttyACM1
+```
+
+**State (2026-10-31):** the plumbing is in and the P4 target configures and
+fetches (the XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter stack resolves from
+the registry against IDF 5.5.1, rev v1.3 profile; the display, touch, 32 MB
+PSRAM @ 200 MHz and the remote C6 Wi-Fi were proven on the board in a scratch
+bring-up). The P4 product path — Wi-Fi in the app (the remote C6 over SDIO via
+`esp_hosted`), the moon at 720 px, the UI upscale, and the clock (no RTC IC:
+crystal-backed internal RTC timer + SNTP + software alarms) — is the follow-on
+work; a full P4 build + flash has not been run yet. The S3 build flow is
+unchanged; the shim + call-site migration add ~15 KB to the S3 binary
+(1,450,688 B, §3.1).
+
 ### 2.4 Flash + serial
 
 ```bash
@@ -154,12 +189,15 @@ idf.py flash -p /dev/ttyACM0        # ~40 s at 460800 baud
 python3 -m serial.tools.miniterm /dev/ttyACM0 115200   # or pyserial capture
 ```
 
-**First boot** (≈3.5 min): the clock is acquired by the _blocking_ boot sync
+**First boot** (≈4 min): the clock is acquired by the _blocking_ boot sync
 (WiFi + NTP before the display starts), the UI is born on the **airplane** home
 screen, and the **synodic boot sweep** plays: 336 frames @240 px from the last
-new moon to now (~2.8 min, display-paced ~305 ms/frame, bake ~78 ms), ending on
-the current phase; the free spin then re-anchors from the sweep's last frame.
-Serial markers to watch: `WiFi connected`, `SNTP sync`,
+new moon to now, ending on the current phase; the free spin then re-anchors
+from the sweep's last frame. The sweep is display-paced (~340 ms/frame) and the
+per-frame bake grows with the frame's illumination: measured 2026-10-31 at a 21
+d moon age — 79–541 ms @240 px (median 306 ms), 231 s total — and a younger
+moon (fewer bright frames) runs the sweep measurably faster (~2.8 min,
+2026-10-27). Serial markers to watch: `WiFi connected`, `SNTP sync`,
 `synodic boot sweep started: 336 frames`, `sweep N/336 baked in ~79ms @240px`,
 `spin started`. A clean boot shows **0 WDT / 0 panic / 0 NO_MEM**.
 
@@ -199,7 +237,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x15e610` (1,435,152 B), 662,000 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1622c0` (1,450,688 B), 646,464 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
@@ -209,7 +247,37 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-662,000 B of headroom remain for the future text-input family.
+646,464 B of headroom remain for the future text-input family.
+
+### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
+
+| Block     | Part                | Notes                                                                                                                                                    |
+| --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash |
+| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted)                                                               |
+| Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                 |
+| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4._ / `esp_wifi_remote` 0.14._: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
+| Time base | none (no RTC IC)    | the internal RTC timer, crystal-backed (32.768 kHz on the board) + SNTP; VBAT battery header (power-loss survival to be verified)                        |
+| IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                              |
+| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                      |
+
+Unlike the S3, the P4 PSRAM **is** DMA-capable — the S3's 32 KiB SPI-DMA strip
+staging (buffer_height 25, flush queue depth 1) is a QSPI-S3 artifact and does
+not apply (the P4 flush geometry is set by its BSP). The `components/board/`
+shim normalizes the two BSPs' small API differences (`board_panel()` — S3
+`bsp_display_get_panel()` / P4 `bsp_display_get_panel_handle()`;
+`board_io_expander_init()` — real TCA9554 on the S3, NULL on the P4);
+everything else is identical-named BSP API.
+
+**Flash layout (`partitions_p4.csv`, 32 MB chip — the binary header stays 16
+MB, so esptool's size-mismatch warning is expected):**
+
+| Name           | Type   | Size       | Holds                                                                                                                                                   |
+| -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
+| `factory`      | app    | **9216 K** | the firmware — huge headroom vs the S3's 2048 K                                                                                                         |
+| `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
+| `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
 ---
 
@@ -236,7 +304,13 @@ components/
     images.c                 fonts/ (generated lv_font_conv subsets)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
   wifi/                ESP WiFi scan (settings screen)
-  esp32_s3_touch_amoled_1_75/   the BSP: CO5300 QSPI panel + CST9217 + expander + brightness
+  board/               the board shim: board_display.{c,h} — the app-side
+                       surface over both BSPs (panel handle, the S3-only IO
+                       expander) + Kconfig.projbuild (the BOARD choice)
+  esp32_s3_touch_amoled_1_75/   the S3 BSP: CO5300 QSPI panel + CST9217 + expander
+                                + brightness (P4: the registry
+                                waveshare/esp32_p4_wifi6_touch_lcd_xc 3.0.1,
+                                JD9365 MIPI-DSI + GT911 — resolved, not vendored)
 host_sim/              the host test/rendering layer (same core, host-built)
   moon_sim (main.c)    exact device core -> PNGs at panel size
   check_gate.py        the image gate vs NASA + Python model
@@ -1002,7 +1076,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 662,000 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,464 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1012,7 +1086,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 662,000 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,464 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1031,15 +1105,37 @@ display and the spin's pose, which the wake path needs to resume seamlessly).
 
 ## 14. Configuration reference
 
-### 14.1 `sdkconfig.defaults` (the build defaults; `sdkconfig` is gitignored)
+### 14.1 The build defaults (three files; `sdkconfig` is gitignored)
 
-Highlights (full file in §17): target esp32s3, 16 MB flash, octal PSRAM 80 MHz,
-240 MHz, `CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1`, `CONFIG_LV_USE_CLIB_MALLOC=y`
-(PSRAM layers), `CONFIG_LV_COLOR_DEPTH_16=y`, `CONFIG_LV_USE_SNAPSHOT=y` (the
-spin's UI keep-mask), `CONFIG_LV_USE_SYSMON=n` / `CONFIG_LV_USE_PERF_MONITOR=n`
-(dead weight, removed for flash), `CONFIG_LV_USE_ROLLER=y`,
-`CONFIG_UI_SCREEN_SWITCH_FADE=240`,
-`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`.
+The defaults are split shared / per-target — for each defaults file the build
+also appends the `<file>.<idf_target>` variant if it exists (later file wins):
+
+- **`sdkconfig.defaults`** (shared): target esp32s3, 16 MB flash, `SPIRAM=y`,
+  the UI Kconfig block (`CONFIG_UI_SCREEN_SWITCH_FADE=240`, the spin periods /
+  fps), the LVGL block (`CONFIG_LV_USE_CLIB_MALLOC=y` — PSRAM layers,
+  `CONFIG_LV_COLOR_DEPTH_16=y`, `CONFIG_LV_USE_SNAPSHOT=y` — the spin's UI
+  keep-mask, `CONFIG_LV_USE_SYSMON=n` / `CONFIG_LV_USE_PERF_MONITOR=n` — dead
+  weight removed for flash, `CONFIG_LV_USE_ROLLER=y`), the codecs-off block,
+  `CONFIG_IO_EXPANDER_ENABLE_GPIO_API_WRAPPER=n`.
+- **`sdkconfig.defaults.esp32s3`** (S3-only, moved out of the shared file):
+  octal PSRAM 80 MHz, 240 MHz, `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`
+  (the bounded core-1 bakes — §13), `CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1` (the
+  32 KiB SPI-DMA strip staging — §13).
+- **`sdkconfig.defaults.esp32p4`** (P4-only): `CONFIG_IDF_TARGET="esp32p4"`,
+  `CONFIG_BOARD_P4=y` (the `BOARD` Kconfig choice, §15), `ESP32P4_REV_MIN_100`
+  (rev v1.3 — no `REV_MIN_300`/`SELECTS_REV_LESS_V3` in IDF 5.5.1),
+  `CONFIG_IDF_EXPERIMENTAL_FEATURES=y` + `SPIRAM_SPEED_200M` (200 MHz PSRAM —
+  gated: without the experimental flag it silently falls back to 20 MHz and the
+  DSI underruns), L2 cache 256 KB / 128 B line, 10 KB main task stack, 1000 Hz
+  tick, `CONFIG_BSP_LCD_TYPE_720_720_4_INCH=y`. (No esp_hosted / SDIO-pins
+  block yet — that lands with the P4 Wi-Fi milestone.)
+
+The `BOARD` choice itself (`BOARD_S3` default / `BOARD_P4`) lives in
+`components/board/Kconfig.projbuild` — a root `Kconfig.projbuild` is **not**
+processed by ESP-IDF 5.5 (only per-component `Kconfig`/`Kconfig.projbuild`
+files are globbed), so the choice sits in the always-built board-shim
+component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
+`BOARD` choice disagree.
 
 ### 14.2 UI component (`components/ui/Kconfig`)
 
@@ -1104,15 +1200,24 @@ lost on flash (the tree keeps the `spiffs/alarm.txt` default — 7:00 Mon–Fri;
 ## 15. Project structure
 
 ```
-CMakeLists.txt               IDF project (managed_components, partitions.csv)
-dependencies.lock            pinned managed components
+CMakeLists.txt               IDF project (managed_components, the target-select:
+                             partitions.csv vs partitions_p4.csv, EXCLUDE_COMPONENTS
+                             + the per-target dependencies lock for the P4)
+dependencies.lock            pinned managed components (S3; the P4 build uses the
+                             gitignored dependencies.lock.p4 — different BSP + stacks)
 partitions.csv               16 MB layout (§3.1)
-sdkconfig.defaults           the build defaults (sdkconfig is gitignored)
+partitions_p4.csv            32 MB P4 layout (§3.2)
+sdkconfig.defaults           the shared build defaults (sdkconfig is gitignored)
+sdkconfig.defaults.esp32s3   the S3-only defaults (octal PSRAM 80 M, 240 MHz, WDT,
+sdkconfig.defaults.esp32p4     flush queue depth 1) + the P4 defaults (BOARD_P4,
+                               rev1_3, 200 MHz PSRAM, 720×720 LCD type)
 README.md                    the front page (build/hardware/demo/timings)
 CLAUDE.md                    this project's agent instructions (the docs rule)
 main/
   main.cpp                   app_main: boot sync -> display -> UI; test hooks
 components/
+  board/                     the board shim: board_display.{c,h} (the panel handle,
+    Kconfig.projbuild          the S3-only IO expander) + the BOARD Kconfig choice
   moon/                      the portable core (§5): astro/bake/fixp/render + ERFA
     include/moon.h           the public API (geometry/bake/reproject/rotate)
     include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT, night floor)
@@ -1122,7 +1227,9 @@ components/
     (the pipeline) + actions.c (flow) + styles.c (the theme) + fonts/ (generated)
   imu/                       QMI8658C driver
   wifi/                      scan (settings)
-  esp32_s3_touch_amoled_1_75/  the BSP (CO5300 QSPI + CST9217 + TCA9554 + brightness)
+  esp32_s3_touch_amoled_1_75/  the S3 BSP (CO5300 QSPI + CST9217 + TCA9554 +
+                               brightness); the P4 uses the registry
+                               waveshare/esp32_p4_wifi6_touch_lcd_xc 3.0.1
 host_sim/                    moon_sim + check_gate.py + pole_test.c + uisim/ + render_demo.py
 assets/                      LROC/LOLA sources, the Python prototype, the 8,760
                              NASA SVS 5415 frames, the generated device assets
@@ -1130,9 +1237,10 @@ spiffs/                      wifi_credentials.example.txt + alarm.txt (the 7:00 
 docs/                        this document + the media (§1)
 ```
 
-Line counts (tracked, 2026-10-29): moon core ~5,400; ui ~10,100 (incl. the
-generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200; main
-~450; wifi ~430; imu ~410 — **~24,600 lines** of tracked code.
+Line counts (tracked, 2026-10-31): moon core ~5,400; ui ~10,100 (incl. the
+generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200;
+board shim ~115; main ~450; wifi ~430; imu ~410 — **~26,400 lines** of tracked
+code.
 
 ---
 
