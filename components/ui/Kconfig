@@ -274,6 +274,20 @@ menu "UI Component Configuration"
             script so it does not dusk-sleep mid-run.
             0 (default) = off.
 
+    config TEST_HANG_WATCH
+        bool "Test: dump every task's backtrace + abort when the LVGL task stalls (off = never)"
+        default n
+        help
+            Test hook: a 200 ms lv_timer on the LVGL task is the
+            heartbeat; a watcher task aborts the system (after printing
+            every task's name/state and a symbolized backtrace) when the
+            heartbeat is stale for more than 15 s. A hang on the LVGL
+            task is otherwise SILENT (no WDT, no assert -- a task parked
+            on a portMAX_DELAY lock keeps the CPU1 idle task alive, so
+            the task WDT never fires and the console just goes quiet
+            while the panel holds a half-drawn frame). 0 (default) =
+            off; the hook is a pure diagnostic aid, not for production.
+
     config TEST_BAKE_NO_RELIEF
         bool "Test: bake without the relief gradient cache (perf A/B)"
         default n

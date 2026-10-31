@@ -166,6 +166,14 @@ void moon_ui_set_panel_step(int step);
  */
 void moon_ui_rebuild_ui_mask(void);
 
+/**
+ * Hang-diagnostic context dump: print the volatile pipeline flags around
+ * the fade / spin / flush path (TEST_HANG_WATCH aid; safe from any task).
+ * Cross-reference with the task-state dump to identify which lock a stuck
+ * task is parked on.
+ */
+void moon_ui_dump_hang_context(void);
+
 #ifdef __cplusplus
 }
 #endif

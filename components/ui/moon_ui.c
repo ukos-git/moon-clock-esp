@@ -2705,3 +2705,20 @@ void moon_ui_screen_switched(void) {
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
 }
+
+/* Hang-diagnostic context dump (TEST_HANG_WATCH only; the hang-watcher in
+ * app_main calls it when the LVGL heartbeat goes stale). Prints the volatile
+ * pipeline flags around the fade / spin / flush path, so the task-state dump
+ * (which names the BLOCKED tasks) can be cross-referenced with the pipeline
+ * state to identify WHICH portMAX_DELAY take a stuck task is parked on. The
+ * only project locks on that path are s_rgb_mtx (buffer) and s_panel_mtx
+ * (panel); a deadlock must involve one of them (or the panel io's internal
+ * SPI lock). Safe from any task (volatile reads only). */
+void moon_ui_dump_hang_context(void) {
+    ESP_LOGE(TAG, "  flags: ready=%d moon_screen=%d spin_running=%d spin_cancel=%d fade_pending=%d", (int)s_ready,
+             (int)s_moon_screen, (int)s_spin_running, (int)s_spin_cancel, (int)s_fade_pending);
+    ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d sweep_baking=%d dusk_baking=%d frame_stale=%d",
+             (int)s_orbit_baking, (int)s_orbit_sweeping, (int)s_sweep_baking, (int)s_dusk_baking, (int)s_frame_stale);
+    ESP_LOGE(TAG, "  flags: panel_step=%d panel_wrap=%d mask_dirty=%d", (int)s_panel_step, (int)s_panel_wrap,
+             (int)s_mask_dirty);
+}

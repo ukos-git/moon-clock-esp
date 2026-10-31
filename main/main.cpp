@@ -3,8 +3,10 @@
 
 #include "driver/gpio.h"
 #include "esp_err.h" // required by bsp until PR goes through
+#include "esp_heap_caps.h"
 #include "esp_io_expander.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -35,8 +37,56 @@
 #ifndef CONFIG_TEST_ROLL_TILT_SEC
 #define CONFIG_TEST_ROLL_TILT_SEC 0
 #endif
+#ifndef CONFIG_TEST_HANG_WATCH
+#define CONFIG_TEST_HANG_WATCH 0
+#endif
 
+// Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
+// (a 200 ms lv_timer runs on it; every other lv_timer -- the RTC poll,
+// the idle check, the UI tick -- stops when it blocks). If the
+// heartbeat goes stale, the system is hung: some task is parked on a
+// lock. That kind of hang is otherwise SILENT (a parked task keeps the
+// idle tasks alive, so the task WDT never fires; the console just stops
+// mid-line while the panel holds a half-drawn frame -- the "white
+// stripes"). The watcher prints every task with its state and a
+// symbolized backtrace, then aborts so the panic prints the final
+// context too. Diagnostic aid only; off by default.
 static const char *TAG = "main";
+#if CONFIG_TEST_HANG_WATCH
+static volatile int64_t s_lvgl_hb_ms;
+static void lvgl_hb_cb(lv_timer_t *t) {
+    (void)t;
+    s_lvgl_hb_ms = esp_timer_get_time();
+}
+static void hang_watch_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        int64_t age_us = esp_timer_get_time() - s_lvgl_hb_ms;
+        if (age_us < 15000000) /* 15 s: the longest legitimate LVGL block is the
+                                * ~340 ms sweep flush; a real hang grows
+                                * without bound. (esp_timer_get_time is us.) */
+            continue;
+        ESP_LOGE(TAG, "HANG: LVGL heartbeat stale %lld ms; dumping tasks", (long long)(age_us / 1000));
+        moon_ui_dump_hang_context();
+        UBaseType_t n = uxTaskGetNumberOfTasks();
+        TaskStatus_t *ts = (TaskStatus_t *)heap_caps_malloc(n * sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM);
+        if (!ts) {
+            ESP_LOGE(TAG, "HANG: task table alloc failed");
+            continue;
+        }
+        configRUN_TIME_COUNTER_TYPE run = 0;
+        uxTaskGetSystemState(ts, n, &run);
+        for (UBaseType_t i = 0; i < n; i++) {
+            ESP_LOGW(TAG, "  task %-14s state=%d prio=%u hwm=%u", ts[i].pcTaskName, (int)ts[i].eCurrentState,
+                     (unsigned)ts[i].uxCurrentPriority, (unsigned)ts[i].usStackHighWaterMark);
+        }
+        heap_caps_free(ts);
+        ESP_LOGE(TAG, "HANG: aborting");
+        abort();
+    }
+}
+#endif
 
 // Test hook (CONFIG_TEST_AUTO_WAKE_SEC): fire the idle-wake transition
 // while the device has been asleep for N seconds, so the wake path
@@ -83,9 +133,14 @@ static void settings_demo_cb(lv_timer_t *timer) {
         ESP_LOGW(TAG, "TEST settings demo: starting");
         clock_idle_set_enabled(false);
     }
-    /* Wait out the boot sync: a hub switch during the transient WiFi
-     * screen would race the sync-complete pickup. */
-    if (step == 0 && ui_current_screen() == SCREEN_ID_WIFI)
+    /* Wait out the boot sync AND the boot sweep. The user's freeze is a
+     * home->settings switch while the FREE SPIN is running (post-sweep,
+     * the spin's direct panel writes run concurrently with the fade). A
+     * switch during the sweep is guarded off (s_sweep_baking suppresses
+     * the fade and the spin is paused), so it does not reproduce the
+     * bug. Hold at step 0 until the sweep is done and the spin has
+     * resumed, then switch -- exactly the user's "tap home -> settings". */
+    if (step == 0 && (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping()))
         return;
     esp_err_t r;
     switch (step++) {
@@ -440,6 +495,15 @@ extern "C" void app_main(void) {
     // transform layer (PSRAM alloc) + centre pivot run without a tilt.
     if (CONFIG_TEST_ROLL_TILT_SEC > 0)
         lv_timer_create(action_roll_test_cb, 1000, NULL);
+
+    // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
+    // default). The heartbeat timer is the only thing that keeps the
+    // LVGL task alive; a stuck LVGL task goes stale and the watcher
+    // dumps every task + backtrace, then aborts.
+#if CONFIG_TEST_HANG_WATCH
+    lv_timer_create(lvgl_hb_cb, 200, NULL);
+    xTaskCreatePinnedToCore(hang_watch_task, "hang_watch", 6144, NULL, 5, NULL, 1);
+#endif
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
     ESP_LOGI(TAG, "Sleep transitions: AIRPLANE -(idle)-> LIGHT_SLEEP -(countdown)-> DEEP_SLEEP");
