@@ -14,8 +14,23 @@ dependencies:
   # Waveshare ESP32-P4-WIFI6-Touch-LCD-XC BSP (720x720 / 800x800): P4-only,
   # gated on the build target (the vendored S3 BSP registers only on
   # esp32s3, so the two never co-resolve — both export bsp/display.h).
-  # The remote C6 Wi-Fi (esp_hosted / esp_wifi_remote) is added at M2.
   waveshare/esp32_p4_wifi6_touch_lcd_xc:
     version: 3.0.1
+    rules:
+      - if: target == "esp32p4"
+  # The P4's Wi-Fi is a REMOTE ESP32-C6 over SDIO (no on-chip radio):
+  # esp_hosted runs the C6 slave, esp_wifi_remote swaps the esp_wifi
+  # implementation for the remote one (the app keeps calling the normal
+  # esp_wifi/esp_netif API — wifi.c is board-agnostic). Exact pins: the
+  # XC 4C product firmware's versions, proven on the board at the M0
+  # bring-up (associated to the home AP in ~8 s; the C6 SDIO pins, slave
+  # target and 4-bit @ 40 MHz are the esp_hosted defaults and already
+  # match this board).
+  espressif/esp_hosted:
+    version: 1.4.7
+    rules:
+      - if: target == "esp32p4"
+  espressif/esp_wifi_remote:
+    version: 0.14.5
     rules:
       - if: target == "esp32p4"

@@ -4,15 +4,15 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-# Set partition table by build target: the P4 has a 32 MB chip (the S3's
-# 16 MB table does not fit the layout, and vice versa). IDF_TARGET is a
-# cmake variable (idf.py cache), so this resolves before project(); the
-# P4 build passes -D IDF_TARGET=esp32p4, a plain S3 build leaves the
-# default. The target and the Kconfig BOARD choice must agree (the
-# CONFIG_* check below runs after project(), when the sdkconfig vars are
-# in scope).
+# P4 target block. (The partition table is NOT set here: the partition_table
+# component's project hook re-derives PARTITION_CSV_PATH from the Kconfig
+# values, so a plain set() before project() is clobbered. The selection
+# lives in the per-target defaults files instead — the shared
+# sdkconfig.defaults sets CONFIG_PARTITION_TABLE_CUSTOM=y, and
+# sdkconfig.defaults.esp32p4 sets
+# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv" (32 MB layout,
+# 9216K factory); the S3 keeps the default "partitions.csv".)
 if(IDF_TARGET STREQUAL "esp32p4")
-    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions_p4.csv)
     # The vendored S3 BSP is S3-only (its manifest declares
     # targets: [esp32s3]); EXCLUDE_COMPONENTS keeps it out of the P4
     # build AND of the component manager's local-manifest list (which
@@ -26,8 +26,6 @@ if(IDF_TARGET STREQUAL "esp32p4")
     # project(), which runs the component manager.
     idf_build_set_property(DEPENDENCIES_LOCK
         "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
-else()
-    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions.csv)
 endif()
 
 project(moon-phase)

@@ -5,6 +5,12 @@ CONFIG_IDF_TARGET="esp32p4"
 # Board select (see components/board/Kconfig.projbuild): the app's
 # P4-only code paths gate on CONFIG_BOARD_P4.
 CONFIG_BOARD_P4=y
+# Partition table: the shared defaults enable CONFIG_PARTITION_TABLE_CUSTOM;
+# IDF picks the CSV through the Kconfig value (the partition_table component's
+# project hook re-derives PARTITION_CSV_PATH from it, clobbering any plain
+# cmake set). The S3 keeps its default "partitions.csv" (2048K factory);
+# the P4 takes the 32 MB table with the 9216K factory.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
 # Silicon: the attached board is rev v1.3 (legacy profile). 5.5.1 has no
 # ESP32P4_SELECTS_REV_LESS_V3 / REV_MIN_300 — 100..199 is the rev1_3 band.
 CONFIG_ESP32P4_REV_MIN_100=y
@@ -31,3 +37,33 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 # The 4C panel (720x720). The 800x800 3.4C is CONFIG_BSP_LCD_TYPE_800_800_3_4_INCH.
 CONFIG_BSP_LCD_TYPE_720_720_4_INCH=y
+# Remote C6 Wi-Fi over SDIO (M2): the esp_hosted / esp_wifi_remote pair
+# (component-manager deps, pinned in main/idf_component.yml). All SDIO
+# pins (CLK 18 / CMD 19 / D0-D3 14-17), the slave target (esp32c6), the
+# 4-bit @ 40 MHz bus and the slave reset (GPIO54) are esp_hosted
+# defaults that already match this board — the M0 bring-up associated
+# with none of them explicitly set. STA only (the app has no soft-AP
+# path): keep the slave's soft-AP buffers out.
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+# The remote-side twin: esp_wifi_remote's injected Kconfig carries
+# WIFI_RMT_SOFTAP_SUPPORT (default y) and re-defaults the host's
+# ESP_WIFI_SOFTAP_SUPPORT from it — set both or the host one bounces back to y.
+CONFIG_WIFI_RMT_SOFTAP_SUPPORT=n
+# LVGL fast-math functions: XIP (PSRAM), NOT internal IRAM. The shared
+# sdkconfig.defaults sets LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y for the S3, where
+# LVGL's esp.cmake maps LV_ATTRIBUTE_FAST_MEM to IRAM_ATTR = Xtensa .iram
+# (fast memory, a real win). On the P4 (RISC-V) IRAM_ATTR = .iram1.N, which
+# lands in the scarce internal sram_low and overflows the link (~113 KB of
+# LVGL in ~60 KB of headroom). The M0 known-good LVGL demo left it unset
+# (LVGL in XIP, ~2.6 KB IRAM) and ran clean; PSRAM XIP is proven here. The
+# P4 file is appended after the shared one, so this =n wins on esp32p4 and
+# the S3 keeps its IRAM fast-math. (Per-target override; see CLAUDE.md
+# "Kconfig n leaves the macro UNDEFINED" — this is a *defaults-file* value,
+# not a #define, so it is fine.)
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
+# Idle-task WDT, CPU1: the moon_sweep task (the boot sweep, then the burn-in
+# spin) can own one core for seconds at a time (first bake ~5-6 s); the idle
+# task on that core then cannot feed the 5 s WDT, so the check fires on every
+# boot sweep. Same treatment as the S3 (sdkconfig.defaults.esp32s3): disable
+# the CPU1 idle check only (CPU0 stays checked).
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n

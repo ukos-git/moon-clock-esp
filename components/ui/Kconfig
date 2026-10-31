@@ -238,6 +238,20 @@ menu "UI Component Configuration"
             settings stack (state machine, persistence, scheduler
             math). 0 (default) = off.
 
+    config TEST_WIFI_SCAN_SEC
+        int "Test: open the WiFi settings screen N seconds after boot (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: N seconds after boot (waits out the boot sweep
+            first), open the settings WiFi screen -- the one that
+            starts the background AP scan (wifi_scan_begin) and
+            renders the results as rows. Headless verification of the
+            scan path (on the P4: the esp_hosted RPC scan through the
+            remote C6, including its 5 GHz APs). Idle monitoring is
+            turned off while the screen is up so the capture is not
+            cut by the sleep transition. 0 (default) = off.
+
     config TEST_CPU_STATS_SEC
         int "Test: log per-task CPU % every second, N seconds after boot (0 = off)"
         default 0

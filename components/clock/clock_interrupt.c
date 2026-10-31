@@ -291,6 +291,13 @@ bool clock_is_interrupt_pending(void) {
         return false;
     }
 
+#if defined(CONFIG_BOARD_P4)
+    // No PCF85063A: there is no RTC flag register to poll (the 1.3 s poll
+    // would otherwise log an error every cycle). The software minute/alarm
+    // path lands in M5.
+    return false;
+#endif
+
     // Check EXIO 3 pin level (useful for wake-up from deep sleep detection)
     bool exio_int_active = false;
     if (s_io_expander) {

@@ -168,7 +168,7 @@ static const ap_stub_t s_aps[] = {
 /* The sim shows the home screen as connected (white indicator). */
 bool wifi_manager_is_connected(void) { return true; }
 
-void wifi_scan_start(void) { printf("[stub] wifi_scan_start\n"); }
+void wifi_scan_begin(void) { printf("[stub] wifi_scan_begin\n"); }
 bool wifi_scan_in_progress(void) { return false; }
 int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
     int n = (int)(sizeof s_aps / sizeof s_aps[0]);

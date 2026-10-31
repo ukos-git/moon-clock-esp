@@ -69,8 +69,13 @@ typedef struct {
  * mode + start, no credentials, no connection) and deinit's it again
  * when done; when the manager owns the radio the scan shares it and
  * leaves it running. No-op while a scan is already in progress.
+ *
+ * Not called `wifi_scan_start`: on the P4 (remote C6) esp_hosted is
+ * linked whole-archive and its RPC layer defines a global
+ * `wifi_scan_start(ctrl_cmd_t *)` — the two would collide at link time.
+ * Renamed on both boards so the source stays single-sourced.
  */
-void wifi_scan_start(void);
+void wifi_scan_begin(void);
 
 /**
  * @brief Whether a scan is currently running

@@ -209,6 +209,11 @@ void tick_screen(int screen_index);
 
 void create_screens();
 
+/* Dispatch a settings entry's screen refresh (the hub-icon / entry
+ * handlers call it after loadScreen + ui_tick). Exposed for the
+ * TEST_WIFI_SCAN_SEC test hook. */
+void settings_screen_refresh_for(enum ScreensEnum target);
+
 #ifdef __cplusplus
 }
 #endif

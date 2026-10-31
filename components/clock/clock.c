@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "driver/i2c_master.h"
@@ -98,6 +99,9 @@ esp_err_t clock_init(const clock_config_t *cfg) {
 
     ESP_LOGI(TAG, "Initializing clock component");
 
+    esp_err_t ret;
+
+#if !defined(CONFIG_BOARD_P4)
     // Get I2C master bus handle from BSP
     s_bus_handle = bsp_i2c_get_handle();
     if (!s_bus_handle) {
@@ -105,9 +109,6 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t ret;
-
-#if !defined(CONFIG_BOARD_P4)
     // Initialize PCF85063A using the library
     ret = pcf85063a_init(&s_rtc_dev, s_bus_handle, PCF85063A_ADDRESS);
     if (ret != ESP_OK) {
@@ -152,8 +153,15 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     // Try NTP synchronization if enabled and WiFi is available
     if (cfg->enable_ntp_sync) {
         ESP_LOGI(TAG, "Attempting NTP time synchronization...");
-        if (clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS) == ESP_OK)
-            time_obtained = true;
+        if (clock_sync_time_from_ntp(CONFIG_CLOCK_NTP_TIMEOUT_MS) == ESP_OK) {
+            // clock_sync_time_from_ntp already wrote the (its own, valid)
+            // value to the RTC; fill time_to_set from the now-synced system
+            // clock so the redundant clock_set_time below does not write an
+            // uninitialized stack variable (it was left unfilled on the
+            // NTP-success path and logged "Invalid time values").
+            if (clock_sntp_get_system_time(&time_to_set) == ESP_OK)
+                time_obtained = true;
+        }
     }
 
     // If NTP failed or not enabled, try to get system time
@@ -219,6 +227,21 @@ esp_err_t clock_get_time(clock_time_t *out) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if defined(CONFIG_BOARD_P4)
+    // No external RTC IC: the time base is the system clock (SNTP-synced;
+    // the crystal-backed internal RTC timer + NVS epoch backup land in M5).
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    out->year = timeinfo.tm_year + 1900;
+    out->month = timeinfo.tm_mon + 1;
+    out->day = timeinfo.tm_mday;
+    out->hour = timeinfo.tm_hour;
+    out->minute = timeinfo.tm_min;
+    out->second = timeinfo.tm_sec;
+    return ESP_OK;
+#else
     pcf85063a_datetime_t pcf_time;
     esp_err_t ret = pcf85063a_get_time_date(&s_rtc_dev, &pcf_time);
     if (ret != ESP_OK) {
@@ -227,6 +250,7 @@ esp_err_t clock_get_time(clock_time_t *out) {
 
     pcf_to_clock_time(&pcf_time, out);
     return ESP_OK;
+#endif
 }
 
 esp_err_t clock_get_utc_epoch(int64_t *out) {
@@ -276,8 +300,29 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if defined(CONFIG_BOARD_P4)
+    // No external RTC IC: the "RTC" is the system clock. mktime interprets
+    // the value as local time (TZ/DST-adjusted), which is what settimeofday
+    // wants.
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = time->year - 1900;
+    tm.tm_mon = time->month - 1;
+    tm.tm_mday = time->day;
+    tm.tm_hour = time->hour;
+    tm.tm_min = time->minute;
+    tm.tm_sec = time->second;
+    tm.tm_isdst = -1;
+    time_t epoch = mktime(&tm);
+    if (epoch == (time_t)-1) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct timeval tv = {.tv_sec = epoch, .tv_usec = 0};
+    return (settimeofday(&tv, NULL) == 0) ? ESP_OK : ESP_ERR_INVALID_STATE;
+#else
     pcf85063a_datetime_t pcf_time;
     clock_to_pcf_time(time, &pcf_time);
 
     return pcf85063a_set_time_date(&s_rtc_dev, pcf_time);
+#endif
 }

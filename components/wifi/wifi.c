@@ -30,6 +30,14 @@ static const char *TAG = "WIFI";
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_num = 0;
 static bool wifi_connected = false;
+#if defined(CONFIG_BOARD_P4)
+// The remote (esp_hosted) radio on the 4C board is initialized exactly once
+// and never deinit'd: the host-side LWIP netif attach is not re-runnable, so a
+// second esp_wifi_init() re-adds the persistent netif and asserts (netif_add
+// "netif already added"). Power-cycling the radio is stop/start only. The S3
+// (built-in radio) does not need this and deinits/reinits freely.
+static bool s_wifi_inited = false;
+#endif
 
 // Read WiFi credentials from SPIFFS file
 static esp_err_t read_wifi_credentials(char *ssid, char *password) {
@@ -60,19 +68,25 @@ static esp_err_t read_wifi_credentials(char *ssid, char *password) {
             continue;
         }
 
-        // First non-comment line is SSID
+        // First non-comment line is SSID. strnlen+memcpy: a plain
+        // strncpy/snprintf of the 256-byte line into the 32-byte field
+        // trips -Wstringop-truncation / -Wformat-truncation under
+        // -Werror=all (the P4's GCC 14 RISC-V toolchain) even though the
+        // truncation is the point.
         if (!ssid_found) {
-            strncpy(ssid, trimmed, MAX_SSID_LEN - 1);
-            ssid[MAX_SSID_LEN - 1] = '\0';
+            size_t n = strnlen(trimmed, MAX_SSID_LEN - 1);
+            memcpy(ssid, trimmed, n);
+            ssid[n] = '\0';
             ssid_found = true;
             ESP_LOGI(TAG, "Found SSID: %s", ssid);
             continue;
         }
 
-        // Second non-comment line is password
+        // Second non-comment line is password (same bounded copy)
         if (!password_found) {
-            strncpy(password, trimmed, MAX_PASSWORD_LEN - 1);
-            password[MAX_PASSWORD_LEN - 1] = '\0';
+            size_t n = strnlen(trimmed, MAX_PASSWORD_LEN - 1);
+            memcpy(password, trimmed, n);
+            password[n] = '\0';
             password_found = true;
             ESP_LOGI(TAG, "Found password (length: %d)", strlen(password));
             break;
@@ -215,8 +229,19 @@ esp_err_t wifi_manager_init(void) {
     }
 
     // Initialize WiFi
+#if defined(CONFIG_BOARD_P4)
+    // Re-bringing the (already-inited, stopped) remote radio is set_mode+start
+    // below — esp_wifi_init is not re-runnable on the host (see
+    // wifi_manager_deinit), so it runs only once.
+    if (!s_wifi_inited) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        s_wifi_inited = true;
+    }
+#else
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+#endif
 
     s_wifi_event_group = xEventGroupCreate();
 
@@ -240,8 +265,8 @@ esp_err_t wifi_manager_init(void) {
                 .threshold.authmode = WIFI_AUTH_WPA2_PSK,
             },
     };
-    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
-    strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+    snprintf((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), "%s", ssid);
+    snprintf((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), "%s", password);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
@@ -273,7 +298,11 @@ void wifi_manager_deinit(void) {
         s_wifi_event_group = NULL;
     }
     esp_wifi_stop();
+#if !defined(CONFIG_BOARD_P4)
     esp_wifi_deinit();
+#endif
+    // The remote radio stays inited on the 4C (esp_wifi_deinit would break the
+    // host netif re-attach — see s_wifi_inited). wifi_connected drops either way.
     wifi_connected = false;
 }
 
@@ -300,6 +329,16 @@ static void wifi_scan_task_fn(void *arg) {
          * manager's still-registered event handler will attempt
          * esp_wifi_connect() on STA_START; with no SSID configured it
          * fails fast and its event-group writes are NULL-guarded. */
+#if defined(CONFIG_BOARD_P4)
+        /* The remote radio is always inited (the manager inits it once; see
+         * s_wifi_inited) — bring it up with set_mode+start only. */
+        esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (ret == ESP_OK) {
+            we_own_radio = true;
+            esp_wifi_start();
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+#else
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
         esp_err_t ret = esp_wifi_init(&cfg);
         if (ret == ESP_OK) {
@@ -311,6 +350,7 @@ static void wifi_scan_task_fn(void *arg) {
                 we_own_radio = false;
             }
         }
+#endif
         if (we_own_radio) {
             ESP_LOGI(TAG, "Scan: radio brought up");
         } else {
@@ -349,14 +389,16 @@ static void wifi_scan_task_fn(void *arg) {
 
     if (we_own_radio) {
         esp_wifi_stop();
+#if !defined(CONFIG_BOARD_P4)
         esp_wifi_deinit();
+#endif
         ESP_LOGI(TAG, "Scan: radio down again");
     }
     s_scan_running = false;
     vTaskDelete(NULL);
 }
 
-void wifi_scan_start(void) {
+void wifi_scan_begin(void) {
     if (s_scan_running) {
         return;
     }

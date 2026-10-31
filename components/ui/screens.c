@@ -572,8 +572,9 @@ static void event_handler_cb_settings_alarm_master(lv_event_t *e) {
 }
 
 /* Dispatch the entry refresh for a target screen (shared by the hub
- * icons and the alarm-settings entries). */
-static void settings_screen_refresh_for(enum ScreensEnum target) {
+ * icons and the alarm-settings entries; also called directly by the
+ * TEST_WIFI_SCAN_SEC hook, which has no event handler to drive it). */
+void settings_screen_refresh_for(enum ScreensEnum target) {
     switch (target) {
     case SCREEN_ID_SETTINGS_ALARM:
         settings_alarm_screen_refresh();
@@ -1320,7 +1321,7 @@ void tick_screen_settings_deep_sleep() {}
 /* --- WiFi settings: the AP scan list ---------------------------------
  *
  * "NETWORKS" header (wifi icon) + the AP scan results below. A
- * background scan (wifi_scan_start) runs while the screen is open; the
+ * background scan (wifi_scan_begin) runs while the screen is open; the
  * rows render when the scan finishes (the 10 ms tick polls
  * wifi_scan_in_progress() and renders once). The selected row is
  * marked by a white bar in the left margin (the SSID font has no
@@ -1419,7 +1420,7 @@ static void settings_wifi_screen_refresh(void) {
     s_wifi_scan_rendered = false;
     s_wifi_scanning_shown = false;
     settings_wifi_place_sel_bar(-1);
-    wifi_scan_start();
+    wifi_scan_begin();
 }
 
 void create_screen_settings_wifi() {
