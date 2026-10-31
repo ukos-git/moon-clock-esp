@@ -11,3 +11,11 @@ dependencies:
   idf:
     version: '>=4.1.0'
   lvgl/lvgl: ^9
+  # Waveshare ESP32-P4-WIFI6-Touch-LCD-XC BSP (720x720 / 800x800): P4-only,
+  # gated on the build target (the vendored S3 BSP registers only on
+  # esp32s3, so the two never co-resolve — both export bsp/display.h).
+  # The remote C6 Wi-Fi (esp_hosted / esp_wifi_remote) is added at M2.
+  waveshare/esp32_p4_wifi6_touch_lcd_xc:
+    version: 3.0.1
+    rules:
+      - if: target == "esp32p4"

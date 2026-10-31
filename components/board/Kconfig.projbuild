@@ -1,0 +1,31 @@
+# Board selection (the project's dual-board switch).
+#
+# The Kconfig value selects the board's APP-SIDE behaviour (the P4-only
+# code paths gate on CONFIG_BOARD_P4); the build target (IDF_TARGET)
+# selects the partition table and the BSP component. The two must agree —
+# the root CMakeLists FATAL_ERRORs on a mismatch.
+#
+# A project-ROOT Kconfig.projbuild is NOT processed by the ESP-IDF 5.5
+# build system (only per-component Kconfig / Kconfig.projbuild files are
+# collected, tools/cmake/kconfig.cmake), so the choice lives here, in the
+# always-built board-shim component.
+choice BOARD
+    prompt "Board"
+    default BOARD_S3
+
+config BOARD_S3
+    bool "Waveshare ESP32-S3-Touch-AMOLED-1.75 (466x466)"
+    help
+        The original board: 466x466 CO5300 QSPI AMOLED, CST9217 touch,
+        PCF85063A RTC + TCA9554 expander, QMI8658C IMU, built-in Wi-Fi.
+        16 MB flash, 8 MB PSRAM (not SPI-DMA-capable).
+
+config BOARD_P4
+    bool "Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720x720)"
+    help
+        The 4C board: 720x720 JD9365 MIPI-DSI, GT911 touch, remote C6
+        Wi-Fi over SDIO (esp_hosted / esp_wifi_remote), ES8311 codec,
+        NO RTC IC / IO expander / IMU. The time base is the 32 kHz
+        crystal RTC timer + SNTP; alarms are software esp_timer.
+        32 MB flash, 32 MB PSRAM.
+endchoice

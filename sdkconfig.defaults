@@ -1,30 +1,22 @@
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) 5.5.1 Project Minimal Configuration
 #
+# SHARED defaults: loaded for every board. Per-board lines live in
+# sdkconfig.defaults.<target> (the build system auto-loads the file matching
+# the active IDF_TARGET after this one; kconfgen is later-file-wins, so the
+# board file overrides anything set here). Keep board-specific symbols OUT of
+# this file or they leak into the other board's build.
+#
+# The target line stays esp32s3 so a plain `idf.py build` (fresh clone, no
+# sdkconfig) still guesses the S3 target; the P4 build passes
+# -D IDF_TARGET=esp32p4 and its per-target file overrides this line.
 CONFIG_IDF_TARGET="esp32s3"
-# Flash: the board has a 16MB chip (esptool flash_id). The 2MB layout in
-# git history was a config choice; the 2048x1024 relief DEM needs the
-# headroom (see partitions.csv, moon_assets = 2560K).
+# Flash size header: the S3 has a 16 MB chip; the P4 has a 32 MB chip but the
+# binary header still says 16 MB (the spi_flash size-mismatch warning on the
+# P4 is expected -- see partitions_p4.csv). Both boards flash a 16 MB header.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-# Task watchdog: core 1 runs the bounded moon bakes (a high-priority
-# ~2 s/frame full-disk-relief bake for orbit/wake-sweep) plus the spin
-# render; together they can starve the CPU1 idle task for a full bake,
-# which would trip the 5 s WDT (log-only but noisy). The bakes are
-# bounded and self-cancelling, so a permanent core-1 hang is not a
-# realistic risk; core 0's idle check (IDF default, on) stays as the
-# hang safety net.
-CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
-# LCD flush queue depth 1: the S3 SPI DMA caps one transfer at 32 KiB
-# and PSRAM is not DMA-capable, so every strip is staged into internal
-# RAM; depth 1 keeps the peak internal allocation at one ~23 KB strip
-# (deeper queues exhausted the heap -> ESP_ERR_NO_MEM, see the vendored
-# BSP buffer_height 50->25 fix).
-CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1
 # Obsolete test hook (the synodic sweep now plays at BOOT only, from a
 # black screen); kept off and present so existing configs keep
 # validating.
@@ -55,14 +47,14 @@ CONFIG_CODEC_TAS5805M_SUPPORT=n
 CONFIG_IO_EXPANDER_ENABLE_GPIO_API_WRAPPER=n
 # LVGL allocator backend: the C library (NOT the built-in 64 KB static
 # internal pool). The tilt clock-roll sets a style transform_rotation on
-# the full-screen 466x466 clock containers; LVGL renders a transformed
-# object into ONE unchunked layer of its whole rotated bounding box
-# (up to ~659x659 @ RGB565 ~= 0.9 MB), allocated via lv_malloc. The
-# built-in pool (LV_MEM_SIZE, 64 KB static internal RAM) cannot hold that,
-# the alloc returns NULL and LVGL dereferences the NULL layer on the first
-# tilt (crash). With the clib backend lv_malloc is libc malloc, which on the
-# SPIRAM-enabled S3 places the large layer in PSRAM (7.7 MB free). Only cost:
-# LV_USE_MEM_MONITOR (depends on builtin) -- unused by this UI.
+# the full-screen clock containers; LVGL renders a transformed object
+# into ONE unchunked layer of its whole rotated bounding box, allocated
+# via lv_malloc. The built-in pool (LV_MEM_SIZE, 64 KB static internal
+# RAM) cannot hold a full-panel layer, the alloc returns NULL and LVGL
+# dereferences the NULL layer on the first tilt (crash). With the clib
+# backend lv_malloc is libc malloc, which on the PSRAM-enabled boards
+# places the large layer in PSRAM. Only cost: LV_USE_MEM_MONITOR
+# (depends on builtin) -- unused by this UI.
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_MEM_SIZE_KILOBYTES=64
 CONFIG_LV_COLOR_DEPTH_16=y
@@ -104,12 +96,11 @@ CONFIG_LV_USE_TABLE=n
 CONFIG_LV_USE_TABVIEW=n
 CONFIG_LV_USE_TILEVIEW=n
 CONFIG_LV_USE_WIN=n
-# Debug monitors from the CPU-stats phase: nothing in this UI ever
-# creates a perf/sysmon widget (the CPU figures came from the IDF
-# task stats), so the monitor code is pure flash weight. Snapshot is
-# on: the burn-in spin's UI keep-mask captures the active screen into
-# a full-screen draw_buf (moon text and icons are kept as pixels) on
-# every screen switch and label change.
+# Debug monitors: nothing in this UI ever creates a perf/sysmon widget
+# (the CPU figures came from the IDF task stats), so the monitor code is
+# pure flash weight. Snapshot is on: the burn-in spin's UI keep-mask
+# captures the active screen into a full-screen draw_buf (moon text and
+# icons are kept as pixels) on every screen switch and label change.
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_PERF_MONITOR=n
 CONFIG_LV_CONF_MINIMAL=y

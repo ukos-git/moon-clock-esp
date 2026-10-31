@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "board_display.h"
 #include "clock.h"
 #include "clock_alarm.h"
 #include "clock_interrupt.h"
@@ -104,15 +105,19 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    esp_err_t ret;
+
+#if !defined(CONFIG_BOARD_P4)
     // Initialize PCF85063A using the library
-    esp_err_t ret = pcf85063a_init(&s_rtc_dev, s_bus_handle, PCF85063A_ADDRESS);
+    ret = pcf85063a_init(&s_rtc_dev, s_bus_handle, PCF85063A_ADDRESS);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize PCF85063A: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Store IO expander handle from BSP
-    s_io_expander = bsp_io_expander_init();
+    // Store IO expander handle (shim: the P4 board has no expander, but
+    // this path is S3-only anyway — see the CONFIG_BOARD_P4 guard).
+    s_io_expander = board_io_expander_init();
     if (!s_io_expander) {
         ESP_LOGE(TAG, "Failed to initialize IO expander from BSP");
         return ESP_ERR_INVALID_STATE;
@@ -124,6 +129,12 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         ESP_LOGE(TAG, "Failed to configure EXIO 3 as input: %s", esp_err_to_name(ret));
         return ret;
     }
+#else
+    // The 4C board has no PCF85063A / IO expander: the time base is the
+    // crystal-backed internal RTC timer + SNTP (the software clock path
+    // lands in M5; the PCF85063A code is S3-only).
+    ESP_LOGI(TAG, "P4 board: no external RTC IC (internal crystal RTC timer + SNTP)");
+#endif
 
     // Mark as initialized before attempting time operations
     s_initialized = true;

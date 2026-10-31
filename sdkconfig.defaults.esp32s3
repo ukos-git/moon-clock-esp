@@ -1,0 +1,22 @@
+# S3-only defaults (auto-loaded after sdkconfig.defaults when
+# IDF_TARGET=esp32s3). Keep the shared file board-neutral.
+CONFIG_IDF_TARGET="esp32s3"
+# Octal PSRAM at 80 MHz: the S3's in-package 8 MB.
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+# The S3 core clock (the P4 runs at its own 400 MHz default).
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# Task watchdog: core 1 runs the bounded moon bakes (a high-priority
+# ~2 s/frame full-disk-relief bake for orbit/wake-sweep) plus the spin
+# render; together they can starve the CPU1 idle task for a full bake,
+# which would trip the 5 s WDT (log-only but noisy). The bakes are
+# bounded and self-cancelling, so a permanent core-1 hang is not a
+# realistic risk; core 0's idle check (IDF default, on) stays as the
+# hang safety net.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# LCD flush queue depth 1: the S3 SPI DMA caps one transfer at 32 KiB
+# and PSRAM is not DMA-capable, so every strip is staged into internal
+# RAM; depth 1 keeps the peak internal allocation at one ~23 KB strip
+# (deeper queues exhausted the heap -> ESP_ERR_NO_MEM, see the vendored
+# BSP buffer_height 50->25 fix). S3 BSP symbol only.
+CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1

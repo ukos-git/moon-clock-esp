@@ -32,7 +32,7 @@
 #include <math.h>
 #include <stddef.h>
 
-#include "bsp/esp32_s3_touch_amoled_1_75.h"
+#include "board_display.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"

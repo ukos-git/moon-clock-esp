@@ -12,5 +12,5 @@ idf_component_register(
     "moon_ui.c"
     ${IMAGE_SOURCES}
     ${FONT_SOURCES}
-  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi esp32_s3_touch_amoled_1_75
+  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi board
   INCLUDE_DIRS "./")

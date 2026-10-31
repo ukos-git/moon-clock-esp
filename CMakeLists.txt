@@ -4,10 +4,43 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-# Set partition table
-set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions.csv)
+# Set partition table by build target: the P4 has a 32 MB chip (the S3's
+# 16 MB table does not fit the layout, and vice versa). IDF_TARGET is a
+# cmake variable (idf.py cache), so this resolves before project(); the
+# P4 build passes -D IDF_TARGET=esp32p4, a plain S3 build leaves the
+# default. The target and the Kconfig BOARD choice must agree (the
+# CONFIG_* check below runs after project(), when the sdkconfig vars are
+# in scope).
+if(IDF_TARGET STREQUAL "esp32p4")
+    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions_p4.csv)
+    # The vendored S3 BSP is S3-only (its manifest declares
+    # targets: [esp32s3]); EXCLUDE_COMPONENTS keeps it out of the P4
+    # build AND of the component manager's local-manifest list (which
+    # would otherwise FATAL_ERROR on the target mismatch).
+    set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")
+    # The component manager rewrites its dependencies lock on every
+    # configure and the two targets resolve DIFFERENT dependency sets
+    # (different BSPs + driver stacks), so the P4 build uses its own
+    # lock file (dependencies.lock.p4, gitignored) and never touches the
+    # tracked S3 dependencies.lock. The property must be set before
+    # project(), which runs the component manager.
+    idf_build_set_property(DEPENDENCIES_LOCK
+        "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
+else()
+    set(PARTITION_CSV_PATH ${CMAKE_CURRENT_SOURCE_DIR}/partitions.csv)
+endif()
 
 project(moon-phase)
+
+# Target/board mismatch guard (risk: a stray CONFIG_BOARD_P4=y in an S3
+# build, or vice versa, would resolve two BSPs / the wrong partition
+# table and fail obscurely deep in the build).
+if((IDF_TARGET STREQUAL "esp32p4" AND NOT CONFIG_BOARD_P4) OR
+        (IDF_TARGET STREQUAL "esp32s3" AND NOT CONFIG_BOARD_S3))
+    message(FATAL_ERROR "Board mismatch: IDF_TARGET=${IDF_TARGET} (CONFIG_BOARD_S3='${CONFIG_BOARD_S3}', "
+        "CONFIG_BOARD_P4='${CONFIG_BOARD_P4}'). Pass the matching -D IDF_TARGET / "
+        "sdkconfig.defaults.<target> so the build target and the Kconfig BOARD choice agree.")
+endif()
 
 # Automatically include SPIFFS data from spiffs/ folder
 spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)

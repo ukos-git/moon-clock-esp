@@ -139,6 +139,7 @@
 #include "esp_lcd_panel_interface.h" /* the full vtable struct (s_panel->draw_bitmap) */
 #include "esp_lcd_panel_ops.h"
 
+#include "board_display.h"
 #include "bsp/display.h"
 
 #include "clock.h"
@@ -2213,7 +2214,7 @@ void moon_ui_init(void) {
     /* The panel handle + the draw_bitmap wrapper (the serialization
      * point with LVGL). bsp_display_start runs before moon_ui_init
      * (app_main), so the handle is valid. */
-    s_panel = bsp_display_get_panel();
+    s_panel = board_panel();
     if (s_panel) {
         s_orig_draw = s_panel->draw_bitmap;
         s_panel->draw_bitmap = moon_panel_draw_bitmap;

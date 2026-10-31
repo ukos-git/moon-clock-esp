@@ -1,0 +1,22 @@
+# ESP-IDF Partition Table — Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (4C),
+# 32 MB flash (the binary header still says 16 MB — esptool's
+# size-mismatch warning is expected). Chosen by the root CMakeLists when
+# IDF_TARGET=esp32p4; consumers find every partition by label, not offset.
+#   bootloader 32K + partition table 4K (offset 0x8000) + nvs 24K +
+#   phy 4K = 48K fixed (keep phy_init even though the PHY runs on the
+#   C6 slave — the xiaozhi v2.5.2 4C merged binary and the esp_hosted
+#   host-side examples both carry it)
+#   app (factory)    9216K  (the P4 app + LVGL 9 + the DSI stack: huge
+#                            headroom vs the S3's 2048K)
+#   storage (spiffs) 64K    (holds ~1KB: wifi_credentials.txt + alarm.txt;
+#                            64K leaves headroom for SPIFFS garbage collection)
+#   moon_assets      2560K  (equirect albedo + int8 relief DEM, size-
+#                            independent blob: 864x432 albedo + 2048x1024
+#                            DEM = 2,470,400 B < 2,621,440 B)
+# Total = 11868K.
+# Name,        Type, SubType, Offset,   Size,    Flags
+nvs,           data, nvs,     ,         0x6000,
+phy_init,      data, phy,     ,         0x1000,
+factory,       app,  factory, ,         9216K,
+storage,       data, spiffs,  ,         64K,
+moon_assets,   data, undefined, ,       2560K,
