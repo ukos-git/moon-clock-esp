@@ -182,6 +182,22 @@ int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
     return n;
 }
 
+/* The wheel keyboard's save path: the stub keeps the password out of
+ * the log (lengths only) and plays the device's screen switch. */
+void loadScreen(enum ScreensEnum screenId);
+void ui_tick(void);
+
+esp_err_t wifi_credentials_write(const char *ssid, const char *password) {
+    printf("[stub] credentials write (ssid %zu chars, pw %zu chars)\n", strlen(ssid), strlen(password));
+    return ESP_OK;
+}
+
+void action_start_wifi_sync(void) {
+    printf("[stub] wifi sync started (transient WiFi screen)\n");
+    loadScreen(SCREEN_ID_WIFI);
+    ui_tick();
+}
+
 /* ---- screen switching / tick (ui.c) ---- */
 
 static int s_cur_screen = -1;

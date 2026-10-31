@@ -110,7 +110,13 @@ static void settings_pomodoro_screen_refresh(void);
 static void settings_alarm_time_screen_refresh(void);
 static void settings_sleep_screen_refresh(int screen);
 static void settings_wifi_screen_refresh(void);
+static void settings_wheel_prefill_ssid(const char *ssid);
+static void settings_wheel_screen_refresh(void);
 static void settings_screen_refresh_for(enum ScreensEnum target);
+
+/* The wheel keyboard's prefilled SSID (the AP-row tap sets it before the
+ * screen loads; the wheel section owns the rest of its state). */
+static char s_wheel_ssid[33];
 
 /* One icon of the hub's ring: a clickable 96 px FA glyph. The target
  * screen rides in the event's user_data (one handler for all four). */
@@ -220,7 +226,7 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 13);
+            create_user_widget_clock(obj, 14);
         }
         {
             // arc-clock-seconds-modem
@@ -255,7 +261,7 @@ void create_screen_modem_sleep() {
 }
 
 void tick_screen_modem_sleep() {
-    tick_user_widget_clock(13);
+    tick_user_widget_clock(14);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
@@ -293,7 +299,7 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 18);
+            create_user_widget_clock(obj, 19);
         }
         {
             // arc-clock-seconds-wifi
@@ -343,7 +349,7 @@ void create_screen_wifi() {
 }
 
 void tick_screen_wifi() {
-    tick_user_widget_clock(18);
+    tick_user_widget_clock(19);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
@@ -387,14 +393,14 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 23);
+            create_user_widget_clock(obj, 24);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(23); }
+void tick_screen_light_sleep() { tick_user_widget_clock(24); }
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -416,7 +422,7 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 27);
+            create_user_widget_clock(obj, 28);
         }
         {
             // screen-indicator-sleep1
@@ -432,7 +438,7 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(27); }
+void tick_screen_deep_sleep() { tick_user_widget_clock(28); }
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_wake_screen) only fires while the device is
@@ -458,7 +464,7 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 32);
+            create_user_widget_clock(obj, 33);
         }
         {
             // screen-indicator-alarm
@@ -474,7 +480,7 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(32); }
+void tick_screen_alarm() { tick_user_widget_clock(33); }
 
 /* ---------------- settings screens ----------------
  *
@@ -586,6 +592,9 @@ static void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_WIFI:
         settings_wifi_screen_refresh();
+        break;
+    case SCREEN_ID_SETTINGS_WIFI_PASSWORD:
+        settings_wheel_screen_refresh();
         break;
     default:
         break;
@@ -1383,16 +1392,26 @@ static void settings_wifi_render_rows(void) {
     settings_wifi_place_sel_bar(selected_shown);
 }
 
-/* user_data = the row index. */
+/* user_data = the row index. A tap enters the circular wheel keyboard
+ * with this AP's SSID prefilled (the raw SSID -- the row display
+ * uppercases for font-safety only, the credential must keep the
+ * original case). */
 static void event_handler_cb_wifi_row(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
     s_wifi_selected = (int)(intptr_t)lv_event_get_user_data(e);
+    wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
+    int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
+    if (n == 0 || s_wifi_selected < 0 || s_wifi_selected >= n) {
+        return;
+    }
     settings_wifi_render_rows();
-    /* Selection is log-only until the follow-up (circular-keyboard
-     * password entry + credentials save). */
-    ESP_LOGW("settings_wifi", "AP row %d selected (password entry: follow-up)", s_wifi_selected);
+    settings_wheel_prefill_ssid(aps[s_wifi_selected].ssid);
+    loadScreen(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
+    ui_tick();
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
+    ESP_LOGW("settings_wifi", "AP row %d -> wheel keyboard (SSID %zu chars)", s_wifi_selected, strlen(s_wheel_ssid));
 }
 
 static void settings_wifi_screen_refresh(void) {
@@ -1473,6 +1492,614 @@ void tick_screen_settings_wifi() {
     s_wifi_scanning_shown = false;
 }
 
+/* --- WiFi password: the circular wheel keyboard ------------------------
+ *
+ * Reached by tapping an AP row on the WiFi screen (the SSID is prefilled,
+ * case kept). Two concentric letter rings around the 466x466 centre:
+ *
+ *  - the INNER frame (at rest): the 26 slots of the active mode, grouped
+ *    in threes (bold divider at each group start) at r 150..186. The
+ *    grouping is the wayfinding device -- the eye aims at 9 groups, not
+ *    26 targets.
+ *  - the OUTER frame (revealed on touch-down anywhere in the ring band):
+ *    a continuous band at r 192..226 where the letter under the finger is
+ *    lit over a 2x-inner-angle span (27 deg, the overlap is resolved by
+ *    nearest-slot-centre in the hit-test).
+ *  - a 4-key REGISTER/SHIFT arc (abc / ABC / 123 / #$) at r 88..116,
+ *    grouped as one arc segment but each key individually tappable; the
+ *    active mode is lit.
+ *  - the centre: the running password (unmasked -- the user is physically
+ *    present) + the selected letter, large, while sweeping. A short tap
+ *    on the centre COMMITS (save + connect); a long press BACKSPACES.
+ *
+ * Interaction: press (anywhere in the radial band r 140..233 --
+ * radially forgiving, the fingertip ~ the band width) reveals the outer
+ * frame; sweeping moves the highlight (nearest slot centre, inverse-
+ * transformed, so it is correct under the 90-degree orientation roll);
+ * RELEASE in the band commits the highlighted letter (a quick tap on an
+ * inner letter = press+release there = the same commit); release OUT of
+ * the band commits nothing. The 2 s press orientation re-sync also fires
+ * on long sweeps (pose-stability gated, re-anchors the home pose only --
+ * the wheel is transform-aware, so it is benign).
+ *
+ * The exit deviates from the house sub-screen pattern on purpose: the
+ * full-360-degree ring occupies the bottom-centre band, so the wheel gets
+ * the mockup's small in-ring exit (26 px circle-x at r 135) instead of
+ * settings_sub_screen_prepare()'s 90 px bottom exit.
+ *
+ * All wheel widgets are LOCAL statics (the layout contract in screens.h
+ * only names the screen roots and the clock-widget slots). Angles are
+ * LVGL's (0 deg = right, 90 deg = down, clockwise); the mockup's
+ * 0 deg = up geometry is a constant -90 offset. */
+#define WHEEL_C 233           /* the panel centre */
+#define WHEEL_INNER_R_MID 168 /* inner letter row (band 150..186) */
+#define WHEEL_OUTER_R_MID 209 /* outer letter row (band 192..226) */
+#define WHEEL_MODE_R_MID 102  /* mode-key row (band 88..116) */
+#define WHEEL_HIT_R_IN 140    /* the forgiving press band: 140..233 */
+#define WHEEL_OUTER_SPAN 13   /* the hot sector is +/-13 deg (2x the 26-letter inner angle) */
+#define WHEEL_PW_MAX 63       /* keep < MAX_PASSWORD_LEN (64) */
+#define WHEEL_EXIT_Y 368      /* the in-ring exit centre (r 135 below centre) */
+
+/* The four register modes (all printable ASCII -- the 32 px font now
+ * covers 32-126). 123 / #$ use fewer slots, so those keys get WIDER
+ * arc shares (360/n per slot) -- bigger sweep targets than letters. */
+static const char *const s_wheel_sets[4] = {
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "0123456789",
+    "!@#$%^&*()-_+=[]{}:;.,?/",
+};
+
+static char s_wheel_pw[WHEEL_PW_MAX + 1];
+static int s_wheel_pw_len = 0;
+static int s_wheel_mode = -1; /* -1 until the first set_mode drew the letters */
+static int s_wheel_n = 0;     /* slots of the active mode (<= 26) */
+static char s_wheel_chars[26];
+static int s_wheel_hot = -1; /* the highlighted slot (the centre preview) */
+static bool s_wheel_revealed = false;
+
+static lv_obj_t *s_wheel_catch; /* the transparent press band (r 140..233) */
+static lv_obj_t *s_wheel_outer; /* the revealed outer band + hot sector */
+static lv_obj_t *s_wheel_letters_in[26];
+static lv_obj_t *s_wheel_letters_out[26];
+static lv_obj_t *s_wheel_ticks[26];
+static lv_obj_t *s_wheel_mode_arc;
+static lv_obj_t *s_wheel_mode_keys[4];
+static lv_obj_t *s_wheel_center;
+static lv_obj_t *s_wheel_pw_label;
+static lv_obj_t *s_wheel_sel_label;
+static lv_obj_t *s_wheel_ssid_label;
+
+/* Slot j's centre angle (LVGL degrees, 0 = right, 90 = down, CW). */
+static float wheel_slot_center(int j, int n) { return (j + 0.5f) * 360.0f / (float)n - 90.0f; }
+
+/* Map the indev point (display coords) to a slot: inverse the screen
+ * root's transform (the orientation roll) first -- the same idiom as
+ * alarm_time_point_to_day(). Returns false when the point is outside the
+ * forgiving radial band. */
+static bool wheel_point_to_slot(int *out_slot) {
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == NULL) {
+        return false;
+    }
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_obj_transform_point(objects.settings_wifi_password, &p, LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE);
+    float dx = (float)(p.x - WHEEL_C);
+    float dy = (float)(p.y - WHEEL_C);
+    float r = sqrtf(dx * dx + dy * dy);
+    if (r < WHEEL_HIT_R_IN || r > (float)WHEEL_C) {
+        return false;
+    }
+    /* atan2f: radians, 0 = right, 90 = down -- the LVGL slot convention. */
+    float theta = atan2f(dy, dx) * 180.0f / 3.14159265f;
+    while (theta < 0.0f) {
+        theta += 360.0f;
+    }
+    while (theta >= 360.0f) {
+        theta -= 360.0f;
+    }
+    int best = 0;
+    float best_diff = 1e9f;
+    for (int j = 0; j < s_wheel_n; j++) {
+        float diff = theta - wheel_slot_center(j, s_wheel_n);
+        while (diff > 180.0f) {
+            diff -= 360.0f;
+        }
+        while (diff < -180.0f) {
+            diff += 360.0f;
+        }
+        float ad = diff < 0.0f ? -diff : diff;
+        if (ad < best_diff) {
+            best_diff = ad;
+            best = j;
+        }
+    }
+    *out_slot = best;
+    return true;
+}
+
+static void settings_wheel_pw_label(void) {
+    /* Unmasked, but the preview shows only the LAST 6 chars (a 63-char
+     * password would run off the ring; s_wheel_pw keeps it all). */
+    if (s_wheel_pw_len == 0) {
+        lv_label_set_text(s_wheel_pw_label, "....");
+        return;
+    }
+    char buf[16];
+    int start = s_wheel_pw_len > 6 ? s_wheel_pw_len - 6 : 0;
+    int pos = start > 0 ? snprintf(buf, sizeof(buf), "...") : 0;
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "%.*s", s_wheel_pw_len - start, s_wheel_pw + start);
+    (void)pos;
+    lv_label_set_text(s_wheel_pw_label, buf);
+}
+
+/* Recolour both letter rings: at rest the inner ring is the 175 grey;
+ * revealed, the inner dims and the hot letter lights in both rings. */
+static void settings_wheel_recolor_letters(void) {
+    lv_color_t in_rest = lv_color_hex(0xAF7878);
+    lv_color_t in_dim = lv_color_hex(0x555555);
+    lv_color_t out_dim = lv_color_hex(0x5F5F5F);
+    for (int j = 0; j < 26; j++) {
+        if (j >= s_wheel_n) {
+            continue;
+        }
+        bool hot = (j == s_wheel_hot);
+        lv_color_t in_c = !s_wheel_revealed ? in_rest : (hot ? SETTINGS_WHITE : in_dim);
+        lv_obj_set_style_text_color(s_wheel_letters_in[j], in_c, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(s_wheel_letters_out[j], hot ? SETTINGS_WHITE : out_dim,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+}
+
+static void settings_wheel_set_hot(int j) {
+    if (j == s_wheel_hot) {
+        return;
+    }
+    s_wheel_hot = j;
+    if (j < 0 || j >= s_wheel_n) {
+        lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
+        if (j < 0) {
+            lv_arc_set_angles(s_wheel_outer, 0, 0); /* zero span draws nothing */
+        }
+    } else {
+        lv_obj_clear_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
+        char one[2] = {s_wheel_chars[j], 0};
+        lv_label_set_text(s_wheel_sel_label, one);
+        if (s_wheel_revealed) {
+            float c = wheel_slot_center(j, s_wheel_n);
+            float a0 = c - (float)WHEEL_OUTER_SPAN;
+            float a1 = c + (float)WHEEL_OUTER_SPAN;
+            while (a0 < 0.0f) {
+                a0 += 360.0f;
+                a1 += 360.0f;
+            }
+            while (a1 >= 360.0f) {
+                a0 -= 360.0f;
+                a1 -= 360.0f;
+            }
+            lv_arc_set_angles(s_wheel_outer, (lv_value_precise_t)a0, (lv_value_precise_t)a1);
+        }
+    }
+    settings_wheel_recolor_letters();
+}
+
+/* Reveal the outer frame (press-down) / hide it (release or cancel). */
+static void settings_wheel_set_revealed(bool on) {
+    if (on == s_wheel_revealed) {
+        return;
+    }
+    s_wheel_revealed = on;
+    if (on) {
+        lv_obj_clear_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
+        /* The password shifts left, the selected letter appears right. */
+        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, -30, 0);
+    } else {
+        lv_obj_add_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
+    }
+    settings_wheel_recolor_letters();
+}
+
+/* Apply a register mode: re-string the 26 slots, re-place the letters +
+ * dividers (the slot angle is 360/n), light the mode key. */
+static void settings_wheel_set_mode(int m) {
+    if (m == s_wheel_mode) {
+        return;
+    }
+    s_wheel_mode = m;
+    s_wheel_n = (int)strlen(s_wheel_sets[m]);
+    for (int j = 0; j < 26; j++) {
+        s_wheel_chars[j] = j < s_wheel_n ? s_wheel_sets[m][j] : 0;
+    }
+    for (int j = 0; j < 26; j++) {
+        bool on = j < s_wheel_n;
+        float a = on ? wheel_slot_center(j, s_wheel_n) : 0.0f;
+        float ar = a * 3.14159265f / 180.0f;
+        if (on) {
+            int32_t dx_in = (int32_t)(WHEEL_INNER_R_MID * cosf(ar));
+            int32_t dy_in = (int32_t)(WHEEL_INNER_R_MID * sinf(ar));
+            char one[2] = {s_wheel_chars[j], 0};
+            lv_label_set_text(s_wheel_letters_in[j], one);
+            lv_obj_align(s_wheel_letters_in[j], LV_ALIGN_CENTER, dx_in, dy_in);
+            int32_t dx_out = (int32_t)(WHEEL_OUTER_R_MID * cosf(ar));
+            int32_t dy_out = (int32_t)(WHEEL_OUTER_R_MID * sinf(ar));
+            lv_label_set_text(s_wheel_letters_out[j], one);
+            lv_obj_align(s_wheel_letters_out[j], LV_ALIGN_CENTER, dx_out, dy_out);
+            lv_obj_clear_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_HIDDEN);
+        }
+        /* The divider BEFORE slot j, at the slot boundary (bold at each
+         * group start). */
+        bool bold = on && (j % 3 == 0);
+        int32_t len = bold ? 30 : 26;
+        float a_b = on ? (float)j * 360.0f / (float)s_wheel_n - 90.0f : 0.0f;
+        float arb = a_b * 3.14159265f / 180.0f;
+        int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(arb));
+        int32_t ty = (int32_t)(WHEEL_INNER_R_MID * sinf(arb));
+        lv_obj_set_size(s_wheel_ticks[j], len, bold ? 2 : 1);
+        lv_obj_set_pos(s_wheel_ticks[j], WHEEL_C + tx - len / 2, WHEEL_C + ty - (bold ? 1 : 0));
+        lv_obj_set_style_transform_rotation(s_wheel_ticks[j], (int32_t)a_b, 0);
+        lv_obj_set_style_bg_color(s_wheel_ticks[j], bold ? SETTINGS_GREY : lv_color_hex(0x373737),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+        if (on) {
+            lv_obj_clear_flag(s_wheel_ticks[j], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_wheel_ticks[j], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lv_arc_set_angles(s_wheel_mode_arc, (lv_value_precise_t)(44 + 24 * m), (lv_value_precise_t)(64 + 24 * m));
+    for (int k = 0; k < 4; k++) {
+        lv_obj_set_style_text_color(s_wheel_mode_keys[k], k == m ? SETTINGS_WHITE : SETTINGS_GREY,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+    settings_wheel_set_hot(-1);
+}
+
+/* The sweep press on the ring band (the inner + outer arcs share the one
+ * transparent catcher). PRESSED reveals the outer frame; PRESSING tracks
+ * the finger; RELEASED commits the highlighted letter when the finger is
+ * still in the band (a quick tap commits its own letter; an out-of-band
+ * release commits nothing). */
+static void event_handler_cb_wheel_sweep(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        settings_wheel_set_revealed(true);
+        int j;
+        if (wheel_point_to_slot(&j)) {
+            settings_wheel_set_hot(j);
+        }
+    } else if (code == LV_EVENT_PRESSING) {
+        int j;
+        if (wheel_point_to_slot(&j)) {
+            settings_wheel_set_hot(j);
+        }
+    } else if (code == LV_EVENT_RELEASED) {
+        int j;
+        bool in_band = wheel_point_to_slot(&j);
+        if (in_band && s_wheel_hot >= 0 && s_wheel_hot < s_wheel_n && s_wheel_pw_len < WHEEL_PW_MAX) {
+            s_wheel_pw[s_wheel_pw_len++] = s_wheel_chars[s_wheel_hot];
+            s_wheel_pw[s_wheel_pw_len] = 0;
+            settings_wheel_pw_label();
+            ESP_LOGW("settings_wheel", "entered letter %c (pw %d chars)", s_wheel_chars[s_wheel_hot], s_wheel_pw_len);
+        }
+        settings_wheel_set_revealed(false);
+        settings_wheel_set_hot(-1);
+    } else if (code == LV_EVENT_CANCEL) {
+        settings_wheel_set_revealed(false);
+        settings_wheel_set_hot(-1);
+    }
+}
+
+/* The register/shift arc: a PRESSED on the band snaps to the nearest of
+ * the four key centres (54/78/102/126 LVGL deg) and switches the mode. */
+static void event_handler_cb_wheel_mode(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == NULL) {
+        return;
+    }
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_obj_transform_point(objects.settings_wifi_password, &p, LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE);
+    float theta = atan2f((float)(p.y - WHEEL_C), (float)(p.x - WHEEL_C)) * 180.0f / 3.14159265f;
+    while (theta < 0.0f) {
+        theta += 360.0f;
+    }
+    while (theta >= 360.0f) {
+        theta -= 360.0f;
+    }
+    int best = 0;
+    float best_diff = 1e9f;
+    for (int k = 0; k < 4; k++) {
+        float diff = theta - (54.0f + 24.0f * k);
+        while (diff > 180.0f) {
+            diff -= 360.0f;
+        }
+        while (diff < -180.0f) {
+            diff += 360.0f;
+        }
+        float ad = diff < 0.0f ? -diff : diff;
+        if (ad < best_diff) {
+            best_diff = ad;
+            best = k;
+        }
+    }
+    settings_wheel_set_mode(best);
+    ESP_LOGW("settings_wheel", "mode %d", best);
+}
+
+/* The centre: short tap = commit (save the credentials + start the
+ * background sync -- action_start_wifi_sync swaps to the transient WiFi
+ * screen itself); long press (400 ms, repeating) = backspace. */
+static void event_handler_cb_wheel_center(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        if (s_wheel_pw_len == 0) {
+            ESP_LOGW("settings_wheel", "commit: empty password ignored");
+            return;
+        }
+        esp_err_t r = wifi_credentials_write(s_wheel_ssid, s_wheel_pw);
+        if (r != ESP_OK) {
+            ESP_LOGW("settings_wheel", "write credentials -> %s", esp_err_to_name(r));
+            return;
+        }
+        ESP_LOGW("settings_wheel", "credentials saved (SSID %zu chars, pw %d chars); starting sync",
+                 strlen(s_wheel_ssid), s_wheel_pw_len);
+        action_start_wifi_sync();
+    } else if (code == LV_EVENT_LONG_PRESSED || code == LV_EVENT_LONG_PRESSED_REPEAT) {
+        if (s_wheel_pw_len > 0) {
+            s_wheel_pw[--s_wheel_pw_len] = 0;
+            settings_wheel_pw_label();
+        }
+    }
+}
+
+static void settings_wheel_prefill_ssid(const char *ssid) {
+    size_t n = strlen(ssid);
+    if (n > 32) {
+        n = 32;
+    }
+    memcpy(s_wheel_ssid, ssid, n);
+    s_wheel_ssid[n] = 0;
+}
+
+/* Entry reset (settings_screen_refresh_for): empty password, lowercase
+ * mode, nothing revealed. The prefilled SSID (set by the row tap BEFORE
+ * the refresh -- the screen was created once at boot, so the refresh is
+ * what draws it) is kept and shown. */
+static void settings_wheel_screen_refresh(void) {
+    s_wheel_pw_len = 0;
+    s_wheel_pw[0] = 0;
+    settings_wheel_pw_label();
+    settings_wheel_set_mode(0);
+    settings_wheel_set_hot(-1);
+    settings_wheel_set_revealed(false);
+    lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
+}
+
+void create_screen_settings_wifi_password() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_wifi_password = obj;
+    /* NOT settings_sub_screen_prepare: its 90 px bottom exit would sit
+     * under the full-360-degree ring -- the wheel gets the small in-ring
+     * exit instead (see the section header). */
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_size(obj, 466, 466);
+    settings_screen_prepare(obj);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The transparent press band: an arc whose hit annulus is r 140..233
+     * (pad 0 -> r 233, width 93 -> inner edge 233-93 = 140) covering the
+     * inner ring, the gap and the outer ring -- a press anywhere in the
+     * band reveals, which is the radially-forgiving press. Invisible
+     * (both arc opacities 0); the full-360-degree bg span keeps the
+     * hit-test angle unbounded. ADV_HITTEST is REQUIRED: without it the
+     * arc's advanced annulus hit-test never runs and the object falls
+     * back to a plain 466x466 bounding-box test that would swallow every
+     * press (the mode arc, created later, would then win the search). */
+    s_wheel_catch = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_catch, 0, 0);
+    lv_obj_set_size(s_wheel_catch, 466, 466);
+    lv_obj_set_style_pad_all(s_wheel_catch, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_catch, 0, 360);
+    lv_arc_set_angles(s_wheel_catch, 0, 0);
+    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_catch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_catch, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_flag(s_wheel_catch, LV_OBJ_FLAG_ADV_HITTEST); /* run the arc's annulus hit-test */
+    lv_obj_add_event_cb(s_wheel_catch, event_handler_cb_wheel_sweep, LV_EVENT_ALL, 0);
+
+    /* The revealed outer frame: a full-360-degree band (pad 7 -> r 226,
+     * width 34 -> r 192..226), dark fill, the hot sector as the white
+     * low-opa indicator. Not clickable (the catch handles the presses).
+     * The outer letter labels are ITS children -- hiding the arc hides
+     * the whole frame in one flag. */
+    s_wheel_outer = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_outer, 0, 0);
+    lv_obj_set_size(s_wheel_outer, 466, 466);
+    lv_obj_set_style_pad_all(s_wheel_outer, 7, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_outer, 0, 360);
+    lv_arc_set_angles(s_wheel_outer, 0, 0);
+    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_outer, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_outer, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_outer, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_outer, 0x3C, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_outer, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_outer, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wheel_outer, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_wheel_outer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
+
+    /* The 26 inner letter labels (32 px, the SSID font) at r 168. */
+    for (int j = 0; j < 26; j++) {
+        s_wheel_letters_in[j] = lv_label_create(obj);
+        lv_obj_set_style_text_font(s_wheel_letters_in[j], &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(s_wheel_letters_in[j], "");
+        lv_obj_set_size(s_wheel_letters_in[j], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_clear_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_CLICKABLE);
+        s_wheel_letters_out[j] = lv_label_create(s_wheel_outer);
+        lv_obj_set_style_text_font(s_wheel_letters_out[j], &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(s_wheel_letters_out[j], "");
+        lv_obj_set_size(s_wheel_letters_out[j], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_clear_flag(s_wheel_letters_out[j], LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    /* The 26 group dividers (radial ticks at the slot boundaries; bold
+     * at each group start). Created horizontal, then rotated to radial. */
+    for (int j = 0; j < 26; j++) {
+        s_wheel_ticks[j] = lv_obj_create(obj);
+        lv_obj_set_size(s_wheel_ticks[j], 26, 1);
+        lv_obj_set_style_bg_color(s_wheel_ticks[j], lv_color_hex(0x373737), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(s_wheel_ticks[j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(s_wheel_ticks[j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_wheel_ticks[j], LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    /* The register/shift arc: track r 88..116 (pad 117 -> r 116, width
+     * 28), 42..138 LVGL deg (the mockup's 132..228, 0-up). The active
+     * mode's key span is the lit indicator. Clickable (PRESSED snaps to
+     * the nearest key centre). */
+    s_wheel_mode_arc = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
+    lv_obj_set_size(s_wheel_mode_arc, 466, 466);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, 117, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_mode_arc, 42, 138);
+    lv_arc_set_angles(s_wheel_mode_arc, 44, 64);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_mode_arc, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_mode_arc, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_mode_arc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_mode_arc, 0x2E, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_mode_arc, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_mode_arc, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wheel_mode_arc, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_ADV_HITTEST); /* its r 88..116 annulus, not the box */
+    lv_obj_add_event_cb(s_wheel_mode_arc, event_handler_cb_wheel_mode, LV_EVENT_PRESSED, 0);
+
+    /* The four mode keys (14 px = LV_FONT_DEFAULT), the key dividers,
+     * and the arc's five boundary ticks at 42/66/90/114/138. */
+    const char *mode_names[4] = {"abc", "ABC", "123", "#$"};
+    for (int k = 0; k < 4; k++) {
+        float a = (54.0f + 24.0f * k) * 3.14159265f / 180.0f;
+        s_wheel_mode_keys[k] = lv_label_create(obj);
+        lv_obj_set_style_text_font(s_wheel_mode_keys[k], &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(s_wheel_mode_keys[k], mode_names[k]);
+        lv_obj_set_size(s_wheel_mode_keys[k], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_align(s_wheel_mode_keys[k], LV_ALIGN_CENTER, (int32_t)(WHEEL_MODE_R_MID * cosf(a)),
+                     (int32_t)(WHEEL_MODE_R_MID * sinf(a)));
+        lv_obj_set_style_text_color(s_wheel_mode_keys[k], SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_wheel_mode_keys[k], LV_OBJ_FLAG_CLICKABLE);
+    }
+    for (int k = 0; k < 5; k++) {
+        float a = (42.0f + 24.0f * k) * 3.14159265f / 180.0f;
+        lv_obj_t *t = lv_obj_create(obj);
+        lv_obj_set_size(t, 24, 1);
+        lv_obj_set_style_bg_color(t, lv_color_hex(0x5F5F5F), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - 12,
+                       WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a)));
+        lv_obj_set_style_transform_rotation(t, (int32_t)(42.0f + 24.0f * k), 0);
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    /* The 12-o'clock orientation tick (the mockup's grey radial, r
+     * 150..190) -- the north marker between the two frames. */
+    {
+        lv_obj_t *t = lv_obj_create(obj);
+        lv_obj_set_size(t, 2, 40);
+        lv_obj_set_style_bg_color(t, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - 190);
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    /* The centre: a 110 px tap box (short tap = commit, long press =
+     * backspace) with the password + selected-letter labels (the labels
+     * are non-clickable, so the box owns the touches) and the SSID
+     * caption above it (case kept -- the font now covers lowercase). */
+    s_wheel_center = lv_obj_create(obj);
+    lv_obj_set_size(s_wheel_center, 110, 110);
+    lv_obj_align(s_wheel_center, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_opa(s_wheel_center, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_center, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_wheel_center, event_handler_cb_wheel_center, LV_EVENT_ALL, 0);
+
+    s_wheel_ssid_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(s_wheel_ssid_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_wheel_ssid_label, "");
+    lv_obj_set_size(s_wheel_ssid_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_wheel_ssid_label, LV_ALIGN_CENTER, 0, -75);
+    lv_obj_set_style_text_color(s_wheel_ssid_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_wheel_ssid_label, LV_OBJ_FLAG_CLICKABLE);
+
+    s_wheel_pw_label = lv_label_create(s_wheel_center);
+    lv_obj_set_style_text_font(s_wheel_pw_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_wheel_pw_label, "....");
+    lv_obj_set_size(s_wheel_pw_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(s_wheel_pw_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    s_wheel_sel_label = lv_label_create(s_wheel_center);
+    lv_obj_set_style_text_font(s_wheel_sel_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_wheel_sel_label, "");
+    lv_obj_set_size(s_wheel_sel_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, 34, 0);
+    lv_obj_set_style_text_color(s_wheel_sel_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
+
+    /* The small in-ring exit (the mockup's 26 px circle-x at r 135): the
+     * house 90 px bottom exit would sit under the ring. A plain circle +
+     * a two-bar x (the 96 px FA glyph cannot scale down). */
+    {
+        lv_obj_t *exit = lv_obj_create(obj);
+        lv_obj_set_size(exit, 26, 26);
+        lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(exit, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(exit, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(exit, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_align(exit, LV_ALIGN_CENTER, 0, WHEEL_EXIT_Y - WHEEL_C);
+        lv_obj_add_flag(exit, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)SCREEN_ID_SETTINGS_WIFI);
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *bar = lv_obj_create(exit);
+            lv_obj_set_size(bar, 12, 2);
+            lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);
+            lv_obj_set_style_transform_rotation(bar, i == 0 ? 45 : 135, 0);
+            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+
+    lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
+    settings_wheel_pw_label();
+    settings_wheel_set_mode(0);
+}
+
+void tick_screen_settings_wifi_password() {}
+
 /* The alarm weekday prefixes, one per clock widget. Not part of
  * objects_t: the layout contract there only names the three widget
  * slots the tick reads, and the prefix label is internal to the
@@ -1480,18 +2107,18 @@ void tick_screen_settings_wifi() {
 static lv_obj_t *s_alarm_prefix[5];
 
 /* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
- * modem 13, wifi 18, light 23, deep 27, alarm 32). */
+ * modem 14, wifi 19, light 24, deep 28, alarm 33). */
 static int widget_prefix_slot(int startWidgetIndex) {
     switch (startWidgetIndex) {
-    case 13:
+    case 14:
         return 0;
-    case 18:
+    case 19:
         return 1;
-    case 23:
+    case 24:
         return 2;
-    case 27:
+    case 28:
         return 3;
-    case 32:
+    case 33:
         return 4;
     default:
         return -1;
@@ -1669,6 +2296,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_settings_light_sleep,
     tick_screen_settings_deep_sleep,
     tick_screen_settings_wifi,
+    tick_screen_settings_wifi_password,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -1691,4 +2319,5 @@ void create_screens() {
     create_screen_settings_light_sleep();
     create_screen_settings_deep_sleep();
     create_screen_settings_wifi();
+    create_screen_settings_wifi_password();
 }

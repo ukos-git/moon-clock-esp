@@ -24,6 +24,19 @@ extern "C" {
 esp_err_t wifi_manager_init(void);
 
 /**
+ * @brief Write WiFi credentials to /spiffs/wifi_credentials.txt
+ *
+ * The inverse of the credential read: first non-comment line = SSID,
+ * second = password (a comment header is written so the file stays
+ * readable by hand). Both must be non-empty and fit the credential
+ * limits (SSID < 32 chars, password < 64 chars); the password is never
+ * logged.
+ *
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_ARG/ESP_ERR_INVALID_SIZE on bad input
+ */
+esp_err_t wifi_credentials_write(const char *ssid, const char *password);
+
+/**
  * @brief Check if WiFi is connected
  *
  * @return bool true if WiFi is connected and has IP address

@@ -54,9 +54,11 @@ code._
 This is the single hosted document for the project. It is GitHub-compatible
 Markdown and renders the project's own media:
 
-- **12 screenshots** of every live screen, rendered by the UI simulator
-  (`host_sim/uisim`) from the _real_ device `screens.c` with the vendored LVGL
-  9.6 — the exact panel pixels, 466x466 RGB565: `docs/img/screens/*.png`
+- **17 screenshots** of every live screen (the circular wheel keyboard, §7.13,
+  ships its at-rest, touched-down, 123, ABC and symbol modes), rendered by the
+  UI simulator (`host_sim/uisim`) from the _real_ device `screens.c` with the
+  vendored LVGL 9.6 — the exact panel pixels, 466x466 RGB565:
+  `docs/img/screens/*.png`
 - **4 films** of the live animations — the first three with frames rendered by
   the device's own moon core (`host_sim/build/moon_sim`, the exact device
   translation units):
@@ -197,16 +199,17 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x15cda0` (1,432,672 B), 664,480 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x15e610` (1,435,152 B), 662,000 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
 The 2 MB layout in early git history was a config choice, not a hardware limit;
 the 2048x1024 relief DEM (2,097,152 B) forced the 16 MB variant. The factory
-partition was widened 1392 K → 2048 K when the app outgrew the old ceiling (the
-circular-keyboard foundation — the widened SSID font + the password-entry code
-— pushed the binary past 1,425,408 B); consumers find every partition by label,
-not offset, so the widening is layout-invisible.
+partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
+the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
+and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
+find every partition by label, not offset, so the widening is layout-invisible;
+662,000 B of headroom remain for the future text-input family.
 
 ---
 
@@ -228,7 +231,7 @@ components/
   clock/               PCF85063A RTC, minute/interrupt logic, idle detector,
     clock_sntp.c           NTP sync; clock_alarm_scheduler.c (cron-like alarms,
                            write/reload, */N>59 support); settings_store.c (runtime store)
-  ui/                  LVGL 9.6 UI: screens.c (12 screens), moon_ui.c (the moon
+  ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ (generated lv_font_conv subsets)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
@@ -293,6 +296,7 @@ deep sleep: dark side + clock hidden + backlight OFF
 alarm (RTC minute poll): alarm screen (until dismissed by touch); fires from deep sleep too
 tap on airplane/WiFi: settings hub (icon ring + central circle-xmark exit)
    sub-screens: alarm, pomodoro, alarm-time, light-sleep, deep-sleep, WiFi
+   (the WiFi list's AP rows open the circular wheel keyboard, §7.13)
 hourly (on the minute, at rest on airplane only): transient WiFi screen +
    NTP sync -> back to airplane
 ```
@@ -401,8 +405,11 @@ round AMOLED showing the Moon.
   the "you can press this" affordance.
 - **Type — Montserrat**, generated subsets (`lv_font_conv`, 4-bit,
   uncompressed): 96 px digits (the clock), 48 px (rollers/labels), 32 px
-  SSID/captions + a 32 px range subset (the "Mo-Fr" day summary, whose font
-  needs only digits-free lowercase + hyphen); Font Awesome 7 Free (Solid 96 px:
+  general text (SSID rows/captions/_password entry_ — full printable ASCII
+  32–126, so one font serves the list and the wheel keyboard; it was widened
+  from an `A-Z`/digits subset for the keyboard) + a 32 px range subset (the
+  "Mo-Fr" day summary, whose font needs only digits-free lowercase + hyphen) +
+  14 px (the wheel's register keys); Font Awesome 7 Free (Solid 96 px:
   circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock) — the icon set
   is the same weight-and-color logic as the type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
@@ -428,7 +435,7 @@ round AMOLED showing the Moon.
 
 ## 7. Screens — every live screen with its settings
 
-All 12 screens, exact panel pixels from the UI simulator. The "settings
+All 13 screens, exact panel pixels from the UI simulator. The "settings
 displayed" column lists what the screen shows and what each control changes
 live.
 
@@ -590,12 +597,67 @@ live.
 
 - Header (wifi, solid). A **scan list** (background scan task: `esp_wifi_init`
   → STA → blocking scan → `esp_wifi_stop()` — scan only, credentials untouched,
-  back to airplane): up to 12 rows, SSID upper-cased (32 px font), grey =
-  available / white = selected (a transparent clickable strip per row).
-  Selection logs for now — password entry is a deferred follow-up (circular
-  keyboard, task #52's note).
+  back to airplane): 7 rows at 24 px (the old 12 ran off the bottom of the
+  panel), SSID upper-cased for font display (32 px font), grey = available /
+  white = selected + a left-margin white bar on the selected row. **A tap on a
+  row opens the circular wheel keyboard** (§7.13) with that AP's SSID prefilled
+  (case kept — the upper-casing is display-only, the credential is written
+  raw).
 - **Settings displayed:** the live AP list from the radio (RSSI-ordered), the
   selection state.
+
+### 7.13 WiFi password entry — the circular wheel keyboard
+
+![at rest](img/screens/settings_wifi_password.png)
+![touched down — outer frame revealed, hot letter](img/screens/settings_wifi_password_touched.png)
+![123 mode](img/screens/settings_wifi_password_123.png)
+
+Reached by tapping an AP row on the WiFi screen (§7.12). A 13th screen
+(`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the 466×466 centre; no moon
+image (settings are moon-less by design).
+
+- **Two concentric letter rings.** The **inner frame** (at rest) shows the 26
+  slots of the active register, **grouped in threes** (a bold divider at each
+  group start, thin within; the alphabet is 8 groups of 3 + a final group of 2)
+  at r 150–186 — the grouping is the wayfinding device: the eye aims at 9
+  groups, not 26 targets. **On touch-down anywhere in the ring band (r 140–
+  233, radially forgiving), the outer frame reveals** at r 192–226 where the
+  letter under the finger is lit over a **2× the inner arc angle** (27°) — the
+  adjacent 2× sectors overlap by one inner letter width and the hit-test
+  resolves them as **nearest letter centre**, so a deliberate sweep is
+  unambiguous. Release commits the letter under the finger (no auto-commit on
+  zone crossing, so a slow sweep can never double-enter).
+- **Register/shift arc:** 4 individually-tappable switch keys
+  `abc / ABC / 123 / #$` at r 88–116 (LVGL 42°–138°), the active one lit; a tap
+  snaps to the nearest key centre and re-strings the 26 slots (digits:
+  `0123456789`; symbols: `!@#$%^&*()-_+=[]{}:;.,?/`). Letters keep the full
+  360° in every mode; case is separate (lower/upper) because it matters for
+  passwords.
+- **Centre:** the running password **unmasked** (the user is physically
+  present) — the last 6 characters with a `…` prefix when longer, the `…`
+  placeholder when empty — plus the selected letter large while sweeping. **A
+  short tap on the centre commits**: `wifi_credentials_write(ssid, pw)` (two
+  lines to `/spiffs/wifi_credentials.txt`, the password never logged) →
+  `action_start_wifi_sync()` (the 6144 B background task: `wifi_manager_init`
+  - NTP) and the screen swaps to the transient WiFi screen (§7.2); on success
+    the app leaves airplane mode. **A long press (400 ms, repeating)
+    backspaces.** An empty password is not written.
+- **Exit:** a small (26 px) in-ring circle-xmark at the bottom of the wheel — a
+  documented deviation from the house 90 px bottom-centre exit, which would sit
+  under the full-360° ring. It returns to the WiFi list (no write, no sync).
+  The screen's angular picking uses the inverse-transform idiom
+  (`lv_obj_transform_point`, `LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE`, the
+  `alarm_time_point_to_day` pattern), so it stays correct under the 90°
+  orientation roll.
+- **Known interaction (stated, not suppressed):** the global 2 s press
+  orientation re-sync also fires on long sweeps; it is pose-stability gated and
+  only re-anchors the home reference, and the wheel is transform-aware, so a
+  mid-sweep re-pose cannot move the letter under the finger.
+- **LVGL note:** the clickable wheel arcs carry `LV_OBJ_FLAG_ADV_HITTEST` —
+  without it `lv_arc` falls back to a plain bounding-box hit test (its 466×466
+  box swallows every press) and the last-created arc wins the search.
+- **Settings displayed:** the prefilled SSID, the running password, the active
+  register, the selected letter.
 
 ---
 
@@ -832,7 +894,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (settings, fade)                | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                          |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                           |
-| Binary                                        | `0x15cda0` = 1,432,672 B in the 2,097,152 B partition (**664,480 B free** — the factory was widened 1392 K → 2048 K for the in-tree circular-keyboard foundation)                                                                                                                                        |
+| Binary                                        | `0x15e610` = 1,435,152 B in the 2,097,152 B partition (**662,000 B free** — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; the keyboard itself is the widening's beneficiary)                                                                                                  |
 
 ---
 
@@ -940,7 +1002,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 664,480 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 662,000 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -950,7 +1012,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 664,480 B free); the widening was forced by the app outgrowing 1,425,408 B (the circular-keyboard foundation)                                                                                                                                                                |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 662,000 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1056,7 +1118,7 @@ components/
     include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT, night floor)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
-  ui/                        the LVGL UI: screens.c (12 screens) + moon_ui.c
+  ui/                        the LVGL UI: screens.c (13 screens) + moon_ui.c
     (the pipeline) + actions.c (flow) + styles.c (the theme) + fonts/ (generated)
   imu/                       QMI8658C driver
   wifi/                      scan (settings)

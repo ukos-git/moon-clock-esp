@@ -14,6 +14,7 @@
  *               settings_deep_sleep settings_wifi
  */
 #include <dirent.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,6 +119,87 @@ static int write_png(const char *path, const lv_draw_buf_t *buf) {
     return 0;
 }
 
+/* ---- scripted pointer indev (the --wheel capture) ------------------
+ * The input is driven by manual lv_indev_read() calls: the indev's read
+ * timer does not fire on the sim's lv_timer_handler loop, so each
+ * scripted point is pushed through the indev layer by hand (the same
+ * path the timer would take). */
+
+static lv_indev_t *s_wheel_indev;
+static lv_indev_state_t s_wheel_state = LV_INDEV_STATE_RELEASED;
+static lv_point_t s_wheel_pt;
+
+static void wheel_indev_read(lv_indev_t *indev, lv_indev_data_t *data) {
+    (void)indev;
+    data->state = s_wheel_state;
+    data->point = s_wheel_pt;
+}
+
+static void wheel_step(lv_display_t *disp, lv_indev_state_t st, int32_t x, int32_t y) {
+    s_wheel_pt.x = x;
+    s_wheel_pt.y = y;
+    s_wheel_state = st;
+    lv_indev_read(s_wheel_indev);
+    pump(disp, 20);
+}
+
+static void wheel_press_at(lv_display_t *disp, int32_t x, int32_t y) { wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y); }
+
+static void wheel_move_to(lv_display_t *disp, int32_t x, int32_t y) { wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y); }
+
+static void wheel_release_at(lv_display_t *disp, int32_t x, int32_t y) {
+    wheel_step(disp, LV_INDEV_STATE_RELEASED, x, y);
+}
+
+static void wheel_tap(lv_display_t *disp, int32_t x, int32_t y) {
+    wheel_press_at(disp, x, y);
+    wheel_release_at(disp, x, y);
+}
+
+/* Panel point at LVGL angle a (deg: 0 = right, 90 = down, CW, y down) at
+ * radius r from the 466x466 centre. */
+static void wheel_point_deg(double a_deg, double r, lv_point_t *p) {
+    double t = a_deg * M_PI / 180.0;
+    p->x = (int32_t)lround(233.0 + r * cos(t));
+    p->y = (int32_t)lround(233.0 + r * sin(t));
+}
+
+/* The wheel's slot centres (the device's wheel_slot_center, 26 slots). */
+static double wheel_slot_deg(int j) { return (j + 0.5) * 360.0 / 26.0 - 90.0; }
+
+static int wheel_snapshot(lv_display_t *disp, const char *name) {
+    lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_SETTINGS_WIFI_PASSWORD - 1];
+    lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+    if (!buf) {
+        fprintf(stderr, "wheel snapshot failed: %s\n", name);
+        return 1;
+    }
+    char path[64];
+    snprintf(path, sizeof path, "out/wheel_%s.png", name);
+    int rc = write_png(path, buf);
+    lv_draw_buf_destroy(buf);
+    return rc;
+}
+
+/* Drive the real flow to the wheel: settings-hub WiFi icon (at -R,-R,
+ * R=117) -> the WiFi list -> AP row 0 (y 185) = SSID prefill + the wheel.
+ * The row handler prefills the (stub) first AP's SSID. */
+static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
+    loadScreen(SCREEN_ID_SETTINGS_HUB);
+    ui_tick();
+    pump(disp, 100);
+    wheel_tap(disp, 116, 116);
+    pump(disp, 100);
+    /* Tick the WiFi list once so the rows render (their text is what
+     * gives the labels content size -- tapping before the render hits
+     * zero-size labels and misses). */
+    ui_tick();
+    pump(disp, 100);
+    wheel_tap(disp, 233, 185);
+    pump(disp, 100);
+    (void)indev;
+}
+
 struct screen_entry {
     enum ScreensEnum id;
     const char *name;
@@ -136,6 +218,7 @@ static const struct screen_entry s_entries[] = {
     {SCREEN_ID_SETTINGS_LIGHT_SLEEP, "settings_light_sleep"},
     {SCREEN_ID_SETTINGS_DEEP_SLEEP, "settings_deep_sleep"},
     {SCREEN_ID_SETTINGS_WIFI, "settings_wifi"},
+    {SCREEN_ID_SETTINGS_WIFI_PASSWORD, "settings_wifi_password"},
 };
 
 static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
@@ -295,6 +378,67 @@ int main(int argc, char **argv) {
         int rc = write_png("out/reveal_rotated.png", buf);
         lv_draw_buf_destroy(buf);
         return rc;
+    }
+
+    /* --wheel: scripted capture of the circular wheel keyboard. Drives the
+     * REAL flow (hub icon -> WiFi list -> row tap = SSID prefill + wheel)
+     * with a scripted pointer indev, then snapshots the rest state, the
+     * touched-down state (outer frame revealed, 'h' under the finger) and
+     * all four register modes. */
+    if (argc > 1 && !strcmp(argv[1], "--wheel")) {
+        lv_indev_t *indev = lv_indev_create();
+        lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_read_cb(indev, wheel_indev_read);
+        s_wheel_indev = indev;
+
+        int fail = 0;
+        wheel_enter(disp, indev);
+
+        /* rest: the prefilled SSID, empty password (the "...." placeholder). */
+        fail |= wheel_snapshot(disp, "rest");
+
+        /* touched: press the inner ring at slot 7 ('h'), move onto the
+         * outer band (r 209) and hold -- the outer frame is revealed, the
+         * hot sector lit, the large preview letter at the centre. */
+        lv_point_t p1, p2;
+        wheel_point_deg(wheel_slot_deg(7), 168, &p1);
+        wheel_point_deg(wheel_slot_deg(7), 209, &p2);
+        wheel_press_at(disp, p1.x, p1.y);
+        wheel_move_to(disp, p2.x, p2.y);
+        fail |= wheel_snapshot(disp, "touched");
+        wheel_release_at(disp, p2.x, p2.y);
+
+        /* all four register modes (the mode keys at 54/78/102/126 deg,
+         * r 102; a tap snaps to the nearest key centre). */
+        const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
+        for (int k = 0; k < 4; k++) {
+            lv_point_t pk;
+            wheel_point_deg(54.0 + 24.0 * k, 102, &pk);
+            wheel_tap(disp, pk.x, pk.y);
+            fail |= wheel_snapshot(disp, mode_names[k]);
+        }
+
+        /* Commit: a short tap on the centre (233,233) -- the stub's
+         * wifi_credentials_write + action_start_wifi_sync swaps to the
+         * transient WiFi screen, so the shot verifies the save -> connect
+         * hand-off (the entered letter was the 'h' from the sweep). */
+        wheel_tap(disp, 233, 233);
+        pump(disp, 100);
+        {
+            lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];
+            lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+            if (!buf) {
+                fprintf(stderr, "wheel snapshot failed: committed\n");
+                fail = 1;
+            } else {
+                if (write_png("out/wheel_committed.png", buf))
+                    fail = 1;
+                lv_draw_buf_destroy(buf);
+            }
+        }
+
+        lv_indev_delete(indev);
+        return fail;
     }
 
     int fail = 0;

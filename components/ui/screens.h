@@ -19,43 +19,48 @@ extern "C" {
  *    reads the same three. BASE is the index of the <screen>_clock__clock
  *    member below:
  *
- *      [0]  modem_sleep              [12]  modem_sleep_clock
- *      [1]  wifi                     [13]  modem_sleep_clock__clock        BASE 13
- *      [2]  light_sleep              [14]  ..._label_clock_time
- *      [3]  deep_sleep               [15]  ..._label_clock_alarm
- *      [4]  alarm                    [16]  arc_clock_seconds_modem
- *      [5]  settings_hub             [17]  wifi_clock
- *      [6]  settings_alarm           [18]  wifi_clock__clock               BASE 18
- *      [7]  settings_pomodoro        [19]  ..._label_clock_time
- *      [8]  settings_alarm_time      [20]  ..._label_clock_alarm
- *      [9]  settings_light_sleep     [21]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [22]  light_sleep_clock
- *      [11] settings_wifi            [23]  light_sleep_clock__clock        BASE 23
- *                                 [24]  ..._label_clock_time
- *                                 [25]  ..._label_clock_alarm
- *                                 [26]  deep_sleep_clock
- *                                 [27]  deep_sleep_clock__clock           BASE 27
- *                                 [28]  ..._label_clock_time
- *                                 [29]  ..._label_clock_alarm
- *                                 [30]  screen_indicator_sleep1
- *                                 [31]  alarm_clock
- *                                 [32]  alarm_clock__clock                BASE 32
- *                                 [33]  ..._label_clock_time
- *                                 [34]  ..._label_clock_alarm
- *                                 [35]  screen_indicator_alarm
- *                                 [36]  settings_hub_exit        (the settings hub's central exit)
- *                                 [37]  settings_alarm_master    (deactivate-all toggle)
- *                                 [38]  settings_alarm_pomodoro  (pomodoro entry)
- *                                 [39]  settings_alarm_clock     (real-alarm entry)
- *                                 [40]  settings_pomodoro_roller_h
- *                                 [41]  settings_pomodoro_roller_m
- *                                 [42]  settings_pomodoro_caption
- *                                 [43]  settings_alarm_time_roller_h
- *                                 [44]  settings_alarm_time_roller_m
- *                                 [45]  settings_alarm_time_band        (the day-range arc)
- *                                 [46]  settings_alarm_time_handle_start
- *                                 [47]  settings_alarm_time_handle_end
- *                                 [48]  wifi_indicator_wifi
+ *      [0]  modem_sleep              [13]  modem_sleep_clock
+ *      [1]  wifi                     [14]  modem_sleep_clock__clock        BASE 14
+ *      [2]  light_sleep              [15]  ..._label_clock_time
+ *      [3]  deep_sleep               [16]  ..._label_clock_alarm
+ *      [4]  alarm                    [17]  arc_clock_seconds_modem
+ *      [5]  settings_hub             [18]  wifi_clock
+ *      [6]  settings_alarm           [19]  wifi_clock__clock               BASE 19
+ *      [7]  settings_pomodoro        [20]  ..._label_clock_time
+ *      [8]  settings_alarm_time      [21]  ..._label_clock_alarm
+ *      [9]  settings_light_sleep     [22]  arc_clock_seconds_wifi
+ *      [10] settings_deep_sleep      [23]  light_sleep_clock
+ *      [11] settings_wifi            [24]  light_sleep_clock__clock        BASE 24
+ *      [12] settings_wifi_password   [25]  ..._label_clock_time
+ *                                 [26]  ..._label_clock_alarm
+ *                                 [27]  deep_sleep_clock
+ *                                 [28]  deep_sleep_clock__clock           BASE 28
+ *                                 [29]  ..._label_clock_time
+ *                                 [30]  ..._label_clock_alarm
+ *                                 [31]  screen_indicator_sleep1
+ *                                 [32]  alarm_clock
+ *                                 [33]  alarm_clock__clock                BASE 33
+ *                                 [34]  ..._label_clock_time
+ *                                 [35]  ..._label_clock_alarm
+ *                                 [36]  screen_indicator_alarm
+ *                                 [37]  settings_hub_exit        (the settings hub's central exit)
+ *                                 [38]  settings_alarm_master    (deactivate-all toggle)
+ *                                 [39]  settings_alarm_pomodoro  (pomodoro entry)
+ *                                 [40]  settings_alarm_clock     (real-alarm entry)
+ *                                 [41]  settings_pomodoro_roller_h
+ *                                 [42]  settings_pomodoro_roller_m
+ *                                 [43]  settings_pomodoro_caption
+ *                                 [44]  settings_alarm_time_roller_h
+ *                                 [45]  settings_alarm_time_roller_m
+ *                                 [46]  settings_alarm_time_band        (the day-range arc)
+ *                                 [47]  settings_alarm_time_handle_start
+ *                                 [48]  settings_alarm_time_handle_end
+ *                                 [49]  wifi_indicator_wifi
+ *
+ * The wheel-keyboard's own widgets (the 26 letters, the group dividers,
+ * the sweep highlight, the mode keys, the centre preview) are LOCAL to
+ * create_screen_settings_wifi_password (static arrays in screens.c);
+ * objects_t only names the screen roots and the clock-widget slots.
  */
 typedef struct _objects_t {
     /* Screen roots (loadScreen index = ScreensEnum value - 1). */
@@ -71,6 +76,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_light_sleep;
     lv_obj_t *settings_deep_sleep;
     lv_obj_t *settings_wifi;
+    lv_obj_t *settings_wifi_password;
     /* Per-screen children (see the layout contract above). */
     lv_obj_t *modem_sleep_clock;
     lv_obj_t *modem_sleep_clock__clock;
@@ -126,6 +132,7 @@ enum ScreensEnum {
     SCREEN_ID_SETTINGS_LIGHT_SLEEP,
     SCREEN_ID_SETTINGS_DEEP_SLEEP,
     SCREEN_ID_SETTINGS_WIFI,
+    SCREEN_ID_SETTINGS_WIFI_PASSWORD,
 };
 
 void create_screen_modem_sleep();
@@ -166,6 +173,16 @@ void tick_screen_settings_deep_sleep();
 
 void create_screen_settings_wifi();
 void tick_screen_settings_wifi();
+
+/* The circular wheel keyboard for WiFi password entry (reached by
+ * tapping an AP row on the WiFi screen, which prefills the SSID).
+ * Two concentric letter rings (the inner wayfinding ring + the outer
+ * 2x-angle sweep ring revealed on press), a 4-key register/shift arc
+ * (abc / ABC / 123 / #$), a centre password preview that commits on a
+ * short tap (save + connect) and backspaces on a long press, and the
+ * shared sub-screen exit back to the WiFi list. */
+void create_screen_settings_wifi_password();
+void tick_screen_settings_wifi_password();
 
 /* Shared exit button: the fa-circle-xmark glyph alone (U+F057 -- the
  * filled white circle with the cut-out cross IS the button), used

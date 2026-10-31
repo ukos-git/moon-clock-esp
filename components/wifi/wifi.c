@@ -93,6 +93,41 @@ static esp_err_t read_wifi_credentials(char *ssid, char *password) {
     return ESP_OK;
 }
 
+// Write WiFi credentials to the SPIFFS file (the inverse of
+// read_wifi_credentials: first non-comment line = SSID, second = password).
+// Comment header mirrors spiffs/wifi_credentials.example.txt so the file
+// stays readable when inspected by hand. The password is never logged.
+esp_err_t wifi_credentials_write(const char *ssid, const char *password) {
+    if (ssid == NULL || password == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t ssid_len = strlen(ssid);
+    size_t password_len = strlen(password);
+    if (ssid_len == 0 || ssid_len >= MAX_SSID_LEN) {
+        ESP_LOGW(TAG, "SSID not writable: empty or too long (%zu chars, max %d)", ssid_len, MAX_SSID_LEN - 1);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (password_len == 0 || password_len >= MAX_PASSWORD_LEN) {
+        ESP_LOGW(TAG, "Password not writable: empty or too long (%zu chars, max %d)", password_len,
+                 MAX_PASSWORD_LEN - 1);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    FILE *f = fopen(WIFI_CREDENTIALS_FILE, "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open %s for writing", WIFI_CREDENTIALS_FILE);
+        return ESP_FAIL;
+    }
+    fprintf(f, "# WiFi Credentials\n# Line 1: WiFi SSID\n# Line 2: WiFi Password\n%s\n%s\n", ssid, password);
+    int rc = fclose(f);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to write %s", WIFI_CREDENTIALS_FILE);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Wrote credentials (SSID %zu chars, password %zu chars)", ssid_len, password_len);
+    return ESP_OK;
+}
+
 // WiFi event handler
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
