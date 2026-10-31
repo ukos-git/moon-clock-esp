@@ -494,8 +494,9 @@ menu "UI Component Configuration"
             left-to-right crawl. The total switch cost is roughly 2x
             this time (the two ramps) plus one hidden whole-panel
             flush. 0 = the plain instant atomic switch (lv_scr_load
-            + one whole-panel flush). Only switches that cross the
-            moon / moon-less boundary take the fade (the moon screens
-            switch atomically as always).
+            + one whole-panel flush). EVERY screen switch takes the
+            fade; the one exception is the both-moon switch (airplane
+            / wifi / the sleep screens share the one moon image),
+            which stays atomic.
 
 endmenu

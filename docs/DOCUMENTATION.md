@@ -890,8 +890,10 @@ pixels written; the spin holds its panel writes for the ramp's ~240 ms, so the
 moon's image freezes while its angle keeps integrating), the new screen loads
 and is flushed atomically while the panel is still black, then the brightness
 ramps back and the new screen comes up at once (`UI_SCREEN_SWITCH_FADE`,
-default 240 ms per leg). Only switches that cross the moon / moon-less boundary
-take the fade; both-moon and both-moon-less switches stay atomic:
+default 240 ms per leg). EVERY screen switch takes the fade — home ↔ settings
+(sub-menus included) and to/from the alarm screen; the one exception is the
+both-moon switch (airplane / WiFi / the sleep screens share the one moon
+image), which stays the plain atomic whole-panel display:
 
 <video src="img/fade.mp4" controls width="466"></video>
 
@@ -955,8 +957,8 @@ upgrade from the UI tick.
 
 ### 10.4 The screen switch: fade-to-black (replaced the concentric reveal)
 
-`CONFIG_UI_SCREEN_SWITCH_FADE` (int ms, default 240, 0 = plain atomic): a
-switch that **crosses the moon / moon-less boundary** (home ↔ settings, and
+`CONFIG_UI_SCREEN_SWITCH_FADE` (int ms, default 240, 0 = plain atomic):
+**every** screen switch (home ↔ settings including the sub-menu switches, and
 to/from the alarm screen) dims the panel's OWN hardware brightness to black,
 loads the new screen, and ramps the brightness back:
 
@@ -979,10 +981,12 @@ loads the new screen, and ramps the brightness back:
   wrapper itself), then the brightness ramps 0 → 100 (under `s_panel_mtx`) and
   the fully rendered new screen comes up at once. `s_fade_busy` clears, and the
   spin resumes its panel writes from the exact pose it was at.
-- **No fade:** both-moon switches (airplane / WiFi / the sleep screens share
-  the one moon image) and both-moon-less switches (settings ↔ settings) keep
-  the plain atomic `lv_scr_load` + one whole-panel flush — a fade there would
-  only dim the moon, which is the same disk on both sides.
+- **No fade:** the one exception is the both-moon switch (airplane / WiFi / the
+  sleep screens share the one moon image), which keeps the plain atomic
+  `lv_scr_load` + one whole-panel flush — a fade there would only dim the moon,
+  which is the same disk on both sides. (The settings sub-menu switches fade
+  too: a fade leg is screen-agnostic — the fade-in's atomic flush works on any
+  loaded screen, moon or not.)
 
 Why it replaced the old concentric reveal (the center-out strip reorder,
 `9dad4fe`): the reveal's visible failure mode was "white bars updating the
@@ -1086,7 +1090,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 618 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
 | Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                             |
 | Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                              |
-| Screen switch (settings, fade)                | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
+| Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                   |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                    |
 | Binary                                        | S3: `0x1620d0` = 1,450,176 B in the 2,097,152 B partition (646,976 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x14fab0` = 1,375,152 B in the 9,437,184 B partition (~8 MB free)                                                                                                                                                                      |
@@ -1376,7 +1380,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (99,557 B)
+- `docs/doc_template.md` (100,110 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -21355,10 +21359,13 @@ static bool moon_screen_has_image(void) {
 
 /* ---------------- screen-switch fade (UI_SCREEN_SWITCH_FADE) ----------------
  *
- * A screen switch that crosses the moon / moon-less boundary dims the
- * WHOLE PANEL to black and back (moon_ui_fade_out in loadScreen BEFORE
- * lv_scr_load; the fade-in leg in moon_ui_screen_switched). The dimming
- * is the CO5300's OWN brightness control (command 0x51,
+ * EVERY screen switch dims the WHOLE PANEL to black and back
+ * (moon_ui_fade_out in loadScreen BEFORE lv_scr_load; the fade-in leg
+ * in moon_ui_screen_switched). The ONE exception is the both-moon
+ * switch (airplane / wifi / the sleep screens share the one moon
+ * image): a fade there would only dim the moon, which is the same
+ * disk on both screens. The dimming is the CO5300's OWN brightness
+ * control (command 0x51,
  * bsp_display_brightness_set -- the same hardware dimming the
  * deep-sleep backlight off/on uses), so the fade writes NO pixels: it
  * scales everything on screen at once (the moon, the labels, the
@@ -21380,10 +21387,9 @@ static bool moon_screen_has_image(void) {
  *   brightness ramps 0 -> 100 and the fully rendered new screen comes
  *   up at once.
  *
- * Both-moon switches (airplane / wifi / the sleep screens) keep the
- * plain atomic whole-panel switch (a fade there would only dim the
- * same moon disk), as do switches while a bake pipeline owns the
- * buffers. Must run on the LVGL task. */
+ * Both-moon switches (airplane / wifi / the sleep screens) and
+ * switches while a bake pipeline owns the buffers keep the plain
+ * atomic whole-panel switch. Must run on the LVGL task. */
 #define FADE_STEPS 12
 static bool s_fade_pending;       /* the fade-out dimmed the panel; the fade-in is owed */
 static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
@@ -21414,8 +21420,8 @@ static void fade_ramp(int from_pct, int to_pct) {
 }
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
- * loadScreen calls it before lv_scr_load when the switch crosses the
- * moon boundary). No pixels are written; the spin's PANEL WRITES pause
+ * loadScreen calls it before lv_scr_load on every switch except the
+ * both-moon one). No pixels are written; the spin's PANEL WRITES pause
  * for the ramp (s_fade_busy -- the 0x51 ramp must be the only panel-io
  * traffic in flight so a lost-DMA-completion stall cannot strand it
  * behind a queued strip: the spin's angle keeps integrating, so the
@@ -21436,8 +21442,8 @@ void moon_ui_fade_out(void) {
 }
 
 /* Does the screen with this id carry a moon image (loadScreen's fade
- * decision: a switch that crosses the moon boundary fades, a
- * both-moon switch stays atomic)? */
+ * decision: every switch fades except the both-moon one, which stays
+ * atomic)? */
 bool moon_ui_screen_is_moon(enum ScreensEnum id) {
     lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
     if (!root)
@@ -21685,17 +21691,16 @@ void moon_ui_screen_switched(void);
 
 /**
  * Dim the panel's OWN hardware brightness to black ahead of a screen
- * switch (LVGL task; loadScreen calls it before lv_scr_load when the
- * switch crosses the moon / moon-less boundary). Writes no pixels;
- * the spin keeps running and its frames just dim. No-op when the fade
- * is off, the moon UI is not ready, or a bake pipeline owns the
- * buffers.
+ * switch (LVGL task; loadScreen calls it before lv_scr_load on EVERY
+ * switch except the both-moon one). Writes no pixels; the spin keeps
+ * running and its frames just dim. No-op when the fade is off, the
+ * moon UI is not ready, or a bake pipeline owns the buffers.
  */
 void moon_ui_fade_out(void);
 
 /** Does the screen with this id carry a moon image (loadScreen's
- * fade decision: a switch that crosses the moon boundary fades, a
- * both-moon switch stays atomic). */
+ * fade decision: every switch fades, the both-moon switch stays
+ * atomic). */
 bool moon_ui_screen_is_moon(enum ScreensEnum id);
 
 /**
@@ -29646,8 +29651,8 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
-        moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f,
-                  MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
+                  MOON_ALB_H, 0, 0.0f);
         for (int i = 0; i < MOON_PX * MOON_PX; i++)
             s_rgb[i] = moon_gray565(s_gray[i]);
         s_dsc = (lv_image_dsc_t){

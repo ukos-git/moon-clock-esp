@@ -2739,10 +2739,13 @@ static bool moon_screen_has_image(void) {
 
 /* ---------------- screen-switch fade (UI_SCREEN_SWITCH_FADE) ----------------
  *
- * A screen switch that crosses the moon / moon-less boundary dims the
- * WHOLE PANEL to black and back (moon_ui_fade_out in loadScreen BEFORE
- * lv_scr_load; the fade-in leg in moon_ui_screen_switched). The dimming
- * is the CO5300's OWN brightness control (command 0x51,
+ * EVERY screen switch dims the WHOLE PANEL to black and back
+ * (moon_ui_fade_out in loadScreen BEFORE lv_scr_load; the fade-in leg
+ * in moon_ui_screen_switched). The ONE exception is the both-moon
+ * switch (airplane / wifi / the sleep screens share the one moon
+ * image): a fade there would only dim the moon, which is the same
+ * disk on both screens. The dimming is the CO5300's OWN brightness
+ * control (command 0x51,
  * bsp_display_brightness_set -- the same hardware dimming the
  * deep-sleep backlight off/on uses), so the fade writes NO pixels: it
  * scales everything on screen at once (the moon, the labels, the
@@ -2764,10 +2767,9 @@ static bool moon_screen_has_image(void) {
  *   brightness ramps 0 -> 100 and the fully rendered new screen comes
  *   up at once.
  *
- * Both-moon switches (airplane / wifi / the sleep screens) keep the
- * plain atomic whole-panel switch (a fade there would only dim the
- * same moon disk), as do switches while a bake pipeline owns the
- * buffers. Must run on the LVGL task. */
+ * Both-moon switches (airplane / wifi / the sleep screens) and
+ * switches while a bake pipeline owns the buffers keep the plain
+ * atomic whole-panel switch. Must run on the LVGL task. */
 #define FADE_STEPS 12
 static bool s_fade_pending;       /* the fade-out dimmed the panel; the fade-in is owed */
 static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
@@ -2798,8 +2800,8 @@ static void fade_ramp(int from_pct, int to_pct) {
 }
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
- * loadScreen calls it before lv_scr_load when the switch crosses the
- * moon boundary). No pixels are written; the spin's PANEL WRITES pause
+ * loadScreen calls it before lv_scr_load on every switch except the
+ * both-moon one). No pixels are written; the spin's PANEL WRITES pause
  * for the ramp (s_fade_busy -- the 0x51 ramp must be the only panel-io
  * traffic in flight so a lost-DMA-completion stall cannot strand it
  * behind a queued strip: the spin's angle keeps integrating, so the
@@ -2820,8 +2822,8 @@ void moon_ui_fade_out(void) {
 }
 
 /* Does the screen with this id carry a moon image (loadScreen's fade
- * decision: a switch that crosses the moon boundary fades, a
- * both-moon switch stays atomic)? */
+ * decision: every switch fades except the both-moon one, which stays
+ * atomic)? */
 bool moon_ui_screen_is_moon(enum ScreensEnum id) {
     lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
     if (!root)

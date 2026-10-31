@@ -33,16 +33,15 @@ static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
     return ((lv_obj_t **)&objects)[index];
 }
 
-/* Screen switch (UI_SCREEN_SWITCH_FADE): a switch that CROSSES the
- * moon / moon-less boundary (home <-> settings, the alarm screen)
- * dims the panel's OWN hardware brightness (the CO5300 0x51 command)
- * to black (moon_ui_fade_out, before lv_scr_load), loads, and ramps
- * it back (moon_ui_screen_switched) -- the transition writes no
- * pixels, so it costs nothing on the panel bus. Both-moon switches
- * (airplane / wifi / the sleep screens share the one moon image) and
- * both-moon-less switches (settings <-> settings) keep the plain
- * atomic whole-panel display -- a fade there would only dim the moon,
- * which is the same disk on both screens. History: the first
+/* Screen switch (UI_SCREEN_SWITCH_FADE): EVERY screen switch fades
+ * the panel's OWN hardware brightness (the CO5300 0x51 command) to
+ * black (moon_ui_fade_out, before lv_scr_load), loads, and ramps it
+ * back (moon_ui_screen_switched) -- the transition writes no pixels,
+ * so it costs nothing on the panel bus. The ONE exception is the
+ * both-moon switch (airplane / wifi / the sleep screens share the one
+ * moon image): a fade there would only dim the moon, which is the
+ * same disk on both screens, so those stay the plain atomic
+ * whole-panel display. History: the first
  * screen-load fade rode LVGL's async refresh and the whole panel
  * drained in 25-row QSPI strips (the moon crept in top-to-bottom for
  * over a second on every switch); the overlay fade made each step one
@@ -52,7 +51,10 @@ static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
 void loadScreen(enum ScreensEnum screenId) {
     if (currentScreen >= 0) {
         enum ScreensEnum oldId = (enum ScreensEnum)(currentScreen + 1);
-        if (oldId != screenId && moon_ui_screen_is_moon(oldId) != moon_ui_screen_is_moon(screenId))
+        /* Fade every switch except the both-moon one (airplane / wifi /
+         * the sleep screens: dimming the shared moon disk to black and
+         * back is a fade with nothing to fade). */
+        if (oldId != screenId && !(moon_ui_screen_is_moon(oldId) && moon_ui_screen_is_moon(screenId)))
             moon_ui_fade_out(); /* self-guarded (LVGL task, fade on,
                                  * no pipeline owns the buffer) */
     }

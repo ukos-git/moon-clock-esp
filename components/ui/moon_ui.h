@@ -137,17 +137,16 @@ void moon_ui_screen_switched(void);
 
 /**
  * Dim the panel's OWN hardware brightness to black ahead of a screen
- * switch (LVGL task; loadScreen calls it before lv_scr_load when the
- * switch crosses the moon / moon-less boundary). Writes no pixels;
- * the spin keeps running and its frames just dim. No-op when the fade
- * is off, the moon UI is not ready, or a bake pipeline owns the
- * buffers.
+ * switch (LVGL task; loadScreen calls it before lv_scr_load on EVERY
+ * switch except the both-moon one). Writes no pixels; the spin keeps
+ * running and its frames just dim. No-op when the fade is off, the
+ * moon UI is not ready, or a bake pipeline owns the buffers.
  */
 void moon_ui_fade_out(void);
 
 /** Does the screen with this id carry a moon image (loadScreen's
- * fade decision: a switch that crosses the moon boundary fades, a
- * both-moon switch stays atomic). */
+ * fade decision: every switch fades, the both-moon switch stays
+ * atomic). */
 bool moon_ui_screen_is_moon(enum ScreensEnum id);
 
 /**
