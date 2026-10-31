@@ -958,12 +958,11 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
  * second, so the only thing that must be refreshed is the TEXT (the
  * label bboxes change shape with the digits). Screen-local
  * coordinates (before the orientation rotation). The P4 values are the
- * same band scaled by 720/466 (~1.545) -- the home seconds arc is not
- * yet upscaled (M4), so until M4 the arc sits at the S3 radius off the
- * panel centre and only the snapshot part of the mask tracks it; at
- * 315-357 the analytic band falls in the black margin around the 309
- * disk and is harmless. M4 re-centres and upscales the arc and the
- * band lands on it. */
+ * same band scaled by 720/466 (~1.545), landing on the upscaled home
+ * seconds arc (M4): the ring spans r 329-344 (UI_PX(213)-UI_PX(223),
+ * the 10 px pad from the panel edge) and the knob reaches r ~350,
+ * both inside [315, 357] with the same ~2 px knob margin as the S3
+ * band. */
 #if defined(CONFIG_BOARD_P4)
 #define SPIN_MASK_RING_RMIN 315
 #define SPIN_MASK_RING_RMAX 357

@@ -25,6 +25,7 @@
 #include "screens.h"
 #include "stb_image_write.h"
 #include "ui.h"
+#include "ui_px.h"
 
 /* The panel size (the S3's 466x466 by default; the P4's 720x720 with
  * `build.sh run --panel 720`). The screens themselves carry their own
@@ -164,11 +165,13 @@ static void wheel_tap(lv_display_t *disp, int32_t x, int32_t y) {
 }
 
 /* Panel point at LVGL angle a (deg: 0 = right, 90 = down, CW, y down) at
- * radius r from the 466x466 centre. */
+ * radius r from the panel centre (the wheel's geometry, like the screens,
+ * scales with the panel via ui_px.h). */
 static void wheel_point_deg(double a_deg, double r, lv_point_t *p) {
     double t = a_deg * M_PI / 180.0;
-    p->x = (int32_t)lround(233.0 + r * cos(t));
-    p->y = (int32_t)lround(233.0 + r * sin(t));
+    double c = (double)UI_PANEL_PX / 2.0;
+    p->x = (int32_t)lround(c + r * cos(t));
+    p->y = (int32_t)lround(c + r * sin(t));
 }
 
 /* The wheel's slot centres (the device's wheel_slot_center, 26 slots). */
@@ -189,20 +192,21 @@ static int wheel_snapshot(lv_display_t *disp, const char *name) {
 }
 
 /* Drive the real flow to the wheel: settings-hub WiFi icon (at -R,-R,
- * R=117) -> the WiFi list -> AP row 0 (y 185) = SSID prefill + the wheel.
- * The row handler prefills the (stub) first AP's SSID. */
+ * R=UI_PX(117)) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID
+ * prefill + the wheel. The row handler prefills the (stub) first AP's
+ * SSID. Every coordinate is panel-scaled (ui_px.h). */
 static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     loadScreen(SCREEN_ID_SETTINGS_HUB);
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, 116, 116);
+    wheel_tap(disp, UI_PANEL_PX / 2 - UI_PX(117), UI_PANEL_PX / 2 - UI_PX(117));
     pump(disp, 100);
     /* Tick the WiFi list once so the rows render (their text is what
      * gives the labels content size -- tapping before the render hits
      * zero-size labels and misses). */
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, 233, 185);
+    wheel_tap(disp, UI_PANEL_PX / 2, UI_PX(185));
     pump(disp, 100);
     (void)indev;
 }
@@ -405,11 +409,12 @@ int main(int argc, char **argv) {
         fail |= wheel_snapshot(disp, "rest");
 
         /* touched: press the inner ring at slot 7 ('h'), move onto the
-         * outer band (r 209) and hold -- the outer frame is revealed, the
-         * hot sector lit, the large preview letter at the centre. */
+         * outer band (r UI_PX(209)) and hold -- the outer frame is
+         * revealed, the hot sector lit, the large preview letter at the
+         * centre. The radii are the panel-scaled wheel's (ui_px.h). */
         lv_point_t p1, p2;
-        wheel_point_deg(wheel_slot_deg(7), 168, &p1);
-        wheel_point_deg(wheel_slot_deg(7), 209, &p2);
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(168), &p1);
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(209), &p2);
         wheel_press_at(disp, p1.x, p1.y);
         wheel_move_to(disp, p2.x, p2.y);
         fail |= wheel_snapshot(disp, "touched");
@@ -420,16 +425,16 @@ int main(int argc, char **argv) {
         const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
         for (int k = 0; k < 4; k++) {
             lv_point_t pk;
-            wheel_point_deg(54.0 + 24.0 * k, 102, &pk);
+            wheel_point_deg(54.0 + 24.0 * k, UI_PX(102), &pk);
             wheel_tap(disp, pk.x, pk.y);
             fail |= wheel_snapshot(disp, mode_names[k]);
         }
 
-        /* Commit: a short tap on the centre (233,233) -- the stub's
+        /* Commit: a short tap on the panel centre -- the stub's
          * wifi_credentials_write + action_start_wifi_sync swaps to the
          * transient WiFi screen, so the shot verifies the save -> connect
          * hand-off (the entered letter was the 'h' from the sweep). */
-        wheel_tap(disp, 233, 233);
+        wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2);
         pump(disp, 100);
         {
             lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];

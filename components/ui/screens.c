@@ -14,6 +14,7 @@
 #include "settings_store.h"
 #include "styles.h"
 #include "ui.h"
+#include "ui_px.h"
 #include "vars.h"
 #include "wifi.h"
 
@@ -164,7 +165,7 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
      * (a size arg above 96 widens the tap area only, e.g. the hub's
      * central 150 px); below 96 it would clip the disk, so it floors
      * at 96. */
-    const int box = size > 96 ? size : 96;
+    const int box = size > UI_PX(96) ? size : UI_PX(96);
     lv_obj_t *ring = lv_obj_create(parent);
     lv_obj_set_size(ring, box, box);
     lv_obj_set_style_bg_opa(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -211,7 +212,7 @@ void create_screen_modem_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.modem_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -220,7 +221,7 @@ void create_screen_modem_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.modem_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -234,7 +235,7 @@ void create_screen_modem_sleep() {
             lv_obj_t *obj = lv_arc_create(parent_obj);
             objects.arc_clock_seconds_modem = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_arc_set_range(obj, 0, 60);
             lv_arc_set_bg_start_angle(obj, 0);
             lv_arc_set_bg_end_angle(obj, 360);
@@ -243,10 +244,10 @@ void create_screen_modem_sleep() {
             lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_state(obj, LV_STATE_DISABLED);
             add_style_moon_arc(obj);
-            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_top(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_left(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
     }
@@ -284,7 +285,7 @@ void create_screen_wifi() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.wifi = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -293,7 +294,7 @@ void create_screen_wifi() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -307,7 +308,7 @@ void create_screen_wifi() {
             lv_obj_t *obj = lv_arc_create(parent_obj);
             objects.arc_clock_seconds_wifi = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_arc_set_range(obj, 0, 60);
             lv_arc_set_bg_start_angle(obj, 0);
             lv_arc_set_bg_end_angle(obj, 360);
@@ -316,10 +317,10 @@ void create_screen_wifi() {
             lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_state(obj, LV_STATE_DISABLED);
             add_style_moon_arc(obj);
-            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_top(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_left(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
         {
@@ -328,7 +329,7 @@ void create_screen_wifi() {
             // lives here, not on the airplane screen)
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.wifi_indicator_wifi = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_solid(obj);
             lv_label_set_text(obj, GLYPH_WIFI);
@@ -378,7 +379,7 @@ void create_screen_light_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.light_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -387,7 +388,7 @@ void create_screen_light_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.light_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -407,7 +408,7 @@ void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.deep_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -416,7 +417,7 @@ void create_screen_deep_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.deep_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -429,7 +430,7 @@ void create_screen_deep_sleep() {
             // screen-indicator-sleep1
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.screen_indicator_sleep1 = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_solid(obj);
             lv_label_set_text(obj, "");
@@ -450,7 +451,7 @@ void create_screen_alarm() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.alarm = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     {
         lv_obj_t *parent_obj = obj;
         {
@@ -458,7 +459,7 @@ void create_screen_alarm() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.alarm_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -471,7 +472,7 @@ void create_screen_alarm() {
             // screen-indicator-alarm
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.screen_indicator_alarm = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_regular(obj);
             lv_label_set_text(obj, "");
@@ -496,14 +497,14 @@ void create_screen_settings_hub() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_hub = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     /* The root is not clickable: only the explicit ring icons and the
      * central exit button take touches. */
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
     /* Central concentric exit (150 px ring). */
-    objects.settings_hub_exit = settings_create_exit_button(obj, 150);
+    objects.settings_hub_exit = settings_create_exit_button(obj, UI_PX(150));
     lv_obj_center(objects.settings_hub_exit);
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
@@ -511,7 +512,7 @@ void create_screen_settings_hub() {
      * (top-right), light sleep (bottom-right), deep sleep (bottom-left),
      * WiFi settings (top-left). Moon weight distinguishes the two
      * sleep screens (regular / solid). */
-    const int32_t R = 117; /* ~165 px radius at 45 deg */
+    const int32_t R = UI_PX(117); /* ~165 px radius at 45 deg (the scaled ring) */
     settings_hub_icon(obj, GLYPH_ALARM, &ui_font_fontawesome7_regular_96_icons, R, -R, SCREEN_ID_SETTINGS_ALARM);
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_regular_96_icons, R, R, SCREEN_ID_SETTINGS_LIGHT_SLEEP);
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, -R, R, SCREEN_ID_SETTINGS_DEEP_SLEEP);
@@ -527,12 +528,12 @@ void tick_screen_settings_hub() {}
  * around the exit (x 185..281, y 336..432) stays free of widgets. */
 static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *exit = settings_create_exit_button(obj, 90);
-    lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -34);
+    lv_obj_t *exit = settings_create_exit_button(obj, UI_PX(90));
+    lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -UI_PX(34));
     lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, (void *)(intptr_t)exit_target);
 }
 
@@ -623,13 +624,13 @@ void create_screen_settings_alarm() {
     add_style_label_icon_regular(objects.settings_alarm_master);
     lv_label_set_text(objects.settings_alarm_master, GLYPH_ALARM);
     lv_obj_set_size(objects.settings_alarm_master, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_alarm_master, LV_ALIGN_CENTER, 0, -30);
+    lv_obj_align(objects.settings_alarm_master, LV_ALIGN_CENTER, 0, -UI_PX(30));
     lv_obj_add_flag(objects.settings_alarm_master, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(objects.settings_alarm_master, event_handler_cb_settings_alarm_master, LV_EVENT_CLICKED, 0);
 
     /* Two entries at the diagonals (stopwatch = pomodoro, alarm-clock =
      * real alarm), 96 px; colours set by the entry refresh. */
-    const int32_t R = 130;
+    const int32_t R = UI_PX(130);
     objects.settings_alarm_pomodoro = lv_label_create(obj);
     add_style_label_icon_solid(objects.settings_alarm_pomodoro);
     lv_label_set_text(objects.settings_alarm_pomodoro, GLYPH_STOPWATCH);
@@ -717,8 +718,8 @@ static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, i
     lv_roller_set_options(r, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(r, 1);
     lv_obj_set_width(r, width);
-    lv_obj_set_height(r, 110);
-    lv_obj_align(r, LV_ALIGN_CENTER, x, 90);
+    lv_obj_set_height(r, UI_PX(110));
+    lv_obj_align(r, LV_ALIGN_CENTER, x, UI_PX(90));
     lv_obj_set_style_text_font(r, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_WHITE, LV_PART_SELECTED | LV_STATE_DEFAULT);
@@ -758,16 +759,16 @@ void create_screen_settings_pomodoro() {
      * centre): the hour slot centres at 153 (-80), the minute slot
      * at 303 (+70), and the `:` at 223 (-10), so the whole display
      * lands exactly where the home clock's "HH:MM" would. */
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -80, 120);
-    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -80, -23);
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 70, 120);
-    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 70, -23);
+    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
+    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -UI_PX(10), -UI_PX(23));
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
@@ -778,7 +779,7 @@ void create_screen_settings_pomodoro() {
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(objects.settings_pomodoro_caption, "REPEAT INTERVAL");
     lv_obj_set_size(objects.settings_pomodoro_caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -100);
+    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -UI_PX(100));
     lv_obj_set_style_text_color(objects.settings_pomodoro_caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(objects.settings_pomodoro_caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -838,11 +839,11 @@ void tick_screen_settings_pomodoro() {}
  * (get_center: radius = obj width/2 - arc_width). The home seconds
  * arc is a 466x466 object at (0,0), width 10 -> outer 223, inner 213;
  * this is that exact ring. */
-#define ALARM_TIME_ARC_CX 233
-#define ALARM_TIME_ARC_CY 233
-#define ALARM_TIME_ARC_R 223    /* the ring's OUTER radius (home-seconds-arc match) */
-#define ALARM_TIME_ARC_WIDTH 10 /* the ring width (home-seconds-arc match) */
-#define ALARM_TIME_HANDLE_R 218 /* the day handles' radius (the ring midline) */
+#define ALARM_TIME_ARC_CX (UI_PANEL_PX / 2)
+#define ALARM_TIME_ARC_CY (UI_PANEL_PX / 2)
+#define ALARM_TIME_ARC_R UI_PX(223)    /* the ring's OUTER radius (home-seconds-arc match) */
+#define ALARM_TIME_ARC_WIDTH UI_PX(10) /* the ring width (home-seconds-arc match) */
+#define ALARM_TIME_HANDLE_R UI_PX(218) /* the day handles' radius (the ring midline) */
 
 #define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
@@ -1056,7 +1057,7 @@ void create_screen_settings_alarm_time() {
     lv_obj_t *band = lv_arc_create(obj);
     objects.settings_alarm_time_band = band;
     lv_obj_set_pos(band, 0, 0);
-    lv_obj_set_size(band, 466, 466);
+    lv_obj_set_size(band, UI_PANEL_PX, UI_PANEL_PX);
     lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1088,7 +1089,7 @@ void create_screen_settings_alarm_time() {
         } else {
             objects.settings_alarm_time_handle_end = h;
         }
-        lv_obj_set_size(h, 34, 34);
+        lv_obj_set_size(h, UI_PX(34), UI_PX(34));
         lv_obj_set_style_radius(h, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
         /* The home knob's colour (the theme grey) -- 34 px, it pokes
          * out of the 10 px ring and stays visible on track and range. */
@@ -1096,7 +1097,7 @@ void create_screen_settings_alarm_time() {
         lv_obj_set_style_bg_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_all(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_ext_click_area(h, 4);
+        lv_obj_set_ext_click_area(h, UI_PX(4));
         lv_obj_add_flag(h, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(h, LV_OBJ_FLAG_PRESS_LOCK);
         lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_handle, LV_EVENT_PRESSED, (void *)(intptr_t)i);
@@ -1123,16 +1124,16 @@ void create_screen_settings_alarm_time() {
     /* Same glyph-centre offsets as the pomodoro display (hour slot at
      * 153, minute slot at 303, the `:` at 223 = the home clock's own
      * colon position). */
-    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -80, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -80, -23);
-    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 70, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 70, -23);
+    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
+    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -UI_PX(10), -UI_PX(23));
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1144,7 +1145,7 @@ void create_screen_settings_alarm_time() {
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_alarm_range_label, "Mo-Fr");
     lv_obj_set_size(s_alarm_range_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_alarm_range_label, LV_ALIGN_CENTER, 0, -100);
+    lv_obj_align(s_alarm_range_label, LV_ALIGN_CENTER, 0, -UI_PX(100));
     lv_obj_set_style_text_color(s_alarm_range_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(s_alarm_range_label, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1251,8 +1252,8 @@ static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
  * row clears the bottom-centre exit button's band (top edge y 342). */
 static void settings_anim_toggle(lv_obj_t *parent, int screen) {
     lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, 100, 100);
-    lv_obj_align(row, LV_ALIGN_CENTER, 90, 0);
+    lv_obj_set_size(row, UI_PX(100), UI_PX(100));
+    lv_obj_align(row, LV_ALIGN_CENTER, UI_PX(90), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     /* Kill the theme's default border (a visible square around the glyph)
      * and the shadow: the glyph is the only visible thing. */
@@ -1279,7 +1280,7 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(caption, screen ? "SLEEP COUNTDOWN" : "IDLE TIMEOUT");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -125);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(125));
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1291,8 +1292,8 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     for (int v = 1; v <= 30; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
-    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, 210);
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -90, 0);
+    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, UI_PX(210));
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -UI_PX(90), 0);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
 
@@ -1355,7 +1356,7 @@ static void settings_wifi_place_sel_bar(int i) {
         return;
     }
     lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_pos(s_wifi_sel_bar, 14, 185 + i * 24 - 11);
+    lv_obj_set_pos(s_wifi_sel_bar, UI_PX(14), UI_PX(185) + i * UI_PX(24) - UI_PX(11));
 }
 
 static void settings_wifi_render_rows(void) {
@@ -1434,7 +1435,7 @@ void create_screen_settings_wifi() {
     add_style_label_icon_solid(header);
     lv_label_set_text(header, GLYPH_WIFI);
     lv_obj_set_size(header, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(header, LV_ALIGN_CENTER, 0, -150);
+    lv_obj_align(header, LV_ALIGN_CENTER, 0, -UI_PX(150));
     lv_obj_set_style_text_color(header, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1442,7 +1443,7 @@ void create_screen_settings_wifi() {
     lv_obj_set_style_text_font(title, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(title, "NETWORKS");
     lv_obj_set_size(title, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -84);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -UI_PX(84));
     lv_obj_set_style_text_color(title, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1450,7 +1451,7 @@ void create_screen_settings_wifi() {
      * (created first so the rows render on top where they could
      * overlap it). */
     s_wifi_sel_bar = lv_obj_create(obj);
-    lv_obj_set_size(s_wifi_sel_bar, 6, 22);
+    lv_obj_set_size(s_wifi_sel_bar, UI_PX(6), UI_PX(22));
     lv_obj_set_style_radius(s_wifi_sel_bar, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(s_wifi_sel_bar, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wifi_sel_bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1468,7 +1469,7 @@ void create_screen_settings_wifi() {
          * the list sits in the band between the title (bottom edge ~y
          * 162) and the bottom-centre exit button (band top y 342 --
          * the last row's bottom edge is ~y 314). */
-        lv_obj_align(row, LV_ALIGN_CENTER, 0, -48 + i * 24);
+        lv_obj_align(row, LV_ALIGN_CENTER, 0, -UI_PX(48) + i * UI_PX(24));
         lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, event_handler_cb_wifi_row, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -1533,14 +1534,14 @@ void tick_screen_settings_wifi() {
  * only names the screen roots and the clock-widget slots). Angles are
  * LVGL's (0 deg = right, 90 deg = down, clockwise); the mockup's
  * 0 deg = up geometry is a constant -90 offset. */
-#define WHEEL_C 233           /* the panel centre */
-#define WHEEL_INNER_R_MID 168 /* inner letter row (band 150..186) */
-#define WHEEL_OUTER_R_MID 209 /* outer letter row (band 192..226) */
-#define WHEEL_MODE_R_MID 102  /* mode-key row (band 88..116) */
-#define WHEEL_HIT_R_IN 140    /* the forgiving press band: 140..233 */
-#define WHEEL_OUTER_SPAN 13   /* the hot sector is +/-13 deg (2x the 26-letter inner angle) */
-#define WHEEL_PW_MAX 63       /* keep < MAX_PASSWORD_LEN (64) */
-#define WHEEL_EXIT_Y 368      /* the in-ring exit centre (r 135 below centre) */
+#define WHEEL_C (UI_PANEL_PX / 2)    /* the panel centre */
+#define WHEEL_INNER_R_MID UI_PX(168) /* inner letter row (band 150..186) */
+#define WHEEL_OUTER_R_MID UI_PX(209) /* outer letter row (band 192..226) */
+#define WHEEL_MODE_R_MID UI_PX(102)  /* mode-key row (band 88..116) */
+#define WHEEL_HIT_R_IN UI_PX(140)    /* the forgiving press band: 140..233 */
+#define WHEEL_OUTER_SPAN 13          /* the hot sector is +/-13 deg (2x the 26-letter inner angle) */
+#define WHEEL_PW_MAX 63              /* keep < MAX_PASSWORD_LEN (64) */
+#define WHEEL_EXIT_Y UI_PX(368)      /* the in-ring exit centre (r 135 below centre) */
 
 /* The four register modes (all printable ASCII -- the 32 px font now
  * covers 32-126). 123 / #$ use fewer slots, so those keys get WIDER
@@ -1735,7 +1736,7 @@ static void settings_wheel_set_mode(int m) {
         /* The divider BEFORE slot j, at the slot boundary (bold at each
          * group start). */
         bool bold = on && (j % 3 == 0);
-        int32_t len = bold ? 30 : 26;
+        int32_t len = bold ? UI_PX(30) : UI_PX(26);
         float a_b = on ? (float)j * 360.0f / (float)s_wheel_n - 90.0f : 0.0f;
         float arb = a_b * 3.14159265f / 180.0f;
         int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(arb));
@@ -1890,7 +1891,7 @@ void create_screen_settings_wifi_password() {
      * under the full-360-degree ring -- the wheel gets the small in-ring
      * exit instead (see the section header). */
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
@@ -1906,12 +1907,12 @@ void create_screen_settings_wifi_password() {
      * press (the mode arc, created later, would then win the search). */
     s_wheel_catch = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_catch, 0, 0);
-    lv_obj_set_size(s_wheel_catch, 466, 466);
+    lv_obj_set_size(s_wheel_catch, UI_PANEL_PX, UI_PANEL_PX);
     lv_obj_set_style_pad_all(s_wheel_catch, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_catch, 0, 360);
     lv_arc_set_angles(s_wheel_catch, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_catch, WHEEL_C - WHEEL_HIT_R_IN, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_catch, WHEEL_C - WHEEL_HIT_R_IN, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
@@ -1927,12 +1928,12 @@ void create_screen_settings_wifi_password() {
      * the whole frame in one flag. */
     s_wheel_outer = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_outer, 0, 0);
-    lv_obj_set_size(s_wheel_outer, 466, 466);
-    lv_obj_set_style_pad_all(s_wheel_outer, 7, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(s_wheel_outer, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_outer, UI_PX(7), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_outer, 0, 360);
     lv_arc_set_angles(s_wheel_outer, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_outer, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_outer, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_outer, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1963,7 +1964,7 @@ void create_screen_settings_wifi_password() {
      * at each group start). Created horizontal, then rotated to radial. */
     for (int j = 0; j < 26; j++) {
         s_wheel_ticks[j] = lv_obj_create(obj);
-        lv_obj_set_size(s_wheel_ticks[j], 26, 1);
+        lv_obj_set_size(s_wheel_ticks[j], UI_PX(26), 1);
         lv_obj_set_style_bg_color(s_wheel_ticks[j], lv_color_hex(0x373737), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(s_wheel_ticks[j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(s_wheel_ticks[j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1976,12 +1977,12 @@ void create_screen_settings_wifi_password() {
      * the nearest key centre). */
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
-    lv_obj_set_size(s_wheel_mode_arc, 466, 466);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, 117, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(117), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 42, 138);
     lv_arc_set_angles(s_wheel_mode_arc, 44, 64);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_mode_arc, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_mode_arc, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_mode_arc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2010,11 +2011,11 @@ void create_screen_settings_wifi_password() {
     for (int k = 0; k < 5; k++) {
         float a = (42.0f + 24.0f * k) * 3.14159265f / 180.0f;
         lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, 24, 1);
+        lv_obj_set_size(t, UI_PX(24), 1);
         lv_obj_set_style_bg_color(t, lv_color_hex(0x5F5F5F), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - 12,
+        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - UI_PX(12),
                        WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a)));
         lv_obj_set_style_transform_rotation(t, (int32_t)(42.0f + 24.0f * k), 0);
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
@@ -2024,11 +2025,11 @@ void create_screen_settings_wifi_password() {
      * 150..190) -- the north marker between the two frames. */
     {
         lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, 2, 40);
+        lv_obj_set_size(t, UI_PX(2), UI_PX(40));
         lv_obj_set_style_bg_color(t, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - 190);
+        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - UI_PX(190));
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -2037,7 +2038,7 @@ void create_screen_settings_wifi_password() {
      * are non-clickable, so the box owns the touches) and the SSID
      * caption above it (case kept -- the font now covers lowercase). */
     s_wheel_center = lv_obj_create(obj);
-    lv_obj_set_size(s_wheel_center, 110, 110);
+    lv_obj_set_size(s_wheel_center, UI_PX(110), UI_PX(110));
     lv_obj_align(s_wheel_center, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_opa(s_wheel_center, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2049,7 +2050,7 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_style_text_font(s_wheel_ssid_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_wheel_ssid_label, "");
     lv_obj_set_size(s_wheel_ssid_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_wheel_ssid_label, LV_ALIGN_CENTER, 0, -75);
+    lv_obj_align(s_wheel_ssid_label, LV_ALIGN_CENTER, 0, -UI_PX(75));
     lv_obj_set_style_text_color(s_wheel_ssid_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(s_wheel_ssid_label, LV_OBJ_FLAG_CLICKABLE);
 
@@ -2064,7 +2065,7 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_style_text_font(s_wheel_sel_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_wheel_sel_label, "");
     lv_obj_set_size(s_wheel_sel_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, 34, 0);
+    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, UI_PX(34), 0);
     lv_obj_set_style_text_color(s_wheel_sel_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
 
@@ -2073,7 +2074,7 @@ void create_screen_settings_wifi_password() {
      * a two-bar x (the 96 px FA glyph cannot scale down). */
     {
         lv_obj_t *exit = lv_obj_create(obj);
-        lv_obj_set_size(exit, 26, 26);
+        lv_obj_set_size(exit, UI_PX(26), UI_PX(26));
         lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(exit, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2085,7 +2086,7 @@ void create_screen_settings_wifi_password() {
                             (void *)(intptr_t)SCREEN_ID_SETTINGS_WIFI);
         for (int i = 0; i < 2; i++) {
             lv_obj_t *bar = lv_obj_create(exit);
-            lv_obj_set_size(bar, 12, 2);
+            lv_obj_set_size(bar, UI_PX(12), UI_PX(2));
             lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2141,7 +2142,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             ((lv_obj_t **)&objects)[startWidgetIndex + 0] = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);

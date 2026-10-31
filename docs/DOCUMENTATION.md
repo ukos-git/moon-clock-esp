@@ -12,23 +12,25 @@ terminator across the disk to the fully unilluminated side. Time comes from NTP
 (brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
-_State of this document: 2026-10-31, after the **dual-board build plumbing + P4
-Wi-Fi + moon scale-up** (the repo now also builds for the Waveshare
-**ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2; the S3
-build is unchanged; the P4's remote-C6 Wi-Fi and the 618 px moon disk are done
-on-device and the P4 UI upscale + clock degradation are the follow-on
-milestones), the burn-in spin's **direct panel write** (the render task writes
-the MOON_PX² moon area straight to the panel at 8 fps instead of routing
-through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
-the moon no longer freezes before light sleep), the **fade-to-black screen
-switch** (replacing the concentric reveal that showed white strip bars; now a
-hardware panel-brightness ramp — the CO5300's own dimming command — so the
-transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
-on the home screen when the next fire is >24 h away), the **fa-circle-xmark
-exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
-rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
-`python3 docs/gen_doc.py` and must stay in sync with the code._
+_State of this document: 2026-10-31, after the **dual-board build — P4
+plumbing, Wi-Fi, moon and UI scale-up** (the repo now also builds for the
+Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2;
+the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 618 px moon disk and
+the 720 px UI upscale — panel-scaled layout + regenerated fonts, §6 — are done
+on-device; the P4 clock degradation (no RTC IC: crystal RTC timer + SNTP +
+software alarms) is the follow-on milestone), the burn-in spin's **direct panel
+write** (the render task writes the MOON_PX² moon area straight to the panel at
+8 fps instead of routing through LVGL's ~175 ms re-render; the settled rate is
+a constant slow spin, so the moon no longer freezes before light sleep), the
+**fade-to-black screen switch** (replacing the concentric reveal that showed
+white strip bars; now a hardware panel-brightness ramp — the CO5300's own
+dimming command — so the transition writes no pixels at all), the **alarm
+weekday prefix** ("Mo 07:00" on the home screen when the next fire is >24 h
+away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is the button),
+and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm
+screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document
+is regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
+code._
 
 ---
 
@@ -59,12 +61,14 @@ rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 This is the single hosted document for the project. It is GitHub-compatible
 Markdown and renders the project's own media:
 
-- **17 screenshots** of every live screen (the circular wheel keyboard, §7.13,
-  ships its at-rest, touched-down, 123, ABC and symbol modes), rendered by the
-  UI simulator (`host_sim/uisim`) from the _real_ device `screens.c` with the
-  vendored LVGL 9.6 — the exact panel pixels, 466x466 RGB565
-  (`build.sh run --panel 720` renders the P4's 720x720 panel instead, the 618
-  px moon disk included): `docs/img/screens/*.png`
+- **17 screenshots of every live screen** on the S3's 466x466 panel (the
+  circular wheel keyboard, §7.13, ships its at-rest, touched-down, 123, ABC and
+  symbol modes), rendered by the UI simulator (`host_sim/uisim`) from the
+  _real_ device `screens.c` with the vendored LVGL 9.6 — the exact panel
+  pixels, 466x466 RGB565: `docs/img/screens/*.png`. The **same 17 shots at the
+  P4's 720x720 panel** (the 618 px moon disk, the 720 px UI — panel-scaled
+  layout + the P4's 148/74/50 px fonts): `docs/img/screens/p4/*.png`
+  (`build.sh run --panel 720` builds into its own `build-720/` dir).
 - **4 films** of the live animations — the first three with frames rendered by
   the device's own moon core (`host_sim/build/moon_sim`, the exact device
   translation units):
@@ -185,7 +189,8 @@ on the board (rev v1.3 profile; XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter,
 32 MB PSRAM @ 200 MHz; 0 WDT / 0 panic / 0 assert), associates over the
 **remote C6** (the `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5 pair over
 SDIO, ~7.5 s to IP) and syncs the clock by SNTP (the first clock smoke; the
-clock label then shows real time). Three P4-specific code facts:
+clock label then shows real time). The P4's remaining product path is the clock
+degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
 
 - **The remote radio is initialized exactly once.** The host-side LWIP netif
   attach of the `esp_hosted` radio is not re-runnable: a second
@@ -230,16 +235,30 @@ clock label then shows real time). Three P4-specific code facts:
   overlapped the sweep (the sweep was interrupted at frame 285/336); the re-arm
   now skips `clock_idle_set_enabled(true)` while `moon_ui_sweeping()`.
 
+**State (M4, 2026-10-31):** the P4's UI is now fully upscaled — every screen
+root is panel-sized (`UI_PANEL_PX`, `components/ui/ui_px.h`:
+`UI_PX(x) = x·BSP_LCD_H_RES/466`, exact at 466 so the S3 layout is bit-for-bit
+unchanged), the seconds arcs ride the panel edge and the type is the P4's
+regenerated font set (`components/ui/fonts_p4/`: the same six `lv_font_conv`
+subsets at 148/74/50 px instead of 96/48/32 — identical `lv_font_t` symbols, so
+`fonts.h` and every consumer are unchanged; `components/ui/CMakeLists.txt`
+swaps the font dir on `CONFIG_BOARD_P4`). Verified: uisim 720 shots of all 17
+screens (`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the
+S3 binary behaviourally unchanged (the uisim 466 pass renders byte-identical
+screens), the spin's keep-mask band 315-357 now lands on the upscaled home
+seconds arc (ring r 329-344, knob to r ~350). The rotated orientation layer
+grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary 1,468,784 B
+(9,437,184 B factory).
+
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
 `IRAM_ATTR` would land ~113 KB of LVGL in the scarce `sram_low` and overflow
 the link), and the CPU1 idle-task WDT check is disabled
 (`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`) because the moon sweep/spin owns
-a core for seconds (same as the S3). The remaining P4 product path — the moon
-at 720 px, the UI upscale, and the software-alarm clock path (no RTC IC:
-crystal-backed internal RTC timer + SNTP + `esp_timer` alarms) — is the
-follow-on work (M3–M5). The S3 build flow is unchanged; the shim + call-site
-migration add ~15 KB to the S3 binary (§3.1).
+a core for seconds (same as the S3). The remaining P4 product path is the
+software-alarm clock (M5 — no RTC IC: crystal-backed internal RTC timer +
+SNTP + `esp_timer` alarms, the P4 half of §10.6). The S3 build flow is
+unchanged; the shim + call-site migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -309,7 +328,7 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-646,464 B of headroom remain for the future text-input family.
+645,664 B of headroom remain for the future text-input family.
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
@@ -337,7 +356,7 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x14fab0` (1,375,152 B), ~8 MB free — huge headroom vs the S3's 2048 K                                                   |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x166970` (1,468,784 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
 | `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
@@ -363,7 +382,7 @@ components/
                            write/reload, */N>59 support); settings_store.c (runtime store)
   ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
-    images.c                 fonts/ (generated lv_font_conv subsets)
+    images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
   wifi/                ESP WiFi scan (settings screen)
   board/               the board shim: board_display.{c,h} — the app-side
@@ -551,14 +570,17 @@ round AMOLED showing the Moon.
   task #55). The clock digits and the moon share the white; the grey carries
   the "you can press this" affordance.
 - **Type — Montserrat**, generated subsets (`lv_font_conv`, 4-bit,
-  uncompressed): 96 px digits (the clock), 48 px (rollers/labels), 32 px
-  general text (SSID rows/captions/_password entry_ — full printable ASCII
-  32–126, so one font serves the list and the wheel keyboard; it was widened
-  from an `A-Z`/digits subset for the keyboard) + a 32 px range subset (the
-  "Mo-Fr" day summary, whose font needs only digits-free lowercase + hyphen) +
-  14 px (the wheel's register keys); Font Awesome 7 Free (Solid 96 px:
-  circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock) — the icon set
-  is the same weight-and-color logic as the type.
+  uncompressed; the S3's `fonts/` is the source of truth): 96 px digits (the
+  clock), 48 px (rollers/labels), 32 px general text (SSID rows/captions/_
+  password entry_ — full printable ASCII 32–126, so one font serves the list
+  and the wheel keyboard; it was widened from an `A-Z`/digits subset for the
+  keyboard) + a 32 px range subset (the "Mo-Fr" day summary, whose font needs
+  only digits-free lowercase + hyphen) + 14 px (the wheel's register keys); the
+  P4 builds the _same six subsets_ from the same Opts at ×720/466 (148/74/50
+  px) in `fonts_p4/` with identical symbol names (§2.3b M4 state). Font Awesome
+  7 Free (Solid 96 px: circle-xmark/moon/wifi/stopwatch; Regular:
+  moon/alarm-clock) — the icon set is the same weight-and-color logic as the
+  type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
   = screen center. The settings hub mirrors it: a central circle-xmark exit
   (the fa-circle-xmark glyph alone — the glyph _is_ the button, U+F057) with
@@ -763,8 +785,9 @@ live.
 ![123 mode](img/screens/settings_wifi_password_123.png)
 
 Reached by tapping an AP row on the WiFi screen (§7.12). A 13th screen
-(`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the 466×466 centre; no moon
-image (settings are moon-less by design).
+(`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the panel centre (466×466
+centre on the S3; the wheel's radii are `UI_PX()`-scaled, §2.3b M4 state); no
+moon image (settings are moon-less by design).
 
 - **Two concentric letter rings.** The **inner frame** (at rest) shows the 26
   slots of the active register, **grouped in threes** (a bold divider at each
@@ -933,8 +956,9 @@ upgrade from the UI tick.
   per-sample deltas — the fix for "wakes right after sleep".
 - **Base orientation** (task #59/T1): +90° step offset applied to the 12 screen
   roots; the 180°-flip reference re-tracks only on `step == 0` (T4). A rotated
-  root's ~0.4 MB layer is allocated via CLIB malloc (the 64 KB LVGL pool OOM
-  was the original "off-screen + crash").
+  root's panel-sized layer (~0.4 MB at 466², ~1.0 MB at the P4's 720²) is
+  allocated via CLIB malloc (the 64 KB LVGL pool OOM was the original
+  "off-screen + crash").
 - **2 s press re-sync** (2026-10-30): the home-pose anchor latches from the
   first 1 s of IMU samples after boot; if the device was flipped while that
   window filled, the anchor is 180° off and the UI stays upside down — and the
@@ -1093,7 +1117,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                   |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                    |
-| Binary                                        | S3: `0x1620d0` = 1,450,176 B in the 2,097,152 B partition (646,976 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x14fab0` = 1,375,152 B in the 9,437,184 B partition (~8 MB free)                                                                                                                                                                      |
+| Binary                                        | S3: `0x1625e0` = 1,451,488 B in the 2,097,152 B partition (645,664 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x166970` = 1,468,784 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                    |
 
 ---
 
@@ -1152,16 +1176,19 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466 by default, ESP stubs) → per-screen PNG
   snapshots (`build.sh run`); `build.sh run --panel 720` renders the P4's
-  720x720 panel (its own `build-720/` dir, the 618 px moon disk, the S3-scale
-  UI until the M4 upscale) — the source of every screenshot in §7. Two
-  diagnostic probes from the reveal era (2026-10-30), kept as the verification
-  record: `--rottest` proves `lv_snapshot_take` renders in the screen's
-  **local** coordinates (the root's LVGL rotation is ignored — the fact the
-  spin's UI keep-mask now relies on: the snapshot is rotated by the panel step
-  in-place before it masks); `--reveal <q> [screen]` runs the former
-  concentric-reveal permutation (copied verbatim into `main.c`) against the
-  real rotated `lv_refr_now` flush and dumped the raw pre-rotation snapshot
-  (`out/snap_raw_qN.png`) that exposed its direction bug.
+  720x720 panel (its own `build-720/` dir, the 618 px moon disk, the panel-
+  scaled UI + the `fonts_p4/` font set — the font dir and `-DPANEL_SIZE` both
+  follow the `--panel` arg, mirroring the device's `CONFIG_BOARD_P4` switch) —
+  the source of every screenshot in §7 (the P4 set under
+  `docs/img/screens/p4/`). Two diagnostic probes from the reveal era
+  (2026-10-30), kept as the verification record: `--rottest` proves
+  `lv_snapshot_take` renders in the screen's **local** coordinates (the root's
+  LVGL rotation is ignored — the fact the spin's UI keep-mask now relies on:
+  the snapshot is rotated by the panel step in-place before it masks);
+  `--reveal <q> [screen]` runs the former concentric-reveal permutation (copied
+  verbatim into `main.c`) against the real rotated `lv_refr_now` flush and
+  dumped the raw pre-rotation snapshot (`out/snap_raw_qN.png`) that exposed its
+  direction bug.
 - `host_sim/render_demo.py` — the README montages (PIL + `moon_sim` only).
 - Venvs: `host_sim/.venv` (astropy, scikit-image, imagecodecs, numpy, PIL) and
   `assets/images/moon/.venv` — both gitignored; recreate with `uv venv` +
@@ -1207,7 +1234,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,464 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 645,664 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1217,7 +1244,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,464 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 645,664 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1380,7 +1407,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (100,110 B)
+- `docs/doc_template.md` (101,975 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -1395,23 +1422,40 @@ code.
 - `docs/img/nasa/nasa_04380.png` (214,721 B)
 - `docs/img/nasa/nasa_06570.png` (222,560 B)
 - `docs/img/nasa/nasa_08759.png` (234,030 B)
-- `docs/img/screens/alarm.png` (16,078 B)
-- `docs/img/screens/deep_sleep.png` (143,028 B)
-- `docs/img/screens/light_sleep.png` (149,472 B)
-- `docs/img/screens/modem_sleep.png` (156,132 B)
-- `docs/img/screens/settings_alarm.png` (12,924 B)
-- `docs/img/screens/settings_alarm_time.png` (18,055 B)
-- `docs/img/screens/settings_deep_sleep.png` (12,159 B)
-- `docs/img/screens/settings_hub.png` (16,456 B)
-- `docs/img/screens/settings_light_sleep.png` (10,656 B)
-- `docs/img/screens/settings_pomodoro.png` (12,649 B)
-- `docs/img/screens/settings_wifi.png` (12,348 B)
-- `docs/img/screens/settings_wifi_password.png` (21,657 B)
-- `docs/img/screens/settings_wifi_password_123.png` (17,693 B)
-- `docs/img/screens/settings_wifi_password_ABC.png` (24,577 B)
-- `docs/img/screens/settings_wifi_password_sym.png` (22,361 B)
-- `docs/img/screens/settings_wifi_password_touched.png` (40,310 B)
-- `docs/img/screens/wifi.png` (154,809 B)
+- `docs/img/screens/alarm.png` (30,323 B)
+- `docs/img/screens/deep_sleep.png` (292,941 B)
+- `docs/img/screens/light_sleep.png` (310,391 B)
+- `docs/img/screens/modem_sleep.png` (318,079 B)
+- `docs/img/screens/p4/alarm.png` (30,323 B)
+- `docs/img/screens/p4/deep_sleep.png` (292,941 B)
+- `docs/img/screens/p4/light_sleep.png` (310,391 B)
+- `docs/img/screens/p4/modem_sleep.png` (318,079 B)
+- `docs/img/screens/p4/settings_alarm.png` (26,105 B)
+- `docs/img/screens/p4/settings_alarm_time.png` (34,790 B)
+- `docs/img/screens/p4/settings_deep_sleep.png` (25,148 B)
+- `docs/img/screens/p4/settings_hub.png` (31,171 B)
+- `docs/img/screens/p4/settings_light_sleep.png` (22,949 B)
+- `docs/img/screens/p4/settings_pomodoro.png` (25,858 B)
+- `docs/img/screens/p4/settings_wifi.png` (25,267 B)
+- `docs/img/screens/p4/settings_wifi_password.png` (38,325 B)
+- `docs/img/screens/p4/settings_wifi_password_123.png` (31,410 B)
+- `docs/img/screens/p4/settings_wifi_password_ABC.png` (42,163 B)
+- `docs/img/screens/p4/settings_wifi_password_sym.png` (38,965 B)
+- `docs/img/screens/p4/settings_wifi_password_touched.png` (65,491 B)
+- `docs/img/screens/p4/wifi.png` (314,132 B)
+- `docs/img/screens/settings_alarm.png` (26,105 B)
+- `docs/img/screens/settings_alarm_time.png` (34,790 B)
+- `docs/img/screens/settings_deep_sleep.png` (25,148 B)
+- `docs/img/screens/settings_hub.png` (31,171 B)
+- `docs/img/screens/settings_light_sleep.png` (22,949 B)
+- `docs/img/screens/settings_pomodoro.png` (25,858 B)
+- `docs/img/screens/settings_wifi.png` (25,267 B)
+- `docs/img/screens/settings_wifi_password.png` (38,325 B)
+- `docs/img/screens/settings_wifi_password_123.png` (31,410 B)
+- `docs/img/screens/settings_wifi_password_ABC.png` (42,163 B)
+- `docs/img/screens/settings_wifi_password_sym.png` (38,965 B)
+- `docs/img/screens/settings_wifi_password_touched.png` (65,491 B)
+- `docs/img/screens/wifi.png` (314,132 B)
 - `docs/research/gltf-feasibility.md` (4,852 B)
 - `docs/research/moon-rendering.md` (14,427 B)
 
@@ -12656,7 +12700,16 @@ static const unsigned char MOON_TONE_LUT[256] = {
 
 ```ini
 file(GLOB_RECURSE IMAGE_SOURCES "images/*.c")
-file(GLOB_RECURSE FONT_SOURCES "fonts/*.c")
+# The font bitmaps are per-panel: fonts/ is the S3's 466 px set (96/48/32),
+# fonts_p4/ the P4's 720 px set (148/74/50) regenerated at the panel ratio
+# from the SAME source Opts — the lv_font_t symbol names are identical, so
+# fonts.h and every consumer are unchanged.
+if(CONFIG_BOARD_P4)
+  set(FONT_DIR "fonts_p4")
+else()
+  set(FONT_DIR "fonts")
+endif()
+file(GLOB_RECURSE FONT_SOURCES "${FONT_DIR}/*.c")
 
 idf_component_register(
   SRCS
@@ -12815,9 +12868,9 @@ static void wifi_sync_kickoff(void) {
  * (lv_indev_search_obj), so touch lands on the right widget in any
  * orientation. At the resting orientation (0) the transform is 0 and
  * LVGL takes its direct draw path: zero cost. The rotated root's layer
- * is panel-sized (466x466 RGB565 ~= 0.4 MB) and comes from the C-library
- * malloc (sdkconfig.defaults: clib backend) -> PSRAM; the built-in 64 KB
- * LVGL pool cannot hold it. UI_CLOCK_ROLL_SIGN flips the correction for a
+ * is panel-sized (466^2 RGB565 ~= 0.4 MB on the S3, 720^2 ~= 1.0 MB on
+ * the P4) and comes from the C-library malloc (sdkconfig.defaults: clib
+ * backend) -> PSRAM; the built-in 64 KB LVGL pool cannot hold it. UI_CLOCK_ROLL_SIGN flips the correction for a
  * mirrored board mount (if the UI rotates the wrong way, set it to -1).
  */
 #ifndef CONFIG_UI_IMU_ENABLE
@@ -12930,12 +12983,12 @@ static int8_t s_ori_test_gx, s_ori_test_gy;
 /* Push one orientation to all 12 screen roots (LVGL transform units:
  * 1/10 deg, positive = clockwise). The pivot is the panel centre (LVGL's
  * default is the top-left, which swung the full-screen container off the
- * panel -- the old roll's first crash). A 90-degree step of the 466x466
+ * panel -- the old roll's first crash). A 90-degree step of the square
  * panel maps the panel onto itself, so one push is the whole change (the
  * old ramp's intermediate frames are gone). The rotated root's layer is
- * panel-sized (~0.4 MB RGB565) and comes from the C-library malloc (clib
- * backend, sdkconfig.defaults) -> PSRAM; the built-in 64 KB LVGL pool
- * cannot hold it. Every screen's widgets are children of its root, so the
+ * panel-sized (~0.4 MB RGB565 on the 466 panel, ~1.0 MB on the P4's 720)
+ * and comes from the C-library malloc (clib backend, sdkconfig.defaults)
+ * -> PSRAM; the built-in 64 KB LVGL pool cannot hold it. Every screen's widgets are children of its root, so the
  * one transform covers the clock, the seconds arcs, the settings and the
  * alarm screens alike; LVGL's hit test is inverse-mapped through the
  * transform (lv_indev_search_obj), so touch lands on the right widget in
@@ -13039,7 +13092,8 @@ esp_err_t action_register_orientation_touch(void) {
  * screen root. No-op while the pose is unobservable (near-vertical or
  * flat: the in-plane angle is undefined, the last orientation is kept).
  * With the base offset the resting transform is +90 (not 0), so the
- * rotated root's ~0.4 MB PSRAM layer is always allocated; the pipeline
+ * rotated root's panel-sized PSRAM layer (~0.4 MB / ~1.0 MB) is always
+ * allocated; the pipeline
  * itself still only PUSHES on a change (the s_last_v10 dedupe).
  *
  * 100 ms sampling: the gate below (the UI tick is 10 ms awake, 100 ms in
@@ -19578,12 +19632,11 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
  * second, so the only thing that must be refreshed is the TEXT (the
  * label bboxes change shape with the digits). Screen-local
  * coordinates (before the orientation rotation). The P4 values are the
- * same band scaled by 720/466 (~1.545) -- the home seconds arc is not
- * yet upscaled (M4), so until M4 the arc sits at the S3 radius off the
- * panel centre and only the snapshot part of the mask tracks it; at
- * 315-357 the analytic band falls in the black margin around the 309
- * disk and is harmless. M4 re-centres and upscales the arc and the
- * band lands on it. */
+ * same band scaled by 720/466 (~1.545), landing on the upscaled home
+ * seconds arc (M4): the ring spans r 329-344 (UI_PX(213)-UI_PX(223),
+ * the 10 px pad from the panel edge) and the knob reaches r ~350,
+ * both inside [315, 357] with the same ~2 px knob margin as the S3
+ * band. */
 #if defined(CONFIG_BOARD_P4)
 #define SPIN_MASK_RING_RMIN 315
 #define SPIN_MASK_RING_RMAX 357
@@ -21764,6 +21817,7 @@ void moon_ui_dump_hang_context(void);
 #include "settings_store.h"
 #include "styles.h"
 #include "ui.h"
+#include "ui_px.h"
 #include "vars.h"
 #include "wifi.h"
 
@@ -21914,7 +21968,7 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
      * (a size arg above 96 widens the tap area only, e.g. the hub's
      * central 150 px); below 96 it would clip the disk, so it floors
      * at 96. */
-    const int box = size > 96 ? size : 96;
+    const int box = size > UI_PX(96) ? size : UI_PX(96);
     lv_obj_t *ring = lv_obj_create(parent);
     lv_obj_set_size(ring, box, box);
     lv_obj_set_style_bg_opa(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -21961,7 +22015,7 @@ void create_screen_modem_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.modem_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -21970,7 +22024,7 @@ void create_screen_modem_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.modem_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -21984,7 +22038,7 @@ void create_screen_modem_sleep() {
             lv_obj_t *obj = lv_arc_create(parent_obj);
             objects.arc_clock_seconds_modem = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_arc_set_range(obj, 0, 60);
             lv_arc_set_bg_start_angle(obj, 0);
             lv_arc_set_bg_end_angle(obj, 360);
@@ -21993,10 +22047,10 @@ void create_screen_modem_sleep() {
             lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_state(obj, LV_STATE_DISABLED);
             add_style_moon_arc(obj);
-            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_top(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_left(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
     }
@@ -22034,7 +22088,7 @@ void create_screen_wifi() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.wifi = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -22043,7 +22097,7 @@ void create_screen_wifi() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -22057,7 +22111,7 @@ void create_screen_wifi() {
             lv_obj_t *obj = lv_arc_create(parent_obj);
             objects.arc_clock_seconds_wifi = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_arc_set_range(obj, 0, 60);
             lv_arc_set_bg_start_angle(obj, 0);
             lv_arc_set_bg_end_angle(obj, 360);
@@ -22066,10 +22120,10 @@ void create_screen_wifi() {
             lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_state(obj, LV_STATE_DISABLED);
             add_style_moon_arc(obj);
-            lv_obj_set_style_pad_top(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_bottom(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_left(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_pad_right(obj, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_top(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_bottom(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_left(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_right(obj, UI_PX(10), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff787878), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
         {
@@ -22078,7 +22132,7 @@ void create_screen_wifi() {
             // lives here, not on the airplane screen)
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.wifi_indicator_wifi = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_solid(obj);
             lv_label_set_text(obj, GLYPH_WIFI);
@@ -22128,7 +22182,7 @@ void create_screen_light_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.light_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -22137,7 +22191,7 @@ void create_screen_light_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.light_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -22157,7 +22211,7 @@ void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.deep_sleep = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     moon_screen_prepare(obj);
     {
         lv_obj_t *parent_obj = obj;
@@ -22166,7 +22220,7 @@ void create_screen_deep_sleep() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.deep_sleep_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -22179,7 +22233,7 @@ void create_screen_deep_sleep() {
             // screen-indicator-sleep1
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.screen_indicator_sleep1 = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_solid(obj);
             lv_label_set_text(obj, "");
@@ -22200,7 +22254,7 @@ void create_screen_alarm() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.alarm = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     {
         lv_obj_t *parent_obj = obj;
         {
@@ -22208,7 +22262,7 @@ void create_screen_alarm() {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.alarm_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -22221,7 +22275,7 @@ void create_screen_alarm() {
             // screen-indicator-alarm
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.screen_indicator_alarm = obj;
-            lv_obj_set_pos(obj, 185, 320);
+            lv_obj_set_pos(obj, UI_PX(185), UI_PX(320));
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             add_style_label_icon_regular(obj);
             lv_label_set_text(obj, "");
@@ -22246,14 +22300,14 @@ void create_screen_settings_hub() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_hub = obj;
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     /* The root is not clickable: only the explicit ring icons and the
      * central exit button take touches. */
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
     /* Central concentric exit (150 px ring). */
-    objects.settings_hub_exit = settings_create_exit_button(obj, 150);
+    objects.settings_hub_exit = settings_create_exit_button(obj, UI_PX(150));
     lv_obj_center(objects.settings_hub_exit);
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
@@ -22261,7 +22315,7 @@ void create_screen_settings_hub() {
      * (top-right), light sleep (bottom-right), deep sleep (bottom-left),
      * WiFi settings (top-left). Moon weight distinguishes the two
      * sleep screens (regular / solid). */
-    const int32_t R = 117; /* ~165 px radius at 45 deg */
+    const int32_t R = UI_PX(117); /* ~165 px radius at 45 deg (the scaled ring) */
     settings_hub_icon(obj, GLYPH_ALARM, &ui_font_fontawesome7_regular_96_icons, R, -R, SCREEN_ID_SETTINGS_ALARM);
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_regular_96_icons, R, R, SCREEN_ID_SETTINGS_LIGHT_SLEEP);
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, -R, R, SCREEN_ID_SETTINGS_DEEP_SLEEP);
@@ -22277,12 +22331,12 @@ void tick_screen_settings_hub() {}
  * around the exit (x 185..281, y 336..432) stays free of widgets. */
 static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *exit = settings_create_exit_button(obj, 90);
-    lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -34);
+    lv_obj_t *exit = settings_create_exit_button(obj, UI_PX(90));
+    lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -UI_PX(34));
     lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, (void *)(intptr_t)exit_target);
 }
 
@@ -22373,13 +22427,13 @@ void create_screen_settings_alarm() {
     add_style_label_icon_regular(objects.settings_alarm_master);
     lv_label_set_text(objects.settings_alarm_master, GLYPH_ALARM);
     lv_obj_set_size(objects.settings_alarm_master, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_alarm_master, LV_ALIGN_CENTER, 0, -30);
+    lv_obj_align(objects.settings_alarm_master, LV_ALIGN_CENTER, 0, -UI_PX(30));
     lv_obj_add_flag(objects.settings_alarm_master, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(objects.settings_alarm_master, event_handler_cb_settings_alarm_master, LV_EVENT_CLICKED, 0);
 
     /* Two entries at the diagonals (stopwatch = pomodoro, alarm-clock =
      * real alarm), 96 px; colours set by the entry refresh. */
-    const int32_t R = 130;
+    const int32_t R = UI_PX(130);
     objects.settings_alarm_pomodoro = lv_label_create(obj);
     add_style_label_icon_solid(objects.settings_alarm_pomodoro);
     lv_label_set_text(objects.settings_alarm_pomodoro, GLYPH_STOPWATCH);
@@ -22467,8 +22521,8 @@ static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, i
     lv_roller_set_options(r, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(r, 1);
     lv_obj_set_width(r, width);
-    lv_obj_set_height(r, 110);
-    lv_obj_align(r, LV_ALIGN_CENTER, x, 90);
+    lv_obj_set_height(r, UI_PX(110));
+    lv_obj_align(r, LV_ALIGN_CENTER, x, UI_PX(90));
     lv_obj_set_style_text_font(r, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_WHITE, LV_PART_SELECTED | LV_STATE_DEFAULT);
@@ -22508,16 +22562,16 @@ void create_screen_settings_pomodoro() {
      * centre): the hour slot centres at 153 (-80), the minute slot
      * at 303 (+70), and the `:` at 223 (-10), so the whole display
      * lands exactly where the home clock's "HH:MM" would. */
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -80, 120);
-    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -80, -23);
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, 70, 120);
-    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, 70, -23);
+    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
+    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -UI_PX(10), -UI_PX(23));
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
@@ -22528,7 +22582,7 @@ void create_screen_settings_pomodoro() {
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(objects.settings_pomodoro_caption, "REPEAT INTERVAL");
     lv_obj_set_size(objects.settings_pomodoro_caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -100);
+    lv_obj_align(objects.settings_pomodoro_caption, LV_ALIGN_CENTER, 0, -UI_PX(100));
     lv_obj_set_style_text_color(objects.settings_pomodoro_caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(objects.settings_pomodoro_caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -22588,11 +22642,11 @@ void tick_screen_settings_pomodoro() {}
  * (get_center: radius = obj width/2 - arc_width). The home seconds
  * arc is a 466x466 object at (0,0), width 10 -> outer 223, inner 213;
  * this is that exact ring. */
-#define ALARM_TIME_ARC_CX 233
-#define ALARM_TIME_ARC_CY 233
-#define ALARM_TIME_ARC_R 223    /* the ring's OUTER radius (home-seconds-arc match) */
-#define ALARM_TIME_ARC_WIDTH 10 /* the ring width (home-seconds-arc match) */
-#define ALARM_TIME_HANDLE_R 218 /* the day handles' radius (the ring midline) */
+#define ALARM_TIME_ARC_CX (UI_PANEL_PX / 2)
+#define ALARM_TIME_ARC_CY (UI_PANEL_PX / 2)
+#define ALARM_TIME_ARC_R UI_PX(223)    /* the ring's OUTER radius (home-seconds-arc match) */
+#define ALARM_TIME_ARC_WIDTH UI_PX(10) /* the ring width (home-seconds-arc match) */
+#define ALARM_TIME_HANDLE_R UI_PX(218) /* the day handles' radius (the ring midline) */
 
 #define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
@@ -22806,7 +22860,7 @@ void create_screen_settings_alarm_time() {
     lv_obj_t *band = lv_arc_create(obj);
     objects.settings_alarm_time_band = band;
     lv_obj_set_pos(band, 0, 0);
-    lv_obj_set_size(band, 466, 466);
+    lv_obj_set_size(band, UI_PANEL_PX, UI_PANEL_PX);
     lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -22838,7 +22892,7 @@ void create_screen_settings_alarm_time() {
         } else {
             objects.settings_alarm_time_handle_end = h;
         }
-        lv_obj_set_size(h, 34, 34);
+        lv_obj_set_size(h, UI_PX(34), UI_PX(34));
         lv_obj_set_style_radius(h, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
         /* The home knob's colour (the theme grey) -- 34 px, it pokes
          * out of the 10 px ring and stays visible on track and range. */
@@ -22846,7 +22900,7 @@ void create_screen_settings_alarm_time() {
         lv_obj_set_style_bg_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_all(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_ext_click_area(h, 4);
+        lv_obj_set_ext_click_area(h, UI_PX(4));
         lv_obj_add_flag(h, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(h, LV_OBJ_FLAG_PRESS_LOCK);
         lv_obj_add_event_cb(h, event_handler_cb_settings_alarm_time_handle, LV_EVENT_PRESSED, (void *)(intptr_t)i);
@@ -22873,16 +22927,16 @@ void create_screen_settings_alarm_time() {
     /* Same glyph-centre offsets as the pomodoro display (hour slot at
      * 153, minute slot at 303, the `:` at 223 = the home clock's own
      * colon position). */
-    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -80, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -80, -23);
-    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, 70, 120);
-    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, 70, -23);
+    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
+    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
     lv_obj_set_style_text_font(colon, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(colon, ":");
     lv_obj_set_size(colon, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(colon, LV_ALIGN_CENTER, -10, -23);
+    lv_obj_align(colon, LV_ALIGN_CENTER, -UI_PX(10), -UI_PX(23));
     lv_obj_set_style_text_color(colon, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(colon, LV_OBJ_FLAG_CLICKABLE);
 
@@ -22894,7 +22948,7 @@ void create_screen_settings_alarm_time() {
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_alarm_range_label, "Mo-Fr");
     lv_obj_set_size(s_alarm_range_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_alarm_range_label, LV_ALIGN_CENTER, 0, -100);
+    lv_obj_align(s_alarm_range_label, LV_ALIGN_CENTER, 0, -UI_PX(100));
     lv_obj_set_style_text_color(s_alarm_range_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(s_alarm_range_label, LV_OBJ_FLAG_CLICKABLE);
 
@@ -23001,8 +23055,8 @@ static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
  * row clears the bottom-centre exit button's band (top edge y 342). */
 static void settings_anim_toggle(lv_obj_t *parent, int screen) {
     lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, 100, 100);
-    lv_obj_align(row, LV_ALIGN_CENTER, 90, 0);
+    lv_obj_set_size(row, UI_PX(100), UI_PX(100));
+    lv_obj_align(row, LV_ALIGN_CENTER, UI_PX(90), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     /* Kill the theme's default border (a visible square around the glyph)
      * and the shadow: the glyph is the only visible thing. */
@@ -23029,7 +23083,7 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(caption, screen ? "SLEEP COUNTDOWN" : "IDLE TIMEOUT");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -125);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(125));
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -23041,8 +23095,8 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     for (int v = 1; v <= 30; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
-    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, 210);
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -90, 0);
+    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, UI_PX(210));
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -UI_PX(90), 0);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
 
@@ -23105,7 +23159,7 @@ static void settings_wifi_place_sel_bar(int i) {
         return;
     }
     lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_pos(s_wifi_sel_bar, 14, 185 + i * 24 - 11);
+    lv_obj_set_pos(s_wifi_sel_bar, UI_PX(14), UI_PX(185) + i * UI_PX(24) - UI_PX(11));
 }
 
 static void settings_wifi_render_rows(void) {
@@ -23184,7 +23238,7 @@ void create_screen_settings_wifi() {
     add_style_label_icon_solid(header);
     lv_label_set_text(header, GLYPH_WIFI);
     lv_obj_set_size(header, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(header, LV_ALIGN_CENTER, 0, -150);
+    lv_obj_align(header, LV_ALIGN_CENTER, 0, -UI_PX(150));
     lv_obj_set_style_text_color(header, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_CLICKABLE);
 
@@ -23192,7 +23246,7 @@ void create_screen_settings_wifi() {
     lv_obj_set_style_text_font(title, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(title, "NETWORKS");
     lv_obj_set_size(title, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -84);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -UI_PX(84));
     lv_obj_set_style_text_color(title, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
 
@@ -23200,7 +23254,7 @@ void create_screen_settings_wifi() {
      * (created first so the rows render on top where they could
      * overlap it). */
     s_wifi_sel_bar = lv_obj_create(obj);
-    lv_obj_set_size(s_wifi_sel_bar, 6, 22);
+    lv_obj_set_size(s_wifi_sel_bar, UI_PX(6), UI_PX(22));
     lv_obj_set_style_radius(s_wifi_sel_bar, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(s_wifi_sel_bar, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wifi_sel_bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23218,7 +23272,7 @@ void create_screen_settings_wifi() {
          * the list sits in the band between the title (bottom edge ~y
          * 162) and the bottom-centre exit button (band top y 342 --
          * the last row's bottom edge is ~y 314). */
-        lv_obj_align(row, LV_ALIGN_CENTER, 0, -48 + i * 24);
+        lv_obj_align(row, LV_ALIGN_CENTER, 0, -UI_PX(48) + i * UI_PX(24));
         lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, event_handler_cb_wifi_row, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -23283,14 +23337,14 @@ void tick_screen_settings_wifi() {
  * only names the screen roots and the clock-widget slots). Angles are
  * LVGL's (0 deg = right, 90 deg = down, clockwise); the mockup's
  * 0 deg = up geometry is a constant -90 offset. */
-#define WHEEL_C 233           /* the panel centre */
-#define WHEEL_INNER_R_MID 168 /* inner letter row (band 150..186) */
-#define WHEEL_OUTER_R_MID 209 /* outer letter row (band 192..226) */
-#define WHEEL_MODE_R_MID 102  /* mode-key row (band 88..116) */
-#define WHEEL_HIT_R_IN 140    /* the forgiving press band: 140..233 */
+#define WHEEL_C (UI_PANEL_PX / 2)  /* the panel centre */
+#define WHEEL_INNER_R_MID UI_PX(168) /* inner letter row (band 150..186) */
+#define WHEEL_OUTER_R_MID UI_PX(209) /* outer letter row (band 192..226) */
+#define WHEEL_MODE_R_MID UI_PX(102)  /* mode-key row (band 88..116) */
+#define WHEEL_HIT_R_IN UI_PX(140)    /* the forgiving press band: 140..233 */
 #define WHEEL_OUTER_SPAN 13   /* the hot sector is +/-13 deg (2x the 26-letter inner angle) */
 #define WHEEL_PW_MAX 63       /* keep < MAX_PASSWORD_LEN (64) */
-#define WHEEL_EXIT_Y 368      /* the in-ring exit centre (r 135 below centre) */
+#define WHEEL_EXIT_Y UI_PX(368)      /* the in-ring exit centre (r 135 below centre) */
 
 /* The four register modes (all printable ASCII -- the 32 px font now
  * covers 32-126). 123 / #$ use fewer slots, so those keys get WIDER
@@ -23485,7 +23539,7 @@ static void settings_wheel_set_mode(int m) {
         /* The divider BEFORE slot j, at the slot boundary (bold at each
          * group start). */
         bool bold = on && (j % 3 == 0);
-        int32_t len = bold ? 30 : 26;
+        int32_t len = bold ? UI_PX(30) : UI_PX(26);
         float a_b = on ? (float)j * 360.0f / (float)s_wheel_n - 90.0f : 0.0f;
         float arb = a_b * 3.14159265f / 180.0f;
         int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(arb));
@@ -23640,7 +23694,7 @@ void create_screen_settings_wifi_password() {
      * under the full-360-degree ring -- the wheel gets the small in-ring
      * exit instead (see the section header). */
     lv_obj_set_pos(obj, 0, 0);
-    lv_obj_set_size(obj, 466, 466);
+    lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
@@ -23656,12 +23710,12 @@ void create_screen_settings_wifi_password() {
      * press (the mode arc, created later, would then win the search). */
     s_wheel_catch = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_catch, 0, 0);
-    lv_obj_set_size(s_wheel_catch, 466, 466);
+    lv_obj_set_size(s_wheel_catch, UI_PANEL_PX, UI_PANEL_PX);
     lv_obj_set_style_pad_all(s_wheel_catch, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_catch, 0, 360);
     lv_arc_set_angles(s_wheel_catch, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_catch, 93, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_catch, WHEEL_C - WHEEL_HIT_R_IN, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_catch, WHEEL_C - WHEEL_HIT_R_IN, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wheel_catch, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
@@ -23677,12 +23731,12 @@ void create_screen_settings_wifi_password() {
      * the whole frame in one flag. */
     s_wheel_outer = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_outer, 0, 0);
-    lv_obj_set_size(s_wheel_outer, 466, 466);
-    lv_obj_set_style_pad_all(s_wheel_outer, 7, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(s_wheel_outer, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_outer, UI_PX(7), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_outer, 0, 360);
     lv_arc_set_angles(s_wheel_outer, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_outer, 34, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_outer, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_outer, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_outer, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23713,7 +23767,7 @@ void create_screen_settings_wifi_password() {
      * at each group start). Created horizontal, then rotated to radial. */
     for (int j = 0; j < 26; j++) {
         s_wheel_ticks[j] = lv_obj_create(obj);
-        lv_obj_set_size(s_wheel_ticks[j], 26, 1);
+        lv_obj_set_size(s_wheel_ticks[j], UI_PX(26), 1);
         lv_obj_set_style_bg_color(s_wheel_ticks[j], lv_color_hex(0x373737), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(s_wheel_ticks[j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(s_wheel_ticks[j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23726,12 +23780,12 @@ void create_screen_settings_wifi_password() {
      * the nearest key centre). */
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
-    lv_obj_set_size(s_wheel_mode_arc, 466, 466);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, 117, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(117), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 42, 138);
     lv_arc_set_angles(s_wheel_mode_arc, 44, 64);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, 28, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_mode_arc, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_mode_arc, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_mode_arc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23760,11 +23814,11 @@ void create_screen_settings_wifi_password() {
     for (int k = 0; k < 5; k++) {
         float a = (42.0f + 24.0f * k) * 3.14159265f / 180.0f;
         lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, 24, 1);
+        lv_obj_set_size(t, UI_PX(24), 1);
         lv_obj_set_style_bg_color(t, lv_color_hex(0x5F5F5F), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - 12,
+        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - UI_PX(12),
                        WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a)));
         lv_obj_set_style_transform_rotation(t, (int32_t)(42.0f + 24.0f * k), 0);
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
@@ -23774,11 +23828,11 @@ void create_screen_settings_wifi_password() {
      * 150..190) -- the north marker between the two frames. */
     {
         lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, 2, 40);
+        lv_obj_set_size(t, UI_PX(2), UI_PX(40));
         lv_obj_set_style_bg_color(t, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - 190);
+        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - UI_PX(190));
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -23787,7 +23841,7 @@ void create_screen_settings_wifi_password() {
      * are non-clickable, so the box owns the touches) and the SSID
      * caption above it (case kept -- the font now covers lowercase). */
     s_wheel_center = lv_obj_create(obj);
-    lv_obj_set_size(s_wheel_center, 110, 110);
+    lv_obj_set_size(s_wheel_center, UI_PX(110), UI_PX(110));
     lv_obj_align(s_wheel_center, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_opa(s_wheel_center, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23799,7 +23853,7 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_style_text_font(s_wheel_ssid_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_wheel_ssid_label, "");
     lv_obj_set_size(s_wheel_ssid_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_wheel_ssid_label, LV_ALIGN_CENTER, 0, -75);
+    lv_obj_align(s_wheel_ssid_label, LV_ALIGN_CENTER, 0, -UI_PX(75));
     lv_obj_set_style_text_color(s_wheel_ssid_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(s_wheel_ssid_label, LV_OBJ_FLAG_CLICKABLE);
 
@@ -23814,7 +23868,7 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_style_text_font(s_wheel_sel_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_wheel_sel_label, "");
     lv_obj_set_size(s_wheel_sel_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, 34, 0);
+    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, UI_PX(34), 0);
     lv_obj_set_style_text_color(s_wheel_sel_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
 
@@ -23823,7 +23877,7 @@ void create_screen_settings_wifi_password() {
      * a two-bar x (the 96 px FA glyph cannot scale down). */
     {
         lv_obj_t *exit = lv_obj_create(obj);
-        lv_obj_set_size(exit, 26, 26);
+        lv_obj_set_size(exit, UI_PX(26), UI_PX(26));
         lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(exit, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23835,7 +23889,7 @@ void create_screen_settings_wifi_password() {
                             (void *)(intptr_t)SCREEN_ID_SETTINGS_WIFI);
         for (int i = 0; i < 2; i++) {
             lv_obj_t *bar = lv_obj_create(exit);
-            lv_obj_set_size(bar, 12, 2);
+            lv_obj_set_size(bar, UI_PX(12), UI_PX(2));
             lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -23891,7 +23945,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             lv_obj_t *obj = lv_obj_create(parent_obj);
             ((lv_obj_t **)&objects)[startWidgetIndex + 0] = obj;
             lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 466, 466);
+            lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
             lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -28742,13 +28796,22 @@ UI="$ROOT/components/ui"
 BUILD="$PWD/build"
 JOBS="$(nproc)"
 
+# The font set follows the panel (the device CMakeLists does the same
+# switch on CONFIG_BOARD_P4): 466 -> fonts/, anything else -> fonts_p4/
+# (the 720 px set; the symbol names are identical, screens.c is shared).
+FONT_DIR="$UI/fonts"
+if [ "$PANEL" != 466 ]; then
+    FONT_DIR="$UI/fonts_p4"
+fi
+
 CC=${CC:-gcc}
 # NOTE: the device screens.c uses an implicit atoi declaration (works in the
 # IDF build; flagged here). The sim compiles the device code UNMODIFIED, so
 # implicit-decl stays a warning, not an error.
-CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon"
+# -DPANEL_SIZE is ALWAYS defined (even at 466): ui_px.h falls back to the
+# BSP's BSP_LCD_H_RES only when it is not (device builds).
+CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon -DPANEL_SIZE=$PANEL"
 if [ "$PANEL" != 466 ]; then
-    CFLAGS="$CFLAGS -DPANEL_SIZE=$PANEL"
     BUILD="$PWD/build-$PANEL"
 fi
 
@@ -28783,7 +28846,7 @@ mkdir -p "$BUILD/obj"
 {
     find "$LV/src" -name '*.c' ! -path '*/drivers/*'
     echo "$UI/screens.c"; echo "$UI/styles.c"; echo "$UI/images.c"
-    find "$UI/fonts" -name '*.c'
+    find "$FONT_DIR" -name '*.c'
     printf '%s\n' \
         "$MOON/core/moon_astro.c" "$MOON/core/moon_bake.c" \
         "$MOON/core/moon_render.c" "$MOON/core/moon_fixp.c"
@@ -28947,6 +29010,7 @@ const char *esp_err_to_name(esp_err_t code);
 #include "screens.h"
 #include "stb_image_write.h"
 #include "ui.h"
+#include "ui_px.h"
 
 /* The panel size (the S3's 466x466 by default; the P4's 720x720 with
  * `build.sh run --panel 720`). The screens themselves carry their own
@@ -29086,11 +29150,13 @@ static void wheel_tap(lv_display_t *disp, int32_t x, int32_t y) {
 }
 
 /* Panel point at LVGL angle a (deg: 0 = right, 90 = down, CW, y down) at
- * radius r from the 466x466 centre. */
+ * radius r from the panel centre (the wheel's geometry, like the screens,
+ * scales with the panel via ui_px.h). */
 static void wheel_point_deg(double a_deg, double r, lv_point_t *p) {
     double t = a_deg * M_PI / 180.0;
-    p->x = (int32_t)lround(233.0 + r * cos(t));
-    p->y = (int32_t)lround(233.0 + r * sin(t));
+    double c = (double)UI_PANEL_PX / 2.0;
+    p->x = (int32_t)lround(c + r * cos(t));
+    p->y = (int32_t)lround(c + r * sin(t));
 }
 
 /* The wheel's slot centres (the device's wheel_slot_center, 26 slots). */
@@ -29111,20 +29177,21 @@ static int wheel_snapshot(lv_display_t *disp, const char *name) {
 }
 
 /* Drive the real flow to the wheel: settings-hub WiFi icon (at -R,-R,
- * R=117) -> the WiFi list -> AP row 0 (y 185) = SSID prefill + the wheel.
- * The row handler prefills the (stub) first AP's SSID. */
+ * R=UI_PX(117)) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID
+ * prefill + the wheel. The row handler prefills the (stub) first AP's
+ * SSID. Every coordinate is panel-scaled (ui_px.h). */
 static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     loadScreen(SCREEN_ID_SETTINGS_HUB);
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, 116, 116);
+    wheel_tap(disp, UI_PANEL_PX / 2 - UI_PX(117), UI_PANEL_PX / 2 - UI_PX(117));
     pump(disp, 100);
     /* Tick the WiFi list once so the rows render (their text is what
      * gives the labels content size -- tapping before the render hits
      * zero-size labels and misses). */
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, 233, 185);
+    wheel_tap(disp, UI_PANEL_PX / 2, UI_PX(185));
     pump(disp, 100);
     (void)indev;
 }
@@ -29327,11 +29394,12 @@ int main(int argc, char **argv) {
         fail |= wheel_snapshot(disp, "rest");
 
         /* touched: press the inner ring at slot 7 ('h'), move onto the
-         * outer band (r 209) and hold -- the outer frame is revealed, the
-         * hot sector lit, the large preview letter at the centre. */
+         * outer band (r UI_PX(209)) and hold -- the outer frame is
+         * revealed, the hot sector lit, the large preview letter at the
+         * centre. The radii are the panel-scaled wheel's (ui_px.h). */
         lv_point_t p1, p2;
-        wheel_point_deg(wheel_slot_deg(7), 168, &p1);
-        wheel_point_deg(wheel_slot_deg(7), 209, &p2);
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(168), &p1);
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(209), &p2);
         wheel_press_at(disp, p1.x, p1.y);
         wheel_move_to(disp, p2.x, p2.y);
         fail |= wheel_snapshot(disp, "touched");
@@ -29342,16 +29410,16 @@ int main(int argc, char **argv) {
         const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
         for (int k = 0; k < 4; k++) {
             lv_point_t pk;
-            wheel_point_deg(54.0 + 24.0 * k, 102, &pk);
+            wheel_point_deg(54.0 + 24.0 * k, UI_PX(102), &pk);
             wheel_tap(disp, pk.x, pk.y);
             fail |= wheel_snapshot(disp, mode_names[k]);
         }
 
-        /* Commit: a short tap on the centre (233,233) -- the stub's
+        /* Commit: a short tap on the panel centre -- the stub's
          * wifi_credentials_write + action_start_wifi_sync swaps to the
          * transient WiFi screen, so the shot verifies the save -> connect
          * hand-off (the entered letter was the 'h' from the sweep). */
-        wheel_tap(disp, 233, 233);
+        wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2);
         pump(disp, 100);
         {
             lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];

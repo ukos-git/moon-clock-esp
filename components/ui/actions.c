@@ -137,9 +137,9 @@ static void wifi_sync_kickoff(void) {
  * (lv_indev_search_obj), so touch lands on the right widget in any
  * orientation. At the resting orientation (0) the transform is 0 and
  * LVGL takes its direct draw path: zero cost. The rotated root's layer
- * is panel-sized (466x466 RGB565 ~= 0.4 MB) and comes from the C-library
- * malloc (sdkconfig.defaults: clib backend) -> PSRAM; the built-in 64 KB
- * LVGL pool cannot hold it. UI_CLOCK_ROLL_SIGN flips the correction for a
+ * is panel-sized (466^2 RGB565 ~= 0.4 MB on the S3, 720^2 ~= 1.0 MB on
+ * the P4) and comes from the C-library malloc (sdkconfig.defaults: clib
+ * backend) -> PSRAM; the built-in 64 KB LVGL pool cannot hold it. UI_CLOCK_ROLL_SIGN flips the correction for a
  * mirrored board mount (if the UI rotates the wrong way, set it to -1).
  */
 #ifndef CONFIG_UI_IMU_ENABLE
@@ -252,12 +252,12 @@ static int8_t s_ori_test_gx, s_ori_test_gy;
 /* Push one orientation to all 12 screen roots (LVGL transform units:
  * 1/10 deg, positive = clockwise). The pivot is the panel centre (LVGL's
  * default is the top-left, which swung the full-screen container off the
- * panel -- the old roll's first crash). A 90-degree step of the 466x466
+ * panel -- the old roll's first crash). A 90-degree step of the square
  * panel maps the panel onto itself, so one push is the whole change (the
  * old ramp's intermediate frames are gone). The rotated root's layer is
- * panel-sized (~0.4 MB RGB565) and comes from the C-library malloc (clib
- * backend, sdkconfig.defaults) -> PSRAM; the built-in 64 KB LVGL pool
- * cannot hold it. Every screen's widgets are children of its root, so the
+ * panel-sized (~0.4 MB RGB565 on the 466 panel, ~1.0 MB on the P4's 720)
+ * and comes from the C-library malloc (clib backend, sdkconfig.defaults)
+ * -> PSRAM; the built-in 64 KB LVGL pool cannot hold it. Every screen's widgets are children of its root, so the
  * one transform covers the clock, the seconds arcs, the settings and the
  * alarm screens alike; LVGL's hit test is inverse-mapped through the
  * transform (lv_indev_search_obj), so touch lands on the right widget in
@@ -361,7 +361,8 @@ esp_err_t action_register_orientation_touch(void) {
  * screen root. No-op while the pose is unobservable (near-vertical or
  * flat: the in-plane angle is undefined, the last orientation is kept).
  * With the base offset the resting transform is +90 (not 0), so the
- * rotated root's ~0.4 MB PSRAM layer is always allocated; the pipeline
+ * rotated root's panel-sized PSRAM layer (~0.4 MB / ~1.0 MB) is always
+ * allocated; the pipeline
  * itself still only PUSHES on a change (the s_last_v10 dedupe).
  *
  * 100 ms sampling: the gate below (the UI tick is 10 ms awake, 100 ms in

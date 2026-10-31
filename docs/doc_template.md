@@ -12,23 +12,25 @@ terminator across the disk to the fully unilluminated side. Time comes from NTP
 (brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
-_State of this document: 2026-10-31, after the **dual-board build plumbing + P4
-Wi-Fi + moon scale-up** (the repo now also builds for the Waveshare
-**ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2; the S3
-build is unchanged; the P4's remote-C6 Wi-Fi and the 618 px moon disk are done
-on-device and the P4 UI upscale + clock degradation are the follow-on
-milestones), the burn-in spin's **direct panel write** (the render task writes
-the MOON_PX² moon area straight to the panel at 8 fps instead of routing
-through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
-the moon no longer freezes before light sleep), the **fade-to-black screen
-switch** (replacing the concentric reveal that showed white strip bars; now a
-hardware panel-brightness ramp — the CO5300's own dimming command — so the
-transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
-on the home screen when the next fire is >24 h away), the **fa-circle-xmark
-exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
-rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
-`python3 docs/gen_doc.py` and must stay in sync with the code._
+_State of this document: 2026-10-31, after the **dual-board build — P4
+plumbing, Wi-Fi, moon and UI scale-up** (the repo now also builds for the
+Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2;
+the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 618 px moon disk and
+the 720 px UI upscale — panel-scaled layout + regenerated fonts, §6 — are done
+on-device; the P4 clock degradation (no RTC IC: crystal RTC timer + SNTP +
+software alarms) is the follow-on milestone), the burn-in spin's **direct panel
+write** (the render task writes the MOON_PX² moon area straight to the panel at
+8 fps instead of routing through LVGL's ~175 ms re-render; the settled rate is
+a constant slow spin, so the moon no longer freezes before light sleep), the
+**fade-to-black screen switch** (replacing the concentric reveal that showed
+white strip bars; now a hardware panel-brightness ramp — the CO5300's own
+dimming command — so the transition writes no pixels at all), the **alarm
+weekday prefix** ("Mo 07:00" on the home screen when the next fire is >24 h
+away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is the button),
+and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm
+screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document
+is regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
+code._
 
 ---
 
@@ -59,12 +61,14 @@ rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 This is the single hosted document for the project. It is GitHub-compatible
 Markdown and renders the project's own media:
 
-- **17 screenshots** of every live screen (the circular wheel keyboard, §7.13,
-  ships its at-rest, touched-down, 123, ABC and symbol modes), rendered by the
-  UI simulator (`host_sim/uisim`) from the _real_ device `screens.c` with the
-  vendored LVGL 9.6 — the exact panel pixels, 466x466 RGB565
-  (`build.sh run --panel 720` renders the P4's 720x720 panel instead, the 618
-  px moon disk included): `docs/img/screens/*.png`
+- **17 screenshots of every live screen** on the S3's 466x466 panel (the
+  circular wheel keyboard, §7.13, ships its at-rest, touched-down, 123, ABC and
+  symbol modes), rendered by the UI simulator (`host_sim/uisim`) from the
+  _real_ device `screens.c` with the vendored LVGL 9.6 — the exact panel
+  pixels, 466x466 RGB565: `docs/img/screens/*.png`. The **same 17 shots at the
+  P4's 720x720 panel** (the 618 px moon disk, the 720 px UI — panel-scaled
+  layout + the P4's 148/74/50 px fonts): `docs/img/screens/p4/*.png`
+  (`build.sh run --panel 720` builds into its own `build-720/` dir).
 - **4 films** of the live animations — the first three with frames rendered by
   the device's own moon core (`host_sim/build/moon_sim`, the exact device
   translation units):
@@ -185,7 +189,8 @@ on the board (rev v1.3 profile; XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter,
 32 MB PSRAM @ 200 MHz; 0 WDT / 0 panic / 0 assert), associates over the
 **remote C6** (the `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5 pair over
 SDIO, ~7.5 s to IP) and syncs the clock by SNTP (the first clock smoke; the
-clock label then shows real time). Three P4-specific code facts:
+clock label then shows real time). The P4's remaining product path is the clock
+degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
 
 - **The remote radio is initialized exactly once.** The host-side LWIP netif
   attach of the `esp_hosted` radio is not re-runnable: a second
@@ -230,16 +235,30 @@ clock label then shows real time). Three P4-specific code facts:
   overlapped the sweep (the sweep was interrupted at frame 285/336); the re-arm
   now skips `clock_idle_set_enabled(true)` while `moon_ui_sweeping()`.
 
+**State (M4, 2026-10-31):** the P4's UI is now fully upscaled — every screen
+root is panel-sized (`UI_PANEL_PX`, `components/ui/ui_px.h`:
+`UI_PX(x) = x·BSP_LCD_H_RES/466`, exact at 466 so the S3 layout is bit-for-bit
+unchanged), the seconds arcs ride the panel edge and the type is the P4's
+regenerated font set (`components/ui/fonts_p4/`: the same six `lv_font_conv`
+subsets at 148/74/50 px instead of 96/48/32 — identical `lv_font_t` symbols, so
+`fonts.h` and every consumer are unchanged; `components/ui/CMakeLists.txt`
+swaps the font dir on `CONFIG_BOARD_P4`). Verified: uisim 720 shots of all 17
+screens (`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the
+S3 binary behaviourally unchanged (the uisim 466 pass renders byte-identical
+screens), the spin's keep-mask band 315-357 now lands on the upscaled home
+seconds arc (ring r 329-344, knob to r ~350). The rotated orientation layer
+grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary 1,468,784 B
+(9,437,184 B factory).
+
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
 `IRAM_ATTR` would land ~113 KB of LVGL in the scarce `sram_low` and overflow
 the link), and the CPU1 idle-task WDT check is disabled
 (`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`) because the moon sweep/spin owns
-a core for seconds (same as the S3). The remaining P4 product path — the moon
-at 720 px, the UI upscale, and the software-alarm clock path (no RTC IC:
-crystal-backed internal RTC timer + SNTP + `esp_timer` alarms) — is the
-follow-on work (M3–M5). The S3 build flow is unchanged; the shim + call-site
-migration add ~15 KB to the S3 binary (§3.1).
+a core for seconds (same as the S3). The remaining P4 product path is the
+software-alarm clock (M5 — no RTC IC: crystal-backed internal RTC timer +
+SNTP + `esp_timer` alarms, the P4 half of §10.6). The S3 build flow is
+unchanged; the shim + call-site migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -309,7 +328,7 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-646,464 B of headroom remain for the future text-input family.
+645,664 B of headroom remain for the future text-input family.
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
@@ -337,7 +356,7 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x14fab0` (1,375,152 B), ~8 MB free — huge headroom vs the S3's 2048 K                                                   |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x166970` (1,468,784 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
 | `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
@@ -363,7 +382,7 @@ components/
                            write/reload, */N>59 support); settings_store.c (runtime store)
   ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
-    images.c                 fonts/ (generated lv_font_conv subsets)
+    images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
   wifi/                ESP WiFi scan (settings screen)
   board/               the board shim: board_display.{c,h} — the app-side
@@ -551,14 +570,17 @@ round AMOLED showing the Moon.
   task #55). The clock digits and the moon share the white; the grey carries
   the "you can press this" affordance.
 - **Type — Montserrat**, generated subsets (`lv_font_conv`, 4-bit,
-  uncompressed): 96 px digits (the clock), 48 px (rollers/labels), 32 px
-  general text (SSID rows/captions/_password entry_ — full printable ASCII
-  32–126, so one font serves the list and the wheel keyboard; it was widened
-  from an `A-Z`/digits subset for the keyboard) + a 32 px range subset (the
-  "Mo-Fr" day summary, whose font needs only digits-free lowercase + hyphen) +
-  14 px (the wheel's register keys); Font Awesome 7 Free (Solid 96 px:
-  circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock) — the icon set
-  is the same weight-and-color logic as the type.
+  uncompressed; the S3's `fonts/` is the source of truth): 96 px digits (the
+  clock), 48 px (rollers/labels), 32 px general text (SSID rows/captions/_
+  password entry_ — full printable ASCII 32–126, so one font serves the list
+  and the wheel keyboard; it was widened from an `A-Z`/digits subset for the
+  keyboard) + a 32 px range subset (the "Mo-Fr" day summary, whose font needs
+  only digits-free lowercase + hyphen) + 14 px (the wheel's register keys); the
+  P4 builds the _same six subsets_ from the same Opts at ×720/466 (148/74/50
+  px) in `fonts_p4/` with identical symbol names (§2.3b M4 state). Font Awesome
+  7 Free (Solid 96 px: circle-xmark/moon/wifi/stopwatch; Regular:
+  moon/alarm-clock) — the icon set is the same weight-and-color logic as the
+  type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
   = screen center. The settings hub mirrors it: a central circle-xmark exit
   (the fa-circle-xmark glyph alone — the glyph _is_ the button, U+F057) with
@@ -763,8 +785,9 @@ live.
 ![123 mode](img/screens/settings_wifi_password_123.png)
 
 Reached by tapping an AP row on the WiFi screen (§7.12). A 13th screen
-(`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the 466×466 centre; no moon
-image (settings are moon-less by design).
+(`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the panel centre (466×466
+centre on the S3; the wheel's radii are `UI_PX()`-scaled, §2.3b M4 state); no
+moon image (settings are moon-less by design).
 
 - **Two concentric letter rings.** The **inner frame** (at rest) shows the 26
   slots of the active register, **grouped in threes** (a bold divider at each
@@ -933,8 +956,9 @@ upgrade from the UI tick.
   per-sample deltas — the fix for "wakes right after sleep".
 - **Base orientation** (task #59/T1): +90° step offset applied to the 12 screen
   roots; the 180°-flip reference re-tracks only on `step == 0` (T4). A rotated
-  root's ~0.4 MB layer is allocated via CLIB malloc (the 64 KB LVGL pool OOM
-  was the original "off-screen + crash").
+  root's panel-sized layer (~0.4 MB at 466², ~1.0 MB at the P4's 720²) is
+  allocated via CLIB malloc (the 64 KB LVGL pool OOM was the original
+  "off-screen + crash").
 - **2 s press re-sync** (2026-10-30): the home-pose anchor latches from the
   first 1 s of IMU samples after boot; if the device was flipped while that
   window filled, the anchor is 180° off and the UI stays upside down — and the
@@ -1093,7 +1117,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                   |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                    |
-| Binary                                        | S3: `0x1620d0` = 1,450,176 B in the 2,097,152 B partition (646,976 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x14fab0` = 1,375,152 B in the 9,437,184 B partition (~8 MB free)                                                                                                                                                                      |
+| Binary                                        | S3: `0x1625e0` = 1,451,488 B in the 2,097,152 B partition (645,664 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x166970` = 1,468,784 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                    |
 
 ---
 
@@ -1152,16 +1176,19 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466 by default, ESP stubs) → per-screen PNG
   snapshots (`build.sh run`); `build.sh run --panel 720` renders the P4's
-  720x720 panel (its own `build-720/` dir, the 618 px moon disk, the S3-scale
-  UI until the M4 upscale) — the source of every screenshot in §7. Two
-  diagnostic probes from the reveal era (2026-10-30), kept as the verification
-  record: `--rottest` proves `lv_snapshot_take` renders in the screen's
-  **local** coordinates (the root's LVGL rotation is ignored — the fact the
-  spin's UI keep-mask now relies on: the snapshot is rotated by the panel step
-  in-place before it masks); `--reveal <q> [screen]` runs the former
-  concentric-reveal permutation (copied verbatim into `main.c`) against the
-  real rotated `lv_refr_now` flush and dumped the raw pre-rotation snapshot
-  (`out/snap_raw_qN.png`) that exposed its direction bug.
+  720x720 panel (its own `build-720/` dir, the 618 px moon disk, the panel-
+  scaled UI + the `fonts_p4/` font set — the font dir and `-DPANEL_SIZE` both
+  follow the `--panel` arg, mirroring the device's `CONFIG_BOARD_P4` switch) —
+  the source of every screenshot in §7 (the P4 set under
+  `docs/img/screens/p4/`). Two diagnostic probes from the reveal era
+  (2026-10-30), kept as the verification record: `--rottest` proves
+  `lv_snapshot_take` renders in the screen's **local** coordinates (the root's
+  LVGL rotation is ignored — the fact the spin's UI keep-mask now relies on:
+  the snapshot is rotated by the panel step in-place before it masks);
+  `--reveal <q> [screen]` runs the former concentric-reveal permutation (copied
+  verbatim into `main.c`) against the real rotated `lv_refr_now` flush and
+  dumped the raw pre-rotation snapshot (`out/snap_raw_qN.png`) that exposed its
+  direction bug.
 - `host_sim/render_demo.py` — the README montages (PIL + `moon_sim` only).
 - Venvs: `host_sim/.venv` (astropy, scikit-image, imagecodecs, numpy, PIL) and
   `assets/images/moon/.venv` — both gitignored; recreate with `uv venv` +
@@ -1207,7 +1234,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,464 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 645,664 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1217,7 +1244,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,464 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 645,664 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |

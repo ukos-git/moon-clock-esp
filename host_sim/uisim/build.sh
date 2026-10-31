@@ -38,13 +38,22 @@ UI="$ROOT/components/ui"
 BUILD="$PWD/build"
 JOBS="$(nproc)"
 
+# The font set follows the panel (the device CMakeLists does the same
+# switch on CONFIG_BOARD_P4): 466 -> fonts/, anything else -> fonts_p4/
+# (the 720 px set; the symbol names are identical, screens.c is shared).
+FONT_DIR="$UI/fonts"
+if [ "$PANEL" != 466 ]; then
+    FONT_DIR="$UI/fonts_p4"
+fi
+
 CC=${CC:-gcc}
 # NOTE: the device screens.c uses an implicit atoi declaration (works in the
 # IDF build; flagged here). The sim compiles the device code UNMODIFIED, so
 # implicit-decl stays a warning, not an error.
-CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon"
+# -DPANEL_SIZE is ALWAYS defined (even at 466): ui_px.h falls back to the
+# BSP's BSP_LCD_H_RES only when it is not (device builds).
+CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon -DPANEL_SIZE=$PANEL"
 if [ "$PANEL" != 466 ]; then
-    CFLAGS="$CFLAGS -DPANEL_SIZE=$PANEL"
     BUILD="$PWD/build-$PANEL"
 fi
 
@@ -79,7 +88,7 @@ mkdir -p "$BUILD/obj"
 {
     find "$LV/src" -name '*.c' ! -path '*/drivers/*'
     echo "$UI/screens.c"; echo "$UI/styles.c"; echo "$UI/images.c"
-    find "$UI/fonts" -name '*.c'
+    find "$FONT_DIR" -name '*.c'
     printf '%s\n' \
         "$MOON/core/moon_astro.c" "$MOON/core/moon_bake.c" \
         "$MOON/core/moon_render.c" "$MOON/core/moon_fixp.c"
