@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -15,7 +16,7 @@ const char *get_var_clock_label() { return clock_label; }
 
 void set_var_clock_label(const char *value) {
     ESP_LOGI(TAG, "Updating Clock label with value: %s", value);
-    strncpy(clock_label, value, sizeof(clock_label) / sizeof(char));
+    snprintf(clock_label, sizeof(clock_label) / sizeof(char), "%s", value);
     clock_label[sizeof(clock_label) / sizeof(char) - 1] = 0;
 }
 
@@ -23,7 +24,7 @@ const char *get_var_alarm_label() { return alarm_label; }
 
 void set_var_alarm_label(const char *value) {
     ESP_LOGI(TAG, "Updating Alarm label with value: %s", value);
-    strncpy(alarm_label, value, sizeof(alarm_label) / sizeof(char));
+    snprintf(alarm_label, sizeof(alarm_label) / sizeof(char), "%s", value);
     alarm_label[sizeof(alarm_label) / sizeof(char) - 1] = 0;
 }
 
