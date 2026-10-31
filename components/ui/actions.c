@@ -678,8 +678,16 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
                 loadScreen(SCREEN_ID_MODEM_SLEEP);
                 ui_tick();
             }
-            clock_idle_set_enabled(true);
-            clock_idle_reset_timer();
+            /* The boot sweep owns the idle lifecycle (it disables the
+             * monitoring at start and re-arms it at the end): re-arming
+             * here while it plays would let the 60 s idle timeout fire
+             * mid-sweep and interrupt the boot animation with the
+             * light-sleep transition (the P4's on-demand sync runs ~30 s
+             * through the remote C6 and regularly overlaps the sweep). */
+            if (!moon_ui_sweeping()) {
+                clock_idle_set_enabled(true);
+                clock_idle_reset_timer();
+            }
             ESP_LOGI(TAG, "WiFi sync %s -> airplane screen", s_wifi_sync_ok ? "complete" : "failed");
         } else {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");

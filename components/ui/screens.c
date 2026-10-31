@@ -112,7 +112,8 @@ static void settings_sleep_screen_refresh(int screen);
 static void settings_wifi_screen_refresh(void);
 static void settings_wheel_prefill_ssid(const char *ssid);
 static void settings_wheel_screen_refresh(void);
-static void settings_screen_refresh_for(enum ScreensEnum target);
+/* settings_screen_refresh_for is non-static (declared in screens.h; the
+ * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
 /* The wheel keyboard's prefilled SSID (the AP-row tap sets it before the
  * screen loads; the wheel section owns the rest of its state). */

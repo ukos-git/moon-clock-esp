@@ -203,9 +203,29 @@ clock label then shows real time). Three P4-specific code facts:
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
   QSPI panel writes synchronously, so the 16 back-to-back raw panel writes of
-  the burn-in spin dropped strips on the P4. Both panel-write sites (LVGL flush
+  the burn-in spin were rejected on the P4. Both panel-write sites (LVGL flush
   wrapper + spin) now retry through `moon_panel_draw_wait` (~100 ms window, 1
-  ms apart).
+  ms apart) — the retries make the rejection a logged, re-issued strip instead
+  of a dropped one.
+- **The AP scan owns the radio quiescently.** Because the manager's SSID config
+  persists across the P4's stop-only deinit (the remote radio is never
+  `esp_wifi_deinit`'ed — see above), the manager's still-registered event
+  handler used to auto-connect on `STA_START` whenever the scan's own bring-up
+  ran (`s_wifi_event_group == NULL`): the radio started associating and the
+  blocking `esp_wifi_scan_start` failed with `ESP_ERR_WIFI_STATE`. The
+  auto-connect and the disconnect-retry are now gated on the manager owning the
+  radio (`s_wifi_event_group != NULL`), which also kills the zombie "Retry
+  connecting / connection failed" pair the airplane/light-sleep deinit left
+  behind.
+- **The sync-complete idle re-arm is sweep-aware.** The `ui_tick` pickup that
+  drops the transient WiFi screen to airplane re-armed the idle timer
+  unconditionally — but the boot sweep owns the idle lifecycle (it disables the
+  monitoring at start and re-arms it at the end). A background sync that
+  completes while the sweep plays would let the 60 s idle timeout fire
+  mid-sweep and cut the boot animation with the light-sleep transition. On the
+  P4 the on-demand sync runs ~30 s through the remote C6 and regularly
+  overlapped the sweep (the sweep was interrupted at frame 285/336); the re-arm
+  now skips `clock_idle_set_enabled(true)` while `moon_ui_sweeping()`.
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -216,7 +236,7 @@ a core for seconds (same as the S3). The remaining P4 product path — the moon
 at 720 px, the UI upscale, and the software-alarm clock path (no RTC IC:
 crystal-backed internal RTC timer + SNTP + `esp_timer` alarms) — is the
 follow-on work (M3–M5). The S3 build flow is unchanged; the shim + call-site
-migration add ~15 KB to the S3 binary (1,450,688 B, §3.1).
+migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 

@@ -203,9 +203,29 @@ clock label then shows real time). Three P4-specific code facts:
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
   QSPI panel writes synchronously, so the 16 back-to-back raw panel writes of
-  the burn-in spin dropped strips on the P4. Both panel-write sites (LVGL flush
+  the burn-in spin were rejected on the P4. Both panel-write sites (LVGL flush
   wrapper + spin) now retry through `moon_panel_draw_wait` (~100 ms window, 1
-  ms apart).
+  ms apart) — the retries make the rejection a logged, re-issued strip instead
+  of a dropped one.
+- **The AP scan owns the radio quiescently.** Because the manager's SSID config
+  persists across the P4's stop-only deinit (the remote radio is never
+  `esp_wifi_deinit`'ed — see above), the manager's still-registered event
+  handler used to auto-connect on `STA_START` whenever the scan's own bring-up
+  ran (`s_wifi_event_group == NULL`): the radio started associating and the
+  blocking `esp_wifi_scan_start` failed with `ESP_ERR_WIFI_STATE`. The
+  auto-connect and the disconnect-retry are now gated on the manager owning the
+  radio (`s_wifi_event_group != NULL`), which also kills the zombie "Retry
+  connecting / connection failed" pair the airplane/light-sleep deinit left
+  behind.
+- **The sync-complete idle re-arm is sweep-aware.** The `ui_tick` pickup that
+  drops the transient WiFi screen to airplane re-armed the idle timer
+  unconditionally — but the boot sweep owns the idle lifecycle (it disables the
+  monitoring at start and re-arms it at the end). A background sync that
+  completes while the sweep plays would let the 60 s idle timeout fire
+  mid-sweep and cut the boot animation with the light-sleep transition. On the
+  P4 the on-demand sync runs ~30 s through the remote C6 and regularly
+  overlapped the sweep (the sweep was interrupted at frame 285/336); the re-arm
+  now skips `clock_idle_set_enabled(true)` while `moon_ui_sweeping()`.
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -216,7 +236,7 @@ a core for seconds (same as the S3). The remaining P4 product path — the moon
 at 720 px, the UI upscale, and the software-alarm clock path (no RTC IC:
 crystal-backed internal RTC timer + SNTP + `esp_timer` alarms) — is the
 follow-on work (M3–M5). The S3 build flow is unchanged; the shim + call-site
-migration add ~15 KB to the S3 binary (1,450,688 B, §3.1).
+migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -1339,7 +1359,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (93,969 B)
+- `docs/doc_template.md` (97,746 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -13267,7 +13287,7 @@ void action_roll_test_cb(lv_timer_t *timer) {
             clock_idle_notify_tilt_activity();
         ESP_LOGW(TAG, "TEST roll tilt: starting (idle monitoring off for %u s)", ORI_SCRIPT_END_S);
         moon_ui_panel_brightness_set(100); /* the panel-io-serialized backlight */
-        clock_timer_disable(); /* the light-sleep countdown may still be armed */
+        clock_timer_disable();             /* the light-sleep countdown may still be armed */
         clock_idle_set_enabled(false);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
@@ -13315,8 +13335,16 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
                 loadScreen(SCREEN_ID_MODEM_SLEEP);
                 ui_tick();
             }
-            clock_idle_set_enabled(true);
-            clock_idle_reset_timer();
+            /* The boot sweep owns the idle lifecycle (it disables the
+             * monitoring at start and re-arms it at the end): re-arming
+             * here while it plays would let the 60 s idle timeout fire
+             * mid-sweep and interrupt the boot animation with the
+             * light-sleep transition (the P4's on-demand sync runs ~30 s
+             * through the remote C6 and regularly overlaps the sweep). */
+            if (!moon_ui_sweeping()) {
+                clock_idle_set_enabled(true);
+                clock_idle_reset_timer();
+            }
             ESP_LOGI(TAG, "WiFi sync %s -> airplane screen", s_wifi_sync_ok ? "complete" : "failed");
         } else {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
@@ -19629,8 +19657,8 @@ static void moon_spin_write_panel(void) {
                 row[x] = frow[x];
     }
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
-        (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS, MOON_IMG_POS + MOON_PX,
-                                   MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
+        (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
+                                   MOON_IMG_POS + MOON_PX, MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
                                    s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
     }
     xSemaphoreGive(s_panel_mtx);
@@ -21285,7 +21313,7 @@ static bool moon_screen_has_image(void) {
  * same moon disk), as do switches while a bake pipeline owns the
  * buffers. Must run on the LVGL task. */
 #define FADE_STEPS 12
-static bool s_fade_pending; /* the fade-out dimmed the panel; the fade-in is owed */
+static bool s_fade_pending;       /* the fade-out dimmed the panel; the fade-in is owed */
 static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
                                       panel writes so the ramp's 0x51 writes are
                                       the ONLY panel-io traffic in flight */
@@ -21330,7 +21358,7 @@ void moon_ui_fade_out(void) {
         return;
     s_fade_pending = true;
     s_fade_busy = true; /* the spin holds its panel writes until the
-                          * screen switch (moon_ui_screen_switched) */
+                         * screen switch (moon_ui_screen_switched) */
     fade_ramp(100, 0);
     ESP_LOGI(TAG, "screen switch fade-out: panel brightness 100 -> 0 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
 }
@@ -21757,7 +21785,8 @@ static void settings_sleep_screen_refresh(int screen);
 static void settings_wifi_screen_refresh(void);
 static void settings_wheel_prefill_ssid(const char *ssid);
 static void settings_wheel_screen_refresh(void);
-static void settings_screen_refresh_for(enum ScreensEnum target);
+/* settings_screen_refresh_for is non-static (declared in screens.h; the
+ * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
 /* The wheel keyboard's prefilled SSID (the AP-row tap sets it before the
  * screen loads; the wheel section owns the rest of its state). */
@@ -24926,16 +24955,27 @@ esp_err_t wifi_credentials_write(const char *ssid, const char *password) {
 
 // WiFi event handler
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    // Auto-connect (STA_START) and the disconnect retry are the MANAGER's
+    // behaviour and must only run while the manager owns the radio
+    // (s_wifi_event_group != NULL). The AP scan brings the radio up on its
+    // own (radio_was_up == false) and must not trigger a connect: on the P4
+    // the manager's SSID config persists across the stop-only deinit (the
+    // remote radio is never esp_wifi_deinit'ed), so a stray esp_wifi_connect()
+    // here would start a real association and make the blocking scan fail
+    // with ESP_ERR_WIFI_STATE. The same gating stops the zombie "Retry
+    // connecting / connection failed" the airplane/light-sleep deinit used to
+    // leave behind.
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < MAX_RETRY) {
+        if (s_wifi_event_group) {
             esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "Retry connecting to WiFi...");
-        } else {
-            // Check if event group still exists before setting bits
-            if (s_wifi_event_group) {
+        }
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_wifi_event_group) {
+            if (s_retry_num < MAX_RETRY) {
+                esp_wifi_connect();
+                s_retry_num++;
+                ESP_LOGI(TAG, "Retry connecting to WiFi...");
+            } else {
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
             }
         }

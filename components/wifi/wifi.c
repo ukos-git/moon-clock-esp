@@ -144,16 +144,27 @@ esp_err_t wifi_credentials_write(const char *ssid, const char *password) {
 
 // WiFi event handler
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    // Auto-connect (STA_START) and the disconnect retry are the MANAGER's
+    // behaviour and must only run while the manager owns the radio
+    // (s_wifi_event_group != NULL). The AP scan brings the radio up on its
+    // own (radio_was_up == false) and must not trigger a connect: on the P4
+    // the manager's SSID config persists across the stop-only deinit (the
+    // remote radio is never esp_wifi_deinit'ed), so a stray esp_wifi_connect()
+    // here would start a real association and make the blocking scan fail
+    // with ESP_ERR_WIFI_STATE. The same gating stops the zombie "Retry
+    // connecting / connection failed" the airplane/light-sleep deinit used to
+    // leave behind.
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < MAX_RETRY) {
+        if (s_wifi_event_group) {
             esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "Retry connecting to WiFi...");
-        } else {
-            // Check if event group still exists before setting bits
-            if (s_wifi_event_group) {
+        }
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_wifi_event_group) {
+            if (s_retry_num < MAX_RETRY) {
+                esp_wifi_connect();
+                s_retry_num++;
+                ESP_LOGI(TAG, "Retry connecting to WiFi...");
+            } else {
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
             }
         }
