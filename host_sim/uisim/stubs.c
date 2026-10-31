@@ -219,8 +219,20 @@ void ui_tick(void) {
 
 /* ---- moon image (moon_ui.c): bake the real current phase once ---- */
 
+/* The moon geometry, mirroring the device's board-conditional block in
+ * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 618/51/309 on the P4
+ * (PANEL_SIZE 720). The disk radius is MOON_PX/2 -- the asset's native
+ * MOON_DISK_RADIUS_PX (200) on the S3 and 309 = 618/2 on the P4. */
+#ifndef PANEL_SIZE
+#define PANEL_SIZE 466
+#endif
+#if PANEL_SIZE == 720
+#define MOON_PX 618
+#else
 #define MOON_PX 400
-#define MOON_IMG_POS 33 /* (466 - MOON_PX) / 2 */
+#endif
+#define MOON_IMG_POS ((PANEL_SIZE - MOON_PX) / 2)
+#define MOON_R ((float)MOON_PX / 2.0f)
 
 static uint8_t s_gray[MOON_PX * MOON_PX];
 static uint16_t s_rgb[MOON_PX * MOON_PX];
@@ -231,8 +243,8 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
-        moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_DISK_RADIUS_PX, MOON_PX / 2.0f,
-                  MOON_PX / 2.0f, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
+                  MOON_ALB_H, 0, 0.0f);
         for (int i = 0; i < MOON_PX * MOON_PX; i++)
             s_rgb[i] = moon_gray565(s_gray[i]);
         s_dsc = (lv_image_dsc_t){

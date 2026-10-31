@@ -8,8 +8,28 @@
 #
 # Usage:  ./build.sh                build only
 #         ./build.sh run [screen ..]  build, then snapshot PNGs into out/
+#         --panel N  render for the N x N panel (default 466; the P4's
+#                    720 builds into its own build-<N>/ dir so the object
+#                    cache never mixes panel sizes)
 set -euo pipefail
 cd "$(dirname "$0")"   # host_sim/uisim
+
+# Parse --panel out of the arguments (any position; "run" stays in ARGS).
+PANEL=466
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --panel)
+        PANEL="${2:?--panel needs a size}"
+        shift 2
+        ;;
+    *)
+        ARGS+=("$1")
+        shift
+        ;;
+    esac
+done
+set -- "${ARGS[@]}"
 
 ROOT="$(cd ../.. && pwd)"
 LV="$ROOT/managed_components/lvgl__lvgl"
@@ -23,6 +43,10 @@ CC=${CC:-gcc}
 # IDF build; flagged here). The sim compiles the device code UNMODIFIED, so
 # implicit-decl stays a warning, not an error.
 CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon"
+if [ "$PANEL" != 466 ]; then
+    CFLAGS="$CFLAGS -DPANEL_SIZE=$PANEL"
+    BUILD="$PWD/build-$PANEL"
+fi
 
 INCLUDES=(
     # host stubs first: lv_conf.h + the esp_err/esp_log stand-ins must win

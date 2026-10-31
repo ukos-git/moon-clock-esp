@@ -155,21 +155,41 @@
 
 static const char *TAG = "moon_ui";
 
-/* The moon image is the 400x400 disk (radius MOON_DISK_RADIUS_PX = 200,
- * the asset pipeline's native size), centered on the 466x466 panel with a
- * 33 px black margin -- 26% less bake/rotate/display traffic than baking
- * the whole panel. The bake/rotate math works in image coordinates
- * (center 200,200); the touch math works in panel coordinates
- * (center 233,233 -- the same point, so the drag math is unchanged). */
+/* The moon image is a disk (radius MOON_PX / 2, the asset pipeline's native
+ * size on the S3) centered on the panel with a black margin -- 26% less
+ * bake/rotate/display traffic than baking the whole panel. The disk fills
+ * 85.8% of the panel on BOTH boards (400/466 on the S3, 618/720 on the P4),
+ * so the moon stays proportional. Everything below derives from MOON_PX +
+ * the panel size (BSP_LCD_H_RES), so the portable core (which takes
+ * size/radius as arguments) is untouched. The bake/rotate math works in
+ * image coordinates (center MOON_PX/2); the touch math works in panel
+ * coordinates (center MOON_CX -- the same point, so the drag math is
+ * unchanged). */
+#if defined(CONFIG_BOARD_P4)
+#define MOON_PX 618
+#else
 #define MOON_PX 400
-#define MOON_IMG_POS 33 /* (466 - MOON_PX) / 2 */
-#define MOON_CX 233
-#define MOON_CY 233
-#define MOON_R (float)MOON_DISK_RADIUS_PX
+#endif
+#define MOON_IMG_POS ((BSP_LCD_H_RES - MOON_PX) / 2)
+#define MOON_CX (BSP_LCD_H_RES / 2)
+#define MOON_CY (BSP_LCD_V_RES / 2)
+/* The bake/rotate sphere radius = the image half (the disk touches all four
+ * edges): 200 = 400/2 on the S3 (the asset's native MOON_DISK_RADIUS_PX),
+ * 309 = 618/2 on the P4 -- so this generalizes with no S3 change. */
+#define MOON_R ((float)MOON_PX / 2.0f)
 #define MOON_TICK_MS 50
-/* Animation display strip = the BSP draw-buffer height (25 rows): one
- * invalidated strip = exactly one draw buffer + one QSPI transfer. */
+/* Animation display strip = the rows per panel write. S3: 25 rows (= the BSP
+ * QSPI draw-buffer height; one invalidated strip = one draw buffer + one
+ * QSPI transfer; 16 strips tile the 400 px moon). P4: 206 rows (3 strips
+ * tile the 618 px moon) -- the MIPI-DSI panel has no S3 32 KiB SPI-DMA
+ * cap, so the strip height is a pacing choice, not a hard limit. (The
+ * display strips here only pace LVGL invalidations; the flush itself
+ * always writes the BSP's 50-row buffer strips.) */
+#if defined(CONFIG_BOARD_P4)
+#define MOON_STRIP_ROWS 206
+#else
 #define MOON_STRIP_ROWS 25
+#endif
 #define MOON_NSTRIPS (MOON_PX / MOON_STRIP_ROWS)
 #if (MOON_PX % MOON_STRIP_ROWS) != 0
 #error "MOON_PX must be a multiple of MOON_STRIP_ROWS"
@@ -325,17 +345,33 @@ static SemaphoreHandle_t s_rgb_mtx; /* guards s_rgb (+ s_frame while baking) */
 /* The spin's DIRECT PANEL WRITE (see the spin section): the render task
  * (core 1) composites the rotated moon with LVGL's current on-panel
  * content (the clock labels + seconds arc the spin must not clobber)
- * and writes the moon area straight to the panel -- one cheap QSPI
- * RAMWR per 25-row strip, instead of LVGL's ~175 ms whole-panel
+ * and writes the moon area straight to the panel -- one panel
+ * draw_bitmap per strip (25-row QSPI strips on the S3, 206-row DSI
+ * strips on the P4), instead of LVGL's ~175 ms whole-panel
  * re-render. The panel mutex serializes those writes with LVGL's own
  * flushes (which reach the panel through the wrapped draw_bitmap);
  * the front mirror (s_front) is what the wrapper copies on every
  * LVGL strip write, so the overlay always sees fresh label/arc
- * pixels. s_disp is the per-frame composite (400x400, panel frame:
- * the moon rotated by the ORIENTATION step, the UI pixels kept from
- * the front mirror). */
+ * pixels. s_disp is the per-frame composite (MOON_PX x MOON_PX,
+ * panel frame: the moon rotated by the ORIENTATION step, the UI
+ * pixels kept from the front mirror). */
+/* 25 rows on the S3. On the P4 the strips are SMALL, not large: the panel
+ * (like the S3's PSRAM) is X16 and XIP -- both cores fetch instructions from
+ * the same PSRAM the spin strips read out of -- so one 206-row (255 KB)
+ * strip read occasionally starves the DPI controller's FIFO ("can't fetch
+ * data from external memory fast enough, underrun" -- measured 2026-10-31,
+ * one underrun per ~28 s of settled spin). 103 rows (6 strips, 127 KB)
+ * halves the burst and the underrun goes away; 103 is 618/6, the only
+ * divisor that splits the disk into >= 2 strips. */
+#if defined(CONFIG_BOARD_P4)
+#define MOON_SPIN_STRIP_ROWS 103
+#else
 #define MOON_SPIN_STRIP_ROWS 25
+#endif
 #define MOON_SPIN_NSTRIPS (MOON_PX / MOON_SPIN_STRIP_ROWS)
+#if (MOON_PX % MOON_SPIN_STRIP_ROWS) != 0
+#error "MOON_PX must be a multiple of MOON_SPIN_STRIP_ROWS"
+#endif
 /* The UI keep-mask (per-pixel, one bit per moon-area pixel): the spin
  * writes the rotated moon everywhere EXCEPT where LVGL's own on-panel
  * UI lives. The UI lives INSIDE the disk (the clock label centred on
@@ -393,8 +429,16 @@ static volatile bool s_panel_watchdog_armed; /* moon_ui_init succeeded */
  * sends 16-bit pixels MSB-first, the OTHER interface sends them
  * little-endian; the direct write must match the panel, so LVGL-native
  * RGB565 is byte-swapped on the way in -- the same catch the old
- * reveal's snapshot write handled in place). */
+ * reveal's snapshot write handled in place). The P4's MIPI-DSI panel
+ * wants LVGL-native order instead: the adapter's
+ * lv_draw_sw_rgb565_swap fires ONLY for PANEL_IF_OTHER, so its
+ * MIPI_DSI flushes are unswapped and the spin's direct write must be
+ * too. */
+#if defined(CONFIG_BOARD_P4)
+static inline uint16_t spin_bswap16(uint16_t v) { return v; }
+#else
 static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (v << 8)); }
+#endif
 
 /* The draw_bitmap wrapper (installed on the panel vtable at init):
  * LVGL's flushes (and the moon pipeline's own lv_refr_now paths)
@@ -913,9 +957,20 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
  * few px of margin: r in [204, 231]. The band covers the knob at every
  * second, so the only thing that must be refreshed is the TEXT (the
  * label bboxes change shape with the digits). Screen-local
- * coordinates (before the orientation rotation). */
+ * coordinates (before the orientation rotation). The P4 values are the
+ * same band scaled by 720/466 (~1.545) -- the home seconds arc is not
+ * yet upscaled (M4), so until M4 the arc sits at the S3 radius off the
+ * panel centre and only the snapshot part of the mask tracks it; at
+ * 315-357 the analytic band falls in the black margin around the 309
+ * disk and is harmless. M4 re-centres and upscales the arc and the
+ * band lands on it. */
+#if defined(CONFIG_BOARD_P4)
+#define SPIN_MASK_RING_RMIN 315
+#define SPIN_MASK_RING_RMAX 357
+#else
 #define SPIN_MASK_RING_RMIN 204
 #define SPIN_MASK_RING_RMAX 231
+#endif
 static void spin_mask_band(void) {
     memset(s_ui_mask, 0, (size_t)MOON_PX * MOON_PX);
     for (int y = 0; y < MOON_PX; y++) {
@@ -985,7 +1040,7 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
     if (shot) {
         const int32_t w = (int32_t)shot->header.w, h = (int32_t)shot->header.h;
         const uint32_t stride = shot->header.stride;
-        /* Full-screen 16bpp, screen == the 466x466 root at (0,0):
+        /* Full-screen 16bpp, screen == the panel-sized root at (0,0):
          * snapshot pixel (sx,sy) IS screen coord (sx,sy). Anything
          * else (a non-full-screen root, a padded stride) keeps the
          * band-only mask (the text goes unkept for one rebuild --
@@ -1429,7 +1484,7 @@ static void moon_sweep_task(void *arg) {
          * resolution (the on-disk pixel count scales (S/400)^2, so the
          * per-frame cost drops with it -- the lighting/relief model is
          * resolution-independent, only the screen sampling is coarser),
-         * then upscase to the full 400x400 for display. The FINAL frame
+         * then upscase to the full MOON_PX for display. The FINAL frame
          * is always baked at full MOON_PX: it is the current phase the
          * spin resumes from, and it is the only frame that lingers on
          * screen. With the reduction disabled (bake px >= MOON_PX) every
@@ -1477,8 +1532,8 @@ static void moon_sweep_task(void *arg) {
             }
         } else {
             /* Nearest-neighbor (S -> MOON_PX): the pixel centers map to
-             * src = (i + 0.5) * S / MOON_PX, computed as (2i+1)*S/800 to
-             * keep it exact in int math (S/400 is not integer). */
+             * src = (i + 0.5) * S / MOON_PX, computed as (2i+1)*S/(2*MOON_PX)
+             * to keep it exact in int math (S/MOON_PX is not integer). */
             int sm[MOON_PX];
             for (int i = 0; i < MOON_PX; i++) {
                 int s_ = ((2 * i + 1) * S) / (2 * MOON_PX);

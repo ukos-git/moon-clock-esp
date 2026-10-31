@@ -26,8 +26,15 @@
 #include "stb_image_write.h"
 #include "ui.h"
 
-#define W 466
-#define H 466
+/* The panel size (the S3's 466x466 by default; the P4's 720x720 with
+ * `build.sh run --panel 720`). The screens themselves carry their own
+ * literals until the M4 upscale, so at 720 the moon (driven by
+ * PANEL_SIZE in stubs.c) is the thing under test here. */
+#ifndef PANEL_SIZE
+#define PANEL_SIZE 466
+#endif
+#define W PANEL_SIZE
+#define H PANEL_SIZE
 
 static uint8_t s_fb[W * H * 2]; /* RGB565 full-panel front buffer */
 static uint32_t s_now_ms;

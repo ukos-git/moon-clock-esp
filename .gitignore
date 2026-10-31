@@ -14,3 +14,6 @@ spiffs/*
 host_sim/pole_test
 docs/img/frames/
 host_sim/uisim/out/
+# uisim --panel N builds (build-720/ for the P4; the default build/ is
+# covered above)
+host_sim/uisim/build-*/
