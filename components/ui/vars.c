@@ -6,6 +6,7 @@
 
 char clock_label[6] = {0};
 char alarm_label[6] = {0};
+char alarm_prefix[4] = {0}; /* "" or the 2-letter weekday ("Mo", ...) */
 int32_t clock_seconds;
 
 static const char *TAG = "ui_variables";
@@ -24,6 +25,14 @@ void set_var_alarm_label(const char *value) {
     ESP_LOGI(TAG, "Updating Alarm label with value: %s", value);
     strncpy(alarm_label, value, sizeof(alarm_label) / sizeof(char));
     alarm_label[sizeof(alarm_label) / sizeof(char) - 1] = 0;
+}
+
+const char *get_var_alarm_prefix() { return alarm_prefix; }
+
+void set_var_alarm_prefix(const char *value) {
+    ESP_LOGD(TAG, "Updating Alarm prefix with value: %s", value);
+    strncpy(alarm_prefix, value, sizeof(alarm_prefix) / sizeof(char));
+    alarm_prefix[sizeof(alarm_prefix) / sizeof(char) - 1] = 0;
 }
 
 int32_t get_var_clock_seconds() { return clock_seconds; }

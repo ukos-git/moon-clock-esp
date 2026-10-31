@@ -131,11 +131,10 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
-#if CONFIG_UI_SCREEN_SWITCH_REVEAL
+#include "esp_lcd_panel_interface.h" /* the full vtable struct (s_panel->draw_bitmap) */
 #include "esp_lcd_panel_ops.h"
 
 #include "bsp/display.h"
-#endif
 
 #include "clock.h"
 #include "clock_idle.h"
@@ -179,6 +178,15 @@ static const char *TAG = "moon_ui";
 #endif
 #ifndef CONFIG_UI_MOON_SPIN_PERIOD_S
 #define CONFIG_UI_MOON_SPIN_PERIOD_S 300
+#endif
+#ifndef CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S
+#define CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S 600
+#endif
+#ifndef CONFIG_UI_MOON_SPIN_FPS
+#define CONFIG_UI_MOON_SPIN_FPS 8
+#endif
+#ifndef CONFIG_UI_SCREEN_SWITCH_FADE
+#define CONFIG_UI_SCREEN_SWITCH_FADE 0
 #endif
 #ifndef CONFIG_UI_IMU_ENABLE
 #define CONFIG_UI_IMU_ENABLE 1
@@ -271,35 +279,24 @@ static float s_orbit_lpf; /* low-passed orbit angle, rad */
 static bool s_orbit_have; /* s_orbit_lpf holds a value */
 
 /* Spin pipeline (see the spin section below). Render task
- * (core 1): waits for the display to drain the previous frame
- * (s_spin_shown), integrates the free spin (theta += omega*dt, the rate
- * smoothed toward active/coast -- see the section) under the buffer
- * mutex, runs moon_rotate over the WHOLE frame (a ~6 ms
- * nearest-neighbor gather) and hands the frame to the display
- * (s_spin_ready). Display (the LVGL tick, core 0): shows the WHOLE
- * frame in one lv_refr_now (~175 ms measured, comfortably under the 5
- * s Task WDT) so each frame lands atomically (no top-to-bottom wipe)
- * -- and gives s_spin_shown once the frame is out of s_rgb. The render
- * paces to the display; the time-integrated angle keeps the angular
- * speed constant no matter how many frames the display manages -- a
- * dropped frame is a bigger step, never a repeat or a stall. The mutex
- * guards every reader/writer of s_rgb (the render, the tick's batched
- * display, the orbit's row sweep, the static LUT convert) so the
- * display never tears. */
-/* Strips (25 rows) displayed per tick. Measured: the WHOLE 400-row frame
- * is ~175 ms of lv_refr_now (~11 ms per 25-row strip), so a single
- * full-frame flush fits comfortably in one tick (well under the 5 s Task
- * WDT, which the old month-long sweep tripped). Showing the whole frame in
- * ONE lv_refr_now (MOON_NSTRIPS strips) makes each frame land ATOMICALLY
- * -- no visible top-to-bottom wipe -- and halves the frame cadence
- * (~230 ms vs ~450 ms) so the rotation steps in ~0.45 deg instead of
- * ~0.9 deg per displayed frame (more intermediate frames = a steadier
- * spin). The orbit sweep reuses this constant, so a tilt viewport change
- * also lands as one atomic frame. */
+ * (core 1): integrates the free spin (theta += omega*dt, the rate
+ * smoothed toward active/settled -- see the section) under the buffer
+ * mutex, runs moon_rotate over the WHOLE 400x400 frame (a ~8 ms
+ * nearest-neighbor gather) and writes the moon area STRAIGHT to the
+ * panel (moon_spin_write_panel: 16 cheap QSPI RAMWR strips under the
+ * panel mutex, each frame atomic) -- the old LVGL whole-panel
+ * lv_refr_now (~175 ms, ~6 fps, ~150 ms of LVGL per-strip work on the
+ * touch core) is gone, and a dropped frame is a bigger angular step,
+ * never a stall. The buffer mutex guards every reader/writer of s_rgb
+ * (the render, the tick's batched orbit/sweep display, the static LUT
+ * convert) so those paths never tear. */
+/* Strips (25 rows) displayed per tick (MOON_NSTRIPS of them per atomic
+ * whole frame). The orbit sweep reuses this constant, so a tilt
+ * viewport change also lands as one atomic lv_refr_now frame (~175 ms
+ * measured for the full 400-row frame, comfortably under the 5 s Task
+ * WDT). The spin no longer displays through the tick -- its frames go
+ * out on the direct panel write (see the spin section). */
 #define MOON_SPIN_BATCH MOON_NSTRIPS
-/* One synodic month in seconds (29.53 days): the phase-true coast rate
- * is 2*pi / this (one full spin turn per synodic moon month). */
-#define MOON_SYNODIC_S 2538634.0 /* 29.53 * 86400 */
 #ifndef CONFIG_UI_MOON_SPIN_SETTLE_S
 #define CONFIG_UI_MOON_SPIN_SETTLE_S 10
 #endif
@@ -309,27 +306,102 @@ static double s_spin_theta;             /* free spin angle, rad, unbounded (the 
                                          * integrates it; 0 = the identity pose) */
 static double s_spin_omega;             /* current spin rate, rad/s (smoothed) */
 static volatile int64_t s_spin_last_ms; /* render time of the last frame */
-static volatile bool s_spin_ready;      /* a rendered frame is in s_rgb */
-static volatile int s_spin_strip;       /* display: next strip of the frame */
 static volatile int s_spin_deg;         /* last displayed angle, deg (park log) */
 static volatile float s_spin_last_rad;  /* the on-screen orientation (the last
                                          * displayed spin frame; 0 after an
                                          * orbit sweep or a re-bake re-anchor).
                                          * Read on wake to resume the spin from
                                          * exactly where it paused. */
-/* The angle of the last frame the DISPLAY actually showed (rad). The
- * coast-skip gate: while the on-screen frame is still "good enough"
- * (the accumulated rotation since it moved the rim by < 1 px) the
- * render re-integrates the angle but skips the gather AND the display
- * flush (see the loop) -- a settled burn-in coast is sub-pixel per
- * frame, so both cores go idle between the occasional 1-px step
- * instead of re-flushing the whole moon ~4x/s for a motion that is not
- * visible. The on-screen pose (s_spin_last_rad) and the skip gate use
- * the same value, so wake resumes from exactly the last shown pose. */
-static volatile float s_spin_shown_rad;
 static TaskHandle_t s_spin_task;
-static SemaphoreHandle_t s_spin_shown; /* the display has drained s_rgb */
-static SemaphoreHandle_t s_rgb_mtx;    /* guards s_rgb (+ s_frame while baking) */
+static SemaphoreHandle_t s_rgb_mtx; /* guards s_rgb (+ s_frame while baking) */
+
+/* The spin's DIRECT PANEL WRITE (see the spin section): the render task
+ * (core 1) composites the rotated moon with LVGL's current on-panel
+ * content (the clock labels + seconds arc the spin must not clobber)
+ * and writes the moon area straight to the panel -- one cheap QSPI
+ * RAMWR per 25-row strip, instead of LVGL's ~175 ms whole-panel
+ * re-render. The panel mutex serializes those writes with LVGL's own
+ * flushes (which reach the panel through the wrapped draw_bitmap);
+ * the front mirror (s_front) is what the wrapper copies on every
+ * LVGL strip write, so the overlay always sees fresh label/arc
+ * pixels. s_disp is the per-frame composite (400x400, panel frame:
+ * the moon rotated by the ORIENTATION step, the UI pixels kept from
+ * the front mirror). */
+#define MOON_SPIN_STRIP_ROWS 25
+#define MOON_SPIN_NSTRIPS (MOON_PX / MOON_SPIN_STRIP_ROWS)
+/* The UI keep-mask (per-pixel, one bit per moon-area pixel): the spin
+ * writes the rotated moon everywhere EXCEPT where LVGL's own on-panel
+ * UI lives. The UI lives INSIDE the disk (the clock label centred on
+ * it, the indicator below) AND in the seconds-arc ring OUTSIDE it
+ * (measured from the real render: ring r 211-222, knob r 206-229), so
+ * a radius rule cannot separate moon from UI -- the mask is built from
+ * the analytic ring band + a full-screen lv_snapshot with the moon
+ * image hidden (the root is black everywhere, so every non-black pixel
+ * is UI), rotated by the current orientation step (the snapshot is
+ * screen-local; the panel is rotated by the root transform), and
+ * refreshed on every screen switch, on a clock/alarm label change (the
+ * only content that changes shape while a moon screen is active; the
+ * ring/knob never leave the band, so their mask is static), and on an
+ * orientation step change (the mask is screen-local). */
+/* The panel vtable's draw_bitmap member (this IDF exposes the vtable
+ * struct but no typedef for its member) -- the wrapper's type and the
+ * saved original's type. */
+typedef esp_err_t (*moon_panel_draw_t)(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                       const void *color_data);
+
+static SemaphoreHandle_t s_panel_mtx;  /* the spin's panel writes vs LVGL's */
+static esp_lcd_panel_handle_t s_panel; /* the CO5300 panel handle */
+static moon_panel_draw_t s_orig_draw;  /* the panel's real draw_bitmap (the wrapper's callee) */
+static uint16_t *s_front;              /* front mirror, MOON_PX^2 (the moon area) */
+static uint16_t *s_disp;               /* the spin's composite buffer, MOON_PX^2 */
+static volatile int s_panel_step;      /* the orientation step 0..3 CW (90 deg each) */
+static volatile bool s_panel_wrap;     /* the draw_bitmap wrapper is installed */
+static volatile bool s_switch_fading;  /* a fade leg owns the panel; the spin holds */
+static uint8_t *s_ui_mask;             /* the per-pixel UI keep-mask, MOON_PX^2 */
+static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
+                                          change); the LVGL task picks it up */
+
+/* Swap the bytes of a 16-bit pixel for the QSPI panel (the panel io
+ * sends 16-bit pixels MSB-first, the OTHER interface sends them
+ * little-endian; the direct write must match the panel, so LVGL-native
+ * RGB565 is byte-swapped on the way in -- the same catch the old
+ * reveal's snapshot write handled in place). */
+static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (v << 8)); }
+
+/* The draw_bitmap wrapper (installed on the panel vtable at init):
+ * LVGL's flushes (and the moon pipeline's own lv_refr_now paths)
+ * reach the panel here. Under the panel mutex it refreshes the front
+ * mirror for the strip it is about to overwrite (the front content
+ * AFTER this write, which is what the spin's composite keeps) and
+ * then calls the real draw_bitmap. The buffer arrives in PANEL byte
+ * order: the adapter bridge (ESP_LV_ADAPTER_PANEL_IF_OTHER) calls
+ * lv_draw_sw_rgb565_swap on the flush buffer before draw_bitmap, so
+ * the mirror stores it RAW -- no swap here, no swap in the spin's
+ * step-rotate. This is what keeps the spin's direct writes and
+ * LVGL's flushes serialized on ONE lock at the panel boundary. */
+static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                        const void *color_data) {
+    (void)panel;
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+    if (s_front && x_end > MOON_IMG_POS && x_start < MOON_IMG_POS + MOON_PX && y_end > MOON_IMG_POS &&
+        y_start < MOON_IMG_POS + MOON_PX) {
+        const int x0 = x_start > MOON_IMG_POS ? x_start : MOON_IMG_POS;
+        const int x1 = x_end < MOON_IMG_POS + MOON_PX ? x_end : MOON_IMG_POS + MOON_PX;
+        const int y0 = y_start > MOON_IMG_POS ? y_start : MOON_IMG_POS;
+        const int y1 = y_end < MOON_IMG_POS + MOON_PX ? y_end : MOON_IMG_POS + MOON_PX;
+        const uint16_t *src = (const uint16_t *)color_data;
+        for (int y = y0; y < y1; y++) {
+            const int xw = x1 - x0;
+            const int sx = x0 - x_start;
+            uint16_t *dst = s_front + (size_t)(y - MOON_IMG_POS) * MOON_PX + (x0 - MOON_IMG_POS);
+            const uint16_t *srow = src + (size_t)(y - y_start) * (x_end - x_start) + sx;
+            memcpy(dst, srow, (size_t)xw * sizeof(uint16_t));
+        }
+    }
+    esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
+    xSemaphoreGive(s_panel_mtx);
+    return r;
+}
 
 /* Synodic wake sweep state (see the sweep section below). The task
  * (core 1) bakes whole frames off screen and publishes them one by one;
@@ -554,63 +626,86 @@ static void moon_bake_epoch(int64_t epoch) {
 /* ---------------- spin (free, phase-anchored) ----------------
  *
  * The current phase is baked ONCE (moon_bake_epoch, ~1.3 s with the
- * relief gradient cache) and then the
- * frame is rotated in place on the panel by a FREE SPIN: a spin angle
- * s_spin_theta (rad, unbounded) integrated per frame (theta +=
- * omega*dt), so the on-screen pose is the baked phase plus the
- * accumulated free rotation. The rate s_spin_omega (rad/s) is smoothed
- * exponentially (time constant ~SETTLE/3) toward a target:
+ * relief gradient cache; the hourly/dayly re-bake is the ONLY
+ * re-calculation) and then the full 400x400 frame is rotated in place
+ * by a FREE SPIN: a spin angle s_spin_theta (rad, unbounded)
+ * integrated per frame (theta += omega*dt), so the on-screen pose is
+ * the baked phase plus the accumulated free rotation. The rate
+ * s_spin_omega (rad/s) is smoothed exponentially (time constant
+ * ~SETTLE/3) toward a target:
  *   - ACTIVE (the device was used -- touched or tilted -- within
  *     CONFIG_UI_MOON_SPIN_SETTLE_S, which the idle system's activity
  *     timer tracks): 2*pi / CONFIG_UI_MOON_SPIN_PERIOD_S, the fast
  *     ball-in-hand feel (default 300 s per full turn).
- *   - SETTLED: the PHASE-TRUE COAST, 2*pi / MOON_SYNODIC_S -- one full
- *     turn per synodic moon month (29.53 days, ~12 deg/day). The
- *     display keeps turning continuously (the AMOLED burn-in
- *     protection the fixed 180 s burn-in spin provided, without the
- *     fixed period): when the user stops interacting the spin VISIBLY
- *     slows down through the fast rate into the coast over a few
- *     seconds, then creeps forever at the phase rate; picking the
- *     device up spins it back up.
- * The rotation is a cheap nearest-neighbor gather (moon_rotate, ~6 ms
- * over the whole frame, one PSRAM read/pixel): display-bound, not
- * compute-bound, which is what makes it usable. The old month-long
- * sweep re-baked every frame and showed a visible top-to-bottom
- * redraw (the new frame's top half over the old frame's bottom half);
- * a rotation needs no sweep line at all -- the whole frame is one
- * cheap gather displayed whole, so the redraw matches the compute by
- * construction.
+ *   - SETTLED: 2*pi / CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S -- a
+ *     VISIBLE slow creep (default 600 s/turn): the burn-in
+ *     protection the moon must keep doing at rest. The old
+ *     phase-true coast (one turn per synodic month) moved ~1 px per
+ *     29 s, the rim-motion gate skipped it entirely, and it read as
+ *     a freeze; this keeps the anti-burn-in motion perceptible
+ *     while still slow.
  *
- *   render (dedicated task, pinned to core 1 -- the LVGL task is pinned
- *   to core 0, see the BSP):
- *     wait for the display to drain the previous frame (s_spin_shown;
- *     a finite poll so a cancel is honored while blocked)
+ * DISPLAY: the DIRECT PANEL WRITE (moon_spin_write_panel). The render
+ * composites the rotated moon with LVGL's current on-panel content and
+ * pushes the 400x400 moon area straight to the panel -- 16 strips of
+ * 25 rows through the panel's REAL draw_bitmap, under ONE panel-mutex
+ * hold per frame, so each frame lands atomically (no strip crawl, no
+ * visible redraw). That replaces the old display path: one LVGL
+ * whole-panel lv_refr_now per spin frame (~175 ms measured -> a ~6 fps
+ * cap, with ~150 ms of LVGL per-strip bookkeeping charged to the
+ * touch core). The panel write itself is ~22 ms of QSPI time (40 MHz
+ * quad, ~433 KB/frame) and the CPU work is one ~8 ms moon_rotate
+ * gather plus the ~0.5 M-pixel composite -- display-bound, not
+ * compute-bound, and none of it on core 0. The frame rate is paced
+ * (CONFIG_UI_MOON_SPIN_FPS, default 8): a dropped frame is a bigger
+ * angular step, never a stall, so the rotation stays smooth even when
+ * a frame slips.
+ *
+ * The composite's keep-mask: the spin writes the rotated moon
+ * everywhere EXCEPT the per-pixel UI keep-mask (s_ui_mask), where
+ * LVGL's own on-panel content survives. The UI cannot be separated
+ * from the moon by a radius: the clock label sits centred ON the disk
+ * and the indicator inside it, while the seconds-arc ring + knob live
+ * OUTSIDE it (r 206-231). The mask is built (LVGL task) from the
+ * analytic ring band + a full-screen lv_snapshot with the moon image
+ * hidden (root is black, so every non-black pixel is UI), rotated by
+ * the current orientation step, and refreshed on screen switch, on
+ * the clock/alarm label change, and on an orientation step change.
+ * The kept pixels are copied over from s_front, the FRONT MIRROR --
+ * a copy of the moon area in panel byte order, kept fresh by
+ * moon_panel_draw_bitmap, the wrapper installed on the panel's
+ * draw_bitmap vtable: every LVGL flush (which reaches the panel only
+ * through that vtable) refreshes the mirror for the strip it writes
+ * and calls the real draw_bitmap, all under s_panel_mtx, so spin
+ * frames and LVGL flushes serialize on one lock at the panel
+ * boundary and never interleave mid-write.
+ *
+ *   render (dedicated task, pinned to core 1 -- the LVGL task is
+ *   pinned to core 0, see the BSP):
+ *     poll the pause flags (orbit/sweep/dusk bakes own the buffer)
  *     integrate the free spin (theta += omega*dt, omega eased toward
- *     active/coast) under the buffer mutex; a slow display is a bigger
- *     step, never a repeat or a stall
- *     moon_rotate(s_frame -> s_rgb) under the buffer mutex, then hand
- *     the frame to the display (s_spin_ready)
+ *     active/settled) under the buffer mutex
+ *     moon_rotate(s_frame -> s_rgb) at full MOON_PX under the buffer
+ *     mutex, then moon_spin_write_panel() (step-rotate into s_disp,
+ *     overlay-composite from s_front, 16 panel strips), then pace to
+ *     1000/UI_MOON_SPIN_FPS ms
  *
- *   display (the LVGL tick, core 0, every MOON_TICK_MS):
- *     invalidate the WHOLE pending frame and drain the redraw
- *     synchronously (one lv_refr_now, under the mutex). Measured ~175 ms
- *     for the full 400-row frame (~11 ms per 25-row strip), so a single
- *     flush fits comfortably in one tick (well under the 5 s Task WDT).
- *     Displaying the whole frame in one flush (MOON_SPIN_BATCH =
- *     MOON_NSTRIPS) makes each frame land ATOMICALLY -- no visible
- *     top-to-bottom wipe -- and halves the frame cadence (~230 ms vs the
- *     ~450 ms of the old 8-strip scheme), so the rotation steps in
- *     ~0.45 deg instead of ~0.9 deg per displayed frame: more
- *     intermediate frames, a steadier spin.
- *     give s_spin_shown once the frame is out of s_rgb (the QSPI flush
- *     then runs asynchronously from LVGL's draw buffers, never s_rgb).
+ * The orientation pipeline's whole-screen 90-degree steps (the root
+ * transform_rotation, see actions.c) must be applied to the direct
+ * write too: moon_ui_set_panel_step publishes the current step and
+ * spin_step_rotate pre-rotates s_rgb by it, so the panel shows the
+ * same pixels LVGL's own transform would.
  *
- * While the orbit owns the buffer (its re-bake + row sweep) the render
- * is paused (not stopped): it blocks on the orbit flags, and the tick
- * re-anchors the angle at the end of the sweep -- the sweep shows the
- * unrotated frame of the new viewport, which IS the angle-0 frame, so
- * the spin picks up seamlessly at the time-based angle.
+ * While a bake pipeline owns the buffer (the orbit's re-bake + row
+ * sweep, the boot sweep, the dusk) the render is paused (not
+ * stopped): it blocks on the pipeline flags, and the tick re-anchors
+ * the angle at the end -- the pipeline's last frame is the unrotated
+ * one, which IS the angle-0 frame, so the spin picks up seamlessly at
+ * the time-based angle.
  */
+/* Forward decl: the direct panel write (defined after the render task
+ * that calls it -- see the spin composite section). */
+static void moon_spin_write_panel(void);
 static void moon_spin_task(void *arg) {
     (void)arg;
     for (;;) {
@@ -619,17 +714,13 @@ static void moon_spin_task(void *arg) {
          * screen) and the tick then displays s_rgb as one atomic whole
          * frame (the spin's display). The tick re-anchors the angle at
          * the end of each. */
-        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking))
+        /* Also hold while a screen-switch fade leg owns the panel
+         * (s_switch_fading): a full-brightness moon frame must not
+         * tear the dimmed overlay. The render's dt clamp turns the
+         * pause into at most a sub-degree angle step. */
+        while (!s_spin_cancel &&
+               (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_switch_fading))
             vTaskDelay(pdMS_TO_TICKS(50));
-        if (s_spin_cancel)
-            break;
-        /* Handshake: the display has drained the previous frame out of
-         * s_rgb (or this is the first frame -- s_spin_shown is primed
-         * at start). Finite poll so a sleep-transition cancel is
-         * honored while blocked; a portMAX_DELAY wait would sleep
-         * through it. */
-        if (xSemaphoreTake(s_spin_shown, pdMS_TO_TICKS(100)) != pdPASS)
-            continue;
         if (s_spin_cancel)
             break;
         /* The free spin (see the section header) is integrated UNDER
@@ -639,11 +730,14 @@ static void moon_spin_task(void *arg) {
          * omega is smoothed toward its target: ACTIVE (the device was
          * touched or tilted within the settle window -- the idle
          * system's activity timer tracks both) = the fast ball-in-hand
-         * rate, else the PHASE-TRUE COAST (one turn per synodic
-         * month). A re-bake zeroes theta inside its own critical
-         * section, so the render can never mix a new frame with a
-         * stale pre-re-bake angle (an orientation jump). dt << tau
-         * per frame, so the exponential approach is a linear step. */
+         * rate, else the SLOW SETTLED rate (one turn per
+         * UI_MOON_SPIN_SETTLED_PERIOD_S -- the burn-in creep the moon
+         * must keep doing at rest; the old phase-true coast was
+         * effectively invisible and read as a freeze). A re-bake
+         * zeroes theta inside its own critical section, so the render
+         * can never mix a new frame with a stale pre-re-bake angle
+         * (an orientation jump). dt << tau per frame, so the
+         * exponential approach is a linear step. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         int64_t t0 = esp_timer_get_time(); /* at render time, post-wait */
         double dt = (double)(t0 - s_spin_last_ms) / 1e6;
@@ -657,56 +751,40 @@ static void moon_spin_task(void *arg) {
          * ELAPSED ms since the last activity (small when recently used),
          * not an absolute timestamp. */
         bool active = clock_idle_last_activity_ms() < (uint64_t)CONFIG_UI_MOON_SPIN_SETTLE_S * 1000ULL;
-        double w_target =
-            active ? (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_PERIOD_S) : (6.283185307179586 / MOON_SYNODIC_S);
+        double w_target = active ? (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_PERIOD_S)
+                                 : (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S);
         double alpha = 1.0 - exp(-(dt * 3.0) / (double)CONFIG_UI_MOON_SPIN_SETTLE_S); /* tau ~ SETTLE/3 */
         s_spin_omega += (w_target - s_spin_omega) * alpha;
         s_spin_theta += s_spin_omega * dt;
         float rad = (float)fmod(s_spin_theta, 6.283185307179586);
-        /* Coast-skip (see s_spin_shown_rad): the rotation since the last
-         * DISPLAYED frame moves the rim (r = MOON_PX/2) by |d|*R px.
-         * While that is < the display threshold (4 px = 1.15 deg) the
-         * on-screen frame is still close enough that a re-draw is not
-         * worth the cost, so re-integrate (theta already advanced above)
-         * but SKIP the gather AND the whole-frame display flush. The
-         * flush is the bottleneck: a full 400x400 panel re-draw is ~175 ms
-         * of core-0 work (LVGL/QSPI), while the gather is ~6 ms -- so the
-         * spin is display-bound, not compute-bound. Raising the threshold
-         * from 1 px to 4 px cuts the flush count (and core-0 duty) by 4x
-         * at every spin rate: the active rate flushes every ~0.6 s instead
-         * of every tick, so the display duty drops from ~80% to ~30% and
-         * the LVGL task (touch) is no longer starved mid-flush. A settled
-         * coast (sub-pixel per frame) still skips almost every frame, so
-         * both cores go idle between the occasional step. The 4-px step is
-         * a 1.15 deg angular jump -- smooth for a stately moon rotation. */
-        float d = rad - s_spin_shown_rad;
-        while (d > 3.14159265f)
-            d -= 6.283185307179586f;
-        while (d < -3.14159265f)
-            d += 6.283185307179586f;
-        if (d < 0.0f)
-            d = -d;
-        if (d * (MOON_PX / 2.0f) < 4.0f) { /* 4 px rim-motion threshold (see the note above) */
-            xSemaphoreGive(s_rgb_mtx);
-            xSemaphoreGive(s_spin_shown); /* the loop re-takes + re-integrates */
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
+        /* Rotate the BAKED phase (full MOON_PX render, ~8 ms gather)
+         * into the shared frame, then show it: the DIRECT PANEL WRITE
+         * (moon_spin_write_panel) composites the frame with LVGL's
+         * on-panel content (the front mirror) and pushes the moon area
+         * straight to the panel (16 cheap QSPI RAMWR strips under the
+         * panel mutex) -- no LVGL whole-panel re-render, so the touch
+         * core (core 0) is not charged per spin frame. The time-based
+         * angle keeps the angular speed exact: a dropped frame is a
+         * bigger step, never a repeat or a stall. */
         moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                     moon_cos15(rad), moon_sin15(rad));
-        s_spin_last_rad = rad;  /* the on-screen orientation once this frame
-                                 * is drained (its pixels cannot be overwritten
-                                 * until s_spin_shown); the wake path resumes
-                                 * the spin from exactly this angle. */
-        s_spin_shown_rad = rad; /* the coast-skip gate's baseline */
-        s_spin_ready = true;    /* the display shows it in batches */
+        s_spin_last_rad = rad; /* the on-screen orientation once the
+                                * panel write finishes; the wake path
+                                * resumes the spin from exactly this
+                                * angle. */
         xSemaphoreGive(s_rgb_mtx);
+        moon_spin_write_panel();
         s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
-        /* Pace: the display is the bottleneck (a batch takes longer than
-         * the gather); a short sleep between frames keeps the render from
-         * busy-spinning on the mutex while the display drains. The
-         * time-based angle keeps the angular speed exact either way. */
-        vTaskDelay(pdMS_TO_TICKS(20));
+        /* Pace to the configured frame rate (UI_MOON_SPIN_FPS): the
+         * frame budget is gather ~8 ms + panel write ~30-40 ms of
+         * QSPI time (async, non-blocking for the CPU) -- a 60 ms frame
+         * at 8 fps leaves the render task idle between frames, and the
+         * panel's own SPI bus lock (inside the write) is the true
+         * serialization with LVGL's flushes. */
+        int64_t frame_ms = 1000 / (int64_t)CONFIG_UI_MOON_SPIN_FPS;
+        int64_t elapsed = (esp_timer_get_time() - t0) / 1000;
+        if (elapsed < frame_ms)
+            vTaskDelay(pdMS_TO_TICKS(frame_ms - elapsed));
     }
     s_spin_running = false;
     s_spin_task = NULL;
@@ -726,10 +804,207 @@ static void moon_spin_reanchor(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     s_spin_theta = 0.0;
     s_spin_last_rad = 0.0f;
-    s_spin_shown_rad = 0.0f; /* the on-screen frame is now the identity
-                              * (angle-0) pose; the coast-skip baseline
-                              * follows it */
     xSemaphoreGive(s_rgb_mtx);
+}
+
+/* Rotate src (n x n row-major, y-down) into dst by `step` clockwise
+ * 90-degree steps (the orientation pipeline's steps; 0 = copy). The
+ * screen-frame buffer s_rgb is rotated into the panel frame before the
+ * spin's direct panel write, so the write shows the same pixels LVGL's
+ * own transform would (the panel holds the content rotated by the
+ * root's transform_rotation; the base +90 deg mount offset is step 1).
+ * No byte order work here: s_rgb is LVGL-native RGB565, the front
+ * mirror is PANEL order (the adapter pre-swaps, see the wrapper), and
+ * the panel write needs the moon in PANEL order too -- so the rotated
+ * moon copy is byte-swapped on the way, and the kept (front-mirror)
+ * pixels are already in the right order.
+ *   90 CW:  O[i][j] = M[n-1-j][i]
+ *   180:    O[i][j] = M[n-1-i][n-1-j]
+ *   270 CW: O[i][j] = M[j][n-1-i]
+ */
+static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
+    switch (step) {
+    case 1:
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                o[(size_t)i * n + j] = spin_bswap16(m[(size_t)(n - 1 - j) * n + i]);
+        break;
+    case 2:
+        for (int i = 0; i < n; i++) {
+            const uint16_t *sr = m + (size_t)(n - 1 - i) * n;
+            uint16_t *or = o + (size_t)i * n;
+            for (int j = 0; j < n; j++)
+                or[j] = spin_bswap16(sr[n - 1 - j]);
+        }
+        break;
+    case 3:
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                o[(size_t)i * n + j] = spin_bswap16(m[(size_t)j * n + (n - 1 - i)]);
+        break;
+    default:
+        for (size_t p = 0; p < (size_t)n * n; p++)
+            o[p] = spin_bswap16(m[p]);
+        break;
+    }
+}
+
+/* The static part of the UI keep-mask: the seconds-arc band (the ring
+ * + the moving knob), analytic from the measured geometry (ring
+ * r 211-222, knob r 206-229, both centred on the panel centre) with a
+ * few px of margin: r in [204, 231]. The band covers the knob at every
+ * second, so the only thing that must be refreshed is the TEXT (the
+ * label bboxes change shape with the digits). Screen-local
+ * coordinates (before the orientation rotation). */
+#define SPIN_MASK_RING_RMIN 204
+#define SPIN_MASK_RING_RMAX 231
+static void spin_mask_band(void) {
+    memset(s_ui_mask, 0, (size_t)MOON_PX * MOON_PX);
+    for (int y = 0; y < MOON_PX; y++) {
+        int cy = y - MOON_PX / 2; /* the moon area is centred on the panel */
+        for (int x = 0; x < MOON_PX; x++) {
+            int cx = x - MOON_PX / 2;
+            int d2 = cx * cx + cy * cy;
+            if (d2 >= SPIN_MASK_RING_RMIN * SPIN_MASK_RING_RMIN && d2 <= SPIN_MASK_RING_RMAX * SPIN_MASK_RING_RMAX)
+                s_ui_mask[(size_t)y * MOON_PX + x] = 1;
+        }
+    }
+}
+
+/* Rebuild the UI keep-mask for the active screen: the analytic ring
+ * band (static) + the screen's own UI pixels, captured by a
+ * full-screen lv_snapshot with the moon image HIDDEN (it points at
+ * s_rgb -- the spin's own source -- so its disk would poison the mask;
+ * hiding it leaves the black root + the text + the arc). The snapshot
+ * renders in the screen's LOCAL coordinates (lv_snapshot ignores the
+ * root's LVGL transform -- the same fact the old reveal's in-place
+ * rotation compensated), so every non-black pixel (the text, the
+ * icons, the arc) is rotated by the current orientation step into the
+ * panel frame before its mask bit is set. Called on the LVGL task at
+ * screen switch, on the clock/alarm label change (the only content
+ * whose shape changes while a moon screen is active), and on an
+ * orientation step change (s_mask_dirty, picked up by the tilt
+ * monitor). The step can change from another task (the app_main
+ * base-orientation push) while the build runs: the mask must match
+ * the step it was built with, so the build re-checks the step and
+ * retries if it moved (a step change is a 1 s-sustained tilt event,
+ * so one retry suffices in practice; the cap bounds it). */
+static void spin_mask_rebuild_once(lv_obj_t *screen, int step);
+static void spin_mask_rebuild(void) {
+    if (!s_ui_mask)
+        return;
+    lv_obj_t *screen = lv_screen_active();
+    if (!screen)
+        return;
+    for (int tries = 0; tries < 4; tries++) {
+        const int step0 = s_panel_step;
+        spin_mask_rebuild_once(screen, step0);
+        if (s_panel_step == step0) {
+            s_mask_dirty = false;
+            return; /* the mask matches its step */
+        }
+    }
+    /* The step moved while every build ran: the mask is stale for the
+     * current step. Leave s_mask_dirty -- the next monitor tick
+     * rebuilds (a step change needs 1 s of sustained tilt, so this is
+     * the rare-of-rare case). */
+}
+
+/* One mask build at the given step (see spin_mask_rebuild). */
+static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
+    /* Hide the active moon image for the snapshot (restore on every
+     * path -- the snapshot is synchronous, no yield in between). */
+    lv_obj_t *img = NULL;
+    for (int i = 0; i < s_n_images; i++)
+        if (s_moon_roots[i] == screen)
+            img = s_images[i];
+    if (img)
+        lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
+    spin_mask_band();
+    lv_draw_buf_t *shot = lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565);
+    if (img)
+        lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
+    if (shot) {
+        const int32_t w = (int32_t)shot->header.w, h = (int32_t)shot->header.h;
+        const uint32_t stride = shot->header.stride;
+        /* Full-screen 16bpp, screen == the 466x466 root at (0,0):
+         * snapshot pixel (sx,sy) IS screen coord (sx,sy). Anything
+         * else (a non-full-screen root, a padded stride) keeps the
+         * band-only mask (the text goes unkept for one rebuild --
+         * the next switch fixes it). */
+        if (w == (int32_t)BSP_LCD_H_RES && h == (int32_t)BSP_LCD_V_RES && stride == (uint32_t)BSP_LCD_H_RES * 2 &&
+            shot->data) {
+            for (int sy = 0; sy < h; sy++) {
+                const uint16_t *srow = (const uint16_t *)(shot->data + (size_t)sy * stride);
+                for (int sx = 0; sx < w; sx++) {
+                    if (srow[sx] == 0)
+                        continue; /* the black root (the labels' transparent
+                                   * background snapshots to black too) */
+                    const int mx = sx - MOON_IMG_POS, my = sy - MOON_IMG_POS;
+                    if (mx < 0 || my < 0 || mx >= MOON_PX || my >= MOON_PX)
+                        continue; /* outside the moon area the spin never writes */
+                    /* Rotate (mx,my) -> (ox,oy) by the orientation step
+                     * (the inverse mapping of spin_step_rotate: 90 CW
+                     * output row = source column, column = n-1-row). */
+                    int ox, oy;
+                    switch (step) {
+                    case 1:
+                        ox = MOON_PX - 1 - my;
+                        oy = mx;
+                        break;
+                    case 2:
+                        ox = MOON_PX - 1 - mx;
+                        oy = MOON_PX - 1 - my;
+                        break;
+                    case 3:
+                        ox = my;
+                        oy = MOON_PX - 1 - mx;
+                        break;
+                    default:
+                        ox = mx;
+                        oy = my;
+                        break;
+                    }
+                    s_ui_mask[(size_t)oy * MOON_PX + ox] = 1;
+                }
+            }
+        }
+        lv_draw_buf_destroy(shot);
+    }
+}
+
+/* Write the current s_rgb (screen frame) to the panel as the spin's
+ * frame: step-rotate it into s_disp (the panel frame), overwrite the
+ * UI keep-mask pixels from the front mirror (LVGL's labels/icons/arc --
+ * the clock label sits INSIDE the disk, so a radius rule cannot keep
+ * it: the mask is per-pixel, see the state block), and push the 16
+ * strips straight to the panel under the panel mutex (the real
+ * draw_bitmap, not the wrapper -- the mutex is held for the whole
+ * composite + write so the front mirror is stable and the frame lands
+ * atomically). The spin's frame and LVGL's flushes both derive the
+ * moon pixels from s_rgb, so a full LVGL flush interleaved between
+ * spin frames shows the same moon (sub-pixel rotation apart) -- no
+ * visible seam. */
+static void moon_spin_write_panel(void) {
+    if (!s_panel || !s_disp || !s_front || !s_ui_mask)
+        return;
+    const int step = s_panel_step;
+    spin_step_rotate(s_rgb, s_disp, MOON_PX, step);
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+    for (int y = 0; y < MOON_PX; y++) {
+        uint16_t *row = s_disp + (size_t)y * MOON_PX;
+        const uint16_t *frow = s_front + (size_t)y * MOON_PX;
+        const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
+        for (int x = 0; x < MOON_PX; x++)
+            if (mrow[x])
+                row[x] = frow[x];
+    }
+    for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
+        (void)s_orig_draw(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS, MOON_IMG_POS + MOON_PX,
+                          MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
+                          s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
+    }
+    xSemaphoreGive(s_panel_mtx);
 }
 
 /* Start the render task (a previous one, if any, is already joined by
@@ -743,12 +1018,6 @@ static void moon_spin_begin(void) {
     if (!CONFIG_UI_MOON_SPIN_ENABLE || s_spin_running)
         return;
     s_spin_cancel = false;
-    s_spin_ready = false;
-    s_spin_strip = 0;
-    /* Prime the handshake: the first frame may be rendered immediately
-     * (the on-screen frame is the angle-0 LUT display). */
-    (void)xSemaphoreTake(s_spin_shown, 0); /* consume a stale signal */
-    (void)xSemaphoreGive(s_spin_shown);
     /* PSRAM task stack (8 KB): internal RAM is tighter than it looks
      * (the DMA staging copy needs a ~23 KB contiguous internal block).
      * The spin gather is a few int ops per pixel -- the default
@@ -760,7 +1029,8 @@ static void moon_spin_begin(void) {
         return;
     }
     s_spin_running = true;
-    ESP_LOGI(TAG, "spin started (active %d s/turn, coast 1/29.5 d)", CONFIG_UI_MOON_SPIN_PERIOD_S);
+    ESP_LOGI(TAG, "spin started (active %d s/turn, settled %d s/turn, %d fps)", CONFIG_UI_MOON_SPIN_PERIOD_S,
+             CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S, CONFIG_UI_MOON_SPIN_FPS);
 }
 
 /* Stop the render task (sleep transition): the screen goes off anyway,
@@ -1644,6 +1914,11 @@ static void moon_tilt_monitor_cb(lv_timer_t *timer) {
      * moon_on_lvgl). The boot path (app_main / task main) has a 3.5 KB
      * stack and must not run a synchronous whole-panel lv_refr_now. */
     s_lvgl_task = xTaskGetCurrentTaskHandle();
+    if (s_mask_dirty)
+        spin_mask_rebuild(); /* the orientation step changed (it can move
+                                from the main task -- the app_main base
+                                push -- so this LVGL-task tick is where
+                                the re-rotated mask is built) */
     if (!CONFIG_UI_IMU_ENABLE)
         return; /* the moon ignores the IMU (orbit off too); the task
                  * handle cache above is the only reason the timer keeps
@@ -1717,51 +1992,10 @@ static void moon_tick_cb(lv_timer_t *timer) {
     (void)timer;
     if (!s_ready || !s_started)
         return;
-    /* Spin consumer (see the spin section): show the pending rendered
-     * frame in MOON_SPIN_BATCH-strip batches, top to bottom, under the
-     * buffer mutex, and hand the buffer back once the last batch is
-     * out of s_rgb. Batching keeps each tick's lv_refr_now to a few
-     * hundred ms of core-0 work (a full 400-row frame at once would be
-     * ~4 s of continuous 25-row QSPI flushes -- too long for the Task
-     * WDT margin and too coarse for touch responsiveness). */
-    /* Guarded while a bake pipeline owns s_frame/s_rgb: a spin frame
-     * still pending for display must not be drained into s_rgb while a
-     * bake rewrites it row by row (that would put one mixed frame --
-     * new top rows over old bottom rows -- on screen). It waits and is
-     * dropped at the pipeline's completion, like the orbit path does.
-     * Also guarded on s_moon_screen: the spin render is stopped on a
-     * moon-less screen, so a straggler frame waits (dropped when the
-     * spin restarts) instead of forcing a full-panel flush onto the
-     * settings screen. */
-    if (s_spin_ready && s_moon_screen && !s_orbit_baking && !s_orbit_sweeping && !s_sweep_baking && !s_dusk_baking) {
-        int end = s_spin_strip + MOON_SPIN_BATCH;
-        if (end > MOON_NSTRIPS)
-            end = MOON_NSTRIPS;
-        if (end > s_spin_strip) {
-            /* Batch area in the moon image's (screen) coordinates. */
-            lv_area_t a = {.x1 = (lv_coord_t)MOON_IMG_POS,
-                           .y1 = (lv_coord_t)(MOON_IMG_POS + s_spin_strip * MOON_STRIP_ROWS),
-                           .x2 = (lv_coord_t)(MOON_IMG_POS + MOON_PX - 1),
-                           .y2 = (lv_coord_t)(MOON_IMG_POS + end * MOON_STRIP_ROWS - 1)};
-            for (int i = 0; i < s_n_images; i++)
-                lv_obj_invalidate_area(s_images[i], &a);
-            /* Drain the redraw now, under the buffer mutex: after it
-             * returns the batch's pixels are out of s_rgb (into LVGL's
-             * draw buffers; the QSPI transfer then runs asynchronously
-             * from the draw buffers). The mutex is what keeps the
-             * render and the orbit sweep from reusing s_rgb mid-drain. */
-            xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-            lv_refr_now(NULL);
-            xSemaphoreGive(s_rgb_mtx);
-            s_spin_strip = end;
-        }
-        if (s_spin_strip >= MOON_NSTRIPS) {
-            s_spin_ready = false;
-            s_spin_strip = 0;             /* fresh counter for the next frame (was stuck at NSTRIPS, so
-                                           * every frame after the first displayed nothing) */
-            xSemaphoreGive(s_spin_shown); /* the render may reuse s_rgb */
-        }
-    }
+    /* The spin no longer displays through the tick (see the spin
+     * section): its render task writes the frame straight to the
+     * panel (moon_spin_write_panel), so the tick has nothing to drain
+     * for the spin. */
     /* Orbit sweep consumer: show the strips of the freshly baked frame
      * the task has fully converted, top to bottom, so the new viewport
      * sweeps in instead of popping in. The spin render is paused for
@@ -1802,14 +2036,6 @@ static void moon_tick_cb(lv_timer_t *timer) {
              * spin frame after the orbit is the identity gather (the
              * sweep's last frame, unrotated). No orientation jump. */
             moon_spin_reanchor();
-            if (s_spin_ready) {
-                /* A pre-orbit spin frame was still draining when the
-                 * sweep overwrote the screen: drop it and hand the
-                 * buffer back to the render. */
-                s_spin_ready = false;
-                s_spin_strip = 0;
-                xSemaphoreGive(s_spin_shown);
-            }
             s_orbit_sweeping = false; /* now the render may resume */
             if (!clock_is_idle())
                 clock_idle_set_enabled(true);
@@ -1855,13 +2081,6 @@ static void moon_tick_cb(lv_timer_t *timer) {
                  * on-screen pose is orbit angle 0). */
                 s_orbit_epoch = s_sweep_now;
                 s_orbit_baked = 0;
-            }
-            if (s_spin_ready) {
-                /* A pre-sweep spin frame was still pending: drop it and
-                 * hand the buffer back to the render. */
-                s_spin_ready = false;
-                s_spin_strip = 0;
-                xSemaphoreGive(s_spin_shown);
             }
             if (!clock_is_idle())
                 clock_idle_set_enabled(true);
@@ -1961,17 +2180,43 @@ void moon_ui_init(void) {
     s_tick = lv_timer_create(moon_tick_cb, MOON_TICK_MS, NULL);
     lv_timer_pause(s_tick);
     /* Spin sync (see the spin section): a buffer mutex serializing every
-     * s_rgb / s_frame reader+writer (the render's gather, the tick's
-     * batched display, the orbit's row sweep, the static LUT convert),
-     * and a binary rendered/shown semaphore gating the next render on
-     * the previous frame being fully displayed (no tearing; the display
-     * paces the spin). */
+     * s_rgb / s_frame reader+writer (the render's gather, the orbit's
+     * row sweep, the static LUT convert), and a PANEL mutex serializing
+     * the spin's direct panel writes with LVGL's own flushes (which
+     * reach the panel through the draw_bitmap wrapper installed below
+     * -- every LVGL flush funnels through esp_lcd_panel_draw_bitmap,
+     * proven by the adapter's flush path and the old reveal). */
     s_rgb_mtx = xSemaphoreCreateMutex();
-    s_spin_shown = xSemaphoreCreateBinary();
-    if (!s_rgb_mtx || !s_spin_shown) {
+    s_panel_mtx = xSemaphoreCreateMutex();
+    if (!s_rgb_mtx || !s_panel_mtx) {
         ESP_LOGE(TAG, "spin sync allocation failed; moon disabled");
         s_ready = false;
         return;
+    }
+    /* The spin's direct-panel-write buffers (see the spin section): the
+     * front mirror (LVGL's on-panel content, moon area, panel byte
+     * order) + the per-frame composite, in PSRAM (the panel io stages
+     * PSRAM strips into internal RAM itself -- the same path the old
+     * reveal's snapshot write took). */
+    s_front = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
+    s_disp = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
+    s_ui_mask = heap_caps_malloc(MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
+    memset(s_front ? (void *)s_front : (void *)1, 0, (size_t)MOON_PX * MOON_PX * 2);
+    memset(s_disp ? (void *)s_disp : (void *)1, 0, (size_t)MOON_PX * MOON_PX * 2);
+    /* The UI keep-mask: the screen is loaded (ui_init ran first), so
+     * the first rebuild captures the home screen's text + arc. */
+    spin_mask_rebuild();
+    /* The panel handle + the draw_bitmap wrapper (the serialization
+     * point with LVGL). bsp_display_start runs before moon_ui_init
+     * (app_main), so the handle is valid. */
+    s_panel = bsp_display_get_panel();
+    if (s_panel) {
+        s_orig_draw = s_panel->draw_bitmap;
+        s_panel->draw_bitmap = moon_panel_draw_bitmap;
+        s_panel_wrap = true;
+        ESP_LOGI(TAG, "panel draw_bitmap wrapper installed (spin direct write)");
+    } else {
+        ESP_LOGE(TAG, "panel handle unavailable; spin direct write off");
     }
     /* 1 Hz tilt activity/wake monitor; runs in every screen state
      * because the moon tick itself is paused in deep sleep. It also
@@ -2001,6 +2246,33 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
 }
 
 void moon_ui_refresh(void) { moon_invalidate_all(); }
+
+/* Publish the orientation step (0..3 clockwise 90-degree steps, the
+ * root transform_rotation's value in 900 units) to the spin's direct
+ * panel write: spin_step_rotate pre-rotates every frame by it, so the
+ * panel shows the same pixels LVGL's own root transform would. Called
+ * from the orientation pipeline (LVGL task context) on every step
+ * change; the render reads the volatile under no lock (a step change
+ * mid-frame at most shows one frame at the old rotation -- the
+ * orientation itself changes in 90-degree steps by design). */
+void moon_ui_set_panel_step(int step) {
+    const int st = ((step % 4) + 4) % 4;
+    if (st != s_panel_step)
+        s_mask_dirty = true; /* the mask is screen-local: it must be
+                                re-rotated by the new step (the LVGL
+                                task does it, see moon_tilt_monitor_cb) */
+    s_panel_step = st;
+}
+
+/* Rebuild the UI keep-mask (LVGL task only -- the snapshot is the
+ * refresh draw path): called on an orientation step change (the
+ * mask is screen-local and must be re-rotated by the current step).
+ * No-op off the LVGL task (the app_main base-orientation push runs
+ * before the LVGL task handle is cached). */
+void moon_ui_rebuild_ui_mask(void) {
+    if (moon_on_lvgl())
+        spin_mask_rebuild();
+}
 
 void moon_ui_bake_now(int64_t utc_epoch) {
     if (!s_ready)
@@ -2301,183 +2573,84 @@ static bool moon_screen_has_image(void) {
     return false;
 }
 
-#if CONFIG_UI_SCREEN_SWITCH_REVEAL
-/* One strip matches the BSP adapter's buffer_height: a QSPI transfer
- * must fit the S3's internal-RAM DMA staging budget (25 rows * 466 *
- * 2 = 23.3 KiB, under the 32 KiB SPI DMA cap). */
-#define REVEAL_STRIP_ROWS 25
+/* ---------------- screen-switch fade (UI_SCREEN_SWITCH_FADE) ----------------
+ *
+ * A screen switch that crosses the moon / moon-less boundary fades the
+ * OUTGOING screen to black (moon_ui_fade_out, in loadScreen, BEFORE
+ * lv_scr_load), then the new screen fades IN from black
+ * (moon_ui_screen_switched, after the spin + mask update). Each fade
+ * step dims the screen with a full-screen black overlay and displays
+ * it as ONE atomic whole-panel lv_refr_now under the buffer mutex (the
+ * moon pipeline's display rule) -- no top-to-bottom strip crawl (the
+ * "white bars" of the old reveal) and no tearing. Both-moon switches
+ * (airplane / wifi / the sleep screens) keep the plain atomic
+ * whole-panel switch (the moon pipeline's invariant), as do switches
+ * while a bake pipeline owns the buffers. The spin's direct panel
+ * write is held for the whole fade (s_switch_fading, polled in the
+ * render task's loop): a full-brightness moon frame must not tear the
+ * dimmed panel, and the render's dt clamp turns the pause into at
+ * most a sub-degree angle step. The overlay is created per leg and
+ * deleted when the leg is done (the last fade-in step has already
+ * displayed the new screen at full opacity -- the atomic flush the
+ * invariant wants). Must run on the LVGL task. */
+#define FADE_STEPS 4
+static bool s_fade_pending; /* the fade-out ran; the new screen must fade in */
 
-static int reveal_strip_center(int i, int h) {
-    const int y0 = i * REVEAL_STRIP_ROWS;
-    const int y1 = y0 + REVEAL_STRIP_ROWS < h ? y0 + REVEAL_STRIP_ROWS : h;
-    return (y0 + y1 - 1) / 2;
-}
-
-/* In-place transpose of an n x n matrix (row-major). */
-static void reveal_transpose(uint16_t *p, int n) {
-    for (int i = 1; i < n; i++)
-        for (int j = 0; j < i; j++) {
-            const uint16_t t = p[(size_t)i * n + j];
-            p[(size_t)i * n + j] = p[(size_t)j * n + i];
-            p[(size_t)j * n + i] = t;
-        }
-}
-
-/* Reverse each row of an n x n row-major buffer in place. */
-static void reveal_reverse_rows(uint16_t *p, int n) {
-    for (int y = 0; y < n; y++) {
-        uint16_t *row = p + (size_t)y * n;
-        for (int a = 0, b = n - 1; a < b; a++, b--) {
-            const uint16_t t = row[a];
-            row[a] = row[b];
-            row[b] = t;
-        }
+/* One fade leg on the given screen: from `from_opa` to `to_opa`
+ * (overlay background opacity), FADE_STEPS steps, one atomic
+ * whole-panel flush per step, paced CONFIG_UI_SCREEN_SWITCH_FADE /
+ * FADE_STEPS ms between steps. */
+static void fade_leg(lv_obj_t *screen, int from_opa, int to_opa) {
+    lv_obj_t *ov = lv_obj_create(screen);
+    lv_obj_set_size(ov, BSP_LCD_H_RES, BSP_LCD_V_RES);
+    lv_obj_set_style_bg_color(ov, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ov, (uint8_t)from_opa, LV_PART_MAIN);
+    /* The overlay is the screen's last child -> drawn on top.
+     * Non-clickable: touches during the 240 ms transition fall
+     * through to the screen's own handlers. */
+    lv_obj_clear_flag(ov, LV_OBJ_FLAG_CLICKABLE);
+    for (int s = 1; s <= FADE_STEPS; s++) {
+        lv_obj_set_style_bg_opa(ov, (uint8_t)(from_opa + (to_opa - from_opa) * s / FADE_STEPS), LV_PART_MAIN);
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        lv_refr_now(NULL);
+        xSemaphoreGive(s_rgb_mtx);
+        if (s < FADE_STEPS)
+            vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
     }
+    lv_obj_delete(ov);
 }
 
-/* Rotate the snapshot buffer in place so it matches the panel's current
- * orientation: q clockwise 90-degree steps, y-down rows, n x n. The
- * snapshot is screen-local (lv_snapshot_take ignores the root's LVGL
- * transform -- proven by the host probe uisim --rottest), while the
- * panel holds the content rotated by the root's transform_rotation
- * (the orientation pipeline's 90-degree steps); the strip write must
- * match the panel. q = 0 is a no-op; the caller verifies the value is a
- * multiple of 90 degrees before calling (it always is: the pipeline
- * pushes only 90-degree steps). A 90-degree CW rotation moves the top
- * row to the RIGHT column: transpose + reverse each row (case 1 is the
- * 2026-10-30 direction fix -- it was reverse + transpose = 90 CCW, which
- * wrote the previous screen as a mis-oriented ghost, the alarm-screen
- * "draw artifacts"). */
-static void reveal_rotate_cw90(uint16_t *p, int n, int q) {
-    switch (q) {
-    case 1: /* 90 CW: transpose, then reverse each row */
-        reveal_transpose(p, n);
-        reveal_reverse_rows(p, n);
-        break;
-    case 2: /* 180: reverse the whole row-major array */
-        for (size_t a = 0, b = (size_t)n * n - 1; a < b; a++, b--) {
-            const uint16_t t = p[a];
-            p[a] = p[b];
-            p[b] = t;
-        }
-        break;
-    case 3: /* 270 CW: reverse each row, then transpose */
-        reveal_reverse_rows(p, n);
-        reveal_transpose(p, n);
-        break;
-    default:
-        break;
-    }
-}
-
-/* Render the active (moon-less) screen into a full-screen RGB565
- * snapshot and write the panel in the same 25-row windows ordered
- * from the vertical center out, so the new screen blooms in
- * concentrically instead of being drained top to bottom. The pixel
- * result is exactly what the whole-panel flush would show: the
- * snapshot uses the normal draw path and the direct write goes
- * through the same windowed CO5300 driver (including its 0x06 x_gap).
- * One catch: lv_snapshot_take renders in the screen's LOCAL
- * coordinates -- it ignores the root's LVGL rotation transform
- * (proven by the host probe uisim --rottest), while the panel holds
- * the content rotated by the orientation pipeline's 90-degree steps
- * (the base +90 deg mount offset included). The snapshot buffer is
- * therefore rotated in place by the root's current transform
- * rotation (a multiple of 90 deg) before the strip write; anything
- * else falls back to the plain atomic flush. The caller still runs
- * the atomic lv_refr_now afterwards -- it displays identical pixels
- * and drains LVGL's pending invalidation (the FADE_IN bug class must
- * not come back). Must be on the LVGL task (the snapshot draw path
- * is the refresh draw path, which fits the 8 KB LVGL stack). On any
- * failure returns false: the caller falls back to the plain atomic
- * flush. */
-static bool concentric_reveal(void) {
+/* Fade the CURRENT active screen to black (LVGL task; loadScreen
+ * calls it before lv_scr_load when the switch crosses the moon
+ * boundary). The panel is left black for the fade-in leg
+ * (s_fade_pending); s_switch_fading holds the spin's direct write for
+ * the whole window (cleared by the fade-in leg in
+ * moon_ui_screen_switched). No-op when the fade is off, the moon UI
+ * is not ready, or a bake pipeline owns the buffers. */
+void moon_ui_fade_out(void) {
+    if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_sweep_baking ||
+        s_dusk_baking)
+        return;
     lv_obj_t *screen = lv_screen_active();
-    lv_draw_buf_t *shot = screen ? lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565) : NULL;
-    if (!shot)
-        return false;
-    const uint32_t w = shot->header.w, h = shot->header.h;
-    const uint32_t stride = shot->header.stride;
-    /* Full-screen row-major 16bpp, exactly the panel's native
-     * format. Anything else (a non-full-screen root, a padded
-     * stride) falls back to the atomic flush. */
-    if (w != (uint32_t)BSP_LCD_H_RES || h != (uint32_t)BSP_LCD_V_RES || stride != (uint32_t)BSP_LCD_H_RES * 2 ||
-        !shot->data) {
-        lv_draw_buf_destroy(shot);
-        return false;
-    }
-    const esp_lcd_panel_handle_t panel = bsp_display_get_panel();
-    if (!panel) {
-        lv_draw_buf_destroy(shot);
-        return false;
-    }
-    /* The adapter bridge byte-swaps the LVGL-native RGB565 for the
-     * QSPI panel (the OTHER interface sends 16-bit pixels
-     * MSB-first); the direct write must match. */
-    uint8_t *p = shot->data;
-    const size_t npix = (size_t)BSP_LCD_H_RES * BSP_LCD_V_RES;
-    for (size_t i = 0; i < npix; i++) {
-        const uint8_t lo = p[2 * i], hi = p[2 * i + 1];
-        p[2 * i] = hi;
-        p[2 * i + 1] = lo;
-    }
-    /* The snapshot is screen-local (the root's rotation transform is
-     * NOT applied by lv_snapshot_take), but the panel holds the
-     * content rotated by the root's transform_rotation (the
-     * orientation pipeline's 90-degree steps, the base +90 deg mount
-     * offset included). Rotate the buffer to that step so the strip
-     * write shows the same pixels the trailing lv_refr_now will. */
-    const int32_t rot10 = lv_obj_get_style_transform_rotation(screen, LV_PART_MAIN);
-    const int32_t r10 = ((rot10 % 3600) + 3600) % 3600;
-    if (r10 % 900 != 0) {
-        /* A non-90-degree-multiple transform (the pipeline only ever
-         * pushes 90-degree steps): cannot match the panel -- fall
-         * back to the plain atomic flush. */
-        lv_draw_buf_destroy(shot);
-        return false;
-    }
-    reveal_rotate_cw90((uint16_t *)p, (int)w, (int)(r10 / 900));
-    /* 19 strips (18 x 25 rows + a 16-row tail) ordered by the
-     * distance of the strip center from the vertical center: the
-     * middle lights up first and the screen blooms out. */
-    const int nstrips = (h + REVEAL_STRIP_ROWS - 1) / REVEAL_STRIP_ROWS;
-    int order[19];
-    if (nstrips > (int)(sizeof(order) / sizeof(order[0]))) {
-        lv_draw_buf_destroy(shot);
-        return false;
-    }
-    const int mid = (int)h / 2;
-    for (int i = 0; i < nstrips; i++)
-        order[i] = i;
-    for (int a = 0; a < nstrips; a++) {
-        int best = a;
-        for (int b = a + 1; b < nstrips; b++) {
-            int db = reveal_strip_center(order[b], (int)h) - mid;
-            int dt = reveal_strip_center(order[best], (int)h) - mid;
-            if (db < 0)
-                db = -db;
-            if (dt < 0)
-                dt = -dt;
-            if (db < dt)
-                best = b;
-        }
-        const int t = order[a];
-        order[a] = order[best];
-        order[best] = t;
-    }
-    bool ok = true;
-    for (int a = 0; a < nstrips && ok; a++) {
-        const int i = order[a];
-        const int y0 = i * REVEAL_STRIP_ROWS;
-        const int y1 = y0 + REVEAL_STRIP_ROWS < (int)h ? y0 + REVEAL_STRIP_ROWS : (int)h;
-        const uint8_t *strip = p + (size_t)y0 * (size_t)stride;
-        if (esp_lcd_panel_draw_bitmap(panel, 0, y0, (int)w, y1, strip) != ESP_OK)
-            ok = false;
-    }
-    lv_draw_buf_destroy(shot);
-    return ok;
+    if (!screen)
+        return;
+    s_fade_pending = true;
+    s_switch_fading = true;
+    fade_leg(screen, 0, 255);
 }
-#endif
+
+/* Does the screen with this id carry a moon image (loadScreen's fade
+ * decision: a switch that crosses the moon boundary fades, a
+ * both-moon switch stays atomic)? */
+bool moon_ui_screen_is_moon(enum ScreensEnum id) {
+    lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+    if (!root)
+        return false;
+    for (int i = 0; i < s_n_images; i++)
+        if (s_moon_roots[i] == root)
+            return true;
+    return false;
+}
 
 void moon_ui_screen_switched(void) {
     if (s_ready && moon_on_lvgl()) {
@@ -2491,42 +2664,38 @@ void moon_ui_screen_switched(void) {
                 if (moon_here) {
                     /* The free spin's angle/rate persist across the
                      * stop (the render clamps its first dt to 0.5 s), so
-                     * the moon resumes from the exact pose it showed. */
+                     * the moon resumes from the exact pose it showed.
+                     * The new render task needs no priming: it writes
+                     * its first frame straight to the panel. */
                     moon_spin_begin();
-                    if (s_spin_running) {
-                        /* A task left running on a moon-less screen (the
-                         * day tick re-baked while the user was in the
-                         * settings) is parked on the display handshake --
-                         * prime it so it renders the next frame instead of
-                         * polling the semaphore forever. (If begin() just
-                         * created the task the prime leaves the token it
-                         * primed: one in, one out, one in.) */
-                        (void)xSemaphoreTake(s_spin_shown, 0);
-                        (void)xSemaphoreGive(s_spin_shown);
-                    }
                 } else {
                     moon_spin_stop();
                     ESP_LOGI(TAG, "spin render stopped (active screen has no moon image)");
                 }
             }
         }
+        /* The UI keep-mask follows the active screen (the spin's
+         * composite keeps LVGL's pixels only where the mask says so):
+         * the snapshot is the refresh draw path, LVGL task only. */
+        spin_mask_rebuild();
     }
-    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking)
+    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking) {
+        s_fade_pending = false; /* a plain async paint shows the new screen */
         return;
-    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-#if CONFIG_UI_SCREEN_SWITCH_REVEAL
-    /* Concentric reveal for switches TO a moon-less screen (the
-     * settings direction): the new screen is rendered into a
-     * snapshot and written center-out before LVGL's own flush. The
-     * trailing lv_refr_now re-displays identical pixels; moon screens
-     * keep the atomic whole-panel flush alone. */
-    if (!moon_screen_has_image()) {
-        if (concentric_reveal())
-            ESP_LOGI(TAG, "concentric reveal: switch shown center-out");
-        else
-            ESP_LOGW(TAG, "concentric reveal failed; plain atomic flush");
     }
-#endif
+    if (s_fade_pending && CONFIG_UI_SCREEN_SWITCH_FADE > 0) {
+        /* The fade-in leg: the new screen's atomic whole-panel flush
+         * happens UNDER the dimming overlay (the leg's first step);
+         * the last step lands at full opacity -- the invariant's one
+         * atomic display. The spin held the panel for the whole
+         * window (s_switch_fading, cleared here). */
+        s_fade_pending = false;
+        s_switch_fading = true;
+        fade_leg(lv_screen_active(), 255, 0);
+        s_switch_fading = false;
+        return;
+    }
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
 }

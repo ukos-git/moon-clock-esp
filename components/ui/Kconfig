@@ -33,8 +33,9 @@ menu "UI Component Configuration"
             frames, baked off screen and displayed as atomic whole
             frames on the same pipeline as the burn-in spin (one ~150 ms
             frame, no top-to-bottom wipe, the display stays live
-            throughout). The sweep always starts dark (the black screen
-            fades into the reveal; the first frames are nearly black)
+            throughout). The sweep always starts dark (the first frames
+            are nearly black, so the transition from the blank boot
+            screen reads as the new moon waxing; no wipe)
             and ends on the current phase, and hands the burn-in spin
             (UI_MOON_SPIN_*) back at the exact on-screen pose. This is
             the BOOT animation only: waking from sleep (touch, tilt or
@@ -125,22 +126,32 @@ menu "UI Component Configuration"
         help
             The current phase is baked once (the static frame) and then
             rotated in-plane on screen by a FREE SPIN (a nearest-neighbor
-            gather, ~6 ms/frame -- no re-bake): a spin angle integrated
-            per frame whose rate is smoothed toward a target. While the
-            device is in use (touched or tilted within the settle window)
-            the rate is the ACTIVE period below; once it settles the rate
-            coasts to the PHASE-TRUE speed -- one full turn per synodic
-            moon month (29.53 days, ~12 deg/day) -- so the pose tracks
-            the real moon phase. The continuous slow coast moves the lit
-            pixels around the panel, preventing AMOLED burn-in (the same
-            intent as the old fixed-period burn-in spin, without a fixed
-            period). Picking the device up spins it faster; letting it
-            settle slows it visibly back to the phase rate. The render
-            runs on core 1; the display (LVGL) runs on core 0; they are
-            serialized on the frame buffer so the display never tears.
-            The spin runs on every screen that shows the moon and is
-            paused (not stopped) while the tilt-driven orbit re-bake
-            owns the buffer.
+            gather, ~8 ms/frame at the full 400x400 render size -- no
+            re-bake; the lighting re-bake happens once per day, the
+            rotation is pure gather): a spin angle integrated per
+            frame whose rate is smoothed toward a target. While the
+            device is in use (touched or tilted within the settle
+            window) the rate is the ACTIVE period below; once it
+            settles the rate eases to the SLOW SETTLED period (default
+            600 s/turn) -- the continuous slow rotation moves the lit
+            pixels around the panel, preventing AMOLED burn-in.
+            Picking the device up spins it faster; letting it settle
+            slows it visibly back to the settled rate. Each frame is
+            written STRAIGHT to the panel from the render task (core
+            1) via a wrapped esp_lcd_panel_draw_bitmap (the 400x400
+            moon area, one whole-moon-area write per frame, the panel's
+            SPI bus lock serializing with LVGL's own flushes). A UI
+            keep-mask (analytic seconds-arc ring band + a full-screen
+            lv_snapshot of the active screen with the moon image
+            hidden) protects every non-black UI pixel -- clock digits,
+            the alarm row, icons -- so the spin composites the frame
+            only where the UI is not. The spin no longer routes
+            through LVGL's ~175 ms whole-panel re-render, so the
+            touch core (LVGL, core 0) stays free and the spin can
+            show more, finer frames at lower CPU. The spin runs on
+            every screen that shows the moon and is paused (not
+            stopped) while the tilt-driven orbit re-bake, the boot
+            sweep, the dusk, or a fade leg owns the buffer.
 
     config UI_MOON_SPIN_PERIOD_S
         int "Active spin: seconds for one full turn (while in use)"
@@ -150,27 +161,53 @@ menu "UI Component Configuration"
             The spin rate while the device is in use: one full in-plane
             rotation in this many seconds (the default 300 s = a turn
             every 5 minutes). After the last user activity (touch or
-            tilt) the rate eases down toward the phase-true coast (one
-            turn per synodic month) over the settle window. Lower = a
-            faster (more visible) spin while in use; the display duty
-            scales with it. The whole-frame display flush is ~175 ms of
-            core-0 work per shown frame (display-bound), so a slower
-            active rate directly cuts the CPU the spin spends while the
-            device is in use -- the default was lowered 180 s -> 300 s
-            together with the 4-px rim-motion display gate to bring the
-            active-spin duty from ~80% to ~20% of one core.
+            tilt) the rate eases down toward the settled period over the
+            settle window. Lower = a faster (more visible) spin while
+            in use.
+
+    config UI_MOON_SPIN_SETTLED_PERIOD_S
+        int "Settled spin: seconds for one full turn (at rest)"
+        default 600
+        range 60 7200
+        help
+            The spin rate once the device has settled (no touch or
+            tilt within the settle window): one full in-plane rotation
+            in this many seconds (the default 600 s = a turn every
+            10 minutes, half the active rate). The spin stays VISIBLE
+            at rest -- it is the AMOLED burn-in protection, so it
+            must keep moving the lit pixels; the old phase-true coast
+            (one turn per synodic month) was effectively invisible and
+            read as the moon freezing a minute before light sleep.
+            The continuous slow rotation keeps guarding against
+            burn-in while the device sits on a table.
+
+    config UI_MOON_SPIN_FPS
+        int "Spin frame rate: rendered/panel-written frames per second"
+        default 8
+        range 2 30
+        help
+            How many spin frames the render task writes to the panel
+            per second. Each frame is one cheap nearest-neighbor
+            rotate of the baked 400x400 phase (~8 ms) plus a direct
+            QSPI write of the moon area (~30-40 ms of panel time,
+            QSPI quad at 40 MHz) -- the frame is paced to this rate,
+            so a higher value is smoother (a smaller angular step per
+            displayed frame) at a higher core-1 duty. The rate is
+            time-integrated, so a dropped frame is a bigger step,
+            never a repeat or a stall. 8 fps at the 300 s active
+            period steps the rim by ~0.15 deg/frame -- smooth.
 
     config UI_MOON_SPIN_SETTLE_S
-        int "Spin settle window: seconds of idle before coasting to phase"
+        int "Spin settle window: seconds of idle before easing to the settled rate"
         default 10
         range 2 60
         help
             After this much time without user activity (touch or tilt)
             the spin rate begins easing from the active period down to
-            the phase-true coast (one turn per synodic moon month). The
-            rate change is exponential (time constant ~ this/3), so a
-            few multiples of this window settle the spin fully. Larger
-            = the moon keeps its active spin longer after use.
+            the settled period. The rate change is exponential (time
+            constant ~ this/3), so a few multiples of this window
+            settle the spin fully. Larger = the moon keeps its active
+            spin longer after use.
 
     config TEST_AUTO_WAKE_SEC
         int "Test: auto-wake from sleep after N seconds (0 = off)"
@@ -414,22 +451,22 @@ menu "UI Component Configuration"
             eliminates sensor stutter; raise it for a snappier
             (jitterier) response, lower it for a heavier low-pass.
 
-    config UI_SCREEN_SWITCH_REVEAL
-        bool "Concentric (center-out) reveal on screen switches"
-        default y
-        select LV_USE_SNAPSHOT
+    config UI_SCREEN_SWITCH_FADE
+        int "Screen switch: fade-to-black time in ms (0 = plain atomic switch)"
+        default 240
+        range 0 2000
         help
-            A screen switch (e.g. into the settings hub) is normally
-            displayed by LVGL's top-to-bottom 25-row strip flush. With
-            this option the new screen is rendered once into a full-
-            screen snapshot (LV_USE_SNAPSHOT) and the panel is written in
-            the same 25-row windows but ordered from the vertical
-            center outward -- the new screen "blooms" in concentrically
-            instead of sweeping down. Only switches TO a moon-less
-            screen (the settings screens) take this path; the moon
-            screens keep the atomic whole-panel flush (the moon
-            pipeline invariant). No speed gain: the same bytes reach the
-            panel, only the light-up order differs. A snapshot or panel
-            failure falls back to the normal atomic flush.
+            A screen switch (e.g. into the settings hub) fades the
+            OUTGOING screen down to black (one whole-panel flush per
+            step), loads the new screen off the visible path, then
+            fades the new screen IN from black. Each step is one atomic
+            whole-panel lv_refr_now under the moon buffer mutex (the
+            moon pipeline's display rule), so no top-to-bottom strip
+            crawl and no visible tearing. The total switch cost is
+            roughly 2x this time (two fade legs). 0 = the plain
+            instant atomic switch (lv_scr_load + one whole-panel
+            flush, the old behaviour). Only screens without a moon
+            image on BOTH sides take the fade leg that renders the
+            new screen (the moon screens switch atomically as always).
 
 endmenu

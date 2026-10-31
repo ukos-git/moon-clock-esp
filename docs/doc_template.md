@@ -5,17 +5,21 @@ phase, from the last new moon to now — is rendered in real time on an AMOLED
 panel from LROC Wide-Angle Camera albedo and LOLA relief, lit with
 displaced-normal Lambert shading at the exact Sun/Moon/Earth geometry of the
 cheap ephemeris (JPL Moon98 + ERFA EPV). The disk is baked on-chip once a day;
-the free spin is a fixed-point in-plane re-gather (~40 ms/frame); sleep is
-signalled by a pole-axis spin that carries the terminator across the disk to
-the fully unilluminated side. Time comes from NTP (brief on-demand WiFi
-activation, then back to airplane mode); the PCF85063A RTC holds the clock
-between syncs.
+the free spin is a fixed-point in-plane re-gather (~8 ms/frame) written
+straight to the panel; sleep is signalled by a pole-axis spin that carries the
+terminator across the disk to the fully unilluminated side. Time comes from NTP
+(brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
+RTC holds the clock between syncs.
 
-_State of this document: 2026-10-30, after the reveal-rotation **direction**
-fix (the snapshot is screen-local, and the in-place rotation was 90° CCW
-instead of CW — the reveal ghost that showed on the alarm screen) and the gated
-2 s press orientation re-sync (stable + on-axis pose only, so a palm released
-mid-flip no longer re-anchors the home pose). See the standing rule in
+_State of this document: 2026-10-31, after the burn-in spin's **direct panel
+write** (the render task writes the 400×400 moon area straight to the panel at
+8 fps instead of routing through LVGL's ~175 ms re-render; the settled rate is
+a constant slow spin, so the moon no longer freezes before light sleep), the
+**fade-to-black screen switch** (replacing the concentric reveal that showed
+white strip bars), the **alarm weekday prefix** ("Mo 07:00" on the home screen
+when the next fire is >24 h away), the **fa-circle-xmark exit glyph** (U+F057 —
+the glyph is the button), and the **7:00 Mon–Fri default alarm** (the `*/5`
+debug rule burned the alarm screen in). See the standing rule in
 [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 `python3 docs/gen_doc.py` and must stay in sync with the code._
 
@@ -51,14 +55,16 @@ Markdown and renders the project's own media:
 - **12 screenshots** of every live screen, rendered by the UI simulator
   (`host_sim/uisim`) from the _real_ device `screens.c` with the vendored LVGL
   9.6 — the exact panel pixels, 466x466 RGB565: `docs/img/screens/*.png`
-- **4 films** of the live animations, frames rendered by the device's own moon
-  core (`host_sim/build/moon_sim`, the exact device translation units):
+- **4 films** of the live animations — the first three with frames rendered by
+  the device's own moon core (`host_sim/build/moon_sim`, the exact device
+  translation units):
   - `docs/img/boot_sweep.mp4` — the boot synodic sweep (336 frames @240 px, new
     moon → now)
   - `docs/img/free_spin.mp4` — the settled free spin (36 frames @466 px, 10°)
   - `docs/img/dusk.mp4` — the pole-axis sleep spin (0° → the fully-dark
     endpoint, 1°/frame)
-  - `docs/img/reveal.mp4` — the concentric (center-out) screen-switch reveal
+  - `docs/img/fade.mp4` — the fade-to-black screen switch (airplane → settings
+    hub; uisim frames blended through the 4+4 overlay steps)
   - plus the committed montages `docs/img/boot_sweep.png`,
     `docs/img/free_spin.png`, `docs/img/dusk.png` (the README demo).
 - **5 sample frames** of the NASA SVS 5415 reference set the image gate runs
@@ -129,8 +135,8 @@ file is gitignored). The SPIFFS partition is re-baked from `spiffs/` on every
 build, so this file must exist in the tree before `idf.py build`. **Warning:**
 a full `idf.py flash` re-bakes `storage.bin` and clobbers runtime-written
 `/spiffs/alarm.txt` and `/spiffs/settings.txt` — the device re-derives them
-(the `*/5` debug rule in `spiffs/alarm.txt` is restored from the tree; user
-alarm/settings edits are lost on a full flash).
+(the `spiffs/alarm.txt` default — 7:00 Mon–Fri — is restored from the tree;
+user alarm/settings edits are lost on a full flash).
 
 **Timezone** (optional): `idf.py menuconfig` → _Component config → Clock
 Component Configuration → Default timezone_ (POSIX TZ; default
@@ -188,7 +194,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                |
 | -------------- | ------ | ------------------------ | -------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                  |
-| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15b280` (1,421,568 B), 3,456 B free |
+| `factory`      | app    | **1392 K** (1,425,408 B) | the firmware — current binary `0x15ad90` (1,420,688 B), 4,720 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)          |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                           |
 
@@ -234,17 +240,21 @@ docs/                  this document + media
 
 ### 4.2 Task & core model
 
-| Task           | Core | Job                                                                                                                                    |
-| -------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, atomic whole-panel flushes; 8 KB stack                                     |
-| spin render    | 1    | the free spin's fixed-point gather (~40 ms/frame), rate = active period while in use, phase-true coast (1 turn / 29.53 d) when settled |
-| moon bakes     | 1    | boot sweep (336 frames), daily re-bake, dusk shade map + final bake, row-by-row so an interrupt is honored                             |
-| wifi sync      | 1    | background `wifi_manager_init` + NTP (never on the LVGL task — the wake-freeze bug's fix)                                              |
-| main           | 0    | boot, RTC polling (1.3 s), test hooks                                                                                                  |
+| Task           | Core | Job                                                                                                                                                                                                                        |
+| -------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, the fade-to-black switch legs, atomic whole-panel flushes; 8 KB stack                                                                                          |
+| spin render    | 1    | the free spin: one nearest-neighbor gather of the baked 400×400 frame (~8 ms) + a direct panel write of the moon area (8 fps default), rate = active period while in use, slow settled period (default 600 s/turn) at rest |
+| moon bakes     | 1    | boot sweep (336 frames), daily re-bake, dusk shade map + final bake, row-by-row so an interrupt is honored                                                                                                                 |
+| wifi sync      | 1    | background `wifi_manager_init` + NTP (never on the LVGL task — the wake-freeze bug's fix)                                                                                                                                  |
+| main           | 0    | boot, RTC polling (1.3 s), test hooks                                                                                                                                                                                      |
 
-All moon frames land on the panel as **one atomic whole-panel `lv_refr_now`
-under `s_rgb_mtx`** — the moon pipeline's display invariant (the spin render
-and the LVGL display are serialized on the frame buffer; no tearing).
+All moon-pipeline frames (bake, sweep, dusk, wake) land on the panel as **one
+atomic whole-panel `lv_refr_now` under `s_rgb_mtx`** — the display invariant.
+Two sanctioned exceptions, both whole-panel and mutex-serialized (the spin on
+the panel's SPI bus lock, the fade legs on `s_rgb_mtx`): the burn-in spin
+writes its 400×400 moon area **straight to the panel** from the render task
+(§8.1), and the screen-switch fade steps through a full-screen black overlay,
+one atomic flush per step (§10.4). No tearing either way.
 
 ### 4.3 The display pipeline
 
@@ -259,8 +269,9 @@ moon_bake (core 1, PSRAM 8-bit gray) -> RGB565 convert
 
 `buffer_height = 25` (23.3 KiB strip) and flush queue depth 1 are hard limits
 of this board (the 50-row upstream default exhausts the DMA-capable heap). The
-screen-switch reveal (`UI_SCREEN_SWITCH_REVEAL`, §10.4) reorders the same
-strips center-out; everything else keeps top-to-bottom.
+burn-in spin bypasses this strip path entirely: a wrapped `draw_bitmap` writes
+the 400×400 moon area straight to the panel in 16×25-row strips under the
+panel's own SPI bus lock, keeping the LVGL core free (§8.1).
 
 ### 4.4 Screen & state flow
 
@@ -272,7 +283,7 @@ idle (runtime timeout, default 60 s): light sleep = the DUSK
    -> last frame arms the RTC deep-sleep countdown (default 60 s)
 deep sleep: dark side + clock hidden + backlight OFF
 alarm (RTC minute poll): alarm screen (until dismissed by touch); fires from deep sleep too
-tap on airplane/WiFi: settings hub (concentric icon ring + central exit)
+tap on airplane/WiFi: settings hub (icon ring + central circle-xmark exit)
    sub-screens: alarm, pomodoro, alarm-time, light-sleep, deep-sleep, WiFi
 hourly (on the minute, at rest on airplane only): transient WiFi screen +
    NTP sync -> back to airplane
@@ -350,9 +361,13 @@ recompute (fixed-point gather only), and the dusk is a **constant projection**
 `moon_rotate`: a fixed-point nearest-neighbor in-plane gather ("ball in hand"),
 int4-quantized 10°-step orientation applied per screen, angle integrated per
 frame with the rate smoothed (EMA) toward the target — active period (default
-300 s/turn) while in use, **phase-true coast** (one turn per synodic month,
-~12°/day) when settled, so the pose tracks the real Moon phase. ~40 ms/frame;
-display ~140 ms (display-bound).
+300 s/turn) while in use, **constant slow spin** (600 s/turn,
+`UI_MOON_SPIN_SETTLED_PERIOD_S`) when settled, so the moon never reads as
+frozen before light sleep. ~8 ms gather per frame, then the composited 466×466
+composite is written **straight to the panel** in 16×25-row strips at 8 fps
+(`UI_MOON_SPIN_FPS`) — the render bypasses LVGL's re-render path (the wrapped
+`esp_lcd_panel_draw_bitmap`), so the frame cost is gather + one panel write,
+not the ~175 ms re-render.
 
 ### 5.4 The clock
 
@@ -377,23 +392,24 @@ round AMOLED showing the Moon.
   task #55). The clock digits and the moon share the white; the grey carries
   the "you can press this" affordance.
 - **Type — Montserrat**, generated subsets (`lv_font_conv`, 4-bit,
-  uncompressed): 96 px digits (the clock), 48 px (rollers/labels), 40 px
-  weekday letters, 32 px SSID/captions; Font Awesome 7 Free (Solid 96 px:
-  xmark/gear/moon/wifi/stopwatch; Regular: moon/alarm-clock) — the icon set is
-  the same weight-and-color logic as the type.
+  uncompressed): 96 px digits (the clock), 48 px (rollers/labels), 32 px
+  SSID/captions + a 32 px range subset (the "Mo-Fr" day summary, whose font
+  needs only digits-free lowercase + hyphen); Font Awesome 7 Free (Solid 96 px:
+  circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock) — the icon set
+  is the same weight-and-color logic as the type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
-  = screen center. The settings hub mirrors it: a central concentric exit
-  button (150 px grey ring + black inner circle + white xmark) with the
-  sub-screen icons on a 45° diagonal ring at radius ~165. Every sub-screen's
-  exit is the same button, smaller, top-center. Weekday selection is a pie of 7
-  arc wedges (pressable, square-capped, seam-pixel shared); the day range is a
-  two-ended range arc with draggable handles.
-- **Motion — the moon's own.** The screens are switched with the **same 25-row
-  panel strips the hardware uses, ordered center-out** (the concentric reveal,
-  §10.4): a new screen blooms from the center like the moon's disk. The base
-  +90° orientation is an LVGL root transform, so "screen center" is the panel
-  center. Sleep is motion with meaning: the dusk _is_ the terminator
-  travelling, not a fade.
+  = screen center. The settings hub mirrors it: a central circle-xmark exit
+  (the fa-circle-xmark glyph alone — the glyph _is_ the button, U+F057) with
+  the sub-screen icons on a 45° diagonal ring at radius ~165; every
+  sub-screen's exit is the same glyph, smaller, top-center. The alarm day range
+  is a two-ended range arc with draggable handles — the same thin outer ring as
+  the home seconds arc (outer radius 223, 10 px from the panel edge), the range
+  in the moon colour.
+- **Motion — the moon's own.** Screen switches **fade to black and back** (4
+  steps out, load, 4 steps in — §10.4); the moon screens themselves switch
+  atomically as always. The base +90° orientation is an LVGL root transform, so
+  "screen center" is the panel center. Sleep is motion with meaning: the dusk
+  _is_ the terminator travelling, not a fade.
 - **Interaction — touch-only, gesture-honest.** Taps open; drags on rollers
   (persist only on RELEASED — SPIFFS/I2C stay off the drag path); the day-range
   handles snap; an idle timeout (runtime) dims into light sleep; waking shows
@@ -412,7 +428,12 @@ live.
 ![airplane](img/screens/modem_sleep.png)
 
 - The moon disk at the current phase (the free spin animates it), the clock (96
-  px HH:MM, two-digit, the live seconds arc around the disk).
+  px HH:MM, two-digit), the live seconds arc around the disk, and **below the
+  clock the next alarm** — the HH:MM of the next scheduled fire, preceded by
+  the two-letter weekday of that fire ("Mo 07:00", 32 px range font, grey)
+  whenever the fire is more than 24 h away; within 24 h the prefix drops and
+  the time stands alone (the weekday only carries meaning across a day the rule
+  skips).
 - **No icons** — the moon stays in the foreground (user decision).
 - Tapping anywhere (the clock container is non-clickable so the tap falls
   through to the screen root) opens the settings hub.
@@ -467,14 +488,15 @@ live.
 
 ![hub](img/screens/settings_hub.png)
 
-- Central concentric exit (grey ring, black core, white xmark) → exits to the
-  calling level (a WiFi reconnect if entered from a fresh wake — the hub's exit
-  lands on the WiFi screen and drops to airplane when done).
+- Central **circle-xmark exit** — the fa-circle-xmark glyph alone (U+F057; the
+  glyph is the button, no ring chrome; 150 px tap box) → back to the **home
+  (airplane) screen**, no sync kicked off.
 - Icon ring (45° diagonals, 96 px glyphs, clickable): alarm settings
   (alarm-clock, regular), light sleep (moon, regular), deep sleep (moon, solid
   — the weight distinguishes the two), WiFi (wifi, solid).
-- Grey = present/available, white = selected; the hub's ticks refresh icon
-  colors after every save.
+- Grey = present/available, white = selected; the sub-screens' bottom-centre
+  exit is the same glyph at 96 px and returns to the **calling level** (the
+  hub, or the alarm screen for its two sub-screens).
 
 ### 7.7 Alarm settings
 
@@ -503,48 +525,55 @@ live.
   edit; the write + scheduler re-parse are logged
   (`Parsed alarm rule: every N minutes`, `Next alarm scheduled for ...`).
 
-### 7.9 Alarm time (the weekday pie)
+### 7.9 Alarm time (the day-range arc)
 
 ![alarm time](img/screens/settings_alarm_time.png)
 
-- **Day range**: a two-ended range arc across the outer radius with two
-  draggable handles (PRESS_LOCK; PRESSED/PRESSING snap to the nearest day
-  letter; RELEASED saves) — replacing the per-slice toggle model (task #69); 7
-  weekday letters (Montserrat 40 px) mirror the arc's selected/unselected
-  color.
-- **Time**: 96 px HH:MM preview (two-digit, zero-padded, colon) with two 48 px
-  rollers (hours, minutes ×5) below; RELEASED saves
-  `clock_alarm_set_clock_alarm(h, m, dow_mask)` (reject empty mask) → the cron
-  rule `M H * * <dow>`.
+- **Day range**: a two-ended range arc on the **same thin outer ring as the
+  home screen's seconds arc** (a 466×466 object at (0,0); ring outer radius
+  223, 10 px from the panel edge) — the former 7 weekday letters are gone (task
+  #91), so the ring owns the outer band. The dark track (LV_PART_MAIN) spans
+  the upper half-circle (Monday left, Sunday right); the **moon-colour
+  (SETTINGS_GREY) indicator** spans the range; two 34 px grey handles at r 218
+  are the range endpoints (PRESS_LOCK; PRESSED/PRESSING snap the endpoint to
+  the nearest of the 7 day angles 181+30°·d; RELEASED saves).
+- **Day summary**: the "Mo-Fr" range text (32 px range font — lowercase +
+  hyphen subset) above the time carries the day meaning (a single day shows
+  "We"; wrap included, "Fr-Mo").
+- **Time**: 96 px HH:MM at the clock position with two 48 px rollers (hours,
+  minutes ×5) and the colon between; RELEASED saves
+  `clock_alarm_set_clock_alarm(h, m, dow_mask)` → the cron rule
+  `M H * * <dow>`.
 - A self-diagnosing **read-back log** prints after every save
   (`read-back: rule_types=0xNN fixed=ok got HH:MM mask 0xNN MATCH|MISMATCH`) so
   a device regression localizes to the write/re-parse layer vs the UI color
   refresh.
-- **Settings displayed:** the fixed time (HH:MM), the day mask (the range arc +
-  letters), and — via the save log — the parsed rule the scheduler re-loaded.
+- **Settings displayed:** the fixed time (HH:MM), the day range (ring + "Mo-Fr"
+  summary), and — via the save log — the parsed rule the scheduler re-loaded.
 
 ### 7.10 Light-sleep settings
 
 ![light sleep settings](img/screens/settings_light_sleep.png)
 
-- Header moon (regular). One centered 48 px roller: the **idle timeout**
-  (10-300 s, default 60) — `RELEASED` → `settings_set_idle_timeout_sec` + live
-  `clock_idle_set_timeout_ms()` + store save (takes effect immediately).
-- Both **animation toggles** (glyph + upper-cased caption, white = on / grey =
-  off; no switch widget): boot animation (`boot_anim_enable`) and dusk
-  animation (`dusk_anim_enable`).
-- **Settings displayed:** the idle timeout value + both animation flags.
+- Header moon (regular). One 48 px roller (in **minutes**, 1-30) + one
+  icon-only animation toggle (96 px solid moon, white = on / grey = off; no
+  switch widget) on one horizontal line. The roller is the **idle timeout** —
+  `RELEASED` → `settings_set_idle_timeout_sec` + live
+  `clock_idle_set_timeout_ms()`
+  - store save (takes effect immediately). The toggle is the **sleep-transition
+    animation** (the dusk) — `dusk_anim_enable` (the boot-sweep flag
+    `boot_anim_enable` stays in the store but is not exposed here).
+- **Settings displayed:** the idle timeout value + the dusk flag.
 
 ### 7.11 Deep-sleep settings
 
 ![deep sleep settings](img/screens/settings_deep_sleep.png)
 
-- Header moon (solid). One centered 48 px roller: the **deep-sleep countdown**
-  (10-300 s, default 60) — `RELEASED` →
-  `settings_set_deep_sleep_countdown_sec` + save (takes effect at the next dusk
-  arming).
-- The same two animation toggles.
-- **Settings displayed:** the countdown value + both animation flags.
+- Header moon (solid). One 48 px roller (in **minutes**, 1-30) + the same
+  icon-only dusk toggle. The roller is the **deep-sleep countdown** —
+  `RELEASED` → `settings_set_deep_sleep_countdown_sec` + save (takes effect at
+  the next dusk arming).
+- **Settings displayed:** the countdown value + the dusk flag.
 
 ### 7.12 WiFi settings
 
@@ -567,15 +596,14 @@ The product runs an always-on AMOLED with a mostly-static disk; burn-in is a
 _design requirement_, not an afterthought. The statements, in the order they
 were made and implemented:
 
-1. **The lit pixels must move, continuously, with no fixed period.** The free
-   spin is the burn-in mechanism: while the device is in use it rotates at the
-   active rate (default 300 s/turn); once it settles the rate _coasts to the
-   phase-true speed_ — one full turn per synodic month (29.53 d, ~12°/day) — so
-   the pose tracks the real moon phase while the lit pixels drift around the
-   panel forever. There is deliberately **no fixed-period spin** (the old
-   design's fixed 300 s period parked the same pixels in the same places every
-   period; the coast eliminates that). ~12°/day × 30 d = a full circle of the
-   panel per lunation.
+1. **The lit pixels must move, continuously, at rest as well as in use.** The
+   free spin is the burn-in mechanism: while the device is in use it rotates at
+   the active rate (default 300 s/turn); once it settles the rate eases to a
+   **constant slow spin** (default 600 s/turn) that never stops — the
+   phase-true coast it replaced (one turn per synodic month) was effectively
+   invisible and read as the moon _freezing a minute before light sleep_. The
+   continuous slow rotation keeps moving the lit pixels around the panel
+   forever while the device sits on a table.
 2. **The sleep state must not park the disk either.** The dusk is a
    _constant-projection pole spin_: the terminator (and the lit crescent's
    relief detail) travels the disk for the whole light-sleep duration (14-95 s
@@ -591,9 +619,10 @@ were made and implemented:
    continuous ramp would have parked the clock's pixels in intermediate
    positions; the steps put every pixel in one of four known poses, and the
    spin + dusk keep moving them between the settle periods.
-4. **The screen-switch reveal does not add a static element** — it rewrites the
-   panel with the same center-anchored content; the content's motion (the spin)
-   is untouched.
+4. **The screen-switch fade does not add a static element** — a full-screen
+   black overlay steps the whole panel to/from black (one atomic flush per
+   step); the content underneath keeps its motion (the spin), and the fade
+   overlay is deleted the moment the legs end.
 5. **Residual risk, stated plainly:** the _clock digits_ are the only truly
    static elements (they move with the 90° steps and with the tilt-driven roll,
    but between rolls they sit still). At the AMOLED's always-on duty cycle the
@@ -616,7 +645,9 @@ device's own sweep; ~2.8 min on-device, 67 s at 5 fps here):
 <video src="img/boot_sweep.mp4" controls width="466"></video>
 
 **Free spin** — the settled animation at the current phase (36 frames @466 px,
-10° steps; ~140 ms display + ~40 ms gather per frame on-device):
+10° steps; on-device each frame is one ~8 ms nearest-neighbor gather of the
+baked 400×400 phase + a direct 16-strip panel write, at 8 fps by default — the
+frame lands on the panel without an LVGL re-render in between):
 
 ![free spin montage](img/free_spin.png)
 <video src="img/free_spin.mp4" controls width="466"></video>
@@ -629,13 +660,14 @@ on-device the final frame is a pixel-exact bake at φ\* = +134.78° for the
 ![dusk montage](img/dusk.png)
 <video src="img/dusk.mp4" controls width="466"></video>
 
-**Concentric screen-switch reveal** — airplane → settings hub: the same 25- row
-QSPI strips the adapter writes, ordered from the vertical center outward
-(`UI_SCREEN_SWITCH_REVEAL`, `9dad4fe`). Both frames are rotated +90° CW first —
-the device's orientation pipeline applies the base orientation to every screen
-root, and the reveal writes the rotated pixels to the panel:
+**Fade-to-black screen switch** — airplane → settings hub: the outgoing screen
+fades to black under a full-screen overlay (4 steps, one atomic whole-panel
+flush each), the new screen loads off the visible path, then fades in from
+black (4 more steps; `UI_SCREEN_SWITCH_FADE`, default 240 ms per leg). Only
+switches that cross the moon / moon-less boundary take the fade; both-moon and
+both-moon-less switches stay atomic:
 
-<video src="img/reveal.mp4" controls width="466"></video>
+<video src="img/fade.mp4" controls width="466"></video>
 
 ---
 
@@ -695,54 +727,43 @@ upgrade from the UI tick.
   got the same stability gate, so a device still being placed at boot cannot
   latch a transient pose as home.
 
-### 10.4 The concentric screen-switch reveal (`9dad4fe`, rotation
+### 10.4 The screen switch: fade-to-black (replaced the concentric reveal)
 
-direction fix 2026-10-30)
+`CONFIG_UI_SCREEN_SWITCH_FADE` (int ms, default 240, 0 = plain atomic): a
+switch that **crosses the moon / moon-less boundary** (home ↔ settings, and
+to/from the alarm screen) fades the outgoing screen to black, loads the new
+screen, and fades it in:
 
-`CONFIG_UI_SCREEN_SWITCH_REVEAL` (default y, selects `LV_USE_SNAPSHOT`): on a
-switch **to a moon-less screen** (the settings direction), the new screen is
-rendered once into a full-screen RGB565 snapshot via `lv_snapshot_take`,
-byte-swapped to the panel's native RGB565 (the adapter bridge does this swap
-for its own flushes on the OTHER interface), **rotated in place by the root's
-current orientation step**, and written to the panel in the same 25- row
-windows (the BSP `buffer_height` budget) **ordered by strip-center distance
-from the vertical middle** — 19 strips, center out. The trailing atomic
-`lv_refr_now` then re-displays identical pixels and drains LVGL's pending
-invalidation (the FADE_IN bug class must not return). Any failure (NULL
-snapshot, odd dims/stride, NULL panel, non-90°-multiple transform, write error)
-falls back to the plain atomic flush. Moon screens keep the atomic whole-panel
-flush alone. The adapter's TEAR_AVOID_NONE panel-IO completion callback (which
-fires on every direct QSPI transfer) only clears an already-cleared `flushing`
-flag — verified harmless. No speed change: the same bytes reach the panel, only
-the light-up order differs.
+- **Fade-out** (`moon_ui_fade_out`, in `loadScreen` _before_ `lv_scr_load`): a
+  full-screen black overlay is added to the outgoing screen (last child =
+  topmost, non-clickable — touches during the transition fall through to the
+  screen's own handlers) and stepped 0 → 255 opacity in `FADE_STEPS` = 4 steps;
+  each step is one atomic whole-panel `lv_refr_now` under `s_rgb_mtx`, paced
+  `UI_SCREEN_SWITCH_FADE / 4` ms. The overlay is deleted at the leg's end, the
+  flag `s_fade_pending` is left set.
+- **Fade-in** (`moon_ui_screen_switched`): if `s_fade_pending`, the loaded
+  screen gets the same overlay stepped 255 → 0; the last step lands full-bright
+  and is the switch's atomic whole-panel display (the invariant's "one atomic
+  flush" is the fade's last step). The spin render task polls `s_switch_fading`
+  and holds while a leg owns the panel, so a full- brightness moon frame never
+  interleaves a dimmed leg.
+- **No fade:** both-moon switches (airplane / WiFi / the sleep screens share
+  the one moon image) and both-moon-less switches (settings ↔ settings) keep
+  the plain atomic `lv_scr_load` + one whole-panel flush — a fade there would
+  only dim the moon, which is the same disk on both sides.
 
-**The rotation (the 2026-10-30 fix).** The first version assumed
-`lv_snapshot_take` renders through the root's LVGL transform — it does **not**:
-it renders the screen in its _local_ coordinates (proven by the host probe
-`uisim --rottest`: with a +90° root rotation the snapshot's header icon stayed
-top-centre). The panel, meanwhile, holds the content rotated by the orientation
-pipeline's step (base +90° CW mount offset included). The reveal therefore
-wrote _unrotated_ content center-out — a 90°-off bloom that read as
-"intermediate lines". The fix: `reveal_rotate_cw90` rotates the 466×466 buffer
-in place by `lv_obj_get_style_transform_rotation(root) / 900`, taken modulo
-3600 (90° CW = transpose then reverse each row; 180° = reverse the array; 270°
-CW = reverse each row then transpose).
-
-**The direction bug (caught 2026-10-30).** The case bodies of that fix were
-swapped: "90° CW" actually computed 90° **CCW**. At the base orientation the
-reveal therefore wrote the previous screen as a full panel-sized ghost at the
-wrong orientation on top of the new one — the "draw artifacts" the user saw on
-the alarm screen (which the `*/5` debug rule visits every 5 minutes). The 3×3
-matrix check (transpose+row-reverse maps the top row to the right column)
-pinned it; the host probe showed it directly: pre-fix, `--reveal 1` on the
-alarm screen differed from the real rotated flush in 21,270/217,156 px (a whole
-mis-oriented copy of the content); post-fix the hub differs in 5,730/
-6,783/5,593 px (q=1/2/3) and the alarm in 2,947 px — confined to glyph AA
-edges, every solid area byte-exact. The device's own transform render
-(`lv_draw_sw_transform.c`) re-samples those edges, and the trailing
-`lv_refr_now` replaces them with the exact transform render a moment later. At
-q=0 (rotation 0) the diff is 0/217,156. So the bloom shows the right pixels in
-the right place from strip one.
+Why it replaced the old concentric reveal (the center-out strip reorder,
+`9dad4fe`): the reveal's visible failure mode was "white bars updating the
+screen" (the strip crawl at the panel's QSPI rate) plus a rotated ghost —
+`lv_snapshot_take` renders the screen in its _local_ coordinates, NOT through
+the root's LVGL transform, so the center-out write showed unrotated content
+until the trailing atomic flush fixed it (the rotation fix `5550a6d` and its
+direction bug `9c96a12` — "90° CW" computed 90° CCW, painting the previous
+screen as a mis-oriented full-panel ghost; the alarm screen, visited every 5
+minutes by the then-active `*/5` debug rule, showed it). The fade has no strip
+ordering, no snapshot-rotation coupling to the orientation pipeline, and no
+intermediate frames that aren't simply "the screen, darker": every step is a
+legal whole-panel image, so nothing a user can see is ever a ghost or a bar.
 
 ### 10.5 Alarms, settings store, cron
 
@@ -778,14 +799,14 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once                                                                                                                                                                               |
 | Boot sweep                                    | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                          |
-| Free spin                                     | **~140 ms** display (display-bound) + **~40 ms** gather/render per frame; 0 WDT resets                                                                                                          |
+| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets                                           |
 | Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown                                     |
 | Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                           |
 | Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                            |
-| Screen switch (settings, reveal)              | snapshot render + 19 center-out strips + trailing identical atomic flush                                                                                                                        |
+| Screen switch (settings, fade)                | 2 legs × 4 atomic whole-panel flushes (one per fade step, `UI_SCREEN_SWITCH_FADE` 240 ms total)                                                                                                 |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                  |
-| Binary                                        | `0x15b280` = 1,421,568 B in the 1,425,408 B partition (**3,456 B free**)                                                                                                                        |
+| Binary                                        | `0x15ad90` = 1,420,688 B in the 1,425,408 B partition (**4,720 B free**)                                                                                                                        |
 
 ---
 
@@ -844,17 +865,14 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466, ESP stubs) → per-screen PNG snapshots
   (`build.sh run`) — the source of every screenshot in §7. Two diagnostic
-  probes (2026-10-30): `--rottest` proves `lv_snapshot_take` renders in the
-  screen's **local** coordinates (the root's LVGL rotation is ignored — the
-  finding behind the reveal's rotation fix, §10.4); `--reveal <q> [screen]`
-  runs the device's exact reveal permutation (copied verbatim into `main.c`)
-  and compares it pixel-by-pixel against the real rotated `lv_refr_now` flush
-  of the same screen (default the settings hub; the alarm screen is the
-  artifact repro) — q=0 gives 0/217156 differing pixels; q=1..3 differ only at
-  glyph anti-aliasing edges (LVGL's transform re-samples them; the trailing
-  flush corrects them). The probe also dumps the raw pre-rotation snapshot
-  (`out/snap_raw_qN.png`) — that image exposed the direction bug: the rotated
-  snapshot held a full mis-oriented ghost of the previous screen.
+  probes from the reveal era (2026-10-30), kept as the verification record:
+  `--rottest` proves `lv_snapshot_take` renders in the screen's **local**
+  coordinates (the root's LVGL rotation is ignored — the fact the spin's UI
+  keep-mask now relies on: the snapshot is rotated by the panel step in-place
+  before it masks); `--reveal <q> [screen]` runs the former concentric-reveal
+  permutation (copied verbatim into `main.c`) against the real rotated
+  `lv_refr_now` flush and dumped the raw pre-rotation snapshot
+  (`out/snap_raw_qN.png`) that exposed its direction bug.
 - `host_sim/render_demo.py` — the README montages (PIL + `moon_sim` only).
 - Venvs: `host_sim/.venv` (astropy, scikit-image, imagecodecs, numpy, PIL) and
   `assets/images/moon/.venv` — both gitignored; recreate with `uv venv` +
@@ -869,7 +887,7 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   the cron N>59 sanity) → alarm-time (12:35 Mon-Fri, the range-arc default) →
   light-sleep (store writes) → airplane, reading both SPIFFS files back); the
   settings stack's acceptance path, and the exercise of every screen switch
-  (hence of the concentric reveal).
+  (hence of the fade-to-black switch).
 - `TEST_AUTO_WAKE_SEC` — fires the idle-wake transition after N s of sleep (the
   wake path: WiFi reconnect, screen switch, moon re-bake).
 - `TEST_ROLL_TILT_SEC` — scripted tilt-roll steps (the orientation pipeline).
@@ -881,8 +899,8 @@ Headless captures drive the state machine through the **Kconfig test hooks**
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
-physical device for the things only a human can judge (the reveal's bloom, the
-weekday-pie gestures, the roller feel).
+physical device for the things only a human can judge (the fade-to-black
+switch's smoothness, the day-range-arc handle gestures, the roller feel).
 
 ---
 
@@ -896,30 +914,30 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 1392 K app (3,456 B free — the app sits at 99.7 % of its partition; every feature costs bytes, the LVGL monitor removal bought the reveal's ~5 KiB) + 64 K SPIFFS + 2560 K assets       |
+| 16 MB flash                         | 1392 K app (4,720 B free — the app sits at 99.7 % of its partition; every feature costs bytes) + 64 K SPIFFS + 2560 K assets                                                            |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
 
 **Hard limits the design works around**
 
-| Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                              |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                                       |
-| 1392 K app partition                               | the flash budget is a standing constraint (current: 3,456 B free); feature landings must reclaim (the monitor removal) or defer                                                                                                                                                                                                          |
-| LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                            |
-| 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                         |
-| Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                          |
-| No GPU / no hardware 2-D                           | the spin is a CPU fixed-point gather (~40 ms), the reveal snapshot is the SW renderer — both fit, neither is fast; the display, not the CPU, is the bottleneck (~175 ms/frame); LVGL's glTF 3D extension is unusable on this chip (and on the P4) for the same reason — investigated 2026-10-30, see `docs/research/gltf-feasibility.md` |
-| FreeRTOS 100 Hz                                    | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                                                                                                       |
-| RTC INT not wired to a GPIO                        | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                                                                                                          |
-| AMOLED burn-in                                     | the design-level constraint of §8                                                                                                                                                                                                                                                                                                        |
+| Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
+| 1392 K app partition                               | the flash budget is a standing constraint (current: 4,720 B free); feature landings must reclaim or defer                                                                                                                                                                                                                        |
+| LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
+| 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
+| Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
+| No GPU / no hardware 2-D                           | the spin is a CPU fixed-point gather (~8 ms) + a direct panel write; the SW renderer owns everything else; the display, not the CPU, is the bottleneck (~175 ms/frame); LVGL's glTF 3D extension is unusable on this chip (and on the P4) for the same reason — investigated 2026-10-30, see `docs/research/gltf-feasibility.md` |
+| FreeRTOS 100 Hz                                    | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                                                                                               |
+| RTC INT not wired to a GPIO                        | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                                                                                                  |
+| AMOLED burn-in                                     | the design-level constraint of §8                                                                                                                                                                                                                                                                                                |
 
 **Not used (and why):** the ES8311 audio (no product need), PPA acceleration
-(off — the reveal/snapshot paths don't need it), LVGL themes other than the
-custom grey/white, LVGL's built-in allocator, RTC interrupts, deep-sleep modem
-(the modem sleeps; the MCU stays up — a true deep sleep would lose the display
-and the spin's pose, which the wake path needs to resume seamlessly).
+(off — the spin's keep-mask snapshot is a SW render), LVGL themes other than
+the custom grey/white, LVGL's built-in allocator, RTC interrupts, deep-sleep
+modem (the modem sleeps; the MCU stays up — a true deep sleep would lose the
+display and the spin's pose, which the wake path needs to resume seamlessly).
 
 ---
 
@@ -930,8 +948,9 @@ and the spin's pose, which the wake path needs to resume seamlessly).
 Highlights (full file in §17): target esp32s3, 16 MB flash, octal PSRAM 80 MHz,
 240 MHz, `CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1`, `CONFIG_LV_USE_CLIB_MALLOC=y`
 (PSRAM layers), `CONFIG_LV_COLOR_DEPTH_16=y`, `CONFIG_LV_USE_SNAPSHOT=y` (the
-reveal), `CONFIG_LV_USE_SYSMON=n` / `CONFIG_LV_USE_PERF_MONITOR=n` (dead
-weight, removed for flash), `CONFIG_LV_USE_ROLLER=y`,
+spin's UI keep-mask), `CONFIG_LV_USE_SYSMON=n` / `CONFIG_LV_USE_PERF_MONITOR=n`
+(dead weight, removed for flash), `CONFIG_LV_USE_ROLLER=y`,
+`CONFIG_UI_SCREEN_SWITCH_FADE=240`,
 `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`.
 
 ### 14.2 UI component (`components/ui/Kconfig`)
@@ -943,9 +962,11 @@ weight, removed for flash), `CONFIG_LV_USE_ROLLER=y`,
 | `CONFIG_UI_MOON_ANIM_BAKE_PX`                                                 | 240             | sweep bake resolution (the reduced-res fast path)                                                                                                                                                   |
 | `CONFIG_UI_MOON_ANIM_ON_WAKE`                                                 | n               | (obsolete test hook — the sweep is boot-only)                                                                                                                                                       |
 | `CONFIG_UI_MOON_DUSK_ENABLE`                                                  | y               | the light-sleep pole spin (constant projection)                                                                                                                                                     |
-| `CONFIG_UI_MOON_SPIN_ENABLE`                                                  | y               | the free spin (phase-anchored)                                                                                                                                                                      |
-| `CONFIG_UI_MOON_SPIN_PERIOD_S`                                                | 300             | active spin: seconds per full turn while in use (range 30-7200); settled → phase-true coast (1 turn / synodic month)                                                                                |
-| `CONFIG_UI_MOON_SPIN_SETTLE_S`                                                | 10              | activity→coast settle window                                                                                                                                                                        |
+| `CONFIG_UI_MOON_SPIN_ENABLE`                                                  | y               | the free spin (direct panel write via the wrapped `esp_lcd_panel_draw_bitmap`; paused while the orbit re-bake, the boot sweep, the dusk, or a fade leg owns the buffer)                             |
+| `CONFIG_UI_MOON_SPIN_PERIOD_S`                                                | 300             | active spin: seconds per full turn while in use (range 30-7200)                                                                                                                                     |
+| `CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S`                                        | 600             | settled spin: seconds per full turn at rest (range 60-7200) — the constant slow burn-in spin (the phase-true coast it read as a freeze)                                                             |
+| `CONFIG_UI_MOON_SPIN_FPS`                                                     | 8               | spin frame rate: gathered + panel-written frames per second (range 2-30)                                                                                                                            |
+| `CONFIG_UI_MOON_SPIN_SETTLE_S`                                                | 10              | activity→settled-spin window                                                                                                                                                                        |
 | `CONFIG_UI_MOON_ORBIT_ENABLE`                                                 | n               | tilt-driven viewport orbit (off on the S3 — the relief re-bake cadence doesn't fit; retry on the P4). Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `moon_ui.c` is `#define 0` |
 | `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                  |
 | `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                          |
@@ -954,7 +975,7 @@ weight, removed for flash), `CONFIG_LV_USE_ROLLER=y`,
 | `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                              |
 | `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                               |
 | `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                 |
-| `CONFIG_UI_SCREEN_SWITCH_REVEAL`                                              | y               | the concentric (center-out) screen-switch reveal (selects `LV_USE_SNAPSHOT`)                                                                                                                        |
+| `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                           |
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 
@@ -987,8 +1008,8 @@ dusk_anim_enable = 1
 (interval, N ≤ 1440) and `M H * * <dow>` (dow = comma list / `*` = all days;
 bit 0 = Sunday). `/spiffs/wifi_credentials.txt` (two lines, gitignored). A full
 `idf.py flash` re-bakes the SPIFFS partition from the tree — runtime edits are
-lost on flash (the tree keeps the `*/5` debug rule; `spiffs/settings.txt` must
-NOT be in the tree — it is runtime-owned).
+lost on flash (the tree keeps the `spiffs/alarm.txt` default — 7:00 Mon–Fri;
+`spiffs/settings.txt` must NOT be in the tree — it is runtime-owned).
 
 ---
 
@@ -1017,7 +1038,7 @@ components/
 host_sim/                    moon_sim + check_gate.py + pole_test.c + uisim/ + render_demo.py
 assets/                      LROC/LOLA sources, the Python prototype, the 8,760
                              NASA SVS 5415 frames, the generated device assets
-spiffs/                      wifi_credentials.example.txt + alarm.txt (*/5 debug rule)
+spiffs/                      wifi_credentials.example.txt + alarm.txt (the 7:00 Mon-Fri default)
 docs/                        this document + the media (§1)
 ```
 

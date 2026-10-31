@@ -65,8 +65,10 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
  * mapping), as UTF-8: xmark U+F00D, moon U+F186, wifi U+F1EB,
  * stopwatch U+F2F2 (the solid font's stopwatch glyph -- 62194, probed
  * with fontTools; U+F302 in these OTFs is "images", NOT the stopwatch);
+ * circle-xmark U+F057 (the settings exit; the glyph IS the circle, so
+ * the exit button is the glyph alone, no ring chrome);
  * alarm-clock U+F34E (the regular font). */
-#define GLYPH_XMARK "\xEF\x80\x8D"     /* U+F00D */
+#define GLYPH_XMARK "\xEF\x81\x97"     /* U+F057 */
 #define GLYPH_MOON "\xEF\x86\x86"      /* U+F186 */
 #define GLYPH_WIFI "\xEF\x87\xAB"      /* U+F1EB */
 #define GLYPH_STOPWATCH "\xEF\x8B\xB2" /* U+F2F2 (was \xEF\xA7\xB2 = U+F9F2, absent -> a box) */
@@ -139,25 +141,27 @@ static lv_obj_t *settings_hub_icon(lv_obj_t *parent, const char *glyph, const lv
     return icon;
 }
 
-/* The exit button: a clean FA xmark icon in a thin grey circle outline
- * (the old concentric grey-donut + nested black disc read as "ugly"; the
- * flash budget leaves no room for a new glyph, so the F00D xmark is kept
- * and the chrome reduced to one thin ring). The whole circle is the tap
- * target; a tap on it fires LV_EVENT_CLICKED on the returned obj. Used
- * central (150 px) on the hub and bottom-centre (90 px) on every
- * sub-screen -- the middle of the screen is occupied by the settings'
- * working widgets, so the exit lives at the bottom edge and the
- * sub-screens' layouts keep the band around it clear. */
+/* The exit button: the fa-circle-xmark glyph alone (U+F057, a filled
+ * white circle with a cut-out cross -- the glyph IS the button). The
+ * tap box is the glyph's natural 96 px (the size arg widens it, e.g.
+ * the hub's central 150 px); a tap on it fires LV_EVENT_CLICKED on the
+ * returned obj. Used central (150 px) on the hub and bottom-centre
+ * (96 px) on every sub-screen -- the middle of the screen is occupied
+ * by the settings' working widgets, so the exit lives at the bottom
+ * edge and the sub-screens' layouts keep the band around it clear. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
+    /* The exit IS the glyph: fa-circle-xmark (U+F057) is a filled
+     * circle with a cut-out cross, so the white glyph is the whole
+     * button and no ring chrome is drawn. The glyph ink is 96x96 px
+     * at the 96 px font, so the tap box is the glyph's natural box
+     * (a size arg above 96 widens the tap area only, e.g. the hub's
+     * central 150 px); below 96 it would clip the disk, so it floors
+     * at 96. */
+    const int box = size > 96 ? size : 96;
     lv_obj_t *ring = lv_obj_create(parent);
-    lv_obj_set_size(ring, size, size);
-    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    /* Black fill (blends into the screen) + a thin grey outline: the
-     * ring is the only visible chrome and the tap target at once. */
-    lv_obj_set_style_bg_color(ring, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_color(ring, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_size(ring, box, box);
+    lv_obj_set_style_bg_opa(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 
@@ -167,7 +171,6 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     lv_obj_set_size(xmark, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(xmark);
     lv_obj_set_style_text_color(xmark, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(xmark, LV_OBJ_FLAG_CLICKABLE);
     return ring;
 }
 
@@ -476,11 +479,11 @@ void tick_screen_alarm() { tick_user_widget_clock(32); }
 /* ---------------- settings screens ----------------
  *
  * The settings hub is a moon-less screen (settings_screen_prepare):
- * black background, a central concentric exit button, and a ring of
- * sub-screen icons around it. The sub-screens are placeholders for
- * now (black, moon-less, with the shared top-centre exit button back
- * to the hub); they get their own widgets (alarm toggles, rollers,
- * the weekday pie, the AP scan list) in the later settings steps. */
+ * black background, a central circle-xmark exit (the fa-circle-xmark
+ * glyph alone), and a ring of sub-screen icons around it. The
+ * sub-screens are moon-less too, with the shared bottom-centre exit
+ * back to the CALLING level (the hub, or the alarm screen for its two
+ * sub-screens) plus their own working widgets. */
 
 void create_screen_settings_hub() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -511,10 +514,10 @@ void create_screen_settings_hub() {
 void tick_screen_settings_hub() {}
 
 /* One sub-screen shell: black root (non-clickable) + the shared
- * bottom-centre exit button (90 px) back to the CALLING level (the
- * hub, or the alarm screen for its two sub-screens). The sub-screens
- * add their own widgets on top; the band around the exit (x 188..278,
- * y 342..432) stays free of widgets. */
+ * bottom-centre exit button (the 96 px circle-xmark glyph) back to the
+ * CALLING level (the hub, or the alarm screen for its two
+ * sub-screens). The sub-screens add their own widgets on top; the band
+ * around the exit (x 185..281, y 336..432) stays free of widgets. */
 static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, 466, 466);
@@ -782,50 +785,53 @@ void tick_screen_settings_pomodoro() {}
  *
  * The day arc: the upper half-circle that cuts out the bottom-centre
  * exit button (the old full pie's ring ended up behind it, and its
- * 51 deg wedges were hard to press and hard to tell apart). The grey
+ * 51 deg wedges were hard to press and hard to tell apart). The dark
  * track (LV_PART_MAIN) spans the whole arc, Monday (left) to Sunday
- * (right); the white INDICATOR spans the two draggable day handles
- * (the range, inclusive). The vendored arc is single-knob and two
- * overlapping knob arcs could not both take a press, so the range
+ * (right); the moon-colour INDICATOR spans the two draggable day
+ * handles (the range, inclusive). The vendored arc is single-knob and
+ * two overlapping knob arcs could not both take a press, so the range
  * endpoints are two plain objects on the ring (the arc itself is
  * non-clickable): a press snaps the handle to the nearest day under
- * the touch point and follows the drag. The day letters sit just
- * OUTSIDE the ring, so every day is identifiable even when a handle
- * covers its slot.
+ * the touch point and follows the drag. The "Mo-Fr" range summary
+ * above the time carries the day meaning (the former day letters are
+ * gone), so the ring can push out to the panel edge (below).
  *
  * Geometry (screen coords, 0 deg = right, 90 deg = down): day d
  * (0 = Mon) sits at 181 + 30d degrees -- the +1 deg offset keeps every
  * stored arc angle off the 360/0 wrap edge (an indicator end angle of
  * exactly 360 stores as 360 and the SW arc mask clamps it to 359,
  * drawing a 1 deg gap at the right edge of the band). The arc centre
- * is the SCREEN centre (233, 233), R = 190 (zero pad, the 380 px
- * object at (43, 43)): the ring is 44 px wide (r 146..190), the
- * handles sit at r 168 (the ring midline) and the day letters at
- * r 216 (outside the ring, inside the panel). Because the band is
- * only the UPPER half-circle, its lowest drawn pixels are the two
- * ends (y ~233) -- 109 px clear of the bottom-centre exit button's
- * band (top edge y 342). The letters are children of the SCREEN ROOT,
- * not the band: at r 216 they would lie 26 px outside the 380 px band
- * object and LVGL clips children to the parent's bounds. The time
- * rollers sit at the clock position (vertical centre y 210, the
- * home clock label's centre) inside the ring's hole (r < 146); the
- * "Mo-Fr" range text sits above them at y 133.
+ * is the SCREEN centre (233, 233). Because the band is only the UPPER
+ * half-circle, its lowest drawn pixels are the two ends (y ~233) --
+ * clear of the bottom-centre exit button's band. The time rollers sit
+ * at the clock position (vertical centre y 210, the home clock
+ * label's centre) inside the ring's hole; the "Mo-Fr" range text sits
+ * above them.
  *
  * State: s_alarm_range_{start,end} (day indices, Mon..Sun order) -- the
  * working range (the widgets persist across loadScreen, so it must
  * too; re-seeded from the rule on every entry). The range maps to the
  * scheduler's weekday mask (bit 0 = Sunday .. 6 = Saturday); the
- * Mon-Fri default is 0x7E. A stored non-contiguous mask is displayed
+ * Mon-Fri default is 0x3E. A stored non-contiguous mask is displayed
  * rounded to its outermost days (a two-ended range is always
  * contiguous). Minutes are multiples of 5 -- 10:03 is not a wake-up
  * time. */
 
+/* The ring matches the home screen's seconds arc: a THIN ring pushed
+ * to the outer edge (outer radius 223, 10 px from the panel edge),
+ * the day-range as the moon-colour indicator over a dark track. The
+ * day letters that used to crowd the outer margin are gone (the
+ * range summary "Mo-Fr" above the time carries the day meaning), so
+ * the ring can own that outer band.
+ * lv_arc maps object size 2(R + W) -> outer radius R, inner R - W
+ * (get_center: radius = obj width/2 - arc_width). The home seconds
+ * arc is a 466x466 object at (0,0), width 10 -> outer 223, inner 213;
+ * this is that exact ring. */
 #define ALARM_TIME_ARC_CX 233
 #define ALARM_TIME_ARC_CY 233
-#define ALARM_TIME_ARC_R 190
-#define ALARM_TIME_ARC_WIDTH 44
-#define ALARM_TIME_HANDLE_R 168 /* the day handles' radius (the ring midline) */
-#define ALARM_TIME_LETTER_R 216 /* the day letters' radius (outside the ring) */
+#define ALARM_TIME_ARC_R 223    /* the ring's OUTER radius (home-seconds-arc match) */
+#define ALARM_TIME_ARC_WIDTH 10 /* the ring width (home-seconds-arc match) */
+#define ALARM_TIME_HANDLE_R 218 /* the day handles' radius (the ring midline) */
 
 #define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
@@ -855,13 +861,6 @@ static void settings_alarm_time_range_text(void) {
     lv_label_set_text(s_alarm_range_label, buf);
 }
 
-static bool alarm_range_contains(int s, int e, int d) {
-    if (e >= s) {
-        return d >= s && d <= e;
-    }
-    return d >= s || d <= e; /* the range wraps past Sunday */
-}
-
 /* Range -> scheduler weekday mask (bit 0 = Sunday .. bit 6 =
  * Saturday), walking the range clockwise, endpoints inclusive. */
 static uint8_t alarm_range_to_mask(int s, int e) {
@@ -889,11 +888,6 @@ static void settings_alarm_time_apply_range(void) {
     } else {
         lv_arc_set_angles(objects.settings_alarm_time_band, (lv_value_precise_t)ALARM_DAY_ANG(s),
                           (lv_value_precise_t)(ALARM_DAY_ANG(e) % 360));
-    }
-    for (int d = 0; d < 7; d++) {
-        lv_obj_set_style_text_color(objects.settings_alarm_time_letters[d],
-                                    alarm_range_contains(s, e, d) ? SETTINGS_WHITE : SETTINGS_GREY,
-                                    LV_PART_MAIN | LV_STATE_DEFAULT);
     }
     lv_obj_t *handles[2] = {objects.settings_alarm_time_handle_start, objects.settings_alarm_time_handle_end};
     int ends[2] = {s, e};
@@ -1009,11 +1003,11 @@ static void settings_alarm_time_screen_refresh(void) {
         return;
     }
     int h = 12, m = 0;
-    uint8_t mask = 0x7E;
+    uint8_t mask = 0x3E; /* the Mon-Fri default (bit 0 = Sunday) */
     if (clock_alarm_get_fixed_rule(&h, &m, &mask) != ESP_OK) {
         h = 12;
         m = 0;
-        mask = 0x7E;
+        mask = 0x3E;
     }
     lv_roller_set_selected(objects.settings_alarm_time_roller_h, h, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_alarm_time_roller_m, m / 5, LV_ANIM_OFF); /* x5 steps */
@@ -1042,21 +1036,25 @@ void create_screen_settings_alarm_time() {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The day-range band: the upper half-circle (Monday left, Sunday
-     * right), its ring clearing the bottom-centre exit button. */
+     * right), the same thin outer ring as the home screen's seconds
+     * arc (a 466x466 object at (0,0); its ring reaches r 223, 10 px
+     * from the panel edge -- it clears the exit button by a mile).
+     * Track = the theme's dark (the home track's colour, no explicit
+     * MAIN arc_color needed), the range = the moon colour (the
+     * seconds indicator's SETTINGS_GREY). */
     lv_obj_t *band = lv_arc_create(obj);
     objects.settings_alarm_time_band = band;
-    lv_obj_set_pos(band, (466 - ALARM_TIME_ARC_R * 2) / 2, ALARM_TIME_ARC_CY - ALARM_TIME_ARC_R);
-    lv_obj_set_size(band, ALARM_TIME_ARC_R * 2, ALARM_TIME_ARC_R * 2);
+    lv_obj_set_pos(band, 0, 0);
+    lv_obj_set_size(band, 466, 466);
     lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_bottom(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_arc_set_bg_angles(band, 181, 1); /* the grey full track (the 180 deg wrap) */
+    lv_arc_set_bg_angles(band, 181, 1); /* the dark full track (the 180 deg wrap) */
     lv_arc_set_angles(band, 181, 181);  /* the indicator: re-seeded on entry */
     lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(band, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(band, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(band, SETTINGS_GREY, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(band, false, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1069,28 +1067,9 @@ void create_screen_settings_alarm_time() {
      * children) catch them, everything else falls through. */
     lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
 
-    /* The day letters, just outside the ring -- children of the screen
-     * ROOT, not the band: at r 140 they sit 40 px outside the 200 px
-     * band object, and LVGL clips children to the parent's bounds (the
-     * outermost letters would be cut in half). The root is 466x466, so
-     * every letter is whole. The arc centre is (233, 300) in screen
-     * coords, the root centre (233, 233) -- hence the +67 y offset. */
-    static const char *weekday_letters[7] = {"M", "T", "W", "T", "F", "S", "S"};
-    for (int d = 0; d < 7; d++) {
-        lv_obj_t *letter = lv_label_create(obj);
-        objects.settings_alarm_time_letters[d] = letter;
-        lv_obj_set_style_text_font(letter, &ui_font_montserrat_regular_40_weekdays, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_label_set_text(letter, weekday_letters[d]);
-        lv_obj_set_size(letter, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        float ang = (float)ALARM_DAY_ANG(d) * 3.14159265f / 180.0f;
-        lv_obj_align(letter, LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_LETTER_R * cosf(ang)),
-                     (int32_t)(ALARM_TIME_LETTER_R * sinf(ang) + (ALARM_TIME_ARC_CY - 233)));
-        lv_obj_clear_flag(letter, LV_OBJ_FLAG_CLICKABLE);
-    }
-
-    /* The two day handles on the ring (white, grey border): the range
-     * endpoints. Draggable -- snap to the nearest day under the
-     * finger. */
+    /* The two day handles on the ring (the moon colour, the home
+     * knob's look): the range endpoints. Draggable -- snap to the
+     * nearest day under the finger. */
     for (int i = 0; i < 2; i++) {
         lv_obj_t *h = lv_obj_create(band);
         if (i == 0) {
@@ -1100,10 +1079,11 @@ void create_screen_settings_alarm_time() {
         }
         lv_obj_set_size(h, 34, 34);
         lv_obj_set_style_radius(h, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_color(h, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        /* The home knob's colour (the theme grey) -- 34 px, it pokes
+         * out of the 10 px ring and stays visible on track and range. */
+        lv_obj_set_style_bg_color(h, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_color(h, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(h, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_pad_all(h, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_ext_click_area(h, 4);
         lv_obj_add_flag(h, LV_OBJ_FLAG_CLICKABLE);
@@ -1493,8 +1473,37 @@ void tick_screen_settings_wifi() {
     s_wifi_scanning_shown = false;
 }
 
+/* The alarm weekday prefixes, one per clock widget. Not part of
+ * objects_t: the layout contract there only names the three widget
+ * slots the tick reads, and the prefix label is internal to the
+ * widget (created with it, found by walking the row's children). */
+static lv_obj_t *s_alarm_prefix[5];
+
+/* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
+ * modem 13, wifi 18, light 23, deep 27, alarm 32). */
+static int widget_prefix_slot(int startWidgetIndex) {
+    switch (startWidgetIndex) {
+    case 13:
+        return 0;
+    case 18:
+        return 1;
+    case 23:
+        return 2;
+    case 27:
+        return 3;
+    case 32:
+        return 4;
+    default:
+        return -1;
+    }
+}
+
+/* The clock widget (see create_user_widget_clock): full-screen flex
+ * column (time on top, the alarm row bottom-centred). The alarm row
+ * is a flex row holding the weekday prefix (32 px range font, grey,
+ * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
+ * row keeps the pair centred and cross-centres the two heights. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
-    (void)startWidgetIndex;
     lv_obj_t *obj = parent_obj;
     {
         lv_obj_t *parent_obj = obj;
@@ -1514,7 +1523,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             lv_obj_set_style_layout(obj, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_COLUMN, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_END, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_flex_track_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
             {
                 lv_obj_t *parent_obj = obj;
@@ -1529,21 +1538,71 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_label_set_text(obj, "");
                 }
                 {
-                    // label-clock-alarm
-                    lv_obj_t *obj = lv_label_create(parent_obj);
-                    ((lv_obj_t **)&objects)[startWidgetIndex + 2] = obj;
+                    // label-clock-alarm-row: the prefix + HH:MM pair,
+                    // kept together so the weekday prefix appears to
+                    // the left of the time as one centred unit.
+                    lv_obj_t *obj = lv_obj_create(parent_obj);
                     lv_obj_set_pos(obj, 0, 0);
                     lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-                    add_style_label_regular(obj);
-                    lv_label_set_text(obj, "");
+                    lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_layout(obj, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    const int slot = widget_prefix_slot(startWidgetIndex);
+                    if (slot >= 0)
+                        s_alarm_prefix[(size_t)slot] = obj;
+                    {
+                        lv_obj_t *parent_obj = obj;
+                        {
+                            // label-clock-alarm-prefix (2-letter weekday,
+                            // e.g. "Mo"; empty when the fire is <= 24 h)
+                            lv_obj_t *obj = lv_label_create(parent_obj);
+                            lv_obj_set_pos(obj, 0, 0);
+                            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+                            lv_obj_set_style_text_font(obj, &ui_font_montserrat_regular_32_range,
+                                                       LV_PART_MAIN | LV_STATE_DEFAULT);
+                            lv_obj_set_style_text_color(obj, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+                            /* The trailing pad is the gap to the time. */
+                            lv_obj_set_style_pad_right(obj, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+                            lv_label_set_text(obj, "");
+                        }
+                        {
+                            // label-clock-alarm
+                            lv_obj_t *obj = lv_label_create(parent_obj);
+                            ((lv_obj_t **)&objects)[startWidgetIndex + 2] = obj;
+                            lv_obj_set_pos(obj, 0, 0);
+                            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+                            add_style_label_regular(obj);
+                            lv_label_set_text(obj, "");
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/* Refresh one alarm prefix label from the var (empty within 24 h of
+ * the fire). Returns whether the text changed. */
+static bool tick_alarm_prefix(lv_obj_t *row) {
+    lv_obj_t *prefix = lv_obj_get_child(row, 0);
+    const char *new_val = get_var_alarm_prefix();
+    if (strcmp(new_val, lv_label_get_text(prefix)) == 0)
+        return false;
+    tick_value_change_obj = prefix;
+    lv_label_set_text(prefix, new_val);
+    tick_value_change_obj = NULL;
+    return true;
+}
+
 void tick_user_widget_clock(int startWidgetIndex) {
-    (void)startWidgetIndex;
+    bool label_changed = false;
     {
         const char *new_val = get_var_clock_label();
         const char *cur_val = lv_label_get_text(((lv_obj_t **)&objects)[startWidgetIndex + 1]);
@@ -1551,6 +1610,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
             tick_value_change_obj = ((lv_obj_t **)&objects)[startWidgetIndex + 1];
             lv_label_set_text(((lv_obj_t **)&objects)[startWidgetIndex + 1], new_val);
             tick_value_change_obj = NULL;
+            label_changed = true;
         }
     }
     {
@@ -1560,8 +1620,20 @@ void tick_user_widget_clock(int startWidgetIndex) {
             tick_value_change_obj = ((lv_obj_t **)&objects)[startWidgetIndex + 2];
             lv_label_set_text(((lv_obj_t **)&objects)[startWidgetIndex + 2], new_val);
             tick_value_change_obj = NULL;
+            label_changed = true;
         }
     }
+    {
+        const int slot = widget_prefix_slot(startWidgetIndex);
+        if (slot >= 0 && tick_alarm_prefix(s_alarm_prefix[(size_t)slot]))
+            label_changed = true;
+    }
+    if (label_changed)
+        /* The spin's UI keep-mask protects LVGL's text by pixel: the
+         * new digits live at pixels the old mask does not cover (and
+         * the old ones at pixels it still covers), so the mask must
+         * follow the label (LVGL task here, as the snapshot needs). */
+        moon_ui_rebuild_ui_mask();
 }
 
 void change_color_theme(uint32_t theme_index) {

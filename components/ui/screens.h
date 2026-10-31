@@ -55,7 +55,7 @@ extern "C" {
  *                                 [45]  settings_alarm_time_band        (the day-range arc)
  *                                 [46]  settings_alarm_time_handle_start
  *                                 [47]  settings_alarm_time_handle_end
- *                                 [48..54]  settings_alarm_time_letters[0..6]   (Monday..Sunday)
+ *                                 [48]  wifi_indicator_wifi
  */
 typedef struct _objects_t {
     /* Screen roots (loadScreen index = ScreensEnum value - 1). */
@@ -108,7 +108,6 @@ typedef struct _objects_t {
     lv_obj_t *settings_alarm_time_band;         /* the day-range arc (upper half circle) */
     lv_obj_t *settings_alarm_time_handle_start; /* the range-start drag handle (a day knob) */
     lv_obj_t *settings_alarm_time_handle_end;   /* the range-end drag handle (a day knob) */
-    lv_obj_t *settings_alarm_time_letters[7];   /* Monday..Sunday day letters */
     lv_obj_t *wifi_indicator_wifi; /* WiFi-screen indicator (below the clock): grey = connecting, white = connected */
 } objects_t;
 
@@ -168,11 +167,11 @@ void tick_screen_settings_deep_sleep();
 void create_screen_settings_wifi();
 void tick_screen_settings_wifi();
 
-/* Shared exit button: a white FA xmark in a thin grey circle outline,
- * used central on the settings hub and bottom-centre on every
- * sub-screen. Returns the ring obj; a tap on it fires LV_EVENT_CLICKED
- * on it. The xmark label sits centred on the ring and is
- * non-clickable (the ring catches the tap). */
+/* Shared exit button: the fa-circle-xmark glyph alone (U+F057 -- the
+ * filled white circle with the cut-out cross IS the button), used
+ * central on the settings hub and bottom-centre on every sub-screen.
+ * Returns the tap box (the glyph's natural 96 px, widened by size); a
+ * tap on it fires LV_EVENT_CLICKED on it. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size);
 
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex);

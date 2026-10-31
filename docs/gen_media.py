@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Generate the docs media: exact panel frames (the device's own core via
-moon_sim) -> MP4 movies, plus the concentric screen-switch reveal.
+moon_sim) -> MP4 movies, plus the fade-to-black screen switch.
 
 Outputs (committed):
   docs/img/boot_sweep.mp4   the boot synodic sweep (336 frames @240 px,
                             new moon -> now, the device's own sweep)
   docs/img/free_spin.mp4    the settled free spin (36 frames @466 px, 10 deg)
   docs/img/dusk.mp4         the pole-axis sleep spin (0 -> phi* @240 px)
-  docs/img/reveal.mp4       the concentric screen-switch reveal
-                            (airplane -> settings hub, center-out 25-row
-                            strips, the 9dad4fe UI_SCREEN_SWITCH_REVEAL)
+  docs/img/fade.mp4         the fade-to-black screen switch (airplane ->
+                            settings hub: fade out, load, fade in -- the
+                            UI_SCREEN_SWITCH_FADE legs, one whole-panel
+                            flush per step)
   docs/img/nasa/            sample NASA SVS 5415 reference frames
 
 Frame PNGs land in docs/img/frames/ (gitignored). Needs: moon_sim
@@ -118,35 +119,47 @@ def main():
         shutil.copy(files[i], FR / "dusk_trim" / f"sim.{i:04d}.png")
     encode("dusk", 5, FR / "dusk_trim" / "sim.%04d.png", OUT / "dusk.mp4", size=240)
 
-    # 4. concentric reveal: airplane (from) -> settings hub (to), the same
-    #    25-row strips in the same center-out order the device writes.
-    #    The device's orientation pipeline rotates every screen +90 deg CW
-    #    (the base mount offset), so both frames are rotated the same way
-    #    first; the strip composite then runs in panel coordinates,
-    #    exactly as concentric_reveal() does.
-    print("== concentric reveal ==")
+    # 4. fade-to-black screen switch: airplane (from) -> settings hub (to).
+    #    The device's fade_leg() paints a full-screen black overlay over the
+    #    outgoing screen (4 steps, one atomic whole-panel flush each), loads
+    #    the new screen off the visible path, then fades it in from black
+    #    (4 more steps). The frame at step s of the OUT leg is
+    #    screen * (1 - s/4) and of the IN leg screen * (s/4) -- a linear
+    #    blend toward/away from black. The device's orientation pipeline
+    #    rotates every screen +90 deg CW (the base mount offset), so both
+    #    frames are rotated the same way first.
+    print("== fade-to-black switch ==")
     frm = Image.open(UISIM / "modem_sleep.png").convert("RGB")
     to = Image.open(UISIM / "settings_hub.png").convert("RGB")
     frm = frm.rotate(-90, expand=False)
     to = to.rotate(-90, expand=False)
     W, H = to.size
-    strips = []
-    i = 0
-    while i * 25 < H:
-        y0 = i * 25
-        y1 = min(y0 + 25, H)
-        strips.append((y0, y1))
-        i += 1
-    strips.sort(key=lambda s: abs((s[0] + s[1] - 1) // 2 - H // 2))
-    d = FR / "reveal"
+
+    def scale(img, f):
+        return Image.eval(img, lambda p: int(p * f))
+
+    d = FR / "fade"
     clear(d)
-    for k in range(len(strips) + 2):  # +2 hold frames on the finished screen
-        img = frm.copy()
-        for j in range(min(k, len(strips))):
-            y0, y1 = strips[j]
-            img.paste(to.crop((0, y0, W, y1)), (0, y0))
-        img.save(d / f"sim.{k:04d}.png")
-    encode("reveal", 7, d / "sim.%04d.png", OUT / "reveal.mp4", size=W)
+    k = 0
+    # hold the outgoing screen, fade it out (4 steps to black)
+    for _ in range(2):
+        frm.save(d / f"sim.{k:04d}.png")
+        k += 1
+    for s in range(1, 5):
+        scale(frm, 1 - s / 4).save(d / f"sim.{k:04d}.png")
+        k += 1
+    # hold on black, fade the new screen in (4 steps to full)
+    for _ in range(2):
+        Image.new("RGB", (W, H), (0, 0, 0)).save(d / f"sim.{k:04d}.png")
+        k += 1
+    for s in range(1, 5):
+        scale(to, s / 4).save(d / f"sim.{k:04d}.png")
+        k += 1
+    # hold the finished screen
+    for _ in range(2):
+        to.save(d / f"sim.{k:04d}.png")
+        k += 1
+    encode("fade", 8, d / "sim.%04d.png", OUT / "fade.mp4", size=W)
 
     # 5. NASA sample frames (the gate's reference set; a few for the docs).
     print("== NASA sample frames ==")

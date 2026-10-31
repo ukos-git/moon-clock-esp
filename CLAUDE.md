@@ -30,9 +30,11 @@ hardware facts, test system, build steps) **update the project documentation**
 ## Hard invariants (violations ship visible bugs)
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
-  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). The only
-  exception: the concentric screen-switch reveal (`UI_SCREEN_SWITCH_REVEAL`)
-  for switches TO a moon-less screen.
+  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). Two sanctioned
+  exceptions: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, each
+  step is itself one atomic whole-panel flush) and the burn-in spin's direct
+  panel write (wrapped `esp_lcd_panel_draw_bitmap`, the render task owns the
+  panel for that frame under `s_panel_mtx`).
 - `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
   either; `spiffs/` edits are separate `spiffs:` commits.
 - The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are

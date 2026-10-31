@@ -164,7 +164,9 @@ static int32_t s_win_head;
 static int32_t s_win_count;
 static int8_t s_ref_qx, s_ref_qy; /* the settled-pose reference, int4 scale */
 static bool s_have_ref;
-static int32_t s_last_v10; /* the last value pushed to LVGL, 1/10 deg (dedupe) */
+static int32_t s_last_v10;   /* the last value pushed to LVGL, 1/10 deg (dedupe) */
+static int s_last_spin_step; /* the last 90-degree step published to the
+                                spin's direct panel write (dedupe) */
 static int64_t s_ori_last_ms;
 /* Sustained confirmation (same idiom as the tilt monitor's streak): a
  * step change applies only when ~1 s of consecutive samples agree on it
@@ -260,6 +262,23 @@ static int8_t s_ori_test_gx, s_ori_test_gy;
  * alarm screens alike; LVGL's hit test is inverse-mapped through the
  * transform (lv_indev_search_obj), so touch lands on the right widget in
  * any orientation. */
+/* Publish the 90-degree step to the spin's direct panel write (its
+ * frames pre-rotate by it) and re-rotate the spin's UI keep-mask: the
+ * mask is screen-local and must match the step the panel frames are
+ * rotated by. The rebuild is LVGL-task only (the snapshot) -- the
+ * orientation pipeline runs there, so it is immediate; the app_main
+ * base push (main task) is a no-op there and leaves the mask-dirty
+ * flag for the moon's 1 Hz monitor tick (the spin is not running at
+ * boot anyway). */
+static void ori_publish_spin_step(int32_t v10) {
+    const int step = (int)((((v10 % 3600) + 3600) % 3600) / 900);
+    if (step == s_last_spin_step)
+        return;
+    s_last_spin_step = step;
+    moon_ui_set_panel_step(step);
+    moon_ui_rebuild_ui_mask();
+}
+
 static void ori_apply_v10(int32_t v10) {
     lv_obj_t *roots[12] = {
         objects.modem_sleep,
@@ -282,6 +301,7 @@ static void ori_apply_v10(int32_t v10) {
         lv_obj_set_style_transform_pivot_y(roots[i], LV_PCT(50), 0);
         lv_obj_set_style_transform_rotation(roots[i], v10, 0);
     }
+    ori_publish_spin_step(v10);
 }
 
 /* Push the base orientation to every screen root (app_main, after
@@ -713,6 +733,10 @@ static lv_timer_t *g_seconds_timer = NULL;
 #define CONFIG_UI_LIGHT_SLEEP_TICK_MS 100
 #endif
 
+/* Refresh the alarm label + weekday prefix (defined below, after the
+ * clock display: called from the minute tick too). */
+static void refresh_alarm_display(const clock_time_t *now);
+
 /**
  * @brief Update the clock display with current time from RTC
  */
@@ -746,6 +770,10 @@ void action_update_clock_display(lv_event_t *e) {
 
         set_var_clock_label(time_str);
         set_var_clock_seconds(current_time.second);
+        /* The alarm's weekday prefix flips exactly at the 24 h boundary
+         * and the time after a fire/re-arm, so refresh it here, at the
+         * minute tick (the vars change lands via ui_tick below). */
+        refresh_alarm_display(&current_time);
         ESP_LOGD(TAG, "Clock updated: %s", time_str);
     } else {
         ESP_LOGE(TAG, "Failed to get time from RTC: %s", esp_err_to_name(ret));
@@ -760,23 +788,75 @@ void action_update_clock_display(lv_event_t *e) {
     ui_tick();
 }
 
+/* Two-letter weekday of the next fire, for the main-screen alarm prefix
+ * (0=Sunday .. 6=Saturday -- the clock component's rule-mask convention).
+ * Zeller's congruence; the alarm scheduler carries the same static copy. */
+static const char *const s_day_abbr[7] = {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
+
+static int day_of_week_civil(int year, int month, int day) {
+    if (month < 3) {
+        month += 12;
+        year--;
+    }
+    int q = day, m = month, k = year % 100, j = year / 100;
+    int h = (q + ((13 * (m + 1)) / 5) + k + (k / 4) + (j / 4) - (2 * j)) % 7;
+    return (h + 6) % 7;
+}
+
+/* Days since 1970-01-01 (proleptic Gregorian, civil calendar) -- the
+ * 24-hour window arithmetic for the prefix rule, minute precision. */
+static int64_t days_from_civil(int y, int m, int d) {
+    y -= (m <= 2);
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const int yoe = y - era * 400; /* [0, 399] */
+    const int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return (int64_t)era * 146097 + doe - 719468;
+}
+
 /**
- * @brief Update the alarm display by reading alarm directly from RTC hardware
+ * @brief Refresh the main-screen alarm label + weekday prefix.
+ *
+ * Shows the NEXT scheduled fire (scheduler cache -- no I2C). The prefix
+ * rule: a fire within the next 24 h needs no day prefix; beyond that the
+ * two-letter weekday of the fire day is shown (e.g. a Friday-only 20:00
+ * rule reads "Su 20:00" on Saturday, but plain "20:00" from Friday
+ * 20:00 onwards). No scheduled rule -> "--:--", no prefix.
+ */
+static void refresh_alarm_display(const clock_time_t *now) {
+    char alarm_str[6];
+    char prefix[4] = {0};
+    clock_time_t next;
+
+    if (clock_alarm_get_next_scheduled(&next) == ESP_OK) {
+        snprintf(alarm_str, sizeof(alarm_str), "%02d:%02d", next.hour, next.minute);
+        const int64_t now_s =
+            days_from_civil(now->year, now->month, now->day) * 86400 + (int64_t)now->hour * 3600 + now->minute * 60;
+        const int64_t next_s =
+            days_from_civil(next.year, next.month, next.day) * 86400 + (int64_t)next.hour * 3600 + next.minute * 60;
+        if (next_s - now_s > 86400)
+            snprintf(prefix, sizeof(prefix), "%s", s_day_abbr[day_of_week_civil(next.year, next.month, next.day)]);
+    } else {
+        snprintf(alarm_str, sizeof(alarm_str), "--:--");
+    }
+    set_var_alarm_label(alarm_str);
+    set_var_alarm_prefix(prefix);
+}
+
+/**
+ * @brief Update the alarm display (boot + after every rule write)
  */
 void action_update_alarm_display(lv_event_t *e) {
-    // Read alarm time directly from RTC hardware registers
+    (void)e;
     clock_time_t alarm_time;
-    esp_err_t ret = clock_get_alarm(&alarm_time);
-
+    esp_err_t ret = clock_get_time(&alarm_time);
     if (ret == ESP_OK) {
-        char alarm_str[16];
-        snprintf(alarm_str, sizeof(alarm_str), "%02d:%02d", alarm_time.hour, alarm_time.minute);
-        set_var_alarm_label(alarm_str);
-        ESP_LOGI(TAG, "Alarm updated from hardware: %s (hour=%d, min=%d)", alarm_str, alarm_time.hour,
-                 alarm_time.minute);
+        refresh_alarm_display(&alarm_time);
+        ESP_LOGI(TAG, "Alarm display: %s %s", get_var_alarm_prefix(), get_var_alarm_label());
     } else {
-        ESP_LOGD(TAG, "Failed to read alarm from hardware: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Failed to read time for the alarm display: %s", esp_err_to_name(ret));
         set_var_alarm_label("--:--");
+        set_var_alarm_prefix("");
     }
 }
 

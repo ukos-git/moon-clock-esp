@@ -26,6 +26,8 @@ extern const char *get_var_clock_label();
 extern void set_var_clock_label(const char *value);
 extern const char *get_var_alarm_label();
 extern void set_var_alarm_label(const char *value);
+extern const char *get_var_alarm_prefix();
+extern void set_var_alarm_prefix(const char *value);
 
 #ifdef __cplusplus
 }

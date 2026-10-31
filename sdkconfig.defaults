@@ -32,10 +32,15 @@ CONFIG_UI_MOON_ANIM_ON_WAKE=n
 # Light-sleep dusk: the pole-axis spin to the fully unilluminated side;
 # the deep-sleep countdown is armed on its last frame.
 CONFIG_UI_MOON_DUSK_ENABLE=y
-# Screen switches (e.g. into the settings hub) bloom in concentrically
-# (center-out 25-row windows) instead of LVGL's top-to-bottom strip
-# flush; the moon screens keep the atomic whole-panel invariant.
-CONFIG_UI_SCREEN_SWITCH_REVEAL=y
+# Screen switches (e.g. into the settings hub) fade the outgoing screen
+# to black, load the new screen, and fade it in -- each step is one
+# atomic whole-panel flush under the moon buffer mutex (no strip
+# crawl). The moon screens switch atomically as always.
+CONFIG_UI_SCREEN_SWITCH_FADE=240
+# Burn-in spin: settled (at rest) rate 600 s/turn (visible slow creep;
+# the old phase-true coast read as a freeze), 8 panel frames/s.
+CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S=600
+CONFIG_UI_MOON_SPIN_FPS=8
 CONFIG_CODEC_ES7243_SUPPORT=n
 CONFIG_CODEC_ES7243E_SUPPORT=n
 CONFIG_CODEC_ES8156_SUPPORT=n
@@ -99,8 +104,9 @@ CONFIG_LV_USE_WIN=n
 # Debug monitors from the CPU-stats phase: nothing in this UI ever
 # creates a perf/sysmon widget (the CPU figures came from the IDF
 # task stats), so the monitor code is pure flash weight. Snapshot is
-# on: the concentric screen-switch reveal renders the new screen into
-# a full-screen draw_buf before the center-out panel write.
+# on: the burn-in spin's UI keep-mask captures the active screen into
+# a full-screen draw_buf (moon text and icons are kept as pixels) on
+# every screen switch and label change.
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_PERF_MONITOR=n
 CONFIG_LV_CONF_MINIMAL=y

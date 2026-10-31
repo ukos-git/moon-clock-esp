@@ -33,16 +33,27 @@ static lv_obj_t *getLvglObjectFromIndex(int32_t index) {
     return ((lv_obj_t **)&objects)[index];
 }
 
-/* Plain lv_scr_load (no fade) + one atomic whole-panel display of the
- * new screen (moon_ui_screen_switched, under the moon's buffer mutex).
- * The old FADE_IN screen-load re-invalidated the whole panel for the
- * 200 ms anim and LVGL's async refresh drained it in 25-row QSPI
- * strips -- the moon crept in top-to-bottom for over a second on every
- * screen switch, and the fade's pending invalidation also rode along
- * in the spin's atomic full-frame flushes, breaking their atomicity
- * (the "nasty top-to-bottom redraw artifacts" on wake from deep
- * sleep). */
+/* Screen switch (UI_SCREEN_SWITCH_FADE): a switch that CROSSES the
+ * moon / moon-less boundary (home <-> settings, the alarm screen)
+ * fades the outgoing screen to black (moon_ui_fade_out, before
+ * lv_scr_load), loads, and fades the new one in
+ * (moon_ui_screen_switched). Both-moon switches (airplane / wifi /
+ * the sleep screens share the one moon image) and both-moon-less
+ * switches (settings <-> settings) keep the plain atomic whole-panel
+ * display -- the fade would only dim the moon, which is the same disk
+ * on both screens. The old FADE_IN screen-load re-invalidated the
+ * whole panel for the 200 ms anim and LVGL's async refresh drained
+ * it in 25-row QSPI strips -- the moon crept in top-to-bottom for
+ * over a second on every screen switch; the new fade steps are each
+ * one atomic whole-panel lv_refr_now (the moon pipeline's display
+ * rule), so no strip crawl and no torn frames. */
 void loadScreen(enum ScreensEnum screenId) {
+    if (currentScreen >= 0) {
+        enum ScreensEnum oldId = (enum ScreensEnum)(currentScreen + 1);
+        if (oldId != screenId && moon_ui_screen_is_moon(oldId) != moon_ui_screen_is_moon(screenId))
+            moon_ui_fade_out(); /* self-guarded (LVGL task, fade on,
+                                 * no pipeline owns the buffer) */
+    }
     currentScreen = screenId - 1;
     lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
     lv_scr_load(screen);

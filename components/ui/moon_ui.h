@@ -5,6 +5,8 @@
 
 #include "lvgl.h"
 
+#include "screens.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,9 +15,11 @@ extern "C" {
  * Moon phase UI layer (device side of components/moon).
  *
  * Owns the PSRAM frame buffers, the shared lv_image_dsc_t the moon screens
- * display, the free spin (phase-anchored in-plane rotation of the baked
- * phase: active rate while in use, one turn per synodic month when
- * settled -- the AMOLED burn-in protection), the tilt-driven
+ * display, the free spin (in-plane rotation of the baked phase: a
+ * faster rate while in use, a slow settled rate at rest -- the AMOLED
+ * burn-in protection; each frame is written straight to the panel by
+ * the render task, compositing over LVGL's on-panel UI via a
+ * per-pixel keep-mask), the tilt-driven
  * out-of-plane orbit (QMI8658 IMU sphere model), the synodic sweep (the
  * new-moon -> now phase animation, played at BOOT from a black screen),
  * the light-sleep "dusk" spin (the pole-axis rotation to the fully
@@ -123,8 +127,40 @@ bool moon_ui_sweeping(void);
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
  * LVGL task context. No-op while a pipeline owns the buffer (the spin
  * or a bake completion then displays the screen atomically itself).
+ * When a screen-switch fade-out ran (s_fade_pending, loadScreen), the
+ * new screen fades IN instead of plain-flushing (UI_SCREEN_SWITCH_FADE).
  */
 void moon_ui_screen_switched(void);
+
+/**
+ * Fade the current screen to black (LVGL task; loadScreen calls it
+ * before lv_scr_load when the switch crosses the moon / moon-less
+ * boundary). No-op when the fade is off, the moon UI is not ready, or
+ * a bake pipeline owns the buffers.
+ */
+void moon_ui_fade_out(void);
+
+/** Does the screen with this id carry a moon image (loadScreen's
+ * fade decision: a switch that crosses the moon boundary fades, a
+ * both-moon switch stays atomic). */
+bool moon_ui_screen_is_moon(enum ScreensEnum id);
+
+/**
+ * Publish the current 90-degree screen orientation (0..3) to the spin
+ * render: its panel writes pre-rotate each frame by the step and the
+ * UI keep-mask is re-rotated to match. Safe from any task (one volatile
+ * write); the mask itself is rebuilt on the LVGL task only.
+ */
+void moon_ui_set_panel_step(int step);
+
+/**
+ * Rebuild the spin's UI keep-mask (LVGL task only -- the mask is a
+ * snapshot of the current screen with the moon image hidden). Call
+ * after anything changes what the moon must NOT clobber: screen
+ * switches and the clock/alarm label updates do this already; call
+ * explicitly on an orientation step change.
+ */
+void moon_ui_rebuild_ui_mask(void);
 
 #ifdef __cplusplus
 }

@@ -5,11 +5,11 @@ phase, from the last new moon to now -- is rendered in real time on an AMOLED
 panel from LROC Wide-Angle Camera albedo and LOLA relief, lit with
 displaced-normal Lambert shading at the exact Sun/Moon/Earth geometry of the
 cheap ephemeris (JPL Moon98 + ERFA EPV). The disk is baked on-chip every day,
-the free spin is a fixed-point in-plane re-gather (~40 ms/frame), and sleep is
-signalled by a pole-axis spin that carries the terminator across the disk to
-the fully unilluminated side. Time comes from NTP (brief hourly WiFi
-activation, then back to airplane mode); the PCF85063A RTC holds the clock
-between syncs.
+the free spin is a fixed-point in-plane re-gather (~8 ms/frame) written
+straight to the panel, and sleep is signalled by a pole-axis spin that carries
+the terminator across the disk to the fully unilluminated side. Time comes from
+NTP (brief hourly WiFi activation, then back to airplane mode); the PCF85063A
+RTC holds the clock between syncs.
 
 ## Build
 
@@ -90,7 +90,7 @@ final frame keeps its earthshine + crater-rim detail, not a flat black disk):
 | Stage      | Value                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
 | Boot sweep | 336 frames @ 240 px reduced-res bake, ~190 s (display-paced)                                                       |
-| Free spin  | ~140 ms display + ~40 ms gather per frame, 0 WDT resets                                                            |
+| Free spin  | ~8 ms gather + direct panel write per frame (8 fps, settled 600 s/turn), 0 WDT resets                              |
 | Dusk       | shade-map build 1598 ms once + 156 re-projected frames in 90.7 s + final full-res bake + 30 s deep-sleep countdown |
 | Wake       | static current phase (no animation); hourly NTP re-sync on demand                                                  |
 

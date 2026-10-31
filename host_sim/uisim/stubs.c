@@ -4,6 +4,7 @@
  *
  *   clock 12:35, seconds 37
  *   fixed alarm rule 12:35 Mon-Fri (0x3E)   -- the range-arc default
+ *   alarm prefix "Mo"                        -- the next fire is > 24 h away
  *   pomodoro interval 45 min (0:45)
  *   idle timeout 60 s, deep-sleep countdown 60 s, dusk anim on
  *   wifi scan complete, 5 canned APs
@@ -16,6 +17,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "clock_alarm_scheduler.h"
@@ -53,7 +55,7 @@ const char *esp_err_to_name(esp_err_t code) {
 
 static int32_t s_clock_seconds = 37;
 static const char *s_clock_label = "12:35";
-static const char *s_alarm_label = "";
+static const char *s_alarm_label = "12:35"; /* the fixed rule's time */
 
 int32_t get_var_clock_seconds() { return s_clock_seconds; }
 void set_var_clock_seconds(int32_t value) { s_clock_seconds = value; }
@@ -61,6 +63,16 @@ const char *get_var_clock_label() { return s_clock_label; }
 void set_var_clock_label(const char *value) { s_clock_label = value; }
 const char *get_var_alarm_label() { return s_alarm_label; }
 void set_var_alarm_label(const char *value) { s_alarm_label = value; }
+
+/* The weekday prefix ("" within 24 h of the fire, else the 2-letter
+ * day of the fire). Canned: "Mo" (the fixed rule's next fire is
+ * Monday, > 24 h out on the sim's Saturday 12:35). */
+static char s_alarm_prefix[4] = "Mo";
+const char *get_var_alarm_prefix() { return s_alarm_prefix; }
+void set_var_alarm_prefix(const char *value) {
+    strncpy(s_alarm_prefix, value, sizeof s_alarm_prefix - 1);
+    s_alarm_prefix[sizeof s_alarm_prefix - 1] = 0;
+}
 
 /* ---- clock (clock.c / clock_idle.c) ---- */
 
@@ -229,3 +241,11 @@ void moon_ui_refresh(void) {}
 void moon_ui_init(void) {}
 void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
 void moon_ui_start(void) {}
+bool moon_ui_sweeping(void) { return false; }
+void moon_ui_fade_out(void) {}
+bool moon_ui_screen_is_moon(enum ScreensEnum id) {
+    return id == SCREEN_ID_MODEM_SLEEP || id == SCREEN_ID_WIFI || id == SCREEN_ID_LIGHT_SLEEP ||
+           id == SCREEN_ID_DEEP_SLEEP;
+}
+void moon_ui_set_panel_step(int step) { (void)step; }
+void moon_ui_rebuild_ui_mask(void) {}
