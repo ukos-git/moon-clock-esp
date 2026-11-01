@@ -141,6 +141,10 @@ static void wheel_indev_read(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     data->state = s_wheel_state;
     data->point = s_wheel_pt;
+    /* The state machine times presses off this stamp (the long-press
+     * check is lv_tick_diff(timestamp, pr_timestamp)) -- feed it the
+     * sim clock so a held point ages into LONG_PRESSED. */
+    data->timestamp = s_now_ms;
 }
 
 static void wheel_step(lv_display_t *disp, lv_indev_state_t st, int32_t x, int32_t y) {
@@ -154,6 +158,23 @@ static void wheel_step(lv_display_t *disp, lv_indev_state_t st, int32_t x, int32
 static void wheel_press_at(lv_display_t *disp, int32_t x, int32_t y) { wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y); }
 
 static void wheel_move_to(lv_display_t *disp, int32_t x, int32_t y) { wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y); }
+
+/* Hold a pressed point for `ms` ms: re-read the indev (PRESSED, same
+ * point) every 10 ms while the tick advances, so LVGL's long-press state
+ * machine (the lv_tick_diff vs pr_timestamp check inside the indev read)
+ * gets the 400 ms window. The indev's read timer does NOT fire on the
+ * sim's lv_timer_handler loop (see the flow note), so a bare pump()
+ * never advances the state machine -- the hold re-drives it by hand. */
+static void wheel_hold(lv_display_t *disp, int32_t x, int32_t y, uint32_t ms) {
+    uint32_t t = 0;
+    while (t < ms) {
+        t += 10;
+        s_now_ms += 10;
+        wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y);
+        lv_timer_handler();
+    }
+    lv_refr_now(disp);
+}
 
 static void wheel_release_at(lv_display_t *disp, int32_t x, int32_t y) {
     wheel_step(disp, LV_INDEV_STATE_RELEASED, x, y);
@@ -191,15 +212,40 @@ static int wheel_snapshot(lv_display_t *disp, const char *name) {
     return rc;
 }
 
-/* Drive the real flow to the wheel: settings-hub WiFi icon (at -R,-R,
- * R=UI_PX(117)) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID
- * prefill + the wheel. The row handler prefills the (stub) first AP's
- * SSID. Every coordinate is panel-scaled (ui_px.h). */
+/* Drive the real flow to the wheel: settings-hub WiFi icon (on the icon
+ * ring) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID prefill + the
+ * wheel. The row handler prefills the (stub) first AP's SSID.
+ *
+ * The hub's ring (create_screen_settings_hub): n icons 360/n apart,
+ * deep-sleep anchored at 180 deg, th = 180 + step*(i - (n-3)) degrees
+ * clockwise from 12 o'clock, position (R sin th, -R cos th) about the
+ * centre (R = UI_PX(117)). The WiFi entry's index differs per board (the
+ * P4 ring opens with the clock icon at 12 o'clock), so mirror it here. */
+static void wheel_hub_wifi_icon(int32_t *x, int32_t *y) {
+    int n;
+    int wifi_i;
+#if defined(CONFIG_BOARD_P4)
+    n = 6;
+    wifi_i = 4;
+#else
+    n = 5;
+    wifi_i = 3;
+#endif
+    const float step = 360.0f / (float)n;
+    const float deep = (float)n - 3.0f;
+    const float th = ((180.0f + step * ((float)wifi_i - deep)) * 3.14159265f) / 180.0f;
+    const int32_t R = UI_PX(117);
+    *x = UI_PANEL_PX / 2 + (int32_t)(R * sinf(th));
+    *y = UI_PANEL_PX / 2 - (int32_t)(R * cosf(th));
+}
+
 static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     loadScreen(SCREEN_ID_SETTINGS_HUB);
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, UI_PANEL_PX / 2 - UI_PX(117), UI_PANEL_PX / 2 - UI_PX(117));
+    int32_t ix, iy;
+    wheel_hub_wifi_icon(&ix, &iy);
+    wheel_tap(disp, ix, iy);
     pump(disp, 100);
     /* Tick the WiFi list once so the rows render (their text is what
      * gives the labels content size -- tapping before the render hits
@@ -443,6 +489,33 @@ int main(int argc, char **argv) {
             wheel_point_deg(60.0, UI_PX(114), &pc);
             wheel_tap(disp, pc.x, pc.y);
         }
+        pump(disp, 100);
+
+        /* Back path (v2): v2 has no in-ring exit -- a 400 ms LONG PRESS
+         * on the centre (a plain tap backspaces) is the only way back to
+         * the WiFi list. Re-enter the wheel (fresh prefill), hold the
+         * centre past the long-press threshold (the hold re-drives the
+         * indev state machine, see wheel_hold), and snapshot the list;
+         * release OFF any row so the release cannot re-tap one. */
+        wheel_enter(disp, indev);
+        wheel_press_at(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2);
+        wheel_hold(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2, 600); /* LONG_PRESSED at 400 ms -> list */
+        {
+            /* The long press already swapped the screen -- capture the
+             * ACTIVE one (the WiFi list), not the wheel's root, which
+             * is now only the background screen. */
+            lv_obj_t *root = lv_scr_act();
+            lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+            if (!buf) {
+                fprintf(stderr, "wheel snapshot failed: back\n");
+                fail = 1;
+            } else {
+                if (write_png("out/wheel_back.png", buf))
+                    fail = 1;
+                lv_draw_buf_destroy(buf);
+            }
+        }
+        wheel_release_at(disp, 5, 5);
         pump(disp, 100);
         {
             lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];

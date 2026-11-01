@@ -183,6 +183,11 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     lv_obj_set_style_bg_opa(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* The glyph's label line-height exceeds the box (e.g. ~200 px at the
+     * 148 px P4 font in the 148 px box): LVGL's default SCROLLABLE flag
+     * would draw a vertical scrollbar at the box's right edge (the thin
+     * line the user saw crossing the circle). The box never scrolls. */
+    lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *xmark = lv_label_create(ring);
@@ -808,11 +813,15 @@ void create_screen_settings_pomodoro() {
      * centre): the hour slot centres at 153 (-80), the minute slot
      * at 303 (+70), and the `:` at 223 (-10), so the whole display
      * lands exactly where the home clock's "HH:MM" would. */
+    /* The 140 px box (was 120): the Montserrat digits are PROPORTIONAL
+     * (not tabular) -- the worst-case "44" pair advances 132 px at the
+     * 96 px font / 204 px at 148, which the old box clipped flat at
+     * its right edge. 140 leaves >= 4 px margin for the full pair. */
     objects.settings_pomodoro_roller_h =
-        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(120));
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(140));
     lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
     objects.settings_pomodoro_roller_m =
-        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(120));
+        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(140));
     lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
@@ -1175,11 +1184,17 @@ void create_screen_settings_alarm_time() {
     /* Same glyph-centre offsets as the pomodoro display (hour slot at
      * 153, minute slot at 303, the `:` at 223 = the home clock's own
      * colon position). */
+    /* The 140 px box (was 120): the Montserrat digits are PROPORTIONAL
+     * (not tabular) -- the worst-case "44" pair advances 132 px at the
+     * 96 px font / 204 px at 148, which the old box clipped flat at
+     * its right edge (the minutes roller sits closest to the panel's
+     * right side, so the clip showed up there). 140 leaves >= 4 px
+     * margin for the full pair. */
     objects.settings_alarm_time_roller_h =
-        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(120));
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(140));
     lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
     objects.settings_alarm_time_roller_m =
-        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(120));
+        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(140));
     lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
@@ -1584,8 +1599,10 @@ void tick_screen_settings_wifi() {
  *  - COMMIT / DISCARD: the bottom 120-degree arc is the house circle-xmark
  *    COMMIT key (LVGL ~31.5..88.5) and the trash DISCARD key
  *    (LVGL ~91.5..148.5), both at r 114. A plain tap on the centre
- *    BACKSPACES (v1's 400 ms long-press would compete with the sweep press
- *    that starts a letter).
+ *    BACKSPACES; a 400 ms LONG PRESS on the centre is the ONLY way back
+ *    to the WiFi list (v2 has no in-ring exit -- the xmark glyph is the
+ *    commit key, so settings_sub_screen_prepare is deliberately skipped).
+ *    The centre box (r ~55) never overlaps the sweep band (r 140..233).
  *
  * All presses commit on RELEASE only (the reveal + preview show exactly
  * what the release will commit, so a double-entry is impossible). Angles
@@ -1754,6 +1771,7 @@ static void settings_wheel_pw_label(void) {
     lv_label_set_text(s_wheel_pw_label, buf);
     lv_obj_set_style_text_font(s_wheel_pw_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(s_wheel_sub_label, "");
 }
 
 /* Recolour both letter rings. The lit global letter's REVEAL letter is
@@ -1855,8 +1873,13 @@ static void settings_wheel_set_revealed(bool on, int sector) {
             int s = s_wheel_sector_start[k] + j;
             if (vis) {
                 lv_obj_clear_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_HIDDEN);
+                /* The at-rest letter (r 168) would double with the reveal
+                 * letter (r 209) inside the box -- the lab's opaque box
+                 * simply covers it; hide it instead. */
+                lv_obj_add_flag(s_wheel_letters_in[s], LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(s_wheel_letters_in[s], LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
@@ -2069,16 +2092,24 @@ static void event_handler_cb_wheel_discard(lv_event_t *e) {
     ESP_LOGW("settings_wheel", "discarded (pw cleared)");
 }
 
-/* The centre: a plain tap BACKSPACES (v2 -- v1's 400 ms long-press would
- * compete with the sweep press that starts a letter). */
+/* The centre: a plain tap BACKSPACES (v2 -- the 400 ms long-press became
+ * the ONLY way back to the WiFi list: v2 dropped v1's in-ring exit, the
+ * circle-xmark glyph is now the commit key, and the centre box (r ~55)
+ * never overlaps the sweep band (r 140..233), so the hold cannot start
+ * a letter -- it is a navigation gesture, like v1's centre long-press). */
 static void event_handler_cb_wheel_center(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) {
-        return;
-    }
-    if (s_wheel_pw_len > 0) {
-        s_wheel_pw[--s_wheel_pw_len] = 0;
-        settings_wheel_pw_label();
-        ESP_LOGW("settings_wheel", "backspace (pw %d chars)", s_wheel_pw_len);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        if (s_wheel_pw_len > 0) {
+            s_wheel_pw[--s_wheel_pw_len] = 0;
+            settings_wheel_pw_label();
+            ESP_LOGW("settings_wheel", "backspace (pw %d chars)", s_wheel_pw_len);
+        }
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        ESP_LOGW("settings_wheel", "long press -> back to the WiFi list");
+        loadScreen(SCREEN_ID_SETTINGS_WIFI);
+        ui_tick();
+        settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
     }
 }
 
@@ -2379,6 +2410,10 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_style_bg_opa(s_wheel_center, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(s_wheel_center, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* The running entry is the tap box's child; the box is a pure hit
+     * target, not a view (no scroll -- the only child, the entry label,
+     * fits the box). The wider "release commits" hint is a sibling. */
+    lv_obj_clear_flag(s_wheel_center, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_wheel_center, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_wheel_center, event_handler_cb_wheel_center, LV_EVENT_ALL, 0);
 
@@ -2397,7 +2432,10 @@ void create_screen_settings_wifi_password() {
     lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_text_color(s_wheel_pw_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    s_wheel_sub_label = lv_label_create(s_wheel_center);
+    /* The hint is the tap box's SIBLING, not a child: at 14 px
+     * "release commits" runs wider than the 110 px box and a child would
+     * be clipped at the box edge. */
+    s_wheel_sub_label = lv_label_create(obj);
     lv_obj_set_style_text_font(s_wheel_sub_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_wheel_sub_label, "");
     lv_obj_set_size(s_wheel_sub_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -2543,12 +2581,17 @@ void create_screen_settings_time() {
     char hours[512], mins[600];
     time_roller_options(hours, sizeof(hours), 0, 23);
     time_roller_options(mins, sizeof(mins), 0, 59);
+    /* The 140 px box (was 110): the Montserrat digits are PROPORTIONAL
+     * (not tabular) -- the worst-case "44" pair advances 132 px at the
+     * 96 px font / 204 px at 148, which the old 110 px box clipped
+     * flat at its right edge. 140 leaves >= 4 px margin for the full
+     * pair. */
     objects.settings_time_roller_h =
-        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(75), UI_PX(110));
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(75), UI_PX(140));
     lv_obj_align(objects.settings_time_roller_h, LV_ALIGN_CENTER, -UI_PX(75), -UI_PX(30));
     settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, 0, -UI_PX(30));
     objects.settings_time_roller_mi =
-        settings_create_roller(obj, mins, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(75), UI_PX(110));
+        settings_create_roller(obj, mins, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(75), UI_PX(140));
     lv_obj_align(objects.settings_time_roller_mi, LV_ALIGN_CENTER, UI_PX(75), -UI_PX(30));
 
     /* The date row DD.MM.YY (the 48 px font, below the time row): day

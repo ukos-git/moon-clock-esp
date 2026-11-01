@@ -40,15 +40,14 @@ clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed interna
 RTC timer + SNTP as the time base with the minute tick / countdown / alarm
 arming in software, §2.3), the **P4 alarm ring** (M5.5 — the fired alarm rings
 through the board's ES8311 codec + speaker amp, volume ramped up gradually,
-touch snooze; S3 stays display-only, §7.5), the **approved wheel v2 direction**
-(§7.14 — the "sweep wheel v2 hybrid": proportional press sectors + an overlay
-reveal + a DTMF-style centre preview; approved for firmware implementation, the
-interactive lab is the clickable reference) and the **design-choice
-documentation** (§7.14: the keyboard lab committed to the repo, the
-comparable-layout survey and the idea sources; §12.4: the committed NASA
-side-by-side figures). See the standing rule in [CLAUDE.md](../CLAUDE.md) —
-this document is regenerated with `python3 docs/gen_doc.py` and must stay in
-sync with the code._
+touch snooze; S3 stays display-only, §7.5), the **implemented wheel v2** (§7.13
+— the "sweep wheel v2 hybrid": proportional press sectors + an overlay reveal +
+a DTMF-style centre preview; shipped in firmware, the interactive lab is the
+clickable reference, §7.14) and the **design-choice documentation** (§7.14: the
+keyboard lab committed to the repo, the comparable-layout survey and the idea
+sources; §12.4: the committed NASA side-by-side figures). See the standing rule
+in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+`python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
 
@@ -365,7 +364,11 @@ no-seconds / X-commit time entry — `clock_tz.c`, the S3 + P4 FA solid
 regenerations with the globe glyph, the S3 48 px numbers font with `-.`): P4
 **1,575,152 B** (`0x1808f0`), S3 **1,459,744 B** (`0x164620`, +8,080 B — the
 timezone module + the screen + the two globe-glyph font regenerations; ~30 %
-under the 2048 K factory).
+under the 2048 K factory); after wheel v2 (2026-11-02, §7.13 — the 12-sector
+hybrid replaces v1: the pre-built reveal boxes + dividers + the exact-box
+hit-test + the centre long-press back gesture): P4 **1,578,272 B** (`0x181520`,
++3,120 B), S3 **1,462,320 B** (`0x165030`, +2,576 B; both ~30 % under the 2048
+K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -789,13 +792,18 @@ round AMOLED showing the Moon.
   clock), 48 px (rollers/labels), 32 px general text (SSID rows/captions/_
   password entry_ — full printable ASCII 32–126, so one font serves the list
   and the wheel keyboard; it was widened from an `A-Z`/digits subset for the
-  keyboard) + a 32 px range subset (the "Mo-Fr" day summary, whose font needs
-  only digits-free lowercase + hyphen) + 14 px (the wheel's register keys); the
-  P4 builds the _same six subsets_ from the same Opts at ×720/466 (148/74/50
-  px) in `fonts_p4/` with identical symbol names (§2.3b M4 state) — two of them
-  widened in M5.6 for the P4-reached time entry: the FA Regular now also
-  carries the clock glyph (U+F017) and the 74 px numbers the `.` date
-  separator, S3 `fonts/` untouched. Font Awesome 7 Free (Solid 96 px:
+  keyboard; the wheel's centre preview runs at this size too — the 48 px font
+  is the digits-only subset, no letters) + a 32 px range subset (the "Mo-Fr"
+  day summary, whose font needs only digits-free lowercase + hyphen); plus
+  LVGL's **built-in** `lv_font_montserrat_14` (Kconfig
+  `CONFIG_LV_FONT_MONTSERRAT_14`) for the small captions — the WiFi-list
+  header, the wheel's SSID caption, the register-key labels and the "release
+  commits" hint. The P4 builds the _same six subsets_ from the same Opts at
+  ×720/466 (148/74/50 px) in `fonts_p4/` with identical symbol names (§2.3b M4
+  state) — two of them widened in M5.6 for the P4-reached time entry: the FA
+  Regular now also carries the clock glyph (U+F017) and the 74 px numbers the
+  `.` date separator, S3 `fonts/` untouched (the built-in 14 px font is the
+  same on both panels). Font Awesome 7 Free (Solid 96 px:
   circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock + clock on the
   P4) — the icon set is the same weight-and-color logic as the type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
@@ -1022,54 +1030,87 @@ lists what the screen shows and what each control changes live.
 ### 7.13 WiFi password entry — the circular wheel keyboard
 
 ![at rest](img/screens/settings_wifi_password.png)
-![touched down — outer frame revealed, hot letter](img/screens/settings_wifi_password_touched.png)
+![touched down — the pressed sector's boxes revealed, the lit box inverted](img/screens/settings_wifi_password_touched.png)
 ![123 mode](img/screens/settings_wifi_password_123.png)
 
 Reached by tapping an AP row on the WiFi screen (§7.12). A 13th screen
 (`SCREEN_ID_SETTINGS_WIFI_PASSWORD`) built around the panel centre (466×466
 centre on the S3; the wheel's radii are `UI_PX()`-scaled, §2.3b M4 state); no
-moon image (settings are moon-less by design).
+moon image (settings are moon-less by design). This is the **v2 "12-sector
+hybrid"** (approved and implemented 2026-11-02; the operable 1:1 reference is
+the lab's panel #1, §7.14) — the v1 two-frame wheel (grouped-in-threes inner
+ring + a 2×-angle outer reveal) is the earlier iteration it replaced.
 
-- **Two concentric letter rings.** The **inner frame** (at rest) shows the 26
-  slots of the active register, **grouped in threes** (a bold divider at each
-  group start, thin within; the alphabet is 8 groups of 3 + a final group of 2)
-  at r 150–186 — the grouping is the wayfinding device: the eye aims at 9
-  groups, not 26 targets. **On touch-down anywhere in the ring band (r 140–
-  233, radially forgiving), the outer frame reveals** at r 192–226 where the
-  letter under the finger is lit over a **2× the inner arc angle** (27°) — the
-  adjacent 2× sectors overlap by one inner letter width and the hit-test
-  resolves them as **nearest letter centre**, so a deliberate sweep is
-  unambiguous. Release commits the letter under the finger (no auto-commit on
-  zone crossing, so a slow sweep can never double-enter).
-- **Register/shift arc:** 4 individually-tappable switch keys
-  `abc / ABC / 123 / #$` at r 88–116 (LVGL 42°–138°), the active one lit; a tap
-  snaps to the nearest key centre and re-strings the 26 slots (digits:
-  `0123456789`; symbols: `!@#$%^&*()-_+=[]{}:;.,?/`). Letters keep the full
-  360° in every mode; case is separate (lower/upper) because it matters for
-  passwords.
-- **Centre:** the running password **unmasked** (the user is physically
-  present) — the last 6 characters with a `…` prefix when longer, the `…`
-  placeholder when empty — plus the selected letter large while sweeping. **A
-  short tap on the centre commits**: `wifi_credentials_write(ssid, pw)` (two
-  lines to `/spiffs/wifi_credentials.txt`, the password never logged) →
-  `action_start_wifi_sync()` (the 6144 B background task: `wifi_manager_init`
-  - NTP) and the screen swaps to the transient WiFi screen (§7.2); on success
-    the app leaves airplane mode. **A long press (400 ms, repeating)
-    backspaces.** An empty password is not written.
-- **Exit:** a small (26 px) in-ring circle-xmark at the bottom of the wheel — a
-  documented deviation from the house 90 px bottom-centre exit, which would sit
-  under the full-360° ring. It returns to the WiFi list (no write, no sync).
-  The screen's angular picking uses the inverse-transform idiom
-  (`lv_obj_transform_point`, `LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE`, the
-  `alarm_time_point_to_day` pattern), so it stays correct under the 90°
-  orientation roll.
+- **The at-rest ring.** The 26 slots of the active register at r 168 (32 px
+  SSID font), 12 hairline sector dividers spanning r 150–226, and two band
+  hairlines at r 150 / r 226. The grouping is the wayfinding device: the eye
+  aims at 12 coarse sectors, not 26 targets. The SSID caption (case kept) sits
+  in the upper centre.
+- **Proportional sectors.** Every letter owns an equal
+  `SHARE = 360/26 ≈ 13.846°` of the ring; the 12 frequency-grouped sectors
+  `[ab][cd][ef][gh][il][jkq][mn][op][rs][tu][vxz][wy]` span `n·SHARE` (a
+  2-letter sector 27.7°, the two 3-letter sectors 41.5°). The grouping is
+  **fixed across all four registers**, so sector boundaries never move when the
+  register changes — the muscle memory of the press position survives the
+  `abc → 123` switch. (The digit/symbol registers are shorter than 26; their
+  groups fill in order.)
+- **The reveal.** On touch-down anywhere in the ring band (r 140–233, radially
+  forgiving — a transparent `ADV_HITTEST` arc is the press target), **only the
+  pressed sector's boxes appear**: one thick (76 px) non-rounded arc box per
+  letter, tiling the sector edge-to-edge across r 150–226 — the ring band
+  itself, so the reveal replaces the at-rest letters under the finger (no
+  second cramped ring). The lit box **inverts** (white fill, near-black
+  letter); the pressed sector's at-rest letters hide so the reveal letters do
+  not double. The reveal is **sticky** to the pressed sector — sliding across a
+  sector boundary sweeps over that sector's boxes, it does not re-key the set.
+- **Hit-test.** The **exact box under the finger**: the finger's angle names
+  the sector, the offset-in-sector (`floor(Δangle / SHARE)`) names the box — no
+  nearest-centre tie-break (v1's 2× overlap is gone; the boxes tile the ring
+  exactly). **Release commits the letter** under the finger; nothing commits on
+  press or zone-crossing, so a slow sweep can never double-enter.
+- **Centre preview (DTMF-style).** While pressed the lit letter is shown in the
+  centre (32 px SSID font — the 48 px font is the digits-only subset, no
+  letters) + "release commits"; on release the character commits and the full
+  running entry re-appears, **unmasked** (the user is physically present): the
+  last 6 characters with a `…` prefix when longer, `....` when empty.
+- **Register/shift arc.** 4 individually-tappable 60° switch keys
+  `abc / ABC / 123 / #$` on the top 240° arc (r 84–144, LVGL 150°–390° with a
+  360/0 wrap; the active key lit at `150 + 60·m … 210 + 60·m`, the key labels
+  at LVGL 180/240/300/360° r 114); a press resolves to the **exact 60° sector
+  under the finger** (not the nearest key) and re-strings the 26 slots (digits:
+  `0123456789#@._-+*?!/&%:;` — 25 slots; symbols: `#$%&@!_=<>[]{}~^:,/?*+-.'` —
+  25 slots). Case is separate (lower/upper) because it matters for passwords.
+- **Bottom band — commit / discard.** The bottom 120° splits into the house
+  circle-xmark **COMMIT** key (LVGL 31.5°–88.5°, icon at LVGL 60° r 114) and
+  the trash **DISCARD** key (LVGL 91.5°–148.5°, icon at LVGL 120° r 114).
+  Commit (with a non-empty password) writes `wifi_credentials_write(ssid, pw)`
+  (two lines to `/spiffs/wifi_credentials.txt`, the password never logged) →
+  `action_start_wifi_sync()` (the 6144 B background task) and the screen swaps
+  to the transient WiFi screen (§7.2); on success the app leaves airplane mode.
+  An empty password is not written. Discard clears the entry without writing.
+  The circle-xmark is the house exit glyph **repurposed as the commit key** (a
+  deliberate v2 deviation from v1, where it was the exit).
+- **Centre gestures.** A plain tap on the centre (the 110 px tap box)
+  **backspaces**; a **400 ms long press on the centre returns to the WiFi
+  list** (no write, no sync) — v2 has no in-ring exit (the xmark glyph is the
+  commit key), and the centre box (r ≈ 55) never overlaps the sweep band (r
+  140–233), so the hold cannot start a letter. The screen's angular picking
+  uses the inverse-transform idiom (`lv_obj_transform_point`,
+  `LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE`, the `alarm_time_point_to_day`
+  pattern), so it stays correct under the 90° orientation roll.
 - **Known interaction (stated, not suppressed):** the global 2 s press
   orientation re-sync also fires on long sweeps; it is pose-stability gated and
   only re-anchors the home reference, and the wheel is transform-aware, so a
   mid-sweep re-pose cannot move the letter under the finger.
-- **LVGL note:** the clickable wheel arcs carry `LV_OBJ_FLAG_ADV_HITTEST` —
-  without it `lv_arc` falls back to a plain bounding-box hit test (its 466×466
-  box swallows every press) and the last-created arc wins the search.
+- **LVGL notes.** The clickable arcs (press band, mode arc, commit/discard)
+  carry `LV_OBJ_FLAG_ADV_HITTEST` — without it `lv_arc` falls back to a plain
+  bounding-box hit test and the last-created arc wins the search. Every arc
+  also gets the theme's blue circular KNOB (colour primary, opaque) — killed
+  with `bg_opa TRANSP` on `LV_PART_KNOB` (on a full ring it lands at the centre
+  as a blue disc). The radial hairlines/icons are thin `lv_obj` bars (LVGL's
+  `lv_line` is not built) rotated with `lv_obj_transform_rotation` in **0.1°
+  units** (pass deg×10 — v1 passed raw degrees and its ticks under-rotated 10×,
+  a latent bug the v2 rewrite fixes).
 - **Alternatives surveyed (2026-11-01):** the research note
   `docs/research/circular-keyboard-alternatives.md` evaluates the circular
   wheel against the published round-display text-entry literature (C-QWERTY,
@@ -1078,10 +1119,9 @@ moon image (settings are moon-less by design).
   multi-tap ring and hold-to-commit dwell are the ranked low-cost additions.
 - **Settings displayed:** the prefilled SSID, the running password, the active
   register, the selected letter.
-- **Design direction (approved):** the lab prototype **sweep wheel v2
-  ("12-sector hybrid")** — §7.14 — is the approved evolution: it keeps the
-  wheel's coarse-press + sweep model but re-derives the geometry (proportional
-  sectors, overlay reveal, centre preview) from the lab's operable 1:1 mocks.
+- **Device check (pending):** the 0.7–1.5 s/character estimate and the sweep's
+  real-glass feel (touch latency, how far a finger actually travels in 0.7 s)
+  are the pending bench verification (the research's open question 2).
 
 ### 7.14 The wheel's design choices — interactive lab, comparable layouts, and the v2 hybrid
 
@@ -1136,10 +1176,14 @@ top arc switches the register (`abc / ABC / 123 / #$` — four large 60° keys);
 the bottom of the ring is a **⊗ commit** key and a **trash discard** key; a
 **tap on the centre backspaces**. No double-entry is possible: the commit
 happens only on release, and the hit-test is the exact box under the finger (no
-nearest-centre tie-break).
+nearest-centre tie-break). One firmware addition beyond the mock: v2 has no
+in-ring exit (the ⊗ glyph is the commit key), so a **400 ms long press on the
+centre is the only way back to the WiFi list** (§7.13) — the centre box never
+overlaps the sweep band, so the hold cannot start a letter.
 
-**The v2 geometry (firmware spec)** — what the mock implements, measured
-against the shipped v1 of §7.13:
+**The v2 geometry (shipped)** — what the mock specified and the firmware
+implements (the device behaviour now, §7.13; measured against the mock and the
+v1 it replaced):
 
 - **Proportional sectors.** 26 letters, every letter owns an equal
   `SHARE = 360/26 ≈ 13.846°` of the ring; sector `k` (holding `n` letters)
@@ -1170,9 +1214,12 @@ against the shipped v1 of §7.13:
 - **Commit / discard / backspace.** Bottom of the ring: ⊗ (24 px, the house
   exit glyph, v1's deviation kept) commits the entry (`wifi_credentials_write`
   - the background WiFi sync, §7.13); the trash key discards without writing;
-    centre tap = backspace (v1 used a 400 ms centre long-press — v2 makes a
-    plain tap backspace because the long-press would compete with the sweep
-    press that starts a letter).
+    centre tap = backspace. The 400 ms centre long-press survives as the **back
+    gesture**: v1's long-press would have competed with the sweep press (both
+    in the ring band), but the centre box (r ≈ 55) sits clear of the sweep band
+    (r 140–233), so the hold cannot start a letter — it returns to the WiFi
+    list, the one path v2's exit-less layout requires (see the firmware
+    addition above).
 
 The mock's estimates (the card's own rows): **0.7–1.5 s/character** (≈4–8 CPM
 for passwords), equal-share targets + big centre preview + release-only commit
@@ -1187,18 +1234,18 @@ is the research note `docs/research/circular-keyboard-alternatives.md`
 (2026-11-01); the table below is the compact version, with the idea source each
 v2 element took from:
 
-| Method                                              | Published evidence                                                              | Status                  | What v2 took from it                                                                                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Sweep wheel (coarse press + sweep, release commits) | C-QWERTY (2020) — ring of keys on a circular watch face; the shipped v1 (§7.13) | **KEEP (v1 shipped)**   | the whole model: 12 coarse press targets, sweep to resolve, release commits (no auto-commit → no double-entry)                             |
-| 12-sector DTMF multi-tap (1–4 presses, 700 ms)      | T9/DTMF multi-tap; Crownboard's commit-on-release                               | SHIP as a register mode | the **centre preview** — the selected char shown in the middle until release commits, then the full entry re-appears                       |
-| Hold-to-commit dwell (400 ms)                       | dwell-click literature; the gesture-free fallback                               | SHIP as a setting       | the backstop for users who won't sweep: hold a box, it commits on its own                                                                  |
-| Auto-scan (Crownboard)                              | Crownboard (CHI 2023) — rotation + commit on a 3D-printed watch                 | SHIP as a setting       | the "hands-barely-move" mode: the lit box steps at 1/s, a tap commits the lit one                                                          |
-| 9×4 swipe sectors (Tap'nSwipe)                      | Tap'nSwipe (IJHCI 2025) — 9 sectors × 4 chars, swipe direction selects          | HOLD                    | the sector-count sanity check (9×4 ≈ 36 ≈ 12×3; coarse sectors win over 26 fine taps)                                                      |
-| Fitted QWERTY 6×6                                   | smartwatch QWERTY trace/tap studies (SAGE 2019) — tap WPM on a round face       | **REJECTED**            | keys land at ~3.5 mm, a quarter of a fingertip — below touch resolution; the lab panel makes it tappable so the case is felt, not asserted |
-| Ring glide / one-stroke                             | —                                                                               | REJECTED as primary     | no word model to recover an arbitrary password string from an over-swipe                                                                   |
-| IMU twist                                           | QMI8658C is on-board (free)                                                     | EXPERIMENTAL            | the body-roll conflict: a twist gesture fights the 90° orientation tracker (§10.3)                                                         |
-| Physical rotary encoder                             | in-car dial studies (Brewster CHI 2017) — physical certainty, >94 % accuracy    | v2 board (hardware)     | the strongest evidence-backed upgrade — a hardware revision, not firmware                                                                  |
-| Voice / camera / QR / NFC / BLE / T9-dictionary     | —                                                                               | INFEASIBLE / no fit     | the board has no mic/camera/NFC; a companion app for a once-per-network task is not worth it; T9 needs a word model, a password has none   |
+| Method                                              | Published evidence                                                                               | Status                  | What v2 took from it                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Sweep wheel (coarse press + sweep, release commits) | C-QWERTY (2020) — ring of keys on a circular watch face; the wheel shipped as v1, now v2 (§7.13) | **KEEP (v2 shipped)**   | the whole model: 12 coarse press targets, sweep to resolve, release commits (no auto-commit → no double-entry)                             |
+| 12-sector DTMF multi-tap (1–4 presses, 700 ms)      | T9/DTMF multi-tap; Crownboard's commit-on-release                                                | SHIP as a register mode | the **centre preview** — the selected char shown in the middle until release commits, then the full entry re-appears                       |
+| Hold-to-commit dwell (400 ms)                       | dwell-click literature; the gesture-free fallback                                                | SHIP as a setting       | the backstop for users who won't sweep: hold a box, it commits on its own                                                                  |
+| Auto-scan (Crownboard)                              | Crownboard (CHI 2023) — rotation + commit on a 3D-printed watch                                  | SHIP as a setting       | the "hands-barely-move" mode: the lit box steps at 1/s, a tap commits the lit one                                                          |
+| 9×4 swipe sectors (Tap'nSwipe)                      | Tap'nSwipe (IJHCI 2025) — 9 sectors × 4 chars, swipe direction selects                           | HOLD                    | the sector-count sanity check (9×4 ≈ 36 ≈ 12×3; coarse sectors win over 26 fine taps)                                                      |
+| Fitted QWERTY 6×6                                   | smartwatch QWERTY trace/tap studies (SAGE 2019) — tap WPM on a round face                        | **REJECTED**            | keys land at ~3.5 mm, a quarter of a fingertip — below touch resolution; the lab panel makes it tappable so the case is felt, not asserted |
+| Ring glide / one-stroke                             | —                                                                                                | REJECTED as primary     | no word model to recover an arbitrary password string from an over-swipe                                                                   |
+| IMU twist                                           | QMI8658C is on-board (free)                                                                      | EXPERIMENTAL            | the body-roll conflict: a twist gesture fights the 90° orientation tracker (§10.3)                                                         |
+| Physical rotary encoder                             | in-car dial studies (Brewster CHI 2017) — physical certainty, >94 % accuracy                     | v2 board (hardware)     | the strongest evidence-backed upgrade — a hardware revision, not firmware                                                                  |
+| Voice / camera / QR / NFC / BLE / T9-dictionary     | —                                                                                                | INFEASIBLE / no fit     | the board has no mic/camera/NFC; a companion app for a once-per-network task is not worth it; T9 needs a word model, a password has none   |
 
 The **idea sources in one line**: coarse press + sweep + release-commit is the
 shipped wheel (itself confirmed by C-QWERTY/Crownboard-class work); the centre
@@ -1209,12 +1256,14 @@ DTMF centre preview and the reveal-overlaying-the-inner circle);
 ⊗/trash/centre-backspace follow the house pattern (the circle-xmark exit glyph,
 §7.13).
 
-**Status.** The v2 hybrid is **approved for firmware implementation** (the
-shipped v1 above remains the running screen until v2 lands). The lab mock is
-the normative interaction spec; the geometry table above is the normative
-geometry. When v2 lands, this section updates to describe the device behaviour
-(and §7.13's screenshots re-render from the new `screens.c` through the UI
-simulator).
+**Status.** The v2 hybrid is **shipped** (2026-11-02): §7.13 describes the
+device behaviour, its screenshots are re-rendered from the v2 `screens.c`
+through the UI simulator (466 ×466 + 720 ×720), and the only deltas from the
+mock are the documented ones — the 32 px centre preview (the 48 px font is the
+digits-only subset) and the centre long-press back gesture. The lab mock
+remains the normative interaction spec and the geometry table above the
+normative geometry; the v1 two-frame wheel is the iteration it replaced (its
+screenshots and prose are the earlier revision of §7.13 in git history).
 
 ### 7.15 Manual time entry (P4)
 
@@ -1584,7 +1633,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                      |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                 |
-| Binary (2026-11-01, after M5.1/M5.5)          | S3: `0x1621a0` = 1,450,400 B in the 2,097,152 B partition (646,752 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; the M5.5 ring is +48 B no-op stub calls). P4: `0x179d40` = 1,547,584 B in the 9,437,184 B partition (~7.9 MB free — the M5.5 ring pulls the `esp_codec_dev` + I2S driver into the link, +70 KB over the M5.1 1,477,472 B)                                                                 |
+| Binary (2026-11-02, after wheel v2)           | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                  |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +

@@ -214,11 +214,18 @@ void tick_screen_settings_tz();
 
 /* The circular wheel keyboard for WiFi password entry (reached by
  * tapping an AP row on the WiFi screen, which prefills the SSID).
- * Two concentric letter rings (the inner wayfinding ring + the outer
- * 2x-angle sweep ring revealed on press), a 4-key register/shift arc
- * (abc / ABC / 123 / #$), a centre password preview that commits on a
- * short tap (save + connect) and backspaces on a long press, and the
- * shared sub-screen exit back to the WiFi list. */
+ * The v2 hybrid (doc 7.14; the operable reference is the lab's panel #1,
+ * docs/keyboard/round-keyboard-lab.html): the 26 slots of the active
+ * register tile the ring in equal shares, grouped into 12 fixed
+ * frequency sectors (their boundaries never move between registers); on
+ * press only the pressed sector's boxes are revealed edge-to-edge across
+ * the ring band (the lit box inverts) with a DTMF-style centre preview
+ * -- the letter commits only on release, and the hit-test is the exact
+ * box under the finger. A 4-key register/shift arc (abc / ABC / 123 / #$,
+ * top 240 deg), the bottom 120 deg is the circle-xmark COMMIT key (save +
+ * connect) and the trash DISCARD key, a plain centre tap backspaces, and
+ * a 400 ms centre long press is the only way back to the WiFi list (v2
+ * has no in-ring exit -- the xmark glyph is the commit key). */
 void create_screen_settings_wifi_password();
 void tick_screen_settings_wifi_password();
 
