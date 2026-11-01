@@ -37,6 +37,16 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 # The 4C panel (720x720). The 800x800 3.4C is CONFIG_BSP_LCD_TYPE_800_800_3_4_INCH.
 CONFIG_BSP_LCD_TYPE_720_720_4_INCH=y
+# ONE panel frame buffer (the BSP default is 3): with 3, the XC BSP's
+# TRIPLE_PARTIAL display start flips the continuous MIPI-DPI scanout
+# between the FBs on every LVGL refresh, while the spin's direct strip
+# burst only updates the FB being scanned -- so a flip briefly shows the
+# spin pose from that FB's last visit (older theta = counter-clockwise)
+# until the next spin frame corrects it (the spin's CCW flicker). 1 FB +
+# the adapter's NONE tear mode (set in main.cpp) makes every writer --
+# LVGL strips and spin strips -- write the single scanned surface; the
+# residual tearing is at most one frame (invisible at the spin rate).
+CONFIG_BSP_LCD_DPI_BUFFER_NUMS=1
 # Remote C6 Wi-Fi over SDIO (M2): the esp_hosted / esp_wifi_remote pair
 # (component-manager deps, pinned in main/idf_component.yml). All SDIO
 # pins (CLK 18 / CMD 19 / D0-D3 14-17), the slave target (esp32c6), the

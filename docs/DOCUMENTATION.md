@@ -19,20 +19,22 @@ Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §
 the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 650 px moon disk
 (2026-11-01: grown 618 → 650 px so the gap to the seconds arc is ~half the
 arc's thickness, §3.2) and the 720 px UI upscale — panel-scaled layout +
-regenerated fonts, §6 — are done on-device; the P4 clock degradation (no RTC
-IC: crystal RTC timer + SNTP + software alarms) is the follow-on milestone),
-the burn-in spin's **direct panel write** (the render task writes the MOON_PX²
-moon area straight to the panel at 8 fps instead of routing through LVGL's ~175
-ms re-render; the settled rate is a constant slow spin, so the moon no longer
-freezes before light sleep), the **fade-to-black screen switch** (replacing the
-concentric reveal that showed white strip bars; now a hardware panel-brightness
-ramp — the CO5300's own dimming command — so the transition writes no pixels at
-all), the **alarm weekday prefix** ("Mo 07:00" on the home screen when the next
-fire is >24 h away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is
-the button), and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule
-burned the alarm screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md)
-— this document is regenerated with `python3 docs/gen_doc.py` and must stay in
-sync with the code._
+regenerated fonts, §6 — are done on-device; the P4 spin's CCW flicker is fixed
+at the source — one framebuffer, no scanout flip, §4.3; the P4 clock
+degradation (no RTC IC: crystal RTC timer + SNTP + software alarms) is the
+follow-on milestone), the burn-in spin's **direct panel write** (the render
+task writes the MOON_PX² moon area straight to the panel at 8 fps instead of
+routing through LVGL's ~175 ms re-render; the settled rate is a constant slow
+spin, so the moon no longer freezes before light sleep), the **fade-to-black
+screen switch** (replacing the concentric reveal that showed white strip bars;
+now a hardware panel-brightness ramp — the CO5300's own dimming command — so
+the transition writes no pixels at all), the **alarm weekday prefix** ("Mo
+07:00" on the home screen when the next fire is >24 h away), the
+**fa-circle-xmark exit glyph** (U+F057 — the glyph is the button), and the
+**7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm screen
+in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document is
+regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
+code._
 
 ---
 
@@ -237,6 +239,16 @@ degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
   overlapped the sweep (the sweep was interrupted at frame 285/336); the re-arm
   now skips `clock_idle_set_enabled(true)` while `moon_ui_sweeping()`.
 
+**State (2026-11-01):** the spin's CCW flicker is fixed at its source — the
+panel now runs **one framebuffer, no flip** (`CONFIG_BSP_LCD_DPI_BUFFER_NUMS=1`
+
+- the adapter's NONE tear-avoid mode, §4.3): with the BSP default of three
+  panel framebuffers, every LVGL refresh flipped the continuous MIPI-DPI
+  scanout to an FB whose moon area still held the spin pose from its last visit
+  — an older θ (the spin's θ only advances CW, so older reads CCW) — until the
+  next spin frame corrected it: the "sporadic counter-clockwise images that
+  jump back to the current frame."
+
 **State (M4, 2026-10-31):** the P4's UI is now fully upscaled — every screen
 root is panel-sized (`UI_PANEL_PX`, `components/ui/ui_px.h`:
 `UI_PX(x) = x·BSP_LCD_H_RES/466`, exact at 466 so the S3 layout is bit-for-bit
@@ -338,7 +350,7 @@ find every partition by label, not offset, so the widening is layout-invisible;
 | Block     | Part                | Notes                                                                                                                                                    |
 | --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash |
-| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted)                                                               |
+| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted); **one framebuffer, no flip** (the spin's CCW flicker, §4.3)  |
 | Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                 |
 | Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
 | Time base | none (no RTC IC)    | the internal RTC timer, crystal-backed (32.768 kHz on the board) + SNTP; VBAT battery header (power-loss survival to be verified)                        |
@@ -453,6 +465,34 @@ fetch data from external memory fast enough, underrun" — 1 per ~28 s of settle
 spin at 206 rows, 0 across ~140 s at 103 rows, measured 2026-10-31; the 650 px
 disk uses 65 rows / 84.5 KB — the same proven-safe class, 0 underruns on the
 2026-11-01 boot).
+
+**P4: one framebuffer, no flip (the spin's CCW flicker, fixed 2026-11-01).**
+The P4's MIPI-DPI panel scans its framebuffer out _continuously_ (a 60 Hz
+top-to-bottom DMA, no frame-complete on MIPI), and the DPI driver supports up
+to three panel framebuffers (`CONFIG_BSP_LCD_DPI_BUFFER_NUMS`, BSP default 3):
+a `draw_bitmap` whose source is one of the panel FBs just flips `cur_fb_index`,
+and the scanout DMA re-binds to it at the next wrap. The XC BSP's
+`bsp_display_start()` default (the LVGL adapter's **TRIPLE_PARTIAL** tear-avoid
+mode) runs exactly this: every LVGL refresh (the seconds knob's once-per-second
+invalidation, a label change, a screen switch) full-blits from a _different_
+panel FB and flips the scanout to it. But the spin's direct strip burst only
+writes the FB that is being scanned _at that instant_ (every 125 ms), so the
+other two FBs keep the spin pose from their **last visit** — an older θ. The
+spin's θ only ever advances clockwise, so "older" reads as
+**counter-clockwise**: each LVGL flip briefly shows the moon a few poses back,
+then the next spin frame (≤125 ms) corrects it. That is the reported "sporadic
+counter-clockwise images that jump back to the current frame" — sporadic (only
+on LVGL refreshes, not every frame), CCW (stale = older θ), self-correcting.
+P4-only by construction (the S3's QSPI panel is a single GRAM written
+synchronously, no flip). Fix: the P4 runs the panel with **one** framebuffer
+(`CONFIG_BSP_LCD_DPI_BUFFER_NUMS=1` in `sdkconfig.defaults.esp32p4`) and the
+adapter's **NONE** tear-avoid mode (`bsp_display_start_with_config` in
+`main.cpp`), so LVGL's strips and the spin's strips all write the one surface
+the panel is scanning. The residual tearing is at most one frame — sub-pixel at
+the settled spin rate, ~1 px at the rim at the active rate — invisible. The
+one-FB change also frees the two unused 2.1 MB surfaces and removes the spin
+burst's contention on the driver's draw semaphore (the "previous draw operation
+is not finished" strip rejects).
 
 ### 4.4 Screen & state flow
 
@@ -1428,7 +1468,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (103,624 B)
+- `docs/doc_template.md` (106,318 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -29540,8 +29580,8 @@ static void moon_spin_write_panel(void) {
                     const int v6 = (b + 1) * 63 / MOON_SPIN_NSTRIPS;
                     const uint16_t gray = in_moon ? (uint16_t)((v5 << 11) | (v6 << 5) | v5) : 0;
                     for (int x = 0; x < BSP_LCD_H_RES; x++)
-                        s_bands[(size_t)y * BSP_LCD_H_RES + x] = (x >= MOON_IMG_POS && x < MOON_IMG_POS + MOON_PX) ? gray
-                                                                                                                    : 0;
+                        s_bands[(size_t)y * BSP_LCD_H_RES + x] =
+                            (x >= MOON_IMG_POS && x < MOON_IMG_POS + MOON_PX) ? gray : 0;
                 }
             }
         }
@@ -40053,7 +40093,29 @@ extern "C" void app_main(void) {
         }
     }
 
+#if defined(CONFIG_BOARD_P4)
+    /* The P4's XC BSP default (bsp_display_start) runs the LVGL adapter in
+     * TRIPLE_PARTIAL tearing mode on the panel's THREE frame buffers
+     * (CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3): every LVGL refresh flips the
+     * continuous MIPI-DPI scanout to another FB, but the spin's direct
+     * strip burst only writes the FB that is being scanned at that
+     * instant -- so a flip briefly displays the spin pose from that FB's
+     * LAST visit (an older theta; the spin's theta only advances CW, so
+     * older reads COUNTER-CLOCKWISE) until the next spin frame corrects
+     * it. Single FB + NONE tear mode: LVGL's strips and the spin's
+     * strips all write the one surface the panel is scanning; the
+     * residual tearing is at most one frame (sub-pixel at the settled
+     * spin rate, ~1 px at the rim at the active rate) -- invisible.
+     * The S3's QSPI panel keeps its own bsp_display_start (NONE mode,
+     * single GRAM). */
+    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
+                                     .rotation = ESP_LV_ADAPTER_ROTATE_0,
+                                     .tear_avoid_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE,
+                                     .touch_flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0}};
+    bsp_display_start_with_config(&p4_disp_cfg);
+#else
     bsp_display_start();
+#endif
     /* Serialized backlight (direct BSP call at boot -- moon_ui_init has
      * not run yet, so the panel-io mutex is not armed and the wrapper
      * falls through to the raw write). */

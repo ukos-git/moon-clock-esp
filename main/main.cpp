@@ -409,7 +409,29 @@ extern "C" void app_main(void) {
         }
     }
 
+#if defined(CONFIG_BOARD_P4)
+    /* The P4's XC BSP default (bsp_display_start) runs the LVGL adapter in
+     * TRIPLE_PARTIAL tearing mode on the panel's THREE frame buffers
+     * (CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3): every LVGL refresh flips the
+     * continuous MIPI-DPI scanout to another FB, but the spin's direct
+     * strip burst only writes the FB that is being scanned at that
+     * instant -- so a flip briefly displays the spin pose from that FB's
+     * LAST visit (an older theta; the spin's theta only advances CW, so
+     * older reads COUNTER-CLOCKWISE) until the next spin frame corrects
+     * it. Single FB + NONE tear mode: LVGL's strips and the spin's
+     * strips all write the one surface the panel is scanning; the
+     * residual tearing is at most one frame (sub-pixel at the settled
+     * spin rate, ~1 px at the rim at the active rate) -- invisible.
+     * The S3's QSPI panel keeps its own bsp_display_start (NONE mode,
+     * single GRAM). */
+    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
+                                     .rotation = ESP_LV_ADAPTER_ROTATE_0,
+                                     .tear_avoid_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE,
+                                     .touch_flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0}};
+    bsp_display_start_with_config(&p4_disp_cfg);
+#else
     bsp_display_start();
+#endif
     /* Serialized backlight (direct BSP call at boot -- moon_ui_init has
      * not run yet, so the panel-io mutex is not armed and the wrapper
      * falls through to the raw write). */
