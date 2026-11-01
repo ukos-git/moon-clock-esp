@@ -251,8 +251,15 @@ menu "UI Component Configuration"
             shifted boundary, a row that does not land) is visible on a
             clean pattern with no moon texture or mask to confound it.
             The write path (same strips, same geometry, same panel
-            mutex) is unchanged; only the content differs. 0 (default) =
-            the normal moon.
+            mutex) is unchanged; only the content differs.
+            Value 1 = the bands written with the normal spin geometry
+            (400-wide strips at x=33). Value 2 = the same band pattern
+            written as FULL-PANEL-WIDTH strips (x 0..465, 466 px/row --
+            the LVGL flush geometry): the A/B that isolates the
+            400-wide strip window as the seam-line cause (the black
+            edge margins cover the arc-ring slivers at the mid-height
+            edges for the duration of the test). 0 (default) = the
+            normal moon.
 
     config TEST_WIFI_SCAN_SEC
         int "Test: open the WiFi settings screen N seconds after boot (0 = off)"

@@ -1106,6 +1106,47 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
 static void moon_spin_write_panel(void) {
     if (!s_panel || !s_disp || !s_front || !s_ui_mask)
         return;
+    if (CONFIG_TEST_SPIN_BANDS >= 2) {
+        /* Seam diagnostic variant 2: the SAME 16-band pattern (25-row
+         * pitch, the middle 400 rows; the outer 33 rows and 33 columns
+         * black) written as FULL-PANEL-WIDTH strips (x 0..465, 25 rows
+         * each, 466 px/row) -- the exact geometry of the LVGL flushes.
+         * Isolating the 400-wide, x=33 strip window (variant 1) as the
+         * seam-line cause: if the lines appear only on variant 1 the
+         * window is the trigger; if they appear here too, it is the
+         * strip write in general (RASET windows / GRAM scan interplay).
+         * The band canvas is static -- filled once, then rewritten every
+         * frame through the same write path as the moon. The black edge
+         * columns cover the arc-ring slivers at the mid-height edges for
+         * the duration of the diagnostic (the production fix, if the
+         * window is confirmed, keeps the full-width edge content). */
+        static uint16_t *s_bands;
+        if (!s_bands) {
+            s_bands = heap_caps_malloc((size_t)BSP_LCD_H_RES * BSP_LCD_H_RES * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+            if (s_bands) {
+                for (int y = 0; y < BSP_LCD_H_RES; y++) {
+                    const bool in_moon = (y >= MOON_IMG_POS) && (y < MOON_IMG_POS + MOON_PX);
+                    const int b = in_moon ? (y - MOON_IMG_POS) / MOON_SPIN_STRIP_ROWS : 0;
+                    const int v5 = (b + 1) * 31 / MOON_SPIN_NSTRIPS;
+                    const int v6 = (b + 1) * 63 / MOON_SPIN_NSTRIPS;
+                    const uint16_t gray = in_moon ? (uint16_t)((v5 << 11) | (v6 << 5) | v5) : 0;
+                    for (int x = 0; x < BSP_LCD_H_RES; x++)
+                        s_bands[(size_t)y * BSP_LCD_H_RES + x] =
+                            (x >= MOON_IMG_POS && x < MOON_IMG_POS + MOON_PX) ? gray : 0;
+                }
+            }
+        }
+        if (s_bands) {
+            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+            for (int y0 = 0; y0 < BSP_LCD_H_RES; y0 += MOON_SPIN_STRIP_ROWS) {
+                const int y1 = y0 + MOON_SPIN_STRIP_ROWS < BSP_LCD_H_RES ? y0 + MOON_SPIN_STRIP_ROWS : BSP_LCD_H_RES;
+                (void)moon_panel_draw_wait(s_panel, 0, y0, BSP_LCD_H_RES, y1, s_bands + (size_t)y0 * BSP_LCD_H_RES);
+            }
+            xSemaphoreGive(s_panel_mtx);
+            return;
+        }
+        /* PSRAM unavailable: fall through to the normal path. */
+    }
     if (CONFIG_TEST_SPIN_BANDS > 0) {
         /* Seam diagnostic (TEST_SPIN_BANDS): one distinct gray per strip --
          * the 16 strips of the moon area become 16 horizontal bands,

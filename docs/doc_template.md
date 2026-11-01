@@ -1223,23 +1223,20 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   lv_timer ticks, ~510 s real).
 - `TEST_BAKE_NO_RELIEF` — relief-free bakes (the PSRAM-load-latency floor A/B:
   bake ~1.3 s with relief vs ~0.95 s without).
-- `TEST_SPIN_BANDS` — the spin's seam diagnostic: one distinct gray level per
-  strip (the MOON_PX² moon area becomes horizontal bands, darkest to
-  brightest), so a glitch at a strip seam (a stray line, a shifted boundary, a
-  row that does not land) shows on a clean pattern with no moon texture or
-  keep-mask to confound it. The write path (same strips, same geometry, same
-  panel mutex) is unchanged; only the content differs.
+- `TEST_SPIN_BANDS` — the spin's seam diagnostic (the direct panel write; one
+  distinct gray level per strip, so a glitch at a strip seam — a stray line, a
+  shifted boundary, a row that does not land — shows on a clean pattern with no
+  moon texture or keep-mask to confound it; the write path is unchanged, only
+  the content). `1` = the MOON_PX² moon area as horizontal bands written with
+  the normal spin geometry (400-wide strips at x=33 on the S3). `2` = the same
+  band pattern written as full-panel-width strips (x=0..465, the LVGL flush
+  geometry) — the A/B that isolates the 400-wide strip window as the seam-line
+  cause (the black edge margins cover the arc-ring slivers for the duration of
+  the test). 0 (default) = the normal moon.
 - `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
   board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
-- `TEST_SPIN_BANDS` — seam diagnostic for the spin's direct panel write: when
-  > 0 the spin replaces the rotated moon (and the UI keep-mask overlay) with
-  > one distinct gray level per strip, so a glitch at a strip seam (a stray
-  > line, a shifted boundary, a row that does not land) shows on a clean
-  > pattern with no moon texture or mask to confound it. The write path (same
-  > strips, same geometry, same panel mutex) is unchanged; only the content
-  > differs. 0 (default) = the normal moon.
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the

@@ -1223,23 +1223,20 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   lv_timer ticks, ~510 s real).
 - `TEST_BAKE_NO_RELIEF` — relief-free bakes (the PSRAM-load-latency floor A/B:
   bake ~1.3 s with relief vs ~0.95 s without).
-- `TEST_SPIN_BANDS` — the spin's seam diagnostic: one distinct gray level per
-  strip (the MOON_PX² moon area becomes horizontal bands, darkest to
-  brightest), so a glitch at a strip seam (a stray line, a shifted boundary, a
-  row that does not land) shows on a clean pattern with no moon texture or
-  keep-mask to confound it. The write path (same strips, same geometry, same
-  panel mutex) is unchanged; only the content differs.
+- `TEST_SPIN_BANDS` — the spin's seam diagnostic (the direct panel write; one
+  distinct gray level per strip, so a glitch at a strip seam — a stray line, a
+  shifted boundary, a row that does not land — shows on a clean pattern with no
+  moon texture or keep-mask to confound it; the write path is unchanged, only
+  the content). `1` = the MOON_PX² moon area as horizontal bands written with
+  the normal spin geometry (400-wide strips at x=33 on the S3). `2` = the same
+  band pattern written as full-panel-width strips (x=0..465, the LVGL flush
+  geometry) — the A/B that isolates the 400-wide strip window as the seam-line
+  cause (the black edge margins cover the arc-ring slivers for the duration of
+  the test). 0 (default) = the normal moon.
 - `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
   board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
-- `TEST_SPIN_BANDS` — seam diagnostic for the spin's direct panel write: when
-  > 0 the spin replaces the rotated moon (and the UI keep-mask overlay) with
-  > one distinct gray level per strip, so a glitch at a strip seam (a stray
-  > line, a shifted boundary, a row that does not land) shows on a clean
-  > pattern with no moon texture or mask to confound it. The write path (same
-  > strips, same geometry, same panel mutex) is unchanged; only the content
-  > differs. 0 (default) = the normal moon.
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
@@ -1431,7 +1428,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (103,803 B)
+- `docs/doc_template.md` (103,624 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -29518,6 +29515,47 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
 static void moon_spin_write_panel(void) {
     if (!s_panel || !s_disp || !s_front || !s_ui_mask)
         return;
+    if (CONFIG_TEST_SPIN_BANDS >= 2) {
+        /* Seam diagnostic variant 2: the SAME 16-band pattern (25-row
+         * pitch, the middle 400 rows; the outer 33 rows and 33 columns
+         * black) written as FULL-PANEL-WIDTH strips (x 0..465, 25 rows
+         * each, 466 px/row) -- the exact geometry of the LVGL flushes.
+         * Isolating the 400-wide, x=33 strip window (variant 1) as the
+         * seam-line cause: if the lines appear only on variant 1 the
+         * window is the trigger; if they appear here too, it is the
+         * strip write in general (RASET windows / GRAM scan interplay).
+         * The band canvas is static -- filled once, then rewritten every
+         * frame through the same write path as the moon. The black edge
+         * columns cover the arc-ring slivers at the mid-height edges for
+         * the duration of the diagnostic (the production fix, if the
+         * window is confirmed, keeps the full-width edge content). */
+        static uint16_t *s_bands;
+        if (!s_bands) {
+            s_bands = heap_caps_malloc((size_t)BSP_LCD_H_RES * BSP_LCD_H_RES * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+            if (s_bands) {
+                for (int y = 0; y < BSP_LCD_H_RES; y++) {
+                    const bool in_moon = (y >= MOON_IMG_POS) && (y < MOON_IMG_POS + MOON_PX);
+                    const int b = in_moon ? (y - MOON_IMG_POS) / MOON_SPIN_STRIP_ROWS : 0;
+                    const int v5 = (b + 1) * 31 / MOON_SPIN_NSTRIPS;
+                    const int v6 = (b + 1) * 63 / MOON_SPIN_NSTRIPS;
+                    const uint16_t gray = in_moon ? (uint16_t)((v5 << 11) | (v6 << 5) | v5) : 0;
+                    for (int x = 0; x < BSP_LCD_H_RES; x++)
+                        s_bands[(size_t)y * BSP_LCD_H_RES + x] = (x >= MOON_IMG_POS && x < MOON_IMG_POS + MOON_PX) ? gray
+                                                                                                                    : 0;
+                }
+            }
+        }
+        if (s_bands) {
+            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+            for (int y0 = 0; y0 < BSP_LCD_H_RES; y0 += MOON_SPIN_STRIP_ROWS) {
+                const int y1 = y0 + MOON_SPIN_STRIP_ROWS < BSP_LCD_H_RES ? y0 + MOON_SPIN_STRIP_ROWS : BSP_LCD_H_RES;
+                (void)moon_panel_draw_wait(s_panel, 0, y0, BSP_LCD_H_RES, y1, s_bands + (size_t)y0 * BSP_LCD_H_RES);
+            }
+            xSemaphoreGive(s_panel_mtx);
+            return;
+        }
+        /* PSRAM unavailable: fall through to the normal path. */
+    }
     if (CONFIG_TEST_SPIN_BANDS > 0) {
         /* Seam diagnostic (TEST_SPIN_BANDS): one distinct gray per strip --
          * the 16 strips of the moon area become 16 horizontal bands,
