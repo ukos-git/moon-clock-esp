@@ -159,7 +159,7 @@ void alarm_audio_ring_start(void) {
     }
     s_ringing = true;
     s_stop = false;
-    if (xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 4, NULL) != pdPASS) {
+    if (xTaskCreate(ring_task, "alarm_ring", 6144, NULL, 4, NULL) != pdPASS) {
         s_ringing = false;
         ESP_LOGE(TAG, "ring task create failed");
     }

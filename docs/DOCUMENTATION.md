@@ -1812,7 +1812,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (134,244 B)
+- `docs/doc_template.md` (135,795 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -15341,7 +15341,7 @@ void alarm_audio_ring_start(void) {
     }
     s_ringing = true;
     s_stop = false;
-    if (xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 4, NULL) != pdPASS) {
+    if (xTaskCreate(ring_task, "alarm_ring", 6144, NULL, 4, NULL) != pdPASS) {
         s_ringing = false;
         ESP_LOGE(TAG, "ring task create failed");
     }
