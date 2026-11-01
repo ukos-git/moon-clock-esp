@@ -11,6 +11,7 @@
 #include "bsp/display.h"
 
 #include "actions.h"
+#include "alarm_audio.h"
 #include "imu.h"
 #include "moon_ui.h"
 #include "screens.h"
@@ -900,6 +901,11 @@ void action_alarm_triggered(lv_event_t *e) {
     // Mark alarm as active so wake callback knows we're dismissing alarm
     g_alarm_active = true;
 
+    // The ring (P4: the board's ES8311 speaker with the gradual volume
+    // ramp; S3: a no-op stub). The touch dismiss stops it in
+    // action_wake_screen (every dismiss path runs through there).
+    alarm_audio_ring_start();
+
     // Mark the alarm screen as a wake-worthy state (like the sleep
     // screens): dismissing it (touch) is a wake event. (If the alarm
     // rang while the device was already asleep, g_asleep is already
@@ -1068,6 +1074,11 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
  */
 void action_wake_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Wake: switching to the active flow");
+
+    // The touch dismiss (snooze) kills the ring if one is sounding: every
+    // dismiss path (the awake touch, the asleep idle-wake, and the airplane
+    // branch below) runs through here.
+    alarm_audio_ring_stop();
 
     // A wake from deep sleep lights the panel again (the deep-sleep
     // transition turned the backlight off).

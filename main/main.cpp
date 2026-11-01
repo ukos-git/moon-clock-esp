@@ -16,6 +16,7 @@
 #include "lvgl.h"
 
 #include "actions.h"
+#include "alarm_audio.h"
 #include "imu.h"
 #include "moon_ui.h"
 #include "ui.h"
@@ -454,6 +455,10 @@ extern "C" void app_main(void) {
 
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
+
+    // Alarm audio (P4: ES8311 speaker + amp on the shared I2C bus; S3:
+    // no-op stubs). Soft-fails like the IMU: the alarm stays display-only.
+    alarm_audio_init();
 
     // Base screen orientation (the panel's 90 deg CW mount offset): the
     // IMU's first sample arrives late and the pipeline only pushes on a
