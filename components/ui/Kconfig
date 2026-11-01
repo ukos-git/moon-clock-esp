@@ -238,6 +238,22 @@ menu "UI Component Configuration"
             settings stack (state machine, persistence, scheduler
             math). 0 (default) = off.
 
+    config TEST_SPIN_BANDS
+        int "Test: spin writes per-strip gray bands instead of the moon (0 = off)"
+        default 0
+        range 0 100
+        help
+            Seam diagnostic for the spin's direct panel write. When >0,
+            the spin replaces the rotated moon (and the UI keep-mask
+            overlay) with one distinct gray level per strip -- the 16
+            strips of the moon area become 16 horizontal bands, darkest
+            to brightest, so any glitch at a strip seam (a stray line, a
+            shifted boundary, a row that does not land) is visible on a
+            clean pattern with no moon texture or mask to confound it.
+            The write path (same strips, same geometry, same panel
+            mutex) is unchanged; only the content differs. 0 (default) =
+            the normal moon.
+
     config TEST_WIFI_SCAN_SEC
         int "Test: open the WiFi settings screen N seconds after boot (0 = off)"
         default 0

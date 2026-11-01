@@ -1,7 +1,8 @@
 # ESP32 Moon Phase Clock — Project Documentation
 
 A physically correct moon-phase clock. A disk of the Moon — 400 px on the S3's
-466 px panel, 618 px on the P4's 720 px panel (the same ~86% fill) — the
+466 px panel, 650 px on the P4's 720 px panel (85.8 % and 90.3 % fill — the P4
+default leaves a gap of ~half the seconds-arc thickness to the ring) — the
 current phase, from the last new moon to now — is rendered in real time on the
 panel from LROC Wide-Angle Camera albedo and LOLA relief, lit with
 displaced-normal Lambert shading at the exact Sun/Moon/Earth geometry of the
@@ -12,25 +13,26 @@ terminator across the disk to the fully unilluminated side. Time comes from NTP
 (brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
-_State of this document: 2026-10-31, after the **dual-board build — P4
+_State of this document: 2026-11-01, after the **dual-board build — P4
 plumbing, Wi-Fi, moon and UI scale-up** (the repo now also builds for the
 Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2;
-the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 618 px moon disk and
-the 720 px UI upscale — panel-scaled layout + regenerated fonts, §6 — are done
-on-device; the P4 clock degradation (no RTC IC: crystal RTC timer + SNTP +
-software alarms) is the follow-on milestone), the burn-in spin's **direct panel
-write** (the render task writes the MOON_PX² moon area straight to the panel at
-8 fps instead of routing through LVGL's ~175 ms re-render; the settled rate is
-a constant slow spin, so the moon no longer freezes before light sleep), the
-**fade-to-black screen switch** (replacing the concentric reveal that showed
-white strip bars; now a hardware panel-brightness ramp — the CO5300's own
-dimming command — so the transition writes no pixels at all), the **alarm
-weekday prefix** ("Mo 07:00" on the home screen when the next fire is >24 h
-away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is the button),
-and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm
-screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document
-is regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
-code._
+the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 650 px moon disk
+(2026-11-01: grown 618 → 650 px so the gap to the seconds arc is ~half the
+arc's thickness, §3.2) and the 720 px UI upscale — panel-scaled layout +
+regenerated fonts, §6 — are done on-device; the P4 clock degradation (no RTC
+IC: crystal RTC timer + SNTP + software alarms) is the follow-on milestone),
+the burn-in spin's **direct panel write** (the render task writes the MOON_PX²
+moon area straight to the panel at 8 fps instead of routing through LVGL's ~175
+ms re-render; the settled rate is a constant slow spin, so the moon no longer
+freezes before light sleep), the **fade-to-black screen switch** (replacing the
+concentric reveal that showed white strip bars; now a hardware panel-brightness
+ramp — the CO5300's own dimming command — so the transition writes no pixels at
+all), the **alarm weekday prefix** ("Mo 07:00" on the home screen when the next
+fire is >24 h away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is
+the button), and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule
+burned the alarm screen in). See the standing rule in [CLAUDE.md](../CLAUDE.md)
+— this document is regenerated with `python3 docs/gen_doc.py` and must stay in
+sync with the code._
 
 ---
 
@@ -66,7 +68,7 @@ Markdown and renders the project's own media:
   symbol modes), rendered by the UI simulator (`host_sim/uisim`) from the
   _real_ device `screens.c` with the vendored LVGL 9.6 — the exact panel
   pixels, 466x466 RGB565: `docs/img/screens/*.png`. The **same 17 shots at the
-  P4's 720x720 panel** (the 618 px moon disk, the 720 px UI — panel-scaled
+  P4's 720x720 panel** (the 650 px moon disk, the 720 px UI — panel-scaled
   layout + the P4's 148/74/50 px fonts): `docs/img/screens/p4/*.png`
   (`build.sh run --panel 720` builds into its own `build-720/` dir).
 - **4 films** of the live animations — the first three with frames rendered by
@@ -245,10 +247,11 @@ subsets at 148/74/50 px instead of 96/48/32 — identical `lv_font_t` symbols, s
 swaps the font dir on `CONFIG_BOARD_P4`). Verified: uisim 720 shots of all 17
 screens (`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the
 S3 binary behaviourally unchanged (the uisim 466 pass renders byte-identical
-screens), the spin's keep-mask band 315-357 now lands on the upscaled home
-seconds arc (ring r 329-344, knob to r ~350). The rotated orientation layer
-grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary 1,468,784 B
-(9,437,184 B factory).
+screens), the spin's keep-mask band 326-357 lands on the upscaled home seconds
+arc (ring r 329-344, knob to r ~350; RMIN sits just outside the 650 px moon
+edge at r 325, so the band never overlaps the disk). The rotated orientation
+layer grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary
+1,468,784 B (9,437,184 B factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -276,11 +279,11 @@ per-frame bake grows with the frame's illumination: measured 2026-10-31 at a 21
 d moon age — 79–541 ms @240 px (median 306 ms), 231 s total — and a younger
 moon (fewer bright frames) runs the sweep measurably faster (~2.8 min,
 2026-10-27). On the P4 the intermediates bake @240 px (~64–138 ms, ~155 ms
-display/frame) and only the final frame bakes at full 618 px (~599 ms) — **~121
-s total** at a 21 d moon age (2026-10-31; §11). Serial markers to watch:
-`WiFi connected`, `SNTP sync`, `synodic boot sweep started: 336 frames`,
-`sweep N/336 baked in ~79ms @240px`, `spin started`. A clean boot shows **0 WDT
-/ 0 panic / 0 NO_MEM**.
+display/frame) and only the final frame bakes at full 650 px (~595 ms) — **~121
+s total** at a 21 d moon age (2026-10-31; the 650 px final bake re-measured
+~595 ms on 2026-11-01). Serial markers to watch: `WiFi connected`, `SNTP sync`,
+`synodic boot sweep started: 336 frames`, `sweep N/336 baked in ~79ms @240px`,
+`spin started`. A clean boot shows **0 WDT / 0 panic / 0 NO_MEM**.
 
 ### 2.5 Regenerating the moon assets (optional)
 
@@ -417,7 +420,7 @@ docs/                  this document + media
 All moon-pipeline frames (bake, sweep, dusk, wake) land on the panel as **one
 atomic whole-panel `lv_refr_now` under `s_rgb_mtx`** — the display invariant.
 Two sanctioned exceptions, both serialized on the panel's SPI bus lock: the
-burn-in spin writes its MOON_PX² moon area (400×400 S3, 618×618 P4) **straight
+burn-in spin writes its MOON_PX² moon area (400×400 S3, 650×650 P4) **straight
 to the panel** from the render task (§8.1), and the screen-switch fade is a
 **hardware panel-brightness ramp** (the CO5300 0x51 command) that writes no
 pixels at all — its one atomic whole-panel flush of the new screen runs while
@@ -429,7 +432,7 @@ fade runs, §10.4). No tearing either way.
 
 ```
 moon_bake (core 1, PSRAM 8-bit gray) -> RGB565 convert
-   -> s_frame (PSRAM, MOON_PX^2: 400^2 on the S3, 618^2 on the P4)
+   -> s_frame (PSRAM, MOON_PX^2: 400^2 on the S3, 650^2 on the P4)
    -> LVGL task: lv_refr_now(NULL) under s_rgb_mtx
    -> adapter bridge: 25-row strips (S3), 50-row strips (P4)
       S3: PSRAM strip -> internal-RAM DMA staging (PSRAM is not SPI-DMA-capable;
@@ -441,13 +444,15 @@ On the S3, `buffer_height = 25` (23.3 KiB strip) and flush queue depth 1 are
 hard limits (the 50-row upstream default exhaustes the DMA-capable heap); the
 P4's BSP uses 50-row buffers freely. The burn-in spin bypasses this strip path
 entirely: a wrapped `draw_bitmap` writes the MOON_PX² moon area straight to the
-panel (16×25-row QSPI strips on the S3; 6×103-row DSI strips on the P4) under
+panel (16×25-row QSPI strips on the S3; 10×65-row DSI strips on the P4) under
 the panel's own bus lock, keeping the LVGL core free (§8.1). The P4's spin
 strips are deliberately SMALL: the P4's PSRAM is X16 and XIP (both cores fetch
 instructions from the same PSRAM the strips read out of), so one large 206-row
 (255 KB) strip read occasionally starves the DPI controller's FIFO ("can't
 fetch data from external memory fast enough, underrun" — 1 per ~28 s of settled
-spin at 206 rows, 0 across ~140 s at 103 rows, measured 2026-10-31).
+spin at 206 rows, 0 across ~140 s at 103 rows, measured 2026-10-31; the 650 px
+disk uses 65 rows / 84.5 KB — the same proven-safe class, 0 underruns on the
+2026-11-01 boot).
 
 ### 4.4 Screen & state flow
 
@@ -495,7 +500,7 @@ angular scale.
 
 1. **Base-sphere direction** `r = u·right + v·up + w·E` from the on-screen (u,
    v) of the pixel (disk radius = MOON_PX/2: 200 px on the S3's 466 px panel,
-   309 px on the P4's 720 px panel);
+   325 px on the P4's 720 px panel);
 2. **Equirect albedo** (864x432, LROC WAC, row 0 = north, 180° longitude
    offset) gathered through the _live_ camera basis (libration + posangle exact
    per frame);
@@ -543,7 +548,7 @@ frame with the rate smoothed (EMA) toward the target — active period (default
 `UI_MOON_SPIN_SETTLED_PERIOD_S`) when settled, so the moon never reads as
 frozen before light sleep. ~8 ms gather per frame, then the composited MOON_PX²
 composite is written **straight to the panel** (16×25-row QSPI strips on the
-S3; 6×103-row DSI strips on the P4) at 8 fps (`UI_MOON_SPIN_FPS`) — the render
+S3; 10×65-row DSI strips on the P4) at 8 fps (`UI_MOON_SPIN_FPS`) — the render
 bypasses LVGL's re-render path (the wrapped `esp_lcd_panel_draw_bitmap`), so
 the frame cost is gather + one panel write, not the ~175 ms re-render.
 
@@ -1115,9 +1120,9 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                             |
 | Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                            |
-| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **618 px in ~599 ms**; **~121 s** bake total (2026-10-31, 21 d moon age)                                                                                                                                                                                 |
-| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row (S3) / 6×103-row (P4) panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets (the P4's 103-row strips kill the DPI FIFO underrun a 206-row strip caused, §4.3)                                                                                                                                     |
-| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 618 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
+| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                            |
+| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row (S3) / 10×65-row (P4) panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                          |
+| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
 | Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                             |
 | Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                              |
 | Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
@@ -1182,7 +1187,7 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466 by default, ESP stubs) → per-screen PNG
   snapshots (`build.sh run`); `build.sh run --panel 720` renders the P4's
-  720x720 panel (its own `build-720/` dir, the 618 px moon disk, the panel-
+  720x720 panel (its own `build-720/` dir, the 650 px moon disk, the panel-
   scaled UI + the `fonts_p4/` font set — the font dir and `-DPANEL_SIZE` both
   follow the `--panel` arg, mirroring the device's `CONFIG_BOARD_P4` switch) —
   the source of every screenshot in §7 (the P4 set under
@@ -1222,6 +1227,13 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
   board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
+- `TEST_SPIN_BANDS` — seam diagnostic for the spin's direct panel write: when
+  > 0 the spin replaces the rotated moon (and the UI keep-mask overlay) with
+  > one distinct gray level per strip, so a glitch at a strip seam (a stray
+  > line, a shifted boundary, a row that does not land) shows on a clean
+  > pattern with no moon texture or mask to confound it. The write path (same
+  > strips, same geometry, same panel mutex) is unchanged; only the content
+  > differs. 0 (default) = the normal moon.
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
@@ -1338,7 +1350,7 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 Test hooks (all default off, §12.3): `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_ROLL_TILT_SEC`, `TEST_CPU_STATS_SEC`,
-`TEST_BAKE_NO_RELIEF`, `TEST_WIFI_SCAN_SEC`.
+`TEST_BAKE_NO_RELIEF`, `TEST_WIFI_SCAN_SEC`, `TEST_SPIN_BANDS`.
 
 ### 14.4 Runtime settings store (`/spiffs/settings.txt`)
 
@@ -1412,7 +1424,8 @@ code.
 
 `docs/` holds this document, its generator, the media, and the research notes:
 
-- `docs/doc_template.md` (102,413 B)
+- `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
+- `docs/doc_template.md` (103,421 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -1432,9 +1445,9 @@ code.
 - `docs/img/screens/light_sleep.png` (149,472 B)
 - `docs/img/screens/modem_sleep.png` (156,132 B)
 - `docs/img/screens/p4/alarm.png` (30,323 B)
-- `docs/img/screens/p4/deep_sleep.png` (292,941 B)
-- `docs/img/screens/p4/light_sleep.png` (310,391 B)
-- `docs/img/screens/p4/modem_sleep.png` (318,079 B)
+- `docs/img/screens/p4/deep_sleep.png` (316,392 B)
+- `docs/img/screens/p4/light_sleep.png` (332,944 B)
+- `docs/img/screens/p4/modem_sleep.png` (342,202 B)
 - `docs/img/screens/p4/settings_alarm.png` (26,105 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,790 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (25,148 B)
@@ -1447,7 +1460,7 @@ code.
 - `docs/img/screens/p4/settings_wifi_password_ABC.png` (42,163 B)
 - `docs/img/screens/p4/settings_wifi_password_sym.png` (38,965 B)
 - `docs/img/screens/p4/settings_wifi_password_touched.png` (65,491 B)
-- `docs/img/screens/p4/wifi.png` (314,132 B)
+- `docs/img/screens/p4/wifi.png` (338,812 B)
 - `docs/img/screens/settings_alarm.png` (12,924 B)
 - `docs/img/screens/settings_alarm_time.png` (18,055 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
@@ -1461,7 +1474,7 @@ code.
 - `docs/img/screens/settings_wifi_password_sym.png` (22,361 B)
 - `docs/img/screens/settings_wifi_password_touched.png` (40,310 B)
 - `docs/img/screens/wifi.png` (154,809 B)
-- `docs/research/circular-keyboard-alternatives.md` (33,420 B)
+- `docs/research/circular-keyboard-alternatives.md` (34,999 B)
 - `docs/research/gltf-feasibility.md` (4,852 B)
 - `docs/research/moon-rendering.md` (14,427 B)
 
@@ -28551,15 +28564,16 @@ static const char *TAG = "moon_ui";
 /* The moon image is a disk (radius MOON_PX / 2, the asset pipeline's native
  * size on the S3) centered on the panel with a black margin -- 26% less
  * bake/rotate/display traffic than baking the whole panel. The disk fills
- * 85.8% of the panel on BOTH boards (400/466 on the S3, 618/720 on the P4),
- * so the moon stays proportional. Everything below derives from MOON_PX +
+ * 85.8% of the panel on the S3 (400/466) and 90.3% on the P4 (650/720 --
+ * the P4 default: gap ~= half the seconds-arc thickness to the ring), so
+ * the moon stays proportional. Everything below derives from MOON_PX +
  * the panel size (BSP_LCD_H_RES), so the portable core (which takes
  * size/radius as arguments) is untouched. The bake/rotate math works in
  * image coordinates (center MOON_PX/2); the touch math works in panel
  * coordinates (center MOON_CX -- the same point, so the drag math is
  * unchanged). */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_PX 618
+#define MOON_PX 650
 #else
 #define MOON_PX 400
 #endif
@@ -28568,18 +28582,18 @@ static const char *TAG = "moon_ui";
 #define MOON_CY (BSP_LCD_V_RES / 2)
 /* The bake/rotate sphere radius = the image half (the disk touches all four
  * edges): 200 = 400/2 on the S3 (the asset's native MOON_DISK_RADIUS_PX),
- * 309 = 618/2 on the P4 -- so this generalizes with no S3 change. */
+ * 325 = 650/2 on the P4 -- so this generalizes with no S3 change. */
 #define MOON_R ((float)MOON_PX / 2.0f)
 #define MOON_TICK_MS 50
 /* Animation display strip = the rows per panel write. S3: 25 rows (= the BSP
  * QSPI draw-buffer height; one invalidated strip = one draw buffer + one
- * QSPI transfer; 16 strips tile the 400 px moon). P4: 206 rows (3 strips
- * tile the 618 px moon) -- the MIPI-DSI panel has no S3 32 KiB SPI-DMA
+ * QSPI transfer; 16 strips tile the 400 px moon). P4: 130 rows (5 strips
+ * tile the 650 px moon) -- the MIPI-DSI panel has no S3 32 KiB SPI-DMA
  * cap, so the strip height is a pacing choice, not a hard limit. (The
  * display strips here only pace LVGL invalidations; the flush itself
  * always writes the BSP's 50-row buffer strips.) */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_STRIP_ROWS 206
+#define MOON_STRIP_ROWS 130
 #else
 #define MOON_STRIP_ROWS 25
 #endif
@@ -28754,16 +28768,20 @@ static SemaphoreHandle_t s_rgb_mtx; /* guards s_rgb (+ s_frame while baking) */
  * strip read occasionally starves the DPI controller's FIFO ("can't fetch
  * data from external memory fast enough, underrun" -- measured 2026-10-31,
  * one underrun per ~28 s of settled spin). 103 rows (6 strips, 127 KB)
- * halves the burst and the underrun goes away; 103 is 618/6, the only
- * divisor that splits the disk into >= 2 strips. */
+ * halves the burst and the underrun goes away; for the 650 px disk the
+ * strips are 65 rows (10 strips, 84.5 KB) -- an even smaller burst, the
+ * same proven-safe class. */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_SPIN_STRIP_ROWS 103
+#define MOON_SPIN_STRIP_ROWS 65
 #else
 #define MOON_SPIN_STRIP_ROWS 25
 #endif
 #define MOON_SPIN_NSTRIPS (MOON_PX / MOON_SPIN_STRIP_ROWS)
 #if (MOON_PX % MOON_SPIN_STRIP_ROWS) != 0
 #error "MOON_PX must be a multiple of MOON_SPIN_STRIP_ROWS"
+#endif
+#ifndef CONFIG_TEST_SPIN_BANDS
+#define CONFIG_TEST_SPIN_BANDS 0
 #endif
 /* The UI keep-mask (per-pixel, one bit per moon-area pixel): the spin
  * writes the rotated moon everywhere EXCEPT where LVGL's own on-panel
@@ -29354,10 +29372,11 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
  * same band scaled by 720/466 (~1.545), landing on the upscaled home
  * seconds arc (M4): the ring spans r 329-344 (UI_PX(213)-UI_PX(223),
  * the 10 px pad from the panel edge) and the knob reaches r ~350,
- * both inside [315, 357] with the same ~2 px knob margin as the S3
- * band. */
+ * both inside [326, 357]. RMIN sits just OUTSIDE the 650 px moon edge
+ * (r 325): a band pixel is kept from the front mirror (the on-panel UI),
+ * not the rotated moon, so the band must never overlap the disk. */
 #if defined(CONFIG_BOARD_P4)
-#define SPIN_MASK_RING_RMIN 315
+#define SPIN_MASK_RING_RMIN 326
 #define SPIN_MASK_RING_RMAX 357
 #else
 #define SPIN_MASK_RING_RMIN 204
@@ -29493,16 +29512,36 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
 static void moon_spin_write_panel(void) {
     if (!s_panel || !s_disp || !s_front || !s_ui_mask)
         return;
-    const int step = s_panel_step;
-    spin_step_rotate(s_rgb, s_disp, MOON_PX, step);
+    if (CONFIG_TEST_SPIN_BANDS > 0) {
+        /* Seam diagnostic (TEST_SPIN_BANDS): one distinct gray per strip --
+         * the 16 strips of the moon area become 16 horizontal bands,
+         * darkest to brightest, so a glitch at a strip seam (a stray
+         * line, a shifted boundary, a row that does not land) shows on a
+         * clean pattern with no moon texture or mask to confound it. The
+         * write below (same strips, same geometry, same panel mutex) is
+         * unchanged; only the content differs. */
+        for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
+            const int v5 = ((s + 1) * 31) / MOON_SPIN_NSTRIPS; /* 5-bit R/B (0-31) */
+            const int v6 = ((s + 1) * 63) / MOON_SPIN_NSTRIPS; /* 6-bit G (0-63) */
+            const uint16_t gray = (uint16_t)((v5 << 11) | (v6 << 5) | v5);
+            for (int y = 0; y < MOON_SPIN_STRIP_ROWS; y++)
+                for (int x = 0; x < MOON_PX; x++)
+                    s_disp[(size_t)(s * MOON_SPIN_STRIP_ROWS + y) * MOON_PX + x] = gray;
+        }
+    } else {
+        const int step = s_panel_step;
+        spin_step_rotate(s_rgb, s_disp, MOON_PX, step);
+    }
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-    for (int y = 0; y < MOON_PX; y++) {
-        uint16_t *row = s_disp + (size_t)y * MOON_PX;
-        const uint16_t *frow = s_front + (size_t)y * MOON_PX;
-        const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
-        for (int x = 0; x < MOON_PX; x++)
-            if (mrow[x])
-                row[x] = frow[x];
+    if (CONFIG_TEST_SPIN_BANDS == 0) {
+        for (int y = 0; y < MOON_PX; y++) {
+            uint16_t *row = s_disp + (size_t)y * MOON_PX;
+            const uint16_t *frow = s_front + (size_t)y * MOON_PX;
+            const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
+            for (int x = 0; x < MOON_PX; x++)
+                if (mrow[x])
+                    row[x] = frow[x];
+        }
     }
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
         (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
@@ -39445,14 +39484,14 @@ void ui_tick(void) {
 /* ---- moon image (moon_ui.c): bake the real current phase once ---- */
 
 /* The moon geometry, mirroring the device's board-conditional block in
- * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 618/51/309 on the P4
+ * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 650/35/325 on the P4
  * (PANEL_SIZE 720). The disk radius is MOON_PX/2 -- the asset's native
- * MOON_DISK_RADIUS_PX (200) on the S3 and 309 = 618/2 on the P4. */
+ * MOON_DISK_RADIUS_PX (200) on the S3 and 325 = 650/2 on the P4. */
 #ifndef PANEL_SIZE
 #define PANEL_SIZE 466
 #endif
 #if PANEL_SIZE == 720
-#define MOON_PX 618
+#define MOON_PX 650
 #else
 #define MOON_PX 400
 #endif

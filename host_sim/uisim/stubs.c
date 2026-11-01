@@ -220,14 +220,14 @@ void ui_tick(void) {
 /* ---- moon image (moon_ui.c): bake the real current phase once ---- */
 
 /* The moon geometry, mirroring the device's board-conditional block in
- * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 618/51/309 on the P4
+ * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 650/35/325 on the P4
  * (PANEL_SIZE 720). The disk radius is MOON_PX/2 -- the asset's native
- * MOON_DISK_RADIUS_PX (200) on the S3 and 309 = 618/2 on the P4. */
+ * MOON_DISK_RADIUS_PX (200) on the S3 and 325 = 650/2 on the P4. */
 #ifndef PANEL_SIZE
 #define PANEL_SIZE 466
 #endif
 #if PANEL_SIZE == 720
-#define MOON_PX 618
+#define MOON_PX 650
 #else
 #define MOON_PX 400
 #endif

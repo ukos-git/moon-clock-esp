@@ -158,15 +158,16 @@ static const char *TAG = "moon_ui";
 /* The moon image is a disk (radius MOON_PX / 2, the asset pipeline's native
  * size on the S3) centered on the panel with a black margin -- 26% less
  * bake/rotate/display traffic than baking the whole panel. The disk fills
- * 85.8% of the panel on BOTH boards (400/466 on the S3, 618/720 on the P4),
- * so the moon stays proportional. Everything below derives from MOON_PX +
+ * 85.8% of the panel on the S3 (400/466) and 90.3% on the P4 (650/720 --
+ * the P4 default: gap ~= half the seconds-arc thickness to the ring), so
+ * the moon stays proportional. Everything below derives from MOON_PX +
  * the panel size (BSP_LCD_H_RES), so the portable core (which takes
  * size/radius as arguments) is untouched. The bake/rotate math works in
  * image coordinates (center MOON_PX/2); the touch math works in panel
  * coordinates (center MOON_CX -- the same point, so the drag math is
  * unchanged). */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_PX 618
+#define MOON_PX 650
 #else
 #define MOON_PX 400
 #endif
@@ -175,18 +176,18 @@ static const char *TAG = "moon_ui";
 #define MOON_CY (BSP_LCD_V_RES / 2)
 /* The bake/rotate sphere radius = the image half (the disk touches all four
  * edges): 200 = 400/2 on the S3 (the asset's native MOON_DISK_RADIUS_PX),
- * 309 = 618/2 on the P4 -- so this generalizes with no S3 change. */
+ * 325 = 650/2 on the P4 -- so this generalizes with no S3 change. */
 #define MOON_R ((float)MOON_PX / 2.0f)
 #define MOON_TICK_MS 50
 /* Animation display strip = the rows per panel write. S3: 25 rows (= the BSP
  * QSPI draw-buffer height; one invalidated strip = one draw buffer + one
- * QSPI transfer; 16 strips tile the 400 px moon). P4: 206 rows (3 strips
- * tile the 618 px moon) -- the MIPI-DSI panel has no S3 32 KiB SPI-DMA
+ * QSPI transfer; 16 strips tile the 400 px moon). P4: 130 rows (5 strips
+ * tile the 650 px moon) -- the MIPI-DSI panel has no S3 32 KiB SPI-DMA
  * cap, so the strip height is a pacing choice, not a hard limit. (The
  * display strips here only pace LVGL invalidations; the flush itself
  * always writes the BSP's 50-row buffer strips.) */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_STRIP_ROWS 206
+#define MOON_STRIP_ROWS 130
 #else
 #define MOON_STRIP_ROWS 25
 #endif
@@ -361,16 +362,20 @@ static SemaphoreHandle_t s_rgb_mtx; /* guards s_rgb (+ s_frame while baking) */
  * strip read occasionally starves the DPI controller's FIFO ("can't fetch
  * data from external memory fast enough, underrun" -- measured 2026-10-31,
  * one underrun per ~28 s of settled spin). 103 rows (6 strips, 127 KB)
- * halves the burst and the underrun goes away; 103 is 618/6, the only
- * divisor that splits the disk into >= 2 strips. */
+ * halves the burst and the underrun goes away; for the 650 px disk the
+ * strips are 65 rows (10 strips, 84.5 KB) -- an even smaller burst, the
+ * same proven-safe class. */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_SPIN_STRIP_ROWS 103
+#define MOON_SPIN_STRIP_ROWS 65
 #else
 #define MOON_SPIN_STRIP_ROWS 25
 #endif
 #define MOON_SPIN_NSTRIPS (MOON_PX / MOON_SPIN_STRIP_ROWS)
 #if (MOON_PX % MOON_SPIN_STRIP_ROWS) != 0
 #error "MOON_PX must be a multiple of MOON_SPIN_STRIP_ROWS"
+#endif
+#ifndef CONFIG_TEST_SPIN_BANDS
+#define CONFIG_TEST_SPIN_BANDS 0
 #endif
 /* The UI keep-mask (per-pixel, one bit per moon-area pixel): the spin
  * writes the rotated moon everywhere EXCEPT where LVGL's own on-panel
@@ -961,10 +966,11 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
  * same band scaled by 720/466 (~1.545), landing on the upscaled home
  * seconds arc (M4): the ring spans r 329-344 (UI_PX(213)-UI_PX(223),
  * the 10 px pad from the panel edge) and the knob reaches r ~350,
- * both inside [315, 357] with the same ~2 px knob margin as the S3
- * band. */
+ * both inside [326, 357]. RMIN sits just OUTSIDE the 650 px moon edge
+ * (r 325): a band pixel is kept from the front mirror (the on-panel UI),
+ * not the rotated moon, so the band must never overlap the disk. */
 #if defined(CONFIG_BOARD_P4)
-#define SPIN_MASK_RING_RMIN 315
+#define SPIN_MASK_RING_RMIN 326
 #define SPIN_MASK_RING_RMAX 357
 #else
 #define SPIN_MASK_RING_RMIN 204
@@ -1100,16 +1106,36 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
 static void moon_spin_write_panel(void) {
     if (!s_panel || !s_disp || !s_front || !s_ui_mask)
         return;
-    const int step = s_panel_step;
-    spin_step_rotate(s_rgb, s_disp, MOON_PX, step);
+    if (CONFIG_TEST_SPIN_BANDS > 0) {
+        /* Seam diagnostic (TEST_SPIN_BANDS): one distinct gray per strip --
+         * the 16 strips of the moon area become 16 horizontal bands,
+         * darkest to brightest, so a glitch at a strip seam (a stray
+         * line, a shifted boundary, a row that does not land) shows on a
+         * clean pattern with no moon texture or mask to confound it. The
+         * write below (same strips, same geometry, same panel mutex) is
+         * unchanged; only the content differs. */
+        for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
+            const int v5 = ((s + 1) * 31) / MOON_SPIN_NSTRIPS; /* 5-bit R/B (0-31) */
+            const int v6 = ((s + 1) * 63) / MOON_SPIN_NSTRIPS; /* 6-bit G (0-63) */
+            const uint16_t gray = (uint16_t)((v5 << 11) | (v6 << 5) | v5);
+            for (int y = 0; y < MOON_SPIN_STRIP_ROWS; y++)
+                for (int x = 0; x < MOON_PX; x++)
+                    s_disp[(size_t)(s * MOON_SPIN_STRIP_ROWS + y) * MOON_PX + x] = gray;
+        }
+    } else {
+        const int step = s_panel_step;
+        spin_step_rotate(s_rgb, s_disp, MOON_PX, step);
+    }
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-    for (int y = 0; y < MOON_PX; y++) {
-        uint16_t *row = s_disp + (size_t)y * MOON_PX;
-        const uint16_t *frow = s_front + (size_t)y * MOON_PX;
-        const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
-        for (int x = 0; x < MOON_PX; x++)
-            if (mrow[x])
-                row[x] = frow[x];
+    if (CONFIG_TEST_SPIN_BANDS == 0) {
+        for (int y = 0; y < MOON_PX; y++) {
+            uint16_t *row = s_disp + (size_t)y * MOON_PX;
+            const uint16_t *frow = s_front + (size_t)y * MOON_PX;
+            const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
+            for (int x = 0; x < MOON_PX; x++)
+                if (mrow[x])
+                    row[x] = frow[x];
+        }
     }
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
         (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
