@@ -19,49 +19,49 @@ extern "C" {
  *    reads the same three. BASE is the index of the <screen>_clock__clock
  *    member below:
  *
- *      [0]  modem_sleep              [14]  modem_sleep_clock
- *      [1]  wifi                     [15]  modem_sleep_clock__clock        BASE 15
- *      [2]  light_sleep              [16]  ..._label_clock_time
- *      [3]  deep_sleep               [17]  ..._label_clock_alarm
- *      [4]  alarm                    [18]  arc_clock_seconds_modem
- *      [5]  settings_hub             [19]  wifi_clock
- *      [6]  settings_alarm           [20]  wifi_clock__clock               BASE 20
- *      [7]  settings_pomodoro        [21]  ..._label_clock_time
- *      [8]  settings_alarm_time      [22]  ..._label_clock_alarm
- *      [9]  settings_light_sleep     [23]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [24]  light_sleep_clock
- *      [11] settings_wifi            [25]  light_sleep_clock__clock        BASE 25
- *      [12] settings_wifi_password   [26]  ..._label_clock_time
- *      [13] settings_time            [27]  ..._label_clock_alarm
- *                                 [28]  deep_sleep_clock
- *                                 [29]  deep_sleep_clock__clock           BASE 29
- *                                 [30]  ..._label_clock_time
- *                                 [31]  ..._label_clock_alarm
- *                                 [32]  screen_indicator_sleep1
- *                                 [33]  alarm_clock
- *                                 [34]  alarm_clock__clock                BASE 34
- *                                 [35]  ..._label_clock_time
- *                                 [36]  ..._label_clock_alarm
- *                                 [37]  screen_indicator_alarm
- *                                 [38]  settings_hub_exit        (the settings hub's central exit)
- *                                 [39]  settings_alarm_master    (deactivate-all toggle)
- *                                 [40]  settings_alarm_pomodoro  (pomodoro entry)
- *                                 [41]  settings_alarm_clock     (real-alarm entry)
- *                                 [42]  settings_pomodoro_roller_h
- *                                 [43]  settings_pomodoro_roller_m
- *                                 [44]  settings_pomodoro_caption
- *                                 [45]  settings_alarm_time_roller_h
- *                                 [46]  settings_alarm_time_roller_m
- *                                 [47]  settings_alarm_time_band        (the day-range arc)
- *                                 [48]  settings_alarm_time_handle_start
- *                                 [49]  settings_alarm_time_handle_end
- *                                 [50]  wifi_indicator_wifi
- *                                 [51]  settings_time_roller_d      (manual time entry: date day)
- *                                 [52]  settings_time_roller_m      (date month)
- *                                 [53]  settings_time_roller_y      (date year, 2000+YY)
- *                                 [54]  settings_time_roller_h      (manual time entry: time hour)
- *                                 [55]  settings_time_roller_mi     (time minute)
- *                                 [56]  settings_time_roller_s      (time second)
+ *      [0]  modem_sleep              [15]  modem_sleep_clock
+ *      [1]  wifi                     [16]  modem_sleep_clock__clock        BASE 16
+ *      [2]  light_sleep              [17]  ..._label_clock_time
+ *      [3]  deep_sleep               [18]  ..._label_clock_alarm
+ *      [4]  alarm                    [19]  arc_clock_seconds_modem
+ *      [5]  settings_hub             [20]  wifi_clock
+ *      [6]  settings_alarm           [21]  wifi_clock__clock               BASE 21
+ *      [7]  settings_pomodoro        [22]  ..._label_clock_time
+ *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm
+ *      [9]  settings_light_sleep     [24]  arc_clock_seconds_wifi
+ *      [10] settings_deep_sleep      [25]  light_sleep_clock
+ *      [11] settings_wifi            [26]  light_sleep_clock__clock        BASE 26
+ *      [12] settings_wifi_password   [27]  ..._label_clock_time
+ *      [13] settings_time            [28]  ..._label_clock_alarm
+ *      [14] settings_tz              [29]  deep_sleep_clock
+ *                                 [30]  deep_sleep_clock__clock           BASE 30
+ *                                 [31]  ..._label_clock_time
+ *                                 [32]  ..._label_clock_alarm
+ *                                 [33]  screen_indicator_sleep1
+ *                                 [34]  alarm_clock
+ *                                 [35]  alarm_clock__clock                BASE 35
+ *                                 [36]  ..._label_clock_time
+ *                                 [37]  ..._label_clock_alarm
+ *                                 [38]  screen_indicator_alarm
+ *                                 [39]  settings_hub_exit        (the settings hub's central exit)
+ *                                 [40]  settings_alarm_master    (deactivate-all toggle)
+ *                                 [41]  settings_alarm_pomodoro  (pomodoro entry)
+ *                                 [42]  settings_alarm_clock     (real-alarm entry)
+ *                                 [43]  settings_pomodoro_roller_h
+ *                                 [44]  settings_pomodoro_roller_m
+ *                                 [45]  settings_pomodoro_caption
+ *                                 [46]  settings_alarm_time_roller_h
+ *                                 [47]  settings_alarm_time_roller_m
+ *                                 [48]  settings_alarm_time_band        (the day-range arc)
+ *                                 [49]  settings_alarm_time_handle_start
+ *                                 [50]  settings_alarm_time_handle_end
+ *                                 [51]  wifi_indicator_wifi
+ *                                 [52]  settings_time_roller_d      (manual time entry: date day)
+ *                                 [53]  settings_time_roller_m      (date month)
+ *                                 [54]  settings_time_roller_y      (date year, 2000+YY)
+ *                                 [55]  settings_time_roller_h      (manual time entry: time hour)
+ *                                 [56]  settings_time_roller_mi     (time minute)
+ *                                 [57]  settings_tz_roller          (timezone/UTC offset, clock_tz.h)
  *
  * The wheel-keyboard's own widgets (the 26 letters, the group dividers,
  * the sweep highlight, the mode keys, the centre preview) are LOCAL to
@@ -84,6 +84,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_wifi;
     lv_obj_t *settings_wifi_password;
     lv_obj_t *settings_time; /* manual time/date entry (P4 entry point; the screen is shared) */
+    lv_obj_t *settings_tz;   /* timezone / UTC offset picker (S3 + P4 entry point) */
     /* Per-screen children (see the layout contract above). */
     lv_obj_t *modem_sleep_clock;
     lv_obj_t *modem_sleep_clock__clock;
@@ -127,7 +128,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_time_roller_y;  /* the date year (2000+YY, two-digit 00-99) */
     lv_obj_t *settings_time_roller_h;  /* the time hour (00-23) */
     lv_obj_t *settings_time_roller_mi; /* the time minute (00-59) */
-    lv_obj_t *settings_time_roller_s;  /* the time second (00-59) */
+    lv_obj_t *settings_tz_roller;      /* the timezone / UTC offset (clock_tz option list) */
 } objects_t;
 
 extern objects_t objects;
@@ -147,6 +148,7 @@ enum ScreensEnum {
     SCREEN_ID_SETTINGS_WIFI,
     SCREEN_ID_SETTINGS_WIFI_PASSWORD,
     SCREEN_ID_SETTINGS_TIME,
+    SCREEN_ID_SETTINGS_TZ,
 };
 
 void create_screen_modem_sleep();
@@ -199,6 +201,16 @@ void tick_screen_settings_wifi();
  * identical) -- it is simply unreachable. */
 void create_screen_settings_time();
 void tick_screen_settings_time();
+
+/* Timezone / UTC offset (both boards' entry point: the hub's globe icon).
+ * One roller over every 30-minute UTC offset (UTC-12:00 .. UTC+14:00) plus
+ * Europe/Berlin (the Kconfig default, DST-aware). Releasing the roller
+ * applies the zone (clock_tz_apply -- the P4 re-derives its local digits
+ * from the same epoch; the S3 rewrites the PCF digits epoch-consistently),
+ * re-arms the alarm arming, and persists the selection. The S3 and the P4
+ * both reach it, so unlike the manual time entry there is no board gate. */
+void create_screen_settings_tz();
+void tick_screen_settings_tz();
 
 /* The circular wheel keyboard for WiFi password entry (reached by
  * tapping an AP row on the WiFi screen, which prefills the SSID).

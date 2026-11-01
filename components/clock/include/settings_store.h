@@ -57,6 +57,11 @@ void settings_set_boot_anim_enable(bool on);
 bool settings_dusk_anim_enable(void);
 void settings_set_dusk_anim_enable(bool on);
 
+/* Timezone selection, the index into the clock_tz option list (clock_tz.h:
+ * 0..52 = the fixed UTC offsets, 53 = Europe/Berlin = the default). */
+int settings_timezone_idx(void);
+void settings_set_timezone_idx(int idx);
+
 #ifdef __cplusplus
 }
 #endif

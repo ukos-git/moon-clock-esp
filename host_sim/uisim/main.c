@@ -231,6 +231,7 @@ static const struct screen_entry s_entries[] = {
     {SCREEN_ID_SETTINGS_WIFI, "settings_wifi"},
     {SCREEN_ID_SETTINGS_WIFI_PASSWORD, "settings_wifi_password"},
     {SCREEN_ID_SETTINGS_TIME, "settings_time"},
+    {SCREEN_ID_SETTINGS_TZ, "settings_tz"},
 };
 
 static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {

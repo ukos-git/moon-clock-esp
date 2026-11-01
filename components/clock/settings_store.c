@@ -9,6 +9,7 @@
 
 #include "esp_log.h"
 
+#include "clock_tz.h"
 #include "settings_store.h"
 
 static const char *TAG = "settings_store";
@@ -39,6 +40,7 @@ static uint32_t s_idle_timeout_sec = CONFIG_CLOCK_IDLE_TIMEOUT_SEC;
 static uint32_t s_deep_sleep_countdown_sec = CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC;
 static bool s_boot_anim_enable = (CONFIG_UI_MOON_ANIM_ENABLE != 0);
 static bool s_dusk_anim_enable = (CONFIG_UI_MOON_DUSK_ENABLE != 0);
+static int s_timezone_idx = CLOCK_TZ_BERLIN_IDX; /* the Kconfig default zone */
 
 /* Parse one "key = value" line into a numeric field; returns true when
  * the line is recognized (the value is validated by the caller). */
@@ -66,9 +68,9 @@ esp_err_t settings_store_load(void) {
     if (!f) {
         ESP_LOGI(TAG,
                  "no %s (or missing SPIFFS entry); using Kconfig defaults "
-                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d)",
+                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d)",
                  SETTINGS_PATH, (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                 s_dusk_anim_enable);
+                 s_dusk_anim_enable, s_timezone_idx);
         return ESP_ERR_NOT_FOUND;
     }
     char line[128];
@@ -87,13 +89,15 @@ esp_err_t settings_store_load(void) {
             s_boot_anim_enable = (v != 0);
         else if (parse_kv(line, "dusk_anim_enable", &v))
             s_dusk_anim_enable = (v != 0);
-        else if (lines < 8)
+        else if (parse_kv(line, "timezone_idx", &v) && v >= 0 && v < CLOCK_TZ_COUNT)
+            s_timezone_idx = (int)v;
+        else if (lines < 9)
             ESP_LOGD(TAG, "unrecognized settings line: %s", line);
     }
     fclose(f);
-    ESP_LOGI(TAG, "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d)",
-             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-             s_dusk_anim_enable);
+    ESP_LOGI(TAG, "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d)",
+             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
+             s_timezone_idx);
     return ESP_OK;
 }
 
@@ -109,17 +113,18 @@ esp_err_t settings_store_save(void) {
                     "idle_timeout_sec = %u\n"
                     "deep_sleep_countdown_sec = %u\n"
                     "boot_anim_enable = %d\n"
-                    "dusk_anim_enable = %d\n",
+                    "dusk_anim_enable = %d\n"
+                    "timezone_idx = %d\n",
                     (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                    s_dusk_anim_enable);
+                    s_dusk_anim_enable, s_timezone_idx);
     fclose(f);
     if (n < 0) {
         ESP_LOGE(TAG, "settings write failed");
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d)",
-             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-             s_dusk_anim_enable);
+    ESP_LOGI(TAG, "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d)",
+             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
+             s_timezone_idx);
     return ESP_OK;
 }
 
@@ -150,3 +155,11 @@ void settings_set_boot_anim_enable(bool on) { s_boot_anim_enable = on; }
 bool settings_dusk_anim_enable(void) { return s_dusk_anim_enable; }
 
 void settings_set_dusk_anim_enable(bool on) { s_dusk_anim_enable = on; }
+
+int settings_timezone_idx(void) { return s_timezone_idx; }
+
+void settings_set_timezone_idx(int idx) {
+    if (idx < 0 || idx >= CLOCK_TZ_COUNT)
+        return;
+    s_timezone_idx = idx;
+}

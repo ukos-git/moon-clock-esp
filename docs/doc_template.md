@@ -79,12 +79,12 @@ sync with the code._
 This is the single hosted document for the project. It is GitHub-compatible
 Markdown and renders the project's own media:
 
-- **17 screenshots of every live screen** on the S3's 466x466 panel (the
+- **18 screenshots of every live screen** on the S3's 466x466 panel (the
   circular wheel keyboard, §7.13, ships its at-rest, touched-down, 123, ABC and
   symbol modes), rendered by the UI simulator (`host_sim/uisim`) from the
   _real_ device `screens.c` with the vendored LVGL 9.6 — the exact panel
-  pixels, 466x466 RGB565: `docs/img/screens/*.png`. **18 shots at the P4's
-  720x720 panel** (the same 17 + the P4-reached manual time entry, §7.15 — the
+  pixels, 466x466 RGB565: `docs/img/screens/*.png`. **19 shots at the P4's
+  720x720 panel** (the same 18 + the P4-reached manual time entry, §7.15 — the
   650 px moon disk, the 720 px UI — panel-scaled layout + the P4's 148/74/50 px
   fonts): `docs/img/screens/p4/*.png` (`build.sh run --panel 720` builds into
   its own `build-720/` dir).
@@ -344,7 +344,7 @@ swaps the font dir on `CONFIG_BOARD_P4`). M5.6 regenerated two P4-only subsets
 from the same Opts with a widened character set: the 148 px Font Awesome
 Regular now carries U+F017 (clock — the 5th hub icon, §7.6) and the 74 px
 Montserrat numbers now carry `.` (the date row's separator, §7.15); the S3's
-`fonts/` stays untouched. Verified: uisim 720 shots of all 18 screens
+`fonts/` stays untouched. Verified: uisim 720 shots of all 19 screens
 (`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the S3
 binary behaviourally unchanged (the uisim 466 pass renders byte-identical
 screens), the spin's keep-mask band 326-357 lands on the upscaled home seconds
@@ -359,7 +359,13 @@ ES8311 alarm ring): P4 **1,547,584 B** (`0x179d40` — the ring pulls the
 +48 B — the no-op stub calls); after M5.6 (the manual time entry, §7.15): P4
 **1,560,752 B** (`0x17d0b0` — the screen + the two P4 font regenerations it
 needs), S3 **1,451,664 B** (`0x162690`, +1,264 B — the same screen's code,
-shared and structurally identical, simply unreachable on the S3).
+shared and structurally identical, simply unreachable on the S3); after
+M5.8-adjacent (2026-11-01, the §7.16 timezone picker + the equal-arc hub + the
+no-seconds / X-commit time entry — `clock_tz.c`, the S3 + P4 FA solid
+regenerations with the globe glyph, the S3 48 px numbers font with `-.`): P4
+**1,575,152 B** (`0x1808f0`), S3 **1,459,744 B** (`0x164620`, +8,080 B — the
+timezone module + the screen + the two globe-glyph font regenerations; ~30 %
+under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -502,7 +508,7 @@ components/
                            interrupt logic, idle detector; clock_sntp.c (NTP sync +
                            the time-trusted flag); clock_alarm_scheduler.c (cron-like
                            alarms, write/reload, */N>59); settings_store.c (store)
-  ui/                  LVGL 9.6 UI: screens.c (14 screens), moon_ui.c (the moon
+  ui/                  LVGL 9.6 UI: screens.c (15 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets);
                              alarm_audio.c (the P4 ES8311 alarm ring, S3 no-op
@@ -791,7 +797,7 @@ round AMOLED showing the Moon.
 
 ## 7. Screens — every live screen with its settings
 
-All 14 screens, exact panel pixels from the UI simulator (13 live on the S3;
+All 15 screens, exact panel pixels from the UI simulator (14 live on the S3;
 the manual time entry, §7.15, is P4-reached). The "settings displayed" column
 lists what the screen shows and what each control changes live.
 
@@ -879,12 +885,19 @@ lists what the screen shows and what each control changes live.
 - Central **circle-xmark exit** — the fa-circle-xmark glyph alone (U+F057; the
   glyph is the button, no ring chrome; 150 px tap box) → back to the **home
   (airplane) screen**, no sync kicked off.
-- Icon ring (45° diagonals, 96 px glyphs, clickable): alarm settings
-  (alarm-clock, regular), light sleep (moon, regular), deep sleep (moon, solid
-  — the weight distinguishes the two), WiFi (wifi, solid). The **P4 adds a
-  fifth icon at 12 o'clock** — clock (regular, U+F017, the glyph the FA regular
-  set regenerated for it, §2.3b) opening the manual time entry (§7.15); the S3
-  keeps the 4-icon diamond (its time comes from the PCF85063A).
+- **Icon ring, equal-arc** (2026-11-01): the entries sit on a circle of radius
+  `UI_PX(117)` at **equal 360/n arc distances** — 5 icons (72°) on the S3, 6
+  icons (60°) on the P4 — with deep sleep pinned at 6 o'clock (the bottom).
+  Clock positions: **S3** — top-left globe (U+F0AC, solid; the timezone / UTC
+  offset picker, §7.16), top-right alarm (alarm-clock, regular), mid-right
+  light sleep (moon, regular), bottom deep sleep (moon, solid — the weight
+  distinguishes the two moons), mid-left WiFi (wifi, solid). **P4** — the same
+  five plus a sixth icon at 12 o'clock: clock (regular, U+F017, the glyph the
+  FA regular set regenerated for it, §2.3b) opening the manual time entry
+  (§7.15; the S3 has no clock icon — its time comes from the PCF85063A). The
+  globe glyph was added to both boards' FA solid subsets (regenerated with
+  U+F0AC = 61612 — the earlier regen used 61516 = U+F04C "pause" by mistake, so
+  the hub showed a missing-glyph box).
 - Grey = present/available, white = selected; the sub-screens' bottom-centre
   exit is the same glyph at 96 px and returns to the **calling level** (the
   hub, or the alarm screen for its two sub-screens).
@@ -1192,16 +1205,21 @@ simulator).
   screen itself is shared — the S3 build carries it structurally identical,
   simply unreachable (no icon; its time comes from the PCF85063A).
 - **Layout:** a caption ("SET TIME / DATE", 32 px, grey) over two roller rows —
-  the **time row** HH:MM:SS (the 96 px clock font, at the home clock label's
+  the **time row** HH:MM (the 96 px clock font, at the home clock label's
   position; the `:` from the same font) and the **date row** DD.MM.YY (the 48
-  px font; the `.` from the regenerated 74 px numbers subset, §2.3b; the year
-  as a two-digit 2000+YY). The same roller look as the other settings value
-  displays (grey rows, white selected row, three visible rows).
+  px font; the `.` from the regenerated 48 px numbers subset — the S3's 48 px
+  set now carries `-` and `.` like the P4's 74 px subset, §2.3b; the year as a
+  two-digit 2000+YY). The same roller look as the other settings value displays
+  (grey rows, white selected row, three visible rows). **No seconds roller**
+  (2026-11-01): adjusting seconds has no visible effect (the home label shows
+  HH:MM) and the commit therefore writes second = 0.
 - **Seed:** the rollers seed from `clock_sntp_get_system_time` on entry — the
   day/month option strings start at "01", so their selected index is value−1
-  (hour/minute/second/year start at "00" and index = value).
-- **Commit:** releasing ANY of the six rollers commits the whole value —
-  `clock_set_time` (mktime with `tm_isdst=-1` so TZ/DST resolves,
+  (hour/minute/year start at "00" and index = value).
+- **Commit:** releasing ANY of the five rollers — **or pressing the X exit**
+  (2026-11-01: the exit used to leave the value uncommitted; it now runs the
+  same commit before returning to the hub) — commits the whole value (second
+  = 0) — `clock_set_time` (mktime with `tm_isdst=-1` so TZ/DST resolves,
   `settimeofday`, and the software alarm one-shot re-armed via the scheduler's
   reload; `validate_time` rejects years outside 2000–2099), then
   `clock_sntp_set_time_trusted(true)` (the unsynced dim lifts + the alarm fire
@@ -1209,8 +1227,43 @@ simulator).
   changed). The home clock label then converges on the next 1.3 s poll. The set
   persists in the RTC domain (the crystal keeps it) and the NVS epoch backup
   re-snapshots it.
-- **Settings displayed:** the wall clock, editable hour/minute/second and
-  day/month/year.
+- **Settings displayed:** the wall clock, editable hour/minute and
+  day/month/year (seconds are set to 0 on commit).
+
+### 7.16 Timezone / UTC offset (S3 + P4)
+
+![timezone / UTC offset](img/screens/settings_tz.png)
+
+- **Why it exists:** both boards previously ran a fixed Kconfig timezone
+  (`CONFIG_CLOCK_DEFAULT_TIMEZONE` = Europe/Berlin, DST-aware). This screen
+  makes the zone a runtime choice, identical on the S3 and the P4 (unlike the
+  manual time entry, §7.15, which is P4-reached) — **reached by the hub's globe
+  icon (§7.6)**.
+- **Layout:** a caption ("TIMEZONE / UTC OFFSET", 32 px, grey) over a single 32
+  px (ssid font) roller, width `UI_PX(380)`, height `UI_PX(110)`, centred — the
+  same roller look as the other settings value displays.
+- **Option list** (`clock_tz.h`): all **53 fixed 30-minute UTC offsets**
+  (UTC−12:00 … UTC+14:00, displayed as `UTC±HH:MM`) **plus Europe/Berlin** as
+  the final entry — the Kconfig default, DST-aware. The stored selection
+  defaults to Europe/Berlin (`CLOCK_TZ_BERLIN_IDX`).
+- **Seed:** the roller seeds from `settings_timezone_idx()` on entry.
+- **Commit:** releasing the roller applies the zone via `clock_tz_apply(idx)`,
+  then persists it (`settings_set_timezone_idx` + `settings_store_save`).
+  `clock_tz_apply` maps the index to a POSIX `TZ` string (the fixed offsets as
+  `UTC±H[:M]` with the **west** sign — `UTC+2` means UTC+2 is spelled `UTC-2`,
+  matching the Kconfig's `CET-1`; Europe/ Berlin as
+  `CONFIG_CLOCK_DEFAULT_TIMEZONE`), `setenv("TZ", …); tzset()`, and re-arms the
+  alarm arming (`clock_alarm_scheduler_reload` — the next fire's local
+  time-of-day + weekday depends on the zone):
+  - **P4** (system-clock time base, M5.x): the epoch is untouched; the local
+    digits re-derive from the same epoch through the new zone.
+  - **S3** (the PCF85063A stores LOCAL digits): the current local digits are
+    read, converted to the UTC epoch under the _old_ zone (`mktime`, run before
+    the env var changes), then the new-zone local digits for the same moment
+    are written back (`clock_set_time`) — the epoch is consistent across the
+    zone change.
+- **Settings displayed:** the active timezone, selectable across every 30-
+  minute UTC offset + Europe/Berlin.
 
 ---
 
@@ -1473,9 +1526,11 @@ deep-sleep backlight off and the wake-from-deep-sleep backlight on (now
     `clock_sntp_time_trusted()`).
 - **Settings store** (`/spiffs/settings.txt`, `key = value`):
   `idle_timeout_sec`, `deep_sleep_countdown_sec`, `boot_anim_enable`,
-  `dusk_anim_enable` — `#ifndef`-seeded from Kconfig, live overrides (idle
-  timeout applies immediately; countdown at the next arming; animation flags at
-  the next boot/dusk).
+  `dusk_anim_enable`, `timezone_idx` — `#ifndef`-seeded from Kconfig, live
+  overrides (idle timeout applies immediately; countdown at the next arming;
+  animation flags at the next boot/dusk; the timezone index is read at boot by
+  the clock init — `settings_store_load` runs before `clock_init` — and written
+  by the §7.16 picker).
 
 ### 10.6 Power flow
 
@@ -1845,7 +1900,7 @@ components/
     include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
-  ui/                        the LVGL UI: screens.c (14 screens) + moon_ui.c
+  ui/                        the LVGL UI: screens.c (15 screens) + moon_ui.c
     (the pipeline) + actions.c (flow) + styles.c (the theme) + fonts/ (generated)
   imu/                       QMI8658C driver
   wifi/                      scan (settings)

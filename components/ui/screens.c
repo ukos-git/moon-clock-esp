@@ -7,6 +7,7 @@
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
 #include "clock_sntp.h"
+#include "clock_tz.h"
 #include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
@@ -82,6 +83,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_STOPWATCH "\xEF\x8B\xB2" /* U+F2F2 (was \xEF\xA7\xB2 = U+F9F2, absent -> a box) */
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
 #define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 regular set only) */
+#define GLYPH_GLOBE "\xEF\x82\xAC"     /* U+F0AC (timezone entry; the solid set -- both boards) */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
 #define SETTINGS_WHITE lv_color_white()
@@ -122,6 +124,7 @@ static void settings_wifi_screen_refresh(void);
 static void settings_wheel_prefill_ssid(const char *ssid);
 static void settings_wheel_screen_refresh(void);
 static void settings_time_screen_refresh(void);
+static void settings_tz_screen_refresh(void);
 /* settings_screen_refresh_for is non-static (declared in screens.h; the
  * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
@@ -237,7 +240,7 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 15);
+            create_user_widget_clock(obj, 16);
         }
         {
             // arc-clock-seconds-modem
@@ -272,7 +275,7 @@ void create_screen_modem_sleep() {
 }
 
 void tick_screen_modem_sleep() {
-    tick_user_widget_clock(15);
+    tick_user_widget_clock(16);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
@@ -310,7 +313,7 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 20);
+            create_user_widget_clock(obj, 21);
         }
         {
             // arc-clock-seconds-wifi
@@ -360,7 +363,7 @@ void create_screen_wifi() {
 }
 
 void tick_screen_wifi() {
-    tick_user_widget_clock(20);
+    tick_user_widget_clock(21);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
@@ -404,14 +407,14 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 25);
+            create_user_widget_clock(obj, 26);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(25); }
+void tick_screen_light_sleep() { tick_user_widget_clock(26); }
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -433,7 +436,7 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 29);
+            create_user_widget_clock(obj, 30);
         }
         {
             // screen-indicator-sleep1
@@ -449,7 +452,7 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(29); }
+void tick_screen_deep_sleep() { tick_user_widget_clock(30); }
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_wake_screen) only fires while the device is
@@ -475,7 +478,7 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 34);
+            create_user_widget_clock(obj, 35);
         }
         {
             // screen-indicator-alarm
@@ -491,7 +494,7 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(34); }
+void tick_screen_alarm() { tick_user_widget_clock(35); }
 
 /* ---------------- settings screens ----------------
  *
@@ -517,25 +520,40 @@ void create_screen_settings_hub() {
     lv_obj_center(objects.settings_hub_exit);
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
-    /* Icon ring at radius ~165 (45-degree diagonals): alarm settings
-     * (top-right), light sleep (bottom-right), deep sleep (bottom-left),
-     * WiFi settings (top-left). Moon weight distinguishes the two
-     * sleep screens (regular / solid). */
-    const int32_t R = UI_PX(117); /* ~165 px radius at 45 deg (the scaled ring) */
-    settings_hub_icon(obj, GLYPH_ALARM, &ui_font_fontawesome7_regular_96_icons, R, -R, SCREEN_ID_SETTINGS_ALARM);
-    settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_regular_96_icons, R, R, SCREEN_ID_SETTINGS_LIGHT_SLEEP);
-    settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, -R, R, SCREEN_ID_SETTINGS_DEEP_SLEEP);
-    settings_hub_icon(obj, GLYPH_WIFI, &ui_font_fontawesome7_solid_96_icons, -R, -R, SCREEN_ID_SETTINGS_WIFI);
+    /* Icon ring: EQUAL ARC DISTANCES -- the icons sit 360/n degrees apart
+     * on the ring (S3: 5 icons, 72 deg; P4: 6 icons, 60 deg). The
+     * deep-sleep icon anchors the bottom (180 deg); on the P4 the circle
+     * closes with the clock (manual time entry, U+F017 -- the P4 fonts_p4
+     * regular set only) at 12 o'clock. Moon weight distinguishes the two
+     * sleep screens (regular / solid); the globe (timezone, U+F0AC,
+     * solid) is on both boards. */
+    struct hub_icon {
+        const char *glyph;
+        const lv_font_t *font;
+        enum ScreensEnum target;
+    };
+    static const struct hub_icon ring[] = {
 #if defined(CONFIG_BOARD_P4)
-    /* The P4's clock is software (SNTP) and can be left unsynced (no
-     * network): the settings hub gets a fifth icon -- the clock (U+F017,
-     * the 12-o'clock position of the ring) -- reaching the manual
-     * time/date entry screen. The S3's time comes from the PCF85063A and
-     * stays unreachable; the S3 icon font does not carry U+F017 (the P4
-     * fonts_p4 set was regenerated with it), so the glyph is only used
-     * here, P4-only. */
-    settings_hub_icon(obj, GLYPH_CLOCK, &ui_font_fontawesome7_regular_96_icons, 0, -R, SCREEN_ID_SETTINGS_TIME);
+        {GLYPH_CLOCK, &ui_font_fontawesome7_regular_96_icons, SCREEN_ID_SETTINGS_TIME},
 #endif
+        {GLYPH_ALARM, &ui_font_fontawesome7_regular_96_icons, SCREEN_ID_SETTINGS_ALARM},
+        {GLYPH_MOON, &ui_font_fontawesome7_regular_96_icons, SCREEN_ID_SETTINGS_LIGHT_SLEEP},
+        {GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_DEEP_SLEEP},
+        {GLYPH_WIFI, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_WIFI},
+        {GLYPH_GLOBE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_TZ},
+    };
+    const int32_t R = UI_PX(117); /* ~165 px ring radius at 466 (the scaled ring) */
+    const size_t n = sizeof(ring) / sizeof(ring[0]);
+    const float step = 360.0f / (float)n;
+    const float deep = (float)n - 3.0f; /* the deep-sleep entry's index (both boards) */
+    const float PI = 3.14159265f;       /* the LVGL math macro is config-gated */
+    for (size_t i = 0; i < n; i++) {
+        /* theta clockwise from 12 o'clock; deep sleep at 180 deg. */
+        const float th = ((180.0f + step * ((float)i - deep)) * PI) / 180.0f;
+        const int32_t dx = (int32_t)(R * sinf(th));
+        const int32_t dy = (int32_t)(-R * cosf(th));
+        settings_hub_icon(obj, ring[i].glyph, ring[i].font, dx, dy, ring[i].target);
+    }
 }
 
 void tick_screen_settings_hub() {}
@@ -545,7 +563,9 @@ void tick_screen_settings_hub() {}
  * CALLING level (the hub, or the alarm screen for its two
  * sub-screens). The sub-screens add their own widgets on top; the band
  * around the exit (x 185..281, y 336..432) stays free of widgets. */
-static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
+/* Returns the created exit button so a caller can add its own handler
+ * on it (the time entry commits the value when the X is pressed). */
+static lv_obj_t *settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_target) {
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
@@ -554,6 +574,7 @@ static void settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exit_tar
     lv_obj_t *exit = settings_create_exit_button(obj, UI_PX(90));
     lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -UI_PX(34));
     lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, (void *)(intptr_t)exit_target);
+    return exit;
 }
 
 /* --- alarm settings: deactivate-all / pomodoro / real alarm ---------
@@ -620,6 +641,9 @@ void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_TIME:
         settings_time_screen_refresh();
+        break;
+    case SCREEN_ID_SETTINGS_TZ:
+        settings_tz_screen_refresh();
         break;
     default:
         break;
@@ -1525,91 +1549,139 @@ void tick_screen_settings_wifi() {
     s_wifi_scanning_shown = false;
 }
 
-/* --- WiFi password: the circular wheel keyboard ------------------------
+/* --- WiFi password: the circular wheel keyboard (v2, 12-sector hybrid) --
  *
  * Reached by tapping an AP row on the WiFi screen (the SSID is prefilled,
- * case kept). Two concentric letter rings around the 466x466 centre:
+ * case kept). The v2 hybrid (doc 7.14; the operable reference is the lab's
+ * panel #1, docs/keyboard/round-keyboard-lab.html) re-derives the v1
+ * geometry (7.13) from the research's findings:
  *
- *  - the INNER frame (at rest): the 26 slots of the active mode, grouped
- *    in threes (bold divider at each group start) at r 150..186. The
- *    grouping is the wayfinding device -- the eye aims at 9 groups, not
- *    26 targets.
- *  - the OUTER frame (revealed on touch-down anywhere in the ring band):
- *    a continuous band at r 192..226 where the letter under the finger is
- *    lit over a 2x-inner-angle span (27 deg, the overlap is resolved by
- *    nearest-slot-centre in the hit-test).
- *  - a 4-key REGISTER/SHIFT arc (abc / ABC / 123 / #$) at r 88..116,
- *    grouped as one arc segment but each key individually tappable; the
- *    active mode is lit.
- *  - the centre: the running password (unmasked -- the user is physically
- *    present) + the selected letter, large, while sweeping. A short tap
- *    on the centre COMMITS (save + connect); a long press BACKSPACES.
+ *  - PROPORTIONAL SECTORS. The 26 slots of the active mode tile the ring
+ *    with EQUAL shares (SHARE = 360/26; every letter owns one share); the
+ *    12 frequency-grouped sectors [ab][cd][ef][gh][il][jkq][mn][op][rs][tu]
+ *    [vxz][wy] span n*SHARE (2-letter 27.7 deg, the two 3-letter sectors
+ *    41.5 deg). The grouping is FIXED across all four registers -- the
+ *    sector boundaries never move when the register changes (the muscle
+ *    memory of the press position survives the abc -> 123 switch).
+ *  - AT REST: the 26 letters of the active mode at r 168, the 12 hairline
+ *    sector dividers at r 150..226, band hairlines at r 150 / 226.
+ *  - THE REVEAL: on touch-down in the ring band only the PRESSED sector's
+ *    boxes appear -- one thick (76 px) non-rounded arc box per letter,
+ *    r 150..226 (the inner circle's own radius band), tiling the sector
+ *    edge-to-edge. The lit box inverts (white fill, near-black letter).
+ *    The reveal is STICKY to the pressed sector (sliding across a sector
+ *    boundary does not re-key the set).
+ *  - HIT-TEST: the exact box under the finger -- the finger's angle names
+ *    the sector, the offset-in-sector names the box (floor / SHARE). No
+ *    nearest-centre tie-break (v1's 2x overlap is gone; the boxes tile
+ *    the ring exactly).
+ *  - CENTRE PREVIEW (DTMF-style): while pressed the lit letter is shown
+ *    in the centre + "release commits"; on release the character commits
+ *    and the full running entry re-appears (last 6 + ellipsis).
+ *  - REGISTER ARC: four 60-degree keys (abc / ABC / 123 / #\$) on the top
+ *    240-degree arc (LVGL 150..390), r 84..144; a press is resolved by
+ *    exact 60-degree sector, not nearest key.
+ *  - COMMIT / DISCARD: the bottom 120-degree arc is the house circle-xmark
+ *    COMMIT key (LVGL ~31.5..88.5) and the trash DISCARD key
+ *    (LVGL ~91.5..148.5), both at r 114. A plain tap on the centre
+ *    BACKSPACES (v1's 400 ms long-press would compete with the sweep press
+ *    that starts a letter).
  *
- * Interaction: press (anywhere in the radial band r 140..233 --
- * radially forgiving, the fingertip ~ the band width) reveals the outer
- * frame; sweeping moves the highlight (nearest slot centre, inverse-
- * transformed, so it is correct under the 90-degree orientation roll);
- * RELEASE in the band commits the highlighted letter (a quick tap on an
- * inner letter = press+release there = the same commit); release OUT of
- * the band commits nothing. The 2 s press orientation re-sync also fires
- * on long sweeps (pose-stability gated, re-anchors the home pose only --
- * the wheel is transform-aware, so it is benign).
+ * All presses commit on RELEASE only (the reveal + preview show exactly
+ * what the release will commit, so a double-entry is impossible). Angles
+ * are LVGL's (0 deg = right, 90 deg = down, clockwise); the mockup's
+ * 0 deg = up is a constant -90 offset. The wheel is transform-aware (the
+ * inverse-transform idiom, alarm_time_point_to_day) so it stays correct
+ * under the 90-degree orientation roll.
  *
- * The exit deviates from the house sub-screen pattern on purpose: the
- * full-360-degree ring occupies the bottom-centre band, so the wheel gets
- * the mockup's small in-ring exit (26 px circle-x at r 135) instead of
- * settings_sub_screen_prepare()'s 90 px bottom exit.
+ * LVGL mechanics (both panels, S3 466 + P4 720 via UI_PX):
+ *  - a FILLED annular sector = a thick NON-ROUNDED lv_arc drawn as its
+ *    TRACK (LV_PART_MAIN, the bg angles): the SW arc renderer fills it via
+ *    an angle mask whose delta path covers a span that crosses the 360/0
+ *    line (lv_arc_set_angles normalises the start into 0..360 and the
+ *    renderer's end < start branch draws the wrap). The VALUE part
+ *    (LV_PART_INDICATOR, the arc angles) is left empty (0,0) on a plain
+ *    box.
+ *  - the 240-degree register track + the active mode's 60-degree key are
+ *    ONE arc: the track is the MAIN (bg 150..390), the lit key is the
+ *    INDICATOR (arc 150+60m .. 210+60m). Styling ONLY the MAIN leaves the
+ *    indicator at the theme default (a vivid blue) -- both parts need a
+ *    colour.
+ *  - lv_line is NOT built on the device (CONFIG_LV_USE_LINE off), so the
+ *    hairline dividers and icons are thin lv_obj rectangles; the radial
+ *    ones rotate with transform_rotation -- 0.1-degrees units (pass
+ *    deg*10; v1 passed raw degrees and its ticks under-rotated 10x, a
+ *    latent bug this rewrite fixes).
+ *  - the clickable arcs (catch, mode arc, commit/discard) carry
+ *    LV_OBJ_FLAG_ADV_HITTEST -- without it lv_arc falls back to a plain
+ *    bounding-box test and the last-created arc wins the search.
  *
  * All wheel widgets are LOCAL statics (the layout contract in screens.h
- * only names the screen roots and the clock-widget slots). Angles are
- * LVGL's (0 deg = right, 90 deg = down, clockwise); the mockup's
- * 0 deg = up geometry is a constant -90 offset. */
+ * only names the screen roots and the clock-widget slots). The screen is
+ * created once at boot; every widget is pre-built once and the press only
+ * toggles text / colours / angles (region-limited invalidation -- each
+ * frame still lands as the one atomic whole-panel lv_refr_now under
+ * s_rgb_mtx, never a per-widget flush). */
 #define WHEEL_C (UI_PANEL_PX / 2)    /* the panel centre */
-#define WHEEL_INNER_R_MID UI_PX(168) /* inner letter row (band 150..186) */
-#define WHEEL_OUTER_R_MID UI_PX(209) /* outer letter row (band 192..226) */
-#define WHEEL_MODE_R_MID UI_PX(102)  /* mode-key row (band 88..116) */
+#define WHEEL_INNER_R_MID UI_PX(168) /* at-rest letter row */
+#define WHEEL_OUTER_R_MID UI_PX(209) /* reveal letter row */
 #define WHEEL_HIT_R_IN UI_PX(140)    /* the forgiving press band: 140..233 */
-#define WHEEL_OUTER_SPAN 13          /* the hot sector is +/-13 deg (2x the 26-letter inner angle) */
 #define WHEEL_PW_MAX 63              /* keep < MAX_PASSWORD_LEN (64) */
-#define WHEEL_EXIT_Y UI_PX(368)      /* the in-ring exit centre (r 135 below centre) */
+#define WHEEL_MODE_R_MID UI_PX(114)  /* the bottom-band icons' radius */
+#define WHEEL_SHARE (360.0f / 26.0f) /* one letter's equal share of the ring */
+#define WHEEL_N_SECTORS 12
 
 /* The four register modes (all printable ASCII -- the 32 px font now
- * covers 32-126). 123 / #$ use fewer slots, so those keys get WIDER
- * arc shares (360/n per slot) -- bigger sweep targets than letters. */
+ * covers 32-126). The digit/symbol registers are shorter than 26, so
+ * their groups fill in order (the last group takes the remainder). */
 static const char *const s_wheel_sets[4] = {
     "abcdefghijklmnopqrstuvwxyz",
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    "0123456789",
-    "!@#$%^&*()-_+=[]{}:;.,?/",
+    "0123456789#@._-+*?!/&%:;,",
+    "#$%&@!_=<>[]{}~^:,/?*+-.'",
 };
+
+/* The 12 frequency-grouped sectors (FIXED across all four registers).
+ * Group 5 = the rare j/k/q cluster, group 10 = v/x/z. */
+static const char *const s_wheel_sector_chars[12] = {"ab", "cd", "ef", "gh", "il",  "jkq",
+                                                     "mn", "op", "rs", "tu", "vxz", "wy"};
+
+/* House colours for the reveal (the lab's AMOLED palette). */
+#define WHEEL_BOX_DARK lv_color_hex(0x2B2E34) /* the un-lit box fill */
+#define WHEEL_BOX_LIT lv_color_hex(0xF2F3F5)  /* the lit box fill (inverts) */
+#define WHEEL_LIT_INK lv_color_hex(0x101115)  /* the lit box's near-black letter */
+#define WHEEL_HAIR lv_color_hex(0x3A3D44)     /* the hairline dividers */
 
 static char s_wheel_pw[WHEEL_PW_MAX + 1];
 static int s_wheel_pw_len = 0;
 static int s_wheel_mode = -1; /* -1 until the first set_mode drew the letters */
 static int s_wheel_n = 0;     /* slots of the active mode (<= 26) */
 static char s_wheel_chars[26];
-static int s_wheel_hot = -1; /* the highlighted slot (the centre preview) */
-static bool s_wheel_revealed = false;
+static int s_wheel_sector_start[12];  /* the global letter index of each sector */
+static int s_wheel_n_of[12];          /* the per-sector letter count (active mode) */
+static float s_wheel_slot_angle[26];  /* global letter s's centre angle (LVGL deg) */
+static int s_wheel_press_sector = -1; /* the sticky reveal sector (-1 = none) */
+static int s_wheel_hot = -1;          /* the highlighted global letter (preview) */
 
-static lv_obj_t *s_wheel_catch; /* the transparent press band (r 140..233) */
-static lv_obj_t *s_wheel_outer; /* the revealed outer band + hot sector */
-static lv_obj_t *s_wheel_letters_in[26];
-static lv_obj_t *s_wheel_letters_out[26];
-static lv_obj_t *s_wheel_ticks[26];
-static lv_obj_t *s_wheel_mode_arc;
+static lv_obj_t *s_wheel_catch;               /* the transparent press band (r 140..233) */
+static lv_obj_t *s_wheel_boxes[12][3];        /* the pre-built reveal arc boxes */
+static lv_obj_t *s_wheel_letters_in[26];      /* the at-rest letter labels (r 168) */
+static lv_obj_t *s_wheel_letters_out[26];     /* the reveal letter labels (r 209) */
+static lv_obj_t *s_wheel_dividers[12];        /* the sector hairlines (r 150..226) */
+static lv_obj_t *s_wheel_box_dividers[12][2]; /* the in-sector box hairlines */
+static lv_obj_t *s_wheel_mode_arc;            /* the 240-degree register track + lit key */
 static lv_obj_t *s_wheel_mode_keys[4];
-static lv_obj_t *s_wheel_center;
-static lv_obj_t *s_wheel_pw_label;
-static lv_obj_t *s_wheel_sel_label;
+static lv_obj_t *s_wheel_commit;    /* the house circle-xmark commit key */
+static lv_obj_t *s_wheel_discard;   /* the trash discard key */
+static lv_obj_t *s_wheel_center;    /* the centre tap box */
+static lv_obj_t *s_wheel_pw_label;  /* the running entry / centre preview */
+static lv_obj_t *s_wheel_sub_label; /* "release commits" */
 static lv_obj_t *s_wheel_ssid_label;
 
-/* Slot j's centre angle (LVGL degrees, 0 = right, 90 = down, CW). */
-static float wheel_slot_center(int j, int n) { return (j + 0.5f) * 360.0f / (float)n - 90.0f; }
-
-/* Map the indev point (display coords) to a slot: inverse the screen
- * root's transform (the orientation roll) first -- the same idiom as
- * alarm_time_point_to_day(). Returns false when the point is outside the
- * forgiving radial band. */
+/* Map the indev point (display coords) to a letter slot: inverse the
+ * screen root's transform (the orientation roll) first -- the same idiom
+ * as alarm_time_point_to_day(). Returns false when the point is outside
+ * the forgiving radial band. */
 static bool wheel_point_to_slot(int *out_slot) {
     lv_indev_t *indev = lv_indev_active();
     if (indev == NULL) {
@@ -1624,7 +1696,10 @@ static bool wheel_point_to_slot(int *out_slot) {
     if (r < WHEEL_HIT_R_IN || r > (float)WHEEL_C) {
         return false;
     }
-    /* atan2f: radians, 0 = right, 90 = down -- the LVGL slot convention. */
+    /* atan2f: radians, 0 = right, 90 = down -- the LVGL slot convention.
+     * The EXACT box: the finger's angle names the sector (its raw start..
+     * start + span, which may cross the 360/0 line), the offset-in-sector
+     * names the box -- no nearest-centre. */
     float theta = atan2f(dy, dx) * 180.0f / 3.14159265f;
     while (theta < 0.0f) {
         theta += 360.0f;
@@ -1632,23 +1707,31 @@ static bool wheel_point_to_slot(int *out_slot) {
     while (theta >= 360.0f) {
         theta -= 360.0f;
     }
-    int best = 0;
-    float best_diff = 1e9f;
-    for (int j = 0; j < s_wheel_n; j++) {
-        float diff = theta - wheel_slot_center(j, s_wheel_n);
-        while (diff > 180.0f) {
-            diff -= 360.0f;
+    int slot = 0;
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        int cnt = s_wheel_n_of[k];
+        if (cnt == 0) {
+            continue;
         }
-        while (diff < -180.0f) {
-            diff += 360.0f;
+        int s0 = s_wheel_sector_start[k];
+        float a0 = (float)s0 * WHEEL_SHARE - 90.0f;
+        float a1 = a0 + (float)cnt * WHEEL_SHARE;
+        float t = theta;
+        while (t < a0) {
+            t += 360.0f;
         }
-        float ad = diff < 0.0f ? -diff : diff;
-        if (ad < best_diff) {
-            best_diff = ad;
-            best = j;
+        while (t >= a1) {
+            t -= 360.0f;
+        }
+        if (t >= a0 && t < a1) {
+            slot = s0 + (int)((t - a0) / WHEEL_SHARE);
+            if (slot >= s0 + cnt) { /* float edge: clamp to the last box */
+                slot = s0 + cnt - 1;
+            }
+            break;
         }
     }
-    *out_slot = best;
+    *out_slot = slot;
     return true;
 }
 
@@ -1657,6 +1740,10 @@ static void settings_wheel_pw_label(void) {
      * password would run off the ring; s_wheel_pw keeps it all). */
     if (s_wheel_pw_len == 0) {
         lv_label_set_text(s_wheel_pw_label, "....");
+        lv_obj_set_style_text_font(s_wheel_pw_label, &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
+        lv_label_set_text(s_wheel_sub_label, "");
         return;
     }
     char buf[16];
@@ -1665,77 +1752,124 @@ static void settings_wheel_pw_label(void) {
     pos += snprintf(buf + pos, sizeof(buf) - pos, "%.*s", s_wheel_pw_len - start, s_wheel_pw + start);
     (void)pos;
     lv_label_set_text(s_wheel_pw_label, buf);
+    lv_obj_set_style_text_font(s_wheel_pw_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
 }
 
-/* Recolour both letter rings: at rest the inner ring is the 175 grey;
- * revealed, the inner dims and the hot letter lights in both rings. */
+/* Recolour both letter rings. The lit global letter's REVEAL letter is
+ * the near-black ink on the inverted (white) box; the un-lit reveal
+ * letters are the light ink. The at-rest letters stay bright while their
+ * sector is the pressed one and dim otherwise. */
 static void settings_wheel_recolor_letters(void) {
-    lv_color_t in_rest = lv_color_hex(0xAF7878);
+    lv_color_t in_rest = lv_color_hex(0xC9CCD3);
     lv_color_t in_dim = lv_color_hex(0x555555);
-    lv_color_t out_dim = lv_color_hex(0x5F5F5F);
-    for (int j = 0; j < 26; j++) {
-        if (j >= s_wheel_n) {
+    lv_color_t out_light = lv_color_hex(0xF2F3F5);
+    for (int s = 0; s < 26; s++) {
+        if (s >= s_wheel_n) {
             continue;
         }
-        bool hot = (j == s_wheel_hot);
-        lv_color_t in_c = !s_wheel_revealed ? in_rest : (hot ? SETTINGS_WHITE : in_dim);
-        lv_obj_set_style_text_color(s_wheel_letters_in[j], in_c, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_text_color(s_wheel_letters_out[j], hot ? SETTINGS_WHITE : out_dim,
+        int k = 0;
+        while (k < WHEEL_N_SECTORS - 1 && s >= s_wheel_sector_start[k + 1]) {
+            k++;
+        }
+        bool pressed = (s_wheel_press_sector >= 0 && k == s_wheel_press_sector);
+        bool lit = (s == s_wheel_hot);
+        bool inner_bright = (s_wheel_press_sector < 0) || pressed;
+        lv_obj_set_style_text_color(s_wheel_letters_in[s], inner_bright ? in_rest : in_dim,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(s_wheel_letters_out[s], lit ? WHEEL_LIT_INK : out_light,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
 
-static void settings_wheel_set_hot(int j) {
-    if (j == s_wheel_hot) {
+/* The lit box inverts: white fill, near-black letter (the v1 white low-opa
+ * indicator is gone -- the box IS the target). */
+static void settings_wheel_apply_lit(void) {
+    for (int s = 0; s < 26; s++) {
+        if (s >= s_wheel_n) {
+            continue;
+        }
+        int k = 0;
+        int j = 0;
+        while (k < WHEEL_N_SECTORS && s >= s_wheel_sector_start[k] + s_wheel_n_of[k]) {
+            k++;
+        }
+        j = s - s_wheel_sector_start[k];
+        lv_obj_set_style_arc_color(s_wheel_boxes[k][j], s == s_wheel_hot ? WHEEL_BOX_LIT : WHEEL_BOX_DARK,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+}
+
+static void settings_wheel_set_hot(int s) {
+    if (s == s_wheel_hot) {
         return;
     }
-    s_wheel_hot = j;
-    if (j < 0 || j >= s_wheel_n) {
-        lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
-        if (j < 0) {
-            lv_arc_set_angles(s_wheel_outer, 0, 0); /* zero span draws nothing */
-        }
+    s_wheel_hot = s;
+    if (s < 0 || s >= s_wheel_n) {
+        /* No preview: the centre shows the running entry (DTMF-style
+         * handback), the subline is empty. */
+        settings_wheel_pw_label();
     } else {
-        lv_obj_clear_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
-        char one[2] = {s_wheel_chars[j], 0};
-        lv_label_set_text(s_wheel_sel_label, one);
-        if (s_wheel_revealed) {
-            float c = wheel_slot_center(j, s_wheel_n);
-            float a0 = c - (float)WHEEL_OUTER_SPAN;
-            float a1 = c + (float)WHEEL_OUTER_SPAN;
-            while (a0 < 0.0f) {
-                a0 += 360.0f;
-                a1 += 360.0f;
+        /* DTMF-style centre preview: the lit letter large + the commit
+         * hint. The commit happens ONLY on release. The 32 px SSID font
+         * covers the full printable range (32-126) in every register --
+         * the 48 px font is a digits subset (45-58) with no letters. */
+        char one[2] = {s_wheel_chars[s], 0};
+        lv_label_set_text(s_wheel_pw_label, one);
+        lv_obj_set_style_text_font(s_wheel_pw_label, &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, -UI_PX(6));
+        lv_label_set_text(s_wheel_sub_label, "release commits");
+    }
+    settings_wheel_recolor_letters();
+    settings_wheel_apply_lit();
+}
+
+/* The sticky reveal: show only the pressed sector's boxes, box dividers
+ * and reveal letters. Pressed (on, sector) / released or cancelled (off).
+ * The 12 sector dividers stay visible (the rest state's wayfinding). */
+static void settings_wheel_set_revealed(bool on, int sector) {
+    int sec = on ? sector : -1;
+    s_wheel_press_sector = sec;
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        bool vis = on && k == sec;
+        for (int j = 0; j < 2; j++) {
+            if (j < s_wheel_n_of[k] - 1) {
+                if (vis) {
+                    lv_obj_clear_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    lv_obj_add_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_HIDDEN);
+                }
             }
-            while (a1 >= 360.0f) {
-                a0 -= 360.0f;
-                a1 -= 360.0f;
-            }
-            lv_arc_set_angles(s_wheel_outer, (lv_value_precise_t)a0, (lv_value_precise_t)a1);
         }
+        for (int j = 0; j < 3; j++) {
+            if (j < s_wheel_n_of[k]) {
+                if (vis) {
+                    lv_obj_clear_flag(s_wheel_boxes[k][j], LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    lv_obj_add_flag(s_wheel_boxes[k][j], LV_OBJ_FLAG_HIDDEN);
+                }
+            }
+        }
+        for (int j = 0; j < s_wheel_n_of[k]; j++) {
+            int s = s_wheel_sector_start[k] + j;
+            if (vis) {
+                lv_obj_clear_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+    if (!on) {
+        s_wheel_hot = -1;
+        settings_wheel_pw_label();
     }
     settings_wheel_recolor_letters();
 }
 
-/* Reveal the outer frame (press-down) / hide it (release or cancel). */
-static void settings_wheel_set_revealed(bool on) {
-    if (on == s_wheel_revealed) {
-        return;
-    }
-    s_wheel_revealed = on;
-    if (on) {
-        lv_obj_clear_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
-        /* The password shifts left, the selected letter appears right. */
-        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, -30, 0);
-    } else {
-        lv_obj_add_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
-    }
-    settings_wheel_recolor_letters();
-}
-
-/* Apply a register mode: re-string the 26 slots, re-place the letters +
- * dividers (the slot angle is 360/n), light the mode key. */
+/* Apply a register mode: re-string the 26 slots, re-place the letters,
+ * dividers and box sectors (the slot angle is 360/26 per letter), light
+ * the mode key. */
 static void settings_wheel_set_mode(int m) {
     if (m == s_wheel_mode) {
         return;
@@ -1745,44 +1879,78 @@ static void settings_wheel_set_mode(int m) {
     for (int j = 0; j < 26; j++) {
         s_wheel_chars[j] = j < s_wheel_n ? s_wheel_sets[m][j] : 0;
     }
-    for (int j = 0; j < 26; j++) {
-        bool on = j < s_wheel_n;
-        float a = on ? wheel_slot_center(j, s_wheel_n) : 0.0f;
-        float ar = a * 3.14159265f / 180.0f;
-        if (on) {
-            int32_t dx_in = (int32_t)(WHEEL_INNER_R_MID * cosf(ar));
-            int32_t dy_in = (int32_t)(WHEEL_INNER_R_MID * sinf(ar));
-            char one[2] = {s_wheel_chars[j], 0};
-            lv_label_set_text(s_wheel_letters_in[j], one);
-            lv_obj_align(s_wheel_letters_in[j], LV_ALIGN_CENTER, dx_in, dy_in);
-            int32_t dx_out = (int32_t)(WHEEL_OUTER_R_MID * cosf(ar));
-            int32_t dy_out = (int32_t)(WHEEL_OUTER_R_MID * sinf(ar));
-            lv_label_set_text(s_wheel_letters_out[j], one);
-            lv_obj_align(s_wheel_letters_out[j], LV_ALIGN_CENTER, dx_out, dy_out);
-            lv_obj_clear_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_HIDDEN);
+    /* Per-sector counts + the global letter index of each sector start:
+     * fill each group in order (the digit/symbol registers are shorter
+     * than 26; the last group takes the remainder). */
+    int idx = 0;
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        int cnt = (int)strlen(s_wheel_sector_chars[k]);
+        if (idx + cnt > s_wheel_n) {
+            cnt = s_wheel_n - idx;
         }
-        /* The divider BEFORE slot j, at the slot boundary (bold at each
-         * group start). */
-        bool bold = on && (j % 3 == 0);
-        int32_t len = bold ? UI_PX(30) : UI_PX(26);
-        float a_b = on ? (float)j * 360.0f / (float)s_wheel_n - 90.0f : 0.0f;
-        float arb = a_b * 3.14159265f / 180.0f;
-        int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(arb));
-        int32_t ty = (int32_t)(WHEEL_INNER_R_MID * sinf(arb));
-        lv_obj_set_size(s_wheel_ticks[j], len, bold ? 2 : 1);
-        lv_obj_set_pos(s_wheel_ticks[j], WHEEL_C + tx - len / 2, WHEEL_C + ty - (bold ? 1 : 0));
-        lv_obj_set_style_transform_rotation(s_wheel_ticks[j], (int32_t)a_b, 0);
-        lv_obj_set_style_bg_color(s_wheel_ticks[j], bold ? SETTINGS_GREY : lv_color_hex(0x373737),
-                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+        s_wheel_n_of[k] = cnt;
+        s_wheel_sector_start[k] = idx;
+        idx += cnt;
+    }
+    for (int s = 0; s < 26; s++) {
+        s_wheel_slot_angle[s] = (s + 0.5f) * WHEEL_SHARE - 90.0f;
+        bool on = s < s_wheel_n;
         if (on) {
-            lv_obj_clear_flag(s_wheel_ticks[j], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_wheel_ticks[j], LV_OBJ_FLAG_HIDDEN);
+            float a = s_wheel_slot_angle[s] * 3.14159265f / 180.0f;
+            int32_t dx_in = (int32_t)(WHEEL_INNER_R_MID * cosf(a));
+            int32_t dy_in = (int32_t)(WHEEL_INNER_R_MID * sinf(a));
+            char one[2] = {s_wheel_chars[s], 0};
+            lv_label_set_text(s_wheel_letters_in[s], one);
+            lv_obj_align(s_wheel_letters_in[s], LV_ALIGN_CENTER, dx_in, dy_in);
+            int32_t dx_out = (int32_t)(WHEEL_OUTER_R_MID * cosf(a));
+            int32_t dy_out = (int32_t)(WHEEL_OUTER_R_MID * sinf(a));
+            lv_label_set_text(s_wheel_letters_out[s], one);
+            lv_obj_align(s_wheel_letters_out[s], LV_ALIGN_CENTER, dx_out, dy_out);
+        }
+        /* The box sector for global letter s: its equal share, raw angles
+         * (may be negative or exceed 360; the setter normalises). */
+        int k = 0;
+        while (k < WHEEL_N_SECTORS - 1 && s >= s_wheel_sector_start[k + 1]) {
+            k++;
+        }
+        int j = s - s_wheel_sector_start[k];
+        float a0 = (float)s * WHEEL_SHARE - 90.0f;
+        float a1 = (float)(s + 1) * WHEEL_SHARE - 90.0f;
+        if (on) {
+            lv_arc_set_bg_angles(s_wheel_boxes[k][j], (lv_value_precise_t)a0, (lv_value_precise_t)a1);
         }
     }
-    lv_arc_set_angles(s_wheel_mode_arc, (lv_value_precise_t)(44 + 24 * m), (lv_value_precise_t)(64 + 24 * m));
+    /* Re-place the 12 sector dividers (the group boundaries) + the
+     * per-box dividers (the in-sector hairlines). The dividers rotate by
+     * 0.1-degrees (pass deg*10). */
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        int cnt = s_wheel_n_of[k];
+        if (cnt > 0) {
+            float a = (float)s_wheel_sector_start[k] * WHEEL_SHARE - 90.0f; /* the sector's start */
+            float ar = a * 3.14159265f / 180.0f;
+            int32_t len = UI_PX(76);
+            int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(ar));
+            int32_t ty = (int32_t)(WHEEL_INNER_R_MID * sinf(ar));
+            lv_obj_set_size(s_wheel_dividers[k], len, 1);
+            lv_obj_set_pos(s_wheel_dividers[k], WHEEL_C + tx - len / 2, WHEEL_C + ty);
+            lv_obj_set_style_transform_rotation(s_wheel_dividers[k], (int32_t)(a * 10.0f), 0);
+        }
+        for (int j = 0; j < 2; j++) {
+            if (j < cnt - 1) {
+                int s = s_wheel_sector_start[k] + j + 1; /* the boundary after box j */
+                float a = (float)s * WHEEL_SHARE - 90.0f;
+                float ar = a * 3.14159265f / 180.0f;
+                int32_t len = UI_PX(68);
+                int32_t tx = (int32_t)(UI_PX(154) * cosf(ar));
+                int32_t ty = (int32_t)(UI_PX(154) * sinf(ar));
+                lv_obj_set_size(s_wheel_box_dividers[k][j], len, 1);
+                lv_obj_set_pos(s_wheel_box_dividers[k][j], WHEEL_C + tx - len / 2, WHEEL_C + ty);
+                lv_obj_set_style_transform_rotation(s_wheel_box_dividers[k][j], (int32_t)(a * 10.0f), 0);
+            }
+        }
+    }
+    lv_arc_set_angles(s_wheel_mode_arc, (lv_value_precise_t)(150.0f + 60.0f * m),
+                      (lv_value_precise_t)(210.0f + 60.0f * m));
     for (int k = 0; k < 4; k++) {
         lv_obj_set_style_text_color(s_wheel_mode_keys[k], k == m ? SETTINGS_WHITE : SETTINGS_GREY,
                                     LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1790,23 +1958,32 @@ static void settings_wheel_set_mode(int m) {
     settings_wheel_set_hot(-1);
 }
 
-/* The sweep press on the ring band (the inner + outer arcs share the one
- * transparent catcher). PRESSED reveals the outer frame; PRESSING tracks
- * the finger; RELEASED commits the highlighted letter when the finger is
- * still in the band (a quick tap commits its own letter; an out-of-band
- * release commits nothing). */
+/* The sweep press on the ring band. PRESSED reveals the pressed sector's
+ * boxes (the exact box under the finger lights + previews); PRESSING
+ * tracks the finger (the sticky sector's box under the finger); RELEASED
+ * commits the highlighted letter when the finger is still in the band. */
 static void event_handler_cb_wheel_sweep(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
-        settings_wheel_set_revealed(true);
         int j;
         if (wheel_point_to_slot(&j)) {
+            int sec = 0;
+            while (sec < WHEEL_N_SECTORS - 1 && j >= s_wheel_sector_start[sec + 1]) {
+                sec++;
+            }
+            settings_wheel_set_revealed(true, sec);
             settings_wheel_set_hot(j);
         }
     } else if (code == LV_EVENT_PRESSING) {
         int j;
-        if (wheel_point_to_slot(&j)) {
-            settings_wheel_set_hot(j);
+        if (wheel_point_to_slot(&j) && s_wheel_press_sector >= 0) {
+            /* The sticky sector: clamp the finger's box to that sector's
+             * range (sliding across a boundary extends the sweep over the
+             * pressed sector's boxes, it does not re-key the set). */
+            int lo = s_wheel_sector_start[s_wheel_press_sector];
+            int hi = lo + s_wheel_n_of[s_wheel_press_sector] - 1;
+            int cl = (j < lo) ? lo : ((j > hi) ? hi : j);
+            settings_wheel_set_hot(cl);
         }
     } else if (code == LV_EVENT_RELEASED) {
         int j;
@@ -1814,19 +1991,18 @@ static void event_handler_cb_wheel_sweep(lv_event_t *e) {
         if (in_band && s_wheel_hot >= 0 && s_wheel_hot < s_wheel_n && s_wheel_pw_len < WHEEL_PW_MAX) {
             s_wheel_pw[s_wheel_pw_len++] = s_wheel_chars[s_wheel_hot];
             s_wheel_pw[s_wheel_pw_len] = 0;
-            settings_wheel_pw_label();
             ESP_LOGW("settings_wheel", "entered letter %c (pw %d chars)", s_wheel_chars[s_wheel_hot], s_wheel_pw_len);
         }
-        settings_wheel_set_revealed(false);
-        settings_wheel_set_hot(-1);
+        settings_wheel_set_revealed(false, -1);
+        settings_wheel_pw_label();
     } else if (code == LV_EVENT_CANCEL) {
-        settings_wheel_set_revealed(false);
-        settings_wheel_set_hot(-1);
+        settings_wheel_set_revealed(false, -1);
+        settings_wheel_pw_label();
     }
 }
 
-/* The register/shift arc: a PRESSED on the band snaps to the nearest of
- * the four key centres (54/78/102/126 LVGL deg) and switches the mode. */
+/* The register/shift arc: a PRESSED on the 240-degree band snaps to the
+ * exact 60-degree key under the finger (LVGL 150..390). */
 static void event_handler_cb_wheel_mode(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
         return;
@@ -1842,52 +2018,65 @@ static void event_handler_cb_wheel_mode(lv_event_t *e) {
     while (theta < 0.0f) {
         theta += 360.0f;
     }
-    while (theta >= 360.0f) {
-        theta -= 360.0f;
+    /* The arc spans LVGL 150..390 (240..480 in 0-up, the top half). The
+     * finger's key = the 60-degree sector of the 240-degree span. */
+    float rel = theta - 150.0f;
+    while (rel < 0.0f) {
+        rel += 360.0f;
     }
-    int best = 0;
-    float best_diff = 1e9f;
-    for (int k = 0; k < 4; k++) {
-        float diff = theta - (54.0f + 24.0f * k);
-        while (diff > 180.0f) {
-            diff -= 360.0f;
-        }
-        while (diff < -180.0f) {
-            diff += 360.0f;
-        }
-        float ad = diff < 0.0f ? -diff : diff;
-        if (ad < best_diff) {
-            best_diff = ad;
-            best = k;
-        }
+    while (rel >= 360.0f) {
+        rel -= 360.0f;
     }
-    settings_wheel_set_mode(best);
-    ESP_LOGW("settings_wheel", "mode %d", best);
+    if (rel < 240.0f) {
+        int k = (int)(rel / 60.0f);
+        if (k > 3) {
+            k = 3;
+        }
+        settings_wheel_set_mode(k);
+        ESP_LOGW("settings_wheel", "mode %d", k);
+    }
 }
 
-/* The centre: short tap = commit (save the credentials + start the
- * background sync -- action_start_wifi_sync swaps to the transient WiFi
- * screen itself); long press (400 ms, repeating) = backspace. */
+/* The house circle-xmark COMMIT key (LVGL ~31.5..88.5). */
+static void event_handler_cb_wheel_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    if (s_wheel_pw_len == 0) {
+        ESP_LOGW("settings_wheel", "commit: empty password ignored");
+        return;
+    }
+    esp_err_t r = wifi_credentials_write(s_wheel_ssid, s_wheel_pw);
+    if (r != ESP_OK) {
+        ESP_LOGW("settings_wheel", "write credentials -> %s", esp_err_to_name(r));
+        return;
+    }
+    ESP_LOGW("settings_wheel", "credentials saved (SSID %zu chars, pw %d chars); starting sync", strlen(s_wheel_ssid),
+             s_wheel_pw_len);
+    action_start_wifi_sync();
+}
+
+/* The trash DISCARD key (LVGL ~91.5..148.5). */
+static void event_handler_cb_wheel_discard(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    s_wheel_pw_len = 0;
+    s_wheel_pw[0] = 0;
+    settings_wheel_pw_label();
+    ESP_LOGW("settings_wheel", "discarded (pw cleared)");
+}
+
+/* The centre: a plain tap BACKSPACES (v2 -- v1's 400 ms long-press would
+ * compete with the sweep press that starts a letter). */
 static void event_handler_cb_wheel_center(lv_event_t *e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_SHORT_CLICKED) {
-        if (s_wheel_pw_len == 0) {
-            ESP_LOGW("settings_wheel", "commit: empty password ignored");
-            return;
-        }
-        esp_err_t r = wifi_credentials_write(s_wheel_ssid, s_wheel_pw);
-        if (r != ESP_OK) {
-            ESP_LOGW("settings_wheel", "write credentials -> %s", esp_err_to_name(r));
-            return;
-        }
-        ESP_LOGW("settings_wheel", "credentials saved (SSID %zu chars, pw %d chars); starting sync",
-                 strlen(s_wheel_ssid), s_wheel_pw_len);
-        action_start_wifi_sync();
-    } else if (code == LV_EVENT_LONG_PRESSED || code == LV_EVENT_LONG_PRESSED_REPEAT) {
-        if (s_wheel_pw_len > 0) {
-            s_wheel_pw[--s_wheel_pw_len] = 0;
-            settings_wheel_pw_label();
-        }
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) {
+        return;
+    }
+    if (s_wheel_pw_len > 0) {
+        s_wheel_pw[--s_wheel_pw_len] = 0;
+        settings_wheel_pw_label();
+        ESP_LOGW("settings_wheel", "backspace (pw %d chars)", s_wheel_pw_len);
     }
 }
 
@@ -1910,7 +2099,7 @@ static void settings_wheel_screen_refresh(void) {
     settings_wheel_pw_label();
     settings_wheel_set_mode(0);
     settings_wheel_set_hot(-1);
-    settings_wheel_set_revealed(false);
+    settings_wheel_set_revealed(false, -1);
     lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
 }
 
@@ -1918,23 +2107,39 @@ void create_screen_settings_wifi_password() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_wifi_password = obj;
     /* NOT settings_sub_screen_prepare: its 90 px bottom exit would sit
-     * under the full-360-degree ring -- the wheel gets the small in-ring
-     * exit instead (see the section header). */
+     * under the full-360-degree ring -- the wheel gets the bottom-band
+     * commit/discard keys instead (see the section header). */
     lv_obj_set_pos(obj, 0, 0);
     lv_obj_set_size(obj, UI_PANEL_PX, UI_PANEL_PX);
     settings_screen_prepare(obj);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* The band hairlines (r 150 / 226): two thin full-360-degree arcs
+     * (drawn as the MAIN track, the INDICATOR left empty). */
+    for (int b = 0; b < 2; b++) {
+        int32_t r = b == 0 ? UI_PX(150) : UI_PX(226);
+        lv_obj_t *h = lv_arc_create(obj);
+        lv_obj_set_pos(h, 0, 0);
+        lv_obj_set_size(h, UI_PANEL_PX, UI_PANEL_PX);
+        lv_obj_set_style_pad_all(h, r, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_arc_set_bg_angles(h, 0, 360);
+        lv_arc_set_angles(h, 0, 0);
+        lv_obj_set_style_arc_width(h, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_arc_color(h, WHEEL_HAIR, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_arc_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_arc_rounded(h, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_arc_opa(h, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
+    }
+
     /* The transparent press band: an arc whose hit annulus is r 140..233
      * (pad 0 -> r 233, width 93 -> inner edge 233-93 = 140) covering the
      * inner ring, the gap and the outer ring -- a press anywhere in the
      * band reveals, which is the radially-forgiving press. Invisible
      * (both arc opacities 0); the full-360-degree bg span keeps the
-     * hit-test angle unbounded. ADV_HITTEST is REQUIRED: without it the
-     * arc's advanced annulus hit-test never runs and the object falls
-     * back to a plain 466x466 bounding-box test that would swallow every
-     * press (the mode arc, created later, would then win the search). */
+     * hit-test angle unbounded. ADV_HITTEST is REQUIRED (see the section
+     * header). */
     s_wheel_catch = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_catch, 0, 0);
     lv_obj_set_size(s_wheel_catch, UI_PANEL_PX, UI_PANEL_PX);
@@ -1951,84 +2156,101 @@ void create_screen_settings_wifi_password() {
     lv_obj_add_flag(s_wheel_catch, LV_OBJ_FLAG_ADV_HITTEST); /* run the arc's annulus hit-test */
     lv_obj_add_event_cb(s_wheel_catch, event_handler_cb_wheel_sweep, LV_EVENT_ALL, 0);
 
-    /* The revealed outer frame: a full-360-degree band (pad 7 -> r 226,
-     * width 34 -> r 192..226), dark fill, the hot sector as the white
-     * low-opa indicator. Not clickable (the catch handles the presses).
-     * The outer letter labels are ITS children -- hiding the arc hides
-     * the whole frame in one flag. */
-    s_wheel_outer = lv_arc_create(obj);
-    lv_obj_set_pos(s_wheel_outer, 0, 0);
-    lv_obj_set_size(s_wheel_outer, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_outer, UI_PX(7), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_arc_set_bg_angles(s_wheel_outer, 0, 360);
-    lv_arc_set_angles(s_wheel_outer, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_outer, UI_PX(34), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(s_wheel_outer, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(s_wheel_outer, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(s_wheel_outer, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(s_wheel_outer, 0x3C, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_rounded(s_wheel_outer, false, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_rounded(s_wheel_outer, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(s_wheel_outer, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(s_wheel_outer, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_wheel_outer, LV_OBJ_FLAG_HIDDEN);
-
-    /* The 26 inner letter labels (32 px, the SSID font) at r 168. */
-    for (int j = 0; j < 26; j++) {
-        s_wheel_letters_in[j] = lv_label_create(obj);
-        lv_obj_set_style_text_font(s_wheel_letters_in[j], &ui_font_montserrat_regular_32_ssid,
-                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_label_set_text(s_wheel_letters_in[j], "");
-        lv_obj_set_size(s_wheel_letters_in[j], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_clear_flag(s_wheel_letters_in[j], LV_OBJ_FLAG_CLICKABLE);
-        s_wheel_letters_out[j] = lv_label_create(s_wheel_outer);
-        lv_obj_set_style_text_font(s_wheel_letters_out[j], &ui_font_montserrat_regular_32_ssid,
-                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_label_set_text(s_wheel_letters_out[j], "");
-        lv_obj_set_size(s_wheel_letters_out[j], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_clear_flag(s_wheel_letters_out[j], LV_OBJ_FLAG_CLICKABLE);
+    /* The 12 sector hairlines (r 150..226, always visible) + the per-box
+     * hairlines (r 154..222, shown only with the reveal): thin lv_obj
+     * bars (lv_line is not built on the device). Pre-built once. */
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        s_wheel_dividers[k] = lv_obj_create(obj);
+        lv_obj_set_size(s_wheel_dividers[k], UI_PX(76), 1);
+        lv_obj_set_style_bg_color(s_wheel_dividers[k], WHEEL_HAIR, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(s_wheel_dividers[k], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(s_wheel_dividers[k], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_wheel_dividers[k], LV_OBJ_FLAG_CLICKABLE);
+        for (int j = 0; j < 2; j++) {
+            s_wheel_box_dividers[k][j] = lv_obj_create(obj);
+            lv_obj_set_size(s_wheel_box_dividers[k][j], UI_PX(68), 1);
+            lv_obj_set_style_bg_color(s_wheel_box_dividers[k][j], WHEEL_HAIR, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(s_wheel_box_dividers[k][j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(s_wheel_box_dividers[k][j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_clear_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
-    /* The 26 group dividers (radial ticks at the slot boundaries; bold
-     * at each group start). Created horizontal, then rotated to radial. */
-    for (int j = 0; j < 26; j++) {
-        s_wheel_ticks[j] = lv_obj_create(obj);
-        lv_obj_set_size(s_wheel_ticks[j], UI_PX(26), 1);
-        lv_obj_set_style_bg_color(s_wheel_ticks[j], lv_color_hex(0x373737), LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_opa(s_wheel_ticks[j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(s_wheel_ticks[j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_clear_flag(s_wheel_ticks[j], LV_OBJ_FLAG_CLICKABLE);
+    /* The 26 reveal arc boxes (r 150..226, 76 px wide, non-rounded). The
+     * sector angles are set per mode in settings_wheel_set_mode (the raw
+     * share angles; the setter normalises the wrap). Pre-built once;
+     * hidden until revealed. */
+    for (int k = 0; k < WHEEL_N_SECTORS; k++) {
+        for (int j = 0; j < 3; j++) {
+            s_wheel_boxes[k][j] = lv_arc_create(obj);
+            lv_obj_set_pos(s_wheel_boxes[k][j], 0, 0);
+            lv_obj_set_size(s_wheel_boxes[k][j], UI_PANEL_PX, UI_PANEL_PX);
+            lv_obj_set_style_pad_all(s_wheel_boxes[k][j], UI_PX(150), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_arc_set_bg_angles(s_wheel_boxes[k][j], 0, 0);
+            lv_arc_set_angles(s_wheel_boxes[k][j], 0, 0);
+            lv_obj_set_style_arc_width(s_wheel_boxes[k][j], UI_PX(76), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_arc_color(s_wheel_boxes[k][j], WHEEL_BOX_DARK, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_arc_opa(s_wheel_boxes[k][j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_arc_rounded(s_wheel_boxes[k][j], false, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_arc_opa(s_wheel_boxes[k][j], LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(s_wheel_boxes[k][j], LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+            lv_obj_clear_flag(s_wheel_boxes[k][j], LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(s_wheel_boxes[k][j], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
-    /* The register/shift arc: track r 88..116 (pad 117 -> r 116, width
-     * 28), 42..138 LVGL deg (the mockup's 132..228, 0-up). The active
-     * mode's key span is the lit indicator. Clickable (PRESSED snaps to
-     * the nearest key centre). */
+    /* The 26 at-rest letter labels (r 168) + the 26 reveal letter labels
+     * (r 209), both 32 px (the SSID font). The reveal letters start
+     * hidden (shown only with the pressed sector's reveal). */
+    for (int s = 0; s < 26; s++) {
+        s_wheel_letters_in[s] = lv_label_create(obj);
+        lv_obj_set_style_text_font(s_wheel_letters_in[s], &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(s_wheel_letters_in[s], "");
+        lv_obj_set_size(s_wheel_letters_in[s], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_style_text_color(s_wheel_letters_in[s], lv_color_hex(0xC9CCD3), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_wheel_letters_in[s], LV_OBJ_FLAG_CLICKABLE);
+        s_wheel_letters_out[s] = lv_label_create(obj);
+        lv_obj_set_style_text_font(s_wheel_letters_out[s], &ui_font_montserrat_regular_32_ssid,
+                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(s_wheel_letters_out[s], "");
+        lv_obj_set_size(s_wheel_letters_out[s], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_style_text_color(s_wheel_letters_out[s], lv_color_hex(0xF2F3F5), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_wheel_letters_out[s], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    /* The 240-degree register track (r 84..144, LVGL 150..390) + the
+     * active mode's 60-degree key (the INDICATOR). The track's START is
+     * 150; the END 390 exceeds 360 (the renderer's end < start branch
+     * draws the wrap). ADV_HITTEST runs the r 84..144 annulus. BOTH
+     * parts get a colour (styling only the MAIN leaves the indicator at
+     * the theme default). */
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
     lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(117), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_arc_set_bg_angles(s_wheel_mode_arc, 42, 138);
-    lv_arc_set_angles(s_wheel_mode_arc, 44, 64);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(28), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_mode_arc, 150, 390);
+    lv_arc_set_angles(s_wheel_mode_arc, 150, 210);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_color(s_wheel_mode_arc, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(s_wheel_mode_arc, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_mode_arc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_mode_arc, SETTINGS_WHITE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_opa(s_wheel_mode_arc, 0x2E, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(s_wheel_mode_arc, false, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_arc_rounded(s_wheel_mode_arc, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wheel_mode_arc, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
     lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_ADV_HITTEST); /* its r 88..116 annulus, not the box */
+    lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_ADV_HITTEST); /* its r 84..144 annulus, not the box */
     lv_obj_add_event_cb(s_wheel_mode_arc, event_handler_cb_wheel_mode, LV_EVENT_PRESSED, 0);
 
-    /* The four mode keys (14 px = LV_FONT_DEFAULT), the key dividers,
-     * and the arc's five boundary ticks at 42/66/90/114/138. */
+    /* The four mode keys (14 px) at the key centres (LVGL 180/240/300/360,
+     * r 114) + the arc's five boundary ticks at 150/210/270/330/390. */
     const char *mode_names[4] = {"abc", "ABC", "123", "#$"};
     for (int k = 0; k < 4; k++) {
-        float a = (54.0f + 24.0f * k) * 3.14159265f / 180.0f;
+        float a = (180.0f + 60.0f * k) * 3.14159265f / 180.0f;
         s_wheel_mode_keys[k] = lv_label_create(obj);
         lv_obj_set_style_text_font(s_wheel_mode_keys[k], &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_label_set_text(s_wheel_mode_keys[k], mode_names[k]);
@@ -2039,34 +2261,106 @@ void create_screen_settings_wifi_password() {
         lv_obj_clear_flag(s_wheel_mode_keys[k], LV_OBJ_FLAG_CLICKABLE);
     }
     for (int k = 0; k < 5; k++) {
-        float a = (42.0f + 24.0f * k) * 3.14159265f / 180.0f;
+        float a = (150.0f + 60.0f * k) * 3.14159265f / 180.0f;
         lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, UI_PX(24), 1);
+        lv_obj_set_size(t, UI_PX(56), 1);
         lv_obj_set_style_bg_color(t, lv_color_hex(0x5F5F5F), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a)) - UI_PX(12),
-                       WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a)));
-        lv_obj_set_style_transform_rotation(t, (int32_t)(42.0f + 24.0f * k), 0);
+        int32_t tx = (int32_t)(WHEEL_MODE_R_MID * cosf(a));
+        int32_t ty = (int32_t)(WHEEL_MODE_R_MID * sinf(a));
+        lv_obj_set_pos(t, WHEEL_C + tx - UI_PX(28), WHEEL_C + ty);
+        lv_obj_set_style_transform_rotation(t, (int32_t)((150.0f + 60.0f * k) * 10.0f), 0);
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* The 12-o'clock orientation tick (the mockup's grey radial, r
-     * 150..190) -- the north marker between the two frames. */
+    /* The bottom 120-degree band: the house circle-xmark COMMIT key
+     * (LVGL ~31.5..88.5) and the trash DISCARD key (LVGL ~91.5..148.5).
+     * Both are 60-degree arcs (the hit annulus r 84..144); the icons sit
+     * at r 114. */
+    s_wheel_commit = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_commit, 0, 0);
+    lv_obj_set_size(s_wheel_commit, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_commit, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_commit, 31.5f, 88.5f);
+    lv_arc_set_angles(s_wheel_commit, 0, 0);
+    lv_obj_set_style_arc_width(s_wheel_commit, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_commit, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_commit, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_commit, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_commit, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wheel_commit, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_commit, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_commit, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_add_event_cb(s_wheel_commit, event_handler_cb_wheel_commit, LV_EVENT_PRESSED, 0);
+    s_wheel_discard = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_discard, 0, 0);
+    lv_obj_set_size(s_wheel_discard, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_discard, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_discard, 91.5f, 148.5f);
+    lv_arc_set_angles(s_wheel_discard, 0, 0);
+    lv_obj_set_style_arc_width(s_wheel_discard, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_discard, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_discard, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_discard, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_discard, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_wheel_discard, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_wheel_discard, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_discard, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_add_event_cb(s_wheel_discard, event_handler_cb_wheel_discard, LV_EVENT_PRESSED, 0);
+
+    /* The commit icon: the house circle-xmark (the v1 in-ring exit glyph,
+     * the documented deviation from the house 90 px bottom exit) at the
+     * COMMIT key's centre (LVGL 60, r 114). */
     {
-        lv_obj_t *t = lv_obj_create(obj);
-        lv_obj_set_size(t, UI_PX(2), UI_PX(40));
-        lv_obj_set_style_bg_color(t, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(t, WHEEL_C - 1, WHEEL_C - UI_PX(190));
-        lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
+        float a = 60.0f * 3.14159265f / 180.0f;
+        int32_t cx = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a));
+        int32_t cy = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a));
+        lv_obj_t *exit = lv_obj_create(obj);
+        lv_obj_set_size(exit, UI_PX(26), UI_PX(26));
+        lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(exit, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(exit, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(exit, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(exit, cx - UI_PX(13), cy - UI_PX(13));
+        lv_obj_clear_flag(exit, LV_OBJ_FLAG_CLICKABLE);
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *bar = lv_obj_create(exit);
+            lv_obj_set_size(bar, UI_PX(12), UI_PX(2));
+            lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);
+            lv_obj_set_style_transform_rotation(bar, i == 0 ? 450 : 1350, 0); /* 0.1-deg units */
+            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+    /* The discard icon: a small trash can at the DISCARD key's centre
+     * (LVGL 120, r 114). Bars only (lv_line is off): lid + body. */
+    {
+        float a = 120.0f * 3.14159265f / 180.0f;
+        int32_t cx = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a));
+        int32_t cy = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a));
+        lv_obj_t *lid = lv_obj_create(obj);
+        lv_obj_set_size(lid, UI_PX(18), UI_PX(2));
+        lv_obj_set_style_bg_color(lid, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(lid, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(lid, cx - UI_PX(9), cy - UI_PX(9));
+        lv_obj_clear_flag(lid, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t *body = lv_obj_create(obj);
+        lv_obj_set_size(body, UI_PX(14), UI_PX(11));
+        lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(body, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(body, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(body, cx - UI_PX(7), cy - UI_PX(2));
+        lv_obj_clear_flag(body, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* The centre: a 110 px tap box (short tap = commit, long press =
-     * backspace) with the password + selected-letter labels (the labels
-     * are non-clickable, so the box owns the touches) and the SSID
-     * caption above it (case kept -- the font now covers lowercase). */
+    /* The centre: a 110 px tap box (a plain tap BACKSPACES) with the
+     * running-entry / preview label + the commit hint + the SSID caption
+     * above it (case kept -- the font now covers lowercase). */
     s_wheel_center = lv_obj_create(obj);
     lv_obj_set_size(s_wheel_center, UI_PX(110), UI_PX(110));
     lv_obj_align(s_wheel_center, LV_ALIGN_CENTER, 0, 0);
@@ -2091,40 +2385,12 @@ void create_screen_settings_wifi_password() {
     lv_obj_align(s_wheel_pw_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_text_color(s_wheel_pw_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    s_wheel_sel_label = lv_label_create(s_wheel_center);
-    lv_obj_set_style_text_font(s_wheel_sel_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(s_wheel_sel_label, "");
-    lv_obj_set_size(s_wheel_sel_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(s_wheel_sel_label, LV_ALIGN_CENTER, UI_PX(34), 0);
-    lv_obj_set_style_text_color(s_wheel_sel_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_add_flag(s_wheel_sel_label, LV_OBJ_FLAG_HIDDEN);
-
-    /* The small in-ring exit (the mockup's 26 px circle-x at r 135): the
-     * house 90 px bottom exit would sit under the ring. A plain circle +
-     * a two-bar x (the 96 px FA glyph cannot scale down). */
-    {
-        lv_obj_t *exit = lv_obj_create(obj);
-        lv_obj_set_size(exit, UI_PX(26), UI_PX(26));
-        lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(exit, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_color(exit, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_pad_all(exit, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_align(exit, LV_ALIGN_CENTER, 0, WHEEL_EXIT_Y - WHEEL_C);
-        lv_obj_add_flag(exit, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED,
-                            (void *)(intptr_t)SCREEN_ID_SETTINGS_WIFI);
-        for (int i = 0; i < 2; i++) {
-            lv_obj_t *bar = lv_obj_create(exit);
-            lv_obj_set_size(bar, UI_PX(12), UI_PX(2));
-            lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);
-            lv_obj_set_style_transform_rotation(bar, i == 0 ? 45 : 135, 0);
-            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
-        }
-    }
+    s_wheel_sub_label = lv_label_create(s_wheel_center);
+    lv_obj_set_style_text_font(s_wheel_sub_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_wheel_sub_label, "");
+    lv_obj_set_size(s_wheel_sub_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_wheel_sub_label, LV_ALIGN_CENTER, 0, UI_PX(16));
+    lv_obj_set_style_text_color(s_wheel_sub_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
     settings_wheel_pw_label();
@@ -2133,22 +2399,24 @@ void create_screen_settings_wifi_password() {
 
 void tick_screen_settings_wifi_password() {}
 
-/* --- manual time entry (P4): HH:MM:SS + DD.MM.YY rollers ------------
+/* --- manual time entry (P4): HH:MM + DD.MM.YY rollers ---------------
  *
  * The P4's wall clock is software (SNTP). This screen is the offline
  * fallback for a clock it could not sync: when the time is untrusted
  * (dimmed, and no alarm may fire) the user sets the wall clock by hand.
  * Two roller rows, the same look as the other settings value displays:
- * the time row (hour / minute / second, the 96 px clock font, at the
- * home clock label's position) and the date row (day . month . year,
- * the 48 px font, the year as a two-digit 2000+YY). Releasing ANY
- * roller commits the whole value: clock_set_time (mktime / settimeofday
- * + the alarm one-shot re-arm), the trusted flag up (undim + the alarm
- * fire gate), and the moon re-bake when the calendar day changes (the
- * day tick). The rollers re-seed from the wall clock on every entry.
- * Reached by the settings hub's clock icon, which the P4 adds and the
- * S3 does not (its time comes from the PCF85063A); the screen itself
- * is shared, so the S3 build stays structurally identical. */
+ * the time row (hour / minute, the 96 px clock font, at the home clock
+ * label's position -- the home label shows no seconds, so neither does
+ * this screen; a commit sets the seconds to 0) and the date row (day .
+ * month . year, the 48 px font, the year as a two-digit 2000+YY).
+ * Releasing ANY roller OR the sub-screen X exit commits the whole value:
+ * clock_set_time (mktime / settimeofday + the alarm one-shot re-arm),
+ * the trusted flag up (undim + the alarm fire gate), and the moon
+ * re-bake when the calendar day changes (the day tick). The rollers
+ * re-seed from the wall clock on every entry. Reached by the settings
+ * hub's clock icon, which the P4 adds and the S3 does not (its time
+ * comes from the PCF85063A); the screen itself is shared, so the S3
+ * build stays structurally identical. */
 
 /* A "%02d" option string per value in [from..to] (the roller rows). */
 static void time_roller_options(char *buf, size_t n, int from, int to) {
@@ -2166,23 +2434,24 @@ static void settings_time_screen_refresh(void) {
     if (clock_sntp_get_system_time(&t) != ESP_OK) {
         return; /* No clock yet; keep the previous seed. */
     }
-    /* The hour/minute/second and year option strings start at "00" (index
-     * = value); the day and month start at "01" (index = value - 1). */
+    /* The hour/minute and year option strings start at "00" (index =
+     * value); the day and month start at "01" (index = value - 1). */
     lv_roller_set_selected(objects.settings_time_roller_h, t.hour, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_time_roller_mi, t.minute, LV_ANIM_OFF);
-    lv_roller_set_selected(objects.settings_time_roller_s, t.second, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_time_roller_d, t.day - 1, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_time_roller_m, t.month - 1, LV_ANIM_OFF);
     lv_roller_set_selected(objects.settings_time_roller_y, (t.year - 2000) % 100, LV_ANIM_OFF);
 }
 
-/* Commit the whole value (only on RELEASED -- the set + re-arm stay
- * off the drag path). clock_set_time writes the wall clock and re-arms
- * the software alarm one-shot from it; the trusted flag lifts the
- * unsynced dim and opens the alarm fire gate; the day tick re-bakes the
- * moon if the date (and thus the phase) changed. */
-static void event_handler_cb_settings_time_commit(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+/* Commit the whole value from the current roller positions.
+ * clock_set_time writes the wall clock and re-arms the software alarm
+ * one-shot from it; the trusted flag lifts the unsynced dim and opens
+ * the alarm fire gate; the day tick re-bakes the moon if the date (and
+ * thus the phase) changed. Seconds are 0 (this screen has no seconds
+ * roller). Called on a roller RELEASED and by the X exit (both stay off
+ * the drag path). */
+static void settings_time_commit_value(void) {
+    if (!objects.settings_time_roller_h) {
         return;
     }
     clock_time_t t;
@@ -2191,7 +2460,7 @@ static void event_handler_cb_settings_time_commit(lv_event_t *e) {
     t.day = settings_roller_value(objects.settings_time_roller_d);
     t.hour = settings_roller_value(objects.settings_time_roller_h);
     t.minute = settings_roller_value(objects.settings_time_roller_mi);
-    t.second = settings_roller_value(objects.settings_time_roller_s);
+    t.second = 0;
     esp_err_t r = clock_set_time(&t);
     if (r == ESP_OK) {
         clock_sntp_set_time_trusted(true);
@@ -2201,6 +2470,24 @@ static void event_handler_cb_settings_time_commit(lv_event_t *e) {
     } else {
         ESP_LOGW("settings_time", "manual time %04d-%02d-%02d %02d:%02d:%02d rejected: %s", t.year, t.month, t.day,
                  t.hour, t.minute, t.second, esp_err_to_name(r));
+    }
+}
+
+/* Commit on a roller RELEASED (the set + re-arm stay off the drag path). */
+static void event_handler_cb_settings_time_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    settings_time_commit_value();
+}
+
+/* The X exit commits too: pressing it is the user's "done" gesture, so
+ * the value they scrolled to must not be dropped. It fires in the same
+ * click event as the switch (the roller objects outlive the unload, so
+ * the commit reads valid positions in either callback order). */
+static void event_handler_cb_settings_time_exit(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        settings_time_commit_value();
     }
 }
 
@@ -2222,7 +2509,8 @@ static void settings_time_separator(lv_obj_t *parent, const char *text, const lv
 void create_screen_settings_time() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_time = obj;
-    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_t *exit = settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_add_event_cb(exit, event_handler_cb_settings_time_exit, LV_EVENT_CLICKED, 0);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The caption (this screen shows a value the clock label would
@@ -2235,24 +2523,21 @@ void create_screen_settings_time() {
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
-    /* The time row HH:MM:SS (the 96 px clock font, at the home clock
-     * label's position): hour -150, minute 0, second +150, the `:` at
-     * ±75. The 110 px rollers span y -30±55 (absolute 148..258). */
-    char hours[512], mins[600], secs[600];
+    /* The time row HH:MM (the 96 px clock font, at the home clock
+     * label's position -- no seconds: the home label shows none either,
+     * and adjusting them here would have no visible effect): hour -75,
+     * minute +75, the `:` at centre. The 110 px rollers span y
+     * -30±55 (absolute 148..258). */
+    char hours[512], mins[600];
     time_roller_options(hours, sizeof(hours), 0, 23);
     time_roller_options(mins, sizeof(mins), 0, 59);
-    time_roller_options(secs, sizeof(secs), 0, 59);
     objects.settings_time_roller_h =
-        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(150), UI_PX(110));
-    lv_obj_align(objects.settings_time_roller_h, LV_ALIGN_CENTER, -UI_PX(150), -UI_PX(30));
-    settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, -UI_PX(75), -UI_PX(30));
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(75), UI_PX(110));
+    lv_obj_align(objects.settings_time_roller_h, LV_ALIGN_CENTER, -UI_PX(75), -UI_PX(30));
+    settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, 0, -UI_PX(30));
     objects.settings_time_roller_mi =
-        settings_create_roller(obj, mins, &ui_font_montserrat_bold_96_numbers, UI_PX(110), 0, UI_PX(110));
-    lv_obj_align(objects.settings_time_roller_mi, LV_ALIGN_CENTER, 0, -UI_PX(30));
-    settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, UI_PX(75), -UI_PX(30));
-    objects.settings_time_roller_s =
-        settings_create_roller(obj, secs, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(150), UI_PX(110));
-    lv_obj_align(objects.settings_time_roller_s, LV_ALIGN_CENTER, UI_PX(150), -UI_PX(30));
+        settings_create_roller(obj, mins, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(75), UI_PX(110));
+    lv_obj_align(objects.settings_time_roller_mi, LV_ALIGN_CENTER, UI_PX(75), -UI_PX(30));
 
     /* The date row DD.MM.YY (the 48 px font, below the time row): day
      * -75, month 0, year +75, the `.` at ±37. The 70 px rollers span y
@@ -2276,10 +2561,10 @@ void create_screen_settings_time() {
 
     /* Releasing any one roller commits the whole value. */
     const lv_obj_t *const rollers[] = {
-        objects.settings_time_roller_h, objects.settings_time_roller_mi, objects.settings_time_roller_s,
-        objects.settings_time_roller_d, objects.settings_time_roller_m,  objects.settings_time_roller_y,
+        objects.settings_time_roller_h, objects.settings_time_roller_mi, objects.settings_time_roller_d,
+        objects.settings_time_roller_m, objects.settings_time_roller_y,
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 5; i++) {
         lv_obj_add_event_cb((lv_obj_t *)rollers[i], event_handler_cb_settings_time_commit, LV_EVENT_RELEASED, 0);
     }
 
@@ -2288,6 +2573,90 @@ void create_screen_settings_time() {
 
 void tick_screen_settings_time() {}
 
+/* --- timezone / UTC offset (S3 + P4): one roller, all offsets --------
+ *
+ * Every 30-minute UTC offset (UTC-12:00 .. UTC+14:00) plus Europe/
+ * Berlin (the Kconfig default, DST-aware) as the final entry -- the
+ * option list is clock_tz.h's. Releasing the roller applies the zone
+ * (clock_tz_apply: the P4 re-derives its local digits from the same
+ * epoch; the S3 rewrites the PCF digits epoch-consistently), re-arms
+ * the alarm arming, and persists the selection. Reached by the hub's
+ * globe icon on BOTH boards. */
+
+static char s_tz_options[800];
+
+/* One option string per clock_tz entry ("UTC-12:00" .. "UTC+14:00",
+ * "Europe/Berlin"). */
+static void settings_tz_options(void) {
+    int pos = 0;
+    for (int i = 0; i < CLOCK_TZ_COUNT; i++) {
+        const char *n = clock_tz_option_name(i);
+        if (n)
+            pos += snprintf(s_tz_options + pos, sizeof(s_tz_options) - pos, "%s\n", n);
+    }
+}
+
+static void settings_tz_screen_refresh(void) {
+    if (!objects.settings_tz_roller) {
+        return;
+    }
+    int idx = settings_timezone_idx();
+    if (idx < 0 || idx >= CLOCK_TZ_COUNT) {
+        idx = CLOCK_TZ_BERLIN_IDX;
+    }
+    lv_roller_set_selected(objects.settings_tz_roller, idx, LV_ANIM_OFF);
+}
+
+/* Commit on RELEASED (the zone switch + re-arm + store save stay off
+ * the drag path). The selected index IS the option index (the options
+ * were generated in the index order), so no string parsing. */
+static void event_handler_cb_settings_tz_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    int32_t sel = lv_roller_get_selected(objects.settings_tz_roller);
+    if (sel < 0 || sel >= CLOCK_TZ_COUNT) {
+        return;
+    }
+    esp_err_t r = clock_tz_apply((int)sel);
+    if (r == ESP_OK) {
+        settings_set_timezone_idx((int)sel);
+        settings_store_save();
+        ESP_LOGW("settings_tz", "timezone %s (idx %d) applied + saved", clock_tz_option_name((int)sel), (int)sel);
+    } else {
+        ESP_LOGW("settings_tz", "timezone idx %d rejected: %s", (int)sel, esp_err_to_name(r));
+    }
+}
+
+void create_screen_settings_tz() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_tz = obj;
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The caption. */
+    lv_obj_t *caption = lv_label_create(obj);
+    lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(caption, "TIMEZONE / UTC OFFSET");
+    lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
+    lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The offset roller (the 32 px ssid font -- full printable ASCII:
+     * the entries carry letters, `+`, `:` and `/`, which the digits
+     * fonts lack), centred and wide enough for "Europe/Berlin". */
+    settings_tz_options();
+    objects.settings_tz_roller =
+        settings_create_roller(obj, s_tz_options, &ui_font_montserrat_regular_32_ssid, UI_PX(110), 0, UI_PX(380));
+    lv_obj_align(objects.settings_tz_roller, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_event_cb(objects.settings_tz_roller, event_handler_cb_settings_tz_commit, LV_EVENT_RELEASED, 0);
+
+    settings_tz_screen_refresh();
+}
+
+void tick_screen_settings_tz() {}
+
 /* The alarm weekday prefixes, one per clock widget. Not part of
  * objects_t: the layout contract there only names the three widget
  * slots the tick reads, and the prefix label is internal to the
@@ -2295,18 +2664,18 @@ void tick_screen_settings_time() {}
 static lv_obj_t *s_alarm_prefix[5];
 
 /* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
- * modem 15, wifi 20, light 25, deep 29, alarm 34). */
+ * modem 16, wifi 21, light 26, deep 30, alarm 35). */
 static int widget_prefix_slot(int startWidgetIndex) {
     switch (startWidgetIndex) {
-    case 15:
+    case 16:
         return 0;
-    case 20:
+    case 21:
         return 1;
-    case 25:
+    case 26:
         return 2;
-    case 29:
+    case 30:
         return 3;
-    case 34:
+    case 35:
         return 4;
     default:
         return -1;
@@ -2422,7 +2791,7 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
  * screen that was loaded before the trust flip still converges on its next
  * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.)
  * Indexed by the clock widget's BASE (the highest is 34, the alarm screen). */
-static bool s_clock_unsynced_dim[35];
+static bool s_clock_unsynced_dim[36];
 #endif
 
 void tick_user_widget_clock(int startWidgetIndex) {
@@ -2508,6 +2877,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_settings_wifi,
     tick_screen_settings_wifi_password,
     tick_screen_settings_time,
+    tick_screen_settings_tz,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -2532,4 +2902,5 @@ void create_screens() {
     create_screen_settings_wifi();
     create_screen_settings_wifi_password();
     create_screen_settings_time();
+    create_screen_settings_tz();
 }

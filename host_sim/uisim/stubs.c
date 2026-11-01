@@ -176,6 +176,43 @@ void settings_set_dusk_anim_enable(bool on) {
 
 esp_err_t settings_store_save(void) { return ESP_OK; }
 
+/* ---- timezone selection (device: components/clock/clock_tz.c) -------
+   The option list mirrors the device: 53 fixed 30-min UTC offsets
+   (-12:00..+14:00) + Europe/Berlin (idx 53). The sim holds the stored
+   index so the screen seeds + persists it like the device. */
+
+#define STUB_TZ_FIXED 53
+static int s_tz_idx = STUB_TZ_FIXED; /* the device default (Europe/Berlin) */
+
+int clock_tz_offset_minutes(int idx) { return (idx < 0 || idx >= STUB_TZ_FIXED) ? -1 : -720 + idx * 30; }
+
+const char *clock_tz_option_name(int idx) {
+    static char buf[16];
+    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
+        return NULL;
+    if (idx == STUB_TZ_FIXED)
+        return "Europe/Berlin";
+    int off = clock_tz_offset_minutes(idx);
+    int am = (off < 0) ? -off : off;
+    snprintf(buf, sizeof buf, "UTC%c%02d:%02d", off < 0 ? '-' : '+', am / 60, am % 60);
+    return buf;
+}
+
+esp_err_t clock_tz_apply(int idx) {
+    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
+        return ESP_FAIL;
+    s_tz_idx = idx;
+    printf("[stub] tz apply %s (idx %d)\n", clock_tz_option_name(idx), idx);
+    return ESP_OK;
+}
+
+int settings_timezone_idx(void) { return s_tz_idx; }
+void settings_set_timezone_idx(int idx) {
+    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
+        return;
+    s_tz_idx = idx;
+}
+
 /* ---- wifi scan (canned AP list) ---- */
 
 typedef struct {
