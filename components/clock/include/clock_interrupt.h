@@ -62,6 +62,30 @@ bool clock_is_interrupt_pending(void);
  */
 void clock_set_poll_interval_ms(uint32_t interval_ms);
 
+/**
+ * @brief Arm the software alarm one-shot (no-PCF builds only)
+ *
+ * Arms an esp_timer one-shot for the epoch of the given local alarm time
+ * (the analog of the PCF's ALM register + AIE). The one-shot only sets a
+ * flag; the interrupt poll (LVGL task) consumes it and fires the alarm
+ * callback. Called from clock_alarm_scheduler.c after each schedule, so
+ * an SNTP/manual time SET that shifts the epoch re-arms it there.
+ * A no-op returning ESP_OK on PCF builds (the hardware register is armed
+ * by clock_set_alarm / clock_enable_alarm instead).
+ *
+ * @param next The scheduled alarm time (full date, local)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_alarm_arm_esp_timer(const clock_time_t *next);
+
+/**
+ * @brief Disarm the software alarm one-shot (no-PCF builds only)
+ *
+ * Stops the one-shot and clears its fire flag (the 0-rules phantom
+ * guard's P4 half). A no-op on PCF builds.
+ */
+void clock_alarm_disarm_esp_timer(void);
+
 #ifdef __cplusplus
 }
 #endif

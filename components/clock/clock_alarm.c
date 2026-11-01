@@ -14,6 +14,7 @@ extern pcf85063a_dev_t s_rtc_dev;
 extern bool s_initialized;
 
 // Helper functions to convert between our API and PCF85063A types
+#if CONFIG_CLOCK_USE_PCF85063A
 static void clock_to_pcf_time(const clock_time_t *clock_time, pcf85063a_datetime_t *pcf_time) {
     pcf_time->year = clock_time->year;
     pcf_time->month = clock_time->month;
@@ -23,6 +24,7 @@ static void clock_to_pcf_time(const clock_time_t *clock_time, pcf85063a_datetime
     pcf_time->sec = clock_time->second;
     pcf_time->dotw = 0; // We don't use day of week
 }
+#endif
 
 esp_err_t clock_set_alarm(const clock_time_t *time) {
     if (!time || !s_initialized) {
@@ -34,10 +36,18 @@ esp_err_t clock_set_alarm(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     pcf85063a_datetime_t pcf_alarm_time;
     clock_to_pcf_time(time, &pcf_alarm_time);
 
     return pcf85063a_set_alarm(&s_rtc_dev, pcf_alarm_time);
+#else
+    // No PCF ALM registers: the scheduler's s_next_alarm cache is the
+    // source of truth (it calls this before arming the software esp_timer
+    // one-shot in clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm time set (software, no PCF ALM registers)");
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_get_alarm(clock_time_t *time) {
@@ -45,6 +55,7 @@ esp_err_t clock_get_alarm(clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     pcf85063a_datetime_t pcf_alarm_time;
     esp_err_t ret = pcf85063a_get_alarm(&s_rtc_dev, &pcf_alarm_time);
     if (ret != ESP_OK) {
@@ -60,6 +71,11 @@ esp_err_t clock_get_alarm(clock_time_t *time) {
     time->day = 0;
 
     return ESP_OK;
+#else
+    // No PCF ALM registers to read back; the scheduled alarm lives in the
+    // scheduler (clock_alarm_scheduler.c).
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t clock_enable_alarm(bool enable) {
@@ -67,6 +83,7 @@ esp_err_t clock_enable_alarm(bool enable) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Read current CTRL2 to preserve MI/HMI bits
     uint8_t ctrl2;
     esp_err_t ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
@@ -85,6 +102,13 @@ esp_err_t clock_enable_alarm(bool enable) {
 
     uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};
     return pcf85063a_write_register(&s_rtc_dev, write_buf, 2);
+#else
+    // No PCF AIE bit: the alarm's armed state is the scheduler's esp_timer
+    // one-shot (armed together with the s_next_alarm cache in
+    // clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm %s (software, no PCF AIE bit)", enable ? "enabled" : "disabled");
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_clear_alarm(void) {
@@ -92,6 +116,7 @@ esp_err_t clock_clear_alarm(void) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Disable alarm interrupt
     esp_err_t ret = clock_enable_alarm(false);
     if (ret != ESP_OK) {
@@ -108,4 +133,11 @@ esp_err_t clock_clear_alarm(void) {
 
     uint8_t write_buf2[2] = {PCF85063A_RTC_HOUR_ALARM, disabled_alarm};
     return pcf85063a_write_register(&s_rtc_dev, write_buf2, 2);
+#else
+    // No PCF ALM registers to clear; the 0-rule phantom guard on the P4 is
+    // "no esp_timer one-shot armed" (the scheduler owns that, see
+    // clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm cleared (software, no PCF ALM registers)");
+    return ESP_OK;
+#endif
 }

@@ -101,7 +101,7 @@ esp_err_t clock_init(const clock_config_t *cfg) {
 
     esp_err_t ret;
 
-#if !defined(CONFIG_BOARD_P4)
+#if CONFIG_CLOCK_USE_PCF85063A
     // Get I2C master bus handle from BSP
     s_bus_handle = bsp_i2c_get_handle();
     if (!s_bus_handle) {
@@ -117,7 +117,7 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     }
 
     // Store IO expander handle (shim: the P4 board has no expander, but
-    // this path is S3-only anyway — see the CONFIG_BOARD_P4 guard).
+    // this path is PCF-only anyway — see the CLOCK_USE_PCF85063A guard).
     s_io_expander = board_io_expander_init();
     if (!s_io_expander) {
         ESP_LOGE(TAG, "Failed to initialize IO expander from BSP");
@@ -131,10 +131,11 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         return ret;
     }
 #else
-    // The 4C board has no PCF85063A / IO expander: the time base is the
-    // crystal-backed internal RTC timer + SNTP (the software clock path
-    // lands in M5; the PCF85063A code is S3-only).
-    ESP_LOGI(TAG, "P4 board: no external RTC IC (internal crystal RTC timer + SNTP)");
+    // No PCF85063A / IO expander on this build: the time base is the
+    // crystal-backed internal RTC timer (RTC_CLK_SRC_EXT_CRYS) + SNTP; the
+    // minute tick and the countdown/alarm arming run in software
+    // (esp_timer, see clock_interrupt.c / clock_alarm_scheduler.c).
+    ESP_LOGI(TAG, "No external RTC IC (internal crystal RTC timer + SNTP)");
 #endif
 
     // Mark as initialized before attempting time operations
@@ -227,9 +228,9 @@ esp_err_t clock_get_time(clock_time_t *out) {
         return ESP_ERR_INVALID_ARG;
     }
 
-#if defined(CONFIG_BOARD_P4)
+#if !CONFIG_CLOCK_USE_PCF85063A
     // No external RTC IC: the time base is the system clock (SNTP-synced;
-    // the crystal-backed internal RTC timer + NVS epoch backup land in M5).
+    // the NVS epoch backup + unsynced UI flag land in M5.2).
     time_t now;
     struct tm timeinfo;
     time(&now);
@@ -300,7 +301,7 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
-#if defined(CONFIG_BOARD_P4)
+#if !CONFIG_CLOCK_USE_PCF85063A
     // No external RTC IC: the "RTC" is the system clock. mktime interprets
     // the value as local time (TZ/DST-adjusted), which is what settimeofday
     // wants.
@@ -318,7 +319,16 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
     struct timeval tv = {.tv_sec = epoch, .tv_usec = 0};
-    return (settimeofday(&tv, NULL) == 0) ? ESP_OK : ESP_ERR_INVALID_STATE;
+    if (settimeofday(&tv, NULL) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // The epoch of the scheduled alarm shifted with the wall clock: re-arm
+    // the software one-shot (re-parses the rules, recomputes the next fire
+    // from the new time, disarms on 0 rules). This is the re-arm after
+    // every SNTP sync and manual time SET (DST itself needs no re-arm --
+    // time(NULL) is the UTC epoch, which DST shifts do not move).
+    clock_alarm_scheduler_reload();
+    return ESP_OK;
 #else
     pcf85063a_datetime_t pcf_time;
     clock_to_pcf_time(time, &pcf_time);

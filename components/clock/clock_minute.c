@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_log.h"
 
@@ -16,11 +17,23 @@ extern bool s_initialized;
 // Track which minute interrupt is currently enabled
 static clock_minute_int_type_t s_minute_int_type = CLOCK_MINUTE_INT_NONE;
 
+// P4 (no PCF85063A): the last wall-clock minute (UTC minutes since epoch)
+// the poller observed. Rollover detection is exact: the poll interval
+// (1.3 s) is far shorter than a minute, so at most one rollover can occur
+// between two polls -- never missed, never doubled (an SNTP step changes
+// the value by !=1 and is re-based, not fired, same as the S3's TF
+// semantics for a written time).
+#if !CONFIG_CLOCK_USE_PCF85063A
+static uint32_t s_last_seen_minute = 0;
+static bool s_minute_base_initialized = false;
+#endif
+
 esp_err_t clock_minute_enable_interrupt(clock_minute_int_type_t type) {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Per datasheet: MI/HMI must only be used when MODE = 0 (normal mode)
     // Read Offset register to check/ensure MODE = 0
     uint8_t offset_reg = 0;
@@ -99,6 +112,20 @@ esp_err_t clock_minute_enable_interrupt(clock_minute_int_type_t type) {
     ESP_LOGI(TAG, "Control_2 register verification: 0x%02x", verify_value);
 
     return ESP_OK;
+#else
+    // No PCF85063A MI/HMI bits: the minute tick is detected in software
+    // by the interrupt poller (a wall-clock minute rollover since the last
+    // poll; the 1.3 s poll interval can never straddle the same rollover
+    // twice). Track the requested type so clock_minute_process_interrupt
+    // can tell "minute interrupts enabled" from "disabled".
+    if (type != CLOCK_MINUTE_INT_NONE && type != CLOCK_MINUTE_INT_FULL && type != CLOCK_MINUTE_INT_HALF) {
+        ESP_LOGE(TAG, "Invalid minute interrupt type: %d", type);
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_minute_int_type = type;
+    ESP_LOGI(TAG, "Minute tick: software mode (no PCF85063A), type=%d", type);
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_minute_disable_interrupt(void) { return clock_minute_enable_interrupt(CLOCK_MINUTE_INT_NONE); }
@@ -108,6 +135,7 @@ esp_err_t clock_minute_process_interrupt(bool *is_minute_tick) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     *is_minute_tick = false;
 
     // Check if minute interrupt is enabled
@@ -142,6 +170,49 @@ esp_err_t clock_minute_process_interrupt(bool *is_minute_tick) {
     ESP_LOGD(TAG, "Cleared TF flag for %s interrupt", int_type);
 
     return ESP_OK;
+#else
+    // Software minute tick: a wall-clock minute rollover since the last
+    // poll. The system clock is the time base (SNTP-synced; the S3's PCF
+    // TF flag is its analog), so the detection is exact -- the PCF and the
+    // system clock are the same 32 kHz domain's seconds on each board.
+    *is_minute_tick = false;
+
+    if (s_minute_int_type == CLOCK_MINUTE_INT_NONE) {
+        return ESP_OK; // Not using minute interrupts
+    }
+    if (s_minute_int_type != CLOCK_MINUTE_INT_FULL) {
+        // HMI (30 s) has no software analog: the display's seconds come
+        // from the UI's 1 s lv_timer anyway. Re-base silently so a later
+        // FULL enable starts clean.
+        return ESP_OK;
+    }
+
+    uint32_t current_minute = (uint32_t)(time(NULL) / 60);
+    if (!s_minute_base_initialized) {
+        s_minute_base_initialized = true;
+        s_last_seen_minute = current_minute;
+        return ESP_OK;
+    }
+
+    int32_t delta = (int32_t)current_minute - (int32_t)s_last_seen_minute;
+    if (delta == 1) {
+        // The one real minute rollover since the last poll.
+        s_last_seen_minute = current_minute;
+        *is_minute_tick = true;
+        ESP_LOGD(TAG, "Software minute rollover detected");
+        return ESP_OK;
+    }
+
+    // Any other change is an SNTP/manual time SET (a small correction or a
+    // resync), not a rollover: re-base without firing (the UI refreshes on
+    // the sync path, matching the S3's TF semantics for a written time).
+    if (delta != 0) {
+        ESP_LOGI(TAG, "Wall clock stepped by %d minute(s); re-basing minute tick without a tick", delta);
+    }
+    s_last_seen_minute = current_minute;
+
+    return ESP_OK;
+#endif
 }
 
 clock_minute_int_type_t clock_minute_get_enabled_type(void) { return s_minute_int_type; }

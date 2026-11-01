@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_io_expander.h"
 #include "esp_log.h"
@@ -10,6 +11,8 @@
 #include "clock_cb.h"
 #include "clock_interrupt.h"
 #include "clock_minute.h"
+#include "clock_sntp.h"
+#include "clock_timer.h"
 #include "pcf85063a.h"
 
 static const char *TAG = "clock_interrupt";
@@ -27,12 +30,89 @@ extern pcf85063a_dev_t s_rtc_dev;
 extern esp_io_expander_handle_t s_io_expander;
 extern bool s_initialized;
 
+// P4 (no PCF85063A): the one-shot esp_timer that arms the next alarm fire
+// (the analog of the PCF's ALM register + AF flag). Its callback only sets
+// the flag -- firing the UI callback happens here, in the LVGL task, under
+// the same context discipline as the S3's TF/AF poll.
+#if !CONFIG_CLOCK_USE_PCF85063A
+static esp_timer_handle_t s_alarm_esp_timer = NULL;
+static volatile bool s_alarm_fired_flag = false;
+
+static void alarm_esp_timer_cb(void *arg) {
+    (void)arg;
+    s_alarm_fired_flag = true;
+}
+
+static int64_t alarm_local_time_to_epoch(const clock_time_t *t) {
+    struct tm tm = {0};
+    tm.tm_year = t->year - 1900;
+    tm.tm_mon = t->month - 1;
+    tm.tm_mday = t->day;
+    tm.tm_hour = t->hour;
+    tm.tm_min = t->minute;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1; // mktime applies the configured TZ/DST rules
+    time_t epoch = mktime(&tm);
+    return (epoch == (time_t)-1) ? -1 : (int64_t)epoch;
+}
+
+esp_err_t clock_alarm_arm_esp_timer(const clock_time_t *next) {
+    if (!next) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int64_t next_epoch = alarm_local_time_to_epoch(next);
+    int64_t now_epoch = (int64_t)time(NULL);
+    if (next_epoch < 0) {
+        ESP_LOGE(TAG, "Alarm arm: mktime failed for the scheduled time");
+        return ESP_FAIL;
+    }
+    int64_t delta_us = (next_epoch - now_epoch) * 1000000;
+    if (delta_us < 0) {
+        // Already past (an SNTP/manual SET moved the wall clock): the poll
+        // fires it on its next pass (the backup check), no one-shot.
+        ESP_LOGI(TAG, "Alarm arm: %lld s in the past -- the poll will fire it", (long long)(-delta_us / 1000000));
+        return ESP_OK;
+    }
+    if (!s_alarm_esp_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = alarm_esp_timer_cb,
+            .name = "clock_alarm",
+        };
+        esp_err_t ret = esp_timer_create(&args, &s_alarm_esp_timer);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create alarm esp_timer: %s", esp_err_to_name(ret));
+            return ret;
+        }
+    }
+    // Re-arm: stop any previous one-shot, reset the flag, start fresh. (A
+    // time SET that shifts the epoch reaches this via schedule_next.)
+    esp_timer_stop(s_alarm_esp_timer);
+    s_alarm_fired_flag = false;
+    esp_err_t ret = esp_timer_start_once(s_alarm_esp_timer, delta_us);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start alarm esp_timer: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "Alarm one-shot armed for %lld s", (long long)(delta_us / 1000000));
+    return ESP_OK;
+}
+
+void clock_alarm_disarm_esp_timer(void) {
+    if (s_alarm_esp_timer) {
+        esp_timer_stop(s_alarm_esp_timer);
+    }
+    s_alarm_fired_flag = false;
+}
+#endif
+
 /**
  * @brief Handle all RTC interrupts in one function
  *
  * This function checks for pending RTC interrupts and processes them appropriately.
  * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
  * Callbacks are invoked directly for both timer and alarm interrupts.
+ * On no-PCF builds (the P4) the three conditions are synthesized from
+ * wall-clock state instead of PCF flag registers.
  *
  * @return esp_err_t ESP_OK on success
  */
@@ -41,6 +121,83 @@ esp_err_t clock_handle_interrupts(void) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Software clock path (the P4 has no PCF85063A, no INT line): synthesize
+    // the three PCF interrupt conditions from wall-clock state, in the S3's
+    // priority order (countdown, then minute, then alarm). All state is
+    // consumed here, in the LVGL task, the same as the PCF-flag processing.
+    {
+        struct tm now_tm;
+        time_t now = time(NULL);
+        localtime_r(&now, &now_tm);
+        clock_time_t now_local;
+        now_local.year = now_tm.tm_year + 1900;
+        now_local.month = now_tm.tm_mon + 1;
+        now_local.day = now_tm.tm_mday;
+        now_local.hour = now_tm.tm_hour;
+        now_local.minute = now_tm.tm_min;
+        now_local.second = now_tm.tm_sec;
+
+        // 1) Countdown expiration (the deep-sleep transition). The one-shot
+        // set the flag when it fired; the host start timestamp is the
+        // oracle, exactly as on the S3 (clock_timer.c owns the one-shot).
+        if (clock_timer_is_active()) {
+            uint8_t initial_value = clock_timer_get_value();
+            int64_t elapsed_s = (esp_timer_get_time() - clock_timer_get_enabled_at_us()) / 1000000;
+            int64_t expiry_s = (initial_value > 1) ? (initial_value - 1) : 0;
+            bool expired = clock_timer_take_expired() || elapsed_s >= expiry_s;
+            if (expired) {
+                ESP_LOGI(TAG, "Countdown timer expired (software, elapsed=%llds) - triggering deep sleep transition",
+                         (long long)elapsed_s);
+                esp_err_t disable_ret = clock_timer_disable();
+                if (disable_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to disable countdown timer: %s", esp_err_to_name(disable_ret));
+                }
+                clock_trigger_countdown_timer();
+                return ESP_OK;
+            }
+        }
+
+        // 2) Minute tick: a wall-clock minute rollover since the last poll
+        // (exact -- the 1.3 s poll cannot straddle one rollover twice; see
+        // clock_minute.c).
+        bool is_minute_tick = false;
+        clock_minute_process_interrupt(&is_minute_tick);
+        if (is_minute_tick) {
+            ESP_LOGI(TAG, "Minute interrupt processed (software rollover) - updating display");
+            clock_trigger_time_update();
+            // The 15-min NVS epoch snapshot (the P4's cross-power-loss
+            // time memory; no-op most polls).
+            clock_nvs_maybe_save_epoch();
+        }
+
+        // 3) Alarm fire: the one-shot reached the next alarm epoch, or the
+        // wall clock is already past it (the backup check -- catches a
+        // one-shot that a time SET left stale). Gated on time_trusted so a
+        // default/unsynced clock (2026-01-24 12:00) can never fire a
+        // phantom. Mirrors the S3's fire-then-reschedule sequence.
+        clock_time_t next = {0};
+        esp_err_t next_ret = clock_alarm_get_next_scheduled(&next);
+        bool fired = s_alarm_fired_flag;
+        s_alarm_fired_flag = false;
+        if (next_ret == ESP_OK && clock_sntp_time_trusted()) {
+            int64_t next_epoch = alarm_local_time_to_epoch(&next);
+            if (next_epoch > 0 && (fired || now >= (time_t)next_epoch)) {
+                ESP_LOGI(TAG, "Alarm interrupt triggered (software, %02d:%02d)", next.hour, next.minute);
+                if (s_alarm_esp_timer) {
+                    esp_timer_stop(s_alarm_esp_timer);
+                }
+                s_alarm_fired_flag = false;
+                clock_trigger_alarm_triggered();
+                // Reschedule from the current time (the S3's AF handling
+                // does the same; the one-shot is re-armed there).
+                clock_alarm_schedule_next(&now_local);
+            }
+        }
+
+        return ESP_OK;
+    }
+#else
     // Check if there's a pending interrupt on EXIO 3
     bool interrupt_pending = clock_is_interrupt_pending();
     if (!interrupt_pending) {
@@ -160,6 +317,7 @@ esp_err_t clock_handle_interrupts(void) {
     }
 
     return ESP_OK;
+#endif // !CONFIG_CLOCK_USE_PCF85063A
 }
 
 esp_err_t clock_get_interrupts(clock_interrupt_t *out) {
@@ -291,10 +449,11 @@ bool clock_is_interrupt_pending(void) {
         return false;
     }
 
-#if defined(CONFIG_BOARD_P4)
-    // No PCF85063A: there is no RTC flag register to poll (the 1.3 s poll
-    // would otherwise log an error every cycle). The software minute/alarm
-    // path lands in M5.
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // No PCF85063A: there is no RTC flag register to poll. This is not
+    // called on such builds (clock_handle_interrupts synthesizes the
+    // software path directly), kept only so a stray call cannot log an I2C
+    // error against a dead device.
     return false;
 #endif
 

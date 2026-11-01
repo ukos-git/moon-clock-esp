@@ -399,8 +399,13 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
              * persists on the RTC, so a stale armed time (e.g. from a
              * previous boot's rules) would otherwise fire a phantom
              * alarm screen when the clock next matches it -- with no
-             * rules loaded there is nothing left to reschedule. */
+             * rules loaded there is nothing left to reschedule. On a
+             * no-PCF build the phantom guard is "no software one-shot
+             * armed" (the disarm below, esp_timer is not persistent). */
             esp_err_t ret = clock_clear_alarm();
+#if !CONFIG_CLOCK_USE_PCF85063A
+            clock_alarm_disarm_esp_timer();
+#endif
             if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(ret));
             } else {
@@ -442,19 +447,32 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
     s_next_alarm = next_alarm;
     s_alarm_scheduled = true;
 
-    // Set the alarm in the RTC
+    // Set the alarm in the RTC (a validated no-op on no-PCF builds)
     esp_err_t ret = clock_set_alarm(&next_alarm);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set alarm: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Enable the alarm
+    // Enable the alarm (AIE bit; a no-op on no-PCF builds)
     ret = clock_enable_alarm(true);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to enable alarm: %s", esp_err_to_name(ret));
         return ret;
     }
+
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Arm the software one-shot for the epoch of the scheduled time.
+    // Reaching this from clock_alarm_scheduler_reload also covers an
+    // SNTP/manual time SET that shifted the epoch (the poll's backup
+    // check is the backstop). The fire itself is gated on
+    // clock_sntp_time_trusted() in the poll.
+    ret = clock_alarm_arm_esp_timer(&next_alarm);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to arm software alarm: %s", esp_err_to_name(ret));
+        return ret;
+    }
+#endif
 
     // Trigger alarm display update via callback
     clock_trigger_alarm_update();
@@ -512,6 +530,15 @@ esp_err_t clock_alarm_scheduler_reload(void) {
     if (s_alarm_count == 0) {
         ESP_LOGI(TAG, "Alarm reload: 0 rules -- disarming the RTC alarm");
         esp_err_t clear = clock_clear_alarm();
+#if !CONFIG_CLOCK_USE_PCF85063A
+        // The software one-shot is not persistent, but the scheduler cache
+        // IS: drop it too, or the poll's backup check would see a stale
+        // scheduled alarm after the last rule was deleted. (The S3 keeps
+        // its historical stale-cache behavior -- the UI refreshes on the
+        // rule-write path.)
+        s_alarm_scheduled = false;
+        clock_alarm_disarm_esp_timer();
+#endif
         if (clear != ESP_OK) {
             ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(clear));
         }

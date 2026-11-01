@@ -35,8 +35,11 @@ hardware panel-brightness ramp — the CO5300's own dimming command — so the
 transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
 on the home screen when the next fire is >24 h away), the **fa-circle-xmark
 exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
-rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+alarm** (the `*/5` debug rule burned the alarm screen in), and the **P4
+software clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed
+internal RTC timer + SNTP as the time base with the minute tick / countdown /
+alarm arming in software, §2.3). See the standing rule in
+[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 `python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
@@ -199,7 +202,9 @@ on the board (rev v1.3 profile; XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter,
 **remote C6** (the `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5 pair over
 SDIO, ~7.5 s to IP) and syncs the clock by SNTP (the first clock smoke; the
 clock label then shows real time). The P4's remaining product path is the clock
-degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
+degradation (M5 — §10.6's P4 half); the software-clock half (M5.1) landed
+2026-11-01 behind the new `CLOCK_USE_PCF85063A` Kconfig option. Three
+P4-specific code facts:
 
 - **The remote radio is initialized exactly once.** The host-side LWIP netif
   attach of the `esp_hosted` radio is not re-runnable: a second
@@ -214,8 +219,43 @@ degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
   (`time()`/`localtime_r`, `settimeofday`), `clock_is_interrupt_pending` is a
   P4 no-op (no PCF CTRL2 to poll), and the SNTP path fills the time it writes
   from `clock_sntp_get_system_time` (the earlier "Invalid time values" log was
-  an unfilled stack var on the NTP-success path). The crystal-backed RTC
-  timer + periodic re-sync + `esp_timer` software alarms land in M5.
+  an unfilled stack var on the NTP-success path). The software clock path lands
+  in M5.1 (2026-11-01), behind the new `CLOCK_USE_PCF85063A` Kconfig option
+  (default `y`; `n` in `sdkconfig.defaults.esp32p4` — the S3 build is
+  unchanged, the code gates on `#if CONFIG_CLOCK_USE_PCF85063A`): the time base
+  is the system clock over the **external 32 kHz crystal**
+  (`CONFIG_RTC_CLK_SRC_EXT_CRYS=y`; the RC oscillator is only a few % accurate
+  and unusable as a time base); the **minute tick** is a wall-clock minute
+  rollover detected in the 1.3 s poll (the poll interval is far shorter than a
+  minute, so at most one rollover can occur between polls — never missed, never
+  doubled; an SNTP/manual time step re-bases without firing, matching the S3's
+  TF semantics for a written time); the **deep-sleep countdown** is an
+  `esp_timer` one-shot whose callback only sets a flag — the poll (LVGL task)
+  consumes it and runs the deep-sleep transition, the same context split as the
+  S3's TF poll; the **alarm arming** is a second `esp_timer` one-shot for the
+  scheduled epoch (the PCF ALM+AIE analog — re-armed on every SNTP/manual time
+  SET via `clock_alarm_scheduler_reload`, the poll's wall-clock backup check is
+  the backstop), gated on `clock_sntp_time_trusted()` so the default/unsynced
+  clock can never ring a phantom alarm; the 0-rule disarm +
+  stale-`s_next_alarm`-cache drop is the software half of the S3's
+  persistent-ALM guard. `clock_set_alarm`/`clock_enable_alarm`/
+  `clock_clear_alarm` are no-ops on such builds (the scheduler's `s_next_alarm`
+  cache is the source of truth); `clock_get_alarm` returns
+  `ESP_ERR_NOT_SUPPORTED`. The **NVS epoch backup** (M5.2, also 2026-11-01): a
+  full power loss kills the crystal domain (VBAT coverage unverified), so the
+  system-clock epoch is snapshotted to NVS (`clock`, `epoch`) on every SNTP
+  success and every 15 min from the software minute tick
+  (`clock_nvs_maybe_save_epoch`); the SNTP init restores it (pre-2021 snapshots
+  are rejected as junk) in place of the 2026-01-24 default — but the restored
+  time is still NOT trusted: the flag stays down until the next SNTP sync or a
+  manual entry. Two P4 UI/flow halves ride on the flag: the clock label **dims
+  to 50 % opacity while unsynced** (the per-widget tick converges on its next
+  update after the flag flips), and the **deep-sleep transition is skipped
+  while an alarm is pending** (the P4's "deep sleep" is app-level — no
+  `esp_deep_sleep`, so the crystal domain and the software one-shot stay alive;
+  with no RTC-alarm wake the device holds the dim light-sleep screen instead of
+  going to the backlight-off state). Only the P4 manual time-entry screen
+  (calls `clock_sntp_set_time_trusted`) remains.
 - **The DSI panel's strip writes are async.** The P4 DPI panel copies each
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
@@ -268,17 +308,22 @@ screens), the spin's keep-mask band 326-357 lands on the upscaled home seconds
 arc (ring r 329-344, knob to r ~350; RMIN sits just outside the 650 px moon
 edge at r 325, so the band never overlaps the disk). The rotated orientation
 layer grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary
-1,468,784 B (9,437,184 B factory).
+1,468,784 B (9,437,184 B factory); 2026-11-01 after M5.1: P4 **1,477,472 B**
+(`0x168b60`), S3 **1,450,352 B** (`0x162170`, +176 B over the 1,450,176
+baseline — the shared clock headers + the trusted-time flag).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
 `IRAM_ATTR` would land ~113 KB of LVGL in the scarce `sram_low` and overflow
 the link), and the CPU1 idle-task WDT check is disabled
 (`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`) because the moon sweep/spin owns
-a core for seconds (same as the S3). The remaining P4 product path is the
-software-alarm clock (M5 — no RTC IC: crystal-backed internal RTC timer +
-SNTP + `esp_timer` alarms, the P4 half of §10.6). The S3 build flow is
-unchanged; the shim + call-site migration add ~15 KB to the S3 binary (§3.1).
+a core for seconds (same as the S3). The P4 software clock (M5.1 — no RTC IC:
+crystal-backed internal RTC timer + SNTP + `esp_timer` alarm/countdown
+one-shots, the P4 half of §10.6) is code-complete 2026-11-01 (build-verified
+both targets; on-device verification pending); the NVS epoch backup (M5.2's
+power-loss half) landed the same day, leaving only the P4 manual time-entry
+screen. The S3 build flow is unchanged; the shim + call-site migration add ~15
+KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -341,7 +386,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1620d0` (1,450,176 B), 646,976 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x162170` (1,450,352 B), 646,800 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
@@ -351,19 +396,19 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-645,664 B of headroom remain for the future text-input family.
+646,800 B of headroom remain for the future text-input family.
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
-| Block     | Part                | Notes                                                                                                                                                    |
-| --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash |
-| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted); **one framebuffer, no flip** (the spin's CCW flicker, §4.3)  |
-| Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                 |
-| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
-| Time base | none (no RTC IC)    | the internal RTC timer, crystal-backed (32.768 kHz on the board) + SNTP; VBAT battery header (power-loss survival to be verified)                        |
-| IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                              |
-| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                      |
+| Block     | Part                | Notes                                                                                                                                                                                                                               |
+| --------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash                                                                            |
+| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted); **one framebuffer, no flip** (the spin's CCW flicker, §4.3)                                                                             |
+| Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                                                                                            |
+| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable                                                                                       |
+| Time base | none (no RTC IC)    | the internal RTC timer on the **external 32 kHz crystal** (`CONFIG_RTC_CLK_SRC_EXT_CRYS`, M5.1 — the RC oscillator is a few % inaccurate, unusable as a time base) + SNTP; VBAT battery header (power-loss survival to be verified) |
+| IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                                                                                                         |
+| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                                                                                                 |
 
 Unlike the S3, the P4 PSRAM **is** DMA-capable — the S3's 32 KiB SPI-DMA strip
 staging (buffer_height 25, flush queue depth 1) is a QSPI-S3 artifact and does
@@ -379,7 +424,7 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x166970` (1,468,784 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x168b60` (1,477,472 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
 | `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
@@ -400,9 +445,10 @@ components/
     core/erfa/             vendored public-domain ERFA subset
     include/               moon.h, moon_consts.h (generated), moon_assets.h
     host/ esp/             host-asset + device asset glue
-  clock/               PCF85063A RTC, minute/interrupt logic, idle detector,
-    clock_sntp.c           NTP sync; clock_alarm_scheduler.c (cron-like alarms,
-                           write/reload, */N>59 support); settings_store.c (runtime store)
+  clock/               PCF85063A RTC (or the P4 software clock, M5.1), minute/
+                           interrupt logic, idle detector; clock_sntp.c (NTP sync +
+                           the time-trusted flag); clock_alarm_scheduler.c (cron-like
+                           alarms, write/reload, */N>59); settings_store.c (store)
   ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets)
@@ -1176,7 +1222,11 @@ deep-sleep backlight off and the wake-from-deep-sleep backlight on (now
   re-parsed+re-scheduled on every write (`clock_alarm_scheduler_ reload`; 0
   rules → `clock_clear_alarm()` disarms the PCF85063A's persistent ALM — a
   stale armed time would otherwise fire a phantom alarm screen on a 0-rule
-  boot). Firing is the 1.3 s RTC minute poll.
+  boot; on no-PCF builds (the P4) the guard is `clock_alarm_disarm_esp_timer()`
+  - dropping the scheduler's `s_next_alarm` cache — esp_timer is not
+    persistent, but the cache is). Firing is the 1.3 s RTC minute poll (on the
+    P4: the one-shot's flag + the wall-clock backup check, gated on
+    `clock_sntp_time_trusted()`).
 - **Settings store** (`/spiffs/settings.txt`, `key = value`):
   `idle_timeout_sec`, `deep_sleep_countdown_sec`, `boot_anim_enable`,
   `dusk_anim_enable` — `#ifndef`-seeded from Kconfig, live overrides (idle
@@ -1198,19 +1248,19 @@ fires from there.
 
 Device captures (pyserial 115200, unattended runs with the test hooks):
 
-| Stage                                         | Value                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                             |
-| Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                            |
-| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                            |
-| Free spin                                     | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)        |
-| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
-| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                             |
-| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                              |
-| Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
-| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                   |
-| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                    |
-| Binary                                        | S3: `0x1625e0` = 1,451,488 B in the 2,097,152 B partition (645,664 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x166970` = 1,468,784 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                    |
+| Stage                                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                          |
+| Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                         |
+| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                         |
+| Free spin                                     | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                     |
+| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, device verification pending) |
+| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                          |
+| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                           |
+| Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                      |
+| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                |
+| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                 |
+| Binary (2026-11-01, after M5.1)               | S3: `0x162170` = 1,450,352 B in the 2,097,152 B partition (646,800 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x168b60` = 1,477,472 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                                                                 |
 
 ---
 
@@ -1342,7 +1392,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 645,664 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,800 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1352,7 +1402,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 645,664 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,800 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1429,14 +1479,15 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 
-| Option                          | Default                        | Meaning                                  |
-| ------------------------------- | ------------------------------ | ---------------------------------------- |
-| `CLOCK_TIME_FORMAT`             | 24H                            | display format (the RTC stores 24 h)     |
-| `CLOCK_DEFAULT_TIMEZONE`        | `CET-1CEST,M3.5.0/2,M10.5.0/3` | POSIX TZ                                 |
-| `CLOCK_NTP_SERVER`              | `pool.ntp.org`                 | SNTP server                              |
-| `CLOCK_NTP_SYNC_INTERVAL_HOURS` | 1                              | the on-demand sync interval              |
-| `CLOCK_NTP_TIMEOUT_MS`          | 10000                          | SNTP timeout                             |
-| `CLOCK_IDLE_TIMEOUT_SEC`        | 60                             | idle → light sleep (runtime-overridable) |
+| Option                          | Default                        | Meaning                                                                                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOCK_USE_PCF85063A`           | `y` (n in the P4 defaults)     | the PCF85063A hardware path (S3). `n` (the P4) = the M5.1 software clock: system-clock time base + software minute tick + `esp_timer` countdown/alarm one-shots (§2.3); `n` leaves the macro UNDEFINED — the code gates on `#if CONFIG_CLOCK_USE_PCF85063A` |
+| `CLOCK_TIME_FORMAT`             | 24H                            | display format (the RTC stores 24 h)                                                                                                                                                                                                                        |
+| `CLOCK_DEFAULT_TIMEZONE`        | `CET-1CEST,M3.5.0/2,M10.5.0/3` | POSIX TZ                                                                                                                                                                                                                                                    |
+| `CLOCK_NTP_SERVER`              | `pool.ntp.org`                 | SNTP server                                                                                                                                                                                                                                                 |
+| `CLOCK_NTP_SYNC_INTERVAL_HOURS` | 1                              | the on-demand sync interval                                                                                                                                                                                                                                 |
+| `CLOCK_NTP_TIMEOUT_MS`          | 10000                          | SNTP timeout                                                                                                                                                                                                                                                |
+| `CLOCK_IDLE_TIMEOUT_SEC`        | 60                             | idle → light sleep (runtime-overridable)                                                                                                                                                                                                                    |
 
 Test hooks (all default off, §12.3): `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_ROLL_TILT_SEC`, `TEST_CPU_STATS_SEC`,
@@ -1515,7 +1566,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (109,958 B)
+- `docs/doc_template.md` (114,061 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -2233,7 +2284,7 @@ idf_component_register(
     SRCS "clock.c" "clock_timer.c" "clock_minute.c" "clock_interrupt.c" "clock_alarm.c" "clock_alarm_scheduler.c" "clock_cb.c"
         "clock_idle.c" "clock_sntp.c" "settings_store.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_io_expander board wifi esp_netif lwip freertos spiffs esp_timer
+    REQUIRES esp_io_expander board wifi esp_netif lwip freertos spiffs esp_timer nvs_flash
 )
 ```
 
@@ -2343,7 +2394,7 @@ esp_err_t clock_init(const clock_config_t *cfg) {
 
     esp_err_t ret;
 
-#if !defined(CONFIG_BOARD_P4)
+#if CONFIG_CLOCK_USE_PCF85063A
     // Get I2C master bus handle from BSP
     s_bus_handle = bsp_i2c_get_handle();
     if (!s_bus_handle) {
@@ -2359,7 +2410,7 @@ esp_err_t clock_init(const clock_config_t *cfg) {
     }
 
     // Store IO expander handle (shim: the P4 board has no expander, but
-    // this path is S3-only anyway — see the CONFIG_BOARD_P4 guard).
+    // this path is PCF-only anyway — see the CLOCK_USE_PCF85063A guard).
     s_io_expander = board_io_expander_init();
     if (!s_io_expander) {
         ESP_LOGE(TAG, "Failed to initialize IO expander from BSP");
@@ -2373,10 +2424,11 @@ esp_err_t clock_init(const clock_config_t *cfg) {
         return ret;
     }
 #else
-    // The 4C board has no PCF85063A / IO expander: the time base is the
-    // crystal-backed internal RTC timer + SNTP (the software clock path
-    // lands in M5; the PCF85063A code is S3-only).
-    ESP_LOGI(TAG, "P4 board: no external RTC IC (internal crystal RTC timer + SNTP)");
+    // No PCF85063A / IO expander on this build: the time base is the
+    // crystal-backed internal RTC timer (RTC_CLK_SRC_EXT_CRYS) + SNTP; the
+    // minute tick and the countdown/alarm arming run in software
+    // (esp_timer, see clock_interrupt.c / clock_alarm_scheduler.c).
+    ESP_LOGI(TAG, "No external RTC IC (internal crystal RTC timer + SNTP)");
 #endif
 
     // Mark as initialized before attempting time operations
@@ -2469,9 +2521,9 @@ esp_err_t clock_get_time(clock_time_t *out) {
         return ESP_ERR_INVALID_ARG;
     }
 
-#if defined(CONFIG_BOARD_P4)
+#if !CONFIG_CLOCK_USE_PCF85063A
     // No external RTC IC: the time base is the system clock (SNTP-synced;
-    // the crystal-backed internal RTC timer + NVS epoch backup land in M5).
+    // the NVS epoch backup + unsynced UI flag land in M5.2).
     time_t now;
     struct tm timeinfo;
     time(&now);
@@ -2542,7 +2594,7 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
-#if defined(CONFIG_BOARD_P4)
+#if !CONFIG_CLOCK_USE_PCF85063A
     // No external RTC IC: the "RTC" is the system clock. mktime interprets
     // the value as local time (TZ/DST-adjusted), which is what settimeofday
     // wants.
@@ -2560,7 +2612,16 @@ esp_err_t clock_set_time(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
     struct timeval tv = {.tv_sec = epoch, .tv_usec = 0};
-    return (settimeofday(&tv, NULL) == 0) ? ESP_OK : ESP_ERR_INVALID_STATE;
+    if (settimeofday(&tv, NULL) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // The epoch of the scheduled alarm shifted with the wall clock: re-arm
+    // the software one-shot (re-parses the rules, recomputes the next fire
+    // from the new time, disarms on 0 rules). This is the re-arm after
+    // every SNTP sync and manual time SET (DST itself needs no re-arm --
+    // time(NULL) is the UTC epoch, which DST shifts do not move).
+    clock_alarm_scheduler_reload();
+    return ESP_OK;
 #else
     pcf85063a_datetime_t pcf_time;
     clock_to_pcf_time(time, &pcf_time);
@@ -2589,6 +2650,7 @@ extern pcf85063a_dev_t s_rtc_dev;
 extern bool s_initialized;
 
 // Helper functions to convert between our API and PCF85063A types
+#if CONFIG_CLOCK_USE_PCF85063A
 static void clock_to_pcf_time(const clock_time_t *clock_time, pcf85063a_datetime_t *pcf_time) {
     pcf_time->year = clock_time->year;
     pcf_time->month = clock_time->month;
@@ -2598,6 +2660,7 @@ static void clock_to_pcf_time(const clock_time_t *clock_time, pcf85063a_datetime
     pcf_time->sec = clock_time->second;
     pcf_time->dotw = 0; // We don't use day of week
 }
+#endif
 
 esp_err_t clock_set_alarm(const clock_time_t *time) {
     if (!time || !s_initialized) {
@@ -2609,10 +2672,18 @@ esp_err_t clock_set_alarm(const clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     pcf85063a_datetime_t pcf_alarm_time;
     clock_to_pcf_time(time, &pcf_alarm_time);
 
     return pcf85063a_set_alarm(&s_rtc_dev, pcf_alarm_time);
+#else
+    // No PCF ALM registers: the scheduler's s_next_alarm cache is the
+    // source of truth (it calls this before arming the software esp_timer
+    // one-shot in clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm time set (software, no PCF ALM registers)");
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_get_alarm(clock_time_t *time) {
@@ -2620,6 +2691,7 @@ esp_err_t clock_get_alarm(clock_time_t *time) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     pcf85063a_datetime_t pcf_alarm_time;
     esp_err_t ret = pcf85063a_get_alarm(&s_rtc_dev, &pcf_alarm_time);
     if (ret != ESP_OK) {
@@ -2635,6 +2707,11 @@ esp_err_t clock_get_alarm(clock_time_t *time) {
     time->day = 0;
 
     return ESP_OK;
+#else
+    // No PCF ALM registers to read back; the scheduled alarm lives in the
+    // scheduler (clock_alarm_scheduler.c).
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t clock_enable_alarm(bool enable) {
@@ -2642,6 +2719,7 @@ esp_err_t clock_enable_alarm(bool enable) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Read current CTRL2 to preserve MI/HMI bits
     uint8_t ctrl2;
     esp_err_t ret = pcf85063a_read_register(&s_rtc_dev, PCF85063A_RTC_CTRL_2_ADDR, &ctrl2, 1);
@@ -2660,6 +2738,13 @@ esp_err_t clock_enable_alarm(bool enable) {
 
     uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};
     return pcf85063a_write_register(&s_rtc_dev, write_buf, 2);
+#else
+    // No PCF AIE bit: the alarm's armed state is the scheduler's esp_timer
+    // one-shot (armed together with the s_next_alarm cache in
+    // clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm %s (software, no PCF AIE bit)", enable ? "enabled" : "disabled");
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_clear_alarm(void) {
@@ -2667,6 +2752,7 @@ esp_err_t clock_clear_alarm(void) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Disable alarm interrupt
     esp_err_t ret = clock_enable_alarm(false);
     if (ret != ESP_OK) {
@@ -2683,6 +2769,13 @@ esp_err_t clock_clear_alarm(void) {
 
     uint8_t write_buf2[2] = {PCF85063A_RTC_HOUR_ALARM, disabled_alarm};
     return pcf85063a_write_register(&s_rtc_dev, write_buf2, 2);
+#else
+    // No PCF ALM registers to clear; the 0-rule phantom guard on the P4 is
+    // "no esp_timer one-shot armed" (the scheduler owns that, see
+    // clock_alarm_scheduler.c).
+    ESP_LOGD(TAG, "Alarm cleared (software, no PCF ALM registers)");
+    return ESP_OK;
+#endif
 }
 ```
 
@@ -3090,8 +3183,13 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
              * persists on the RTC, so a stale armed time (e.g. from a
              * previous boot's rules) would otherwise fire a phantom
              * alarm screen when the clock next matches it -- with no
-             * rules loaded there is nothing left to reschedule. */
+             * rules loaded there is nothing left to reschedule. On a
+             * no-PCF build the phantom guard is "no software one-shot
+             * armed" (the disarm below, esp_timer is not persistent). */
             esp_err_t ret = clock_clear_alarm();
+#if !CONFIG_CLOCK_USE_PCF85063A
+            clock_alarm_disarm_esp_timer();
+#endif
             if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(ret));
             } else {
@@ -3133,19 +3231,32 @@ esp_err_t clock_alarm_schedule_next(const clock_time_t *current_time) {
     s_next_alarm = next_alarm;
     s_alarm_scheduled = true;
 
-    // Set the alarm in the RTC
+    // Set the alarm in the RTC (a validated no-op on no-PCF builds)
     esp_err_t ret = clock_set_alarm(&next_alarm);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set alarm: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Enable the alarm
+    // Enable the alarm (AIE bit; a no-op on no-PCF builds)
     ret = clock_enable_alarm(true);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to enable alarm: %s", esp_err_to_name(ret));
         return ret;
     }
+
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Arm the software one-shot for the epoch of the scheduled time.
+    // Reaching this from clock_alarm_scheduler_reload also covers an
+    // SNTP/manual time SET that shifted the epoch (the poll's backup
+    // check is the backstop). The fire itself is gated on
+    // clock_sntp_time_trusted() in the poll.
+    ret = clock_alarm_arm_esp_timer(&next_alarm);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to arm software alarm: %s", esp_err_to_name(ret));
+        return ret;
+    }
+#endif
 
     // Trigger alarm display update via callback
     clock_trigger_alarm_update();
@@ -3203,6 +3314,15 @@ esp_err_t clock_alarm_scheduler_reload(void) {
     if (s_alarm_count == 0) {
         ESP_LOGI(TAG, "Alarm reload: 0 rules -- disarming the RTC alarm");
         esp_err_t clear = clock_clear_alarm();
+#if !CONFIG_CLOCK_USE_PCF85063A
+        // The software one-shot is not persistent, but the scheduler cache
+        // IS: drop it too, or the poll's backup check would see a stale
+        // scheduled alarm after the last rule was deleted. (The S3 keeps
+        // its historical stale-cache behavior -- the UI refreshes on the
+        // rule-write path.)
+        s_alarm_scheduled = false;
+        clock_alarm_disarm_esp_timer();
+#endif
         if (clear != ESP_OK) {
             ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(clear));
         }
@@ -3586,6 +3706,7 @@ void clock_idle_set_enabled(bool enabled) {
 ```c
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_io_expander.h"
 #include "esp_log.h"
@@ -3596,6 +3717,8 @@ void clock_idle_set_enabled(bool enabled) {
 #include "clock_cb.h"
 #include "clock_interrupt.h"
 #include "clock_minute.h"
+#include "clock_sntp.h"
+#include "clock_timer.h"
 #include "pcf85063a.h"
 
 static const char *TAG = "clock_interrupt";
@@ -3613,12 +3736,89 @@ extern pcf85063a_dev_t s_rtc_dev;
 extern esp_io_expander_handle_t s_io_expander;
 extern bool s_initialized;
 
+// P4 (no PCF85063A): the one-shot esp_timer that arms the next alarm fire
+// (the analog of the PCF's ALM register + AF flag). Its callback only sets
+// the flag -- firing the UI callback happens here, in the LVGL task, under
+// the same context discipline as the S3's TF/AF poll.
+#if !CONFIG_CLOCK_USE_PCF85063A
+static esp_timer_handle_t s_alarm_esp_timer = NULL;
+static volatile bool s_alarm_fired_flag = false;
+
+static void alarm_esp_timer_cb(void *arg) {
+    (void)arg;
+    s_alarm_fired_flag = true;
+}
+
+static int64_t alarm_local_time_to_epoch(const clock_time_t *t) {
+    struct tm tm = {0};
+    tm.tm_year = t->year - 1900;
+    tm.tm_mon = t->month - 1;
+    tm.tm_mday = t->day;
+    tm.tm_hour = t->hour;
+    tm.tm_min = t->minute;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1; // mktime applies the configured TZ/DST rules
+    time_t epoch = mktime(&tm);
+    return (epoch == (time_t)-1) ? -1 : (int64_t)epoch;
+}
+
+esp_err_t clock_alarm_arm_esp_timer(const clock_time_t *next) {
+    if (!next) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int64_t next_epoch = alarm_local_time_to_epoch(next);
+    int64_t now_epoch = (int64_t)time(NULL);
+    if (next_epoch < 0) {
+        ESP_LOGE(TAG, "Alarm arm: mktime failed for the scheduled time");
+        return ESP_FAIL;
+    }
+    int64_t delta_us = (next_epoch - now_epoch) * 1000000;
+    if (delta_us < 0) {
+        // Already past (an SNTP/manual SET moved the wall clock): the poll
+        // fires it on its next pass (the backup check), no one-shot.
+        ESP_LOGI(TAG, "Alarm arm: %lld s in the past -- the poll will fire it", (long long)(-delta_us / 1000000));
+        return ESP_OK;
+    }
+    if (!s_alarm_esp_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = alarm_esp_timer_cb,
+            .name = "clock_alarm",
+        };
+        esp_err_t ret = esp_timer_create(&args, &s_alarm_esp_timer);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create alarm esp_timer: %s", esp_err_to_name(ret));
+            return ret;
+        }
+    }
+    // Re-arm: stop any previous one-shot, reset the flag, start fresh. (A
+    // time SET that shifts the epoch reaches this via schedule_next.)
+    esp_timer_stop(s_alarm_esp_timer);
+    s_alarm_fired_flag = false;
+    esp_err_t ret = esp_timer_start_once(s_alarm_esp_timer, delta_us);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start alarm esp_timer: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "Alarm one-shot armed for %lld s", (long long)(delta_us / 1000000));
+    return ESP_OK;
+}
+
+void clock_alarm_disarm_esp_timer(void) {
+    if (s_alarm_esp_timer) {
+        esp_timer_stop(s_alarm_esp_timer);
+    }
+    s_alarm_fired_flag = false;
+}
+#endif
+
 /**
  * @brief Handle all RTC interrupts in one function
  *
  * This function checks for pending RTC interrupts and processes them appropriately.
  * It handles both timer and alarm interrupts, managing synchronization and clearing flags.
  * Callbacks are invoked directly for both timer and alarm interrupts.
+ * On no-PCF builds (the P4) the three conditions are synthesized from
+ * wall-clock state instead of PCF flag registers.
  *
  * @return esp_err_t ESP_OK on success
  */
@@ -3627,6 +3827,83 @@ esp_err_t clock_handle_interrupts(void) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Software clock path (the P4 has no PCF85063A, no INT line): synthesize
+    // the three PCF interrupt conditions from wall-clock state, in the S3's
+    // priority order (countdown, then minute, then alarm). All state is
+    // consumed here, in the LVGL task, the same as the PCF-flag processing.
+    {
+        struct tm now_tm;
+        time_t now = time(NULL);
+        localtime_r(&now, &now_tm);
+        clock_time_t now_local;
+        now_local.year = now_tm.tm_year + 1900;
+        now_local.month = now_tm.tm_mon + 1;
+        now_local.day = now_tm.tm_mday;
+        now_local.hour = now_tm.tm_hour;
+        now_local.minute = now_tm.tm_min;
+        now_local.second = now_tm.tm_sec;
+
+        // 1) Countdown expiration (the deep-sleep transition). The one-shot
+        // set the flag when it fired; the host start timestamp is the
+        // oracle, exactly as on the S3 (clock_timer.c owns the one-shot).
+        if (clock_timer_is_active()) {
+            uint8_t initial_value = clock_timer_get_value();
+            int64_t elapsed_s = (esp_timer_get_time() - clock_timer_get_enabled_at_us()) / 1000000;
+            int64_t expiry_s = (initial_value > 1) ? (initial_value - 1) : 0;
+            bool expired = clock_timer_take_expired() || elapsed_s >= expiry_s;
+            if (expired) {
+                ESP_LOGI(TAG, "Countdown timer expired (software, elapsed=%llds) - triggering deep sleep transition",
+                         (long long)elapsed_s);
+                esp_err_t disable_ret = clock_timer_disable();
+                if (disable_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to disable countdown timer: %s", esp_err_to_name(disable_ret));
+                }
+                clock_trigger_countdown_timer();
+                return ESP_OK;
+            }
+        }
+
+        // 2) Minute tick: a wall-clock minute rollover since the last poll
+        // (exact -- the 1.3 s poll cannot straddle one rollover twice; see
+        // clock_minute.c).
+        bool is_minute_tick = false;
+        clock_minute_process_interrupt(&is_minute_tick);
+        if (is_minute_tick) {
+            ESP_LOGI(TAG, "Minute interrupt processed (software rollover) - updating display");
+            clock_trigger_time_update();
+            // The 15-min NVS epoch snapshot (the P4's cross-power-loss
+            // time memory; no-op most polls).
+            clock_nvs_maybe_save_epoch();
+        }
+
+        // 3) Alarm fire: the one-shot reached the next alarm epoch, or the
+        // wall clock is already past it (the backup check -- catches a
+        // one-shot that a time SET left stale). Gated on time_trusted so a
+        // default/unsynced clock (2026-01-24 12:00) can never fire a
+        // phantom. Mirrors the S3's fire-then-reschedule sequence.
+        clock_time_t next = {0};
+        esp_err_t next_ret = clock_alarm_get_next_scheduled(&next);
+        bool fired = s_alarm_fired_flag;
+        s_alarm_fired_flag = false;
+        if (next_ret == ESP_OK && clock_sntp_time_trusted()) {
+            int64_t next_epoch = alarm_local_time_to_epoch(&next);
+            if (next_epoch > 0 && (fired || now >= (time_t)next_epoch)) {
+                ESP_LOGI(TAG, "Alarm interrupt triggered (software, %02d:%02d)", next.hour, next.minute);
+                if (s_alarm_esp_timer) {
+                    esp_timer_stop(s_alarm_esp_timer);
+                }
+                s_alarm_fired_flag = false;
+                clock_trigger_alarm_triggered();
+                // Reschedule from the current time (the S3's AF handling
+                // does the same; the one-shot is re-armed there).
+                clock_alarm_schedule_next(&now_local);
+            }
+        }
+
+        return ESP_OK;
+    }
+#else
     // Check if there's a pending interrupt on EXIO 3
     bool interrupt_pending = clock_is_interrupt_pending();
     if (!interrupt_pending) {
@@ -3746,6 +4023,7 @@ esp_err_t clock_handle_interrupts(void) {
     }
 
     return ESP_OK;
+#endif // !CONFIG_CLOCK_USE_PCF85063A
 }
 
 esp_err_t clock_get_interrupts(clock_interrupt_t *out) {
@@ -3877,10 +4155,11 @@ bool clock_is_interrupt_pending(void) {
         return false;
     }
 
-#if defined(CONFIG_BOARD_P4)
-    // No PCF85063A: there is no RTC flag register to poll (the 1.3 s poll
-    // would otherwise log an error every cycle). The software minute/alarm
-    // path lands in M5.
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // No PCF85063A: there is no RTC flag register to poll. This is not
+    // called on such builds (clock_handle_interrupts synthesizes the
+    // software path directly), kept only so a stray call cannot log an I2C
+    // error against a dead device.
     return false;
 #endif
 
@@ -3930,6 +4209,7 @@ void clock_set_poll_interval_ms(uint32_t interval_ms) {
 ```c
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_log.h"
 
@@ -3946,11 +4226,23 @@ extern bool s_initialized;
 // Track which minute interrupt is currently enabled
 static clock_minute_int_type_t s_minute_int_type = CLOCK_MINUTE_INT_NONE;
 
+// P4 (no PCF85063A): the last wall-clock minute (UTC minutes since epoch)
+// the poller observed. Rollover detection is exact: the poll interval
+// (1.3 s) is far shorter than a minute, so at most one rollover can occur
+// between two polls -- never missed, never doubled (an SNTP step changes
+// the value by !=1 and is re-based, not fired, same as the S3's TF
+// semantics for a written time).
+#if !CONFIG_CLOCK_USE_PCF85063A
+static uint32_t s_last_seen_minute = 0;
+static bool s_minute_base_initialized = false;
+#endif
+
 esp_err_t clock_minute_enable_interrupt(clock_minute_int_type_t type) {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     // Per datasheet: MI/HMI must only be used when MODE = 0 (normal mode)
     // Read Offset register to check/ensure MODE = 0
     uint8_t offset_reg = 0;
@@ -4029,6 +4321,20 @@ esp_err_t clock_minute_enable_interrupt(clock_minute_int_type_t type) {
     ESP_LOGI(TAG, "Control_2 register verification: 0x%02x", verify_value);
 
     return ESP_OK;
+#else
+    // No PCF85063A MI/HMI bits: the minute tick is detected in software
+    // by the interrupt poller (a wall-clock minute rollover since the last
+    // poll; the 1.3 s poll interval can never straddle the same rollover
+    // twice). Track the requested type so clock_minute_process_interrupt
+    // can tell "minute interrupts enabled" from "disabled".
+    if (type != CLOCK_MINUTE_INT_NONE && type != CLOCK_MINUTE_INT_FULL && type != CLOCK_MINUTE_INT_HALF) {
+        ESP_LOGE(TAG, "Invalid minute interrupt type: %d", type);
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_minute_int_type = type;
+    ESP_LOGI(TAG, "Minute tick: software mode (no PCF85063A), type=%d", type);
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_minute_disable_interrupt(void) { return clock_minute_enable_interrupt(CLOCK_MINUTE_INT_NONE); }
@@ -4038,6 +4344,7 @@ esp_err_t clock_minute_process_interrupt(bool *is_minute_tick) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     *is_minute_tick = false;
 
     // Check if minute interrupt is enabled
@@ -4072,6 +4379,49 @@ esp_err_t clock_minute_process_interrupt(bool *is_minute_tick) {
     ESP_LOGD(TAG, "Cleared TF flag for %s interrupt", int_type);
 
     return ESP_OK;
+#else
+    // Software minute tick: a wall-clock minute rollover since the last
+    // poll. The system clock is the time base (SNTP-synced; the S3's PCF
+    // TF flag is its analog), so the detection is exact -- the PCF and the
+    // system clock are the same 32 kHz domain's seconds on each board.
+    *is_minute_tick = false;
+
+    if (s_minute_int_type == CLOCK_MINUTE_INT_NONE) {
+        return ESP_OK; // Not using minute interrupts
+    }
+    if (s_minute_int_type != CLOCK_MINUTE_INT_FULL) {
+        // HMI (30 s) has no software analog: the display's seconds come
+        // from the UI's 1 s lv_timer anyway. Re-base silently so a later
+        // FULL enable starts clean.
+        return ESP_OK;
+    }
+
+    uint32_t current_minute = (uint32_t)(time(NULL) / 60);
+    if (!s_minute_base_initialized) {
+        s_minute_base_initialized = true;
+        s_last_seen_minute = current_minute;
+        return ESP_OK;
+    }
+
+    int32_t delta = (int32_t)current_minute - (int32_t)s_last_seen_minute;
+    if (delta == 1) {
+        // The one real minute rollover since the last poll.
+        s_last_seen_minute = current_minute;
+        *is_minute_tick = true;
+        ESP_LOGD(TAG, "Software minute rollover detected");
+        return ESP_OK;
+    }
+
+    // Any other change is an SNTP/manual time SET (a small correction or a
+    // resync), not a rollover: re-base without firing (the UI refreshes on
+    // the sync path, matching the S3's TF semantics for a written time).
+    if (delta != 0) {
+        ESP_LOGI(TAG, "Wall clock stepped by %d minute(s); re-basing minute tick without a tick", delta);
+    }
+    s_last_seen_minute = current_minute;
+
+    return ESP_OK;
+#endif
 }
 
 clock_minute_int_type_t clock_minute_get_enabled_type(void) { return s_minute_int_type; }
@@ -4107,10 +4457,96 @@ static EventGroupHandle_t s_sntp_event_group = NULL;
 static bool s_sntp_initialized = false;
 static time_t s_last_sync_time = 0;
 
+// Trust flag: the wall clock holds SNTP-verified (or manually entered)
+// time. The S3's time base is the PCF85063A, which is self-trusting
+// (the flag is unused there); on the P4 it gates the software alarm fire
+// so the default/unsynced clock (2026-01-24 12:00) can never ring a
+// phantom alarm, and it drives the UI's "unsynced" state.
+static bool s_time_trusted = false;
+
+// P4 (no PCF85063A): NVS epoch backup. A FULL POWER LOSS kills the crystal
+// RTC domain (VBAT coverage is unverified on the 4C), and the crystal only
+// keeps counting through the app-level sleep states (no esp_deep_sleep) --
+// so the NVS snapshot is the only cross-power-loss memory of the wall
+// clock. Saved on every SNTP success and every ~15 min (the minute tick);
+// restored at boot in place of the 2026-01-24 default (and only then --
+// the time is still NOT trusted: the flag stays down until the next SNTP
+// sync or a manual entry, so the clock shows dim and no alarm can fire).
+#if !CONFIG_CLOCK_USE_PCF85063A
+#include "nvs.h"
+
+#define CLOCK_NVS_NAMESPACE "clock"
+#define CLOCK_NVS_KEY_EPOCH "epoch"
+// 15 min: tight enough that a power loss loses little, sparse enough
+// that the NVS wear is negligible (one commit per quarter hour).
+#define CLOCK_NVS_SAVE_INTERVAL_SEC 900
+
+static time_t s_last_nvs_save = 0;
+
+esp_err_t clock_nvs_save_epoch(void) {
+    nvs_handle_t h;
+    if (nvs_open(CLOCK_NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open failed for the epoch backup");
+        return ESP_FAIL;
+    }
+    esp_err_t ret = nvs_set_i64(h, CLOCK_NVS_KEY_EPOCH, (int64_t)time(NULL));
+    if (ret == ESP_OK) {
+        ret = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (ret == ESP_OK) {
+        s_last_nvs_save = time(NULL);
+    }
+    return ret;
+}
+
+// The minute tick's periodic save: only write when the interval has
+// elapsed (a no-op ESP_OK otherwise, so the caller needs no bookkeeping).
+esp_err_t clock_nvs_maybe_save_epoch(void) {
+    if (s_last_nvs_save && (time(NULL) - s_last_nvs_save) < CLOCK_NVS_SAVE_INTERVAL_SEC) {
+        return ESP_OK;
+    }
+    esp_err_t ret = clock_nvs_save_epoch();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Periodic NVS epoch save failed: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+// Restore the last snapshot into the system clock. Returns true (and the
+// restored time is live) when a plausible snapshot was applied.
+bool clock_nvs_restore_epoch(void) {
+    nvs_handle_t h;
+    if (nvs_open(CLOCK_NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+        return false;
+    }
+    int64_t saved = 0;
+    bool found = (nvs_get_i64(h, CLOCK_NVS_KEY_EPOCH, &saved) == ESP_OK);
+    nvs_close(h);
+    if (!found || saved < 1609459200) { // pre-2021-01-01 snapshots are junk
+        return false;
+    }
+    struct timeval tv = {.tv_sec = (time_t)saved, .tv_usec = 0};
+    if (settimeofday(&tv, NULL) != 0) {
+        return false;
+    }
+    ESP_LOGI(TAG, "Restored wall clock from NVS backup (unsynced until NTP): %lld", (long long)saved);
+    return true;
+}
+#endif
+
 // Callback function called when SNTP sync is complete
 static void sntp_sync_time_cb(struct timeval *tv) {
     ESP_LOGI(TAG, "SNTP time synchronized");
     s_last_sync_time = tv->tv_sec;
+    s_time_trusted = true;
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // The just-synced epoch is the most trusted value we hold: snapshot
+    // it (force, ignoring the 15 min interval).
+    if (clock_nvs_save_epoch() != ESP_OK) {
+        ESP_LOGW(TAG, "NVS epoch save after SNTP sync failed");
+    }
+#endif
     if (s_sntp_event_group) {
         xEventGroupSetBits(s_sntp_event_group, SNTP_SYNC_BIT);
     }
@@ -4202,6 +4638,18 @@ esp_err_t clock_sntp_get_system_time(clock_time_t *time_out) {
 
     time(&now);
 
+    // P4: before falling back to the 2026-01-24 default, try the NVS
+    // snapshot (a full power loss reset the crystal domain to its boot
+    // default; the snapshot keeps the last known time). Still unsynced:
+    // the trust flag is untouched either way.
+#if !CONFIG_CLOCK_USE_PCF85063A
+    if (now < 1609459200) { // Jan 1, 2021 timestamp
+        if (clock_nvs_restore_epoch()) {
+            time(&now);
+        }
+    }
+#endif
+
     // If system time is invalid (epoch time), set a reasonable default
     if (now < 1609459200) { // Jan 1, 2021 timestamp
         ESP_LOGW(TAG, "System time appears invalid, setting default time");
@@ -4250,6 +4698,12 @@ bool clock_sntp_needs_sync(void) {
 
 time_t clock_sntp_get_last_sync_time(void) { return s_last_sync_time; }
 
+bool clock_sntp_time_trusted(void) { return s_time_trusted; }
+
+// Set by the manual time-entry screen (P4) when the user commits a time
+// with no network available.
+void clock_sntp_set_time_trusted(bool trusted) { s_time_trusted = trusted; }
+
 esp_err_t clock_sntp_deinit(void) {
     if (!s_sntp_initialized) {
         return ESP_OK;
@@ -4266,6 +4720,7 @@ esp_err_t clock_sntp_deinit(void) {
 
     s_sntp_initialized = false;
     s_last_sync_time = 0;
+    s_time_trusted = false;
 
     ESP_LOGI(TAG, "SNTP component deinitialized");
     return ESP_OK;
@@ -4296,11 +4751,27 @@ static uint8_t s_countdown_timer_value = 0;
 static bool s_countdown_timer_active = false;
 static int64_t s_countdown_enabled_at_us = 0; /* host time the active countdown started */
 
+// P4 (no PCF85063A): the countdown is an esp_timer one-shot. The one-shot
+// fires in the esp_timer task context, where it may NOT run the UI callback
+// (the S3 runs it from the LVGL task via the interrupt poll); it only sets
+// this flag, which clock_interrupt.c's poll picks up and acts on -- the
+// same context split as the S3's TF flag.
+#if !CONFIG_CLOCK_USE_PCF85063A
+static esp_timer_handle_t s_countdown_esp_timer = NULL;
+static volatile bool s_countdown_expired_flag = false;
+
+static void countdown_esp_timer_cb(void *arg) {
+    (void)arg;
+    s_countdown_expired_flag = true;
+}
+#endif
+
 esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode) {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     if (timer_seconds == 0) {
         // Disable timer
         esp_err_t ret = pcf85063a_disable_timer(&s_rtc_dev);
@@ -4357,6 +4828,52 @@ esp_err_t clock_timer_enable(uint8_t timer_seconds, uint8_t timer_mode) {
     ESP_LOGI(TAG, "Timer verification - Value: %d, Mode: 0x%02x", verify_val, verify_mode);
 
     return ESP_OK;
+#else
+    (void)timer_mode;
+
+    if (timer_seconds == 0) {
+        // Disable the one-shot. esp_timer_stop() is idempotent; clearing
+        // the flag here also cancels a one-shot that already fired but the
+        // poller has not consumed yet (wake during the countdown).
+        if (s_countdown_esp_timer) {
+            esp_timer_stop(s_countdown_esp_timer);
+        }
+        s_countdown_expired_flag = false;
+        s_countdown_timer_active = false;
+        s_countdown_timer_value = 0;
+        s_countdown_enabled_at_us = 0;
+        ESP_LOGI(TAG, "Countdown disabled (software)");
+        return ESP_OK;
+    }
+
+    if (!s_countdown_esp_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = countdown_esp_timer_cb,
+            .name = "clock_countdown",
+        };
+        esp_err_t ret = esp_timer_create(&args, &s_countdown_esp_timer);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create countdown esp_timer: %s", esp_err_to_name(ret));
+            return ret;
+        }
+    }
+
+    // (Re)arm: stop any previous one-shot, reset the flag, start fresh.
+    esp_timer_stop(s_countdown_esp_timer);
+    s_countdown_expired_flag = false;
+    esp_err_t ret = esp_timer_start_once(s_countdown_esp_timer, (int64_t)timer_seconds * 1000000);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start countdown esp_timer: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Countdown armed (software): %d seconds", timer_seconds);
+    s_countdown_timer_value = timer_seconds;
+    s_countdown_timer_active = true;
+    s_countdown_enabled_at_us = esp_timer_get_time();
+
+    return ESP_OK;
+#endif
 }
 
 esp_err_t clock_timer_disable(void) { return clock_timer_enable(0, 0); }
@@ -4372,6 +4889,7 @@ esp_err_t clock_timer_process_interrupt(bool *is_timer_tick) {
         return ESP_ERR_INVALID_ARG;
     }
 
+#if CONFIG_CLOCK_USE_PCF85063A
     *is_timer_tick = false;
 
     // Check for timer flag
@@ -4393,6 +4911,25 @@ esp_err_t clock_timer_process_interrupt(bool *is_timer_tick) {
     *is_timer_tick = true;
 
     return ESP_OK;
+#else
+    // No PCF TF flag: the software countdown's expiration is the flag set
+    // by the one-shot (see clock_timer_take_expired).
+    *is_timer_tick = false;
+    return ESP_OK;
+#endif
+}
+
+bool clock_timer_take_expired(void) {
+#if CONFIG_CLOCK_USE_PCF85063A
+    // The S3's poller judges expiration from the TF flag + the host-side
+    // start timestamp; this flag is unused there.
+    return false;
+#else
+    // Consume the one-shot's expiration flag (set from the esp_timer task).
+    bool expired = s_countdown_expired_flag;
+    s_countdown_expired_flag = false;
+    return expired;
+#endif
 }
 ```
 
@@ -4993,6 +5530,30 @@ bool clock_is_interrupt_pending(void);
  */
 void clock_set_poll_interval_ms(uint32_t interval_ms);
 
+/**
+ * @brief Arm the software alarm one-shot (no-PCF builds only)
+ *
+ * Arms an esp_timer one-shot for the epoch of the given local alarm time
+ * (the analog of the PCF's ALM register + AIE). The one-shot only sets a
+ * flag; the interrupt poll (LVGL task) consumes it and fires the alarm
+ * callback. Called from clock_alarm_scheduler.c after each schedule, so
+ * an SNTP/manual time SET that shifts the epoch re-arms it there.
+ * A no-op returning ESP_OK on PCF builds (the hardware register is armed
+ * by clock_set_alarm / clock_enable_alarm instead).
+ *
+ * @param next The scheduled alarm time (full date, local)
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_alarm_arm_esp_timer(const clock_time_t *next);
+
+/**
+ * @brief Disarm the software alarm one-shot (no-PCF builds only)
+ *
+ * Stops the one-shot and clears its fire flag (the 0-rules phantom
+ * guard's P4 half). A no-op on PCF builds.
+ */
+void clock_alarm_disarm_esp_timer(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -5090,6 +5651,7 @@ extern "C" {
 
 #include "clock_types.h"
 #include "esp_err.h"
+#include <stdbool.h>
 #include <time.h>
 
 /**
@@ -5140,11 +5702,69 @@ bool clock_sntp_needs_sync(void);
 time_t clock_sntp_get_last_sync_time(void);
 
 /**
+ * @brief Check whether the wall clock holds trusted time
+ *
+ * Trusted = the last time written to the system clock came from a
+ * successful SNTP sync or from the user's manual time entry. The S3's
+ * time base is the PCF85063A (self-trusting; the flag is not consulted
+ * there); on the P4 it gates the software alarm fire (a default/unsynced
+ * clock must not ring a phantom alarm) and drives the UI's "unsynced"
+ * display state.
+ *
+ * @return bool true once a trusted time source has been applied
+ */
+bool clock_sntp_time_trusted(void);
+
+/**
+ * @brief Mark the wall clock time as trusted (manual time entry)
+ *
+ * Called by the P4 manual time-entry screen when the user commits a time
+ * with no network available.
+ *
+ * @param trusted true to mark the current wall clock as trusted
+ */
+void clock_sntp_set_time_trusted(bool trusted);
+
+/**
  * @brief Deinitialize SNTP component
  *
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_sntp_deinit(void);
+
+#if !CONFIG_CLOCK_USE_PCF85063A
+/**
+ * @brief Snapshot the wall clock to NVS (P4, no external RTC IC)
+ *
+ * A full power loss kills the crystal RTC domain, so the NVS epoch is the
+ * P4's only cross-power-loss memory of the time. Forced save; the 15 min
+ * interval is handled by clock_nvs_maybe_save_epoch().
+ *
+ * @return esp_err_t ESP_OK on success
+ */
+esp_err_t clock_nvs_save_epoch(void);
+
+/**
+ * @brief Periodically snapshot the wall clock to NVS (P4)
+ *
+ * No-op (ESP_OK) when the 15 min interval has not elapsed. Called from
+ * the software minute tick.
+ *
+ * @return esp_err_t ESP_OK on success (or when no save was due)
+ */
+esp_err_t clock_nvs_maybe_save_epoch(void);
+
+/**
+ * @brief Restore the last NVS snapshot into the system clock (P4)
+ *
+ * Applied only when the system clock is still at its pre-first-sync
+ * default. The restored time is NOT trusted: the trust flag stays down
+ * until the next SNTP sync or a manual entry.
+ *
+ * @return bool true when a plausible snapshot was applied
+ */
+bool clock_nvs_restore_epoch(void);
+#endif
 
 #ifdef __cplusplus
 }
@@ -5177,8 +5797,10 @@ extern "C" {
 /**
  * @brief Enable/disable countdown timer with specified configuration
  *
- * This function enables the PCF85063A countdown timer with custom settings.
- * The timer can be configured with different clock frequencies and modes.
+ * On the PCF85063A build this enables the hardware countdown timer with
+ * custom settings. On builds without the PCF85063A (CLOCK_USE_PCF85063A=n,
+ * the P4) the countdown is an esp_timer one-shot of timer_seconds; the
+ * timer_mode bits are accepted but ignored.
  * Pass 0 for timer_seconds to disable the timer.
  *
  * Common timer_mode configurations:
@@ -5243,6 +5865,19 @@ int64_t clock_timer_get_enabled_at_us(void);
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_timer_process_interrupt(bool *is_timer_tick);
+
+/**
+ * @brief Consume the software countdown's expiration flag (P4 path)
+ *
+ * On builds without the PCF85063A the countdown's esp_timer one-shot sets
+ * a flag when it fires (from the esp_timer task); the interrupt poller
+ * (LVGL task) consumes it here before invoking the countdown callback.
+ * Returns false immediately on the PCF build (its poller judges the TF
+ * flag + host start timestamp instead).
+ *
+ * @return true if the countdown just expired (flag was set and is now cleared)
+ */
+bool clock_timer_take_expired(void);
 
 #ifdef __cplusplus
 }
@@ -13868,6 +14503,26 @@ esp_err_t action_register_alarm_touch(void) {
  */
 void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to deep sleep screen");
+
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // P4: no RTC ALM wake. The device's "deep sleep" is app-level (no
+    // esp_deep_sleep -- the crystal clock keeps running through it), so
+    // the alarm could still fire from the dark screen; but the user's
+    // power decision stands: while an alarm is pending the device stays
+    // in LIGHT sleep (dim panel, dusk/dark side) instead of the deep
+    // state (backlight off, clock hidden). The countdown already expired
+    // (that's why we're here), so simply do not transition -- the
+    // light-sleep screen stays up and the software one-shot keeps its
+    // armed state.
+    {
+        clock_time_t pending;
+        if (clock_alarm_get_next_scheduled(&pending) == ESP_OK) {
+            ESP_LOGI(TAG, "Alarm pending (%02d:%02d) -- staying in light sleep (no deep-sleep wake on the P4)",
+                     pending.hour, pending.minute);
+            return;
+        }
+    }
+#endif
 
     // The wake handler reads this to know its call is a real wake.
     g_asleep = true;
@@ -31785,6 +32440,7 @@ void moon_ui_dump_hang_context(void);
 #include "actions.h"
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
+#include "clock_sntp.h"
 #include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
@@ -34010,8 +34666,29 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
     return true;
 }
 
+#if !CONFIG_CLOCK_USE_PCF85063A
+/* Unsynced-clock dim (P4): the trust flag is global but each screen carries
+ * its own clock label, so the applied state is tracked per widget slot -- a
+ * screen that was loaded before the trust flip still converges on its next
+ * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.) */
+static bool s_clock_unsynced_dim[34];
+#endif
+
 void tick_user_widget_clock(int startWidgetIndex) {
     bool label_changed = false;
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Dim the time while the P4 clock is unsynced (no SNTP since boot and
+    // no trusted manual entry) so an approximate value reads as
+    // approximate; the label brightens on the sync (the flag flips in the
+    // SNTP callback; this converges on the next tick of each screen).
+    {
+        bool dim = !clock_sntp_time_trusted();
+        if (dim != s_clock_unsynced_dim[(size_t)startWidgetIndex]) {
+            s_clock_unsynced_dim[(size_t)startWidgetIndex] = dim;
+            lv_obj_set_style_opa(((lv_obj_t **)&objects)[startWidgetIndex + 1], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
+        }
+    }
+#endif
     {
         const char *new_val = get_var_clock_label();
         const char *cur_val = lv_label_get_text(((lv_obj_t **)&objects)[startWidgetIndex + 1]);

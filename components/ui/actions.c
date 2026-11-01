@@ -977,6 +977,26 @@ esp_err_t action_register_alarm_touch(void) {
 void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to deep sleep screen");
 
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // P4: no RTC ALM wake. The device's "deep sleep" is app-level (no
+    // esp_deep_sleep -- the crystal clock keeps running through it), so
+    // the alarm could still fire from the dark screen; but the user's
+    // power decision stands: while an alarm is pending the device stays
+    // in LIGHT sleep (dim panel, dusk/dark side) instead of the deep
+    // state (backlight off, clock hidden). The countdown already expired
+    // (that's why we're here), so simply do not transition -- the
+    // light-sleep screen stays up and the software one-shot keeps its
+    // armed state.
+    {
+        clock_time_t pending;
+        if (clock_alarm_get_next_scheduled(&pending) == ESP_OK) {
+            ESP_LOGI(TAG, "Alarm pending (%02d:%02d) -- staying in light sleep (no deep-sleep wake on the P4)",
+                     pending.hour, pending.minute);
+            return;
+        }
+    }
+#endif
+
     // The wake handler reads this to know its call is a real wake.
     g_asleep = true;
 

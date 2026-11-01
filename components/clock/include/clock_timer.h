@@ -21,8 +21,10 @@ extern "C" {
 /**
  * @brief Enable/disable countdown timer with specified configuration
  *
- * This function enables the PCF85063A countdown timer with custom settings.
- * The timer can be configured with different clock frequencies and modes.
+ * On the PCF85063A build this enables the hardware countdown timer with
+ * custom settings. On builds without the PCF85063A (CLOCK_USE_PCF85063A=n,
+ * the P4) the countdown is an esp_timer one-shot of timer_seconds; the
+ * timer_mode bits are accepted but ignored.
  * Pass 0 for timer_seconds to disable the timer.
  *
  * Common timer_mode configurations:
@@ -87,6 +89,19 @@ int64_t clock_timer_get_enabled_at_us(void);
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t clock_timer_process_interrupt(bool *is_timer_tick);
+
+/**
+ * @brief Consume the software countdown's expiration flag (P4 path)
+ *
+ * On builds without the PCF85063A the countdown's esp_timer one-shot sets
+ * a flag when it fires (from the esp_timer task); the interrupt poller
+ * (LVGL task) consumes it here before invoking the countdown callback.
+ * Returns false immediately on the PCF build (its poller judges the TF
+ * flag + host start timestamp instead).
+ *
+ * @return true if the countdown just expired (flag was set and is now cleared)
+ */
+bool clock_timer_take_expired(void);
 
 #ifdef __cplusplus
 }

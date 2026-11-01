@@ -1,5 +1,19 @@
 menu "Clock Component Configuration"
 
+    config CLOCK_USE_PCF85063A
+        bool "External PCF85063A RTC IC"
+        default y
+        help
+            Use the external PCF85063A RTC (with the TCA9554 IO expander)
+            as the time base. The S3 board carries it; the P4 4C does not —
+            there the time base is the 32.768 kHz crystal-backed internal
+            RTC timer (RTC_CLK_SRC_EXT_CRYS) + SNTP, minute ticks are
+            detected in software, and the countdown / alarm arming run on
+            esp_timer instead of the PCF85063A hardware registers. When
+            disabled, clock_set_alarm / clock_enable_alarm /
+            clock_clear_alarm become no-ops (the scheduler's s_next_alarm
+            cache is the source of truth for the software alarm).
+
     choice CLOCK_TIME_FORMAT
         prompt "Time display format"
         default CLOCK_TIME_FORMAT_24H

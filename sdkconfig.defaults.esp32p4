@@ -77,3 +77,14 @@ CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
 # boot sweep. Same treatment as the S3 (sdkconfig.defaults.esp32s3): disable
 # the CPU1 idle check only (CPU0 stays checked).
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# Clock: the 4C has no PCF85063A / IO expander — the external-RTC-IC path
+# (PCF registers for time/minute/countdown/alarm) is off. The time base is
+# the system clock over the crystal-backed internal RTC timer + SNTP; the
+# minute tick and the countdown/alarm arming run in software (esp_timer).
+# (Kconfig `n` leaves the macro UNDEFINED — the code gates on
+# #if CONFIG_CLOCK_USE_PCF85063A, which resolves false.)
+CONFIG_CLOCK_USE_PCF85063A=n
+# RTC clock source: the external 32 kHz crystal (the 4C mounts it, with a
+# VBAT battery header). The internal RC oscillator is only a few %
+# accurate and is unusable as a clock time base.
+CONFIG_RTC_CLK_SRC_EXT_CRYS=y

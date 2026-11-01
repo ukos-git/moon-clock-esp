@@ -35,8 +35,11 @@ hardware panel-brightness ramp — the CO5300's own dimming command — so the
 transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
 on the home screen when the next fire is >24 h away), the **fa-circle-xmark
 exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
-rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+alarm** (the `*/5` debug rule burned the alarm screen in), and the **P4
+software clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed
+internal RTC timer + SNTP as the time base with the minute tick / countdown /
+alarm arming in software, §2.3). See the standing rule in
+[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 `python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
@@ -199,7 +202,9 @@ on the board (rev v1.3 profile; XC BSP 3.0.1 + JD9365 + GT911 + LVGL-adapter,
 **remote C6** (the `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5 pair over
 SDIO, ~7.5 s to IP) and syncs the clock by SNTP (the first clock smoke; the
 clock label then shows real time). The P4's remaining product path is the clock
-degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
+degradation (M5 — §10.6's P4 half); the software-clock half (M5.1) landed
+2026-11-01 behind the new `CLOCK_USE_PCF85063A` Kconfig option. Three
+P4-specific code facts:
 
 - **The remote radio is initialized exactly once.** The host-side LWIP netif
   attach of the `esp_hosted` radio is not re-runnable: a second
@@ -214,8 +219,43 @@ degradation (M5 — §10.6's P4 half). Three P4-specific code facts:
   (`time()`/`localtime_r`, `settimeofday`), `clock_is_interrupt_pending` is a
   P4 no-op (no PCF CTRL2 to poll), and the SNTP path fills the time it writes
   from `clock_sntp_get_system_time` (the earlier "Invalid time values" log was
-  an unfilled stack var on the NTP-success path). The crystal-backed RTC
-  timer + periodic re-sync + `esp_timer` software alarms land in M5.
+  an unfilled stack var on the NTP-success path). The software clock path lands
+  in M5.1 (2026-11-01), behind the new `CLOCK_USE_PCF85063A` Kconfig option
+  (default `y`; `n` in `sdkconfig.defaults.esp32p4` — the S3 build is
+  unchanged, the code gates on `#if CONFIG_CLOCK_USE_PCF85063A`): the time base
+  is the system clock over the **external 32 kHz crystal**
+  (`CONFIG_RTC_CLK_SRC_EXT_CRYS=y`; the RC oscillator is only a few % accurate
+  and unusable as a time base); the **minute tick** is a wall-clock minute
+  rollover detected in the 1.3 s poll (the poll interval is far shorter than a
+  minute, so at most one rollover can occur between polls — never missed, never
+  doubled; an SNTP/manual time step re-bases without firing, matching the S3's
+  TF semantics for a written time); the **deep-sleep countdown** is an
+  `esp_timer` one-shot whose callback only sets a flag — the poll (LVGL task)
+  consumes it and runs the deep-sleep transition, the same context split as the
+  S3's TF poll; the **alarm arming** is a second `esp_timer` one-shot for the
+  scheduled epoch (the PCF ALM+AIE analog — re-armed on every SNTP/manual time
+  SET via `clock_alarm_scheduler_reload`, the poll's wall-clock backup check is
+  the backstop), gated on `clock_sntp_time_trusted()` so the default/unsynced
+  clock can never ring a phantom alarm; the 0-rule disarm +
+  stale-`s_next_alarm`-cache drop is the software half of the S3's
+  persistent-ALM guard. `clock_set_alarm`/`clock_enable_alarm`/
+  `clock_clear_alarm` are no-ops on such builds (the scheduler's `s_next_alarm`
+  cache is the source of truth); `clock_get_alarm` returns
+  `ESP_ERR_NOT_SUPPORTED`. The **NVS epoch backup** (M5.2, also 2026-11-01): a
+  full power loss kills the crystal domain (VBAT coverage unverified), so the
+  system-clock epoch is snapshotted to NVS (`clock`, `epoch`) on every SNTP
+  success and every 15 min from the software minute tick
+  (`clock_nvs_maybe_save_epoch`); the SNTP init restores it (pre-2021 snapshots
+  are rejected as junk) in place of the 2026-01-24 default — but the restored
+  time is still NOT trusted: the flag stays down until the next SNTP sync or a
+  manual entry. Two P4 UI/flow halves ride on the flag: the clock label **dims
+  to 50 % opacity while unsynced** (the per-widget tick converges on its next
+  update after the flag flips), and the **deep-sleep transition is skipped
+  while an alarm is pending** (the P4's "deep sleep" is app-level — no
+  `esp_deep_sleep`, so the crystal domain and the software one-shot stay alive;
+  with no RTC-alarm wake the device holds the dim light-sleep screen instead of
+  going to the backlight-off state). Only the P4 manual time-entry screen
+  (calls `clock_sntp_set_time_trusted`) remains.
 - **The DSI panel's strip writes are async.** The P4 DPI panel copies each
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
@@ -268,17 +308,22 @@ screens), the spin's keep-mask band 326-357 lands on the upscaled home seconds
 arc (ring r 329-344, knob to r ~350; RMIN sits just outside the 650 px moon
 edge at r 325, so the band never overlaps the disk). The rotated orientation
 layer grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary
-1,468,784 B (9,437,184 B factory).
+1,468,784 B (9,437,184 B factory); 2026-11-01 after M5.1: P4 **1,477,472 B**
+(`0x168b60`), S3 **1,450,352 B** (`0x162170`, +176 B over the 1,450,176
+baseline — the shared clock headers + the trusted-time flag).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
 `IRAM_ATTR` would land ~113 KB of LVGL in the scarce `sram_low` and overflow
 the link), and the CPU1 idle-task WDT check is disabled
 (`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n`) because the moon sweep/spin owns
-a core for seconds (same as the S3). The remaining P4 product path is the
-software-alarm clock (M5 — no RTC IC: crystal-backed internal RTC timer +
-SNTP + `esp_timer` alarms, the P4 half of §10.6). The S3 build flow is
-unchanged; the shim + call-site migration add ~15 KB to the S3 binary (§3.1).
+a core for seconds (same as the S3). The P4 software clock (M5.1 — no RTC IC:
+crystal-backed internal RTC timer + SNTP + `esp_timer` alarm/countdown
+one-shots, the P4 half of §10.6) is code-complete 2026-11-01 (build-verified
+both targets; on-device verification pending); the NVS epoch backup (M5.2's
+power-loss half) landed the same day, leaving only the P4 manual time-entry
+screen. The S3 build flow is unchanged; the shim + call-site migration add ~15
+KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -341,7 +386,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1620d0` (1,450,176 B), 646,976 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x162170` (1,450,352 B), 646,800 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
@@ -351,19 +396,19 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-645,664 B of headroom remain for the future text-input family.
+646,800 B of headroom remain for the future text-input family.
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
-| Block     | Part                | Notes                                                                                                                                                    |
-| --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash |
-| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted); **one framebuffer, no flip** (the spin's CCW flicker, §4.3)  |
-| Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                 |
-| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable            |
-| Time base | none (no RTC IC)    | the internal RTC timer, crystal-backed (32.768 kHz on the board) + SNTP; VBAT battery header (power-loss survival to be verified)                        |
-| IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                              |
-| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                      |
+| Block     | Part                | Notes                                                                                                                                                                                                                               |
+| --------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCU       | ESP32-P4 (rev v1.3) | RISC-V single-core @ 400 MHz, 32 MB in-package PSRAM @ 200 MHz (on IDF 5.5.1 the 200 MHz speed is `CONFIG_IDF_EXPERIMENTAL_FEATURES`-gated), 32 MB flash                                                                            |
+| Display   | 720×720 round IPS   | JD9365, MIPI-DSI 2-lane @ 1500 MBPS; reset GPIO27, backlight GPIO26 (PWM, output inverted); **one framebuffer, no flip** (the spin's CCW flicker, §4.3)                                                                             |
+| Touch     | GT911-class         | I2C @ 0x5D; the indev registers during BSP display start (no app change)                                                                                                                                                            |
+| Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable                                                                                       |
+| Time base | none (no RTC IC)    | the internal RTC timer on the **external 32 kHz crystal** (`CONFIG_RTC_CLK_SRC_EXT_CRYS`, M5.1 — the RC oscillator is a few % inaccurate, unusable as a time base) + SNTP; VBAT battery header (power-loss survival to be verified) |
+| IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                                                                                                         |
+| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                                                                                                 |
 
 Unlike the S3, the P4 PSRAM **is** DMA-capable — the S3's 32 KiB SPI-DMA strip
 staging (buffer_height 25, flush queue depth 1) is a QSPI-S3 artifact and does
@@ -379,7 +424,7 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x166970` (1,468,784 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x168b60` (1,477,472 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
 | `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
@@ -400,9 +445,10 @@ components/
     core/erfa/             vendored public-domain ERFA subset
     include/               moon.h, moon_consts.h (generated), moon_assets.h
     host/ esp/             host-asset + device asset glue
-  clock/               PCF85063A RTC, minute/interrupt logic, idle detector,
-    clock_sntp.c           NTP sync; clock_alarm_scheduler.c (cron-like alarms,
-                           write/reload, */N>59 support); settings_store.c (runtime store)
+  clock/               PCF85063A RTC (or the P4 software clock, M5.1), minute/
+                           interrupt logic, idle detector; clock_sntp.c (NTP sync +
+                           the time-trusted flag); clock_alarm_scheduler.c (cron-like
+                           alarms, write/reload, */N>59); settings_store.c (store)
   ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets)
@@ -1176,7 +1222,11 @@ deep-sleep backlight off and the wake-from-deep-sleep backlight on (now
   re-parsed+re-scheduled on every write (`clock_alarm_scheduler_ reload`; 0
   rules → `clock_clear_alarm()` disarms the PCF85063A's persistent ALM — a
   stale armed time would otherwise fire a phantom alarm screen on a 0-rule
-  boot). Firing is the 1.3 s RTC minute poll.
+  boot; on no-PCF builds (the P4) the guard is `clock_alarm_disarm_esp_timer()`
+  - dropping the scheduler's `s_next_alarm` cache — esp_timer is not
+    persistent, but the cache is). Firing is the 1.3 s RTC minute poll (on the
+    P4: the one-shot's flag + the wall-clock backup check, gated on
+    `clock_sntp_time_trusted()`).
 - **Settings store** (`/spiffs/settings.txt`, `key = value`):
   `idle_timeout_sec`, `deep_sleep_countdown_sec`, `boot_anim_enable`,
   `dusk_anim_enable` — `#ifndef`-seeded from Kconfig, live overrides (idle
@@ -1198,19 +1248,19 @@ fires from there.
 
 Device captures (pyserial 115200, unattended runs with the test hooks):
 
-| Stage                                         | Value                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                             |
-| Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                            |
-| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                            |
-| Free spin                                     | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)        |
-| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
-| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                             |
-| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                              |
-| Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                         |
-| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                   |
-| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                    |
-| Binary                                        | S3: `0x1625e0` = 1,451,488 B in the 2,097,152 B partition (645,664 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x166970` = 1,468,784 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                    |
+| Stage                                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                          |
+| Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                         |
+| Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                         |
+| Free spin                                     | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                     |
+| Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, device verification pending) |
+| Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                          |
+| Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                           |
+| Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                      |
+| Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                |
+| Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                 |
+| Binary (2026-11-01, after M5.1)               | S3: `0x162170` = 1,450,352 B in the 2,097,152 B partition (646,800 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x168b60` = 1,477,472 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                                                                 |
 
 ---
 
@@ -1342,7 +1392,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 645,664 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,800 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1352,7 +1402,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 645,664 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,800 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1429,14 +1479,15 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 
-| Option                          | Default                        | Meaning                                  |
-| ------------------------------- | ------------------------------ | ---------------------------------------- |
-| `CLOCK_TIME_FORMAT`             | 24H                            | display format (the RTC stores 24 h)     |
-| `CLOCK_DEFAULT_TIMEZONE`        | `CET-1CEST,M3.5.0/2,M10.5.0/3` | POSIX TZ                                 |
-| `CLOCK_NTP_SERVER`              | `pool.ntp.org`                 | SNTP server                              |
-| `CLOCK_NTP_SYNC_INTERVAL_HOURS` | 1                              | the on-demand sync interval              |
-| `CLOCK_NTP_TIMEOUT_MS`          | 10000                          | SNTP timeout                             |
-| `CLOCK_IDLE_TIMEOUT_SEC`        | 60                             | idle → light sleep (runtime-overridable) |
+| Option                          | Default                        | Meaning                                                                                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOCK_USE_PCF85063A`           | `y` (n in the P4 defaults)     | the PCF85063A hardware path (S3). `n` (the P4) = the M5.1 software clock: system-clock time base + software minute tick + `esp_timer` countdown/alarm one-shots (§2.3); `n` leaves the macro UNDEFINED — the code gates on `#if CONFIG_CLOCK_USE_PCF85063A` |
+| `CLOCK_TIME_FORMAT`             | 24H                            | display format (the RTC stores 24 h)                                                                                                                                                                                                                        |
+| `CLOCK_DEFAULT_TIMEZONE`        | `CET-1CEST,M3.5.0/2,M10.5.0/3` | POSIX TZ                                                                                                                                                                                                                                                    |
+| `CLOCK_NTP_SERVER`              | `pool.ntp.org`                 | SNTP server                                                                                                                                                                                                                                                 |
+| `CLOCK_NTP_SYNC_INTERVAL_HOURS` | 1                              | the on-demand sync interval                                                                                                                                                                                                                                 |
+| `CLOCK_NTP_TIMEOUT_MS`          | 10000                          | SNTP timeout                                                                                                                                                                                                                                                |
+| `CLOCK_IDLE_TIMEOUT_SEC`        | 60                             | idle → light sleep (runtime-overridable)                                                                                                                                                                                                                    |
 
 Test hooks (all default off, §12.3): `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_ROLL_TILT_SEC`, `TEST_CPU_STATS_SEC`,

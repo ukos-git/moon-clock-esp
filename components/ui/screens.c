@@ -6,6 +6,7 @@
 #include "actions.h"
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
+#include "clock_sntp.h"
 #include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
@@ -2231,8 +2232,29 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
     return true;
 }
 
+#if !CONFIG_CLOCK_USE_PCF85063A
+/* Unsynced-clock dim (P4): the trust flag is global but each screen carries
+ * its own clock label, so the applied state is tracked per widget slot -- a
+ * screen that was loaded before the trust flip still converges on its next
+ * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.) */
+static bool s_clock_unsynced_dim[34];
+#endif
+
 void tick_user_widget_clock(int startWidgetIndex) {
     bool label_changed = false;
+#if !CONFIG_CLOCK_USE_PCF85063A
+    // Dim the time while the P4 clock is unsynced (no SNTP since boot and
+    // no trusted manual entry) so an approximate value reads as
+    // approximate; the label brightens on the sync (the flag flips in the
+    // SNTP callback; this converges on the next tick of each screen).
+    {
+        bool dim = !clock_sntp_time_trusted();
+        if (dim != s_clock_unsynced_dim[(size_t)startWidgetIndex]) {
+            s_clock_unsynced_dim[(size_t)startWidgetIndex] = dim;
+            lv_obj_set_style_opa(((lv_obj_t **)&objects)[startWidgetIndex + 1], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
+        }
+    }
+#endif
     {
         const char *new_val = get_var_clock_label();
         const char *cur_val = lv_label_get_text(((lv_obj_t **)&objects)[startWidgetIndex + 1]);
