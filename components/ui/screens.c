@@ -19,6 +19,12 @@
 #include "vars.h"
 #include "wifi.h"
 
+/* From clock.h (the manual time-entry commit). The full header is not
+ * included: it pulls the bsp/driver headers the host sim (the real
+ * screens.c, unmodified) cannot resolve -- only this one prototype is
+ * needed (clock_time_t comes via clock_sntp.h -> clock_types.h). */
+esp_err_t clock_set_time(const clock_time_t *time);
+
 objects_t objects;
 lv_obj_t *tick_value_change_obj;
 uint32_t active_theme_index = 0;
@@ -75,6 +81,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_WIFI "\xEF\x87\xAB"      /* U+F1EB */
 #define GLYPH_STOPWATCH "\xEF\x8B\xB2" /* U+F2F2 (was \xEF\xA7\xB2 = U+F9F2, absent -> a box) */
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
+#define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 regular set only) */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
 #define SETTINGS_WHITE lv_color_white()
@@ -114,6 +121,7 @@ static void settings_sleep_screen_refresh(int screen);
 static void settings_wifi_screen_refresh(void);
 static void settings_wheel_prefill_ssid(const char *ssid);
 static void settings_wheel_screen_refresh(void);
+static void settings_time_screen_refresh(void);
 /* settings_screen_refresh_for is non-static (declared in screens.h; the
  * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
@@ -229,7 +237,7 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 14);
+            create_user_widget_clock(obj, 15);
         }
         {
             // arc-clock-seconds-modem
@@ -264,7 +272,7 @@ void create_screen_modem_sleep() {
 }
 
 void tick_screen_modem_sleep() {
-    tick_user_widget_clock(14);
+    tick_user_widget_clock(15);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
@@ -302,7 +310,7 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 19);
+            create_user_widget_clock(obj, 20);
         }
         {
             // arc-clock-seconds-wifi
@@ -352,7 +360,7 @@ void create_screen_wifi() {
 }
 
 void tick_screen_wifi() {
-    tick_user_widget_clock(19);
+    tick_user_widget_clock(20);
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
@@ -396,14 +404,14 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 24);
+            create_user_widget_clock(obj, 25);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(24); }
+void tick_screen_light_sleep() { tick_user_widget_clock(25); }
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -425,7 +433,7 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 28);
+            create_user_widget_clock(obj, 29);
         }
         {
             // screen-indicator-sleep1
@@ -441,7 +449,7 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(28); }
+void tick_screen_deep_sleep() { tick_user_widget_clock(29); }
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_wake_screen) only fires while the device is
@@ -467,7 +475,7 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 33);
+            create_user_widget_clock(obj, 34);
         }
         {
             // screen-indicator-alarm
@@ -483,7 +491,7 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(33); }
+void tick_screen_alarm() { tick_user_widget_clock(34); }
 
 /* ---------------- settings screens ----------------
  *
@@ -518,6 +526,16 @@ void create_screen_settings_hub() {
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_regular_96_icons, R, R, SCREEN_ID_SETTINGS_LIGHT_SLEEP);
     settings_hub_icon(obj, GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, -R, R, SCREEN_ID_SETTINGS_DEEP_SLEEP);
     settings_hub_icon(obj, GLYPH_WIFI, &ui_font_fontawesome7_solid_96_icons, -R, -R, SCREEN_ID_SETTINGS_WIFI);
+#if defined(CONFIG_BOARD_P4)
+    /* The P4's clock is software (SNTP) and can be left unsynced (no
+     * network): the settings hub gets a fifth icon -- the clock (U+F017,
+     * the 12-o'clock position of the ring) -- reaching the manual
+     * time/date entry screen. The S3's time comes from the PCF85063A and
+     * stays unreachable; the S3 icon font does not carry U+F017 (the P4
+     * fonts_p4 set was regenerated with it), so the glyph is only used
+     * here, P4-only. */
+    settings_hub_icon(obj, GLYPH_CLOCK, &ui_font_fontawesome7_regular_96_icons, 0, -R, SCREEN_ID_SETTINGS_TIME);
+#endif
 }
 
 void tick_screen_settings_hub() {}
@@ -599,6 +617,9 @@ void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_WIFI_PASSWORD:
         settings_wheel_screen_refresh();
+        break;
+    case SCREEN_ID_SETTINGS_TIME:
+        settings_time_screen_refresh();
         break;
     default:
         break;
@@ -712,16 +733,19 @@ static void settings_pomodoro_screen_refresh(void) {
  * each field is displayed exactly once -- the roller IS the value
  * display (the old separate HH:MM preview labels are gone). LVGL 9.6's
  * selected-row part is LV_PART_SELECTED (the old LV_PART_INDICATOR
- * styling never applied). width sizes to the value: 150 for 2-digit
- * fields, 210 for the 3-digit sleep values. */
-static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, int32_t x, int32_t width) {
+ * styling never applied). font + height are the caller's: the 96 px
+ * numbers font at 110 px for the time/alarm values, the 48 px numbers
+ * font at 70 px for the manual time-entry's date row. width sizes to
+ * the value: 120 for the 2-digit fields, 90 for the 48 px ones. */
+static lv_obj_t *settings_create_roller(lv_obj_t *parent, const char *options, const lv_font_t *font, int32_t height,
+                                        int32_t x, int32_t width) {
     lv_obj_t *r = lv_roller_create(parent);
     lv_roller_set_options(r, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(r, 1);
     lv_obj_set_width(r, width);
-    lv_obj_set_height(r, UI_PX(110));
+    lv_obj_set_height(r, height);
     lv_obj_align(r, LV_ALIGN_CENTER, x, UI_PX(90));
-    lv_obj_set_style_text_font(r, &ui_font_montserrat_bold_96_numbers, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(r, font, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(r, SETTINGS_WHITE, LV_PART_SELECTED | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -760,9 +784,11 @@ void create_screen_settings_pomodoro() {
      * centre): the hour slot centres at 153 (-80), the minute slot
      * at 303 (+70), and the `:` at 223 (-10), so the whole display
      * lands exactly where the home clock's "HH:MM" would. */
-    objects.settings_pomodoro_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    objects.settings_pomodoro_roller_h =
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(120));
     lv_obj_align(objects.settings_pomodoro_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
-    objects.settings_pomodoro_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    objects.settings_pomodoro_roller_m =
+        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(120));
     lv_obj_align(objects.settings_pomodoro_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
@@ -1125,9 +1151,11 @@ void create_screen_settings_alarm_time() {
     /* Same glyph-centre offsets as the pomodoro display (hour slot at
      * 153, minute slot at 303, the `:` at 223 = the home clock's own
      * colon position). */
-    objects.settings_alarm_time_roller_h = settings_create_roller(obj, hours, -UI_PX(80), UI_PX(120));
+    objects.settings_alarm_time_roller_h =
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(80), UI_PX(120));
     lv_obj_align(objects.settings_alarm_time_roller_h, LV_ALIGN_CENTER, -UI_PX(80), -UI_PX(23));
-    objects.settings_alarm_time_roller_m = settings_create_roller(obj, minutes, UI_PX(70), UI_PX(120));
+    objects.settings_alarm_time_roller_m =
+        settings_create_roller(obj, minutes, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(70), UI_PX(120));
     lv_obj_align(objects.settings_alarm_time_roller_m, LV_ALIGN_CENTER, UI_PX(70), -UI_PX(23));
 
     lv_obj_t *colon = lv_label_create(obj);
@@ -1293,7 +1321,8 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     for (int v = 1; v <= 30; v++) {
         pos += snprintf(options + pos, sizeof(options) - pos, "%d\n", v);
     }
-    s_sleep_roller[screen] = settings_create_roller(obj, options, 0, UI_PX(210));
+    s_sleep_roller[screen] =
+        settings_create_roller(obj, options, &ui_font_montserrat_bold_96_numbers, UI_PX(110), 0, UI_PX(210));
     lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -UI_PX(90), 0);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
@@ -2104,6 +2133,161 @@ void create_screen_settings_wifi_password() {
 
 void tick_screen_settings_wifi_password() {}
 
+/* --- manual time entry (P4): HH:MM:SS + DD.MM.YY rollers ------------
+ *
+ * The P4's wall clock is software (SNTP). This screen is the offline
+ * fallback for a clock it could not sync: when the time is untrusted
+ * (dimmed, and no alarm may fire) the user sets the wall clock by hand.
+ * Two roller rows, the same look as the other settings value displays:
+ * the time row (hour / minute / second, the 96 px clock font, at the
+ * home clock label's position) and the date row (day . month . year,
+ * the 48 px font, the year as a two-digit 2000+YY). Releasing ANY
+ * roller commits the whole value: clock_set_time (mktime / settimeofday
+ * + the alarm one-shot re-arm), the trusted flag up (undim + the alarm
+ * fire gate), and the moon re-bake when the calendar day changes (the
+ * day tick). The rollers re-seed from the wall clock on every entry.
+ * Reached by the settings hub's clock icon, which the P4 adds and the
+ * S3 does not (its time comes from the PCF85063A); the screen itself
+ * is shared, so the S3 build stays structurally identical. */
+
+/* A "%02d" option string per value in [from..to] (the roller rows). */
+static void time_roller_options(char *buf, size_t n, int from, int to) {
+    int pos = 0;
+    for (int v = from; v <= to; v++) {
+        pos += snprintf(buf + pos, n - pos, "%02d\n", v);
+    }
+}
+
+static void settings_time_screen_refresh(void) {
+    if (!objects.settings_time_roller_h) {
+        return;
+    }
+    clock_time_t t;
+    if (clock_sntp_get_system_time(&t) != ESP_OK) {
+        return; /* No clock yet; keep the previous seed. */
+    }
+    /* The hour/minute/second and year option strings start at "00" (index
+     * = value); the day and month start at "01" (index = value - 1). */
+    lv_roller_set_selected(objects.settings_time_roller_h, t.hour, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_time_roller_mi, t.minute, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_time_roller_s, t.second, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_time_roller_d, t.day - 1, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_time_roller_m, t.month - 1, LV_ANIM_OFF);
+    lv_roller_set_selected(objects.settings_time_roller_y, (t.year - 2000) % 100, LV_ANIM_OFF);
+}
+
+/* Commit the whole value (only on RELEASED -- the set + re-arm stay
+ * off the drag path). clock_set_time writes the wall clock and re-arms
+ * the software alarm one-shot from it; the trusted flag lifts the
+ * unsynced dim and opens the alarm fire gate; the day tick re-bakes the
+ * moon if the date (and thus the phase) changed. */
+static void event_handler_cb_settings_time_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    clock_time_t t;
+    t.year = 2000 + settings_roller_value(objects.settings_time_roller_y);
+    t.month = settings_roller_value(objects.settings_time_roller_m);
+    t.day = settings_roller_value(objects.settings_time_roller_d);
+    t.hour = settings_roller_value(objects.settings_time_roller_h);
+    t.minute = settings_roller_value(objects.settings_time_roller_mi);
+    t.second = settings_roller_value(objects.settings_time_roller_s);
+    esp_err_t r = clock_set_time(&t);
+    if (r == ESP_OK) {
+        clock_sntp_set_time_trusted(true);
+        moon_ui_day_tick();
+        ESP_LOGW("settings_time", "manual time %04d-%02d-%02d %02d:%02d:%02d -> trusted", t.year, t.month, t.day,
+                 t.hour, t.minute, t.second);
+    } else {
+        ESP_LOGW("settings_time", "manual time %04d-%02d-%02d %02d:%02d:%02d rejected: %s", t.year, t.month, t.day,
+                 t.hour, t.minute, t.second, esp_err_to_name(r));
+    }
+}
+
+/* The two separator glyphs between the rollers: a `:` in the time row
+ * (the 96 px clock font carries it) and a `.` in the date row (the
+ * P4's 48 px numbers font is regenerated with the dot; the S3 build
+ * never reaches this screen, so its digit-only font is untouched).
+ * Non-clickable, so touches fall through to the rollers. */
+static void settings_time_separator(lv_obj_t *parent, const char *text, const lv_font_t *font, int32_t x, int32_t y) {
+    lv_obj_t *sep = lv_label_create(parent);
+    lv_obj_set_style_text_font(sep, font, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(sep, text);
+    lv_obj_set_size(sep, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(sep, LV_ALIGN_CENTER, x, y);
+    lv_obj_set_style_text_color(sep, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(sep, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void create_screen_settings_time() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_time = obj;
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The caption (this screen shows a value the clock label would
+     * not: what the two rows ARE). */
+    lv_obj_t *caption = lv_label_create(obj);
+    lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(caption, "SET TIME / DATE");
+    lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
+    lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The time row HH:MM:SS (the 96 px clock font, at the home clock
+     * label's position): hour -150, minute 0, second +150, the `:` at
+     * ±75. The 110 px rollers span y -30±55 (absolute 148..258). */
+    char hours[512], mins[600], secs[600];
+    time_roller_options(hours, sizeof(hours), 0, 23);
+    time_roller_options(mins, sizeof(mins), 0, 59);
+    time_roller_options(secs, sizeof(secs), 0, 59);
+    objects.settings_time_roller_h =
+        settings_create_roller(obj, hours, &ui_font_montserrat_bold_96_numbers, UI_PX(110), -UI_PX(150), UI_PX(110));
+    lv_obj_align(objects.settings_time_roller_h, LV_ALIGN_CENTER, -UI_PX(150), -UI_PX(30));
+    settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, -UI_PX(75), -UI_PX(30));
+    objects.settings_time_roller_mi =
+        settings_create_roller(obj, mins, &ui_font_montserrat_bold_96_numbers, UI_PX(110), 0, UI_PX(110));
+    lv_obj_align(objects.settings_time_roller_mi, LV_ALIGN_CENTER, 0, -UI_PX(30));
+    settings_time_separator(obj, ":", &ui_font_montserrat_bold_96_numbers, UI_PX(75), -UI_PX(30));
+    objects.settings_time_roller_s =
+        settings_create_roller(obj, secs, &ui_font_montserrat_bold_96_numbers, UI_PX(110), UI_PX(150), UI_PX(110));
+    lv_obj_align(objects.settings_time_roller_s, LV_ALIGN_CENTER, UI_PX(150), -UI_PX(30));
+
+    /* The date row DD.MM.YY (the 48 px font, below the time row): day
+     * -75, month 0, year +75, the `.` at ±37. The 70 px rollers span y
+     * +70±35 (absolute 268..338) -- clear of the bottom-centre exit
+     * band (top y 342). */
+    char days[128], months[64], years[400];
+    time_roller_options(days, sizeof(days), 1, 31);
+    time_roller_options(months, sizeof(months), 1, 12);
+    time_roller_options(years, sizeof(years), 0, 99);
+    objects.settings_time_roller_d =
+        settings_create_roller(obj, days, &ui_font_montserrat_regular_48_numbers, UI_PX(70), -UI_PX(75), UI_PX(60));
+    lv_obj_align(objects.settings_time_roller_d, LV_ALIGN_CENTER, -UI_PX(75), UI_PX(70));
+    settings_time_separator(obj, ".", &ui_font_montserrat_regular_48_numbers, -UI_PX(37), UI_PX(70));
+    objects.settings_time_roller_m =
+        settings_create_roller(obj, months, &ui_font_montserrat_regular_48_numbers, UI_PX(70), 0, UI_PX(60));
+    lv_obj_align(objects.settings_time_roller_m, LV_ALIGN_CENTER, 0, UI_PX(70));
+    settings_time_separator(obj, ".", &ui_font_montserrat_regular_48_numbers, UI_PX(37), UI_PX(70));
+    objects.settings_time_roller_y =
+        settings_create_roller(obj, years, &ui_font_montserrat_regular_48_numbers, UI_PX(70), UI_PX(75), UI_PX(60));
+    lv_obj_align(objects.settings_time_roller_y, LV_ALIGN_CENTER, UI_PX(75), UI_PX(70));
+
+    /* Releasing any one roller commits the whole value. */
+    const lv_obj_t *const rollers[] = {
+        objects.settings_time_roller_h, objects.settings_time_roller_mi, objects.settings_time_roller_s,
+        objects.settings_time_roller_d, objects.settings_time_roller_m,  objects.settings_time_roller_y,
+    };
+    for (int i = 0; i < 6; i++) {
+        lv_obj_add_event_cb((lv_obj_t *)rollers[i], event_handler_cb_settings_time_commit, LV_EVENT_RELEASED, 0);
+    }
+
+    settings_time_screen_refresh();
+}
+
+void tick_screen_settings_time() {}
+
 /* The alarm weekday prefixes, one per clock widget. Not part of
  * objects_t: the layout contract there only names the three widget
  * slots the tick reads, and the prefix label is internal to the
@@ -2111,18 +2295,18 @@ void tick_screen_settings_wifi_password() {}
 static lv_obj_t *s_alarm_prefix[5];
 
 /* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
- * modem 14, wifi 19, light 24, deep 28, alarm 33). */
+ * modem 15, wifi 20, light 25, deep 29, alarm 34). */
 static int widget_prefix_slot(int startWidgetIndex) {
     switch (startWidgetIndex) {
-    case 14:
+    case 15:
         return 0;
-    case 19:
+    case 20:
         return 1;
-    case 24:
+    case 25:
         return 2;
-    case 28:
+    case 29:
         return 3;
-    case 33:
+    case 34:
         return 4;
     default:
         return -1;
@@ -2236,8 +2420,9 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 /* Unsynced-clock dim (P4): the trust flag is global but each screen carries
  * its own clock label, so the applied state is tracked per widget slot -- a
  * screen that was loaded before the trust flip still converges on its next
- * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.) */
-static bool s_clock_unsynced_dim[34];
+ * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.)
+ * Indexed by the clock widget's BASE (the highest is 34, the alarm screen). */
+static bool s_clock_unsynced_dim[35];
 #endif
 
 void tick_user_widget_clock(int startWidgetIndex) {
@@ -2322,6 +2507,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_settings_deep_sleep,
     tick_screen_settings_wifi,
     tick_screen_settings_wifi_password,
+    tick_screen_settings_time,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -2345,4 +2531,5 @@ void create_screens() {
     create_screen_settings_deep_sleep();
     create_screen_settings_wifi();
     create_screen_settings_wifi_password();
+    create_screen_settings_time();
 }

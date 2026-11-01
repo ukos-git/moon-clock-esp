@@ -23,6 +23,7 @@
 
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
+#include "clock_types.h"
 #include "esp_err.h"
 #include "lvgl.h"
 #include "moon.h"
@@ -83,6 +84,24 @@ void clock_idle_set_timeout_ms(uint64_t ms) { (void)ms; }
    full opacity. The M5.1 unsynced dim (screens.c) is reachable only on the
    P4 before its first sync / manual time entry. */
 bool clock_sntp_time_trusted(void) { return true; }
+
+/* The manual time-entry screen (screens.c) reads + writes the wall clock.
+   The host sim has no clock: a fixed plausible value to seed the rollers,
+   a no-op set, and the trust flag toggle (no-op; the snapshot above
+   reports trusted already). */
+static clock_time_t s_sim_time = {2026, 11, 1, 12, 35, 7};
+esp_err_t clock_sntp_get_system_time(clock_time_t *t) {
+    *t = s_sim_time;
+    return ESP_OK;
+}
+esp_err_t clock_set_time(const clock_time_t *t) {
+    if (t)
+        s_sim_time = *t;
+    printf("[stub] set_time %04d-%02d-%02d %02d:%02d:%02d\n", t ? t->year : 0, t ? t->month : 0, t ? t->day : 0,
+           t ? t->hour : 0, t ? t->minute : 0, t ? t->second : 0);
+    return ESP_OK;
+}
+void clock_sntp_set_time_trusted(bool trusted) { (void)trusted; }
 
 /* ---- alarm scheduler (canned rule state) ---- */
 
@@ -273,6 +292,7 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
 void moon_ui_refresh(void) {}
 void moon_ui_init(void) {}
 void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
+void moon_ui_day_tick(void) {} /* the manual time-entry commit re-bakes (device) */
 void moon_ui_start(void) {}
 bool moon_ui_sweeping(void) { return false; }
 void moon_ui_fade_out(void) {}

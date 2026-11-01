@@ -55,6 +55,10 @@ CC=${CC:-gcc}
 CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon -DPANEL_SIZE=$PANEL"
 if [ "$PANEL" != 466 ]; then
     BUILD="$PWD/build-$PANEL"
+    # The non-466 panel IS the P4 board: compile the screens'
+    # CONFIG_BOARD_P4 blocks (the settings hub's clock icon, the P4's
+    # manual time-entry entry point) into the sim too.
+    CFLAGS="$CFLAGS -DCONFIG_BOARD_P4=1"
 fi
 
 INCLUDES=(

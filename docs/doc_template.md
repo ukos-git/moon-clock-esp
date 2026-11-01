@@ -83,10 +83,11 @@ Markdown and renders the project's own media:
   circular wheel keyboard, §7.13, ships its at-rest, touched-down, 123, ABC and
   symbol modes), rendered by the UI simulator (`host_sim/uisim`) from the
   _real_ device `screens.c` with the vendored LVGL 9.6 — the exact panel
-  pixels, 466x466 RGB565: `docs/img/screens/*.png`. The **same 17 shots at the
-  P4's 720x720 panel** (the 650 px moon disk, the 720 px UI — panel-scaled
-  layout + the P4's 148/74/50 px fonts): `docs/img/screens/p4/*.png`
-  (`build.sh run --panel 720` builds into its own `build-720/` dir).
+  pixels, 466x466 RGB565: `docs/img/screens/*.png`. **18 shots at the P4's
+  720x720 panel** (the same 17 + the P4-reached manual time entry, §7.15 — the
+  650 px moon disk, the 720 px UI — panel-scaled layout + the P4's 148/74/50 px
+  fonts): `docs/img/screens/p4/*.png` (`build.sh run --panel 720` builds into
+  its own `build-720/` dir).
 - **4 films** of the live animations — the first three with frames rendered by
   the device's own moon core (`host_sim/build/moon_sim`, the exact device
   translation units):
@@ -286,8 +287,14 @@ P4-specific code facts:
   full level); the touch dismiss is the snooze — the task fades the volume out
   over ~150 ms, closes the codec (DAC + I2S TX), and the next alarm re-opens
   it. The S3 has no audio hardware: there the ring functions are no-op stubs
-  and the alarm path is untouched. Only the P4 manual time-entry screen (calls
-  `clock_sntp_set_time_trusted`) remains.
+  and the alarm path is untouched. The **manual time entry** (M5.6, 2026-11-01,
+  §7.15) closes the flag's writer side: a P4-reached screen (the hub's 12
+  o'clock clock icon) whose six rollers seed from `clock_sntp_get_system_time`;
+  releasing any one commits the whole value — `clock_set_time`
+  (mktime/settimeofday + the alarm one-shot re-arm),
+  `clock_sntp_set_time_trusted(true)` (undim + the alarm fire gate), and
+  `moon_ui_day_tick()` (the moon re-bakes when the calendar day changed — the
+  settings→home exit path does not run it).
 - **The DSI panel's strip writes are async.** The P4 DPI panel copies each
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
@@ -333,9 +340,13 @@ unchanged), the seconds arcs ride the panel edge and the type is the P4's
 regenerated font set (`components/ui/fonts_p4/`: the same six `lv_font_conv`
 subsets at 148/74/50 px instead of 96/48/32 — identical `lv_font_t` symbols, so
 `fonts.h` and every consumer are unchanged; `components/ui/CMakeLists.txt`
-swaps the font dir on `CONFIG_BOARD_P4`). Verified: uisim 720 shots of all 17
-screens (`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the
-S3 binary behaviourally unchanged (the uisim 466 pass renders byte-identical
+swaps the font dir on `CONFIG_BOARD_P4`). M5.6 regenerated two P4-only subsets
+from the same Opts with a widened character set: the 148 px Font Awesome
+Regular now carries U+F017 (clock — the 5th hub icon, §7.6) and the 74 px
+Montserrat numbers now carry `.` (the date row's separator, §7.15); the S3's
+`fonts/` stays untouched. Verified: uisim 720 shots of all 18 screens
+(`docs/img/screens/p4/`, the scripted `--wheel` flow panel-scaled), the S3
+binary behaviourally unchanged (the uisim 466 pass renders byte-identical
 screens), the spin's keep-mask band 326-357 lands on the upscaled home seconds
 arc (ring r 329-344, knob to r ~350; RMIN sits just outside the 650 px moon
 edge at r 325, so the band never overlaps the disk). The rotated orientation
@@ -345,7 +356,10 @@ layer grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary
 baseline — the shared clock headers + the trusted-time flag); after M5.5 (the
 ES8311 alarm ring): P4 **1,547,584 B** (`0x179d40` — the ring pulls the
 `esp_codec_dev` + I2S driver into the link), S3 **1,450,400 B** (`0x1621a0`,
-+48 B — the no-op stub calls).
++48 B — the no-op stub calls); after M5.6 (the manual time entry, §7.15): P4
+**1,560,752 B** (`0x17d0b0` — the screen + the two P4 font regenerations it
+needs), S3 **1,451,664 B** (`0x162690`, +1,264 B — the same screen's code,
+shared and structurally identical, simply unreachable on the S3).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -355,13 +369,14 @@ the link), and the CPU1 idle-task WDT check is disabled
 a core for seconds (same as the S3). The P4 software clock (M5.1 — no RTC IC:
 crystal-backed internal RTC timer + SNTP + `esp_timer` alarm/countdown
 one-shots, the P4 half of §10.6) is code-complete 2026-11-01 (build-verified
-both targets; on-device verification pending); the NVS epoch backup (M5.2's
-power-loss half) landed the same day, as did the **ES8311 alarm ring** (M5.5 —
-the fired alarm rings through the board's codec + speaker amp, volume ramped up
+both targets; device-verified 2026-11-01: clean boot, SNTP sync, the alarm
+one-shot armed from the synced time); the NVS epoch backup (M5.2's power-loss
+half) landed the same day, as did the **ES8311 alarm ring** (M5.5 — the fired
+alarm rings through the board's codec + speaker amp, volume ramped up
 gradually, touch dismiss = snooze; `components/ui/alarm_audio.c`, P4-only with
-S3 no-op stubs, §7.5), leaving only the P4 manual time-entry screen. The S3
-build flow is unchanged; the shim + call-site migration add ~15 KB to the S3
-binary (§3.1).
+S3 no-op stubs, §7.5) and the **P4 manual time entry** (M5.6 — the screen that
+writes the trusted flag, §7.15). The S3 build flow is unchanged; the shim +
+call-site migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -487,7 +502,7 @@ components/
                            interrupt logic, idle detector; clock_sntp.c (NTP sync +
                            the time-trusted flag); clock_alarm_scheduler.c (cron-like
                            alarms, write/reload, */N>59); settings_store.c (store)
-  ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
+  ui/                  LVGL 9.6 UI: screens.c (14 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets);
                              alarm_audio.c (the P4 ES8311 alarm ring, S3 no-op
@@ -747,10 +762,12 @@ round AMOLED showing the Moon.
   keyboard) + a 32 px range subset (the "Mo-Fr" day summary, whose font needs
   only digits-free lowercase + hyphen) + 14 px (the wheel's register keys); the
   P4 builds the _same six subsets_ from the same Opts at ×720/466 (148/74/50
-  px) in `fonts_p4/` with identical symbol names (§2.3b M4 state). Font Awesome
-  7 Free (Solid 96 px: circle-xmark/moon/wifi/stopwatch; Regular:
-  moon/alarm-clock) — the icon set is the same weight-and-color logic as the
-  type.
+  px) in `fonts_p4/` with identical symbol names (§2.3b M4 state) — two of them
+  widened in M5.6 for the P4-reached time entry: the FA Regular now also
+  carries the clock glyph (U+F017) and the 74 px numbers the `.` date
+  separator, S3 `fonts/` untouched. Font Awesome 7 Free (Solid 96 px:
+  circle-xmark/moon/wifi/stopwatch; Regular: moon/alarm-clock + clock on the
+  P4) — the icon set is the same weight-and-color logic as the type.
 - **Geometry — concentric circles.** The home screen _is_ the moon: disk center
   = screen center. The settings hub mirrors it: a central circle-xmark exit
   (the fa-circle-xmark glyph alone — the glyph _is_ the button, U+F057) with
@@ -774,9 +791,9 @@ round AMOLED showing the Moon.
 
 ## 7. Screens — every live screen with its settings
 
-All 13 screens, exact panel pixels from the UI simulator. The "settings
-displayed" column lists what the screen shows and what each control changes
-live.
+All 14 screens, exact panel pixels from the UI simulator (13 live on the S3;
+the manual time entry, §7.15, is P4-reached). The "settings displayed" column
+lists what the screen shows and what each control changes live.
 
 ### 7.1 Airplane (modem sleep) — the home screen
 
@@ -864,7 +881,10 @@ live.
   (airplane) screen**, no sync kicked off.
 - Icon ring (45° diagonals, 96 px glyphs, clickable): alarm settings
   (alarm-clock, regular), light sleep (moon, regular), deep sleep (moon, solid
-  — the weight distinguishes the two), WiFi (wifi, solid).
+  — the weight distinguishes the two), WiFi (wifi, solid). The **P4 adds a
+  fifth icon at 12 o'clock** — clock (regular, U+F017, the glyph the FA regular
+  set regenerated for it, §2.3b) opening the manual time entry (§7.15); the S3
+  keeps the 4-icon diamond (its time comes from the PCF85063A).
 - Grey = present/available, white = selected; the sub-screens' bottom-centre
   exit is the same glyph at 96 px and returns to the **calling level** (the
   hub, or the alarm screen for its two sub-screens).
@@ -1157,6 +1177,40 @@ the normative interaction spec; the geometry table above is the normative
 geometry. When v2 lands, this section updates to describe the device behaviour
 (and §7.13's screenshots re-render from the new `screens.c` through the UI
 simulator).
+
+### 7.15 Manual time entry (P4)
+
+![manual time entry](img/screens/p4/settings_time.png)
+
+- **Why it exists:** the P4 has no RTC IC, and before its first SNTP sync the
+  wall clock sits at its default (or the NVS-restored epoch after a power loss)
+  — dimmed to 50 % and the alarm fire gate closed (M5.1/M5.2). This screen sets
+  the clock by hand. The **date** must be settable, not just the time: a stale
+  date keeps the moon phase and the alarm weekdays wrong for months (the
+  2026-01-24 default is nine months off on today's wall clock).
+- **Reach:** the settings hub's 12 o'clock clock icon (P4 only, §7.6). The
+  screen itself is shared — the S3 build carries it structurally identical,
+  simply unreachable (no icon; its time comes from the PCF85063A).
+- **Layout:** a caption ("SET TIME / DATE", 32 px, grey) over two roller rows —
+  the **time row** HH:MM:SS (the 96 px clock font, at the home clock label's
+  position; the `:` from the same font) and the **date row** DD.MM.YY (the 48
+  px font; the `.` from the regenerated 74 px numbers subset, §2.3b; the year
+  as a two-digit 2000+YY). The same roller look as the other settings value
+  displays (grey rows, white selected row, three visible rows).
+- **Seed:** the rollers seed from `clock_sntp_get_system_time` on entry — the
+  day/month option strings start at "01", so their selected index is value−1
+  (hour/minute/second/year start at "00" and index = value).
+- **Commit:** releasing ANY of the six rollers commits the whole value —
+  `clock_set_time` (mktime with `tm_isdst=-1` so TZ/DST resolves,
+  `settimeofday`, and the software alarm one-shot re-armed via the scheduler's
+  reload; `validate_time` rejects years outside 2000–2099), then
+  `clock_sntp_set_time_trusted(true)` (the unsynced dim lifts + the alarm fire
+  gate opens) and `moon_ui_day_tick()` (the moon re-bakes when the calendar day
+  changed). The home clock label then converges on the next 1.3 s poll. The set
+  persists in the RTC domain (the crystal keeps it) and the NVS epoch backup
+  re-snapshots it.
+- **Settings displayed:** the wall clock, editable hour/minute/second and
+  day/month/year.
 
 ---
 
@@ -1791,7 +1845,7 @@ components/
     include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
-  ui/                        the LVGL UI: screens.c (13 screens) + moon_ui.c
+  ui/                        the LVGL UI: screens.c (14 screens) + moon_ui.c
     (the pipeline) + actions.c (flow) + styles.c (the theme) + fonts/ (generated)
   imu/                       QMI8658C driver
   wifi/                      scan (settings)
