@@ -829,6 +829,12 @@ moon image (settings are moon-less by design).
 - **LVGL note:** the clickable wheel arcs carry `LV_OBJ_FLAG_ADV_HITTEST` —
   without it `lv_arc` falls back to a plain bounding-box hit test (its 466×466
   box swallows every press) and the last-created arc wins the search.
+- **Alternatives surveyed (2026-11-01):** the research note
+  `docs/research/circular-keyboard-alternatives.md` evaluates the circular
+  wheel against the published round-display text-entry literature (C-QWERTY,
+  COMPASS, Crownboard, Tap'nSwipe, in-car dial studies) for this hardware — the
+  sweep wheel is confirmed as the right family; a 12-sector DTMF-style
+  multi-tap ring and hold-to-commit dwell are the ranked low-cost additions.
 - **Settings displayed:** the prefilled SSID, the running password, the active
   register, the selected letter.
 
