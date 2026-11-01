@@ -311,8 +311,8 @@ static bool s_orbit_have; /* s_orbit_lpf holds a value */
  * smoothed toward active/settled -- see the section) under the buffer
  * mutex, runs moon_rotate over the WHOLE 400x400 frame (a ~8 ms
  * nearest-neighbor gather) and writes the moon area STRAIGHT to the
- * panel (moon_spin_write_panel: 16 cheap QSPI RAMWR strips under the
- * panel mutex, each frame atomic) -- the old LVGL whole-panel
+ * panel (moon_spin_write_panel: one continuous 400x400 QSPI window
+ * write under the panel mutex, each frame atomic) -- the old LVGL whole-panel
  * lv_refr_now (~175 ms, ~6 fps, ~150 ms of LVGL per-strip work on the
  * touch core) is gone, and a dropped frame is a bigger angular step,
  * never a stall. The buffer mutex guards every reader/writer of s_rgb
@@ -346,19 +346,22 @@ static SemaphoreHandle_t s_rgb_mtx; /* guards s_rgb (+ s_frame while baking) */
 /* The spin's DIRECT PANEL WRITE (see the spin section): the render task
  * (core 1) composites the rotated moon with LVGL's current on-panel
  * content (the clock labels + seconds arc the spin must not clobber)
- * and writes the moon area straight to the panel -- one panel
- * draw_bitmap per strip (25-row QSPI strips on the S3, 206-row DSI
- * strips on the P4), instead of LVGL's ~175 ms whole-panel
- * re-render. The panel mutex serializes those writes with LVGL's own
+ * and writes the moon area straight to the panel -- the whole 400x400
+ * window in one panel draw_bitmap on the S3 (the bus chunks it at the
+ * 466x25x2 LVGL strip size with CS held), 65-row DSI strips on the
+ * P4, instead of LVGL's ~175 ms whole-panel re-render. The panel mutex serializes those writes with LVGL's own
  * flushes (which reach the panel through the wrapped draw_bitmap);
  * the front mirror (s_front) is what the wrapper copies on every
  * LVGL strip write, so the overlay always sees fresh label/arc
  * pixels. s_disp is the per-frame composite (MOON_PX x MOON_PX,
  * panel frame: the moon rotated by the ORIENTATION step, the UI
  * pixels kept from the front mirror). */
-/* 25 rows on the S3. On the P4 the strips are SMALL, not large: the panel
- * (like the S3's PSRAM) is X16 and XIP -- both cores fetch instructions from
- * the same PSRAM the spin strips read out of -- so one 206-row (255 KB)
+/* The strip pitch. On the S3 the production write is the whole 400x400
+ * window (one CASET+RASET; 25 rows only sizes the io driver's 23,300 B
+ * chunk and the TEST_SPIN_BANDS diagnostic). On the P4 the strips are
+ * SMALL, not large: the panel (like the S3's PSRAM) is X16 and XIP --
+ * both cores fetch instructions from the same PSRAM the spin strips read
+ * out of -- so one 206-row (255 KB)
  * strip read occasionally starves the DPI controller's FIFO ("can't fetch
  * data from external memory fast enough, underrun" -- measured 2026-10-31,
  * one underrun per ~28 s of settled spin). 103 rows (6 strips, 127 KB)
@@ -743,14 +746,16 @@ static void moon_bake_epoch(int64_t epoch) {
  *
  * DISPLAY: the DIRECT PANEL WRITE (moon_spin_write_panel). The render
  * composites the rotated moon with LVGL's current on-panel content and
- * pushes the 400x400 moon area straight to the panel -- 16 strips of
- * 25 rows through the panel's REAL draw_bitmap, under ONE panel-mutex
- * hold per frame, so each frame lands atomically (no strip crawl, no
- * visible redraw). That replaces the old display path: one LVGL
+ * pushes the 400x400 moon area straight to the panel -- ONE
+ * draw_bitmap of the whole window on the S3 (a single CASET+RASET, then
+ * 23,300 B chunks with CS held; the 16 per-strip writes left a visible
+ * seam line at each strip boundary, 2026-11-01), 65-row DSI strips on
+ * the P4 -- under ONE panel-mutex hold per frame, so each frame lands
+ * atomically (no strip crawl, no visible redraw). That replaces the old display path: one LVGL
  * whole-panel lv_refr_now per spin frame (~175 ms measured -> a ~6 fps
  * cap, with ~150 ms of LVGL per-strip bookkeeping charged to the
- * touch core). The panel write itself is ~22 ms of QSPI time (40 MHz
- * quad, ~433 KB/frame) and the CPU work is one ~8 ms moon_rotate
+ * touch core). The panel write itself is ~16 ms of QSPI time (40 MHz
+ * quad, 320 KB/frame) and the CPU work is one ~8 ms moon_rotate
  * gather plus the ~0.5 M-pixel composite -- display-bound, not
  * compute-bound, and none of it on core 0. The frame rate is paced
  * (CONFIG_UI_MOON_SPIN_FPS, default 8): a dropped frame is a bigger
@@ -1178,11 +1183,29 @@ static void moon_spin_write_panel(void) {
                     row[x] = frow[x];
         }
     }
+#if defined(CONFIG_BOARD_P4) || CONFIG_TEST_SPIN_BANDS > 0
+    /* P4: 65-row DSI strips -- a single 650-row write would underrun the DPI
+     * FIFO (X16 + XIP PSRAM, measured). TEST_SPIN_BANDS keeps the per-strip
+     * writes too: the seam diagnostic needs the per-strip CASET/RASET
+     * re-latch to observe. */
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
         (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
                                    MOON_IMG_POS + MOON_PX, MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
                                    s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
     }
+#else
+    /* S3: ONE continuous write of the whole 400x400 window. The io driver
+     * issues a single CASET+RASET + 0x2C and streams the 320 KB with CS
+     * held active between 466x25x2 = 23,300 B chunks -- the bus
+     * max_transfer_sz is set to exactly that size in the vendored BSP,
+     * because the S3's largest DMA-capable internal-RAM block is ~31 KiB
+     * (the io driver's default 32 KiB chunking NO_MEM'd the first chunk of
+     * this write). The 16-strip variant (one CASET/RASET re-latch + CS
+     * toggle per strip) left a visible seam line at every 25-row strip
+     * boundary (2026-11-01). */
+    (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS, MOON_IMG_POS + MOON_PX, MOON_IMG_POS + MOON_PX,
+                               s_disp);
+#endif
     xSemaphoreGive(s_panel_mtx);
 }
 

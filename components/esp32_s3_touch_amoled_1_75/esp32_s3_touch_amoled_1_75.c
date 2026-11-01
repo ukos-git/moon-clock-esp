@@ -487,7 +487,18 @@ esp_io_expander_handle_t bsp_io_expander_init(void) {
 static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg) {
     assert(cfg != NULL);
     const bsp_display_config_t disp_config = {
-        .max_transfer_sz = BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8,
+        /* 466 x 25 x 2 -- the LVGL flush strip, NOT the full panel. The S3's
+         * PSRAM is not SPI-DMA-capable, so every QSPI chunk is staged through
+         * internal RAM, and the largest DMA-capable free block is ~31 KiB
+         * (see the buffer_height 50 -> 25 fix below): at the full-panel size
+         * the io driver's 32 KiB chunking would stage one 32 KiB internal
+         * alloc that does not fit -> ESP_ERR_NO_MEM. At 23,300 B every chunk
+         * stages like the proven LVGL strips (and the 23,300 B flush strips
+         * stay single-transaction, byte-identical), and the spin's single
+         * 400x400 window write -- one CASET+RASET, CS held between chunks;
+         * the 16-strip variant left a visible seam line at every 25-row
+         * strip boundary (2026-11-01) -- streams as 14 such chunks. */
+        .max_transfer_sz = BSP_LCD_H_RES * 25 * BSP_LCD_BITS_PER_PIXEL / 8,
     };
 
     BSP_ERROR_CHECK_RETURN_NULL(bsp_display_new(&disp_config, &panel_handle, &io_handle));

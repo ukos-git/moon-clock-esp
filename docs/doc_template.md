@@ -464,8 +464,18 @@ On the S3, `buffer_height = 25` (23.3 KiB strip) and flush queue depth 1 are
 hard limits (the 50-row upstream default exhaustes the DMA-capable heap); the
 P4's BSP uses 50-row buffers freely. The burn-in spin bypasses this strip path
 entirely: a wrapped `draw_bitmap` writes the MOON_PX² moon area straight to the
-panel (16×25-row QSPI strips on the S3; 10×65-row DSI strips on the P4) under
-the panel's own bus lock, keeping the LVGL core free (§8.1). The P4's spin
+panel — **one continuous 400×400 QSPI window write on the S3** (a single
+CASET/RASET, then 23,300 B data chunks with CS held between them), 10×65-row
+DSI strips on the P4 — under the panel's own bus lock, keeping the LVGL core
+free (§8.1). The S3 chunk size is the 25-row strip size by construction: the
+PSRAM is not SPI-DMA-capable, so the io driver stages every chunk through
+internal RAM, and the largest DMA-capable free block is ~31 KiB — the bus
+`max_transfer_sz` is set to exactly 466×25×2 = 23,300 B in the vendored BSP
+(the LVGL flush strips stay single-transaction at exactly that size; the io
+driver's default 32 KiB chunking would stage one 32 KiB internal alloc that
+does not fit — `ESP_ERR_NO_MEM` on the single-window write, 2026-11-01). The
+per-strip variant (one CASET/RASET re-latch + CS toggle per strip) left a
+visible seam line at every 25-row strip boundary (2026-11-01). The P4's spin
 strips are deliberately SMALL: the P4's PSRAM is X16 and XIP (both cores fetch
 instructions from the same PSRAM the strips read out of), so one large 206-row
 (255 KB) strip read occasionally starves the DPI controller's FIFO ("can't
@@ -614,10 +624,11 @@ frame with the rate smoothed (EMA) toward the target — active period (default
 300 s/turn) while in use, **constant slow spin** (600 s/turn,
 `UI_MOON_SPIN_SETTLED_PERIOD_S`) when settled, so the moon never reads as
 frozen before light sleep. ~8 ms gather per frame, then the composited MOON_PX²
-composite is written **straight to the panel** (16×25-row QSPI strips on the
-S3; 10×65-row DSI strips on the P4) at 8 fps (`UI_MOON_SPIN_FPS`) — the render
-bypasses LVGL's re-render path (the wrapped `esp_lcd_panel_draw_bitmap`), so
-the frame cost is gather + one panel write, not the ~175 ms re-render.
+composite is written **straight to the panel** (one continuous 400×400 QSPI
+window write on the S3; 10×65-row DSI strips on the P4) at 8 fps
+(`UI_MOON_SPIN_FPS`) — the render bypasses LVGL's re-render path (the wrapped
+`esp_lcd_panel_draw_bitmap`), so the frame cost is gather + one panel write,
+not the ~175 ms re-render.
 
 ### 5.4 The clock
 
@@ -974,8 +985,9 @@ device's own sweep; ~2.8 min on-device, 67 s at 5 fps here):
 
 **Free spin** — the settled animation at the current phase (36 frames @466 px,
 10° steps; on-device each frame is one ~8 ms nearest-neighbor gather of the
-baked 400×400 phase + a direct 16-strip panel write, at 8 fps by default — the
-frame lands on the panel without an LVGL re-render in between):
+baked 400×400 phase + a direct panel write of the whole 400×400 window (one
+CASET/RASET, 23,300 B chunks with CS held — no per-strip re-latch), at 8 fps by
+default — the frame lands on the panel without an LVGL re-render in between):
 
 ![free spin montage](img/free_spin.png)
 <video src="img/free_spin.mp4" controls width="466"></video>
@@ -1191,7 +1203,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Relief gradient cache (boot, 4,096 KB packed) | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                             |
 | Boot sweep (S3)                               | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                            |
 | Boot sweep (P4)                               | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                            |
-| Free spin                                     | **~8 ms** fixed-point gather + direct 16×25-row (S3) / 10×65-row (P4) panel write per frame (wrapped `draw_bitmap`, LVGL bypassed), 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                          |
+| Free spin                                     | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)        |
 | Dusk                                          | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; the deep-sleep countdown arm still soft-fails `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5 re-routes it to the internal RTC timer) |
 | Wake                                          | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                             |
 | Screen switch (moon)                          | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                              |
