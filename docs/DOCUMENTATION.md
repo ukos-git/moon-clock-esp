@@ -1223,6 +1223,12 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   lv_timer ticks, ~510 s real).
 - `TEST_BAKE_NO_RELIEF` — relief-free bakes (the PSRAM-load-latency floor A/B:
   bake ~1.3 s with relief vs ~0.95 s without).
+- `TEST_SPIN_BANDS` — the spin's seam diagnostic: one distinct gray level per
+  strip (the MOON_PX² moon area becomes horizontal bands, darkest to
+  brightest), so a glitch at a strip seam (a stray line, a shifted boundary, a
+  row that does not land) shows on a clean pattern with no moon texture or
+  keep-mask to confound it. The write path (same strips, same geometry, same
+  panel mutex) is unchanged; only the content differs.
 - `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
@@ -1425,7 +1431,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (103,421 B)
+- `docs/doc_template.md` (103,803 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)

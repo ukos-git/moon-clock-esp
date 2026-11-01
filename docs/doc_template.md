@@ -1223,6 +1223,12 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   lv_timer ticks, ~510 s real).
 - `TEST_BAKE_NO_RELIEF` — relief-free bakes (the PSRAM-load-latency floor A/B:
   bake ~1.3 s with relief vs ~0.95 s without).
+- `TEST_SPIN_BANDS` — the spin's seam diagnostic: one distinct gray level per
+  strip (the MOON_PX² moon area becomes horizontal bands, darkest to
+  brightest), so a glitch at a strip seam (a stray line, a shifted boundary, a
+  row that does not land) shows on a clean pattern with no moon texture or
+  keep-mask to confound it. The write path (same strips, same geometry, same
+  panel mutex) is unchanged; only the content differs.
 - `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
