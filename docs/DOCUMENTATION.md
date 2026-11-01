@@ -26,7 +26,7 @@ follow-on milestone), the **computed (backlit) night side** — the unilluminate
 side is now the real lunar surface lit faintly from the anti-solar direction
 instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item 4; the `dk_sup` rim
 kill is baked into the shade map and `moon_reproject` is a pure gather — §5.2
-item 5), and the burn-in spin's **direct panel write** (the render task writes
+item 6), and the burn-in spin's **direct panel write** (the render task writes
 the MOON_PX² moon area straight to the panel at 8 fps instead of routing
 through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
 the moon no longer freezes before light sleep), the **fade-to-black screen
@@ -684,15 +684,28 @@ angular scale.
    is the **computed surface, not a flat overlay** — the real lunar surface
    (albedo + displaced relief) lit faintly from the _anti-solar_ direction
    (`moon_backlit_night`: `A · clip(−lns, 0, 1) · MOON_NIGHT_BACKLIT_K` with
-   `K = 0.10`, peak ≈ 25/255 — about the old flat floor's level, now with the
-   surface structure; plain linear gray, deliberately NOT the tone LUT, whose
-   bin-1 shadow lift would over-brighten it). It is body-frame constant (the
-   epoch's S is fixed), so the shade map and the spin stay a static image and
-   only the projection rotates. The validated earthshine path (`dark_zero = 0`:
-   `TONE_LUT[0] + earthshine(d)`) is byte-identical to the old model — it is
-   what the gate and the host film run; `pole_test` proves BOTH the earthshine
-   path and the backlit one (§12.2);
-5. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
+   `K = 0.20`, peak ≈ 51/255). K is an **ARTISTIC** level, not a physical one:
+   calibrated (2026-11-02) so the device's computed dark side matches the NASA
+   SVS render's dark side — dark-region mean 8.0 vs 8.9 gray on the 2.1 %
+   crescent frame (4.4 at the old `K = 0.10` — the sim's dark side was ~half as
+   strong as the reference it should beat), within ~0.5–0.9 gray of NASA on the
+   other three gate frames; plain linear gray, deliberately NOT the tone LUT,
+   whose bin-1 shadow lift would over-brighten it). It is body-frame constant
+   (the epoch's S is fixed), so the shade map and the spin stay a static image
+   and only the projection rotates. The validated earthshine path
+   (`dark_zero = 0`: `TONE_LUT[0] + earthshine(d)`) is byte-identical to the
+   old model — it is what the gate and the host film run; `pole_test` proves
+   BOTH the earthshine path and the backlit one (§12.2);
+5. **Soft terminator (display only)**: on the display bake the hard 0 →
+   tone-LUT-floor step at `lns = 0` is replaced by a smoothstep blend between
+   the lit value and the backlit value across `±MOON_TERM_SOFT` (0.03 lns ≈ 6
+   px either side at the 400 px disk) — the same blurred day/night boundary the
+   NASA SVS render carries (a measured smear of a few pixels, not a hard step).
+   Gated on `dark_zero && dk_sup == 0.0f` (the plain display bake): the dusk's
+   `dk_sup` shade map and the gate's `dark_zero = 0` path keep the original
+   hard terminator, so the gate's numbers stay byte-identical across the
+   artistic pass;
+6. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
    view latitude, so the _endpoint_ view still carries a geometrically lit rim
    sliver (d up to `sqrt(1 - E·S(φ*)²)`) which would linger on the dark sleep
    screen as a bright arc hugging the disk edge (the user-reported "white ray"
@@ -710,8 +723,19 @@ angular scale.
    between the two bounds is never on screen (no pop). Every non-dusk caller
    passes `0.0f` (the margin is inert there — the night test reduces to
    `lns ≤ 0`, byte-identical to the pre-fix code);
-6. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
-   then 8-bit → RGB565.
+7. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
+   then 8-bit → RGB565. The final 8-bit → RGB565 LUT is **warm by default** (an
+   ARTISTIC display choice, `moon_render.c` `g565_build`): the NASA SVS
+   render's lit region is measurably warm (lit-region RGB ≈ (164,160,153)
+   across the 2025 set, R/B ≈ 1.07, R−G +3.9, G−B +6.7 — the SVS white
+   balance), and a warm moon reads as a real moon photo against the AMOLED's
+   true black. Multipliers R ×1.038 / G ×1.000 / B ×0.933 reproduce that
+   balance at every gray level (the 6-bit green field is used in full, so the
+   gray stays balanced — capping green to the 5-bit value would render every
+   gray magenta on the panel). `moon_gray565_set_warm(0)` rebuilds the neutral
+   LUT; the image gate runs the simulator with `--neutral` so the tint never
+   enters the gate's metrics (which validate the gray physics, not the display
+   color).
 
 **View-independence** (the key architectural fact): a pixel's color depends
 only on the body-frame surface direction and the epoch's fixed body-frame Sun —
@@ -837,7 +861,8 @@ lists what the screen shows and what each control changes live.
   1°/frame, shade map baked once — S3 ~1.6 s / P4 282 ms, 2026-11-01; final
   frame a pixel-exact bake at φ\*; the dark side is the **faint backlit
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
-  25/255, so the far side stays visible on the AMOLED without a flat overlay).
+  51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
+  without a flat overlay).
 - The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
   opacity is the only "alpha"; the moon image is a sibling and stays
   full-contrast).
@@ -1625,8 +1650,10 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/main.c` (`moon_sim`) — the **exact device core** built for the
   host; writes PNGs at the real panel size (`--size 466` device / `--size 400`
   gate geometry; `--rot`, `--pole` (a 1:1 copy of the device's dusk spin),
-  `--darkzero`, `--list`/`--frames` batch modes). This is also the film
-  renderer (`docs/gen_media.py`).
+  `--darkzero` (the device's computed backlit night side), `--neutral` (the
+  neutral gray→565 LUT — the default is the display's warm tint, §5.2 item 7),
+  `--list`/`--frames` batch modes). This is also the film renderer
+  (`docs/gen_media.py`).
 - `host_sim/pole_test.c` — the dusk geometry proof (ad-hoc build, not a CMake
   target): right-sign fold beats wrong-sign 2.5×; φ\* analytic == grid minimum
   to 1e-5; the dark-side frame keeps contrast; map-once vs per-frame re-bake
@@ -1728,9 +1755,14 @@ level there), **at the disk rim** (the disk mask edge), and **in the relief
 texture of the lit half** (crater walls are where the banded DEM approximation
 deviates from the full-resolution reference). The night side is the darkest
 part of the residual — the computed backlit side (§5.2 item 4) is the least
-constrained by the reference. The gate numbers for the 2026-11-01 run:
-per-frame MAE 4.90–8.90 (max 8.90 ≤ the 12 gate), content SSIM 0.838–0.951
-(mean 0.908).
+constrained by the reference. **The gate validates the physics, not the display
+tint**: `check_gate.py` runs the simulator with `--neutral`
+(`moon_gray565_set_warm(0)`) and the dark_zero = 0 earthshine path, so the
+artistic pass (§5.2 items 4–5, 7 — the K = 0.20 backlit level, the soft
+terminator, the warm RGB565 LUT) is invisible to its metrics. The 2026-11-02
+art-pass run is therefore byte-identical to the pre-pass run: per-frame MAE
+4.90–8.90 (max 8.90 ≤ the 12 gate), content SSIM 0.838–0.951 (mean 0.908),
+C–Python MAE 1.03 (max 1.31 ≤ 2) — **PASS**.
 
 Regenerate: `host_sim/.venv/bin/python host_sim/check_gate.py` (fresh 32-frame
 output in `/tmp/moon-sim-gate/`) then
@@ -1929,7 +1961,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (143,776 B)
+- `docs/doc_template.md` (146,169 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -12838,9 +12870,21 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
  * the shade map stays static and only the projection rotates (the pole
  * spin) -- the user's "no earth ray, the image is static and only the
  * sphere it is projected onto rotates". MOON_NIGHT_BACKLIT_K sets the
- * level: the dark side's peak gray = 255 * K (25 at 0.10 -- about the
- * old MOON_NIGHT_FLOOR's flat 10, now with the surface structure). */
-#define MOON_NIGHT_BACKLIT_K 0.10f
+ * level: the dark side's peak gray = 255 * K (51 at 0.20). 0.20 is an
+ * ARTISTIC choice (the display is meant to read as a real moon photo, not a
+ * faint afterimage): the unilluminated side is clearly visible with real
+ * mare/highland structure, ~2x the old 0.10 floor (peak 25). The gate
+ * validates the dark_zero = 0 path, so this display-only constant is
+ * invisible to it. */
+#define MOON_NIGHT_BACKLIT_K 0.20f
+/* Soft terminator width (lns units, EACH side of the lns = 0 terminator).
+ * The hard 0 -> LUT-floor step at lns = 0 reads as a cutout edge; a narrow
+ * smoothstep band blends the backlit night side into the lit side the way a
+ * real photo's terminator falls off (the user: "NASA adds a gaussian blur at
+ * the boundary"). Display only -- the blend is applied in the dark_zero = 1
+ * path (the device bake), and the gate's dark_zero = 0 path is untouched.
+ * 0.03 lns ~= 6 px each side at the 400 px disk (1 lns unit ~= 200 px). */
+#define MOON_TERM_SOFT 0.03f
 /* The shade-map dark-side bound erosion (replaces the re-project's old
  * per-pixel dk_sup kill): the re-project samples the map NEAREST-NEIGHBOR,
  * so a dark pixel (d < dk_sup) near the d = dk_sup boundary rounds to the
@@ -13098,6 +13142,30 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     else if (r >= c->alb_h)
         r = c->alb_h - 1;
     float A = (float)c->alb[r * c->alb_w + col];
+
+    /* Soft terminator (display only: dark_zero = 1, the normal display bake
+     * with dk_sup = 0). Blend the lit value and the backlit night value
+     * across a narrow smoothstep band at lns = 0 so the terminator is a
+     * soft ramp (see MOON_TERM_SOFT) instead of the hard 0 -> LUT-floor
+     * step. Far lit side (lns >= band) and far dark side (lns <= -band)
+     * reduce to the unmodified values; the dusk (dk_sup > 0) and the gate
+     * (dark_zero = 0) both fall through to the original path below. */
+    if (c->dark_zero && c->dk_sup == 0.0f) {
+        int idx = (int)(A * L + 0.5f);
+        if (idx < 0)
+            idx = 0;
+        else if (idx > 255)
+            idx = 255;
+        float litv = MOON_TONE_LUT[idx] + earthshine(d);
+        float darkv = (float)moon_backlit_night(A, lns);
+        float t = lns <= -MOON_TERM_SOFT ? 0.0f
+                  : lns >= MOON_TERM_SOFT ? 1.0f
+                                          : (lns + MOON_TERM_SOFT) / (2.0f * MOON_TERM_SOFT);
+        t = t * t * (3.0f - 2.0f * t); /* smoothstep */
+        float out = darkv + (litv - darkv) * t;
+        c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+        return;
+    }
 
     int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);
     if (is_night) {
@@ -13512,22 +13580,49 @@ int32_t moon_cos15(float rad) { return moon_sin15(rad + (float)(M_PI / 2.0)); }
 #include <math.h>
 #include <string.h>
 
-/* Gray -> RGB565, round-to-nearest, built once (256 entries). */
+/* Gray -> RGB565, round-to-nearest, built once (256 entries).
+ *
+ * The LUT is WARM by default (ARTISTIC display choice): NASA's reference
+ * frames render the lunar lit side measurably warm (lit-region RGB
+ * (164,160,153) across the 2025 set, R/B = 1.07, R-G +3.9, G-B +6.7 -- the
+ * SVS render's white balance, not a lens artifact), and a warm moon reads
+ * as a real moon photo against the AMOLED's true black. The multipliers
+ * (R x1.038, G x1.000, B x0.933) reproduce that balance at every gray
+ * level. `moon_gray565_set_warm(0)` rebuilds the neutral LUT (the gate's
+ * --neutral path: the C-vs-NASA / C-vs-Python metrics validate the neutral
+ * gray physics, so the display tint never enters the gate numbers). */
 static uint16_t g565[256];
 static int g565_init = 0;
+static int g565_warm = 1;
 
 static void g565_build(void) {
     for (int g = 0; g < 256; g++) {
-        /* Neutral gray: R5 and B5 (5-bit) and G6 (6-bit) all at the same
-         * fraction. R5/B5 = round(g*31/255), G6 = round(g*63/255). Using the
-         * full 6-bit green is what makes the gray neutral -- writing the 5-bit
-         * value into the 6-bit green field caps green at 31/63 (~49%) and
-         * renders every gray as magenta/pink on the panel. */
+        /* R5/B5 (5-bit) and G6 (6-bit). Using the full 6-bit green is what
+         * keeps the gray balanced -- writing the 5-bit value into the 6-bit
+         * green field caps green at 31/63 (~49%) and renders every gray as
+         * magenta/pink on the panel. Warm: R +3.8%, B -4.9% (calibrated to
+         * the NASA lit-region balance; R is capped at full 31). */
         int r5 = (g * 31 + 127) / 255;
         int g6 = (g * 63 + 127) / 255;
-        g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | r5);
+        int b5 = r5;
+        if (g565_warm) {
+            r5 = (g * 32 + 127) / 255; /* x1.038 ~= 31 * 1.038 = 32.2/255 per gray */
+            if (r5 > 31)
+                r5 = 31;
+            b5 = (g * 29 + 127) / 255; /* x0.933 ~= 31 * 0.933 = 28.9/255 per gray */
+            if (b5 > 31)
+                b5 = 31;
+        }
+        g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
     }
     g565_init = 1;
+}
+
+void moon_gray565_set_warm(int on) {
+    if (on != g565_warm) {
+        g565_warm = on;
+        g565_build();
+    }
 }
 
 uint16_t moon_gray565(uint8_t g) {
@@ -13842,7 +13937,8 @@ typedef struct {
  * gradient (the validated model -- the host gate / pole_test).
  * dark_zero = 1: the dark side is the COMPUTED (backlit) surface -- the
  * lunar albedo + relief lit from the anti-solar direction (-S) at a
- * faint level (peak gray ~25 per the core's MOON_NIGHT_BACKLIT_K), not
+ * faint level (peak gray ~51 per the core's MOON_NIGHT_BACKLIT_K, an
+ * ARTISTIC level calibrated to NASA's rendered dark side), not
  * a flat overlay: the user's "the unilluminated side is fully
  * calculated, no earth ray". It is body-frame (S fixed for the epoch),
  * so the dusk's pole spin re-projects the one static map and only the
@@ -13961,8 +14057,15 @@ void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, 
 void moon_rotate_rows(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
                       int32_t cos15, int32_t sin15, int y0, int y1);
 
-/* Gray 0..255 -> RGB565 (round-to-nearest 256-entry LUT; 1 lookup/px). */
+/* Gray 0..255 -> RGB565 (round-to-nearest 256-entry LUT; 1 lookup/px).
+ * The LUT is warm by default (R x1.038 / B x0.933, calibrated to the NASA
+ * lit-region balance -- the artistic display choice); see moon_render.c. */
 uint16_t moon_gray565(uint8_t g);
+
+/* Rebuild the gray->565 LUT: on = the default warm display tint,
+ * off = neutral gray (the image gate runs the simulator with --neutral so
+ * its metrics validate the physics, not the display tint). */
+void moon_gray565_set_warm(int on);
 
 /* Q15.15 sin/cos, int32 (2048-entry quarter-symmetric table, moon_fixp.c). */
 int32_t moon_sin15(float rad);
@@ -34353,6 +34456,11 @@ lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size) {
     lv_obj_set_style_bg_opa(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* The glyph's label line-height exceeds the box (e.g. ~200 px at the
+     * 148 px P4 font in the 148 px box): LVGL's default SCROLLABLE flag
+     * would draw a vertical scrollbar at the box's right edge (the thin
+     * line the user saw crossing the circle). The box never scrolls. */
+    lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *xmark = lv_label_create(ring);
@@ -36091,16 +36199,18 @@ static void settings_wheel_set_mode(int m) {
         }
     }
     /* Re-place the 12 sector dividers (the group boundaries) + the
-     * per-box dividers (the in-sector hairlines). The dividers rotate by
-     * 0.1-degrees (pass deg*10). */
+     * per-box dividers (the in-sector hairlines). LVGL rotates an object
+     * about its OWN centre, so a radial bar must be centred at the
+     * mid-radius (150..226 and 154..222 both centre at 188) and rotated
+     * by 0.1-degrees (pass deg*10) to run along the radial. */
     for (int k = 0; k < WHEEL_N_SECTORS; k++) {
         int cnt = s_wheel_n_of[k];
         if (cnt > 0) {
             float a = (float)s_wheel_sector_start[k] * WHEEL_SHARE - 90.0f; /* the sector's start */
             float ar = a * 3.14159265f / 180.0f;
             int32_t len = UI_PX(76);
-            int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(ar));
-            int32_t ty = (int32_t)(WHEEL_INNER_R_MID * sinf(ar));
+            int32_t tx = (int32_t)(UI_PX(188) * cosf(ar));
+            int32_t ty = (int32_t)(UI_PX(188) * sinf(ar));
             lv_obj_set_size(s_wheel_dividers[k], len, 1);
             lv_obj_set_pos(s_wheel_dividers[k], WHEEL_C + tx - len / 2, WHEEL_C + ty);
             lv_obj_set_style_transform_rotation(s_wheel_dividers[k], (int32_t)(a * 10.0f), 0);
@@ -36111,8 +36221,8 @@ static void settings_wheel_set_mode(int m) {
                 float a = (float)s * WHEEL_SHARE - 90.0f;
                 float ar = a * 3.14159265f / 180.0f;
                 int32_t len = UI_PX(68);
-                int32_t tx = (int32_t)(UI_PX(154) * cosf(ar));
-                int32_t ty = (int32_t)(UI_PX(154) * sinf(ar));
+                int32_t tx = (int32_t)(UI_PX(188) * cosf(ar));
+                int32_t ty = (int32_t)(UI_PX(188) * sinf(ar));
                 lv_obj_set_size(s_wheel_box_dividers[k][j], len, 1);
                 lv_obj_set_pos(s_wheel_box_dividers[k][j], WHEEL_C + tx - len / 2, WHEEL_C + ty);
                 lv_obj_set_style_transform_rotation(s_wheel_box_dividers[k][j], (int32_t)(a * 10.0f), 0);
@@ -36286,13 +36396,15 @@ void create_screen_settings_wifi_password() {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The band hairlines (r 150 / 226): two thin full-360-degree arcs
-     * (drawn as the MAIN track, the INDICATOR left empty). */
+     * (drawn as the MAIN track, the INDICATOR left empty). The pad is the
+     * DISTANCE FROM THE EDGE (r_out = W/2 - pad), so a ring at radius r
+     * needs pad WHEEL_C - r. */
     for (int b = 0; b < 2; b++) {
         int32_t r = b == 0 ? UI_PX(150) : UI_PX(226);
         lv_obj_t *h = lv_arc_create(obj);
         lv_obj_set_pos(h, 0, 0);
         lv_obj_set_size(h, UI_PANEL_PX, UI_PANEL_PX);
-        lv_obj_set_style_pad_all(h, r, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(h, WHEEL_C - r, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_arc_set_bg_angles(h, 0, 360);
         lv_arc_set_angles(h, 0, 0);
         lv_obj_set_style_arc_width(h, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -36300,6 +36412,9 @@ void create_screen_settings_wifi_password() {
         lv_obj_set_style_arc_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_rounded(h, false, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_opa(h, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+        /* The theme gives EVERY arc a blue circular KNOB (colour primary,
+         * opaque); on a full ring it lands at the centre -- kill it. */
+        lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
         lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -36349,14 +36464,15 @@ void create_screen_settings_wifi_password() {
 
     /* The 26 reveal arc boxes (r 150..226, 76 px wide, non-rounded). The
      * sector angles are set per mode in settings_wheel_set_mode (the raw
-     * share angles; the setter normalises the wrap). Pre-built once;
-     * hidden until revealed. */
+     * share angles; the setter normalises the wrap). The pad is WHEEL_C -
+     * r_out, so the outer edge lands at r 226. Pre-built once; hidden
+     * until revealed. */
     for (int k = 0; k < WHEEL_N_SECTORS; k++) {
         for (int j = 0; j < 3; j++) {
             s_wheel_boxes[k][j] = lv_arc_create(obj);
             lv_obj_set_pos(s_wheel_boxes[k][j], 0, 0);
             lv_obj_set_size(s_wheel_boxes[k][j], UI_PANEL_PX, UI_PANEL_PX);
-            lv_obj_set_style_pad_all(s_wheel_boxes[k][j], UI_PX(150), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_all(s_wheel_boxes[k][j], WHEEL_C - UI_PX(226), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_arc_set_bg_angles(s_wheel_boxes[k][j], 0, 0);
             lv_arc_set_angles(s_wheel_boxes[k][j], 0, 0);
             lv_obj_set_style_arc_width(s_wheel_boxes[k][j], UI_PX(76), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -36400,7 +36516,11 @@ void create_screen_settings_wifi_password() {
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
     lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* r_out = W/2 - pad: the track's outer edge at r 144 needs pad 89.
+     * The INDICATOR radius is arc_r minus the indicator's own pad -- set
+     * it to 0 so the lit key covers exactly the track's annulus. */
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 150, 390);
     lv_arc_set_angles(s_wheel_mode_arc, 150, 210);
     lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -36451,7 +36571,7 @@ void create_screen_settings_wifi_password() {
     s_wheel_commit = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_commit, 0, 0);
     lv_obj_set_size(s_wheel_commit, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_commit, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_commit, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_commit, 31.5f, 88.5f);
     lv_arc_set_angles(s_wheel_commit, 0, 0);
     lv_obj_set_style_arc_width(s_wheel_commit, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -36466,7 +36586,7 @@ void create_screen_settings_wifi_password() {
     s_wheel_discard = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_discard, 0, 0);
     lv_obj_set_size(s_wheel_discard, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_discard, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_discard, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_discard, 91.5f, 148.5f);
     lv_arc_set_angles(s_wheel_discard, 0, 0);
     lv_obj_set_style_arc_width(s_wheel_discard, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -38915,8 +39035,13 @@ def main() -> int:
     with open(list_path, "w") as f:
         for i, _ph in frames:
             f.write(_iso(rec[i]["time"]) + "\n")
+    # --neutral: the display's warm gray->565 tint is an ARTISTIC choice
+    # (see moon_render.c g565_build). The gate validates the PHYSICS
+    # (neutral gray vs NASA / vs the Python prototype), so it renders the
+    # neutral LUT -- the tint never enters the gate numbers.
     r = subprocess.run([args.sim, "--list", list_path, "--size", "400",
-                        "--out", args.out], capture_output=True, text=True)
+                        "--neutral", "--out", args.out],
+                       capture_output=True, text=True)
     if r.returncode != 0:
         print("simulator failed:\n" + r.stdout + r.stderr)
         return 2
@@ -39116,6 +39241,9 @@ static int parse_iso(const char *s, int64_t *epoch) {
 /* --- one frame ---------------------------------------------------------- */
 static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
                             * backlit surface, dark_zero = 1) */
+static int g_neutral = 0; /* --neutral: the neutral gray->565 LUT (no warm
+                           * display tint) -- the image gate runs with this so
+                           * its metrics validate the physics, not the tint */
 static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
                             * pole (+z), deg -- the device's dusk spin
                             * (moon_ui.c moon_pole_geometry, copied
@@ -39253,7 +39381,12 @@ int main(int argc, char **argv) {
             g_pole_deg = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size"))
             size = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--neutral"))
+            g_neutral = 1;
     }
+
+    if (g_neutral)
+        moon_gray565_set_warm(0);
 
     if (mkdir(out, 0755) != 0) {
         /* exists */
@@ -42229,12 +42362,30 @@ static void wheel_indev_read(lv_indev_t *indev, lv_indev_data_t *data) {
     data->point = s_wheel_pt;
 }
 
+static const char *wheel_scr_label(void) {
+    lv_obj_t *a = lv_scr_act();
+    if (a == objects.settings_wifi_password)
+        return "wheel";
+    if (a == objects.settings_wifi)
+        return "wifi-list";
+    if (a == objects.settings_hub)
+        return "hub";
+    if (a == objects.wifi)
+        return "wifi";
+    char buf[16];
+    snprintf(buf, sizeof buf, "act=%p", (void *)a);
+    return buf;
+}
+
 static void wheel_step(lv_display_t *disp, lv_indev_state_t st, int32_t x, int32_t y) {
     s_wheel_pt.x = x;
     s_wheel_pt.y = y;
     s_wheel_state = st;
+    fprintf(stderr, "DBG indev %s @ (%d,%d) %s\n",
+            st == LV_INDEV_STATE_PRESSED ? "PRESS" : "REL", x, y, wheel_scr_label());
     lv_indev_read(s_wheel_indev);
     pump(disp, 20);
+    fprintf(stderr, "DBG   -> %s\n", wheel_scr_label());
 }
 
 static void wheel_press_at(lv_display_t *disp, int32_t x, int32_t y) { wheel_step(disp, LV_INDEV_STATE_PRESSED, x, y); }
@@ -42265,6 +42416,7 @@ static double wheel_slot_deg(int j) { return (j + 0.5) * 360.0 / 26.0 - 90.0; }
 
 static int wheel_snapshot(lv_display_t *disp, const char *name) {
     lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_SETTINGS_WIFI_PASSWORD - 1];
+    fprintf(stderr, "DBG snap %s act=%p wheel=%p\n", name, (void *)lv_scr_act(), (void *)root);
     lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
     if (!buf) {
         fprintf(stderr, "wheel snapshot failed: %s\n", name);
@@ -42277,15 +42429,41 @@ static int wheel_snapshot(lv_display_t *disp, const char *name) {
     return rc;
 }
 
-/* Drive the real flow to the wheel: settings-hub WiFi icon (at -R,-R,
- * R=UI_PX(117)) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID
- * prefill + the wheel. The row handler prefills the (stub) first AP's
- * SSID. Every coordinate is panel-scaled (ui_px.h). */
+/* Drive the real flow to the wheel: settings-hub WiFi icon (on the icon
+ * ring) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID prefill + the
+ * wheel. The row handler prefills the (stub) first AP's SSID.
+ *
+ * The hub's ring (create_screen_settings_hub): n icons 360/n apart,
+ * deep-sleep anchored at 180 deg, th = 180 + step*(i - (n-3)) degrees
+ * clockwise from 12 o'clock, position (R sin th, -R cos th) about the
+ * centre (R = UI_PX(117)). The WiFi entry's index differs per board (the
+ * P4 ring opens with the clock icon at 12 o'clock), so mirror it here. */
+static void wheel_hub_wifi_icon(int32_t *x, int32_t *y) {
+    int n;
+    int wifi_i;
+#if defined(CONFIG_BOARD_P4)
+    n = 6;
+    wifi_i = 4;
+#else
+    n = 5;
+    wifi_i = 3;
+#endif
+    const float step = 360.0f / (float)n;
+    const float deep = (float)n - 3.0f;
+    const float th = ((180.0f + step * ((float)wifi_i - deep)) * 3.14159265f) / 180.0f;
+    const int32_t R = UI_PX(117);
+    *x = UI_PANEL_PX / 2 + (int32_t)(R * sinf(th));
+    *y = UI_PANEL_PX / 2 - (int32_t)(R * cosf(th));
+}
+
 static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     loadScreen(SCREEN_ID_SETTINGS_HUB);
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, UI_PANEL_PX / 2 - UI_PX(117), UI_PANEL_PX / 2 - UI_PX(117));
+    int32_t ix, iy;
+    wheel_hub_wifi_icon(&ix, &iy);
+    fprintf(stderr, "DBG enter: hub wifi icon @ (%d,%d)\n", ix, iy);
+    wheel_tap(disp, ix, iy);
     pump(disp, 100);
     /* Tick the WiFi list once so the rows render (their text is what
      * gives the labels content size -- tapping before the render hits
@@ -42491,38 +42669,47 @@ int main(int argc, char **argv) {
         s_wheel_indev = indev;
 
         int fail = 0;
+        fprintf(stderr, "DBG roots: wheel=%p wifi=%p hub=%p\n",
+                (void *)objects.settings_wifi_password, (void *)objects.settings_wifi,
+                (void *)objects.settings_hub);
         wheel_enter(disp, indev);
 
         /* rest: the prefilled SSID, empty password (the "...." placeholder). */
         fail |= wheel_snapshot(disp, "rest");
 
-        /* touched: press the inner ring at slot 7 ('h'), move onto the
-         * outer band (r UI_PX(209)) and hold -- the outer frame is
-         * revealed, the hot sector lit, the large preview letter at the
-         * centre. The radii are the panel-scaled wheel's (ui_px.h). */
-        lv_point_t p1, p2;
-        wheel_point_deg(wheel_slot_deg(7), UI_PX(168), &p1);
-        wheel_point_deg(wheel_slot_deg(7), UI_PX(209), &p2);
+        /* touched (v2): press directly in the ring band (r 140..233) at
+         * slot 7 ('h', the "gh" sector) and hold -- the pressed sector's
+         * boxes are revealed, the exact box lit (inverted), the preview
+         * letter at the centre. The radii are the panel-scaled wheel's
+         * (ui_px.h); the mid-band radius 188 is the wheel's own middle. */
+        lv_point_t p1;
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(188), &p1);
         wheel_press_at(disp, p1.x, p1.y);
-        wheel_move_to(disp, p2.x, p2.y);
         fail |= wheel_snapshot(disp, "touched");
-        wheel_release_at(disp, p2.x, p2.y);
+        wheel_release_at(disp, p1.x, p1.y); /* commits the 'h' */
 
-        /* all four register modes (the mode keys at 54/78/102/126 deg,
-         * r 102; a tap snaps to the nearest key centre). */
+        /* all four register modes: the 240-degree arc's four 60-degree
+         * keys at LVGL 180/240/300/360, r 114; a press snaps to the
+         * exact key sector under the finger. */
         const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
         for (int k = 0; k < 4; k++) {
             lv_point_t pk;
-            wheel_point_deg(54.0 + 24.0 * k, UI_PX(102), &pk);
+            wheel_point_deg(180.0 + 60.0 * k, UI_PX(114), &pk);
             wheel_tap(disp, pk.x, pk.y);
             fail |= wheel_snapshot(disp, mode_names[k]);
         }
 
-        /* Commit: a short tap on the panel centre -- the stub's
-         * wifi_credentials_write + action_start_wifi_sync swaps to the
-         * transient WiFi screen, so the shot verifies the save -> connect
-         * hand-off (the entered letter was the 'h' from the sweep). */
-        wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2);
+        /* Commit (v2): a tap on the house circle-xmark key at the bottom
+         * (LVGL 60, r 114) -- the stub's wifi_credentials_write +
+         * action_start_wifi_sync swaps to the transient WiFi screen, so
+         * the shot verifies the save -> connect hand-off (the entered
+         * letter was the 'h' from the sweep). A centre tap only
+         * backspaces -- it would lose the 'h'. */
+        {
+            lv_point_t pc;
+            wheel_point_deg(60.0, UI_PX(114), &pc);
+            wheel_tap(disp, pc.x, pc.y);
+        }
         pump(disp, 100);
         {
             lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];

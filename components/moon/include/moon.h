@@ -69,7 +69,8 @@ typedef struct {
  * gradient (the validated model -- the host gate / pole_test).
  * dark_zero = 1: the dark side is the COMPUTED (backlit) surface -- the
  * lunar albedo + relief lit from the anti-solar direction (-S) at a
- * faint level (peak gray ~25 per the core's MOON_NIGHT_BACKLIT_K), not
+ * faint level (peak gray ~51 per the core's MOON_NIGHT_BACKLIT_K, an
+ * ARTISTIC level calibrated to NASA's rendered dark side), not
  * a flat overlay: the user's "the unilluminated side is fully
  * calculated, no earth ray". It is body-frame (S fixed for the epoch),
  * so the dusk's pole spin re-projects the one static map and only the
@@ -188,8 +189,15 @@ void moon_rotate(const uint8_t *frame, int frame_size, uint16_t *out, int size, 
 void moon_rotate_rows(const uint8_t *frame, int frame_size, uint16_t *out, int size, int cx, int cy, int f_cx, int f_cy,
                       int32_t cos15, int32_t sin15, int y0, int y1);
 
-/* Gray 0..255 -> RGB565 (round-to-nearest 256-entry LUT; 1 lookup/px). */
+/* Gray 0..255 -> RGB565 (round-to-nearest 256-entry LUT; 1 lookup/px).
+ * The LUT is warm by default (R x1.038 / B x0.933, calibrated to the NASA
+ * lit-region balance -- the artistic display choice); see moon_render.c. */
 uint16_t moon_gray565(uint8_t g);
+
+/* Rebuild the gray->565 LUT: on = the default warm display tint,
+ * off = neutral gray (the image gate runs the simulator with --neutral so
+ * its metrics validate the physics, not the display tint). */
+void moon_gray565_set_warm(int on);
 
 /* Q15.15 sin/cos, int32 (2048-entry quarter-symmetric table, moon_fixp.c). */
 int32_t moon_sin15(float rad);

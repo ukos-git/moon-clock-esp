@@ -170,9 +170,21 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
  * the shade map stays static and only the projection rotates (the pole
  * spin) -- the user's "no earth ray, the image is static and only the
  * sphere it is projected onto rotates". MOON_NIGHT_BACKLIT_K sets the
- * level: the dark side's peak gray = 255 * K (25 at 0.10 -- about the
- * old MOON_NIGHT_FLOOR's flat 10, now with the surface structure). */
-#define MOON_NIGHT_BACKLIT_K 0.10f
+ * level: the dark side's peak gray = 255 * K (51 at 0.20). 0.20 is an
+ * ARTISTIC choice (the display is meant to read as a real moon photo, not a
+ * faint afterimage): the unilluminated side is clearly visible with real
+ * mare/highland structure, ~2x the old 0.10 floor (peak 25). The gate
+ * validates the dark_zero = 0 path, so this display-only constant is
+ * invisible to it. */
+#define MOON_NIGHT_BACKLIT_K 0.20f
+/* Soft terminator width (lns units, EACH side of the lns = 0 terminator).
+ * The hard 0 -> LUT-floor step at lns = 0 reads as a cutout edge; a narrow
+ * smoothstep band blends the backlit night side into the lit side the way a
+ * real photo's terminator falls off (the user: "NASA adds a gaussian blur at
+ * the boundary"). Display only -- the blend is applied in the dark_zero = 1
+ * path (the device bake), and the gate's dark_zero = 0 path is untouched.
+ * 0.03 lns ~= 6 px each side at the 400 px disk (1 lns unit ~= 200 px). */
+#define MOON_TERM_SOFT 0.03f
 /* The shade-map dark-side bound erosion (replaces the re-project's old
  * per-pixel dk_sup kill): the re-project samples the map NEAREST-NEIGHBOR,
  * so a dark pixel (d < dk_sup) near the d = dk_sup boundary rounds to the
@@ -430,6 +442,30 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     else if (r >= c->alb_h)
         r = c->alb_h - 1;
     float A = (float)c->alb[r * c->alb_w + col];
+
+    /* Soft terminator (display only: dark_zero = 1, the normal display bake
+     * with dk_sup = 0). Blend the lit value and the backlit night value
+     * across a narrow smoothstep band at lns = 0 so the terminator is a
+     * soft ramp (see MOON_TERM_SOFT) instead of the hard 0 -> LUT-floor
+     * step. Far lit side (lns >= band) and far dark side (lns <= -band)
+     * reduce to the unmodified values; the dusk (dk_sup > 0) and the gate
+     * (dark_zero = 0) both fall through to the original path below. */
+    if (c->dark_zero && c->dk_sup == 0.0f) {
+        int idx = (int)(A * L + 0.5f);
+        if (idx < 0)
+            idx = 0;
+        else if (idx > 255)
+            idx = 255;
+        float litv = MOON_TONE_LUT[idx] + earthshine(d);
+        float darkv = (float)moon_backlit_night(A, lns);
+        float t = lns <= -MOON_TERM_SOFT  ? 0.0f
+                  : lns >= MOON_TERM_SOFT ? 1.0f
+                                          : (lns + MOON_TERM_SOFT) / (2.0f * MOON_TERM_SOFT);
+        t = t * t * (3.0f - 2.0f * t); /* smoothstep */
+        float out = darkv + (litv - darkv) * t;
+        c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+        return;
+    }
 
     int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);
     if (is_night) {

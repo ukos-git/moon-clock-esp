@@ -47,6 +47,9 @@ static int parse_iso(const char *s, int64_t *epoch) {
 /* --- one frame ---------------------------------------------------------- */
 static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
                             * backlit surface, dark_zero = 1) */
+static int g_neutral = 0;  /* --neutral: the neutral gray->565 LUT (no warm
+                            * display tint) -- the image gate runs with this so
+                            * its metrics validate the physics, not the tint */
 static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
                             * pole (+z), deg -- the device's dusk spin
                             * (moon_ui.c moon_pole_geometry, copied
@@ -184,7 +187,12 @@ int main(int argc, char **argv) {
             g_pole_deg = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size"))
             size = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--neutral"))
+            g_neutral = 1;
     }
+
+    if (g_neutral)
+        moon_gray565_set_warm(0);
 
     if (mkdir(out, 0755) != 0) {
         /* exists */

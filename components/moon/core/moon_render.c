@@ -10,22 +10,49 @@
 #include <math.h>
 #include <string.h>
 
-/* Gray -> RGB565, round-to-nearest, built once (256 entries). */
+/* Gray -> RGB565, round-to-nearest, built once (256 entries).
+ *
+ * The LUT is WARM by default (ARTISTIC display choice): NASA's reference
+ * frames render the lunar lit side measurably warm (lit-region RGB
+ * (164,160,153) across the 2025 set, R/B = 1.07, R-G +3.9, G-B +6.7 -- the
+ * SVS render's white balance, not a lens artifact), and a warm moon reads
+ * as a real moon photo against the AMOLED's true black. The multipliers
+ * (R x1.038, G x1.000, B x0.933) reproduce that balance at every gray
+ * level. `moon_gray565_set_warm(0)` rebuilds the neutral LUT (the gate's
+ * --neutral path: the C-vs-NASA / C-vs-Python metrics validate the neutral
+ * gray physics, so the display tint never enters the gate numbers). */
 static uint16_t g565[256];
 static int g565_init = 0;
+static int g565_warm = 1;
 
 static void g565_build(void) {
     for (int g = 0; g < 256; g++) {
-        /* Neutral gray: R5 and B5 (5-bit) and G6 (6-bit) all at the same
-         * fraction. R5/B5 = round(g*31/255), G6 = round(g*63/255). Using the
-         * full 6-bit green is what makes the gray neutral -- writing the 5-bit
-         * value into the 6-bit green field caps green at 31/63 (~49%) and
-         * renders every gray as magenta/pink on the panel. */
+        /* R5/B5 (5-bit) and G6 (6-bit). Using the full 6-bit green is what
+         * keeps the gray balanced -- writing the 5-bit value into the 6-bit
+         * green field caps green at 31/63 (~49%) and renders every gray as
+         * magenta/pink on the panel. Warm: R +3.8%, B -4.9% (calibrated to
+         * the NASA lit-region balance; R is capped at full 31). */
         int r5 = (g * 31 + 127) / 255;
         int g6 = (g * 63 + 127) / 255;
-        g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | r5);
+        int b5 = r5;
+        if (g565_warm) {
+            r5 = (g * 32 + 127) / 255; /* x1.038 ~= 31 * 1.038 = 32.2/255 per gray */
+            if (r5 > 31)
+                r5 = 31;
+            b5 = (g * 29 + 127) / 255; /* x0.933 ~= 31 * 0.933 = 28.9/255 per gray */
+            if (b5 > 31)
+                b5 = 31;
+        }
+        g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
     }
     g565_init = 1;
+}
+
+void moon_gray565_set_warm(int on) {
+    if (on != g565_warm) {
+        g565_warm = on;
+        g565_build();
+    }
 }
 
 uint16_t moon_gray565(uint8_t g) {

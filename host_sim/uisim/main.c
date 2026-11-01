@@ -410,33 +410,39 @@ int main(int argc, char **argv) {
         /* rest: the prefilled SSID, empty password (the "...." placeholder). */
         fail |= wheel_snapshot(disp, "rest");
 
-        /* touched: press the inner ring at slot 7 ('h'), move onto the
-         * outer band (r UI_PX(209)) and hold -- the outer frame is
-         * revealed, the hot sector lit, the large preview letter at the
-         * centre. The radii are the panel-scaled wheel's (ui_px.h). */
-        lv_point_t p1, p2;
-        wheel_point_deg(wheel_slot_deg(7), UI_PX(168), &p1);
-        wheel_point_deg(wheel_slot_deg(7), UI_PX(209), &p2);
+        /* touched (v2): press directly in the ring band (r 140..233) at
+         * slot 7 ('h', the "gh" sector) and hold -- the pressed sector's
+         * boxes are revealed, the exact box lit (inverted), the preview
+         * letter at the centre. The radii are the panel-scaled wheel's
+         * (ui_px.h); the mid-band radius 188 is the wheel's own middle. */
+        lv_point_t p1;
+        wheel_point_deg(wheel_slot_deg(7), UI_PX(188), &p1);
         wheel_press_at(disp, p1.x, p1.y);
-        wheel_move_to(disp, p2.x, p2.y);
         fail |= wheel_snapshot(disp, "touched");
-        wheel_release_at(disp, p2.x, p2.y);
+        wheel_release_at(disp, p1.x, p1.y); /* commits the 'h' */
 
-        /* all four register modes (the mode keys at 54/78/102/126 deg,
-         * r 102; a tap snaps to the nearest key centre). */
+        /* all four register modes: the 240-degree arc's four 60-degree
+         * keys at LVGL 180/240/300/360, r 114; a press snaps to the
+         * exact key sector under the finger. */
         const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
         for (int k = 0; k < 4; k++) {
             lv_point_t pk;
-            wheel_point_deg(54.0 + 24.0 * k, UI_PX(102), &pk);
+            wheel_point_deg(180.0 + 60.0 * k, UI_PX(114), &pk);
             wheel_tap(disp, pk.x, pk.y);
             fail |= wheel_snapshot(disp, mode_names[k]);
         }
 
-        /* Commit: a short tap on the panel centre -- the stub's
-         * wifi_credentials_write + action_start_wifi_sync swaps to the
-         * transient WiFi screen, so the shot verifies the save -> connect
-         * hand-off (the entered letter was the 'h' from the sweep). */
-        wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2);
+        /* Commit (v2): a tap on the house circle-xmark key at the bottom
+         * (LVGL 60, r 114) -- the stub's wifi_credentials_write +
+         * action_start_wifi_sync swaps to the transient WiFi screen, so
+         * the shot verifies the save -> connect hand-off (the entered
+         * letter was the 'h' from the sweep). A centre tap only
+         * backspaces -- it would lose the 'h'. */
+        {
+            lv_point_t pc;
+            wheel_point_deg(60.0, UI_PX(114), &pc);
+            wheel_tap(disp, pc.x, pc.y);
+        }
         pump(disp, 100);
         {
             lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_WIFI - 1];

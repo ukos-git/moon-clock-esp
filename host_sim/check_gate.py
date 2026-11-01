@@ -85,8 +85,13 @@ def main() -> int:
     with open(list_path, "w") as f:
         for i, _ph in frames:
             f.write(_iso(rec[i]["time"]) + "\n")
+    # --neutral: the display's warm gray->565 tint is an ARTISTIC choice
+    # (see moon_render.c g565_build). The gate validates the PHYSICS
+    # (neutral gray vs NASA / vs the Python prototype), so it renders the
+    # neutral LUT -- the tint never enters the gate numbers.
     r = subprocess.run([args.sim, "--list", list_path, "--size", "400",
-                        "--out", args.out], capture_output=True, text=True)
+                        "--neutral", "--out", args.out],
+                       capture_output=True, text=True)
     if r.returncode != 0:
         print("simulator failed:\n" + r.stdout + r.stderr)
         return 2

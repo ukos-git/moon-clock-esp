@@ -1921,16 +1921,18 @@ static void settings_wheel_set_mode(int m) {
         }
     }
     /* Re-place the 12 sector dividers (the group boundaries) + the
-     * per-box dividers (the in-sector hairlines). The dividers rotate by
-     * 0.1-degrees (pass deg*10). */
+     * per-box dividers (the in-sector hairlines). LVGL rotates an object
+     * about its OWN centre, so a radial bar must be centred at the
+     * mid-radius (150..226 and 154..222 both centre at 188) and rotated
+     * by 0.1-degrees (pass deg*10) to run along the radial. */
     for (int k = 0; k < WHEEL_N_SECTORS; k++) {
         int cnt = s_wheel_n_of[k];
         if (cnt > 0) {
             float a = (float)s_wheel_sector_start[k] * WHEEL_SHARE - 90.0f; /* the sector's start */
             float ar = a * 3.14159265f / 180.0f;
             int32_t len = UI_PX(76);
-            int32_t tx = (int32_t)(WHEEL_INNER_R_MID * cosf(ar));
-            int32_t ty = (int32_t)(WHEEL_INNER_R_MID * sinf(ar));
+            int32_t tx = (int32_t)(UI_PX(188) * cosf(ar));
+            int32_t ty = (int32_t)(UI_PX(188) * sinf(ar));
             lv_obj_set_size(s_wheel_dividers[k], len, 1);
             lv_obj_set_pos(s_wheel_dividers[k], WHEEL_C + tx - len / 2, WHEEL_C + ty);
             lv_obj_set_style_transform_rotation(s_wheel_dividers[k], (int32_t)(a * 10.0f), 0);
@@ -1941,8 +1943,8 @@ static void settings_wheel_set_mode(int m) {
                 float a = (float)s * WHEEL_SHARE - 90.0f;
                 float ar = a * 3.14159265f / 180.0f;
                 int32_t len = UI_PX(68);
-                int32_t tx = (int32_t)(UI_PX(154) * cosf(ar));
-                int32_t ty = (int32_t)(UI_PX(154) * sinf(ar));
+                int32_t tx = (int32_t)(UI_PX(188) * cosf(ar));
+                int32_t ty = (int32_t)(UI_PX(188) * sinf(ar));
                 lv_obj_set_size(s_wheel_box_dividers[k][j], len, 1);
                 lv_obj_set_pos(s_wheel_box_dividers[k][j], WHEEL_C + tx - len / 2, WHEEL_C + ty);
                 lv_obj_set_style_transform_rotation(s_wheel_box_dividers[k][j], (int32_t)(a * 10.0f), 0);
@@ -2116,13 +2118,15 @@ void create_screen_settings_wifi_password() {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The band hairlines (r 150 / 226): two thin full-360-degree arcs
-     * (drawn as the MAIN track, the INDICATOR left empty). */
+     * (drawn as the MAIN track, the INDICATOR left empty). The pad is the
+     * DISTANCE FROM THE EDGE (r_out = W/2 - pad), so a ring at radius r
+     * needs pad WHEEL_C - r. */
     for (int b = 0; b < 2; b++) {
         int32_t r = b == 0 ? UI_PX(150) : UI_PX(226);
         lv_obj_t *h = lv_arc_create(obj);
         lv_obj_set_pos(h, 0, 0);
         lv_obj_set_size(h, UI_PANEL_PX, UI_PANEL_PX);
-        lv_obj_set_style_pad_all(h, r, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(h, WHEEL_C - r, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_arc_set_bg_angles(h, 0, 360);
         lv_arc_set_angles(h, 0, 0);
         lv_obj_set_style_arc_width(h, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2130,6 +2134,9 @@ void create_screen_settings_wifi_password() {
         lv_obj_set_style_arc_opa(h, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_rounded(h, false, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_arc_opa(h, LV_OPA_TRANSP, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+        /* The theme gives EVERY arc a blue circular KNOB (colour primary,
+         * opaque); on a full ring it lands at the centre -- kill it. */
+        lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
         lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -2179,14 +2186,15 @@ void create_screen_settings_wifi_password() {
 
     /* The 26 reveal arc boxes (r 150..226, 76 px wide, non-rounded). The
      * sector angles are set per mode in settings_wheel_set_mode (the raw
-     * share angles; the setter normalises the wrap). Pre-built once;
-     * hidden until revealed. */
+     * share angles; the setter normalises the wrap). The pad is WHEEL_C -
+     * r_out, so the outer edge lands at r 226. Pre-built once; hidden
+     * until revealed. */
     for (int k = 0; k < WHEEL_N_SECTORS; k++) {
         for (int j = 0; j < 3; j++) {
             s_wheel_boxes[k][j] = lv_arc_create(obj);
             lv_obj_set_pos(s_wheel_boxes[k][j], 0, 0);
             lv_obj_set_size(s_wheel_boxes[k][j], UI_PANEL_PX, UI_PANEL_PX);
-            lv_obj_set_style_pad_all(s_wheel_boxes[k][j], UI_PX(150), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_pad_all(s_wheel_boxes[k][j], WHEEL_C - UI_PX(226), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_arc_set_bg_angles(s_wheel_boxes[k][j], 0, 0);
             lv_arc_set_angles(s_wheel_boxes[k][j], 0, 0);
             lv_obj_set_style_arc_width(s_wheel_boxes[k][j], UI_PX(76), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2230,7 +2238,11 @@ void create_screen_settings_wifi_password() {
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
     lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* r_out = W/2 - pad: the track's outer edge at r 144 needs pad 89.
+     * The INDICATOR radius is arc_r minus the indicator's own pad -- set
+     * it to 0 so the lit key covers exactly the track's annulus. */
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 150, 390);
     lv_arc_set_angles(s_wheel_mode_arc, 150, 210);
     lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2281,7 +2293,7 @@ void create_screen_settings_wifi_password() {
     s_wheel_commit = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_commit, 0, 0);
     lv_obj_set_size(s_wheel_commit, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_commit, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_commit, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_commit, 31.5f, 88.5f);
     lv_arc_set_angles(s_wheel_commit, 0, 0);
     lv_obj_set_style_arc_width(s_wheel_commit, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2296,7 +2308,7 @@ void create_screen_settings_wifi_password() {
     s_wheel_discard = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_discard, 0, 0);
     lv_obj_set_size(s_wheel_discard, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_discard, UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_discard, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_discard, 91.5f, 148.5f);
     lv_arc_set_angles(s_wheel_discard, 0, 0);
     lv_obj_set_style_arc_width(s_wheel_discard, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);

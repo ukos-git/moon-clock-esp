@@ -26,7 +26,7 @@ follow-on milestone), the **computed (backlit) night side** — the unilluminate
 side is now the real lunar surface lit faintly from the anti-solar direction
 instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item 4; the `dk_sup` rim
 kill is baked into the shade map and `moon_reproject` is a pure gather — §5.2
-item 5), and the burn-in spin's **direct panel write** (the render task writes
+item 6), and the burn-in spin's **direct panel write** (the render task writes
 the MOON_PX² moon area straight to the panel at 8 fps instead of routing
 through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
 the moon no longer freezes before light sleep), the **fade-to-black screen
@@ -684,15 +684,28 @@ angular scale.
    is the **computed surface, not a flat overlay** — the real lunar surface
    (albedo + displaced relief) lit faintly from the _anti-solar_ direction
    (`moon_backlit_night`: `A · clip(−lns, 0, 1) · MOON_NIGHT_BACKLIT_K` with
-   `K = 0.10`, peak ≈ 25/255 — about the old flat floor's level, now with the
-   surface structure; plain linear gray, deliberately NOT the tone LUT, whose
-   bin-1 shadow lift would over-brighten it). It is body-frame constant (the
-   epoch's S is fixed), so the shade map and the spin stay a static image and
-   only the projection rotates. The validated earthshine path (`dark_zero = 0`:
-   `TONE_LUT[0] + earthshine(d)`) is byte-identical to the old model — it is
-   what the gate and the host film run; `pole_test` proves BOTH the earthshine
-   path and the backlit one (§12.2);
-5. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
+   `K = 0.20`, peak ≈ 51/255). K is an **ARTISTIC** level, not a physical one:
+   calibrated (2026-11-02) so the device's computed dark side matches the NASA
+   SVS render's dark side — dark-region mean 8.0 vs 8.9 gray on the 2.1 %
+   crescent frame (4.4 at the old `K = 0.10` — the sim's dark side was ~half as
+   strong as the reference it should beat), within ~0.5–0.9 gray of NASA on the
+   other three gate frames; plain linear gray, deliberately NOT the tone LUT,
+   whose bin-1 shadow lift would over-brighten it). It is body-frame constant
+   (the epoch's S is fixed), so the shade map and the spin stay a static image
+   and only the projection rotates. The validated earthshine path
+   (`dark_zero = 0`: `TONE_LUT[0] + earthshine(d)`) is byte-identical to the
+   old model — it is what the gate and the host film run; `pole_test` proves
+   BOTH the earthshine path and the backlit one (§12.2);
+5. **Soft terminator (display only)**: on the display bake the hard 0 →
+   tone-LUT-floor step at `lns = 0` is replaced by a smoothstep blend between
+   the lit value and the backlit value across `±MOON_TERM_SOFT` (0.03 lns ≈ 6
+   px either side at the 400 px disk) — the same blurred day/night boundary the
+   NASA SVS render carries (a measured smear of a few pixels, not a hard step).
+   Gated on `dark_zero && dk_sup == 0.0f` (the plain display bake): the dusk's
+   `dk_sup` shade map and the gate's `dark_zero = 0` path keep the original
+   hard terminator, so the gate's numbers stay byte-identical across the
+   artistic pass;
+6. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
    view latitude, so the _endpoint_ view still carries a geometrically lit rim
    sliver (d up to `sqrt(1 - E·S(φ*)²)`) which would linger on the dark sleep
    screen as a bright arc hugging the disk edge (the user-reported "white ray"
@@ -710,8 +723,19 @@ angular scale.
    between the two bounds is never on screen (no pop). Every non-dusk caller
    passes `0.0f` (the margin is inert there — the night test reduces to
    `lns ≤ 0`, byte-identical to the pre-fix code);
-6. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
-   then 8-bit → RGB565.
+7. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
+   then 8-bit → RGB565. The final 8-bit → RGB565 LUT is **warm by default** (an
+   ARTISTIC display choice, `moon_render.c` `g565_build`): the NASA SVS
+   render's lit region is measurably warm (lit-region RGB ≈ (164,160,153)
+   across the 2025 set, R/B ≈ 1.07, R−G +3.9, G−B +6.7 — the SVS white
+   balance), and a warm moon reads as a real moon photo against the AMOLED's
+   true black. Multipliers R ×1.038 / G ×1.000 / B ×0.933 reproduce that
+   balance at every gray level (the 6-bit green field is used in full, so the
+   gray stays balanced — capping green to the 5-bit value would render every
+   gray magenta on the panel). `moon_gray565_set_warm(0)` rebuilds the neutral
+   LUT; the image gate runs the simulator with `--neutral` so the tint never
+   enters the gate's metrics (which validate the gray physics, not the display
+   color).
 
 **View-independence** (the key architectural fact): a pixel's color depends
 only on the body-frame surface direction and the epoch's fixed body-frame Sun —
@@ -837,7 +861,8 @@ lists what the screen shows and what each control changes live.
   1°/frame, shade map baked once — S3 ~1.6 s / P4 282 ms, 2026-11-01; final
   frame a pixel-exact bake at φ\*; the dark side is the **faint backlit
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
-  25/255, so the far side stays visible on the AMOLED without a flat overlay).
+  51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
+  without a flat overlay).
 - The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
   opacity is the only "alpha"; the moon image is a sibling and stays
   full-contrast).
@@ -1625,8 +1650,10 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/main.c` (`moon_sim`) — the **exact device core** built for the
   host; writes PNGs at the real panel size (`--size 466` device / `--size 400`
   gate geometry; `--rot`, `--pole` (a 1:1 copy of the device's dusk spin),
-  `--darkzero`, `--list`/`--frames` batch modes). This is also the film
-  renderer (`docs/gen_media.py`).
+  `--darkzero` (the device's computed backlit night side), `--neutral` (the
+  neutral gray→565 LUT — the default is the display's warm tint, §5.2 item 7),
+  `--list`/`--frames` batch modes). This is also the film renderer
+  (`docs/gen_media.py`).
 - `host_sim/pole_test.c` — the dusk geometry proof (ad-hoc build, not a CMake
   target): right-sign fold beats wrong-sign 2.5×; φ\* analytic == grid minimum
   to 1e-5; the dark-side frame keeps contrast; map-once vs per-frame re-bake
@@ -1728,9 +1755,14 @@ level there), **at the disk rim** (the disk mask edge), and **in the relief
 texture of the lit half** (crater walls are where the banded DEM approximation
 deviates from the full-resolution reference). The night side is the darkest
 part of the residual — the computed backlit side (§5.2 item 4) is the least
-constrained by the reference. The gate numbers for the 2026-11-01 run:
-per-frame MAE 4.90–8.90 (max 8.90 ≤ the 12 gate), content SSIM 0.838–0.951
-(mean 0.908).
+constrained by the reference. **The gate validates the physics, not the display
+tint**: `check_gate.py` runs the simulator with `--neutral`
+(`moon_gray565_set_warm(0)`) and the dark_zero = 0 earthshine path, so the
+artistic pass (§5.2 items 4–5, 7 — the K = 0.20 backlit level, the soft
+terminator, the warm RGB565 LUT) is invisible to its metrics. The 2026-11-02
+art-pass run is therefore byte-identical to the pre-pass run: per-frame MAE
+4.90–8.90 (max 8.90 ≤ the 12 gate), content SSIM 0.838–0.951 (mean 0.908),
+C–Python MAE 1.03 (max 1.31 ≤ 2) — **PASS**.
 
 Regenerate: `host_sim/.venv/bin/python host_sim/check_gate.py` (fresh 32-frame
 output in `/tmp/moon-sim-gate/`) then
