@@ -1,0 +1,1059 @@
+<title>Round Keyboard Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  ROUND KEYBOARD LAB
+  13 text-entry methods for a 35 mm round AMOLED touch panel
+  (Waveshare ESP32-S3 Touch AMOLED 1.75", 466x466 RGB565 CO5300, CST9217,
+  no haptics / no mic / no camera / no NFC), mocked at 1:1 device scale.
+
+  DESIGN SYSTEM
+  - Type: Montserrat (the device's own typeface) for display + body;
+    IBM Plex Mono for spec numerals.
+  - Chrome palette is theme-aware (cool paper / graphite). The AMOLED
+    panels are FIXED in both themes: #000 ground, #f2f3f5 letters,
+    #7d818a moon-grey, #3a3d44 hairline. The device is the device.
+  - Every panel is <svg viewBox="0 0 466 466"> -> true 1:1 geometry.
+    0 deg = up, clockwise (LVGL / mock.py convention).
+  - Geometry anchors: doc §7.13 (inner ring r150-186 letters r168;
+    outer 2x frame r192-226; mode arc r88-116 @132-228deg; exit @y368),
+    uisim screenshots settings_wifi_password*.png, /tmp/moon-kbd-mock/mock.py.
+  - Evidence rows (speed / accuracy / cost / verdict) are quoted from
+    docs/research/circular-keyboard-alternatives.md (commit 9f5a2cf).
+  - No libraries, no localStorage, no page-level state. One shared rAF
+    loop drives all timers (multi-tap 700 ms, dwell 400 ms, auto-scan 1 s).
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f3f4f6; --card: #ffffff; --fg: #191b1f; --dim: #676c76;
+  --line: #dcdfe5; --accent: #3360df; --ok: #2e7d4f; --warn: #a26b15; --bad: #b04848;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101216; --card: #16181d; --fg: #e9ebef; --dim: #939aa6;
+  --line: #2a2e37; --accent: #7b9bff; --ok: #57b183; --warn: #d3a049; --bad: #d97f7f;
+  color-scheme: dark;
+}}
+:root[data-theme="dark"] {
+  --bg: #101216; --card: #16181d; --fg: #e9ebef; --dim: #939aa6;
+  --line: #2a2e37; --accent: #7b9bff; --ok: #57b183; --warn: #d3a049; --bad: #d97f7f;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: Montserrat, system-ui, sans-serif;
+  margin: 0;
+  padding-block: 8px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; }
+header { margin-block: 20px 10px; }
+.eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
+h1 { font-size: clamp(26px, 5vw, 36px); font-weight: 700; letter-spacing: -.015em; margin: 0 0 10px; text-wrap: balance; }
+.thesis { font-size: 15px; line-height: 1.55; color: var(--dim); max-width: 62ch; margin: 0 0 16px; }
+.specs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.spec { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--fg); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.spec b { color: var(--accent); font-weight: 500; }
+.verdicts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; }
+.vp { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .06em; border-radius: 999px; padding: 4px 10px; border: 1px solid var(--line); background: var(--card); color: var(--dim); white-space: nowrap; }
+.vp b { font-weight: 500; }
+.vp.keep b { color: var(--ok); } .vp.ship b { color: var(--accent); } .vp.hold b { color: var(--warn); } .vp.rej b { color: var(--bad); } .vp.v2 b { color: var(--fg); }
+h2.sec { font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 30px 0 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; display: flex; flex-direction: column; }
+.card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rank { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--dim); }
+.chip { font-family: "IBM Plex Mono", monospace; font-size: 9.5px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; border-radius: 999px; padding: 3px 8px; border: 1px solid; }
+.chip.keep { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+.chip.ship { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.chip.hold { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.chip.rej { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, transparent); }
+.chip.exp { color: var(--warn); border-color: var(--warn); background: transparent; }
+.chip.v2 { color: var(--fg); border-color: var(--fg); background: transparent; }
+.chip.infeas { color: var(--bad); border-color: var(--bad); background: transparent; }
+.card h3 { font-size: 16px; font-weight: 600; margin: 0; text-wrap: balance; }
+.src { font-size: 11.5px; color: var(--dim); margin: 3px 0 12px; }
+.try { font-size: 12px; line-height: 1.5; color: var(--dim); margin: 10px 0 12px; }
+.try b { color: var(--fg); font-weight: 600; }
+.rows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
+.row { min-width: 0; }
+.rl { display: block; font-family: "IBM Plex Mono", monospace; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 2px; }
+.rv { font-size: 12px; line-height: 1.4; }
+.offgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.off { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.off .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.off svg.ico { width: 34px; height: 34px; flex: none; }
+.off h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.off p { font-size: 12px; line-height: 1.5; color: var(--dim); margin: 0; }
+.t9wrap { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
+.t9wrap svg { width: 150px; height: 150px; flex: none; }
+footer { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 12px; color: var(--dim); line-height: 1.6; }
+footer a { color: var(--accent); text-decoration: none; }
+footer ol { margin: 8px 0 14px; padding-left: 18px; }
+.pdisk { display: block; width: 100%; max-width: 430px; margin: 0 auto; touch-action: none; }
+.pdisk text { font-family: Montserrat, sans-serif; user-select: none; }
+.pdisk:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Moon Phase Clock · 466×466 CO5300 · text entry study</p>
+    <h1>Round Keyboard Lab</h1>
+    <p class="thesis">Thirteen ways to type on 35&nbsp;mm of round glass, all operable at 1:1 scale below so the feel can be compared before any C is written. Panel&nbsp;#1 is the proposed <b>v2 hybrid</b> (user direction 2026‑11‑02): 12 coarse press sectors sized to their letter groups — every letter owns an equal 13.8° (360/26) of the ring, so 2‑letter sectors span 27.7° and the two 3‑letter sectors 41.5° — a reveal that on touch‑down <b>overlays the inner circle</b> (r150–226) showing only the pressed sector's options on one radius, a <b>centre preview of the selected letter</b> (DTMF‑style) until release commits and the full entry re‑appears, 4&nbsp;×&nbsp;60° shift keys on the top arc, ⊗ commit at the bottom, centre tap = backspace — instant reveal, no full-screen redraw. The rest keep the firmware's geometry (doc&nbsp;§7.13) and the report's evidence rows (research of 2026‑11‑01).</p>
+    <div class="specs">
+      <span class="spec"><b>35 mm</b> disk</span>
+      <span class="spec"><b>466×466</b> px</span>
+      <span class="spec"><b>266</b> PPI</span>
+      <span class="spec">fingertip <b>8–10 mm</b></span>
+      <span class="spec">haptics <b>0</b></span>
+      <span class="spec">task · <b>one password per network</b></span>
+    </div>
+    <div class="verdicts">
+      <span class="vp keep"><b>1 KEEP · v2</b> · 12-sector hybrid wheel</span>
+      <span class="vp ship"><b>2 SHIP</b> · 12‑sector multi‑tap</span>
+      <span class="vp ship"><b>3 SHIP</b> · dwell 400 ms</span>
+      <span class="vp ship"><b>4 SHIP</b> · auto‑scan (setting)</span>
+      <span class="vp hold"><b>HOLD</b> · 9×4 swipe</span>
+      <span class="vp v2"><b>v2</b> · encoder + detents</span>
+      <span class="vp rej"><b>✕</b> · QWERTY / glide / voice / OCR / handoff / T9‑dict</span>
+    </div>
+  </header>
+
+  <h2 class="sec">On‑hardware — operable at 1:1</h2>
+  <div class="grid" id="gallery"></div>
+
+  <h2 class="sec">Off‑hardware — the silicon is not there</h2>
+  <div class="offgrid" id="offgrid"></div>
+
+  <footer>
+    <div class="t9note"></div>
+    Evidence, full 37‑source list and the cost model: <code>docs/research/circular-keyboard-alternatives.md</code> (commit 9f5a2cf). Key primary sources:
+    C‑QWERTY (2020), Crownboard (<a href="https://grakhmetulla.com/papers/Rakhmetulla_CHI2023_Crownboard.pdf">CHI 2023 PDF</a>), WrisText (CHI 2018), Tap’nSwipe (IJHCI 2025), smartwatch QWERTY trace/tap WPM (SAGE 2019), T9 (Wikipedia), in‑car dial study (Brewster, <a href="https://eprints.gla.ac.uk/134441">CHI 2017</a>).
+    <p style="margin:10px 0 0">Open questions the research leaves: (1) C‑QWERTY’s QWERTY‑vs‑alphabetical effect size (full text bot‑blocked); (2) what the sweep actually feels like on the CST9217 — the pending real‑glass device check; (3) multi‑tap timeout tuning (500/700/900 ms) needs a real‑glass micro‑study. This page mocks the interaction, not the benchmark.</p>
+  </footer>
+</div>
+<script>
+"use strict";
+/* ---------- shared geometry / svg helpers ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const C = 233, LARC = 360 / 26;
+const D2R = Math.PI / 180;
+const COL = { disk: "#000000", ink: "#f2f3f5", grey: "#7d818a", hair: "#3a3d44", mid: "#9aa0ab", dim: "#5a5d64", fill: "#1b1c1f", zone: "#1e1f23" };
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const LETTERS = "abcdefghijklmnopqrstuvwxyz";
+function polar(r, deg) { const t = deg * D2R; return { x: C + r * Math.sin(t), y: C - r * Math.cos(t) }; }
+function ang(p) { return (Math.atan2(p.x - C, C - p.y) / D2R + 360) % 360; }
+function dist(p) { return Math.hypot(p.x - C, p.y - C); }
+function norm180(a) { a = ((a + 180) % 360 + 360) % 360; return a - 180; }
+function el(n, at, pa) {
+  const e = document.createElementNS(NS, n);
+  for (const k in at) e.setAttribute(k, at[k]);
+  if (pa) pa.appendChild(e);
+  return e;
+}
+function ptOf(svg, e) {
+  const r = svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * 466 / r.width, y: (e.clientY - r.top) * 466 / r.height };
+}
+function sector(a0, a1, r1, r2) {
+  const large = (a1 - a0) % 360 > 180 ? 1 : 0;
+  const p0 = polar(r2, a0), p1 = polar(r2, a1), p2 = polar(r1, a1), p3 = polar(r1, a0);
+  return "M" + p0.x + " " + p0.y + "A" + r2 + " " + r2 + " 0 " + large + " 1 " + p1.x + " " + p1.y +
+         "L" + p2.x + " " + p2.y + "A" + r1 + " " + r1 + " 0 " + large + " 0 " + p3.x + " " + p3.y + "Z";
+}
+function arcPath(a0, a1, r) {
+  const large = (a1 - a0) > 180 ? 1 : 0;
+  const p0 = polar(r, a0), p1 = polar(r, a1);
+  return "M" + p0.x + " " + p0.y + "A" + r + " " + r + " 0 " + large + " 1 " + p1.x + " " + p1.y;
+}
+function base(slot, aria) {
+  const svg = el("svg", { viewBox: "0 0 466 466", "class": "pdisk", "aria-label": aria, role: "img", tabindex: "0" }, slot);
+  el("circle", { cx: C, cy: C, r: 232, fill: COL.disk, stroke: COL.hair, "stroke-width": 2 }, svg);
+  return svg;
+}
+function centerText(svg) {
+  const main = el("text", { x: C, y: C - 6, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 25, "font-weight": 600, fill: COL.ink }, svg);
+  const sub = el("text", { x: C, y: C + 24, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 11.5, "font-weight": 500, fill: COL.grey }, svg);
+  return { main, sub };
+}
+function showPw(main, pw) {
+  main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+}
+const panels = [];
+function reg(p) { panels.push(p); }
+
+/* ---------- 1 · sweep wheel v2 — 12-sector hybrid ----------
+   The user's mix of the 12-sector DTMF coarse press (#2), the 9×4 swipe
+   direction pick (#5) and the sweep wheel's reveal + release commit (§7.13):
+   - 12 initial-press sectors SIZED TO THEIR GROUP (user direction 2026-11-02):
+     every letter owns an EQUAL share of the ring — 360/26 ≈ 13.846° each —
+     so a 2-letter sector spans 27.7°, the two 3-letter sectors 41.5°, and
+     every inner-ring gap is exactly one letter share: the ring reads
+     perfectly even all the way around (the 30° grid's leftover unevenness
+     is gone). Press sectors stay coarse — bigger than the 30° auto-scan
+     targets for the frequent letters
+   - each sector's options sit on ONE radius: letters at r168 at rest,
+     revealed at r209 (single-radius rings, like the shipped wheel's two
+     frames)
+   - on press, the reveal OVERLAYS the inner circle — the boxes span
+     r150–226, fully using the inner radius fraction (user direction), so
+     the selection zone is as wide as the whole letter band. It shows ONLY
+     that sector's options: solid boxes tile the sector edge-to-edge (no
+     gaps, no alpha), the lit box is fully white with a near-black letter,
+     hairline dividers between a group's boxes
+   - the SELECTED letter previews in the centre (DTMF-style, like panel #2):
+     while pressed the centre shows the lit option big; on release the char
+     commits and the full already-entered text re-appears
+   - register-shift keys double the outer sector angle: 4 × 60°, on the
+     TOP 240°, r 84–144 — extended toward the inner circle, leaving only
+     a 6 px gap to the r150 hairline (the outer circle's grey-limiter
+     gap)
+   - the ⊗ commit and a trash-can discard split the bottom 120° (60°
+     each); both icons sit at r114 — the same radius the shift ring's
+     labels use, so the two icons visibly align with the shift circle;
+     centre single tap = backspace (the long-press ring is gone)
+   - instant display update: the 12 reveal groups are pre-built ONCE; a press
+     toggles only opacity/fill/text (the firmware analogue: pre-built LVGL
+     arcs, region-limited invalidation, one atomic lv_refr_now under
+     s_rgb_mtx — never a full-screen redraw)   */
+function buildWheel(slot) {
+  const svg = base(slot, "Hybrid sweep wheel: press one of twelve sectors, the outer ring reveals only that sector's options, sweep or point, release commits");
+  const MODES = [
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "0123456789#@._-+*?!/&%:;,=",
+    "#$%&@!_=<>[]{}~^:,/?*+.-;'"
+  ];
+  const MLBL = ["abc", "ABC", "123", "#$"];
+  let mode = 0, pw = [], press = null, cdown = false, lit = null;
+
+  /* FREQUENCY-GROUPED sectors (user direction 2026-11-02): the 20 most
+     frequent English letters get 2-letter groups — the wide targets; the
+     six rarest (j k q v x z) form the two 3-letter groups. The user's
+     example holds: "abc" becomes "ab" (a, b frequent) and c moves on to
+     "cd". Every register carries this exact 26-char shape, so the
+     finger's sector boundaries never move between registers. */
+  const LETTER_SECTORS = [
+    ["a","b"],["c","d"],["e","f"],["g","h"],["i","l"],["j","k","q"],
+    ["m","n"],["o","p"],["r","s"],["t","u"],["v","x","z"],["w","y"],
+  ];
+  const idxOf = MODES.map((s, m) => {
+    const out = [];
+    if (m === 0) {
+      for (const grp of LETTER_SECTORS) out.push(grp.map(ch => s.indexOf(ch)));
+    } else {
+      const n = s.length === 26 ? [2,2,2,2,2,3,2,2,2,2,3,2] : [2,2,2,2,2,2,2,2,2,2,1,1];
+      let i = 0;
+      for (const c of n) out.push([...Array(c).keys()].map(x => i++));
+    }
+    return out;
+  });
+  const nOf = idxOf[0].map(a => a.length); /* per-sector option count */
+
+  /* PROPORTIONAL sectors (user direction 2026-11-02: even inner-ring
+     density): every letter owns an EQUAL share of the whole ring —
+     360/26 ≈ 13.846° — so a sector spans share × nOf[k] (2-letter →
+     27.7°, 3-letter → 41.5°) and EVERY inner gap is one share: perfectly
+     even all the way around. Letter j of sector k sits at the centre of
+     its share: 13.846° × (letterIndex + 0.5). */
+  const SHARE = 360 / 26;
+  const secOff = []; { let i = 0; for (let k = 0; k < 12; k++) { secOff.push(i); i += nOf[k]; } }
+  const secA0 = (k) => secOff[k] * SHARE;          /* sector start angle */
+  const secW = (k) => nOf[k] * SHARE;             /* sector span */
+  const slotA = (k, j) => secA0(k) + (j + 0.5) * SHARE; /* option centre */
+  function mkLab(parent, deg, r, size, weight, fill) {
+    const pt = polar(r, deg);
+    return el("text", { x: pt.x, y: pt.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": size, "font-weight": weight, fill, transform: "rotate(" + deg + " " + pt.x + " " + pt.y + ")", "pointer-events": "none" }, parent);
+  }
+
+  /* rest state: band hairlines + 12 sector dividers */
+  el("circle", { cx: C, cy: C, r: 150, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, svg);
+  el("circle", { cx: C, cy: C, r: 226, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, svg);
+  for (let k = 0; k < 12; k++) {
+    const q1 = polar(150, secA0(k)), q2 = polar(226, secA0(k));
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, svg);
+  }
+
+  /* inner compass labels (small) — the sector's options at rest */
+  const inner = [];
+  for (let k = 0; k < 12; k++) {
+    const g = el("g", {}, svg), labels = [];
+    for (let j = 0; j < nOf[k]; j++) {
+      const a = slotA(k, j);
+      /* same letter size as the revealed ring (26 px) — the two frames
+         read as the same type at two radii */
+      labels.push({ el: mkLab(g, a, 168, 26, 500, "#c9ccd3"), pt: polar(168, a) });
+    }
+    inner.push({ g, labels });
+  }
+
+  /* outer reveal — PRE-BUILT ONCE per sector; a press toggles opacity and
+     slot styling only (instant, no redraw). On touch-down it OVERLAYS the
+     inner circle (user direction: use the inner radius fraction fully) —
+     the boxes span r150–226, the whole letter band, so the selection zone
+     is maximally wide. They tile the sector edge-to-edge (no gaps, no
+     alpha); the lit box is solid white, its letter near-black */
+  const reveal = [];
+  for (let k = 0; k < 12; k++) {
+    const g = el("g", { opacity: 0, "pointer-events": "none" }, svg), slots = [];
+    for (let j = 0; j < nOf[k]; j++) {
+      const a0 = secA0(k) + j * SHARE, a1 = secA0(k) + (j + 1) * SHARE;
+      const f = el("path", { d: sector(a0, a1, 150, 226), fill: "#2b2e34" }, g);
+      const t = mkLab(g, slotA(k, j), 209, 26, 500, COL.ink);
+      slots.push({ f, t });
+      if (j > 0) { /* hairline divider between the boxes of one group */
+        const q1 = polar(154, a0), q2 = polar(222, a0);
+        el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, g);
+      }
+    }
+    reveal.push({ g, slots });
+  }
+
+  /* register-shift arc — 4 × 60°, one 240° span centred on the TOP (0°),
+     r 84–144 (extended in, 6 px gap to the r150 hairline):
+     abc at left (270°), ABC upper-left (330°), 123 upper-right (30°), #$ at
+     right (90°). The bottom 120° gap (120°–240°) is the ⊗ commit key. */
+  const MA0 = 240, MSPAN = 240;
+  const mArc = el("g", {}, svg);
+  el("path", { d: sector(MA0, MA0 + MSPAN, 84, 144), fill: COL.fill }, mArc);
+  const mkeys = [];
+  for (let i = 0; i < 4; i++) {
+    const ka = MA0 + MSPAN * i / 4, kb = MA0 + MSPAN * (i + 1) / 4;
+    const seg = el("path", { d: sector(ka + 1.5, kb - 1.5, 86, 142), fill: "transparent" }, mArc);
+    const lab = mkLab(mArc, MA0 + MSPAN * (i + 0.5) / 4, 114, 16, 600, COL.grey);
+    mkeys.push({ seg, lab });
+  }
+  for (let i = 0; i <= 4; i++) {
+    const a = MA0 + MSPAN * i / 4, p1 = polar(86, a), p2 = polar(142, a);
+    el("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, stroke: COL.grey, "stroke-width": 1 }, mArc);
+  }
+
+  /* the bottom 120° (120°–240°) splits into the ⊗ commit (120°–180°)
+     and the trash-can discard (180°–240°); both icons at r114 — the same
+     radius the shift-ring labels use, so the icons align with that circle */
+  const cArc = el("g", {}, svg);
+  el("path", { d: sector(121.5, 178.5, 84, 144), fill: "rgba(242,243,245,.05)" }, cArc);
+  el("path", { d: sector(181.5, 238.5, 84, 144), fill: "rgba(242,243,245,.05)" }, cArc);
+  const cP = polar(114, 150), xs = 6.5; /* ⊗ commit, mid of 120°–180° */
+  el("circle", { cx: cP.x, cy: cP.y, r: 13, fill: "none", stroke: COL.ink, "stroke-width": 2 }, cArc);
+  el("line", { x1: cP.x - xs, y1: cP.y - xs, x2: cP.x + xs, y2: cP.y + xs, stroke: COL.ink, "stroke-width": 2 }, cArc);
+  el("line", { x1: cP.x - xs, y1: cP.y + xs, x2: cP.x + xs, y2: cP.y - xs, stroke: COL.ink, "stroke-width": 2 }, cArc);
+  const tP = polar(114, 210); /* trash can, mid of 180°–240° */
+  el("line", { x1: tP.x - 9, y1: tP.y - 6, x2: tP.x + 9, y2: tP.y - 6, stroke: COL.ink, "stroke-width": 2 }, cArc); /* lid */
+  el("path", { d: "M" + (tP.x - 3.5) + " " + (tP.y - 6) + "V" + (tP.y - 9) + "H" + (tP.x + 3.5) + "V" + (tP.y - 6), fill: "none", stroke: COL.ink, "stroke-width": 1.5 }, cArc); /* handle */
+  el("path", { d: "M" + (tP.x - 7) + " " + (tP.y - 3.5) + "H" + (tP.x + 7) + "L" + (tP.x + 5) + " " + (tP.y + 8) + "H" + (tP.x - 5) + "Z", fill: "none", stroke: COL.ink, "stroke-width": 2 }, cArc); /* body */
+  el("line", { x1: tP.x - 2, y1: tP.y - 1, x2: tP.x - 1.2, y2: tP.y + 5, stroke: COL.ink, "stroke-width": 1.5 }, cArc);
+  el("line", { x1: tP.x + 2, y1: tP.y - 1, x2: tP.x + 1.2, y2: tP.y + 5, stroke: COL.ink, "stroke-width": 1.5 }, cArc);
+
+  const { main, sub } = centerText(svg);
+  const flash = el("circle", { cx: C, cy: C, r: 232, fill: COL.ink, opacity: 0, "pointer-events": "none" }, svg);
+
+  function restring() {
+    for (let k = 0; k < 12; k++) {
+      for (let j = 0; j < nOf[k]; j++) {
+        const ch = MODES[mode][idxOf[mode][k][j]];
+        inner[k].labels[j].el.textContent = ch;
+        reveal[k].slots[j].t.textContent = ch;
+      }
+    }
+    mkeys.forEach((km, i) => {
+      km.seg.setAttribute("fill", i === mode ? "rgba(242,243,245,.28)" : "transparent");
+      km.lab.textContent = MLBL[i];
+      km.lab.setAttribute("fill", i === mode ? COL.ink : COL.grey);
+    });
+  }
+  function resetRevealStyles() {
+    reveal.forEach(rv => rv.slots.forEach(s => {
+      s.f.setAttribute("fill", "#2b2e34");
+      s.t.setAttribute("fill", COL.ink);
+      s.t.setAttribute("font-weight", 500);
+    }));
+  }
+  function showReveal(k) {
+    resetRevealStyles();
+    reveal.forEach((rv, i) => rv.g.setAttribute("opacity", i === k ? 1 : 0));
+    inner.forEach((inr, i) => inr.labels.forEach(L => L.el.setAttribute("fill", i === k ? "#c9ccd3" : COL.dim)));
+  }
+  function hideReveal() {
+    reveal.forEach(rv => rv.g.setAttribute("opacity", 0));
+    inner.forEach(inr => inr.labels.forEach(L => { L.el.setAttribute("fill", "#c9ccd3"); L.el.setAttribute("font-weight", 500); }));
+  }
+  function setLit(k, j, kind) { lit = { k, j, kind }; applyLit(); }
+  function applyLit() {
+    if (!lit) return;
+    /* DTMF-style centre preview (like panel #2): while pressed, the centre
+       shows the selected letter big; on release it commits and the full
+       already-entered text re-appears (clearPreview) */
+    main.textContent = MODES[mode][idxOf[mode][lit.k][lit.j]];
+    main.setAttribute("font-size", 44);
+    sub.textContent = "release commits";
+    /* solid, no alpha: the lit box is fully white with a near-black letter */
+    reveal[lit.k].slots.forEach((s, i) => {
+      const on = lit.kind === "rev" && i === lit.j;
+      s.f.setAttribute("fill", on ? "#f2f3f5" : "#2b2e34");
+      s.t.setAttribute("fill", on ? "#101115" : COL.ink);
+      s.t.setAttribute("font-weight", on ? 700 : 500);
+    });
+  }
+  function updateLit(p) {
+    const a = ang(p), k = press.k;
+    /* the reveal boxes tile the sector edge-to-edge across the whole
+       band (r150–226), so the box under the finger is exact — no
+       nearest-centre guesswork, no inner/outer split */
+    const rel = ((a - secA0(k)) % 360 + 360) % 360;
+    setLit(k, Math.min(nOf[k] - 1, Math.floor(rel / SHARE)), "rev");
+  }
+  function refresh(msg) {
+    /* leave the big centre preview: the full already-entered text
+       re-appears (DTMF-style handback) */
+    main.setAttribute("font-size", 25);
+    main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+    sub.textContent = msg === undefined ? "" : msg;
+  }
+  function doBack() { if (pw.length) { pw.pop(); refresh("backspace"); } }
+
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    svg.setPointerCapture(e.pointerId);
+    const d = dist(p), a = ang(p);
+    if (d < 78) { cdown = true; return; } /* centre: single tap = backspace */
+    if (d <= 146) {
+      const rel = ((a - MA0) % 360 + 360) % 360;
+      if (rel < MSPAN) { mode = Math.floor(rel / (MSPAN / 4)); restring(); return; } /* top 240°: shift */
+      const relC = ((a - 120) % 360 + 360) % 360;
+      if (relC < 120) { /* bottom 120°: ⊗ commit (120°–180°) / trash (180°–240°) */
+        if (relC < 60) {
+          flash.setAttribute("opacity", 0.2);
+          setTimeout(() => flash.setAttribute("opacity", 0), 140);
+          refresh("committed ✓");
+        } else {
+          pw = [];
+          refresh("discarded");
+        }
+      }
+      return;
+    }
+    if (d <= 238) {
+      /* sectors are proportional (not on a 30° grid): find the one whose
+         [start, start+span) contains the finger's angle */
+      let k = 0;
+      for (let i = 0; i < 12; i++) { if (a >= secA0(i) && a < secA0(i) + secW(i)) { k = i; break; } }
+      press = { k };
+      showReveal(press.k);
+      updateLit(p);
+    }
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!press) return;
+    /* the reveal is STICKY to the initial-press sector (the spec: it shows
+       only that sector's options) — sliding across a sector boundary does
+       not re-key the set, it just extends the sweep over its outer slots */
+    updateLit(ptOf(svg, e));
+  });
+  svg.addEventListener("pointerup", () => {
+    if (press) {
+      if (lit) {
+        const ch = MODES[mode][idxOf[mode][lit.k][lit.j]];
+        pw.push(ch);
+        refresh("committed " + ch);
+      }
+      lit = null; press = null;
+      hideReveal();
+    } else if (cdown) { cdown = false; doBack(); } /* centre tap = backspace */
+  });
+  restring();
+  refresh("press a sector · release commits · ⊗ commits · 🗑 discards · centre tap = back");
+}
+
+/* ---------- 2 · 12-sector DTMF multi-tap ---------- */
+function buildMulti(slot) {
+  const svg = base(slot, "12-sector multi-tap: press a sector one to four times within 700 milliseconds");
+  /* Mapping is illustrative (config table in firmware): DTMF arrangement,
+     primary digit, three secondaries per sector. */
+  const SECT = ["1@._", "2-+/", "3!?;", "4:,'", "5&$%", "6()[]", "7<{}>", "8~^=", "9€£¢", "*±×÷", "0–·°", "#@&^"];
+  const T = 700;
+  let pw = [], seq = null, slipT = 0, lastCommit = 0;
+  const zones = [], dots = [];
+  const { main, sub } = centerText(svg);
+  const tout = el("path", { fill: "none", stroke: COL.ink, "stroke-width": 2.5, "pointer-events": "none" }, svg);
+  for (let i = 0; i < 12; i++) {
+    const a0 = i * 30, mid = a0 + 15;
+    zones.push(el("path", { d: sector(a0 + 0.8, a0 + 29.2, 140, 228), fill: "#131418" }, svg));
+    const prim = polar(202, mid);
+    el("text", { x: prim.x, y: prim.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 23, "font-weight": 700, fill: COL.ink, "pointer-events": "none" }, svg).textContent = SECT[i][0];
+    for (let k = 1; k < 4; k++) {
+      const p = polar(202 - k * 20, mid);
+      el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 12.5, "font-weight": 500, fill: COL.mid, "pointer-events": "none" }, svg).textContent = SECT[i][k];
+    }
+    dots.push([]);
+    for (let k = 0; k < 4; k++) {
+      const p = polar(126, mid + (k - 1.5) * 10);
+      dots[i].push(el("circle", { cx: p.x, cy: p.y, r: 3, fill: COL.hair, "pointer-events": "none" }, svg));
+    }
+    const q1 = polar(140, a0), q2 = polar(228, a0);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1, "pointer-events": "none" }, svg);
+  }
+  function commit(seqObj) {
+    pw.push(SECT[seqObj.s][seqObj.n]);
+    lastCommit = performance.now();
+  }
+  function drawSeq() {
+    for (let i = 0; i < 12; i++) {
+      const on = seq && seq.s === i;
+      zones[i].setAttribute("fill", on ? "rgba(242,243,245,.16)" : "#131418");
+      for (let k = 0; k < 4; k++) dots[i][k].setAttribute("fill", on && k <= seq.n ? COL.ink : COL.hair);
+    }
+    if (seq) { main.textContent = SECT[seq.s][seq.n]; main.setAttribute("font-size", 34); }
+    else { main.setAttribute("font-size", 25); showPw(main, pw, undefined); }
+    sub.textContent = seq ? (seq.n + 1) + "/4 · " + T + " ms window" : "press 1–4× · timeout commits";
+  }
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    const d = dist(p);
+    if (d < 120 || d > 232) return;
+    const i = Math.floor(ang(p) / 30) % 12;
+    const now = performance.now();
+    const prevS = seq ? seq.s : -1, justCommitted = seq && now - lastCommit < 250;
+    if (seq && seq.s === i && now - seq.t0 < T) {
+      seq.n = Math.min(3, seq.n + 1); seq.t0 = now;
+    } else {
+      if (seq) commit(seq);
+      seq = { s: i, n: 0, t0: now };
+      /* the error class the report flags: an accidental fast double press on the
+         just-committed sector re-enters char 1 with no preview between presses */
+      if (justCommitted && prevS === i) {
+        slipT = now + 1200;
+        sub.setAttribute("fill", "#d3a049");
+        sub.textContent = "stray double-press → wrong char, no preview";
+      }
+    }
+    drawSeq();
+  });
+  reg({ tick(t) {
+    if (seq && t - seq.t0 > T) { commit(seq); seq = null; drawSeq(); }
+    if (seq) {
+      const f = Math.max(0, 1 - (t - seq.t0) / T);
+      const a0 = seq.s * 30 + 1.5;
+      tout.setAttribute("d", arcPath(a0, a0 + 27 * f, 230));
+      tout.setAttribute("opacity", 0.9);
+    } else tout.setAttribute("opacity", 0);
+    if (slipT && t > slipT) { slipT = 0; sub.setAttribute("fill", COL.grey); drawSeq(); }
+  }});
+  drawSeq();
+  sub.textContent = "press 1–4× · timeout commits";
+}
+
+/* ---------- 3 · hold-to-commit dwell ---------- */
+function buildDwell(slot) {
+  const svg = base(slot, "Dwell: press and hold 400 milliseconds on a letter, early release cancels");
+  let pw = [], hold = null;
+  const ring = el("g", {}, svg);
+  const sectors = [], ls = [];
+  for (let j = 0; j < 26; j++) {
+    const a0 = j * LARC;
+    sectors.push(el("path", { d: sector(a0 + 0.5, a0 + LARC - 0.5, 132, 226), fill: "transparent" }, ring));
+    const q1 = polar(132, a0), q2 = polar(226, a0);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, ring);
+  }
+  for (let j = 0; j < 26; j++) {
+    const am = (j + 0.5) * LARC, p = polar(168, am);
+    ls.push(el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 19, "font-weight": 500, fill: "#c9ccd3", transform: "rotate(" + am + " " + p.x + " " + p.y + ")", "pointer-events": "none" }, ring));
+  }
+  el("circle", { cx: C, cy: C, r: 132, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  el("circle", { cx: C, cy: C, r: 226, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  const prog = el("path", { fill: "none", stroke: COL.ink, "stroke-width": 6, "pointer-events": "none", opacity: 0 }, svg);
+  const { main, sub } = centerText(svg);
+  function draw(j) {
+    for (let k = 0; k < 26; k++) {
+      sectors[k].setAttribute("fill", k === j ? "rgba(242,243,245,.15)" : "transparent");
+      ls[k].setAttribute("fill", k === j ? COL.ink : "#c9ccd3");
+      ls[k].setAttribute("font-weight", k === j ? 700 : 500);
+    }
+  }
+  function refresh(msg) {
+    main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+    sub.textContent = msg === undefined ? "" : msg;
+  }
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    const d = dist(p);
+    if (d < 130 || d > 234) return;
+    svg.setPointerCapture(e.pointerId);
+    const j = Math.min(25, Math.floor(ang(p) / LARC));
+    hold = { j, t0: performance.now() };
+    draw(j); refresh("holding " + LETTERS[j] + " …");
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!hold) return;
+    const p = ptOf(svg, e);
+    const j = Math.min(25, Math.floor(ang(p) / LARC));
+    if (j !== hold.j) { hold.j = j; hold.t0 = performance.now(); draw(j); refresh("holding " + LETTERS[j] + " …"); }
+  });
+  svg.addEventListener("pointerup", () => {
+    if (!hold) return;
+    if (performance.now() - hold.t0 < 400) refresh("cancelled — too short");
+    hold = null; prog.setAttribute("opacity", 0);
+  });
+  reg({ tick(t) {
+    if (hold) {
+      const f = (t - hold.t0) / 400;
+      const a0 = hold.j * LARC + 1;
+      prog.setAttribute("d", arcPath(a0, a0 + (LARC - 2) * Math.min(1, f), 214));
+      prog.setAttribute("opacity", 0.9);
+      if (f >= 1) {
+        const ch = LETTERS[hold.j];
+        pw.push(ch);
+        hold = null; prog.setAttribute("opacity", 0);
+        refresh("committed " + ch + " · " + pw.length + " chars");
+      }
+    }
+  }});
+  refresh("hold 400 ms · no sweep needed");
+}
+
+/* ---------- 4 · auto-scan (Crownboard-style) ---------- */
+function buildScan(slot) {
+  const svg = base(slot, "Auto-scan: the lit sector steps clockwise, tap to commit it");
+  const CH = "etaoinshrdlc"; /* top-12 English letters */
+  let s = 0, t0 = performance.now(), pw = [], hold = null;
+  const zones = [], ls = [];
+  for (let i = 0; i < 12; i++) {
+    const a0 = i * 30;
+    zones.push(el("path", { d: sector(a0 + 0.8, a0 + 29.2, 140, 228), fill: "#131418" }, svg));
+    const q1 = polar(140, a0), q2 = polar(228, a0);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, svg);
+  }
+  for (let i = 0; i < 12; i++) {
+    const mid = i * 30 + 15, p = polar(184, mid);
+    ls.push(el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 24, "font-weight": 500, fill: COL.mid, "pointer-events": "none" }, svg));
+    ls[i].textContent = CH[i];
+  }
+  el("line", { x1: C, y1: C - 228, x2: C, y2: C - 240, stroke: COL.ink, "stroke-width": 3 }, svg);
+  const { main, sub } = centerText(svg);
+  function draw() {
+    for (let i = 0; i < 12; i++) {
+      zones[i].setAttribute("fill", i === s ? "rgba(242,243,245,.18)" : "#131418");
+      ls[i].setAttribute("fill", i === s ? COL.ink : COL.mid);
+      ls[i].setAttribute("font-weight", i === s ? 700 : 500);
+    }
+  }
+  function refresh(msg) {
+    main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+    sub.textContent = msg === undefined
+      ? (REDUCED ? "reduced motion · tap to step · hold to commit" : "≈1 s/char · tap commits the lit char")
+      : msg;
+  }
+  svg.addEventListener("pointerdown", (e) => {
+    if (REDUCED) {
+      s = (s + 1) % 12; draw();
+      hold = { t0: performance.now() };
+      sub.textContent = "stepped · hold to commit";
+    }
+  });
+  svg.addEventListener("pointerup", () => {
+    if (!REDUCED) { pw.push(CH[s]); main.textContent = CH[s]; main.setAttribute("font-size", 34); setTimeout(() => { main.setAttribute("font-size", 25); refresh(); }, 300); }
+    else if (hold) { if (performance.now() - hold.t0 >= 400) { pw.push(CH[s]); refresh("committed " + CH[s]); } else refresh(); hold = null; }
+  });
+  reg({ tick(t) {
+    if (!REDUCED) { const ns = Math.floor((t - t0) / 1000) % 12; if (ns !== s) { s = ns; draw(); } }
+  }});
+  draw(); refresh();
+}
+
+/* ---------- 5 · 9×4 swipe sectors (Tap'nSwipe) ---------- */
+function buildSwipe(slot) {
+  const svg = base(slot, "Swipe sectors: press in the ring, drag, release — direction picks the character");
+  const CH = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const DIRLBL = ["out", "left", "in", "right"];
+  let pw = [], drag = null;
+  const chars = [];
+  const pts = [];
+  for (let i = 0; i < 9; i++) {
+    const mid = i * 40 + 20;
+    const pos = [polar(214, mid), polar(184, mid - 12), polar(154, mid), polar(184, mid + 12)];
+    pts.push(pos);
+    for (let p = 0; p < 4; p++) chars.push(el("text", { x: pos[p].x, y: pos[p].y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 13, "font-weight": 500, fill: "#767a83", "pointer-events": "none" }, svg));
+    const a0 = i * 40, q1 = polar(140, a0), q2 = polar(228, a0);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, svg);
+  }
+  for (let j = 0; j < 36; j++) chars[j].textContent = CH[j];
+  const line = el("line", { stroke: COL.ink, "stroke-width": 2.5, opacity: 0, "pointer-events": "none" }, svg);
+  const tip = el("circle", { r: 4, fill: COL.ink, opacity: 0, "pointer-events": "none" }, svg);
+  const { main, sub } = centerText(svg);
+  function commit(idx, note) {
+    pw.push(CH[idx]);
+    chars[idx].setAttribute("fill", COL.ink); chars[idx].setAttribute("font-size", 19); chars[idx].setAttribute("font-weight", 700);
+    setTimeout(() => { chars[idx].setAttribute("fill", "#767a83"); chars[idx].setAttribute("font-size", 13); chars[idx].setAttribute("font-weight", 500); }, 400);
+    main.textContent = CH[idx]; main.setAttribute("font-size", 34);
+    setTimeout(() => { main.setAttribute("font-size", 25); showPw(main, pw); }, 400);
+    sub.textContent = note;
+  }
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    const d = dist(p);
+    if (d < 125 || d > 240) return;
+    svg.setPointerCapture(e.pointerId);
+    drag = { p0: p, p1: p, s: Math.floor(ang(p) / 40) % 9 };
+    line.setAttribute("opacity", 0.9);
+    tip.setAttribute("opacity", 0.9);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.p1 = ptOf(svg, e);
+    line.setAttribute("x1", drag.p0.x); line.setAttribute("y1", drag.p0.y);
+    line.setAttribute("x2", drag.p1.x); line.setAttribute("y2", drag.p1.y);
+    tip.setAttribute("cx", drag.p1.x); tip.setAttribute("cy", drag.p1.y);
+  });
+  svg.addEventListener("pointerup", () => {
+    if (!drag) return;
+    line.setAttribute("opacity", 0); tip.setAttribute("opacity", 0);
+    const dd = Math.hypot(drag.p1.x - drag.p0.x, drag.p1.y - drag.p0.y);
+    let note, best = 0;
+    if (dd < 15) { note = "too short → reads as a tap (error class)"; }
+    else {
+      let bd = 1e9;
+      for (let p = 0; p < 4; p++) {
+        const q = pts[drag.s][p];
+        const d2 = Math.hypot(q.x - drag.p1.x, q.y - drag.p1.y);
+        if (d2 < bd) { bd = d2; best = p; }
+      }
+      note = "direction: " + DIRLBL[best];
+    }
+    commit(drag.s * 4 + (dd < 15 ? 0 : best), note);
+    drag = null;
+  });
+  showPw(main, pw);
+  sub.textContent = "press · drag >15 px · release";
+}
+
+/* ---------- 6 · fitted QWERTY 6×6 (rejected) ---------- */
+function buildQwerty(slot) {
+  const svg = base(slot, "Fitted QWERTY: 6 by 6 grid clipped to the disk, tap a key");
+  const ROWS = ["qwerty", "asdfgh", "jkl'(;", "zxcvbn", "m,./?!", "123456"];
+  const K = 60, X0 = 53, Y0 = 53;
+  const clip = el("clipPath", { id: "clipQ" }, el("defs", {}, svg));
+  el("circle", { cx: C, cy: C, r: 232 }, clip);
+  const g = el("g", { "clip-path": "url(#clipQ)" }, svg);
+  const keys = [];
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+    const x = X0 + c * K, y = Y0 + r * K;
+    const rect = el("rect", { x: x + 1, y: y + 1, width: K - 2, height: K - 2, rx: 8, fill: "#101115", stroke: COL.hair, "stroke-width": 1 }, g);
+    const t = el("text", { x: x + K / 2, y: y + K / 2, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 20, "font-weight": 600, fill: COL.ink }, g);
+    t.textContent = ROWS[r][c];
+    keys.push({ rect, ch: ROWS[r][c] });
+  }
+  const pill = el("rect", { x: C - 95, y: 20, width: 190, height: 26, rx: 13, fill: "#0c0d10", stroke: COL.hair, "stroke-width": 1 }, svg);
+  const ptxt = el("text", { x: C, y: 33, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 13, "font-weight": 500, fill: COL.mid }, svg);
+  let pw = [];
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    if (dist(p) > 232) return;
+    const c = Math.floor((p.x - X0) / K), r = Math.floor((p.y - Y0) / K);
+    if (c < 0 || c > 5 || r < 0 || r > 5) return;
+    const k = keys[r * 6 + c];
+    pw.push(k.ch);
+    ptxt.textContent = (pw.length > 6 ? "…" : "") + pw.slice(-6).join("");
+    k.rect.setAttribute("fill", "rgba(242,243,245,.25)");
+    setTimeout(() => k.rect.setAttribute("fill", "#101115"), 130);
+  });
+  ptxt.textContent = "······";
+}
+
+/* ---------- 7 · ring glide / one-stroke (rejected as primary) ---------- */
+function buildGlide(slot) {
+  const svg = base(slot, "Ring glide: press and drag along the ring, every crossed letter commits");
+  const ring = el("g", {}, svg);
+  const ls = [];
+  for (let j = 0; j < 26; j++) {
+    const a = j * LARC, am = (j + 0.5) * LARC, bold = j % 3 === 0;
+    const q1 = polar(153, a), q2 = polar(183, a);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: bold ? COL.grey : COL.hair, "stroke-width": bold ? 2 : 1 }, ring);
+  }
+  el("circle", { cx: C, cy: C, r: 150, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  el("circle", { cx: C, cy: C, r: 186, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  for (let j = 0; j < 26; j++) {
+    const am = (j + 0.5) * LARC, p = polar(168, am);
+    ls.push(el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 19, "font-weight": 500, fill: "#c9ccd3", transform: "rotate(" + am + " " + p.x + " " + p.y + ")", "pointer-events": "none" }, ring));
+  }
+  el("line", { x1: C, y1: C - 150, x2: C, y2: C - 190, stroke: COL.grey, "stroke-width": 2 }, ring);
+  const trail = el("path", { fill: "none", stroke: "rgba(242,243,245,.55)", "stroke-width": 3, opacity: 0, "pointer-events": "none" }, svg);
+  const { main, sub } = centerText(svg);
+  let glide = null, shown = "";
+  function setHot(idx) {
+    for (let j = 0; j < 26; j++) {
+      ls[j].setAttribute("fill", j === idx ? COL.ink : "#c9ccd3");
+      ls[j].setAttribute("font-weight", j === idx ? 700 : 500);
+    }
+  }
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    const d = dist(p);
+    if (d < 125 || d > 240) return;
+    svg.setPointerCapture(e.pointerId);
+    const a0 = ang(p);
+    glide = { a0, a: a0, idx: Math.min(25, Math.floor(a0 / LARC)), str: "", moved: 0 };
+    setHot(glide.idx);
+    sub.textContent = "gliding …";
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!glide) return;
+    const p = ptOf(svg, e);
+    const a = ang(p);
+    const d = norm180(a - glide.a);
+    const idxNow = Math.min(25, Math.floor(a / LARC));
+    if (Math.abs(d) >= LARC / 2) {
+      const step = d > 0 ? 1 : -1;
+      let guard = 0;
+      while (idxNow !== glide.idx && guard++ < 27) {
+        glide.idx = (glide.idx + step + 26) % 26;
+        glide.str += LETTERS[glide.idx];
+      }
+      glide.a = a;
+      main.textContent = glide.str.slice(-6);
+      setHot(glide.idx);
+    }
+    glide.moved = Math.max(glide.moved, Math.abs(d));
+    const span = norm180(a - glide.a0);
+    const f0 = span >= 0 ? glide.a0 : glide.a0 + span;
+    const f1 = span >= 0 ? glide.a0 + span : glide.a0;
+    trail.setAttribute("d", arcPath(f0, f1, 206));
+    trail.setAttribute("opacity", 0.7);
+  });
+  svg.addEventListener("pointerup", () => {
+    if (!glide) return;
+    const s = glide.str;
+    glide = null;
+    if (s) {
+      shown = s; main.textContent = s.slice(-6);
+      sub.textContent = s.length > 1 ? "over-swipe double-enters · no word model to recover" : "one letter";
+      setTimeout(() => { main.textContent = "····"; sub.textContent = ""; trail.setAttribute("opacity", 0); }, 1400);
+    } else {
+      sub.textContent = "no motion";
+      setTimeout(() => { trail.setAttribute("opacity", 0); sub.textContent = ""; }, 700);
+    }
+    setTimeout(() => { if (!glide) { for (const l of ls) { l.setAttribute("fill", "#c9ccd3"); l.setAttribute("font-weight", 500); } } }, 1400);
+  });
+  sub.textContent = "press · sweep along the ring";
+}
+
+/* ---------- 8 · IMU twist (experimental) ---------- */
+function buildTwist(slot) {
+  const svg = base(slot, "IMU twist: drag to twist the body, the ring rotates with it");
+  const ring = el("g", {}, svg);
+  const ls = [];
+  for (let j = 0; j < 26; j++) {
+    const a = j * LARC, am = (j + 0.5) * LARC, bold = j % 3 === 0;
+    const q1 = polar(153, a), q2 = polar(183, a);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: bold ? COL.grey : COL.hair, "stroke-width": bold ? 2 : 1 }, ring);
+  }
+  el("circle", { cx: C, cy: C, r: 150, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  el("circle", { cx: C, cy: C, r: 186, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, ring);
+  for (let j = 0; j < 26; j++) {
+    const am = (j + 0.5) * LARC, p = polar(168, am);
+    ls.push(el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 19, "font-weight": 500, fill: "#c9ccd3", transform: "rotate(" + am + " " + p.x + " " + p.y + ")" }, ring));
+  }
+  const badge = el("rect", { x: C - 84, y: 26, width: 168, height: 24, rx: 12, fill: "#101115", stroke: COL.hair, "stroke-width": 1 }, svg);
+  const btxt = el("text", { x: C, y: 38, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 11, "font-weight": 600, fill: COL.grey }, svg);
+  const { main, sub } = centerText(svg);
+  let theta = 0, lastSeg = 0, flips = 0, dragging = false, lastX = 0, flashT = 0;
+  btxt.textContent = "90° roll tracker: idle";
+  function draw() {
+    ring.setAttribute("transform", "rotate(" + theta + " " + C + " " + C + ")");
+    const q = Math.floor(((theta + 45) % 360 + 360) % 360 / 90) % 4;
+    if (q !== lastSeg) {
+      lastSeg = q;
+      if (dragging) { flips++; flashT = performance.now() + 700; }
+    }
+  }
+  svg.addEventListener("pointerdown", (e) => { dragging = true; lastX = ptOf(svg, e).x; svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const p = ptOf(svg, e);
+    theta += (p.x - lastX) * 0.5;
+    lastX = p.x;
+    draw();
+    main.textContent = "θ " + Math.round(norm180(theta)) + "°";
+    sub.textContent = flips ? flips + "× roll flip — the gesture IS the re-orientation" : "drag ↔ to twist the body";
+  });
+  svg.addEventListener("pointerup", () => { dragging = false; });
+  reg({ tick(t) {
+    if (flashT && t < flashT) {
+      badge.setAttribute("stroke", "#d3a049");
+      btxt.textContent = "90° ROLL → screen rotates";
+      btxt.setAttribute("fill", "#d3a049");
+    } else if (flashT) {
+      flashT = 0; badge.setAttribute("stroke", COL.hair); btxt.setAttribute("fill", COL.grey);
+      btxt.textContent = "90° roll tracker: " + flips + "× flipped";
+    }
+  }});
+  main.textContent = "θ 0°";
+  sub.textContent = "drag ↔ to twist the body";
+}
+
+/* ---------- 9 · physical encoder (v2 board) ---------- */
+function buildEncoder(slot) {
+  const svg = base(slot, "Physical encoder: the lit sector steps in 30-degree detents, click commits");
+  const CH = "etaoinshrdlc";
+  let i = 0, acc = 0, pw = [], drag = null;
+  const zones = [], ls = [];
+  for (let k = 0; k < 12; k++) {
+    const a0 = k * 30;
+    zones.push(el("path", { d: sector(a0 + 0.8, a0 + 29.2, 140, 228), fill: "#131418" }, svg));
+  }
+  for (let k = 0; k < 12; k++) {
+    const a0 = k * 30, q1 = polar(216, a0), q2 = polar(230, a0);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.grey, "stroke-width": 2 }, svg); /* detent ticks */
+    const mid = a0 + 15, p = polar(184, mid);
+    ls.push(el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 24, "font-weight": 500, fill: COL.mid, "pointer-events": "none" }, svg));
+    ls[k].textContent = CH[k];
+  }
+  el("polygon", { points: C + ",14 " + (C - 8) + ",30 " + (C + 8) + ",30", fill: COL.ink, "pointer-events": "none" }, svg); /* index marker */
+  const { main, sub } = centerText(svg);
+  function draw() {
+    for (let k = 0; k < 12; k++) {
+      zones[k].setAttribute("fill", k === i ? "rgba(242,243,245,.18)" : "#131418");
+      ls[k].setAttribute("fill", k === i ? COL.ink : COL.mid);
+      ls[k].setAttribute("font-weight", k === i ? 700 : 500);
+    }
+  }
+  function refresh(msg) {
+    main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+    sub.textContent = msg === undefined ? "detent 30°/step · click commits" : msg;
+  }
+  function step(d) { i = (i + d + 12) % 12; acc = 0; draw(); }
+  svg.addEventListener("pointerdown", (e) => { drag = { y: ptOf(svg, e).y, moved: 0, t0: performance.now() }; svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const p = ptOf(svg, e);
+    const dy = p.y - drag.y;
+    drag.y = p.y;
+    drag.moved += Math.abs(dy);
+    acc += Math.abs(dy);
+    const dir = dy > 0 ? 1 : -1; /* drag down = advance clockwise */
+    while (acc >= 23) { acc -= 23; step(dir); }
+  });
+  svg.addEventListener("pointerup", () => {
+    if (!drag) return;
+    if (drag.moved < 10 && performance.now() - drag.t0 < 600) {
+      pw.push(CH[i]);
+      main.textContent = CH[i]; main.setAttribute("font-size", 34);
+      setTimeout(() => { main.setAttribute("font-size", 25); refresh(); }, 300);
+    }
+    drag = null;
+  });
+  svg.addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+  draw(); refresh();
+}
+
+/* ---------- off-hardware cards ---------- */
+function icoMic() {
+  return '<svg class="ico" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><rect x="17" y="8" width="14" height="22" rx="7"/><path d="M10 26a14 14 0 0 0 28 0M24 40v-12M18 40h12"/><line x1="8" y1="8" x2="40" y2="40" stroke="var(--bad)"/></svg>';
+}
+function icoCam() {
+  return '<svg class="ico" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="14" width="36" height="24" rx="4"/><circle cx="24" cy="26" r="7"/><path d="M14 14l4-6h8l4 6"/><line x1="8" y1="8" x2="40" y2="40" stroke="var(--bad)"/></svg>';
+}
+function icoHandoff() {
+  return '<svg class="ico" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><rect x="28" y="28" width="12" height="12" rx="2"/><path d="M20 14h8a6 6 0 0 1 6 6v2M28 34h-8a6 6 0 0 1-6-6v-2"/><line x1="8" y1="8" x2="40" y2="40" stroke="var(--bad)"/></svg>';
+}
+
+/* ---------- card data (evidence rows quoted from the report) ---------- */
+const CARDS = [
+  { rank: "1", chip: ["keep", "KEEP · v2"], name: "Sweep wheel v2 — 12-sector hybrid", src: "user direction 2026‑11‑02: mix of panels #1/#2/#5 · instant reveal (no full-screen redraw)",
+    try: "Press a sector — the ring reveals only that group's letters. Sweep to the letter, <b>release commits</b>; the centre previews the pick live. <b>⊗</b> commits · <b>🗑</b> discards · centre tap = backspace · top arc = abc/ABC/123/#$.",
+    rows: [["Speed", "0.7–1.5 s/char (est. 4–8 CPM)"], ["Accuracy", "equal-share reveal targets (360/26 per letter) · big centre preview · release-only commit"], ["Cost", "few hundred LOC · pre-built LVGL arcs, region-limited invalidation"], ["Verdict", "KEEP — coarse press + sector sweep + centre preview, one frame"]], build: buildWheel },
+  { rank: "2", chip: ["ship", "SHIP"], name: "12-sector DTMF multi-tap", src: "DTMF/T9 — big keys + multi-tap (finding 13) · wheel §7.13 plumbing",
+    try: "Press a sector <b>1–4×</b>; each press picks the next char down the sector (dot per press). The thin arc is the 700 ms window; timeout commits. Releasing early also commits.",
+    rows: [["Speed", "~1–1.5 s/char multi-tap"], ["Accuracy", "30° target (1.4× the 2× zone) · timeout absorbs jitter"], ["Cost", "few hundred LOC · 2–4 KB flash"], ["Verdict", "SHIP — best cost/benefit; 123/#$ registers first"]], build: buildMulti },
+  { rank: "3", chip: ["ship", "SHIP"], name: "Hold-to-commit dwell", src: "CHI 2025 dwell ceiling (finding 14) · in-tree LONG_PRESSED = 400 ms",
+    try: "Press and <b>hold 400 ms</b> on a letter — the arc fills, then commits. Sliding re-targets and restarts the timer; early release cancels. No sweep motion at all.",
+    rows: [["Speed", "dwell ~20 WPM ceiling"], ["Accuracy", "same 27° target + live preview as the wheel · no new error class"], ["Cost", "tens of LOC"], ["Verdict", "SHIP as the default fallback — also hedges the pending real-glass check"]], build: buildDwell },
+  { rank: "4", chip: ["ship", "SHIP · setting"], name: "Auto-scan, Crownboard-style", src: "Crownboard, CHI 2023 — 0.53–2.3 % error, best in corpus",
+    try: "The lit sector steps clockwise (~1/s — the serial floor, shown live). <b>Tap anywhere</b> commits the lit char. Decoder deliberately skipped: it only helps dictionary words.",
+    rows: [["Speed", "~1 s/char floor (scan period)"], ["Accuracy", "0.53–2.3 % error by construction"], ["Cost", "low — scan only, no decoder"], ["Verdict", "SHIP as an accessibility setting, not the primary"]], build: buildScan },
+  { rank: "5", chip: ["hold", "HOLD"], name: "9×4 swipe sectors", src: "Tap’nSwipe, IJHCI 2025 · smartwatch trace/tap WPM (SAGE 2019)",
+    try: "Press in the ring, <b>drag and release</b>: the release direction (out / left / in / right) picks one of the sector’s 4 chars. Watch the error class: a drag < 15 px reads as a tap.",
+    rows: [["Speed", "tap 18–20 / trace 29–33 WPM (watch QWERTY)"], ["Accuracy", "better accuracy than QWERTY on small watches"], ["Cost", "medium — gesture classification + new layout table"], ["Verdict", "HOLD — revisit only if multi-tap proves unlearnable"]], build: buildSwipe },
+  { rank: "6", chip: ["rej", "REJECTED"], name: "Fitted QWERTY 6×6", src: "SAGE 2019 watch QWERTY · WatchWriter / FingerText rescues assume wrist + fingers",
+    try: "Tap the keys. 60 px ≈ 4.5 mm keys, a grid the disk <b>clips at the corners</b>; at watch key sizes QWERTY measures 14–15 % WER. Tap a few to feel why it is rejected, full stop.",
+    rows: [["Speed", "18–20 WPM (watch QWERTY)"], ["Accuracy", "14–15 % WER at watch key sizes"], ["Cost", "high"], ["Verdict", "REJECTED — keys well below a fingertip on a 35 mm disk"]], build: buildQwerty },
+  { rank: "7", chip: ["rej", "REJECTED · primary"], name: "Ring glide / one-stroke", src: "trace 29–33 WPM (QWERTY + dictionary, SAGE 2019) · D-Shaped EdgeWrite",
+    try: "Press and <b>sweep along the ring</b>: every crossed letter commits immediately. Deliberate slow motion double-enters; a password is arbitrary — no word model recovers an over-swipe. That is why the shipped wheel commits only on release.",
+    rows: [["Speed", "29–33 WPM (measured on QWERTY + dict.)"], ["Accuracy", "needs a word model · double-entry risk"], ["Cost", "medium–high"], ["Verdict", "REJECTED as a primary for arbitrary strings"]], build: buildGlide },
+  { rank: "8", chip: ["exp", "EXPERIMENTAL"], name: "IMU twist", src: "WrisText, CHI 2018 (wrist whirl) · QMI8658C already sampled",
+    try: "Drag to <b>twist the body</b> — the ring rotates with it. The badge fires every 90° boundary crossing: the gesture and the device re-orientation are the same signal, which is the disqualifying conflict.",
+    rows: [["Speed", "n/a (no published figure)"], ["Accuracy", "conflicts with the 90° roll tracker"], ["Cost", "medium — IMU hardware is free"], ["Verdict", "EXPERIMENTAL at best; disqualifying today"]], build: buildTwist },
+  { rank: "9", chip: ["v2", "v2 BOARD"], name: "Physical encoder + haptic detents", src: "Crownboard CHI 2023 · Brewster in-car CHI 2017 · CapCrown one-finger rotation",
+    try: "Drag vertically or use the <b>mouse wheel</b>: the highlight steps in discrete 30° detents (no sliding), click commits the lit sector. Needs a board revision (6 mm encoder + detents) — the strongest evidence-backed upgrade available.",
+    rows: [["Speed", "crown-class (rotate + press)"], ["Accuracy", "2.3 % class · glance-free · certainty"], ["Cost", "hardware — v2 board"], ["Verdict", "the right v2 upgrade; out of scope for firmware"]], build: buildEncoder },
+];
+const OFF = [
+  { t: "Voice", chip: ["infeas", "INFEASIBLE"], p: "No microphone on the board (no on-board AEC mic path on this S3 design). The phone has one — the Apple Watch hands off.", ico: icoMic },
+  { t: "Camera / OCR", chip: ["infeas", "INFEASIBLE"], p: "No camera on the board, so there is nothing to point at the password.", ico: icoCam },
+  { t: "QR / NFC / BLE handoff", chip: ["infeas", "INFEASIBLE NOW"], p: "No NFC and no camera to read a QR. BLE peripheral is architecturally possible but means a companion app, GATT, pairing and security review for a once-per-network task.", ico: icoHandoff },
+];
+
+/* ---------- T9 dictionary: static illustration panel ---------- */
+function buildT9Mini() {
+  const svg = el("svg", { viewBox: "0 0 466 466", "class": "pdisk", "aria-label": "T9 dictionary decode illustration", role: "img" });
+  el("circle", { cx: C, cy: C, r: 232, fill: COL.disk, stroke: COL.hair, "stroke-width": 2 }, svg);
+  for (let k = 0; k < 12; k++) {
+    el("path", { d: sector(k * 30 + 0.8, k * 30 + 29.2, 140, 228), fill: "#131418" }, svg);
+    const q1 = polar(140, k * 30), q2 = polar(228, k * 30);
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, svg);
+    const p = polar(184, k * 30 + 15);
+    el("text", { x: p.x, y: p.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 22, "font-weight": 500, fill: COL.mid }, svg).textContent = "1234567890*#"[k];
+  }
+  el("rect", { x: C - 90, y: C - 18, width: 180, height: 36, rx: 18, fill: "#101115", stroke: COL.hair, "stroke-width": 1 }, svg);
+  el("text", { x: C, y: C - 1, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 13, "font-weight": 500, fill: COL.mid }, svg).textContent = "predict: —";
+  el("text", { x: C, y: C + 34, "text-anchor": "middle", "font-size": 11.5, "font-weight": 500, fill: COL.grey }, svg).textContent = "0 candidates for arbitrary strings";
+  return svg;
+}
+
+/* ---------- build DOM ---------- */
+const gallery = document.getElementById("gallery");
+for (const cd of CARDS) {
+  const card = document.createElement("article");
+  card.className = "card";
+  card.innerHTML =
+    '<div class="top"><span class="rank">#' + cd.rank + "</span><span class=\"chip " + cd.chip[0] + "\">" + cd.chip[1] + "</span></div>" +
+    "<h3>" + cd.name + "</h3><div class=\"src\">" + cd.src + "</div>";
+  const slot = document.createElement("div");
+  card.appendChild(slot);
+  const tryP = document.createElement("p");
+  tryP.className = "try";
+  tryP.innerHTML = cd.try;
+  card.appendChild(tryP);
+  const rows = document.createElement("div");
+  rows.className = "rows";
+  for (const [k, v] of cd.rows) {
+    rows.insertAdjacentHTML("beforeend", '<div class="row"><span class="rl">' + k + '</span><span class="rv">' + v + "</span></div>");
+  }
+  card.appendChild(rows);
+  gallery.appendChild(card);
+  cd.build(slot);
+}
+const offgrid = document.getElementById("offgrid");
+for (const o of OFF) {
+  const d = document.createElement("article");
+  d.className = "off";
+  d.innerHTML =
+    '<div class="top">' + o.ico() + "<div><h3>" + o.t + '</h3><span class="chip ' + o.chip[0] + '">' + o.chip[1] + "</span></div></div>" +
+    "<p>" + o.p + "</p>";
+  offgrid.appendChild(d);
+}
+const t9 = document.createElement("article");
+t9.className = "off";
+t9.innerHTML =
+  '<div class="top"><div><h3>T9 dictionary decode</h3><span class="chip rej">REJECTED · task fit</span></div></div>' +
+  '<div class="t9wrap"><div class="t9slot"></div><p>The T9 speed win comes from 1‑press‑per‑character against a <b>word database</b>. Passwords are arbitrary: a 200–500 KB word list buys almost nothing here. The mechanics T9 provides are exactly what the multi‑tap ring (panel #2) generalizes without the database.</p></div>';
+offgrid.appendChild(t9);
+t9.querySelector(".t9slot").appendChild(buildT9Mini());
+
+/* ---------- one shared rAF loop drives all timers ---------- */
+function loop(t) {
+  for (const p of panels) if (p.tick) p.tick(t);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>

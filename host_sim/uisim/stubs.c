@@ -75,10 +75,14 @@ void set_var_alarm_prefix(const char *value) {
     s_alarm_prefix[sizeof s_alarm_prefix - 1] = 0;
 }
 
-/* ---- clock (clock.c / clock_idle.c) ---- */
+/* ---- clock (clock.c / clock_idle.c / clock_sntp.c) ---- */
 
 bool clock_is_idle(void) { return false; } /* awake at rest */
 void clock_idle_set_timeout_ms(uint64_t ms) { (void)ms; }
+/* The snapshots are the synced state (post-NTP): the clock label renders at
+   full opacity. The M5.1 unsynced dim (screens.c) is reachable only on the
+   P4 before its first sync / manual time entry. */
+bool clock_sntp_time_trusted(void) { return true; }
 
 /* ---- alarm scheduler (canned rule state) ---- */
 

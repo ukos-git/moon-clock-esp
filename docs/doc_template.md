@@ -35,12 +35,20 @@ hardware panel-brightness ramp — the CO5300's own dimming command — so the
 transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
 on the home screen when the next fire is >24 h away), the **fa-circle-xmark
 exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in), and the **P4
-software clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed
-internal RTC timer + SNTP as the time base with the minute tick / countdown /
-alarm arming in software, §2.3). See the standing rule in
-[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
-`python3 docs/gen_doc.py` and must stay in sync with the code._
+alarm** (the `*/5` debug rule burned the alarm screen in), the **P4 software
+clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed internal
+RTC timer + SNTP as the time base with the minute tick / countdown / alarm
+arming in software, §2.3), the **P4 alarm ring** (M5.5 — the fired alarm rings
+through the board's ES8311 codec + speaker amp, volume ramped up gradually,
+touch snooze; S3 stays display-only, §7.5), the **approved wheel v2 direction**
+(§7.14 — the "sweep wheel v2 hybrid": proportional press sectors + an overlay
+reveal + a DTMF-style centre preview; approved for firmware implementation, the
+interactive lab is the clickable reference) and the **design-choice
+documentation** (§7.14: the keyboard lab committed to the repo, the
+comparable-layout survey and the idea sources; §12.4: the committed NASA
+side-by-side figures). See the standing rule in [CLAUDE.md](../CLAUDE.md) —
+this document is regenerated with `python3 docs/gen_doc.py` and must stay in
+sync with the code._
 
 ---
 
@@ -96,14 +104,26 @@ Markdown and renders the project's own media:
   against: `docs/img/nasa/nasa_*.png` (the full set of 8,760 frames lives at
   `assets/images/moon/final_400x400/` in the working tree — gitignored, see
   §12).
+- **4 side-by-side "how the moon looks vs NASA" figures**:
+  `docs/img/nasa/nasa_vs_c_*.png` — NASA reference, C runtime (5-bit quantized)
+  and the ×8 residual of a fresh 32-frame gate run (see §12.1).
+- **The interactive keyboard design lab** —
+  `docs/keyboard/round-keyboard-lab.html`: all 13 text-entry methods for the 35
+  mm round panel rendered at 1:1 (466×466) scale and operable in the browser,
+  the clickable record of the wheel's design choices (§7.14). Open it directly
+  from the working tree (`file://…/docs/keyboard/round-keyboard-lab.html`); it
+  is a single self-contained page (no build, no server, no local storage).
 - **The complete source code** of the project, verbatim from the tracked tree,
   embedded in [§17](#17-complete-source-code) (generated, so it cannot drift
   from the code it documents).
 
 Regeneration: `python3 docs/gen_media.py` (films, needs `host_sim/.venv` with
 PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
-`host_sim/uisim/out/*.png` → `docs/img/screens/`, `python3 docs/gen_doc.py`
-(this document).
+`host_sim/uisim/out/*.png` → `docs/img/screens/`,
+`host_sim/.venv/bin/python host_sim/check_gate.py` (the gate must pass — its
+32-frame output in `/tmp/moon-sim-gate/` feeds the NASA figures),
+`host_sim/.venv/bin/python docs/nasa_figs.py` (the `nasa_vs_c_*.png` figures),
+`python3 docs/gen_doc.py` (this document).
 
 ---
 
@@ -254,8 +274,20 @@ P4-specific code facts:
   while an alarm is pending** (the P4's "deep sleep" is app-level — no
   `esp_deep_sleep`, so the crystal domain and the software one-shot stay alive;
   with no RTC-alarm wake the device holds the dim light-sleep screen instead of
-  going to the backlight-off state). Only the P4 manual time-entry screen
-  (calls `clock_sntp_set_time_trusted`) remains.
+  going to the backlight-off state). The **alarm ring** (M5.5, also 2026-11-01,
+  `components/ui/alarm_audio.c`): the fired alarm rings through the board's
+  **ES8311 codec** (on the shared I2C bus with the GT911 touch) + speaker amp —
+  the codec handle is built once at boot (soft-fails like the IMU: init error →
+  the alarm stays display-only), and per fire a short-lived ring task opens the
+  codec (I2S TX, mono 16-bit @ 22050 Hz, MCLK = 256×FS — the ES8311's PLL pair)
+  and streams a pre-baked A5/E5 two-tone loop through the **blocking I2S
+  write** (it paces at the audio rate, so the stream is real-time) while the
+  **volume ramps up gradually** over the first ~2.5 s (no startup click at a
+  full level); the touch dismiss is the snooze — the task fades the volume out
+  over ~150 ms, closes the codec (DAC + I2S TX), and the next alarm re-opens
+  it. The S3 has no audio hardware: there the ring functions are no-op stubs
+  and the alarm path is untouched. Only the P4 manual time-entry screen (calls
+  `clock_sntp_set_time_trusted`) remains.
 - **The DSI panel's strip writes are async.** The P4 DPI panel copies each
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
@@ -310,7 +342,10 @@ edge at r 325, so the band never overlaps the disk). The rotated orientation
 layer grows with the root (720² RGB565 ≈ 1.0 MB, clib → PSRAM). P4 binary
 1,468,784 B (9,437,184 B factory); 2026-11-01 after M5.1: P4 **1,477,472 B**
 (`0x168b60`), S3 **1,450,352 B** (`0x162170`, +176 B over the 1,450,176
-baseline — the shared clock headers + the trusted-time flag).
+baseline — the shared clock headers + the trusted-time flag); after M5.5 (the
+ES8311 alarm ring): P4 **1,547,584 B** (`0x179d40` — the ring pulls the
+`esp_codec_dev` + I2S driver into the link), S3 **1,450,400 B** (`0x1621a0`,
++48 B — the no-op stub calls).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -321,9 +356,12 @@ a core for seconds (same as the S3). The P4 software clock (M5.1 — no RTC IC:
 crystal-backed internal RTC timer + SNTP + `esp_timer` alarm/countdown
 one-shots, the P4 half of §10.6) is code-complete 2026-11-01 (build-verified
 both targets; on-device verification pending); the NVS epoch backup (M5.2's
-power-loss half) landed the same day, leaving only the P4 manual time-entry
-screen. The S3 build flow is unchanged; the shim + call-site migration add ~15
-KB to the S3 binary (§3.1).
+power-loss half) landed the same day, as did the **ES8311 alarm ring** (M5.5 —
+the fired alarm rings through the board's codec + speaker amp, volume ramped up
+gradually, touch dismiss = snooze; `components/ui/alarm_audio.c`, P4-only with
+S3 no-op stubs, §7.5), leaving only the P4 manual time-entry screen. The S3
+build flow is unchanged; the shim + call-site migration add ~15 KB to the S3
+binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -386,7 +424,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x162170` (1,450,352 B), 646,800 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1621a0` (1,450,400 B), 646,752 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
@@ -396,7 +434,7 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-646,800 B of headroom remain for the future text-input family.
+646,752 B of headroom remain for the future text-input family.
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
@@ -408,7 +446,7 @@ find every partition by label, not offset, so the widening is layout-invisible;
 | Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable                                                                                       |
 | Time base | none (no RTC IC)    | the internal RTC timer on the **external 32 kHz crystal** (`CONFIG_RTC_CLK_SRC_EXT_CRYS`, M5.1 — the RC oscillator is a few % inaccurate, unusable as a time base) + SNTP; VBAT battery header (power-loss survival to be verified) |
 | IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                                                                                                         |
-| Audio     | ES8311 codec        | the planned alarm ring (volume ramp + touch snooze)                                                                                                                                                                                 |
+| Audio     | ES8311 codec        | the alarm ring (M5.5: ES8311 on the shared I2C bus + speaker amp, volume ramp + touch snooze, §7.5)                                                                                                                                 |
 
 Unlike the S3, the P4 PSRAM **is** DMA-capable — the S3's 32 KiB SPI-DMA strip
 staging (buffer_height 25, flush queue depth 1) is a QSPI-S3 artifact and does
@@ -424,7 +462,7 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x168b60` (1,477,472 B), ~7.6 MB free — huge headroom vs the S3's 2048 K                                                 |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x179d40` (1,547,584 B), ~7.9 MB free — huge headroom vs the S3's 2048 K                                                 |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
 | `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
 
@@ -451,7 +489,9 @@ components/
                            alarms, write/reload, */N>59); settings_store.c (store)
   ui/                  LVGL 9.6 UI: screens.c (13 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
-    images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets)
+    images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets);
+                             alarm_audio.c (the P4 ES8311 alarm ring, S3 no-op
+                             stubs)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
   wifi/                ESP WiFi scan (settings screen)
   board/               the board shim: board_display.{c,h} — the app-side
@@ -570,7 +610,8 @@ idle (runtime timeout, default 60 s): light sleep = the DUSK
    (pole spin, 1 deg/frame, constant projection, shade map baked once)
    -> last frame arms the RTC deep-sleep countdown (default 60 s)
 deep sleep: dark side + clock hidden + backlight OFF
-alarm (RTC minute poll): alarm screen (until dismissed by touch); fires from deep sleep too
+alarm (RTC minute poll): alarm screen (until dismissed by touch; rings on the
+   P4 — the ES8311 codec, §7.5); fires from deep sleep too
 tap on airplane/WiFi: settings hub (icon ring + central circle-xmark exit)
    sub-screens: alarm, pomodoro, alarm-time, light-sleep, deep-sleep, WiFi
    (the WiFi list's AP rows open the circular wheel keyboard, §7.13)
@@ -801,6 +842,18 @@ live.
   backlight restored). Touch dismisses and re-arms. The screen carries the
   alarm indicator icon and the time; there is **no automatic sleep transition**
   while it is up (task: the alarm must not dusk-sleep mid- dismiss).
+- **P4: the ring** (`components/ui/alarm_audio.c`, M5.5). The fired alarm also
+  rings through the board's ES8311 codec + speaker amp (the codec joins the
+  GT911 on the shared I2C bus; `bsp_audio_codec_speaker_init` at boot, soft
+  fail → display-only). A per-fire ring task streams a pre-baked A5/E5 two-tone
+  loop (mono 16-bit @ 22050 Hz, MCLK = 256×FS — the ES8311's PLL pair) through
+  the **blocking I2S write** (it paces at the audio rate, so the loop is
+  real-time) while the volume **ramps up gradually** over the first ~2.5 s (no
+  startup click at a full level). The touch dismiss **snoozes**: every dismiss
+  path runs through `action_wake_screen`, which sets the stop flag; the ring
+  task fades the volume out over ~150 ms and closes the codec (DAC + I2S TX
+  disabled — the next alarm re-opens it). The S3 has no audio hardware: the
+  ring functions are no-op stubs there and its alarm path is untouched.
 
 ### 7.6 Settings hub
 
@@ -967,6 +1020,143 @@ moon image (settings are moon-less by design).
   multi-tap ring and hold-to-commit dwell are the ranked low-cost additions.
 - **Settings displayed:** the prefilled SSID, the running password, the active
   register, the selected letter.
+- **Design direction (approved):** the lab prototype **sweep wheel v2
+  ("12-sector hybrid")** — §7.14 — is the approved evolution: it keeps the
+  wheel's coarse-press + sweep model but re-derives the geometry (proportional
+  sectors, overlay reveal, centre preview) from the lab's operable 1:1 mocks.
+
+### 7.14 The wheel's design choices — interactive lab, comparable layouts, and the v2 hybrid
+
+The wheel is the product's one text-entry surface, so its design choices are
+documented as a first-class section, with the **interactive design lab** as the
+clickable reference instead of static mockups:
+
+**The interactive design lab** — `docs/keyboard/round-keyboard-lab.html` (a
+single self-contained page, no build, no server; open it straight from the
+working tree). It renders **all 13 text-entry methods** researched for this
+panel at **true 1:1 scale** (every mock is a 466×466 SVG — the device's own
+panel geometry, the device's own black-on-black AMOLED palette), and the
+feasible ones are **actually operable in the browser** (pointer events, the
+device's timing constants) so the feel can be compared before any C is written.
+Panels:
+
+1. **Sweep wheel v2 — 12-sector hybrid (KEEP, the approved direction)** — the
+   v2 spec below.
+2. 12-sector DTMF multi-tap (1–4 presses, 700 ms window — the coarse-press +
+   centre-preview model v2 inherits).
+3. Hold-to-commit dwell (400 ms; the gesture-free fallback).
+4. Auto-scan, Crownboard-style (the lit sector steps clockwise at 1/s; tap
+   commits — the "setting" alternative).
+5. 9×4 swipe sectors, Tap'nSwipe (press, drag, direction picks the char).
+6. Fitted QWERTY 6×6 (operable, to make the rejection case by feel).
+7. Ring glide / one-stroke (the over-swipe risk, made visible).
+8. IMU twist (body rotation drives the ring — the gesture-vs-reorientation
+   conflict).
+9. Physical rotary encoder (12 sectors + side crown — the hardware-revision
+   upgrade). 10–13. Off-hardware: voice, camera/OCR, QR/NFC/BLE handoff, T9
+   dictionary decode (each with its infeasibility/rejection reason).
+
+Every panel carries the research report's evidence rows (best published speed,
+accuracy evidence with source, implementation cost on ESP32-S3 + LVGL,
+verdict), and the page's verdict strip ranks them: the wheel family keeps, DTMF
+multi-tap + dwell ship as additions, QWERTY / glide / voice / OCR / handoff /
+T9-dictionary reject. **The lab is the documentation's interactive half**: the
+static sections below describe the same choices; the page lets a user _operate_
+them. It is committed to the repo (`docs/keyboard/`) so the documented design
+choices and the operable reference cannot drift apart — the page is pure
+vanilla HTML/SVG/JS with no external assets beyond a Google Fonts link (it
+degrades gracefully offline).
+
+**How the v2 hybrid works (user view)** — the panel #1 mock, in one paragraph:
+press anywhere on the ring. The ring **reveals only the pressed sector's
+letters**, on top of the rest of the wheel (the reveal spans the inner circle's
+radius band, so the whole ring reads as one keyboard). Sweep to the letter —
+the **centre of the disk previews the letter under the finger live**
+(DTMF-style: while pressed you always see what you are about to commit; on
+release the full running entry re-appears). **Release commits the letter.** The
+top arc switches the register (`abc / ABC / 123 / #$` — four large 60° keys);
+the bottom of the ring is a **⊗ commit** key and a **trash discard** key; a
+**tap on the centre backspaces**. No double-entry is possible: the commit
+happens only on release, and the hit-test is the exact box under the finger (no
+nearest-centre tie-break).
+
+**The v2 geometry (firmware spec)** — what the mock implements, measured
+against the shipped v1 of §7.13:
+
+- **Proportional sectors.** 26 letters, every letter owns an equal
+  `SHARE = 360/26 ≈ 13.846°` of the ring; sector `k` (holding `n` letters)
+  spans `n·SHARE` — a 2-letter sector 27.7°, the two 3-letter sectors (j/k/q
+  and v/x/z) 41.5°. The grouping (12 sectors:
+  `[ab][cd][ef][gh] [il][j k q][mn][op][rs][tu][v x z][wy]`) is fixed across
+  all four registers, so **sector boundaries never move when the register
+  changes** — the muscle memory of the press position survives the `abc → 123`
+  switch. (v1 grouped the alphabet in threes; v2 groups by the keyboard's
+  frequency pairs + the two 3-clusters, which is what makes the 12 sectors fit
+  exactly.)
+- **The reveal.** On touch-down the pressed sector's letters are drawn
+  **edge-to-edge across r 150–226 — the inner circle's own radius band**, so
+  the reveal _replaces_ the at-rest ring under the finger (no second, cramped
+  ring, and no redrawing the rest of the screen: the reveal is the only new
+  content, region-limited invalidation). Hairline dividers at the box edges;
+  the lit box inverts (white fill, black letter).
+- **Hit-test.** Exact box: `Math.floor(angle-in-sector / SHARE)` — the box
+  under the finger is the letter. v1's 2× nearest-centre overlap is gone,
+  because the boxes tile the sector exactly (360/26 per letter, so the target
+  is as wide as v1's inner slot, drawn at the reveal radius).
+- **Centre preview / handback.** While pressed: the lit letter large in the
+  centre + "release commits". On release: the full running entry (last 6
+  characters + `…`), as in v1.
+- **Register arc.** Four 60° keys on the top arc (240°–480°, i.e. the top half)
+  — wider than v1's 42°–138° 4-key arc, so a press is resolved by exact sector,
+  not nearest key.
+- **Commit / discard / backspace.** Bottom of the ring: ⊗ (24 px, the house
+  exit glyph, v1's deviation kept) commits the entry (`wifi_credentials_write`
+  - the background WiFi sync, §7.13); the trash key discards without writing;
+    centre tap = backspace (v1 used a 400 ms centre long-press — v2 makes a
+    plain tap backspace because the long-press would compete with the sweep
+    press that starts a letter).
+
+The mock's estimates (the card's own rows): **0.7–1.5 s/character** (≈4–8 CPM
+for passwords), equal-share targets + big centre preview + release-only commit
+as the accuracy story, **a few hundred lines of LVGL arcs** with region-limited
+invalidation as the cost. It is a prototype mock, not a benchmark — the
+real-glass CST9217 feel (touch latency, the sweep's angular velocity, how far a
+finger actually travels in 0.7 s) is the pending device check (the research's
+open question 2).
+
+**Comparable layouts and where the ideas came from** — the full ranked survey
+is the research note `docs/research/circular-keyboard-alternatives.md`
+(2026-11-01); the table below is the compact version, with the idea source each
+v2 element took from:
+
+| Method                                              | Published evidence                                                              | Status                  | What v2 took from it                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Sweep wheel (coarse press + sweep, release commits) | C-QWERTY (2020) — ring of keys on a circular watch face; the shipped v1 (§7.13) | **KEEP (v1 shipped)**   | the whole model: 12 coarse press targets, sweep to resolve, release commits (no auto-commit → no double-entry)                             |
+| 12-sector DTMF multi-tap (1–4 presses, 700 ms)      | T9/DTMF multi-tap; Crownboard's commit-on-release                               | SHIP as a register mode | the **centre preview** — the selected char shown in the middle until release commits, then the full entry re-appears                       |
+| Hold-to-commit dwell (400 ms)                       | dwell-click literature; the gesture-free fallback                               | SHIP as a setting       | the backstop for users who won't sweep: hold a box, it commits on its own                                                                  |
+| Auto-scan (Crownboard)                              | Crownboard (CHI 2023) — rotation + commit on a 3D-printed watch                 | SHIP as a setting       | the "hands-barely-move" mode: the lit box steps at 1/s, a tap commits the lit one                                                          |
+| 9×4 swipe sectors (Tap'nSwipe)                      | Tap'nSwipe (IJHCI 2025) — 9 sectors × 4 chars, swipe direction selects          | HOLD                    | the sector-count sanity check (9×4 ≈ 36 ≈ 12×3; coarse sectors win over 26 fine taps)                                                      |
+| Fitted QWERTY 6×6                                   | smartwatch QWERTY trace/tap studies (SAGE 2019) — tap WPM on a round face       | **REJECTED**            | keys land at ~3.5 mm, a quarter of a fingertip — below touch resolution; the lab panel makes it tappable so the case is felt, not asserted |
+| Ring glide / one-stroke                             | —                                                                               | REJECTED as primary     | no word model to recover an arbitrary password string from an over-swipe                                                                   |
+| IMU twist                                           | QMI8658C is on-board (free)                                                     | EXPERIMENTAL            | the body-roll conflict: a twist gesture fights the 90° orientation tracker (§10.3)                                                         |
+| Physical rotary encoder                             | in-car dial studies (Brewster CHI 2017) — physical certainty, >94 % accuracy    | v2 board (hardware)     | the strongest evidence-backed upgrade — a hardware revision, not firmware                                                                  |
+| Voice / camera / QR / NFC / BLE / T9-dictionary     | —                                                                               | INFEASIBLE / no fit     | the board has no mic/camera/NFC; a companion app for a once-per-network task is not worth it; T9 needs a word model, a password has none   |
+
+The **idea sources in one line**: coarse press + sweep + release-commit is the
+shipped wheel (itself confirmed by C-QWERTY/Crownboard-class work); the centre
+preview is the DTMF panel (#2) lifted into v2; the proportional grouping is the
+lab's own re-derivation (26 equal shares, 12 fixed sectors); the overlay reveal
+is the lab's answer to "the outer ring is too cramped" (user direction — the
+DTMF centre preview and the reveal-overlaying-the-inner circle);
+⊗/trash/centre-backspace follow the house pattern (the circle-xmark exit glyph,
+§7.13).
+
+**Status.** The v2 hybrid is **approved for firmware implementation** (the
+shipped v1 above remains the running screen until v2 lands). The lab mock is
+the normative interaction spec; the geometry table above is the normative
+geometry. When v2 lands, this section updates to describe the device behaviour
+(and §7.13's screenshots re-render from the new `screens.c` through the UI
+simulator).
 
 ---
 
@@ -1260,7 +1450,24 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Screen switch (every switch fades)            | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                      |
 | Settings hub idle CPU                         | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                |
 | Image gate (host)                             | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                 |
-| Binary (2026-11-01, after M5.1)               | S3: `0x162170` = 1,450,352 B in the 2,097,152 B partition (646,800 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard). P4: `0x168b60` = 1,477,472 B in the 9,437,184 B partition (~7.6 MB free)                                                                                                                                                                                                                 |
+| Binary (2026-11-01, after M5.1/M5.5)          | S3: `0x1621a0` = 1,450,400 B in the 2,097,152 B partition (646,752 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; the M5.5 ring is +48 B no-op stub calls). P4: `0x179d40` = 1,547,584 B in the 9,437,184 B partition (~7.9 MB free — the M5.5 ring pulls the `esp_codec_dev` + I2S driver into the link, +70 KB over the M5.1 1,477,472 B)                                                                 |
+
+**Board performance indicators (S3 vs P4).** The table above is the extensible
+anchor: whenever a stage is re-measured on either board, the row grows (board +
+date named in the value, never a bare overwrite of the other board's number).
+The standing invariants that shape the numbers: the S3's PSRAM is **not**
+SPI-DMA-capable (flush strips stage through internal RAM — the 32 KiB S3
+SPI-DMA cap, flush queue depth 1, buffer height 25) while the P4's PSRAM **is**
+DMA-capable (the DPI FIFO runs PSRAM-backed; the spin's 10×65-row DSI strips
+exist only because a 206-row strip underruns the FIFO at X16+XIP). The S3 panel
+path is the QSPI CO5300 (one continuous 400×400 window write for the spin,
+max*transfer_sz 23,300 B); the P4 panel path is the MIPI-DSI JD9365 (10×65-row
+strips, one framebuffer, NONE tear mode). The S3 bakes at 240 px intermediates
+/ 400 px final; the P4 at 240 px intermediates / **650 px** final (~595–599 ms,
+the 720 px disk). The S3 keeps the PCF85063A RTC; the P4 runs the M5.1 software
+clock (the 1.3 s poll + `esp_timer` one-shots). Both boards share the moon core
+verbatim (`components/moon/core`), so the \_computation* is identical — the
+difference is the panel, the DMA topology, and the disk size.
 
 ---
 
@@ -1380,6 +1587,42 @@ WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
 physical device for the things only a human can judge (the fade-to-black
 switch's smoothness, the day-range-arc handle gestures, the roller feel).
 
+### 12.4 How the moon looks vs NASA — the committed side-by-side figures
+
+The gate (§12.1) measures the agreement; these figures _show_ it. Four
+committed figures — `docs/img/nasa/nasa_vs_c_p025.png`, `nasa_vs_c_p050.png`,
+`nasa_vs_c_p075.png`, `nasa_vs_c_p090.png` — each lay out one gate frame as
+three equal 400×400 panels:
+
+|                                          |                                          |
+| ---------------------------------------- | ---------------------------------------- |
+| ![phase 25](img/nasa/nasa_vs_c_p025.png) | ![phase 50](img/nasa/nasa_vs_c_p050.png) |
+| ![phase 75](img/nasa/nasa_vs_c_p075.png) | ![phase 90](img/nasa/nasa_vs_c_p090.png) |
+
+Every figure: **NASA SVS 5415 reference** (left) · **C runtime, 5-bit RGB565**
+(middle) · **residual ×8** (right). The residual panel is computed with the
+same sub-pixel registration (phase cross-correlation,
+`moon. register.register_shift`) the gate uses for its MAE, so the picture is
+the measured residual, not a naive pixel diff.
+
+Reading the residual: the error concentrates exactly where a real moon render
+is hard — **along the terminator** (the day/night boundary is a few-pixel-wide
+feature and the two renderers' ephemeris precision differs at the sub-pixel
+level there), **at the disk rim** (the disk mask edge), and **in the relief
+texture of the lit half** (crater walls are where the banded DEM approximation
+deviates from the full-resolution reference). The night side is the darkest
+part of the residual — the computed backlit side (§5.2 item 4) is the least
+constrained by the reference. The gate numbers for the 2026-11-01 run:
+per-frame MAE 4.90–8.90 (max 8.90 ≤ the 12 gate), content SSIM 0.838–0.951
+(mean 0.908).
+
+Regenerate: `host_sim/.venv/bin/python host_sim/check_gate.py` (fresh 32-frame
+output in `/tmp/moon-sim-gate/`) then
+`host_sim/.venv/bin/python docs/nasa_figs.py` (the committed figures; the PICKS
+table pins the same gate frames). A new gate run with a different `mooninfo`
+selection shifts the frame numbers — update `PICKS` to the new gate set's
+positions.
+
 ---
 
 ## 13. ESP32-S3: capabilities & limits
@@ -1392,7 +1635,7 @@ What this project uses, and what the chip/board would not do:
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 240 MHz dual-core Xtensa            | core 0 = UI/display (LVGL adapter, pinned); core 1 = moon bakes + spin render (bounded, self-cancelling — the core-1 WDT idle check is disabled for it, core 0's stays as the hang net) |
 | 8 MB octal PSRAM @ 80 MHz           | frame buffers, shade map, the 4 MB slope cache, LVGL layers (CLIB malloc backend → PSRAM); **not** DMA-accessible                                                                       |
-| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,800 B free) + 64 K SPIFFS + 2560 K assets                                      |
+| 16 MB flash                         | 2048 K app (the factory was widened 1392 K → 2048 K when the app outgrew the old ceiling — currently 646,752 B free) + 64 K SPIFFS + 2560 K assets                                      |
 | QSPI @ high pclk + 16-bit QSPI data | the 466x466x2 B full-panel flush in ~175 ms (display-bound, not CPU-bound)                                                                                                              |
 | FreeRTOS (100 Hz)                   | the 10 ms UI tick, the bounded bake tasks, the background sync task                                                                                                                     |
 | SNTP + WiFi (on demand)             | the airplane-modem-sleep power model; the hourly 1-minute sync                                                                                                                          |
@@ -1402,7 +1645,7 @@ What this project uses, and what the chip/board would not do:
 | Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,800 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
+| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,752 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
 | LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
 | 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
 | Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
@@ -1551,7 +1794,10 @@ host_sim/                    moon_sim + check_gate.py + pole_test.c + uisim/ + r
 assets/                      LROC/LOLA sources, the Python prototype, the 8,760
                              NASA SVS 5415 frames, the generated device assets
 spiffs/                      wifi_credentials.example.txt + alarm.txt (the 7:00 Mon-Fri default)
-docs/                        this document + the media (§1)
+docs/                        this document + the media (§1) + the interactive
+                             keyboard lab (keyboard/round-keyboard-lab.html, §7.14)
+                             + the NASA figure script (nasa_figs.py, §12.4)
+                             + the research notes (research/)
 ```
 
 Line counts (tracked, 2026-10-31): moon core ~5,400; ui ~10,100 (incl. the
