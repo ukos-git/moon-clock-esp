@@ -1515,7 +1515,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (110,056 B)
+- `docs/doc_template.md` (109,958 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -29751,8 +29751,8 @@ static void moon_spin_write_panel(void) {
      * this write). The 16-strip variant (one CASET/RASET re-latch + CS
      * toggle per strip) left a visible seam line at every 25-row strip
      * boundary (2026-11-01). */
-    (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS, MOON_IMG_POS + MOON_PX,
-                               MOON_IMG_POS + MOON_PX, s_disp);
+    (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS, MOON_IMG_POS + MOON_PX, MOON_IMG_POS + MOON_PX,
+                               s_disp);
 #endif
     xSemaphoreGive(s_panel_mtx);
 }
