@@ -311,6 +311,24 @@ menu "UI Component Configuration"
             script so it does not dusk-sleep mid-run.
             0 (default) = off.
 
+    config TEST_ALARM_RING_SEC
+        int "Test: fire the alarm ring N seconds after the boot sweep (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: N seconds after boot (waits out the boot sweep
+            first), fire the REAL alarm path (action_alarm_triggered:
+            the ring start + the alarm screen); ~9 s later (past the
+            2.5 s volume ramp) stop the ring the way the touch dismiss
+            does (the ~150 ms fade-out + codec close); re-fire it ~4 s
+            later (the codec re-open after the close); ring again, stop
+            it again, then finish with the real dismiss
+            (action_wake_screen). On the P4 it proves the ES8311
+            open/stream/ramp/fade/close/re-open cycle; on the S3 the
+            ring functions are no-op stubs, so it exercises the
+            alarm-screen path only. One state per second, in the LVGL
+            task. 0 (default) = off.
+
     config TEST_HANG_WATCH
         bool "Test: dump every task's backtrace + abort when the LVGL task stalls (off = never)"
         default n

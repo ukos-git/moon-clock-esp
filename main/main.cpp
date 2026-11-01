@@ -44,6 +44,9 @@
 #ifndef CONFIG_TEST_WIFI_SCAN_SEC
 #define CONFIG_TEST_WIFI_SCAN_SEC 0
 #endif
+#ifndef CONFIG_TEST_ALARM_RING_SEC
+#define CONFIG_TEST_ALARM_RING_SEC 0
+#endif
 
 // Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
 // (a 200 ms lv_timer runs on it; every other lv_timer -- the RTC poll,
@@ -242,6 +245,65 @@ static void settings_demo_cb(lv_timer_t *timer) {
         }
         break;
     }
+    default:
+        break;
+    }
+}
+
+// Test hook (CONFIG_TEST_ALARM_RING_SEC): the headless alarm-ring script.
+// N seconds after boot (waits out the boot sweep + sync first), it fires
+// the REAL alarm path (action_alarm_triggered: the ring start + the alarm
+// screen); ~9 s later (past the 2.5 s volume ramp) it stops the ring the
+// way the touch dismiss does (the ~150 ms fade-out + codec close); ~4 s
+// later it re-fires (the codec RE-OPEN after the close); rings again,
+// then finishes with the real dismiss (action_wake_screen: the stop
+// funnel + the airplane screen) and re-enables idle monitoring. On the
+// P4 it proves the ES8311 open/stream/ramp/fade/close/re-open cycle
+// (the speaker is audible); on the S3 the ring functions are no-op
+// stubs, so it exercises the alarm-screen path only. One step per
+// second, in the LVGL task.
+static void alarm_ring_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_ALARM_RING_SEC <= 0)
+        return;
+    static int step = 0;
+    if (step >= 19)
+        return;
+    if (step == 0) {
+        static uint32_t wait_s = (uint32_t)CONFIG_TEST_ALARM_RING_SEC;
+        if (wait_s > 0) {
+            if (--wait_s > 0)
+                return;
+            ESP_LOGW(TAG, "TEST alarm ring: starting");
+            clock_idle_set_enabled(false);
+        }
+        /* Wait out the boot sync AND the boot sweep (same gate as the
+         * settings demo). */
+        if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
+            return;
+    }
+    switch (step++) {
+    case 0:
+        action_alarm_triggered(NULL);
+        ESP_LOGW(TAG, "TEST alarm ring: fired (ring #1 started)");
+        break;
+    case 9:
+        alarm_audio_ring_stop();
+        ESP_LOGW(TAG, "TEST alarm ring: stop #1 (fade-out + codec close)");
+        break;
+    case 13:
+        action_alarm_triggered(NULL);
+        ESP_LOGW(TAG, "TEST alarm ring: re-fired (codec re-open, ring #2)");
+        break;
+    case 16:
+        action_wake_screen(NULL);
+        ESP_LOGW(TAG, "TEST alarm ring: real dismiss (stop #2 + airplane)");
+        break;
+    case 17:
+        clock_idle_set_enabled(true);
+        clock_idle_reset_timer();
+        ESP_LOGW(TAG, "TEST alarm ring: done (idle monitoring restored)");
+        break;
     default:
         break;
     }
@@ -566,6 +628,11 @@ extern "C" void app_main(void) {
     // Test hook: the headless WiFi scan (TEST_WIFI_SCAN_SEC; 0 = off).
     if (CONFIG_TEST_WIFI_SCAN_SEC > 0)
         lv_timer_create(wifi_scan_test_cb, 1000, NULL);
+
+    // Test hook: the headless alarm-ring script (TEST_ALARM_RING_SEC;
+    // 0 = off).
+    if (CONFIG_TEST_ALARM_RING_SEC > 0)
+        lv_timer_create(alarm_ring_test_cb, 1000, NULL);
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

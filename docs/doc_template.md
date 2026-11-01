@@ -1581,6 +1581,13 @@ Headless captures drive the state machine through the **Kconfig test hooks**
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
   board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
+- `TEST_ALARM_RING_SEC` — fires the real alarm path (the ring start + alarm
+  screen) N s after the boot sweep, then drives the full ring lifecycle: stop
+  (the touch-dismiss fade + codec close), re-fire (the codec re-open), and a
+  final real dismiss — the headless check of the P4 ES8311
+  open/stream/ramp/fade/close/re-open cycle (the speaker is audible). On the S3
+  the ring functions are no-op stubs, so it exercises the alarm-screen path
+  only.
 
 Plus serial capture (pyserial 115200) of the boot/sleep/wake/alarm cycles (0
 WDT/panic/NO_MEM is the pass criterion), and the **user visual pass** on the
@@ -1734,7 +1741,8 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 
 Test hooks (all default off, §12.3): `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_ROLL_TILT_SEC`, `TEST_CPU_STATS_SEC`,
-`TEST_BAKE_NO_RELIEF`, `TEST_WIFI_SCAN_SEC`, `TEST_SPIN_BANDS`.
+`TEST_BAKE_NO_RELIEF`, `TEST_WIFI_SCAN_SEC`, `TEST_SPIN_BANDS`,
+`TEST_ALARM_RING_SEC`.
 
 ### 14.4 Runtime settings store (`/spiffs/settings.txt`)
 
