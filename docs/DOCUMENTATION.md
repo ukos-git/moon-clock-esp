@@ -22,19 +22,22 @@ arc's thickness, §3.2) and the 720 px UI upscale — panel-scaled layout +
 regenerated fonts, §6 — are done on-device; the P4 spin's CCW flicker is fixed
 at the source — one framebuffer, no scanout flip, §4.3; the P4 clock
 degradation (no RTC IC: crystal RTC timer + SNTP + software alarms) is the
-follow-on milestone), the burn-in spin's **direct panel write** (the render
-task writes the MOON_PX² moon area straight to the panel at 8 fps instead of
-routing through LVGL's ~175 ms re-render; the settled rate is a constant slow
-spin, so the moon no longer freezes before light sleep), the **fade-to-black
-screen switch** (replacing the concentric reveal that showed white strip bars;
-now a hardware panel-brightness ramp — the CO5300's own dimming command — so
-the transition writes no pixels at all), the **alarm weekday prefix** ("Mo
-07:00" on the home screen when the next fire is >24 h away), the
-**fa-circle-xmark exit glyph** (U+F057 — the glyph is the button), and the
-**7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm screen
-in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document is
-regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
-code._
+follow-on milestone), the **computed (backlit) night side** — the unilluminated
+side is now the real lunar surface lit faintly from the anti-solar direction
+instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item 4; the `dk_sup` rim
+kill is baked into the shade map and `moon_reproject` is a pure gather — §5.2
+item 5), and the burn-in spin's **direct panel write** (the render task writes
+the MOON_PX² moon area straight to the panel at 8 fps instead of routing
+through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
+the moon no longer freezes before light sleep), the **fade-to-black screen
+switch** (replacing the concentric reveal that showed white strip bars; now a
+hardware panel-brightness ramp — the CO5300's own dimming command — so the
+transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
+on the home screen when the next fire is >24 h away), the **fa-circle-xmark
+exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
+alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
+rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+`python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
 
@@ -123,9 +126,11 @@ PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
 ### 2.2 Board wiring
 
 No wiring needed — both boards are finished. Connect USB for flash + serial (@
-115200 on Linux). The confirmed port map (verified 2026-10-31 with esptool chip
-probes): **`/dev/ttyACM0` = the S3 board**, **`/dev/ttyACM1` = the P4 board**
-(the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS; §3.2).
+115200 on Linux). The confirmed port map: **`/dev/ttyACM0` = the P4 board**,
+**`/dev/ttyACM1` = the S3 board** — re-verified 2026-11-01 by a flash + sweep
+boot of the P4 on `/dev/ttyACM0` (the S3 had been re-plugged onto a different
+USB path; the map flipped from the 2026-10-31 probe — re-probe with esptool
+after any re-plug).
 
 ### 2.3 First build
 
@@ -286,16 +291,19 @@ python3 -m serial.tools.miniterm /dev/ttyACM0 115200   # or pyserial capture
 (WiFi + NTP before the display starts), the UI is born on the **airplane** home
 screen, and the **synodic boot sweep** plays: 336 frames @240 px from the last
 new moon to now, ending on the current phase; the free spin then re-anchors
-from the sweep's last frame. The sweep is display-paced (~340 ms/frame) and the
-per-frame bake grows with the frame's illumination: measured 2026-10-31 at a 21
-d moon age — 79–541 ms @240 px (median 306 ms), 231 s total — and a younger
-moon (fewer bright frames) runs the sweep measurably faster (~2.8 min,
-2026-10-27). On the P4 the intermediates bake @240 px (~64–138 ms, ~155 ms
-display/frame) and only the final frame bakes at full 650 px (~595 ms) — **~121
-s total** at a 21 d moon age (2026-10-31; the 650 px final bake re-measured
-~595 ms on 2026-11-01). Serial markers to watch: `WiFi connected`, `SNTP sync`,
-`synodic boot sweep started: 336 frames`, `sweep N/336 baked in ~79ms @240px`,
-`spin started`. A clean boot shows **0 WDT / 0 panic / 0 NO_MEM**.
+from the sweep's last frame. The sweep is display-paced and the per-frame bake
+cost is now _flat across the synodic cycle_: with the backlit night side (§5.2
+item 4) every in-disk pixel loads the albedo + relief gradient, so a dark frame
+costs about what a bright one does — measured 2026-11-01 on the P4 at a 22 d
+moon age, 180–183 ms @240 px (previously 64–138 ms on the S3's flat-floor
+model, which skipped the albedo on the dark side) and the final frame bakes at
+full 650 px in **959 ms** (was ~595 ms — the dark pixels now load albedo too) —
+**~125 s total** (336 × ~370 ms display-paced). The S3's older figures (79–541
+ms @240 px median 306, 231 s total, 2026-10-31) predate the backlit change and
+will shift the same way; re-measure on the S3 device. Serial markers to watch:
+`WiFi connected`, `SNTP sync`, `synodic boot sweep started: 336 frames`,
+`sweep N/336 baked in ~180ms @240px`, `spin started`. A clean boot shows **0
+WDT / 0 panic / 0 NO_MEM**.
 
 ### 2.5 Regenerating the moon assets (optional)
 
@@ -490,9 +498,12 @@ adapter's **NONE** tear-avoid mode (`bsp_display_start_with_config` in
 `main.cpp`), so LVGL's strips and the spin's strips all write the one surface
 the panel is scanning. The residual tearing is at most one frame — sub-pixel at
 the settled spin rate, ~1 px at the rim at the active rate — invisible. The
-one-FB change also frees the two unused 2.1 MB surfaces and removes the spin
-burst's contention on the driver's draw semaphore (the "previous draw operation
-is not finished" strip rejects).
+one-FB change also frees the two unused 2.1 MB surfaces. (It does **not**
+remove the spin's "previous draw operation is not finished" strip rejects —
+measured 3855 pre-fix, ~3890 post-fix on the 650 px disk: those are the panel's
+async-DMA throughput floor, a separate pre-existing phenomenon absorbed by
+`moon_panel_draw_wait`'s retry — §3.2 — and the one-FB change fixed the scanout
+flip, which was the flicker.)
 
 ### 4.4 Screen & state flow
 
@@ -551,21 +562,36 @@ angular scale.
    4-neighbor DEM gather) — and lit with the **unclipped** model
    `L = clip(lns, 0, 1)` with `lns = (d - G·S)/sqrt(1 + |G|²)`: mountain slopes
    brighten, crater walls shadow, exactly as the relief dictates;
-4. **Night side**: on the device, a **constant night floor**
-   (`MOON_NIGHT_FLOOR = 10`/255) instead of the phase-dependent earthshine ramp
-   — the ~17-step ramp dithered as "moving earthshine" in the fast animation;
-   the floor keeps the far side faintly visible on the AMOLED (flat `0x0000`
-   was invisible). The static/spin bakes keep the earthshine; the gate +
-   `pole_test` run the earthshine path (`dark_zero = 0`);
+4. **Night side (the backlit far side)**: on the device the unilluminated side
+   is the **computed surface, not a flat overlay** — the real lunar surface
+   (albedo + displaced relief) lit faintly from the _anti-solar_ direction
+   (`moon_backlit_night`: `A · clip(−lns, 0, 1) · MOON_NIGHT_BACKLIT_K` with
+   `K = 0.10`, peak ≈ 25/255 — about the old flat floor's level, now with the
+   surface structure; plain linear gray, deliberately NOT the tone LUT, whose
+   bin-1 shadow lift would over-brighten it). It is body-frame constant (the
+   epoch's S is fixed), so the shade map and the spin stay a static image and
+   only the projection rotates. The validated earthshine path (`dark_zero = 0`:
+   `TONE_LUT[0] + earthshine(d)`) is byte-identical to the old model — it is
+   what the gate and the host film run; `pole_test` proves BOTH the earthshine
+   path and the backlit one (§12.2);
 5. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
    view latitude, so the _endpoint_ view still carries a geometrically lit rim
-   sliver (d up to `sqrt(1 - E·S(φ*)²)`; today +0.1216) which would linger on
-   the dark sleep screen as a bright arc hugging the disk edge (the
-   user-reported "white ray" — the true root cause was the shade map's ±y
-   mirror folding mirrored lighting onto the seam columns; fixed by threading
-   `dk_sup` through the shade map, the final bake, and the reproject, all
-   three). Every non-dusk caller passes `0.0f` (byte-identical to the pre-fix
-   code);
+   sliver (d up to `sqrt(1 - E·S(φ*)²)`) which would linger on the dark sleep
+   screen as a bright arc hugging the disk edge (the user-reported "white ray"
+   — the true root cause was the shade map's ±y mirror folding mirrored
+   lighting onto the seam columns). The kill is now baked into the _map_: the
+   shade map writes the backlit night side for `d < dk_sup + MOON_DK_MARGIN`
+   (margin 0.010 — the re-project's nearest-neighbor gather can round a
+   boundary pixel to a cell up to ~half a theta-cell + half a lat-cell away in
+   d, ≈ 0.0073 at 864x432, so a lit-center cell would re-light the sliver
+   without the erosion), and `moon_reproject` is a **pure gather** (no `dk_sup`
+   parameter). The final bake writes the backlit night side for `d < dk_sup`.
+   The sliver itself is sun-lit (lns > 0), so the backlit color clips to **pure
+   black** there — exactly the old flat-floor kill, and the white ray stays
+   dead. At the endpoint the visible disk is entirely d < dk_sup, so the band
+   between the two bounds is never on screen (no pop). Every non-dusk caller
+   passes `0.0f` (the margin is inert there — the night test reduces to
+   `lns ≤ 0`, byte-identical to the pre-fix code);
 6. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
    then 8-bit → RGB565.
 
@@ -575,9 +601,10 @@ the camera basis selects _which direction is visible_ but never enters the
 color. Consequences: the free spin and the boot sweep need no lighting
 recompute (fixed-point gather only), and the dusk is a **constant projection**
 — one body-frame shaded equirect map (`moon_shade_map_build`, 864x432, PSRAM,
-~1.6 s) is re-projected through the folded camera basis per frame (~50 ms,
-`moon_reproject`); the final dark-side frame is the one pixel-exact full
-`moon_bake` at φ\* = `atan2(-B, -A)` (today +134.78° orbit-folded).
+~1.6 s on the S3 / 282 ms on the P4, 2026-11-01) is re-projected through the
+folded camera basis per frame (~50 ms, `moon_reproject`); the final dark-side
+frame is the one pixel-exact full `moon_bake` at φ\* = `atan2(-B, -A)` (today
++134.78° orbit-folded).
 
 ### 5.3 Rotation (the free spin)
 
@@ -686,9 +713,10 @@ live.
 ![light sleep](img/screens/light_sleep.png)
 
 - The pole-axis spin to the fully unilluminated side (constant projection,
-  1°/frame, shade map baked once ~1.6 s; final frame a pixel-exact bake at φ\*;
-  the dark side keeps its faint contrast — night floor + crater rims, flat
-  black would vanish on the AMOLED).
+  1°/frame, shade map baked once — S3 ~1.6 s / P4 282 ms, 2026-11-01; final
+  frame a pixel-exact bake at φ\*; the dark side is the **faint backlit
+  surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
+  25/255, so the far side stays visible on the AMOLED without a flat overlay).
 - The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
   opacity is the only "alpha"; the moon image is a sibling and stays
   full-contrast).
@@ -699,14 +727,14 @@ live.
 
 ![deep sleep](img/screens/deep_sleep.png)
 
-- The dark side at φ\* (the final dusk bake, with its relief-lit rims), **the
-  clock hidden**, and the **backlight off** after the countdown — the panel is
-  genuinely dark (AMOLED), the RTC keeps counting; an alarm can fire from here
-  and restore the backlight. Clock updates are gated while the backlight is off
-  (no live minute updates in deep sleep). The backlight off/on (here, on wake,
-  and at boot) goes through `moon_ui_panel_brightness_set` — the 0x51 write is
-  serialized on `s_panel_mtx` so it is never queued behind a spin strip DMA
-  that could stall the bus (§10.4).
+- The dark side at φ\* (the final dusk bake, its backlit far-side surface),
+  **the clock hidden**, and the **backlight off** after the countdown — the
+  panel is genuinely dark (AMOLED), the RTC keeps counting; an alarm can fire
+  from here and restore the backlight. Clock updates are gated while the
+  backlight is off (no live minute updates in deep sleep). The backlight off/on
+  (here, on wake, and at boot) goes through `moon_ui_panel_brightness_set` —
+  the 0x51 write is serialized on `s_panel_mtx` so it is never queued behind a
+  spin strip DMA that could stall the bus (§10.4).
 
 ### 7.5 Alarm (fired)
 
@@ -903,11 +931,13 @@ were made and implemented:
    _constant-projection pole spin_: the terminator (and the lit crescent's
    relief detail) travels the disk for the whole light-sleep duration (14-95 s
    at 1°/frame), and the dark-side frame the countdown lingers on still carries
-   its relief-lit crater rims at the terminator — a moving _pattern_ during the
-   sleep, a faintly textured (not flat) disk while dark. (The flat-black
-   attempt, `dark_zero = 0` → 0x0000, was rejected: the user could not see the
-   far side at all, and a flat disk at the terminator is the worst case for a
-   permanently parked edge.)
+   the **computed backlit surface** (the far-side terrain lit faintly from the
+   anti-solar direction, §5.2 item 4) — a moving _pattern_ during the sleep, a
+   faintly textured (not flat) disk while dark. (The earlier flat variants were
+   both rejected: `dark_zero = 0` → 0x0000 left the far side invisible, and the
+   constant `MOON_NIGHT_FLOOR = 10` overlay it replaced had no surface
+   structure; the backlit model keeps the floor's level with the terrain
+   added.)
 3. **Orientation is stepped, never ramped.** The screen base orientation is
    applied in **90° steps** (int4-quantized IMU roll, 100 ms samples, 1 s
    windowed mean, sustained confirmation, instant apply on the 12 roots) — a
@@ -1223,7 +1253,12 @@ the SVS 5415 400x400 lunar image series, gitignored):
   target): right-sign fold beats wrong-sign 2.5×; φ\* analytic == grid minimum
   to 1e-5; the dark-side frame keeps contrast; map-once vs per-frame re-bake
   spatial MAE with the no-flicker proof (temporal frame-delta within 0.02-0.14
-  gray).
+  gray); and the **backlit night-side section** (the device's `dark_zero = 1`
+  path): per epoch, the shade map (backlit night side + `dk_sup + margin`)
+  re-projected through a fold must match the pixel-exact backlit bake to
+  cell-center sampling (MAE < 7, endpoint folds at ~0.2–0.5), with zero lit
+  pixels and > 50% backlit pixels at the endpoint — the no-pop proof for the
+  computed dark side.
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466 by default, ESP stubs) → per-screen PNG
   snapshots (`build.sh run`); `build.sh run --panel 720` renders the P4's
@@ -1439,7 +1474,7 @@ components/
     Kconfig.projbuild          the S3-only IO expander) + the BOARD Kconfig choice
   moon/                      the portable core (§5): astro/bake/fixp/render + ERFA
     include/moon.h           the public API (geometry/bake/reproject/rotate)
-    include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT, night floor)
+    include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
   ui/                        the LVGL UI: screens.c (13 screens) + moon_ui.c
@@ -1468,7 +1503,7 @@ code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
-- `docs/doc_template.md` (106,318 B)
+- `docs/doc_template.md` (109,078 B)
 - `docs/gen_doc.py` (3,283 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -1484,13 +1519,13 @@ code.
 - `docs/img/nasa/nasa_06570.png` (222,560 B)
 - `docs/img/nasa/nasa_08759.png` (234,030 B)
 - `docs/img/screens/alarm.png` (16,078 B)
-- `docs/img/screens/deep_sleep.png` (141,689 B)
-- `docs/img/screens/light_sleep.png` (149,472 B)
-- `docs/img/screens/modem_sleep.png` (156,132 B)
+- `docs/img/screens/deep_sleep.png` (151,423 B)
+- `docs/img/screens/light_sleep.png` (159,537 B)
+- `docs/img/screens/modem_sleep.png` (166,391 B)
 - `docs/img/screens/p4/alarm.png` (30,323 B)
-- `docs/img/screens/p4/deep_sleep.png` (316,392 B)
-- `docs/img/screens/p4/light_sleep.png` (332,944 B)
-- `docs/img/screens/p4/modem_sleep.png` (342,202 B)
+- `docs/img/screens/p4/deep_sleep.png` (339,498 B)
+- `docs/img/screens/p4/light_sleep.png` (357,604 B)
+- `docs/img/screens/p4/modem_sleep.png` (365,037 B)
 - `docs/img/screens/p4/settings_alarm.png` (26,105 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,790 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (25,148 B)
@@ -1503,7 +1538,7 @@ code.
 - `docs/img/screens/p4/settings_wifi_password_ABC.png` (42,163 B)
 - `docs/img/screens/p4/settings_wifi_password_sym.png` (38,965 B)
 - `docs/img/screens/p4/settings_wifi_password_touched.png` (65,491 B)
-- `docs/img/screens/p4/wifi.png` (338,812 B)
+- `docs/img/screens/p4/wifi.png` (361,152 B)
 - `docs/img/screens/settings_alarm.png` (12,924 B)
 - `docs/img/screens/settings_alarm_time.png` (18,055 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
@@ -1516,7 +1551,7 @@ code.
 - `docs/img/screens/settings_wifi_password_ABC.png` (24,577 B)
 - `docs/img/screens/settings_wifi_password_sym.png` (22,361 B)
 - `docs/img/screens/settings_wifi_password_touched.png` (40,310 B)
-- `docs/img/screens/wifi.png` (154,809 B)
+- `docs/img/screens/wifi.png` (164,787 B)
 - `docs/research/circular-keyboard-alternatives.md` (34,999 B)
 - `docs/research/gltf-feasibility.md` (4,852 B)
 - `docs/research/moon-rendering.md` (14,427 B)
@@ -11439,15 +11474,15 @@ void moon_geometry(int64_t utc_epoch, moon_geom_t *g) {
  * per-pixel; differs only in the polar-cap rows, where lns ~ (d-G.S)/|G|
  * -> 0 anyway) are re-checked by the image-diff gate after any change.
  *
- * Per-pixel cost: a few FPU ops + PSRAM byte loads -- a LIT pixel takes
- * 3 (1 albedo + 2 relief gradient, independent, so the 4-pixel unroll
- * below overlaps their latency with the FPU work); a DARK pixel takes 2,
- * because L <= 0 is provable from d + the gradient cache alone
- * (d - G.S <= 0, the sqrt denominator is always positive) and its output
- * is TONE_LUT[0] + earthshine(d), albedo-independent (A*0 rounds to LUT
- * entry 0) -- so the albedo load is dead work there and is skipped
- * (bit-identical; see bake_px). Measured ~1.3 s/frame at half phase on
- * the S3 (down from ~3.3 s/frame with the old per-pixel 4-neighbor
+ * Per-pixel cost: a few FPU ops + PSRAM byte loads -- every IN-DISK pixel
+ * takes 3 (1 albedo + 2 relief gradient, independent, so the 4-pixel
+ * unroll below overlaps their latency with the FPU work). The backlit
+ * night side (dark_zero = 1) needs the albedo, so the old dark-pixel
+ * albedo-skip is gone (the dark_zero = 0 earthshine branch ignores the
+ * loaded A -- its output is still TONE_LUT[0] + earthshine(d), i.e.
+ * bit-identical to the old skip, at the cost of one dead load there).
+ * Measured ~1.3 s/frame at half phase on the S3 before the backlit
+ * change (down from ~3.3 s/frame with the old per-pixel 4-neighbor
  * gather); the sweep (components/ui) paces off this bake time, not the
  * ~150 ms display.
  * The Xtensa FPU has no atan/asin, so the texture long/lat come from two
@@ -11549,6 +11584,57 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
     else if (q < -127.0f)
         q = -127.0f;
     return (int8_t)q;
+}
+
+/* Backlit night side (the device's dark side, dark_zero = 1): the
+ * unilluminated side is rendered as the lunar SURFACE (albedo + relief)
+ * lit from the ANTI-solar direction (-S) at a faint level, instead of the
+ * flat MOON_NIGHT_FLOOR (the old black overlay) or the phase-dependent
+ * earthshine ("earth ray", dark_zero = 0). The backlit Lambert is
+ * L_anti = clip(-lns, 0, 1) where lns is the solar displaced-normal
+ * Lambert: a surface point lit from -S at exactly the strength the solar
+ * Lambert rejects from +S, so the dark side shows the same relief (the
+ * crater rims facing the viewer catch the light) at a dim level. It is
+ * body-frame (S is fixed for the epoch, the gradient is body-frame), so
+ * the shade map stays static and only the projection rotates (the pole
+ * spin) -- the user's "no earth ray, the image is static and only the
+ * sphere it is projected onto rotates". MOON_NIGHT_BACKLIT_K sets the
+ * level: the dark side's peak gray = 255 * K (25 at 0.10 -- about the
+ * old MOON_NIGHT_FLOOR's flat 10, now with the surface structure). */
+#define MOON_NIGHT_BACKLIT_K 0.10f
+/* The shade-map dark-side bound erosion (replaces the re-project's old
+ * per-pixel dk_sup kill): the re-project samples the map NEAREST-NEIGHBOR,
+ * so a dark pixel (d < dk_sup) near the d = dk_sup boundary rounds to the
+ * cell whose CENTER is up to half a theta-cell + half a lat-cell away in
+ * d. |grad(r . S)| = 1 on the unit sphere, so that is (pi/map_w + pi/map_h)
+ * ~= 0.0073 for the 864x432 map -- a cell that is LIT at its center (the
+ * crescent's edge, up to gray 137+) would re-light the rim sliver the dk_sup
+ * bound exists to kill. The map build writes the backlit night side for
+ * d < dk_sup + MOON_DK_MARGIN instead of d < dk_sup, so every cell a dark
+ * pixel can round to is backlit (pure black when the cell is sun-lit,
+ * lns > 0). The margin is the worst-case offset plus a hair of safety.
+ * dk_sup = 0.0f callers are unaffected in practice: the only dark_zero = 1
+ * map caller is the dusk (dk_sup > 0). */
+#define MOON_DK_MARGIN 0.010f
+
+/* The backlit night COLOR (see MOON_NIGHT_BACKLIT_K): the lunar surface A
+ * lit from -S at a faint level. lns = the solar displaced-normal Lambert
+ * (unclipped); L_anti = clip(-lns, 0, 1). A direct linear gray (NOT the
+ * tone LUT: the LUT's shadow lift -- bin 1 -> 27 -- is tuned for the lit
+ * side and would over-brighten the faint dark side, and its non-linearity
+ * breaks the "peak = 255 * K" contract). lns > 0 (a sun-lit pixel, e.g. the
+ * dusk's rim sliver) clips to 0 = pure black, so the rim sliver is killed
+ * exactly as the old flat-floor path. always_inline: the bake's hot path
+ * (the dark side of a backlit bake is a large fraction of the disk)
+ * inlines it next to the shared lns. */
+static __attribute__((always_inline)) inline uint8_t moon_backlit_night(float A, float lns) {
+    float l = -lns;
+    if (l < 0.0f)
+        l = 0.0f;
+    else if (l > 1.0f)
+        l = 1.0f;
+    float out = A * l * MOON_NIGHT_BACKLIT_K;
+    return (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
 }
 
 /* One interior cell of a relief row (c in [1, dem_w-2], so c-1/c+1 are
@@ -11669,8 +11755,8 @@ typedef struct {
     int alb_w, alb_h;
     float radius, cx, v;
     float per_deg; /* albedo columns per degree */
-    int dark_zero; /* dark side written 0 (flat black) instead of earthshine */
-    float dk_sup;  /* dark_zero only: the night floor for d < dk_sup (0.0f = the plain d < 0 terminator; the dusk's
+    int dark_zero; /* dark side written the backlit computed surface (moon_backlit_night) instead of earthshine */
+    float dk_sup;  /* dark_zero only: the night side for d < dk_sup (0.0f = the plain d < 0 terminator; the dusk's
                       rim-sliver kill, see moon_shade_map_rows) */
 } bake_ctx_t;
 
@@ -11689,27 +11775,20 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     float rz = u * g->right[2] + c->v * g->up[2] + w * g->E[2];
     float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
 
-    /* Sweep montage (dark_zero): write the CONSTANT night floor (d < 0) for
-     * the WHOLE geometric night side -- not just the slopes shadowed from the
-     * Sun (L <= 0). Night-side crater rims and peaks can still have their
-     * displaced normal catch the Sun (L > 0); that relief reads as dithered
-     * bright speckle against a pure black AMOLED. d < 0 needs no texture
-     * lookup, no packed-gradient PSRAM load, and no albedo load, so this
-     * early return skips all of them -- the night side is free (a win for the
-     * crescent end of the sweep). The static/spin path (dark_zero = 0) and the
-     * gate (host, dark_zero = 0) are untouched and remain byte-identical.
-     * dk_sup (dusk only, 0.0f everywhere else): the geometrically dark
-     * condition is d < 0 -- but the dusk's endpoint view still carries a
-     * geometrically LIT rim sliver (d up to dk_sup = sqrt(1 - E.S(phi*)^2),
-     * the pole spin never changes the view latitude): left lit it lingers
-     * on the otherwise-dark sleep screen as a bright arc around the disk
-     * edge (the "white ray"). The dusk bakes the night floor for d < dk_sup
-     * instead, so the endpoint is a pure dark disk; every other bake passes
-     * 0.0f, i.e. exactly the old d < 0. */
-    if (c->dark_zero && d < c->dk_sup) {
-        c->row[x] = MOON_NIGHT_FLOOR; /* the constant night floor (moon_consts.h) */
-        return;
-    }
+    /* dk_sup (dusk only, 0.0f everywhere else) is NO LONGER an early return:
+     * the backlit night side (dark_zero = 1) renders the surface (albedo +
+     * relief lit from -S), not the flat floor, so it needs the albedo + the
+     * relief gradient -- the d < dk_sup rim-sliver kill is folded into the
+     * night branch below (the is_night test) instead of returning before the
+     * texture loads. The geometrically dark condition is d < 0 -- but the
+     * dusk's endpoint view still carries a geometrically LIT rim sliver (d up
+     * to dk_sup = sqrt(1 - E.S(phi*)^2), the pole spin never changes the view
+     * latitude): left lit it lingers on the otherwise-dark sleep screen as a
+     * bright arc around the disk edge (the "white ray"). The dusk writes the
+     * backlit night side for d < dk_sup instead -- and since that sliver is
+     * lit by the Sun (lns > 0), its backlit L_anti = clip(-lns, 0, 1) is 0,
+     * i.e. pure black, so the sliver is killed exactly as before. Every other
+     * bake passes 0.0f, i.e. exactly the old d < 0. */
 
     /* Texture coordinates, table-based (see file header): pure CPU table
      * lookups (no PSRAM), shared by the DEM texel and the albedo sample.
@@ -11719,24 +11798,20 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     float row_frac = row_frac_interp(rz);
 
     /* Lighting first: full-disk displaced-normal Lambert (see header).
-     * lns is unclipped; clip at 0 so the dark side (d < 0 and shadowed
-     * slopes) gets no direct light -- earthshine below carries the dark
-     * zone. lns <= 0  <=>  d - G.S <= 0 (the sqrt denominator is always
-     * positive), so the dark side is provable from d + the two gradient
-     * bytes alone -- and its output is TONE_LUT[0] + earthshine(d),
-     * albedo-independent (A * 0 rounds to LUT entry 0). The albedo
-     * PSRAM load (the scattered byte that is the perf floor) is dead
-     * work for a dark pixel and is skipped below: bit-identical.
-     * dark_zero writes the CONSTANT night floor (MOON_NIGHT_FLOOR) instead
-     * of the earthshine: the ~17-step earthshine ramp bands/dithers
-     * visibly in the fast animation (it reads as "moving earthshine"), and
-     * a constant is position/phase-independent so nothing moves as the
-     * pole spin / orbit re-projects. Combined with the d < 0 early return
-     * above, the whole night side is the flat MOON_NIGHT_FLOOR -- only
-     * d >= 0, L > 0 (lit) pixels carry the relief shading. */
-    float L;
+     * lns is the UNCLIPPED solar displaced-normal Lambert; L = clip(lns,0,1)
+     * is the lit-side Lambert. The unclipped lns is kept (not just the
+     * clipped L) because dark_zero's BACKLIT night side needs it: L_anti =
+     * clip(-lns, 0, 1) is the anti-solar Lambert of the same surface. The
+     * night test differs by caller: dark_zero = 0 (the validated model --
+     * the host gate / pole_test) is lns <= 0 exactly as before (a d < 0
+     * base direction whose displaced normal still catches the Sun, lns > 0,
+     * stays LIT there), while dark_zero = 1 (the device) extends it to
+     * d < dk_sup so the dusk's geometrically-lit rim sliver (0 < d < dk_sup,
+     * lns > 0) is written the backlit side too -- where it clips to pure
+     * black (the "white ray" kill, see the dk_sup note above). */
+    float lns;
     if (c->grel == NULL) {
-        L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
+        lns = d;
     } else {
         /* DEM texel for the gradient cache: the old per-pixel gather's
          * same equirect mapping, from the theta (deg) / row_frac
@@ -11764,23 +11839,14 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
         float east_s = (-ry * g->S[0] + rx * g->S[1]) * inv;
         float north_s = (-rz * rx * g->S[0] - rz * ry * g->S[1] + rho * g->S[2]) * inv;
         float gs = glon * east_s + glat * north_s;
-        L = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
-        if (L < 0.0f)
-            L = 0.0f;
-        else if (L > 1.0f)
-            L = 1.0f;
+        lns = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
     }
-    if (L <= 0.0f) { /* dark side: earthshine only, no albedo load */
-        if (c->dark_zero) {
-            c->row[x] = MOON_NIGHT_FLOOR; /* the constant night floor (moon_consts.h) */
-            return;
-        }
-        float out = MOON_TONE_LUT[0] + earthshine(d);
-        c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
-        return;
-    }
+    float L = lns > 1.0f ? 1.0f : (lns < 0.0f ? 0.0f : lns);
 
-    /* Albedo, nearest-neighbor -- lit pixels only (see the note above). */
+    /* Albedo, nearest-neighbor -- EVERY in-disk pixel now (the backlit dark
+     * side needs it as much as the lit side; the dark_zero = 0 earthshine
+     * branch ignores it, so that path stays bit-identical to the old
+     * albedo-skipping dark pixel). */
     float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
     if (colf >= (float)c->alb_w) /* theta + 180 < 540: one wrap max */
         colf -= (float)c->alb_w;
@@ -11794,6 +11860,21 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
         r = c->alb_h - 1;
     float A = (float)c->alb[r * c->alb_w + col];
 
+    int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);
+    if (is_night) {
+        if (c->dark_zero) {
+            /* The computed (backlit) night side: the surface lit from -S at
+             * a faint level (see moon_backlit_night), not the flat floor. */
+            c->row[x] = moon_backlit_night(A, lns);
+            return;
+        }
+        /* dark_zero = 0: the earthshine dark side (the validated model). */
+        float out = MOON_TONE_LUT[0] + earthshine(d);
+        c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+        return;
+    }
+
+    /* Lit side (L > 0 and, for dark_zero, d >= dk_sup). */
     float raw = A * L;
     int idx = (int)(raw + 0.5f);
     if (idx < 0)
@@ -11810,16 +11891,17 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
  * (components/ui/moon_ui.c) while the rest of the frame is still being
  * computed.
  *
- * The inner loop processes 4 pixels per iteration: each LIT pixel issues
- * 3 independent PSRAM int8 loads (1 albedo + 2 relief-gradient cache), a
- * DARK pixel only 2 (the albedo load is dead work there -- see bake_px),
- * and a few FPU ops (~2 sqrt + ~1 div + ~30 FMA). Unrolling keeps up to
- * 12 PSRAM loads in flight per 4 pixels so their ~500-cycle octal-PSRAM
- * latency overlaps with the FPU work -- the same trick
+ * The inner loop processes 4 pixels per iteration: every IN-DISK pixel
+ * issues 2 independent PSRAM loads (1 albedo byte + 1 packed 2-byte
+ * relief-gradient cell) and a few FPU ops (~2 sqrt + ~1 div + ~30 FMA) --
+ * the backlit dark side needs the albedo too (see bake_px). Unrolling
+ * keeps up to 8 loads in flight per 4 pixels so their ~500-cycle
+ * octal-PSRAM latency overlaps with the FPU work -- the same trick
  * moon_rotate_range uses in moon_render.c (sequential per-pixel: every
- * load waits on its own latency; unrolled: measured ~1.3 s/frame vs the
- * old per-pixel 4-neighbor gather's ~3.3 s). The remaining per-frame
- * cost is the FPU + PSRAM bandwidth floor, not load latency. */
+ * load waits on its own latency; unrolled: measured ~1.3 s/frame before
+ * the backlit change vs the old per-pixel 4-neighbor gather's ~3.3 s).
+ * The remaining per-frame cost is the FPU + PSRAM bandwidth floor, not
+ * load latency. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                     float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero,
                     float dk_sup) {
@@ -11910,30 +11992,40 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  *   north_s = S2 - sinlat (cl S0 + sl S1)
  * (the bake's 1e-4 polar-cap floor cannot fire on a 432-row grid: the
  * row-center coslat is >= 0.0036 -- the same behavior as bake_px there).
- * L <= 0 cells skip the albedo load exactly as the bake (dark color =
- * TONE_LUT[0] + earthshine(d)); with dark_zero set, every geometrically
- * dark cell (d < 0, or L <= 0 once the gradient tip lights the far side)
- * is written 0 instead -- the flat-black night side, so the map's dark
- * cells carry no earthshine/relief speckle that a re-projected frame
- * would pick up at the rim (the dusk's "bright fragment on the edge").
- * dk_sup (dusk only; 0.0f = the plain d < 0 terminator): with dark_zero
- * the night floor is written for d < dk_sup -- the same sliver kill the
- * dusk's FINAL bake applies (see moon_bake_rows), applied to the MAP so
- * the intermediate re-projected frames carry no lit rim sliver either.
- * Left out of the map, the relief-boosted 0 < d < dk_sup band (up to
- * gray 137 today) sweeps the disk as a latitudinal arc while the pole
- * spins (the "white ray" the user reported on 2026-10-29), and the last
- * re-projected frame still shows it while the final dk_sup bake does not
- * (a pop at the dusk's end). The lit region the frames then show is the
- * body-fixed d > dk_sup region: constant across frames (it only rotates,
- * so no per-frame crescent shrink -- the old note's "shrink in every
- * frame" applied to the sliver band, not the lit region) and in AGREEMENT
- * with the final dk_sup bake at the endpoint. The one step change is at
- * frame 1 (the parked pose's true terminator -> the shifted one), which
- * is the user-accepted look: a clean crescent with a dark margin. The
- * dusk builds the map with its endpoint dk_sup; every other caller
- * passes 0.0f (byte-identical to the old map). Row-range build so the
- * caller (the dusk task) can honor an abort between rows. */
+ * lns <= 0 cells are the night side (dark color = TONE_LUT[0] +
+ * earthshine(d) for dark_zero = 0, the validated model); with dark_zero
+ * set, every geometrically dark cell (d < 0, or lns <= 0 once the
+ * gradient tip lights the far side) is written the BACKLIT night side
+ * instead -- the computed surface lit from -S (see moon_backlit_night) --
+ * so the map's dark cells carry no earthshine/relief speckle that a
+ * re-projected frame would pick up at the rim (the dusk's "bright
+ * fragment on the edge"), yet the far side shows the faint lunar
+ * surface. dk_sup (dusk only; 0.0f = the plain d < 0 terminator): with
+ * dark_zero, the backlit side is written for d < dk_sup + MOON_DK_MARGIN
+ * instead of d < dk_sup -- the same sliver kill the dusk's FINAL bake
+ * applies (see moon_bake_rows), applied to the MAP so the intermediate
+ * re-projected frames carry no lit rim sliver either (left out of the
+ * map, the relief-boosted 0 < d < dk_sup band, up to gray 137 today,
+ * sweeps the disk as a latitudinal arc while the pole spins -- the
+ * "white ray" the user reported on 2026-10-29 -- and the last
+ * re-projected frame would still show it while the final dk_sup bake
+ * does not, a pop at the dusk's end). The +MOON_DK_MARGIN erosion
+ * covers the re-project's NEAREST-NEIGHBOR rounding: a dark pixel
+ * (d < dk_sup) within one cell of the d = dk_sup boundary can round to a
+ * cell whose center is outside it, and a lit-center cell carries the FULL
+ * LIT color -- so the dark band is written a bit wider than the bake's
+ * bound (see MOON_DK_MARGIN). The margin's cost is sub-pixel: the lit
+ * region the frames show is the body-fixed d > dk_sup (+ margin) region,
+ * constant across frames (it only rotates, so no per-frame crescent
+ * shrink) and in AGREEMENT with the final dk_sup bake at the endpoint
+ * (the visible disk there is fully d < dk_sup, so the band between the
+ * two bounds is never on screen). The one step change is at frame 1 (the
+ * parked pose's true terminator -> the shifted one), which is the
+ * user-accepted look: a clean crescent with a dark margin. The dusk
+ * builds the map with its endpoint dk_sup; every other caller passes
+ * 0.0f (the margin is inert there: the only dark_zero = 1 map caller is
+ * the dusk). Row-range build so the caller (the dusk task) can honor an
+ * abort between rows. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
                          int map_h, int y0, int y1, int dark_zero, float dk_sup) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
@@ -11966,9 +12058,11 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
             const float sl = (ct >= 0.0f) ? st : -st; /* the mirror */
             const float a = cl * S0 + sl * S1;        /* the equatorial part of S */
             const float d = coslat * a + sinlat * S2;
-            float L;
+            /* lns unclipped (the backlit night side needs it, see the
+             * bake); L = clip(lns, 0, 1) = the lit-side Lambert. */
+            float lns;
             if (grel == NULL) {
-                L = d > 1.0f ? 1.0f : (d < 0.0f ? 0.0f : d);
+                lns = d;
             } else {
                 /* == the bake's (theta + MOON_TEX_LON_OFFSET) * DEM_W/360
                  * mapping at this cell's theta center: (x + 0.5) *
@@ -11978,17 +12072,18 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
                 const float glon = (float)(int8_t)(gp & 0xFF) * MOON_GREL_INV;
                 const float glat = (float)(int8_t)(gp >> 8) * MOON_GREL_INV;
                 const float gs = glon * (cl * S1 - sl * S0) + glat * (S2 - sinlat * a);
-                L = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
-                if (L < 0.0f)
-                    L = 0.0f;
-                else if (L > 1.0f)
-                    L = 1.0f;
+                lns = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
             }
+            const float L = lns > 1.0f ? 1.0f : (lns < 0.0f ? 0.0f : lns);
             float out;
-            if (dark_zero && (d < dk_sup || L <= 0.0f)) { /* dk_sup = 0.0f -> the plain d < 0 */
-                out = (float)MOON_NIGHT_FLOOR;            /* the constant night floor (moon_consts.h) */
-            } else if (L <= 0.0f) {
-                out = MOON_TONE_LUT[0] + earthshine(d); /* no albedo load */
+            /* dk_sup = 0.0f -> the plain d < 0 terminator (the margin is
+             * inert there); the +MOON_DK_MARGIN erosion: see the doc above. */
+            if (dark_zero ? ((d < dk_sup + MOON_DK_MARGIN) || (lns <= 0.0f)) : (lns <= 0.0f)) {
+                if (dark_zero) {
+                    out = (float)moon_backlit_night((float)arow[x], lns); /* the computed night side */
+                } else {
+                    out = MOON_TONE_LUT[0] + earthshine(d);
+                }
             } else {
                 const int idx = (int)((float)arow[x] * L + 0.5f);
                 out = MOON_TONE_LUT[idx > 255 ? 255 : idx] + earthshine(d);
@@ -12023,7 +12118,6 @@ typedef struct {
     uint8_t *row;
     float radius, cx, v;
     float per_deg;
-    float dk_sup; /* dusk dark-side bound (0.0f = the plain d < 0, see moon_bake) */
 } reproj_ctx_t;
 
 static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, int x) {
@@ -12037,24 +12131,14 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
     float rx = u * c->g->right[0] + c->v * c->g->up[0] + w * c->g->E[0];
     float ry = u * c->g->right[1] + c->v * c->g->up[1] + w * c->g->E[1];
     float rz = u * c->g->right[2] + c->v * c->g->up[2] + w * c->g->E[2];
-    /* Dusk dark-side floor (the bake's early return, moon_bake.c): the pixel's
-     * TRUE body direction d = r . S (S = the epoch's body-frame sun, g->S --
-     * the orbit/in-plane/pole folds rotate the camera basis, never S). For
-     * d < dk_sup write the constant night floor and skip the map load. The
-     * re-projected frames then show the body-fixed d > dk_sup lit region --
-     * in agreement with the dusk's FINAL dk_sup bake at the endpoint (no pop)
-     * -- and, because every geometrically dark pixel resolves to the floor,
-     * the 1-2 px "white ray" (a seam band of the map's +-y mirror carrying
-     * the mirrored direction's lit value, sweeping the dark disk as a
-     * latitudinal arc while the pole spins) can never light a dark pixel.
-     * dk_sup = 0.0f (every non-dusk caller) = the plain d < 0 terminator. */
-    if (c->dk_sup > 0.0f) {
-        const float d = rx * c->g->S[0] + ry * c->g->S[1] + rz * c->g->S[2];
-        if (d < c->dk_sup) {
-            c->row[x] = MOON_NIGHT_FLOOR;
-            return;
-        }
-    }
+    /* No dark-side kill here: the map ALREADY carries the dark side (the
+     * backlit night side, written for d < dk_sup + MOON_DK_MARGIN by
+     * moon_shade_map_rows), so a dark pixel (d < dk_sup) samples backlit
+     * cells -- pure black where the cell is sun-lit (0 < d < dk_sup rim
+     * sliver, lns > 0), faint surface where d < 0 -- and can never round
+     * to a lit cell (the margin covers the nearest-neighbor rounding).
+     * The frames agree with the dusk's FINAL dk_sup bake at the endpoint
+     * (the visible disk there is fully d < dk_sup, all backlit in both). */
     float theta = atan2_deg(rx, ry);
     float row_frac = row_frac_interp(rz);
     float colf = (theta + MOON_TEX_LON_OFFSET) * c->per_deg;
@@ -12077,16 +12161,13 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
  * (the bake's base direction at the folded basis), the bake's
  * (theta, row_frac) table pass, then the nearest-neighbor map sample.
  * g = the orbit + in-plane + pole folds of the epoch's geometry (the
- * dusk's per-frame basis). dk_sup (dusk only; 0.0f = the plain d < 0
- * terminator, byte-identical to the old reproject): the same dark-side
- * bound the bake and the map apply (see moon_bake / moon_shade_map_rows) --
- * every pixel whose TRUE body direction d = r . S is below dk_sup resolves
- * to the constant night floor instead of the map sample, so the re-projected
- * frames agree with the dusk's FINAL dk_sup bake at the endpoint (no pop)
- * and the 1-2 px "white ray" (a +-y seam band of the map's mirror carrying
- * the mirrored direction's lit value) can never light a dark pixel. */
+ * dusk's per-frame basis). The map carries the WHOLE color -- the lit
+ * side and the backlit night side (see moon_shade_map_rows) -- so the
+ * re-project is a pure gather: no dark-side bound, no kill (the old
+ * dk_sup early return is gone; the map's MOON_DK_MARGIN erosion does the
+ * sliver/aliasing work up front). */
 void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1, float dk_sup) {
+                         float radius, float cx, float cy, int y0, int y1) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)map_w / 360.0f;
@@ -12101,7 +12182,6 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
         c.cx = cx;
         c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
         c.per_deg = per_deg;
-        c.dk_sup = dk_sup; /* 0.0f = the plain d < 0 (the non-dusk callers) */
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             reproject_px(&c, x0);
@@ -12116,8 +12196,8 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
 }
 
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                    float radius, float cx, float cy, float dk_sup) {
-    moon_reproject_rows(map, map_w, map_h, g, frame, size, radius, cx, cy, 0, size, dk_sup);
+                    float radius, float cx, float cy) {
+    moon_reproject_rows(map, map_w, map_h, g, frame, size, radius, cx, cy, 0, size);
 }
 ```
 
@@ -12519,20 +12599,26 @@ typedef struct {
  * cached per-cell slope (quantized, see moon_bake.c) replaces the old
  * per-pixel 4-neighbor DEM gather: same displaced-normal model, 2
  * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6.
- * dark_zero writes the dark side as a CONSTANT night floor
- * (MOON_NIGHT_FLOOR, moon_consts.h) instead of the earthshine
- * gradient -- the device wake-sweep / dusk / static phase use it: the
- * ~17-step earthshine ramp shows up as banded/dithered speckle that
- * reads as "moving earthshine" in the fast animation, and a constant
- * floor keeps the far side faintly visible on the AMOLED (flat 0x0000
- * was invisible). Static/spin bakes keep the earthshine (dark_zero =
- * 0). dk_sup (dusk only; 0.0f = the plain d < 0 terminator): the
- * night floor is written for d < dk_sup instead of d < 0 -- the dusk's
- * endpoint view still carries a geometrically lit rim sliver (the pole
- * spin never changes the view latitude, d up to sqrt(1 - E.S(phi*)^2)),
- * which would otherwise linger on the dark sleep screen as a bright arc
- * around the disk edge (the "white ray"). The dusk passes that bound;
- * every other caller passes 0.0f (byte-identical to the old bake). */
+ * dark_zero = 0: the dark side is the phase-independent earthshine
+ * gradient (the validated model -- the host gate / pole_test).
+ * dark_zero = 1: the dark side is the COMPUTED (backlit) surface -- the
+ * lunar albedo + relief lit from the anti-solar direction (-S) at a
+ * faint level (peak gray ~25 per the core's MOON_NIGHT_BACKLIT_K), not
+ * a flat overlay: the user's "the unilluminated side is fully
+ * calculated, no earth ray". It is body-frame (S fixed for the epoch),
+ * so the dusk's pole spin re-projects the one static map and only the
+ * projection rotates. The ~17-step earthshine ramp is what dark_zero
+ * replaces -- it banded/dithered into "moving earthshine" in the fast
+ * animation. dk_sup (dusk only; 0.0f = the plain d < 0 terminator):
+ * the dark side is written for d < dk_sup instead of d < 0 -- the
+ * dusk's endpoint view still carries a geometrically LIT rim sliver
+ * (the pole spin never changes the view latitude, d up to sqrt(1 -
+ * E.S(phi*)^2)), which would otherwise linger on the dark sleep screen
+ * as a bright arc around the disk edge (the "white ray"); the sliver is
+ * sun-lit (lns > 0), so the backlit color clips to pure black there
+ * (exactly the old flat-floor kill). The dusk passes that bound; every
+ * other caller passes 0.0f. dark_zero = 0 is byte-identical to the old
+ * earthshine bake for every d. */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
                float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup);
 
@@ -12560,21 +12646,25 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * 0 = the texture column): map cell (c, r) = the full bake color (albedo
  * x displaced-normal Lambert x tone LUT + earthshine) of that cell's
  * body direction, at S = g->S; dark_zero = 0 keeps the earthshine dark
- * side, 1 writes every geometrically dark cell (d < 0 or L <= 0) 0 (the
- * flat-black night side). dk_sup (dusk only; 0.0f = the plain d < 0
- * terminator): with dark_zero, the night floor is written for d < dk_sup
- * instead of d < 0 -- the same sliver kill the dusk's FINAL bake applies
- * (see moon_bake), applied to the MAP so the intermediate re-projected
- * frames carry no lit rim sliver either (the "white ray": the relief-
- * boosted 0 < d < dk_sup band sweeping the disk as a latitudinal arc
- * while the pole spins). The lit region the frames then show is the
- * body-fixed d > dk_sup region -- constant across frames (it only
- * rotates), and it AGREES with the final dk_sup bake at the endpoint (no
+ * side, 1 writes every geometrically dark cell (d < 0 or L <= 0) the
+ * backlit computed surface (see moon_bake). dk_sup (dusk only; 0.0f =
+ * the plain d < 0 terminator): with dark_zero, the dark side is written
+ * for d < dk_sup + a margin instead of d < 0 -- the same sliver kill the
+ * dusk's FINAL bake applies (see moon_bake), applied to the MAP so the
+ * intermediate re-projected frames carry no lit rim sliver either (the
+ * "white ray": the relief-boosted 0 < d < dk_sup band sweeping the disk
+ * as a latitudinal arc while the pole spins). The margin erodes the bound
+ * outward by the map cell's angular size (~2x): a dark pixel samples
+ * NEAREST-NEIGHBOR, so without it a dark pixel within one cell of the
+ * d = dk_sup boundary could round to a lit cell and re-light the sliver.
+ * The lit region the frames show is the body-fixed d > dk_sup (+ margin)
+ * region -- constant across frames (it only rotates), and it AGREES with
+ * the final dk_sup bake at the endpoint (the visible disk there is fully
+ * d < dk_sup, so the band between the two bounds is never on screen; no
  * pop between the last re-projected frame and the dark-side bake). The
  * dusk builds the map with its endpoint dk_sup; every other caller
- * passes 0.0f (byte-identical to the old map). Row-range build so the
- * caller can honor an abort between rows; grel NULL = relief-free
- * Lambert. */
+ * passes 0.0f (the margin is inert there). Row-range build so the caller
+ * can honor an abort between rows; grel NULL = relief-free Lambert. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
                          int map_h, int y0, int y1, int dark_zero, float dk_sup);
 
@@ -12589,20 +12679,17 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * the bake's (theta, row_frac) table pass, then the nearest-neighbor map
  * sample -- the bake WITHOUT the lighting (the map carries the color).
  * g = the epoch's geometry folded by the orbit / in-plane / pole basis
- * rotations. dk_sup (dusk only; 0.0f = the plain d < 0 terminator,
- * byte-identical to the old reproject): the same dark-side bound the bake
- * and the map apply (see moon_bake / moon_shade_map_rows) -- every pixel
- * whose TRUE body direction d = r . S is below dk_sup resolves to the
- * constant night floor instead of the map sample, so the re-projected
- * frames agree with the dusk's FINAL dk_sup bake at the endpoint (no pop)
- * and the 1-2 px "white ray" (a +-y seam band of the map's mirror
- * carrying the mirrored direction's lit value) can never light a dark
- * pixel. Row-range variant so the dusk task can honor an abort between
- * rows. */
+ * rotations. The map carries the WHOLE color (lit side and backlit night
+ * side, see moon_shade_map_rows), so the re-project is a pure gather --
+ * no dark-side bound and no kill (the old dk_sup early return is gone:
+ * the map's margin erosion does the sliver/aliasing work up front, so a
+ * dark pixel samples backlit cells and can never light a dark pixel from
+ * a lit one). Row-range variant so the dusk task can honor an abort
+ * between rows. */
 void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1, float dk_sup);
+                         float radius, float cx, float cy, int y0, int y1);
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                    float radius, float cx, float cy, float dk_sup);
+                    float radius, float cx, float cy);
 
 /* Build one output ROW r of the relief gradient cache from the three
  * DEM window rows the caller holds (row_n = DEM[r-1 clamped], row_m =
@@ -12728,17 +12815,6 @@ void moon_deinit(void);
 #define MOON_ES_A 30.455
 #define MOON_ES_B -11.733
 #define MOON_ES_C -2.615
-
-// --- Night floor (the dark-zero night side) ---
-// The device's dark side is NOT the flat 0x0000 (invisible on the
-// AMOLED -- the user could not see the far side at all). dark_zero
-// writes this CONSTANT gray instead of the earthshine gradient:
-// position- and phase-independent, so nothing moves or flickers as
-// the pole spin / orbit re-projects the map (the "moving earthshine"
-// complaint), yet the disk reads as a faint solid shape. 6/255 is
-// dim enough to stay "off" on the AMOLED but still resolves the
-// terminator and the cratered rim.
-#define MOON_NIGHT_FLOOR 10
 
 // --- 256-entry 8-bit tone LUT (bin 0 == 0: pure dark side) ---
 static const unsigned char MOON_TONE_LUT[256] = {
@@ -29149,7 +29225,7 @@ static void moon_bake_epoch(int64_t epoch) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H, 1,
-              0.0f); /* dark_zero: the flat-black night side (T3); dk_sup 0.0f = the plain d < 0 terminator */
+              0.0f); /* dark_zero: the computed (backlit) night side; dk_sup 0.0f = the plain d < 0 terminator */
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     s_dusk_done = false;   /* a fresh bake supersedes any dusk pre-bake */
@@ -30012,12 +30088,15 @@ static void moon_sweep_task(void *arg) {
         if (S > MOON_PX)
             S = MOON_PX;
         uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
-        /* Flat-black dark side for every montage frame (the user's
-         * decision: the dark side is FLAT BLACK on the device). The
-         * earthshine's ~17-step ramp shows up as banded/dithered
-         * speckle in the fast animation AND as a bright fragment at the
-         * rim of the static phase, so the FINAL frame -- the one that
-         * lingers on screen as the static phase -- is flat black too. */
+        /* Computed (backlit) dark side for every montage frame: the
+         * unlit surface with its real relief, lit faintly from the
+         * anti-solar direction (dark_zero = 1, MOON_NIGHT_BACKLIT_K) --
+         * the same night side as the static/wake frame, so the sweep's
+         * final frame hands over to the static phase without a dark-side
+         * pop. (Replaces the old flat-black device dark side; the
+         * backlit ramp is a smooth per-pixel gradient, not the
+         * earthshine's ~17-step banded ramp that motivated the flat
+         * floor.) */
         int dark_zero = 1;
         int64_t b0 = esp_timer_get_time();
         for (int y = 0; y < S && !s_sweep_abort; y++) {
@@ -30135,10 +30214,11 @@ static void moon_sweep_interrupt(void) {
  * function of the body-frame surface direction and the epoch's fixed
  * body-frame sun S alone (the view basis selects which direction is
  * visible but never enters the color -- see the moon_bake.c section).
- * So the fully-lit body-frame equirect color map (albedo x
- * displaced-normal Lambert x tone LUT + earthshine, 864x432 8-bit cells)
- * is built ONCE for the dusk epoch and every pole-spin frame
- * RE-PROJECTS that fixed map through the folded camera basis -- the
+ * So the full body-frame equirect color map (lit side: albedo x
+ * displaced-normal Lambert x tone LUT; dark side: the faint backlit
+ * surface, 864x432 8-bit cells) is built ONCE for the dusk epoch and
+ * every pole-spin frame RE-PROJECTS that fixed map through the folded
+ * camera basis -- the
  * cheap moon_rotate-class gather (one map load/pixel, ~50 ms), NOT a
  * lighting re-bake (~1.3 s). A fixed surface point keeps exactly its map
  * cell's color on every frame, so the terminator cannot flicker (the
@@ -30167,12 +30247,15 @@ static void moon_sweep_interrupt(void) {
  * full-circle grid; the in-plane fold leaves E unchanged, so it does not
  * shift the endpoint). phi* in (-pi, pi] is the shortest arc.
  *
- * dark_zero = 1 for every dusk frame (the user's decision: the dark
- * side is FLAT BLACK on the device): the shade map's dark cells and the
- * final bake's night side are written 0, so no earthshine/relief speckle
- * survives to the rim (the "bright fragment on the edge"). The host gate
- * keeps dark_zero = 0 there (pole_test): the earthshine model itself is
- * unchanged -- only the device-visible rendering drops it.
+ * dark_zero = 1 for every dusk frame (the user's decision: the dark side
+ * is COMPUTED, not the earthshine "earth ray"): the shade map's dark
+ * cells and the final bake's night side are written the faint backlit
+ * surface (albedo + relief lit from the anti-solar direction), so no
+ * phase-dependent earthshine/relief speckle survives to the rim (the
+ * "bright fragment on the edge") while the far side still shows the
+ * lunar surface. The host gate keeps dark_zero = 0 there (pole_test):
+ * the earthshine model itself is unchanged -- only the device-visible
+ * rendering drops it.
  *
  * Resolution: intermediate frames re-project the FULL-RES map (the
  * re-projection is gather-class, so no reduced-res bake + NN upscase is
@@ -30224,8 +30307,10 @@ static void moon_dusk_task(void *arg) {
      * map's 0 < d < dk_sup band (relief-boosted, up to gray 137) sweeps
      * the disk as a latitudinal arc while the pole spins (the "white
      * ray" the user reported on 2026-10-29). So BOTH the shade map (the
-     * one-time build below) and the FINAL bake (below) write the night
-     * floor for d < dk_sup: the lit region the frames show is the
+     * one-time build below) and the FINAL bake (below) write the BACKLIT
+     * night side for d < dk_sup -- and since that sliver is sun-lit
+     * (lns > 0), its backlit color clips to pure black, the exact old
+     * flat-floor kill: the lit region the frames show is the
      * body-fixed d > dk_sup crescent -- constant (it only rotates) and
      * in agreement with the final bake at the endpoint (no pop). The
      * one step change is at frame 1 (the parked pose's true terminator
@@ -30235,16 +30320,16 @@ static void moon_dusk_task(void *arg) {
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
-    /* One-time: the fully-lit body-frame equirect map for this epoch
-     * (S is never folded -- the folds touch the camera basis only).
-     * Row-by-row so an abort lands within a row (~2 ms); s_shade_map is
-     * dusk-only (the sweep and dusk never run at once, and the sweep
-     * does not use the map). */
+    /* One-time: the full body-frame equirect map for this epoch (lit +
+     * backlit night side; S is never folded -- the folds touch the
+     * camera basis only). Row-by-row so an abort lands within a row
+     * (~2 ms); s_shade_map is dusk-only (the sweep and dusk never run at
+     * once, and the sweep does not use the map). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        /* dark_zero (T2/T3) + dk_sup: kill the 0 < d < dk_sup rim sliver
-         * in the MAP itself (the "white ray" on the re-projected frames,
-         * see above). */
+        /* dark_zero + dk_sup (+ margin): the backlit night side for
+         * d < dk_sup kills the 0 < d < dk_sup rim sliver in the MAP
+         * itself (the "white ray" on the re-projected frames, see above). */
         moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_sup);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
@@ -30279,10 +30364,11 @@ static void moon_dusk_task(void *arg) {
         int64_t b0 = esp_timer_get_time();
         if (f == frames - 1) {
             /* FINAL frame: the one pixel-exact dark-side bake at phi*
-             * (full lighting, dark_zero 1 -- the flat-black night side:
-             * the earthshine/relief speckle at the rim is exactly the
-             * "bright fragment on the edge" the user wanted gone). It
-             * lingers on the sleep screens through the countdown. */
+             * (full lighting, dark_zero 1 -- the backlit night side: no
+             * earthshine/relief speckle at the rim, the "bright fragment
+             * on the edge" the user wanted gone, yet the far side still
+             * shows the faint surface). It lingers on the sleep screens
+             * through the countdown. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
@@ -30296,9 +30382,10 @@ static void moon_dusk_task(void *arg) {
              * full resolution. Row-by-row like the sweep so an abort
              * lands within a row. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
+                /* Pure gather: the map already carries the dark side
+                 * (backlit, with the dk_sup + margin erosion) -- no bound. */
                 moon_reproject_rows(s_shade_map, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1,
-                                    dk_sup); /* the same dark-side bound as the map + final bake */
+                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -30343,10 +30430,11 @@ abort_out: /* the map-build abort lands here: the else-branch below handles it
             s_frame_touched = true;
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-                /* dark_zero 1: the wake frame's night side is flat black
-                 * too (T3), matching the static phase. This is the
-                 * CURRENT phase (not the dusk's dark endpoint), so it
-                 * keeps the true d < 0 terminator: dk_sup 0.0f. */
+                /* dark_zero 1: the wake frame's night side is the
+                 * backlit computed surface too (matching the static
+                 * phase). This is the CURRENT phase (not the dusk's dark
+                 * endpoint), so it keeps the true d < 0 terminator:
+                 * dk_sup 0.0f. */
                 moon_bake_rows(&g1, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f);
                 xSemaphoreGive(s_rgb_mtx);
@@ -35911,9 +35999,11 @@ int main(int argc, char **argv) {
         float ry = u * g.right[1] + v * g.up[1] + w * g.E[1];
         float rz = u * g.right[2] + v * g.up[2] + w * g.E[2];
         float d = rx * g.S[0] + ry * g.S[1] + rz * g.S[2];
-        fprintf(stderr, "px(%d,%d) u=%.4f v=%.4f d=%.5f  gray[dz=0]=%u  gray[dz=1]=%u%s\n", x, y, u, v, d,
-                frame0[y * sz + x], frame1[y * sz + x],
-                (d < 0.0f && frame1[y * sz + x] != 0) ? "  <-- BUG: d<0 but not zeroed" : "");
+        /* dark_zero = 1 now writes the COMPUTED backlit night side (not
+         * the flat floor), so a d < 0 pixel is non-zero BY DESIGN -- no
+         * BUG marker. */
+        fprintf(stderr, "px(%d,%d) u=%.4f v=%.4f d=%.5f  gray[dz=0]=%u  gray[dz=1]=%u\n", x, y, u, v, d,
+                frame0[y * sz + x], frame1[y * sz + x]);
     }
     return 0;
 }
@@ -35969,7 +36059,8 @@ static int parse_iso(const char *s, int64_t *epoch) {
 }
 
 /* --- one frame ---------------------------------------------------------- */
-static int g_darkzero = 0; /* --darkzero: montage path (night side -> 0x0000) */
+static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
+                            * backlit surface, dark_zero = 1) */
 static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
                             * pole (+z), deg -- the device's dusk spin
                             * (moon_ui.c moon_pole_geometry, copied
@@ -36549,7 +36640,7 @@ int main(void) {
          * the folds only touch the camera basis). */
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
-         * dusk passes dark_zero = 1 (flat black). */
+         * dusk passes dark_zero = 1 (the computed backlit night side). */
         moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
@@ -36559,8 +36650,7 @@ int main(void) {
             moon_pole_geometry(&gb, phis3[t], &gb);
             moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0,
                       0.0f); /* reference */
-            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR,
-                           0.0f); /* the dusk's frame (dk_sup = 0: earthshine dark side) */
+            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
             double sum = 0;
             int mx = 0, n = 0, big = 0;
             for (int y = 0; y < PX; y++)
@@ -36595,8 +36685,8 @@ int main(void) {
         moon_inplane_geometry(&g0, 0.0f, &ga);
         moon_pole_geometry(&ga, 0.0f, &ga);
         moon_pole_geometry(&g0, 0.17453293f, &gaa); /* +10 deg */
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR, 0.0f);
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR, 0.0f);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR);
         moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         static uint8_t bb[PX * PX];
         moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
@@ -36622,6 +36712,86 @@ int main(void) {
          * re-sampling, but must stay within ~1.5x of it (same content). */
         if (diff > 0.5 * (sr + sb))
             g_fail++;
+    }
+
+    printf("== 4. backlit night side (dark_zero = 1): the device's path\n"
+           "    The dusk/static/sweep bake the COMPUTED night side (albedo + relief\n"
+           "    lit from -S) instead of the earthshine. The constant-projection\n"
+           "    promise must still hold for it: the backlit shade map (built once,\n"
+           "    dark_zero = 1 + dk_sup) re-projected through a fold must match the\n"
+           "    per-frame backlit bake (same dark_zero = 1 + dk_sup) to cell-center\n"
+           "    class, and the endpoint must be a clean backlit disk (no lit rim\n"
+           "    sliver -- the 'white ray' kill) with some surface spread (not flat).\n");
+    static uint8_t backlit_map[MOON_ALB_W * MOON_ALB_H];
+    for (unsigned e = 0; e < 3; e++) {
+        int64_t epoch = e == 1 ? iso(epochs[e]) : now - 7 * 86400LL * (int)e;
+        moon_geom_t g0;
+        moon_geometry(epoch, &g0);
+        /* The dusk endpoint + dk_sup (same math as the device's dusk task):
+         * phi* minimizes E(phi).S, dk_sup = sqrt(1 - E.S(phi*)^2) = the
+         * endpoint disk's max d. */
+        float A = g0.E[0] * g0.S[0] + g0.E[1] * g0.S[1];
+        float B = g0.E[0] * g0.S[1] - g0.E[1] * g0.S[0];
+        float phi = atan2f(-B, -A);
+        float fmin = A * cosf(phi) + B * sinf(phi) + g0.E[2] * g0.S[2];
+        float dk_sup = sqrtf(fmaxf(0.0f, 1.0f - fmin * fmin));
+        /* The backlit map, built ONCE from the unfolded geometry. */
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+        /* Start (phi=0) and endpoint (phi*) folds: reproject vs per-frame bake. */
+        const float folds[2] = {0.0f, phi};
+        const char *folds_name[2] = {"start", "endpoint"};
+        for (unsigned t = 0; t < 2; t++) {
+            moon_geom_t gb;
+            moon_inplane_geometry(&g0, 0.0f, &gb);
+            moon_pole_geometry(&gb, folds[t], &gb);
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+            moon_reproject(backlit_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
+            /* Pixel classes: 0 = black (out of disk / the sun-lit sliver,
+             * clipped to pure black); 0 < g <= 40 = the faint backlit
+             * surface (peak 255 * MOON_NIGHT_BACKLIT_K = 25, relief can
+             * round a hair higher); g > 40 = the lit crescent (TONE_LUT
+             * of the lit side, 137+ at the crescent edge). The 40 split
+             * sits well above the backlit peak and well below the lit. */
+            double sum = 0;
+            int mx = 0, n = 0, lit = 0, backlit_cnt = 0, backlit_hi = 0;
+            for (int y = 0; y < PX; y++)
+                for (int x = 0; x < PX; x++) {
+                    float u = (x - 199.5f) / 200.0f, v = (199.5f - y) / 200.0f;
+                    if (u * u + v * v > 1.0f)
+                        continue;
+                    int d = (int)a[y * PX + x] - (int)b[y * PX + x];
+                    d = d < 0 ? -d : d;
+                    sum += d;
+                    if (d > mx)
+                        mx = d;
+                    n++;
+                    int g = b[y * PX + x];
+                    if (g > 40)
+                        lit++; /* the lit crescent */
+                    else if (g > 0) {
+                        backlit_cnt++; /* the computed backlit dark side */
+                        if (g > backlit_hi)
+                            backlit_hi = g;
+                    }
+                }
+            double mae = sum / (double)n;
+            printf("  epoch=%ld d %s: reproject-vs-bake MAE=%.2f max=%d | lit px=%d backlit px>0=%d backlit max=%d\n",
+                   (long)(epoch - now) / 86400, folds_name[t], mae, mx, lit, backlit_cnt, backlit_hi);
+            /* Cell-center class (the same tolerance as section 3). */
+            if (mae > 7.0)
+                g_fail++;
+            /* At the ENDPOINT the visible disk is fully night (d <= dk_sup):
+             * the lit crescent is gone, so NO pixel may read as lit (> 40) --
+             * a lit pixel here is the rim sliver (the "white ray") leaking
+             * through (the backlit side clips the sun-lit sliver to black).
+             * The whole disk must be the faint COMPUTED surface: a large
+             * backlit count with backlit_hi exceeding the old flat floor
+             * (10) -- the dark side has surface structure, not a flat overlay. */
+            if (t == 1) {
+                if (lit > 0 || backlit_cnt < n / 2 || backlit_hi < 12)
+                    g_fail++;
+            }
+        }
     }
 
     printf(g_fail ? "POLE TEST FAIL (%d)\n" : "POLE TEST PASS\n", g_fail);
@@ -39358,9 +39528,10 @@ int main(int argc, char **argv) {
  *   wifi scan complete, 5 canned APs
  *
  * moon_ui_create_image bakes the REAL current-phase moon (the portable
- * core + generated assets, dark_zero = 0 like the device wake frame)
- * into one shared 400x400 RGB565 buffer, exactly where the device's
- * moon image sits (33,33 on the 466x466 panel).
+ * core + generated assets, dark_zero = 1 like the device static/wake
+ * frame -- the computed backlit night side) into one shared 400x400
+ * RGB565 buffer, exactly where the device's moon image sits (33,33 on
+ * the 466x466 panel).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -39592,7 +39763,7 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
         moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
-                  MOON_ALB_H, 0, 0.0f);
+                  MOON_ALB_H, 1, 0.0f);
         for (int i = 0; i < MOON_PX * MOON_PX; i++)
             s_rgb[i] = moon_gray565(s_gray[i]);
         s_dsc = (lv_image_dsc_t){

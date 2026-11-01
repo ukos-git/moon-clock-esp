@@ -45,7 +45,8 @@ static int parse_iso(const char *s, int64_t *epoch) {
 }
 
 /* --- one frame ---------------------------------------------------------- */
-static int g_darkzero = 0; /* --darkzero: montage path (night side -> 0x0000) */
+static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
+                            * backlit surface, dark_zero = 1) */
 static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
                             * pole (+z), deg -- the device's dusk spin
                             * (moon_ui.c moon_pole_geometry, copied

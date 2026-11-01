@@ -10,9 +10,10 @@
  *   wifi scan complete, 5 canned APs
  *
  * moon_ui_create_image bakes the REAL current-phase moon (the portable
- * core + generated assets, dark_zero = 0 like the device wake frame)
- * into one shared 400x400 RGB565 buffer, exactly where the device's
- * moon image sits (33,33 on the 466x466 panel).
+ * core + generated assets, dark_zero = 1 like the device static/wake
+ * frame -- the computed backlit night side) into one shared 400x400
+ * RGB565 buffer, exactly where the device's moon image sits (33,33 on
+ * the 466x466 panel).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -244,7 +245,7 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
         moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
-                  MOON_ALB_H, 0, 0.0f);
+                  MOON_ALB_H, 1, 0.0f);
         for (int i = 0; i < MOON_PX * MOON_PX; i++)
             s_rgb[i] = moon_gray565(s_gray[i]);
         s_dsc = (lv_image_dsc_t){

@@ -255,7 +255,7 @@ int main(void) {
          * the folds only touch the camera basis). */
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
-         * dusk passes dark_zero = 1 (flat black). */
+         * dusk passes dark_zero = 1 (the computed backlit night side). */
         moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
@@ -265,8 +265,7 @@ int main(void) {
             moon_pole_geometry(&gb, phis3[t], &gb);
             moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0,
                       0.0f); /* reference */
-            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR,
-                           0.0f); /* the dusk's frame (dk_sup = 0: earthshine dark side) */
+            moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
             double sum = 0;
             int mx = 0, n = 0, big = 0;
             for (int y = 0; y < PX; y++)
@@ -301,8 +300,8 @@ int main(void) {
         moon_inplane_geometry(&g0, 0.0f, &ga);
         moon_pole_geometry(&ga, 0.0f, &ga);
         moon_pole_geometry(&g0, 0.17453293f, &gaa); /* +10 deg */
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR, 0.0f);
-        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR, 0.0f);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR);
+        moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR);
         moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
         static uint8_t bb[PX * PX];
         moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
@@ -328,6 +327,86 @@ int main(void) {
          * re-sampling, but must stay within ~1.5x of it (same content). */
         if (diff > 0.5 * (sr + sb))
             g_fail++;
+    }
+
+    printf("== 4. backlit night side (dark_zero = 1): the device's path\n"
+           "    The dusk/static/sweep bake the COMPUTED night side (albedo + relief\n"
+           "    lit from -S) instead of the earthshine. The constant-projection\n"
+           "    promise must still hold for it: the backlit shade map (built once,\n"
+           "    dark_zero = 1 + dk_sup) re-projected through a fold must match the\n"
+           "    per-frame backlit bake (same dark_zero = 1 + dk_sup) to cell-center\n"
+           "    class, and the endpoint must be a clean backlit disk (no lit rim\n"
+           "    sliver -- the 'white ray' kill) with some surface spread (not flat).\n");
+    static uint8_t backlit_map[MOON_ALB_W * MOON_ALB_H];
+    for (unsigned e = 0; e < 3; e++) {
+        int64_t epoch = e == 1 ? iso(epochs[e]) : now - 7 * 86400LL * (int)e;
+        moon_geom_t g0;
+        moon_geometry(epoch, &g0);
+        /* The dusk endpoint + dk_sup (same math as the device's dusk task):
+         * phi* minimizes E(phi).S, dk_sup = sqrt(1 - E.S(phi*)^2) = the
+         * endpoint disk's max d. */
+        float A = g0.E[0] * g0.S[0] + g0.E[1] * g0.S[1];
+        float B = g0.E[0] * g0.S[1] - g0.E[1] * g0.S[0];
+        float phi = atan2f(-B, -A);
+        float fmin = A * cosf(phi) + B * sinf(phi) + g0.E[2] * g0.S[2];
+        float dk_sup = sqrtf(fmaxf(0.0f, 1.0f - fmin * fmin));
+        /* The backlit map, built ONCE from the unfolded geometry. */
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+        /* Start (phi=0) and endpoint (phi*) folds: reproject vs per-frame bake. */
+        const float folds[2] = {0.0f, phi};
+        const char *folds_name[2] = {"start", "endpoint"};
+        for (unsigned t = 0; t < 2; t++) {
+            moon_geom_t gb;
+            moon_inplane_geometry(&g0, 0.0f, &gb);
+            moon_pole_geometry(&gb, folds[t], &gb);
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+            moon_reproject(backlit_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
+            /* Pixel classes: 0 = black (out of disk / the sun-lit sliver,
+             * clipped to pure black); 0 < g <= 40 = the faint backlit
+             * surface (peak 255 * MOON_NIGHT_BACKLIT_K = 25, relief can
+             * round a hair higher); g > 40 = the lit crescent (TONE_LUT
+             * of the lit side, 137+ at the crescent edge). The 40 split
+             * sits well above the backlit peak and well below the lit. */
+            double sum = 0;
+            int mx = 0, n = 0, lit = 0, backlit_cnt = 0, backlit_hi = 0;
+            for (int y = 0; y < PX; y++)
+                for (int x = 0; x < PX; x++) {
+                    float u = (x - 199.5f) / 200.0f, v = (199.5f - y) / 200.0f;
+                    if (u * u + v * v > 1.0f)
+                        continue;
+                    int d = (int)a[y * PX + x] - (int)b[y * PX + x];
+                    d = d < 0 ? -d : d;
+                    sum += d;
+                    if (d > mx)
+                        mx = d;
+                    n++;
+                    int g = b[y * PX + x];
+                    if (g > 40)
+                        lit++; /* the lit crescent */
+                    else if (g > 0) {
+                        backlit_cnt++; /* the computed backlit dark side */
+                        if (g > backlit_hi)
+                            backlit_hi = g;
+                    }
+                }
+            double mae = sum / (double)n;
+            printf("  epoch=%ld d %s: reproject-vs-bake MAE=%.2f max=%d | lit px=%d backlit px>0=%d backlit max=%d\n",
+                   (long)(epoch - now) / 86400, folds_name[t], mae, mx, lit, backlit_cnt, backlit_hi);
+            /* Cell-center class (the same tolerance as section 3). */
+            if (mae > 7.0)
+                g_fail++;
+            /* At the ENDPOINT the visible disk is fully night (d <= dk_sup):
+             * the lit crescent is gone, so NO pixel may read as lit (> 40) --
+             * a lit pixel here is the rim sliver (the "white ray") leaking
+             * through (the backlit side clips the sun-lit sliver to black).
+             * The whole disk must be the faint COMPUTED surface: a large
+             * backlit count with backlit_hi exceeding the old flat floor
+             * (10) -- the dark side has surface structure, not a flat overlay. */
+            if (t == 1) {
+                if (lit > 0 || backlit_cnt < n / 2 || backlit_hi < 12)
+                    g_fail++;
+            }
+        }
     }
 
     printf(g_fail ? "POLE TEST FAIL (%d)\n" : "POLE TEST PASS\n", g_fail);

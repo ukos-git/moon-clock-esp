@@ -22,19 +22,22 @@ arc's thickness, §3.2) and the 720 px UI upscale — panel-scaled layout +
 regenerated fonts, §6 — are done on-device; the P4 spin's CCW flicker is fixed
 at the source — one framebuffer, no scanout flip, §4.3; the P4 clock
 degradation (no RTC IC: crystal RTC timer + SNTP + software alarms) is the
-follow-on milestone), the burn-in spin's **direct panel write** (the render
-task writes the MOON_PX² moon area straight to the panel at 8 fps instead of
-routing through LVGL's ~175 ms re-render; the settled rate is a constant slow
-spin, so the moon no longer freezes before light sleep), the **fade-to-black
-screen switch** (replacing the concentric reveal that showed white strip bars;
-now a hardware panel-brightness ramp — the CO5300's own dimming command — so
-the transition writes no pixels at all), the **alarm weekday prefix** ("Mo
-07:00" on the home screen when the next fire is >24 h away), the
-**fa-circle-xmark exit glyph** (U+F057 — the glyph is the button), and the
-**7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm screen
-in). See the standing rule in [CLAUDE.md](../CLAUDE.md) — this document is
-regenerated with `python3 docs/gen_doc.py` and must stay in sync with the
-code._
+follow-on milestone), the **computed (backlit) night side** — the unilluminated
+side is now the real lunar surface lit faintly from the anti-solar direction
+instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item 4; the `dk_sup` rim
+kill is baked into the shade map and `moon_reproject` is a pure gather — §5.2
+item 5), and the burn-in spin's **direct panel write** (the render task writes
+the MOON_PX² moon area straight to the panel at 8 fps instead of routing
+through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
+the moon no longer freezes before light sleep), the **fade-to-black screen
+switch** (replacing the concentric reveal that showed white strip bars; now a
+hardware panel-brightness ramp — the CO5300's own dimming command — so the
+transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
+on the home screen when the next fire is >24 h away), the **fa-circle-xmark
+exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
+alarm** (the `*/5` debug rule burned the alarm screen in). See the standing
+rule in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+`python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
 
@@ -123,9 +126,11 @@ PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
 ### 2.2 Board wiring
 
 No wiring needed — both boards are finished. Connect USB for flash + serial (@
-115200 on Linux). The confirmed port map (verified 2026-10-31 with esptool chip
-probes): **`/dev/ttyACM0` = the S3 board**, **`/dev/ttyACM1` = the P4 board**
-(the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS; §3.2).
+115200 on Linux). The confirmed port map: **`/dev/ttyACM0` = the P4 board**,
+**`/dev/ttyACM1` = the S3 board** — re-verified 2026-11-01 by a flash + sweep
+boot of the P4 on `/dev/ttyACM0` (the S3 had been re-plugged onto a different
+USB path; the map flipped from the 2026-10-31 probe — re-probe with esptool
+after any re-plug).
 
 ### 2.3 First build
 
@@ -286,16 +291,19 @@ python3 -m serial.tools.miniterm /dev/ttyACM0 115200   # or pyserial capture
 (WiFi + NTP before the display starts), the UI is born on the **airplane** home
 screen, and the **synodic boot sweep** plays: 336 frames @240 px from the last
 new moon to now, ending on the current phase; the free spin then re-anchors
-from the sweep's last frame. The sweep is display-paced (~340 ms/frame) and the
-per-frame bake grows with the frame's illumination: measured 2026-10-31 at a 21
-d moon age — 79–541 ms @240 px (median 306 ms), 231 s total — and a younger
-moon (fewer bright frames) runs the sweep measurably faster (~2.8 min,
-2026-10-27). On the P4 the intermediates bake @240 px (~64–138 ms, ~155 ms
-display/frame) and only the final frame bakes at full 650 px (~595 ms) — **~121
-s total** at a 21 d moon age (2026-10-31; the 650 px final bake re-measured
-~595 ms on 2026-11-01). Serial markers to watch: `WiFi connected`, `SNTP sync`,
-`synodic boot sweep started: 336 frames`, `sweep N/336 baked in ~79ms @240px`,
-`spin started`. A clean boot shows **0 WDT / 0 panic / 0 NO_MEM**.
+from the sweep's last frame. The sweep is display-paced and the per-frame bake
+cost is now _flat across the synodic cycle_: with the backlit night side (§5.2
+item 4) every in-disk pixel loads the albedo + relief gradient, so a dark frame
+costs about what a bright one does — measured 2026-11-01 on the P4 at a 22 d
+moon age, 180–183 ms @240 px (previously 64–138 ms on the S3's flat-floor
+model, which skipped the albedo on the dark side) and the final frame bakes at
+full 650 px in **959 ms** (was ~595 ms — the dark pixels now load albedo too) —
+**~125 s total** (336 × ~370 ms display-paced). The S3's older figures (79–541
+ms @240 px median 306, 231 s total, 2026-10-31) predate the backlit change and
+will shift the same way; re-measure on the S3 device. Serial markers to watch:
+`WiFi connected`, `SNTP sync`, `synodic boot sweep started: 336 frames`,
+`sweep N/336 baked in ~180ms @240px`, `spin started`. A clean boot shows **0
+WDT / 0 panic / 0 NO_MEM**.
 
 ### 2.5 Regenerating the moon assets (optional)
 
@@ -490,9 +498,12 @@ adapter's **NONE** tear-avoid mode (`bsp_display_start_with_config` in
 `main.cpp`), so LVGL's strips and the spin's strips all write the one surface
 the panel is scanning. The residual tearing is at most one frame — sub-pixel at
 the settled spin rate, ~1 px at the rim at the active rate — invisible. The
-one-FB change also frees the two unused 2.1 MB surfaces and removes the spin
-burst's contention on the driver's draw semaphore (the "previous draw operation
-is not finished" strip rejects).
+one-FB change also frees the two unused 2.1 MB surfaces. (It does **not**
+remove the spin's "previous draw operation is not finished" strip rejects —
+measured 3855 pre-fix, ~3890 post-fix on the 650 px disk: those are the panel's
+async-DMA throughput floor, a separate pre-existing phenomenon absorbed by
+`moon_panel_draw_wait`'s retry — §3.2 — and the one-FB change fixed the scanout
+flip, which was the flicker.)
 
 ### 4.4 Screen & state flow
 
@@ -551,21 +562,36 @@ angular scale.
    4-neighbor DEM gather) — and lit with the **unclipped** model
    `L = clip(lns, 0, 1)` with `lns = (d - G·S)/sqrt(1 + |G|²)`: mountain slopes
    brighten, crater walls shadow, exactly as the relief dictates;
-4. **Night side**: on the device, a **constant night floor**
-   (`MOON_NIGHT_FLOOR = 10`/255) instead of the phase-dependent earthshine ramp
-   — the ~17-step ramp dithered as "moving earthshine" in the fast animation;
-   the floor keeps the far side faintly visible on the AMOLED (flat `0x0000`
-   was invisible). The static/spin bakes keep the earthshine; the gate +
-   `pole_test` run the earthshine path (`dark_zero = 0`);
+4. **Night side (the backlit far side)**: on the device the unilluminated side
+   is the **computed surface, not a flat overlay** — the real lunar surface
+   (albedo + displaced relief) lit faintly from the _anti-solar_ direction
+   (`moon_backlit_night`: `A · clip(−lns, 0, 1) · MOON_NIGHT_BACKLIT_K` with
+   `K = 0.10`, peak ≈ 25/255 — about the old flat floor's level, now with the
+   surface structure; plain linear gray, deliberately NOT the tone LUT, whose
+   bin-1 shadow lift would over-brighten it). It is body-frame constant (the
+   epoch's S is fixed), so the shade map and the spin stay a static image and
+   only the projection rotates. The validated earthshine path (`dark_zero = 0`:
+   `TONE_LUT[0] + earthshine(d)`) is byte-identical to the old model — it is
+   what the gate and the host film run; `pole_test` proves BOTH the earthshine
+   path and the backlit one (§12.2);
 5. **`dk_sup` dark-side bound (dusk only)**: the pole spin never changes the
    view latitude, so the _endpoint_ view still carries a geometrically lit rim
-   sliver (d up to `sqrt(1 - E·S(φ*)²)`; today +0.1216) which would linger on
-   the dark sleep screen as a bright arc hugging the disk edge (the
-   user-reported "white ray" — the true root cause was the shade map's ±y
-   mirror folding mirrored lighting onto the seam columns; fixed by threading
-   `dk_sup` through the shade map, the final bake, and the reproject, all
-   three). Every non-dusk caller passes `0.0f` (byte-identical to the pre-fix
-   code);
+   sliver (d up to `sqrt(1 - E·S(φ*)²)`) which would linger on the dark sleep
+   screen as a bright arc hugging the disk edge (the user-reported "white ray"
+   — the true root cause was the shade map's ±y mirror folding mirrored
+   lighting onto the seam columns). The kill is now baked into the _map_: the
+   shade map writes the backlit night side for `d < dk_sup + MOON_DK_MARGIN`
+   (margin 0.010 — the re-project's nearest-neighbor gather can round a
+   boundary pixel to a cell up to ~half a theta-cell + half a lat-cell away in
+   d, ≈ 0.0073 at 864x432, so a lit-center cell would re-light the sliver
+   without the erosion), and `moon_reproject` is a **pure gather** (no `dk_sup`
+   parameter). The final bake writes the backlit night side for `d < dk_sup`.
+   The sliver itself is sun-lit (lns > 0), so the backlit color clips to **pure
+   black** there — exactly the old flat-floor kill, and the white ray stays
+   dead. At the endpoint the visible disk is entirely d < dk_sup, so the band
+   between the two bounds is never on screen (no pop). Every non-dusk caller
+   passes `0.0f` (the margin is inert there — the night test reduces to
+   `lns ≤ 0`, byte-identical to the pre-fix code);
 6. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
    then 8-bit → RGB565.
 
@@ -575,9 +601,10 @@ the camera basis selects _which direction is visible_ but never enters the
 color. Consequences: the free spin and the boot sweep need no lighting
 recompute (fixed-point gather only), and the dusk is a **constant projection**
 — one body-frame shaded equirect map (`moon_shade_map_build`, 864x432, PSRAM,
-~1.6 s) is re-projected through the folded camera basis per frame (~50 ms,
-`moon_reproject`); the final dark-side frame is the one pixel-exact full
-`moon_bake` at φ\* = `atan2(-B, -A)` (today +134.78° orbit-folded).
+~1.6 s on the S3 / 282 ms on the P4, 2026-11-01) is re-projected through the
+folded camera basis per frame (~50 ms, `moon_reproject`); the final dark-side
+frame is the one pixel-exact full `moon_bake` at φ\* = `atan2(-B, -A)` (today
++134.78° orbit-folded).
 
 ### 5.3 Rotation (the free spin)
 
@@ -686,9 +713,10 @@ live.
 ![light sleep](img/screens/light_sleep.png)
 
 - The pole-axis spin to the fully unilluminated side (constant projection,
-  1°/frame, shade map baked once ~1.6 s; final frame a pixel-exact bake at φ\*;
-  the dark side keeps its faint contrast — night floor + crater rims, flat
-  black would vanish on the AMOLED).
+  1°/frame, shade map baked once — S3 ~1.6 s / P4 282 ms, 2026-11-01; final
+  frame a pixel-exact bake at φ\*; the dark side is the **faint backlit
+  surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
+  25/255, so the far side stays visible on the AMOLED without a flat overlay).
 - The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
   opacity is the only "alpha"; the moon image is a sibling and stays
   full-contrast).
@@ -699,14 +727,14 @@ live.
 
 ![deep sleep](img/screens/deep_sleep.png)
 
-- The dark side at φ\* (the final dusk bake, with its relief-lit rims), **the
-  clock hidden**, and the **backlight off** after the countdown — the panel is
-  genuinely dark (AMOLED), the RTC keeps counting; an alarm can fire from here
-  and restore the backlight. Clock updates are gated while the backlight is off
-  (no live minute updates in deep sleep). The backlight off/on (here, on wake,
-  and at boot) goes through `moon_ui_panel_brightness_set` — the 0x51 write is
-  serialized on `s_panel_mtx` so it is never queued behind a spin strip DMA
-  that could stall the bus (§10.4).
+- The dark side at φ\* (the final dusk bake, its backlit far-side surface),
+  **the clock hidden**, and the **backlight off** after the countdown — the
+  panel is genuinely dark (AMOLED), the RTC keeps counting; an alarm can fire
+  from here and restore the backlight. Clock updates are gated while the
+  backlight is off (no live minute updates in deep sleep). The backlight off/on
+  (here, on wake, and at boot) goes through `moon_ui_panel_brightness_set` —
+  the 0x51 write is serialized on `s_panel_mtx` so it is never queued behind a
+  spin strip DMA that could stall the bus (§10.4).
 
 ### 7.5 Alarm (fired)
 
@@ -903,11 +931,13 @@ were made and implemented:
    _constant-projection pole spin_: the terminator (and the lit crescent's
    relief detail) travels the disk for the whole light-sleep duration (14-95 s
    at 1°/frame), and the dark-side frame the countdown lingers on still carries
-   its relief-lit crater rims at the terminator — a moving _pattern_ during the
-   sleep, a faintly textured (not flat) disk while dark. (The flat-black
-   attempt, `dark_zero = 0` → 0x0000, was rejected: the user could not see the
-   far side at all, and a flat disk at the terminator is the worst case for a
-   permanently parked edge.)
+   the **computed backlit surface** (the far-side terrain lit faintly from the
+   anti-solar direction, §5.2 item 4) — a moving _pattern_ during the sleep, a
+   faintly textured (not flat) disk while dark. (The earlier flat variants were
+   both rejected: `dark_zero = 0` → 0x0000 left the far side invisible, and the
+   constant `MOON_NIGHT_FLOOR = 10` overlay it replaced had no surface
+   structure; the backlit model keeps the floor's level with the terrain
+   added.)
 3. **Orientation is stepped, never ramped.** The screen base orientation is
    applied in **90° steps** (int4-quantized IMU roll, 100 ms samples, 1 s
    windowed mean, sustained confirmation, instant apply on the 12 roots) — a
@@ -1223,7 +1253,12 @@ the SVS 5415 400x400 lunar image series, gitignored):
   target): right-sign fold beats wrong-sign 2.5×; φ\* analytic == grid minimum
   to 1e-5; the dark-side frame keeps contrast; map-once vs per-frame re-bake
   spatial MAE with the no-flicker proof (temporal frame-delta within 0.02-0.14
-  gray).
+  gray); and the **backlit night-side section** (the device's `dark_zero = 1`
+  path): per epoch, the shade map (backlit night side + `dk_sup + margin`)
+  re-projected through a fold must match the pixel-exact backlit bake to
+  cell-center sampling (MAE < 7, endpoint folds at ~0.2–0.5), with zero lit
+  pixels and > 50% backlit pixels at the endpoint — the no-pop proof for the
+  computed dark side.
 - `host_sim/uisim/` — the **real device `screens.c`** (unmodified) on host LVGL
   9.6 (SW renderer, RGB565, 466x466 by default, ESP stubs) → per-screen PNG
   snapshots (`build.sh run`); `build.sh run --panel 720` renders the P4's
@@ -1439,7 +1474,7 @@ components/
     Kconfig.projbuild          the S3-only IO expander) + the BOARD Kconfig choice
   moon/                      the portable core (§5): astro/bake/fixp/render + ERFA
     include/moon.h           the public API (geometry/bake/reproject/rotate)
-    include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT, night floor)
+    include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
   ui/                        the LVGL UI: screens.c (13 screens) + moon_ui.c

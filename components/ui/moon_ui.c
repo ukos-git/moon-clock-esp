@@ -700,7 +700,7 @@ static void moon_bake_epoch(int64_t epoch) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
               MOON_ALB_H, 1,
-              0.0f); /* dark_zero: the flat-black night side (T3); dk_sup 0.0f = the plain d < 0 terminator */
+              0.0f); /* dark_zero: the computed (backlit) night side; dk_sup 0.0f = the plain d < 0 terminator */
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     s_dusk_done = false;   /* a fresh bake supersedes any dusk pre-bake */
@@ -1563,12 +1563,15 @@ static void moon_sweep_task(void *arg) {
         if (S > MOON_PX)
             S = MOON_PX;
         uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
-        /* Flat-black dark side for every montage frame (the user's
-         * decision: the dark side is FLAT BLACK on the device). The
-         * earthshine's ~17-step ramp shows up as banded/dithered
-         * speckle in the fast animation AND as a bright fragment at the
-         * rim of the static phase, so the FINAL frame -- the one that
-         * lingers on screen as the static phase -- is flat black too. */
+        /* Computed (backlit) dark side for every montage frame: the
+         * unlit surface with its real relief, lit faintly from the
+         * anti-solar direction (dark_zero = 1, MOON_NIGHT_BACKLIT_K) --
+         * the same night side as the static/wake frame, so the sweep's
+         * final frame hands over to the static phase without a dark-side
+         * pop. (Replaces the old flat-black device dark side; the
+         * backlit ramp is a smooth per-pixel gradient, not the
+         * earthshine's ~17-step banded ramp that motivated the flat
+         * floor.) */
         int dark_zero = 1;
         int64_t b0 = esp_timer_get_time();
         for (int y = 0; y < S && !s_sweep_abort; y++) {
@@ -1686,10 +1689,11 @@ static void moon_sweep_interrupt(void) {
  * function of the body-frame surface direction and the epoch's fixed
  * body-frame sun S alone (the view basis selects which direction is
  * visible but never enters the color -- see the moon_bake.c section).
- * So the fully-lit body-frame equirect color map (albedo x
- * displaced-normal Lambert x tone LUT + earthshine, 864x432 8-bit cells)
- * is built ONCE for the dusk epoch and every pole-spin frame
- * RE-PROJECTS that fixed map through the folded camera basis -- the
+ * So the full body-frame equirect color map (lit side: albedo x
+ * displaced-normal Lambert x tone LUT; dark side: the faint backlit
+ * surface, 864x432 8-bit cells) is built ONCE for the dusk epoch and
+ * every pole-spin frame RE-PROJECTS that fixed map through the folded
+ * camera basis -- the
  * cheap moon_rotate-class gather (one map load/pixel, ~50 ms), NOT a
  * lighting re-bake (~1.3 s). A fixed surface point keeps exactly its map
  * cell's color on every frame, so the terminator cannot flicker (the
@@ -1718,12 +1722,15 @@ static void moon_sweep_interrupt(void) {
  * full-circle grid; the in-plane fold leaves E unchanged, so it does not
  * shift the endpoint). phi* in (-pi, pi] is the shortest arc.
  *
- * dark_zero = 1 for every dusk frame (the user's decision: the dark
- * side is FLAT BLACK on the device): the shade map's dark cells and the
- * final bake's night side are written 0, so no earthshine/relief speckle
- * survives to the rim (the "bright fragment on the edge"). The host gate
- * keeps dark_zero = 0 there (pole_test): the earthshine model itself is
- * unchanged -- only the device-visible rendering drops it.
+ * dark_zero = 1 for every dusk frame (the user's decision: the dark side
+ * is COMPUTED, not the earthshine "earth ray"): the shade map's dark
+ * cells and the final bake's night side are written the faint backlit
+ * surface (albedo + relief lit from the anti-solar direction), so no
+ * phase-dependent earthshine/relief speckle survives to the rim (the
+ * "bright fragment on the edge") while the far side still shows the
+ * lunar surface. The host gate keeps dark_zero = 0 there (pole_test):
+ * the earthshine model itself is unchanged -- only the device-visible
+ * rendering drops it.
  *
  * Resolution: intermediate frames re-project the FULL-RES map (the
  * re-projection is gather-class, so no reduced-res bake + NN upscase is
@@ -1775,8 +1782,10 @@ static void moon_dusk_task(void *arg) {
      * map's 0 < d < dk_sup band (relief-boosted, up to gray 137) sweeps
      * the disk as a latitudinal arc while the pole spins (the "white
      * ray" the user reported on 2026-10-29). So BOTH the shade map (the
-     * one-time build below) and the FINAL bake (below) write the night
-     * floor for d < dk_sup: the lit region the frames show is the
+     * one-time build below) and the FINAL bake (below) write the BACKLIT
+     * night side for d < dk_sup -- and since that sliver is sun-lit
+     * (lns > 0), its backlit color clips to pure black, the exact old
+     * flat-floor kill: the lit region the frames show is the
      * body-fixed d > dk_sup crescent -- constant (it only rotates) and
      * in agreement with the final bake at the endpoint (no pop). The
      * one step change is at frame 1 (the parked pose's true terminator
@@ -1786,16 +1795,16 @@ static void moon_dusk_task(void *arg) {
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
-    /* One-time: the fully-lit body-frame equirect map for this epoch
-     * (S is never folded -- the folds touch the camera basis only).
-     * Row-by-row so an abort lands within a row (~2 ms); s_shade_map is
-     * dusk-only (the sweep and dusk never run at once, and the sweep
-     * does not use the map). */
+    /* One-time: the full body-frame equirect map for this epoch (lit +
+     * backlit night side; S is never folded -- the folds touch the
+     * camera basis only). Row-by-row so an abort lands within a row
+     * (~2 ms); s_shade_map is dusk-only (the sweep and dusk never run at
+     * once, and the sweep does not use the map). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        /* dark_zero (T2/T3) + dk_sup: kill the 0 < d < dk_sup rim sliver
-         * in the MAP itself (the "white ray" on the re-projected frames,
-         * see above). */
+        /* dark_zero + dk_sup (+ margin): the backlit night side for
+         * d < dk_sup kills the 0 < d < dk_sup rim sliver in the MAP
+         * itself (the "white ray" on the re-projected frames, see above). */
         moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_sup);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
@@ -1830,10 +1839,11 @@ static void moon_dusk_task(void *arg) {
         int64_t b0 = esp_timer_get_time();
         if (f == frames - 1) {
             /* FINAL frame: the one pixel-exact dark-side bake at phi*
-             * (full lighting, dark_zero 1 -- the flat-black night side:
-             * the earthshine/relief speckle at the rim is exactly the
-             * "bright fragment on the edge" the user wanted gone). It
-             * lingers on the sleep screens through the countdown. */
+             * (full lighting, dark_zero 1 -- the backlit night side: no
+             * earthshine/relief speckle at the rim, the "bright fragment
+             * on the edge" the user wanted gone, yet the far side still
+             * shows the faint surface). It lingers on the sleep screens
+             * through the countdown. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
@@ -1847,9 +1857,10 @@ static void moon_dusk_task(void *arg) {
              * full resolution. Row-by-row like the sweep so an abort
              * lands within a row. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
+                /* Pure gather: the map already carries the dark side
+                 * (backlit, with the dk_sup + margin erosion) -- no bound. */
                 moon_reproject_rows(s_shade_map, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1,
-                                    dk_sup); /* the same dark-side bound as the map + final bake */
+                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -1894,10 +1905,11 @@ abort_out: /* the map-build abort lands here: the else-branch below handles it
             s_frame_touched = true;
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-                /* dark_zero 1: the wake frame's night side is flat black
-                 * too (T3), matching the static phase. This is the
-                 * CURRENT phase (not the dusk's dark endpoint), so it
-                 * keeps the true d < 0 terminator: dk_sup 0.0f. */
+                /* dark_zero 1: the wake frame's night side is the
+                 * backlit computed surface too (matching the static
+                 * phase). This is the CURRENT phase (not the dusk's dark
+                 * endpoint), so it keeps the true d < 0 terminator:
+                 * dk_sup 0.0f. */
                 moon_bake_rows(&g1, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f);
                 xSemaphoreGive(s_rgb_mtx);

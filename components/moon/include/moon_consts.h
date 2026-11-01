@@ -40,17 +40,6 @@
 #define MOON_ES_B -11.733
 #define MOON_ES_C -2.615
 
-// --- Night floor (the dark-zero night side) ---
-// The device's dark side is NOT the flat 0x0000 (invisible on the
-// AMOLED -- the user could not see the far side at all). dark_zero
-// writes this CONSTANT gray instead of the earthshine gradient:
-// position- and phase-independent, so nothing moves or flickers as
-// the pole spin / orbit re-projects the map (the "moving earthshine"
-// complaint), yet the disk reads as a faint solid shape. 6/255 is
-// dim enough to stay "off" on the AMOLED but still resolves the
-// terminator and the cratered rim.
-#define MOON_NIGHT_FLOOR 10
-
 // --- 256-entry 8-bit tone LUT (bin 0 == 0: pure dark side) ---
 static const unsigned char MOON_TONE_LUT[256] = {
     0,   27,  32,  38,  44,  49,  53,  57,  61,  65,  68,  71,  74,  77,  80,  82,  85,  87,  90,  92,  94,  96,

@@ -67,9 +67,11 @@ int main(int argc, char **argv) {
         float ry = u * g.right[1] + v * g.up[1] + w * g.E[1];
         float rz = u * g.right[2] + v * g.up[2] + w * g.E[2];
         float d = rx * g.S[0] + ry * g.S[1] + rz * g.S[2];
-        fprintf(stderr, "px(%d,%d) u=%.4f v=%.4f d=%.5f  gray[dz=0]=%u  gray[dz=1]=%u%s\n", x, y, u, v, d,
-                frame0[y * sz + x], frame1[y * sz + x],
-                (d < 0.0f && frame1[y * sz + x] != 0) ? "  <-- BUG: d<0 but not zeroed" : "");
+        /* dark_zero = 1 now writes the COMPUTED backlit night side (not
+         * the flat floor), so a d < 0 pixel is non-zero BY DESIGN -- no
+         * BUG marker. */
+        fprintf(stderr, "px(%d,%d) u=%.4f v=%.4f d=%.5f  gray[dz=0]=%u  gray[dz=1]=%u\n", x, y, u, v, d,
+                frame0[y * sz + x], frame1[y * sz + x]);
     }
     return 0;
 }
