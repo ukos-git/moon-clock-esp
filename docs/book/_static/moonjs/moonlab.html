@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moon Lab — the Moon Phase Clock simulator</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --fg: #d7dbe3; --dim: #8b93a3;
+    --accent: #f2c94c; --accent2: #6ea8fe; --line: #232833; --ok: #58c470;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f7f9; --panel: #ffffff; --fg: #1c2128; --dim: #5c6675;
+            --line: #d9dde3; --accent: #8a6d1a; --accent2: #2b5fb0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding-left: max(16px, env(safe-area-inset-left, 0px));
+         padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1 { font-size: 17px; margin: 0 0 2px; font-weight: 650; }
+  .sub { color: var(--dim); font-size: 12.5px; margin-bottom: 12px; }
+  .wrap { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .stage { background: #000; border-radius: 14px; padding: 10px; flex: 0 0 auto;
+           display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; border-radius: 50%; max-width: 100%;
+           height: auto; }
+  .panel { flex: 1 1 300px; min-width: 280px; background: var(--panel);
+           border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .row { margin-bottom: 11px; }
+  .row label { display: flex; justify-content: space-between; font-size: 12.5px;
+               color: var(--dim); margin-bottom: 3px; }
+  .row label b { color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .togs { display: flex; flex-wrap: wrap; gap: 7px; margin: 4px 0 2px; }
+  .tog { font-size: 12px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+         border: 1px solid var(--line); background: transparent; color: var(--dim);
+         user-select: none; }
+  .tog.on { background: var(--accent); border-color: var(--accent); color: #0b0d12;
+            font-weight: 650; }
+  .tog.on.alt { background: var(--accent2); border-color: var(--accent2);
+                color: #fff; }
+  .stat { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px;
+          padding-top: 12px; border-top: 1px solid var(--line);
+          font-size: 12.5px; color: var(--dim); }
+  .stat b { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .note { font-size: 11.5px; color: var(--dim); margin-top: 10px; line-height: 1.45; }
+  .badge { display: inline-block; font-size: 10.5px; letter-spacing: .4px;
+           text-transform: uppercase; color: var(--ok); border: 1px solid var(--ok);
+           border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+  .phase { font-size: 15px; font-weight: 650; color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>Moon Lab <span class="badge">live</span></h1>
+  <div class="sub">A line-faithful port of the device's C bake (unclipped displaced-normal
+    Lambert + the 2048×1024 relief gradient cache + tone LUT) driven by the validated
+    PyERFA ephemeris. Every pixel below is computed in your browser, the same math the
+    ESP32-S3 runs at 240 MHz.</div>
+  <div class="wrap">
+    <div class="stage"><canvas id="moon" width="466" height="466"></canvas></div>
+    <div class="panel">
+      <div class="row">
+        <label>Date <b id="vdate">—</b></label>
+        <input type="range" id="date" min="0" max="8759" step="1" value="5200">
+      </div>
+      <div class="row">
+        <label>Backlit dark-side level <b id="vK">K = 0.200</b></label>
+        <input type="range" id="K" min="0" max="0.5" step="0.005" value="0.2">
+      </div>
+      <div class="row">
+        <label>Terminator softness <b id="vsoft">off</b></label>
+        <input type="range" id="soft" min="0" max="0.12" step="0.005" value="0">
+      </div>
+      <div class="togs">
+        <div class="tog on alt" id="tgRelief">Relief DEM</div>
+        <div class="tog on" id="tgBacklit">Backlit dark side</div>
+        <div class="tog on" id="tgWarm">Warm tint</div>
+      </div>
+      <div class="stat">
+        <span>Phase <b class="phase" id="vphase">—</b></span>
+        <span>illum <b id="villum">—</b></span>
+        <span>bake <b id="vtime">—</b></span>
+      </div>
+      <div class="note">
+        <b>Backlit dark side</b> = the device path (dark_zero=1: the unilluminated
+        surface computed from albedo + relief, lit from −S). Toggle it off to see the
+        validated <b>earthshine</b> model (dark_zero=0, the image-gate path).
+        <b>Warm tint</b> = the display's gray→RGB565 LUT (R×1.038 / B×0.933); off = neutral.
+        K, the soft terminator, and relief all act on the displayed bake exactly as they
+        do in <code>moon_bake.c</code>.
+      </div>
+    </div>
+  </div>
+  <script src="moonlab_data.js"></script>
+  <script src="moonlab.js"></script>
+  <script>
+    const lab = new MOONLAB.MoonLab(window.MOONLAB_DATA);
+    const cv = document.getElementById("moon");
+    const $ = (id) => document.getElementById(id);
+    const els = { date: $("date"), K: $("K"), soft: $("soft"),
+                 tgRelief: $("tgRelief"), tgBacklit: $("tgBacklit"), tgWarm: $("tgWarm") };
+    const YEAR0 = Date.UTC(2026, 0, 1);
+    const stepH = window.MOONLAB_DATA.GEO_STEP_H;
+
+    function readState() {
+      return {
+        ms: YEAR0 + els.date.value * stepH * 3600e3,
+        K: parseFloat(els.K.value),
+        soft: parseFloat(els.soft.value),
+        relief: els.tgRelief.classList.contains("on"),
+        backlit: els.tgBacklit.classList.contains("on"),
+        warm: els.tgWarm.classList.contains("on"),
+      };
+    }
+    function fmtDate(ms) {
+      const d = new Date(ms);
+      return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+    }
+    function render() {
+      const s = readState();
+      $("vdate").textContent = fmtDate(s.ms);
+      $("vK").textContent = "K = " + s.K.toFixed(3);
+      $("vsoft").textContent = s.soft === 0 ? "off" : s.soft.toFixed(3) + " lns";
+      const t0 = performance.now();
+      const gray = lab.bake(s.ms, 466, { K: s.K, soft: s.soft,
+                                         relief: s.relief, backlit: s.backlit });
+      lab.draw(cv, gray, 466, s.warm);
+      const dt = performance.now() - t0;
+      $("vtime").textContent = dt.toFixed(0) + " ms";
+      const p = lab.phaseLabel(s.ms);
+      $("vphase").textContent = p.name;
+      $("villum").textContent = (100 * p.illum).toFixed(1) + "%";
+    }
+    for (const el of Object.values(els)) el.addEventListener("input", render);
+    for (const el of [els.tgRelief, els.tgBacklit, els.tgWarm])
+      el.addEventListener("click", () => { el.classList.toggle("on"); render(); });
+    render();
+  </script>
+</body>
+</html>

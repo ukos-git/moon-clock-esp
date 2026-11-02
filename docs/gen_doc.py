@@ -70,6 +70,9 @@ def docs_inventory():
             continue
         if p.name == "DOCUMENTATION.md" or "frames" in p.parts:
             continue
+        # Build artifacts / virtualenvs are not part of the documented tree.
+        if "_build" in p.parts or ".venv" in p.parts:
+            continue
         rel = p.relative_to(REPO)
         rows.append(f"`{rel}` ({p.stat().st_size:,} B)")
     return "\n".join(f"- {r}" for r in rows)

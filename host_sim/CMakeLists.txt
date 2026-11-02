@@ -26,8 +26,11 @@ add_compile_options(-O2)
 set(MOON_CORE ${CMAKE_CURRENT_SOURCE_DIR}/../components/moon)
 set(MOON_HOST ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(moon_sim
-    main.c
+# The portable core's source set (moon_sim and moon_bench both link it):
+# the exact device runtime path (cheap ephemeris, fixed-point rotation,
+# gray->RGB565) plus the vendored public-domain ERFA and the generated
+# host asset table.
+set(MOON_CORE_SRCS
     ${MOON_CORE}/core/moon_astro.c
     ${MOON_CORE}/core/moon_bake.c
     ${MOON_CORE}/core/moon_render.c
@@ -47,11 +50,20 @@ add_executable(moon_sim
     ${MOON_ASSETS_GEN}
 )
 
-target_include_directories(moon_sim PRIVATE
+set(MOON_CORE_INCS
     ${MOON_CORE}/include
     ${MOON_CORE}/core/erfa
     ${MOON_HOST}
     ${MOON_CORE}/../..
 )
 
+add_executable(moon_sim main.c ${MOON_CORE_SRCS})
+target_include_directories(moon_sim PRIVATE ${MOON_CORE_INCS})
 target_link_libraries(moon_sim PRIVATE m)
+
+# The performance bench (book chapter 19): times the device path's
+# steps (geometry, relief build, bake, rotate, shade map, re-project)
+# across disk sizes on the host.
+add_executable(moon_bench bench.c ${MOON_CORE_SRCS})
+target_include_directories(moon_bench PRIVATE ${MOON_CORE_INCS})
+target_link_libraries(moon_bench PRIVATE m)
