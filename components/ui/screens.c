@@ -2718,6 +2718,33 @@ void tick_screen_settings_tz() {}
  * widget (created with it, found by walking the row's children). */
 static lv_obj_t *s_alarm_prefix[5];
 
+/* The clock widget's fixed-width HH:MM slot labels (see
+ * create_user_widget_clock), one per widget (the five moon screens)
+ * and per character (H H : M M). Not part of objects_t: the layout
+ * contract names only the slot row at BASE+1, the labels are internal
+ * to the widget -- created with it, indexed by the widget's BASE, like
+ * s_alarm_prefix. */
+static lv_obj_t *s_clock_time_slot[5][5];
+
+/* Clock-widget base -> slot index (the objects_t bases, screens.h:
+ * modem 16, wifi 21, light 26, deep 30, alarm 35). */
+static int clock_time_slot_index(int startWidgetIndex) {
+    switch (startWidgetIndex) {
+    case 16:
+        return 0;
+    case 21:
+        return 1;
+    case 26:
+        return 2;
+    case 30:
+        return 3;
+    case 35:
+        return 4;
+    default:
+        return -1;
+    }
+}
+
 /* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
  * modem 16, wifi 21, light 26, deep 30, alarm 35). */
 static int widget_prefix_slot(int startWidgetIndex) {
@@ -2767,14 +2794,45 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             {
                 lv_obj_t *parent_obj = obj;
                 {
-                    // label-clock-time
-                    lv_obj_t *obj = lv_label_create(parent_obj);
+                    // label-clock-time: fixed-width HH:MM slots. The
+                    // 96 px numbers font is PROPORTIONAL ("1" advances
+                    // 37.6 px, "4" 66.1 px, the colon 25.1 px), so one
+                    // label reading HH:MM is 175.6 px wide at "11:11"
+                    // and 289.6 px at "44:44" -- the whole string hopped
+                    // sideways on every minute change. Each character
+                    // now sits in its own centred label of FIXED width
+                    // (67 px per digit -- the max digit advance; 26 px
+                    // for the colon -- its advance; UI_PX-scaled for the
+                    // P4's 148 px font, where the maxes are 101.9 / 38.7
+                    // px against the 103 / 40 px slots), so the string
+                    // is a constant 294 px (at 466) and only the ink
+                    // moves. objects[BASE+1] stays the slot row: the
+                    // tick's unsynced-dim lv_obj_set_style_opa targets
+                    // it and the style cascades to the five labels.
+                    lv_obj_t *obj = lv_obj_create(parent_obj);
                     ((lv_obj_t **)&objects)[startWidgetIndex + 1] = obj;
                     lv_obj_set_pos(obj, 0, 0);
                     lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-                    add_style_label_bold(obj);
+                    lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
                     lv_obj_set_style_layout(obj, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text(obj, "");
+                    lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    const int ci = clock_time_slot_index(startWidgetIndex);
+                    for (int i = 0; i < 5; i++) {
+                        lv_obj_t *slot = lv_label_create(obj);
+                        s_clock_time_slot[(size_t)ci][i] = slot;
+                        lv_obj_set_size(slot, i == 2 ? UI_PX(26) : UI_PX(67), LV_SIZE_CONTENT);
+                        lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        add_style_label_bold(slot);
+                        lv_label_set_text(slot, "");
+                    }
                 }
                 {
                     // label-clock-alarm-row: the prefix + HH:MM pair,
@@ -2865,11 +2923,18 @@ void tick_user_widget_clock(int startWidgetIndex) {
     }
 #endif
     {
+        /* The HH:MM slot row (objects[BASE+1]): update each character's
+         * label individually (only the ones that change) so the minute
+         * flip redraws one fixed-width cell, not the whole string. */
         const char *new_val = get_var_clock_label();
-        const char *cur_val = lv_label_get_text(((lv_obj_t **)&objects)[startWidgetIndex + 1]);
-        if (strcmp(new_val, cur_val) != 0) {
-            tick_value_change_obj = ((lv_obj_t **)&objects)[startWidgetIndex + 1];
-            lv_label_set_text(((lv_obj_t **)&objects)[startWidgetIndex + 1], new_val);
+        const int ci = clock_time_slot_index(startWidgetIndex);
+        for (int i = 0; i < 5; i++) {
+            lv_obj_t *slot = s_clock_time_slot[(size_t)ci][i];
+            if (lv_label_get_text(slot)[0] == new_val[i])
+                continue;
+            char buf[2] = {new_val[i], 0};
+            tick_value_change_obj = slot;
+            lv_label_set_text(slot, buf);
             tick_value_change_obj = NULL;
             label_changed = true;
         }
