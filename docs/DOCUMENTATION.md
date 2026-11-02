@@ -372,7 +372,11 @@ K factory); after the light-sleep panel dim (2026-11-02, §7.3 — the panel's o
 hardware brightness ramps to `UI_LIGHT_SLEEP_DIM_PCT` on sleep entry and back
 to 100 on wake / an alarm ring, `moon_ui_panel_dim_ramp` + the tracked level
 the fade-out now starts from): P4 **1,578,592 B** (`0x181660`, +320 B), S3
-**1,462,560 B** (`0x165120`, +240 B; both ~30 % under the 2048 K factory).
+**1,462,560 B** (`0x165120`, +240 B; both ~30 % under the 2048 K factory);
+after the clock-digit fixed-width slots (2026-11-02, §7.1 — the proportional 96
+px digits' per-character fixed-width slot labels kill the sideways hop on every
+minute change): P4 **1,579,104 B** (`0x181860`, +512 B), S3 **1,462,848 B**
+(`0x165240`, +288 B; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -848,6 +852,18 @@ lists what the screen shows and what each control changes live.
   whenever the fire is more than 24 h away; within 24 h the prefix drops and
   the time stands alone (the weekday only carries meaning across a day the rule
   skips).
+- **The clock digits sit in fixed-width slots** (the "no wobble" fix): the 96
+  px numbers font is _proportional_ — "1" advances 37.6 px, "4" 66.1 px, the
+  colon 25.1 px — so one label reading HH:MM ran 175.6 px wide at "11:11" and
+  289.6 px at "44:44", and the whole string hopped sideways on every minute
+  change. Each character now has its own centred `lv_label` of fixed width (67
+  px per digit — the maximum digit advance; 26 px for the colon — its own
+  advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
+  38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
+  (at 466) and only the ink moves. `objects[BASE+1]` stays the slot row — the
+  P4 unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the
+  style cascades to the five labels — and the minute tick updates only the
+  character(s) that changed, not the whole string.
 - **No icons** — the moon stays in the foreground (user decision).
 - Tapping anywhere (the clock container is non-clickable so the tap falls
   through to the screen root) opens the settings hub.
@@ -1650,20 +1666,21 @@ fires from there.
 
 Device captures (pyserial 115200, unattended runs with the test hooks):
 
-| Stage                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relief gradient cache (boot, 4,096 KB packed)  | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Boot sweep (S3)                                | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Boot sweep (P4)                                | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                                                                                                                                                    |
-| Free spin                                      | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                                                                                                |
-| Dusk                                           | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots)) |
-| Wake                                           | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Screen switch (moon)                           | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Screen switch (every switch fades)             | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                                                                                                                                                 |
-| Settings hub idle CPU                          | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                                                                                                                                           |
-| Image gate (host)                              | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Binary (2026-11-02, after wheel v2)            | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                                                                                                                                             |
-| Binary (2026-11-02, after the light-sleep dim) | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                       |
+| Stage                                            | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relief gradient cache (boot, 4,096 KB packed)    | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Boot sweep (S3)                                  | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Boot sweep (P4)                                  | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                                                                                                                                                    |
+| Free spin                                        | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                                                                                                |
+| Dusk                                             | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots)) |
+| Wake                                             | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Screen switch (moon)                             | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Screen switch (every switch fades)               | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                                                                                                                                                 |
+| Settings hub idle CPU                            | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                                                                                                                                           |
+| Image gate (host)                                | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Binary (2026-11-02, after wheel v2)              | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                                                                                                                                             |
+| Binary (2026-11-02, after the light-sleep dim)   | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                       |
+| Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                               |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2081,7 +2098,7 @@ code.
 - `docs/book/part5/25-glossary-references.rst` (12,092 B)
 - `docs/book/tools/gen_figures.js` (3,669 B)
 - `docs/book/tools/gen_moonjs.py` (6,076 B)
-- `docs/doc_template.md` (153,680 B)
+- `docs/doc_template.md` (157,132 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -2100,14 +2117,14 @@ code.
 - `docs/img/nasa/nasa_vs_c_p050.png` (246,000 B)
 - `docs/img/nasa/nasa_vs_c_p075.png` (272,808 B)
 - `docs/img/nasa/nasa_vs_c_p090.png` (293,456 B)
-- `docs/img/screens/alarm.png` (16,078 B)
-- `docs/img/screens/deep_sleep.png` (151,423 B)
-- `docs/img/screens/light_sleep.png` (159,537 B)
-- `docs/img/screens/modem_sleep.png` (166,391 B)
-- `docs/img/screens/p4/alarm.png` (30,323 B)
-- `docs/img/screens/p4/deep_sleep.png` (339,498 B)
-- `docs/img/screens/p4/light_sleep.png` (357,604 B)
-- `docs/img/screens/p4/modem_sleep.png` (365,037 B)
+- `docs/img/screens/alarm.png` (16,031 B)
+- `docs/img/screens/deep_sleep.png` (183,637 B)
+- `docs/img/screens/light_sleep.png` (192,749 B)
+- `docs/img/screens/modem_sleep.png` (199,693 B)
+- `docs/img/screens/p4/alarm.png` (30,253 B)
+- `docs/img/screens/p4/deep_sleep.png` (414,428 B)
+- `docs/img/screens/p4/light_sleep.png` (433,495 B)
+- `docs/img/screens/p4/modem_sleep.png` (441,479 B)
 - `docs/img/screens/p4/settings_alarm.png` (25,293 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,158 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (24,506 B)
@@ -2122,7 +2139,7 @@ code.
 - `docs/img/screens/p4/settings_wifi_password_ABC.png` (70,722 B)
 - `docs/img/screens/p4/settings_wifi_password_sym.png` (68,611 B)
 - `docs/img/screens/p4/settings_wifi_password_touched.png` (73,160 B)
-- `docs/img/screens/p4/wifi.png` (361,152 B)
+- `docs/img/screens/p4/wifi.png` (437,886 B)
 - `docs/img/screens/settings_alarm.png` (12,924 B)
 - `docs/img/screens/settings_alarm_time.png` (18,050 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
@@ -2137,7 +2154,7 @@ code.
 - `docs/img/screens/settings_wifi_password_ABC.png` (70,722 B)
 - `docs/img/screens/settings_wifi_password_sym.png` (68,611 B)
 - `docs/img/screens/settings_wifi_password_touched.png` (73,160 B)
-- `docs/img/screens/wifi.png` (164,787 B)
+- `docs/img/screens/wifi.png` (198,406 B)
 - `docs/keyboard/round-keyboard-lab.html` (61,449 B)
 - `docs/nasa_figs.py` (3,141 B)
 - `docs/research/circular-keyboard-alternatives.md` (34,999 B)
@@ -43571,7 +43588,18 @@ static uint16_t s_rgb[MOON_PX * MOON_PX];
 static lv_image_dsc_t s_dsc;
 
 lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
-    if (!s_dsc.data) {
+    if (getenv("UISIM_BLACK_MOON")) {
+        /* black background -- the wobble A/B needs the digit ink isolated
+         * from the lunar surface (temp toggle, driven by env) */
+        s_dsc = (lv_image_dsc_t){.header = {.magic = LV_IMAGE_HEADER_MAGIC,
+                                            .cf = LV_COLOR_FORMAT_RGB565,
+                                            .w = MOON_PX,
+                                            .h = MOON_PX,
+                                            .stride = MOON_PX * sizeof(uint16_t)},
+                                 .data_size = sizeof s_rgb,
+                                 .data = (uint8_t *)s_rgb}; /* zeroed = black */
+        printf("[stub] black moon (wobble A/B)\n");
+    } else if (!s_dsc.data) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);

@@ -300,7 +300,18 @@ static uint16_t s_rgb[MOON_PX * MOON_PX];
 static lv_image_dsc_t s_dsc;
 
 lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
-    if (!s_dsc.data) {
+    if (getenv("UISIM_BLACK_MOON")) {
+        /* black background -- the wobble A/B needs the digit ink isolated
+         * from the lunar surface (temp toggle, driven by env) */
+        s_dsc = (lv_image_dsc_t){.header = {.magic = LV_IMAGE_HEADER_MAGIC,
+                                            .cf = LV_COLOR_FORMAT_RGB565,
+                                            .w = MOON_PX,
+                                            .h = MOON_PX,
+                                            .stride = MOON_PX * sizeof(uint16_t)},
+                                 .data_size = sizeof s_rgb,
+                                 .data = (uint8_t *)s_rgb}; /* zeroed = black */
+        printf("[stub] black moon (wobble A/B)\n");
+    } else if (!s_dsc.data) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
