@@ -23,6 +23,24 @@ menu "UI Component Configuration"
             Slower tick reduces CPU usage and power consumption.
             Default is 100ms (vs 10ms in active mode).
 
+    config UI_LIGHT_SLEEP_DIM_PCT
+        int "Panel brightness in light sleep (percent)"
+        default 25
+        range 0 100
+        help
+            The panel's OWN hardware brightness (the CO5300 0x51 command /
+            the P4's backlight PWM) while the light-sleep screen is shown:
+            the entry ramps DOWN to this level (UI_SCREEN_SWITCH_FADE ms,
+            the same pacing as the screen-switch fade) and the wake / an
+            alarm ring ramps it back to 100. The dusk keeps spinning at
+            this level (the whole display glows down, the moon included).
+            The ramp follows the fade's panel-io rule: it takes the panel
+            mutex per 0x51 step and holds the spin's panel writes
+            (s_fade_busy), so a brightness write is never queued behind a
+            strip DMA that could stall the bus (the settings-entry freeze).
+            0 = the panel goes fully dark in light sleep (the wake fades
+            it back in).
+
     config UI_MOON_ANIM_ENABLE
         bool "Play the synodic boot sweep (new moon -> now) at boot"
         default y

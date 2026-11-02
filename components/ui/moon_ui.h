@@ -160,6 +160,19 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id);
 esp_err_t moon_ui_panel_brightness_set(int pct);
 
 /**
+ * Ramp the panel's hardware brightness from its current level to `to_pct`
+ * (0..100 %), paced like the screen-switch fade (UI_SCREEN_SWITCH_FADE ms).
+ * LVGL task (the light-sleep entry / wake / alarm call sites); non-LVGL /
+ * not-ready callers get the instant set. Holds the spin's panel writes for
+ * the ramp's duration (the 0x51 steps must be the only panel-io traffic in
+ * flight) but owes NO fade-in afterwards (s_fade_pending is untouched).
+ * No-op when the panel is already at the target. The light-sleep dim uses
+ * it (down to CONFIG_UI_LIGHT_SLEEP_DIM_PCT, back to 100 on wake / an
+ * alarm ring); the screen-switch fade keeps moon_ui_fade_out.
+ */
+void moon_ui_panel_dim_ramp(int to_pct);
+
+/**
  * Publish the current 90-degree screen orientation (0..3) to the spin
  * render: its panel writes pre-rotate each frame by the step and the
  * UI keep-mask is re-rotated to match. Safe from any task (one volatile

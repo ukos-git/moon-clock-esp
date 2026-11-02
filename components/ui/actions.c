@@ -729,6 +729,12 @@ void action_start_wifi_sync(void) {
     clock_idle_set_enabled(false);
     loadScreen(SCREEN_ID_WIFI);
     ui_tick();
+
+    // Un-dim the panel (the sleep -> WiFi wake switch is a BOTH-MOON
+    // switch: no fade-in would restore the brightness). No-op when the
+    // panel was never dimmed (boot / hourly / settings-hub syncs).
+    moon_ui_panel_dim_ramp(100);
+
     ESP_LOGI(TAG, "WiFi screen loaded (on-demand sync)");
     wifi_sync_kickoff();
 }
@@ -742,6 +748,10 @@ static lv_timer_t *g_seconds_timer = NULL;
 // Configuration with fallback defaults if Kconfig not available
 #ifndef CONFIG_UI_LIGHT_SLEEP_TICK_MS
 #define CONFIG_UI_LIGHT_SLEEP_TICK_MS 100
+#endif
+
+#ifndef CONFIG_UI_LIGHT_SLEEP_DIM_PCT
+#define CONFIG_UI_LIGHT_SLEEP_DIM_PCT 25
 #endif
 
 /* Refresh the alarm label + weekday prefix (defined below, after the
@@ -1225,6 +1235,14 @@ void action_switch_to_airplane_screen(lv_event_t *e) {
     // Load the airplane screen
     loadScreen(SCREEN_ID_MODEM_SLEEP);
     ui_tick();
+
+    // Un-dim the panel: the sleep screens are a BOTH-MOON switch, so the
+    // wake's screen switch takes no fade (no fade-in to restore from) --
+    // this ramp back to full brightness is the restore. No-op when the
+    // panel was never dimmed (wake from the TEST hooks / boot / the
+    // already-lit alarm dismiss).
+    moon_ui_panel_dim_ramp(100);
+
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog
 }
 
@@ -1291,6 +1309,18 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // visible" the design asks for). The moon image is a sibling of
     // the clock container, so it stays at full contrast.
     lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_20, 0);
+
+    // And the WHOLE display glows down: the panel's own hardware
+    // brightness ramps from its current level (100 at the first sleep,
+    // or the already-dimmed level on a re-entry) to the configured
+    // sleep level, paced like the screen-switch fade. This is a
+    // both-moon screen (no fade switch), so nothing else would dim it.
+    // The dusk keeps spinning at the new level (the ramp's 0x51 steps
+    // hold the spin's panel writes; the dusk's frames display from
+    // this same LVGL task, so they simply resume after the ramp). The
+    // wake ramps back to 100 (no-op when the panel was never dimmed --
+    // e.g. the TEST hook wakes).
+    moon_ui_panel_dim_ramp(CONFIG_UI_LIGHT_SLEEP_DIM_PCT);
 
     ui_tick();
     vTaskDelay(pdMS_TO_TICKS(10)); // Allow IDLE task to run and reset watchdog

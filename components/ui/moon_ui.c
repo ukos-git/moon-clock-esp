@@ -2877,6 +2877,16 @@ static volatile bool s_fade_busy; /* a fade ramp is running: the spin skips its
                                       panel writes so the ramp's 0x51 writes are
                                       the ONLY panel-io traffic in flight */
 
+/* The panel's current hardware brightness (0..100 %), tracked here because
+ * every brightness write in the project funnels through
+ * moon_ui_panel_brightness_set: the fade-out ramp starts from the ACTUAL
+ * level (not a hard-coded 100 -- after the light-sleep dim the panel sits
+ * at UI_LIGHT_SLEEP_DIM_PCT, and a 100 -> 0 ramp would flash it brighter
+ * first), and the dim ramp (moon_ui_panel_dim_ramp) is a no-op when the
+ * panel is already at its target. The backlight paths write it; the ramps
+ * read it (LVGL task). Benign int, no lock. */
+static volatile int s_panel_pct = 100;
+
 /* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
  * (0..100) in FADE_STEPS steps, paced CONFIG_UI_SCREEN_SWITCH_FADE /
  * FADE_STEPS ms between steps. Each step is one 0x51 SPI param
@@ -2898,6 +2908,8 @@ static void fade_ramp(int from_pct, int to_pct) {
         if (s < FADE_STEPS)
             vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
     }
+    s_panel_pct = to_pct; /* the steps are portMAX_DELAY: by the end the
+                           * panel is unambiguously at the target */
 }
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
@@ -2915,11 +2927,14 @@ void moon_ui_fade_out(void) {
     if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_sweep_baking ||
         s_dusk_baking)
         return;
-    s_fade_pending = true;
-    s_fade_busy = true; /* the spin holds its panel writes until the
-                         * screen switch (moon_ui_screen_switched) */
-    fade_ramp(100, 0);
-    ESP_LOGI(TAG, "screen switch fade-out: panel brightness 100 -> 0 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
+    int from = s_panel_pct;
+    s_fade_pending = true; /* the fade-in (0 -> 100) is owed either way */
+    if (from > 0) {
+        s_fade_busy = true; /* the spin holds its panel writes until the
+                             * screen switch (moon_ui_screen_switched) */
+        fade_ramp(from, 0);
+    }
+    ESP_LOGI(TAG, "screen switch fade-out: panel brightness %d -> 0 (%d ms)", from, CONFIG_UI_SCREEN_SWITCH_FADE);
 }
 
 /* Does the screen with this id carry a moon image (loadScreen's fade
@@ -2945,13 +2960,45 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
  * boot backlight paths (actions.c, main.cpp). When the moon UI is not
  * ready the BSP call runs directly (the panel is quiet at boot). */
 esp_err_t moon_ui_panel_brightness_set(int pct) {
+    esp_err_t r;
     if (s_ready && s_panel_mtx) {
         xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-        esp_err_t r = bsp_display_brightness_set(pct);
+        r = bsp_display_brightness_set(pct);
         xSemaphoreGive(s_panel_mtx);
-        return r;
+    } else {
+        r = bsp_display_brightness_set(pct);
     }
-    return bsp_display_brightness_set(pct);
+    if (r == ESP_OK)
+        s_panel_pct = pct; /* the fade/dim ramps start from the ACTUAL level */
+    return r;
+}
+
+/* Ramp the panel's hardware brightness to `to_pct` (0..100 %) from the
+ * current tracked level (s_panel_pct), paced like the screen-switch fade
+ * (UI_SCREEN_SWITCH_FADE ms, FADE_STEPS steps). LVGL task. This is the
+ * light-sleep dim: the entry ramps DOWN to CONFIG_UI_LIGHT_SLEEP_DIM_PCT
+ * and the wake / an alarm ring ramp back to 100. The ramp holds
+ * s_fade_busy WITHOUT s_fade_pending -- the spin skips its panel writes
+ * for the ramp's duration (the 0x51 steps must be the only panel-io
+ * traffic in flight, the fade's rule) but no fade-in is owed afterwards:
+ * the next screen switch paints plain (s_fade_pending is untouched).
+ * The dusk's frames display from the tick (this same task), so they are
+ * blocked behind the ramp and simply resume at the new level. No-op when
+ * the panel is already at the target -- the call sites are unconditional
+ * (the wake and alarm paths also run on a fully-lit panel). Non-LVGL /
+ * not-ready: the instant set. */
+void moon_ui_panel_dim_ramp(int to_pct) {
+    int from = s_panel_pct;
+    if (from == to_pct)
+        return;
+    if (!s_ready || !moon_on_lvgl()) {
+        moon_ui_panel_brightness_set(to_pct);
+        return;
+    }
+    s_fade_busy = true;      /* the spin holds its panel writes for the ramp */
+    fade_ramp(from, to_pct); /* also tracks s_panel_pct */
+    s_fade_busy = false;
+    ESP_LOGI(TAG, "panel dim ramp: brightness %d -> %d%% (%d ms)", from, to_pct, CONFIG_UI_SCREEN_SWITCH_FADE);
 }
 
 void moon_ui_screen_switched(void) {
@@ -3023,6 +3070,7 @@ void moon_ui_screen_switched(void) {
 void moon_ui_dump_hang_context(void) {
     ESP_LOGE(TAG, "  flags: ready=%d moon_screen=%d spin_running=%d spin_cancel=%d fade_pending=%d", (int)s_ready,
              (int)s_moon_screen, (int)s_spin_running, (int)s_spin_cancel, (int)s_fade_pending);
+    ESP_LOGE(TAG, "  flags: panel_pct=%d fade_busy=%d", (int)s_panel_pct, (int)s_fade_busy);
     ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d sweep_baking=%d dusk_baking=%d frame_stale=%d",
              (int)s_orbit_baking, (int)s_orbit_sweeping, (int)s_sweep_baking, (int)s_dusk_baking, (int)s_frame_stale);
     ESP_LOGE(TAG, "  flags: panel_step=%d panel_wrap=%d mask_dirty=%d", (int)s_panel_step, (int)s_panel_wrap,
