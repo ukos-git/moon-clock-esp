@@ -290,6 +290,8 @@ static bool s_ready;
 static bool s_started; /* moon_ui_start() called; ticks may run */
 
 static int64_t s_baked_day;   /* calendar day of the last static bake */
+static int s_baked_event;     /* moon_event_signature of the last static bake's epoch */
+static int64_t s_baked_hour;  /* utc/3600 of the last static bake (the blood-moon hour re-bake) */
 static int64_t s_orbit_epoch; /* utc the last static bake was for (0 = none) */
 
 /* Out-of-plane orbit (sphere model) state. The quantized target is what
@@ -694,6 +696,21 @@ static void moon_bake_epoch(int64_t epoch) {
     const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
     if (!grel)
         ESP_LOGW(TAG, "no relief cache; baking relief-free");
+    /* Sky events (moon_event.c, the pre-calculated display tints):
+     * classify this epoch's instant and select the matching LUT -- the
+     * rebuild is a no-op when it already matches (a no-op on an ordinary
+     * day, multipliers 1.0). The sweep and the dusk set the SAME global
+     * LUT for their own epochs (they can run before any bake -- the boot
+     * sweep is the first bake -- and they must not race the display's
+     * table read-out, so each sets it once before its first frame). The
+     * blood occlusion (the eclipse "bite") is passed per-pixel into the
+     * bake; an all-false event bakes as NULL (byte-identical). */
+    moon_event_t ev;
+    moon_event_classify(epoch, &ev);
+    moon_gray565_set_event(&ev);
+    const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
+    s_baked_event = moon_event_signature(&ev); /* the day-tick change detector */
+    s_baked_hour = epoch / 3600;
     /* Under the buffer mutex: this re-bake replaces the WHOLE frame
      * (s_frame + the s_rgb display) while the spin render may be
      * mid-gather on the old one. The render blocks on the mutex for the
@@ -702,8 +719,8 @@ static void moon_bake_epoch(int64_t epoch) {
      * re-anchors). */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_bake(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-              MOON_ALB_H, 1,
-              0.0f); /* dark_zero: the computed (backlit) night side; dk_sup 0.0f = the plain d < 0 terminator */
+              MOON_ALB_H, 1, 0.0f, /* dk_sup 0.0f = the plain d < 0 terminator */
+              bev);                /* the blood-moon umbra occlusion (NULL on ordinary days) */
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
     s_dusk_done = false;   /* a fresh bake supersedes any dusk pre-bake */
@@ -1317,6 +1334,13 @@ static void moon_orbit_task(void *arg) {
     moon_geom_t g;
     moon_geometry(epoch, &g);
     moon_orbit_geometry(&g, orbit, &g);
+    /* The orbit re-bake is the same phase as the last static bake
+     * (s_orbit_epoch), so it carries the same sky event: classify it for
+     * the blood occlusion (the tint LUT was already set by
+     * moon_bake_epoch at that epoch). */
+    moon_event_t ev;
+    moon_event_classify(epoch, &ev);
+    const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
     int64_t t0 = esp_timer_get_time();
     for (int y = 0; y < MOON_PX && !s_orbit_cancel; y++) {
         /* One lock per row: this replaces the WHOLE frame (s_frame + the
@@ -1327,8 +1351,10 @@ static void moon_orbit_task(void *arg) {
          * than a row (~6 ms) at a time, so a cancel is honored quickly. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-                       MOON_ALB_H, y, y + 1, 1,
-                       0.0f); /* dark_zero (T3); dk_sup 0.0f = the plain d < 0 terminator (the true orbit phase) */
+                       MOON_ALB_H, y, y + 1, 1, 0.0f, bev); /* dark_zero (T3); dk_sup 0.0f = the plain d < 0
+                                                              terminator (the true orbit phase); bev = the
+                                                              blood-moon occlusion (same phase as the last
+                                                              static bake) */
         /* Fixed viewport: the row maps straight to RGB565 (no rotation). */
         const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
         uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
@@ -1545,6 +1571,22 @@ static void moon_sweep_task(void *arg) {
     if (span > SYNODIC_S)
         span = SYNODIC_S;
     ESP_LOGI(TAG, "sweep span: %lld d (new moon %lld s before now)", (long long)(span / 86400), (long long)span);
+    /* The sweep's FINAL frame is the current phase (epoch = now) -- the
+     * only frame that carries a sky event's OCCLUSION (the intermediate
+     * frames are past phases up to a month back, not eclipsed). Classify
+     * now's instant once, and set the tint LUT HERE (boot reaches the
+     * sweep before any moon_bake_epoch, so this is the sweep's own LUT
+     * authority; a no-op on an ordinary day). The tint covers the WHOLE
+     * sweep deliberately: the special moon's color foreshadows as the
+     * disk brightens toward now, and setting it once before the first
+     * frame keeps the LUT table write-out of the display path (one
+     * global 256-entry table, read per-pixel by the atomic flush). The
+     * spin hands over to the same LUT (the day_tick's moon_bake_epoch
+     * re-selects it at most once a day -- same event, no rebuild). */
+    moon_event_t sweep_ev;
+    moon_event_classify(now, &sweep_ev);
+    moon_gray565_set_event(&sweep_ev);
+    const moon_bake_ev_t *sweep_bev = moon_event_any(&sweep_ev) ? &sweep_ev : NULL;
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
         /* Backpressure (see the section above): the previous frame must
@@ -1596,6 +1638,9 @@ static void moon_sweep_task(void *arg) {
          * earthshine's ~17-step banded ramp that motivated the flat
          * floor.) */
         int dark_zero = 1;
+        /* Only the final frame (the current phase) can carry a sky event;
+         * the intermediate past phases bake as NULL (byte-identical). */
+        const moon_bake_ev_t *bev = (f == frames - 1) ? sweep_bev : NULL;
         int64_t b0 = esp_timer_get_time();
         for (int y = 0; y < S && !s_sweep_abort; y++) {
             /* Bake into the (scratch, sweep-only) small frame unlocked:
@@ -1604,8 +1649,9 @@ static void moon_sweep_task(void *arg) {
              * (converted below, under the mutex). A cancel is honored
              * within a row. */
             moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
-                           MOON_ALB_H, y, y + 1, dark_zero,
-                           0.0f); /* the sweep shows the true moving phase: dk_sup 0.0f */
+                           MOON_ALB_H, y, y + 1, dark_zero, 0.0f,
+                           bev); /* dk_sup 0.0f = the true moving phase; bev = the blood-moon
+                                    occlusion (final frame only) */
             if ((y & 15) == 15)
                 vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
         }
@@ -1661,6 +1707,15 @@ static void moon_sweep_task(void *arg) {
         s_frame_stale = true; /* the buffers were left mid-bake */
     } else {
         s_frame_stale = false; /* all frames completed */
+        /* The completed sweep's final frame IS the current phase, tinted
+         * by the sweep's own LUT select (above, before frame 0) with the
+         * blood occlusion baked in -- record its signature so the
+         * minute-tick day-tick does not immediately re-bake the same
+         * current phase (one 1.3 s bake) at boot. An aborted sweep left
+         * a stale frame (re-baked by the wake path) and records
+         * nothing. */
+        s_baked_event = moon_event_signature(&sweep_ev);
+        s_baked_hour = now / 3600;
     }
     s_sweep_baking = false;
     ESP_LOGI(TAG, "sweep bake %s in %lldms", s_sweep_abort ? "interrupted" : "done",
@@ -1834,6 +1889,18 @@ static void moon_dusk_task(void *arg) {
     float dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN;
     if (dk_kill >= 1.0f)
         dk_kill = 0.999f;
+    /* Sky event for this epoch (the blood occlusion): the dusk's
+     * intermediate frames re-project the lit crescent, so they carry the
+     * same umbra/penumbra bite as the static frame (the final frame is
+     * the dark side -- the occlusion only touches the lit Lambert, so it
+     * is inert there). The tint LUT is re-selected for THIS epoch (a
+     * no-op when it already matches: the dusk follows a bake that set
+     * the same day's event; set here so the dusk never depends on the
+     * cross-task ordering, and the write-out stays ahead of frame 1). */
+    moon_event_t dusk_ev;
+    moon_event_classify(s_dusk_epoch, &dusk_ev);
+    moon_gray565_set_event(&dusk_ev);
+    const moon_bake_ev_t *bev = moon_event_any(&dusk_ev) ? &dusk_ev : NULL;
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
     /* One-time: the full body-frame equirect map for this epoch (lit +
@@ -1847,8 +1914,8 @@ static void moon_dusk_task(void *arg) {
          * the backlit night side for d < dk_kill kills the 0 < d <
          * dk_kill rim sliver in the MAP itself (the "white ray" on the
          * re-projected frames, see above), one step wider than the
-         * geometric sliver. */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill);
+         * geometric sliver. bev = the blood-moon occlusion. */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill, bev);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -1888,9 +1955,12 @@ static void moon_dusk_task(void *arg) {
              * shows the faint surface). It lingers on the sleep screens
              * through the countdown. */
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
+                /* bev = the blood-moon occlusion (inert here: the final
+                 * frame is the dark side, and the occlusion only touches
+                 * the lit Lambert). */
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
-                               dk_kill); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
+                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
+                               bev); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -1954,7 +2024,9 @@ abort_out: /* the map-build abort lands here: the else-branch below handles it
                  * endpoint), so it keeps the true d < 0 terminator:
                  * dk_sup 0.0f. */
                 moon_bake_rows(&g1, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f);
+                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f, bev); /* the current phase's
+                                        blood occlusion too (the static
+                                        wake frame during an eclipse) */
                 xSemaphoreGive(s_rgb_mtx);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1));
@@ -2708,27 +2780,47 @@ void moon_ui_day_tick(void) {
     if (clock_get_utc_epoch(&now) != ESP_OK)
         return;
     int64_t day = now / 86400;
-    if (day != s_baked_day) {
-        if (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_dusk_done) {
-            /* The orbit or wake-sweep pipeline owns s_frame/s_rgb until
-             * it finishes; defer (do NOT advance s_baked_day) so the
-             * next tick re-tries and the bakes never race on the
-             * buffers. s_dusk_done: the dark side is on screen (light
-             * or deep sleep, countdown running) -- a re-bake here would
-             * replace it with the lit phase. The wake path
-             * (moon_ui_pause(false)) bakes the rolled-over day. */
-            return;
-        }
-        ESP_LOGI(TAG, "new day; re-baking moon phase");
-        s_baked_day = day;
-        moon_bake_epoch(now);
-        /* Only while a moon screen is active: starting the render on a
-         * moon-less screen would park it on the (withheld) display
-         * handshake; the screen switch back to the moon starts/primed it
-         * then, from this fresh s_frame. */
-        if (s_moon_screen)
-            moon_spin_begin();
+    bool new_day = day != s_baked_day;
+    /* Sky-event transition probe (runs every minute, from the minute
+     * tick): a lunar eclipse starts and ends at the hour it happens,
+     * NOT at the UTC midnight the date change sees, and the harvest /
+     * blue / super tints only make sense when the day is actually full
+     * (the is_full test's ~10 h window). Re-bake when the event's
+     * 5-bit signature changes (blood turns on as the Moon enters the
+     * shadow, off at the exit) -- the re-bake picks up the per-pixel
+     * occlusion and the tint LUT -- and, while a blood moon is up,
+     * once per hour: the eclipse shadow sweeps the disk in minutes
+     * (a total eclipse lasts ~1.5 h), so a fresh bake each hour tracks
+     * the bite's drift across the face. The probe is two moon_geometry
+     * calls plus the blue-moon back-step, which is cached per calendar
+     * day in moon_event.c (one ~350-step scan per day, not per
+     * minute). */
+    moon_event_t ev;
+    moon_event_classify(now, &ev);
+    const bool ev_change = moon_event_signature(&ev) != s_baked_event;
+    const bool blood_hour = ev.blood && now / 3600 != s_baked_hour;
+    if (!new_day && !ev_change && !blood_hour)
+        return;
+    if (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_dusk_done) {
+        /* The orbit or wake-sweep pipeline owns s_frame/s_rgb until
+         * it finishes; defer (do NOT advance s_baked_day) so the
+         * next tick re-tries and the bakes never race on the
+         * buffers. s_dusk_done: the dark side is on screen (light
+         * or deep sleep, countdown running) -- a re-bake here would
+         * replace it with the lit phase. The wake path
+         * (moon_ui_pause(false)) bakes the rolled-over day. */
+        return;
     }
+    ESP_LOGI(TAG, "re-baking moon phase (new day=%d event sig=%d->%d blood-hour=%d)", new_day, s_baked_event,
+             moon_event_signature(&ev), blood_hour);
+    s_baked_day = day;
+    moon_bake_epoch(now);
+    /* Only while a moon screen is active: starting the render on a
+     * moon-less screen would park it on the (withheld) display
+     * handshake; the screen switch back to the moon starts/primed it
+     * then, from this fresh s_frame. */
+    if (s_moon_screen)
+        moon_spin_begin();
 }
 
 void moon_ui_pause(bool pause) {

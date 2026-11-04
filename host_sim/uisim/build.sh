@@ -95,7 +95,8 @@ mkdir -p "$BUILD/obj"
     find "$FONT_DIR" -name '*.c'
     printf '%s\n' \
         "$MOON/core/moon_astro.c" "$MOON/core/moon_bake.c" \
-        "$MOON/core/moon_render.c" "$MOON/core/moon_fixp.c"
+        "$MOON/core/moon_render.c" "$MOON/core/moon_fixp.c" \
+        "$MOON/core/moon_event.c"
     find "$MOON/core/erfa" -name '*.c'
     echo "$MOON/host/moon_host_assets.c"
     echo "$ROOT/assets/images/moon/moon_assets_gen.c"

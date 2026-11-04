@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
         t0 = now_ms();
         for (int k = 0; k < iters; k++)
             moon_bake(&g, alb, grel, frame, size, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H,
-                      darkzero, 0.0f);
+                      darkzero, 0.0f, NULL); /* NULL event = the pre-event baseline path (byte-identical) */
         double bake_ms = (now_ms() - t0) / iters;
 
         /* rotate: the spin's per-frame gather (Q15.15 + fused LUT). */
@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
         /* re-project: the dusk's per-frame map gather (one map load/px). */
         uint8_t *map = malloc((size_t)MOON_ALB_W * MOON_ALB_H);
         t0 = now_ms();
-        moon_shade_map_build(&g, alb, grel, map, MOON_ALB_W, MOON_ALB_H, 1, 0.1f);
+        moon_shade_map_build(&g, alb, grel, map, MOON_ALB_W, MOON_ALB_H, 1, 0.1f, NULL);
         double map_ms = now_ms() - t0;
         t0 = now_ms();
         for (int k = 0; k < iters; k++)

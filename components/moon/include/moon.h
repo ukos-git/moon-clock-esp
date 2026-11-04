@@ -20,7 +20,10 @@
 #ifndef MOON_H
 #define MOON_H
 
+#include <stdbool.h>
 #include <stdint.h>
+
+#include "moon_event.h"
 
 /* Body-frame geometry for one UTC instant (moon_consts.h for the math). */
 typedef struct {
@@ -36,6 +39,17 @@ typedef struct {
     float phase_angle_deg;
     float illum; /* (1 + cos i) / 2 */
     float distance_km;
+    /* Eclipse shadow axis (body frame, meters): shadow_dir = the
+     * geocentric ANTI-solar unit direction (the umbra cone's axis
+     * points away from the Sun); shadow_off = the closest point of
+     * that axis to the Moon's center (it is perp to shadow_dir);
+     * off_ax = the point's coordinate along the axis measured FROM
+     * THE EARTH (a = (p + mg) . shadow_dir for a Moon-frame point p --
+     * see moon_event.h). The moon_event.c classifier turns these into
+     * the per-pixel umbra/penumbra occlusion (the blood moon). */
+    float shadow_dir[3];
+    float shadow_off[3];
+    float off_ax;
 } moon_geom_t;
 
 /* UTC epoch seconds -> body-frame geometry. Cheap ephemeris (eraEpv00 +
@@ -85,19 +99,25 @@ typedef struct {
  * sun-lit (lns > 0), so the backlit color clips to pure black there
  * (exactly the old flat-floor kill). The dusk passes that bound; every
  * other caller passes 0.0f. dark_zero = 0 is byte-identical to the old
- * earthshine bake for every d. */
+ * earthshine bake for every d. bev (moon_event.h, NULL = no event):
+ * a pre-calculated sky event (blood / harvest / blue / super /
+ * micro) -- when bev->blood the lit Lambert is multiplied per pixel
+ * by (1 - 0.85 * the pixel's umbra occlusion) BEFORE the tone LUT (the
+ * eclipse "bite" lands in the right place on the disk); NULL is
+ * byte-identical to the pre-event bake. */
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup,
+               const moon_bake_ev_t *bev);
 
 /* Row-range bake: identical per-pixel math as moon_bake() for rows
  * [y0, y1). The device boot animation bakes row by row and converts each
  * row to RGB565 immediately, so the display can show finished rows (as
  * progressive strips) while the rest of the frame is still being
  * computed -- the frame "sweeps" in instead of popping in.
- * dark_zero / dk_sup: see moon_bake. */
+ * dark_zero / dk_sup / bev: see moon_bake. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero,
-                    float dk_sup);
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero, float dk_sup,
+                    const moon_bake_ev_t *bev);
 
 /* Constant-projection pass (the light-sleep dusk): the renderer's color
  * depends only on the body direction and the epoch's fixed body-frame
@@ -130,15 +150,17 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * d < dk_sup, so the band between the two bounds is never on screen; no
  * pop between the last re-projected frame and the dark-side bake). The
  * dusk builds the map with its endpoint dk_sup; every other caller
- * passes 0.0f (the margin is inert there). Row-range build so the caller
- * can honor an abort between rows; grel NULL = relief-free Lambert. */
+ * passes 0.0f (the margin is inert there). bev: see moon_bake (the map
+ * carries the blood occlusion too, so the re-projected dusk frames and
+ * the final bake agree). Row-range build so the caller can honor an
+ * abort between rows; grel NULL = relief-free Lambert. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup);
+                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
 
 /* Build the whole shade map (see moon_bake.c): one-time per epoch.
- * dark_zero / dk_sup: see moon_shade_map_rows. */
+ * dark_zero / dk_sup / bev: see moon_shade_map_rows. */
 void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup);
+                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
 
 /* Re-project the pre-shaded map (moon_shade_map_build) through the camera
  * basis g into an 8-bit frame (size x size, row-major, 0 outside the
@@ -198,6 +220,21 @@ uint16_t moon_gray565(uint8_t g);
  * off = neutral gray (the image gate runs the simulator with --neutral so
  * its metrics validate the physics, not the display tint). */
 void moon_gray565_set_warm(int on);
+
+/* Select the pre-calculated sky-event tint LUT (moon_event.h; the
+ * 2026-11-04 bugreport's "pre-calculate sky-event colors"). Each event
+ * is ONE 256-entry RGB565 LUT built once (the bake stays 8-bit gray, so
+ * the event costs a rebuild, not per-pixel color math):
+ *   - blood       copper-red (an eclipse moon reads red through the
+ *                 atmosphere), composed over the warm tint
+ *   - harvest     warm golden
+ *   - blue        cool blue-grey
+ *   - super_moon  brighter (+8%), micro_moon dimmer (-8%)
+ *   - none        the plain warm (or neutral) LUT
+ * The LUT is the COMPOSITE of every flag set (harvest + super, ...),
+ * so a single call per day covers all of the instant's events. The
+ * neutral gate LUT is never tinted (set_warm(0) wins over set_event). */
+void moon_gray565_set_event(const moon_event_t *ev);
 
 /* Q15.15 sin/cos, int32 (2048-entry quarter-symmetric table, moon_fixp.c). */
 int32_t moon_sin15(float rad);

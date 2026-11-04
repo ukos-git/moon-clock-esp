@@ -35,6 +35,7 @@ set(MOON_CORE_SRCS
     ${MOON_CORE}/core/moon_bake.c
     ${MOON_CORE}/core/moon_render.c
     ${MOON_CORE}/core/moon_fixp.c
+    ${MOON_CORE}/core/moon_event.c
     ${MOON_CORE}/core/erfa/moon98.c
     ${MOON_CORE}/core/erfa/epv00.c
     ${MOON_CORE}/core/erfa/s2pv.c

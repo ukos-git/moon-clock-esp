@@ -47,6 +47,10 @@ static int parse_iso(const char *s, int64_t *epoch) {
 /* --- one frame ---------------------------------------------------------- */
 static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
                             * backlit surface, dark_zero = 1) */
+static int g_event = 0;    /* --event: classify the instant's sky events
+                            * (moon_event.c) and bake the blood occlusion +
+                            * the tinted LUT (the device's daily path,
+                            * host-verified this way) */
 static int g_neutral = 0;  /* --neutral: the neutral gray->565 LUT (no warm
                             * display tint) -- the image gate runs with this so
                             * its metrics validate the physics, not the tint */
@@ -119,7 +123,21 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
     float fr = size == 400 ? 199.3f : (float)radius;
     float fc = size == 400 ? 199.3f : (float)(size / 2);
     float fcy = size == 400 ? 199.5f : (float)(size / 2);
-    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero, 0.0f);
+    /* --event: classify the instant's sky events (moon_event.c) and pass
+     * the blood occlusion into the bake + the tinted LUT (the device's
+     * daily path, host-verified this way). The gate never sets it
+     * (NULL bev + neutral LUT = byte-identical to the pre-event bake). */
+    moon_event_t ev;
+    const moon_bake_ev_t *bev = NULL;
+    if (g_event) {
+        moon_event_classify(epoch, &ev);
+        moon_gray565_set_event(&ev);
+        if (ev.blood || ev.harvest || ev.blue || ev.super_moon || ev.micro_moon)
+            bev = &ev;
+        fprintf(stderr, "event: blood=%d harvest=%d blue=%d super=%d micro=%d dist=%.0fkm\n", ev.blood, ev.harvest,
+                ev.blue, ev.super_moon, ev.micro_moon, g.distance_km);
+    }
+    moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero, 0.0f, bev);
 
     float th = (float)rot_deg * 0.017453292519943295f;
     int32_t c15 = moon_cos15(th);
@@ -189,6 +207,8 @@ int main(int argc, char **argv) {
             size = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--neutral"))
             g_neutral = 1;
+        else if (!strcmp(argv[i], "--event"))
+            g_event = 1;
     }
 
     if (g_neutral)

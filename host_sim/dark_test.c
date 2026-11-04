@@ -52,8 +52,10 @@ int main(int argc, char **argv) {
     static uint8_t *frame0, *frame1;
     frame0 = malloc((size_t)sz * sz);
     frame1 = malloc((size_t)sz * sz);
-    moon_bake(&g, alb, grel, frame0, sz, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
-    moon_bake(&g, alb, grel, frame1, sz, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H, 1, 0.0f);
+    moon_bake(&g, alb, grel, frame0, sz, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H, 0, 0.0f,
+              NULL);
+    moon_bake(&g, alb, grel, frame1, sz, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H, 1, 0.0f,
+              NULL);
 
     for (int i = 3; i < argc; i++) {
         int x, y;

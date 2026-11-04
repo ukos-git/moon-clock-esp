@@ -152,6 +152,43 @@ void moon_geometry(int64_t utc_epoch, moon_geom_t *g) {
     g->up[1] = nu[0] * yb[0] + nu[1] * yb[1] + nu[2] * yb[2];
     g->up[2] = nu[0] * P[0] + nu[1] * P[1] + nu[2] * P[2];
 
+    /* Eclipse shadow axis (body frame, meters; see moon_geom_t and
+     * moon_event.c). The umbra cone's axis is the geocentric ANTI-solar
+     * direction -- the Earth's shadow extends away from the Sun, so the
+     * unit axis (ICRF) is s = -sun / |sun| (`sun` is the geocentric
+     * geocenter->Sun vector). The axis passes through
+     * the geocenter; in Moon-frame meters (origin = the Moon's center)
+     * the geocenter sits at E = -mg (mg = geocenter->Moon), so the
+     * axis is the line E + a*s with a measured in meters FROM THE
+     * EARTH. Its closest point to the Moon's center (origin) is at
+     * a* = -E . s = mg . s: point* = E + a* s = -mg + (mg . s) s --
+     * and the Moon center's own axial coordinate is (0 - E) . s =
+     * mg . s = a* (the center lies exactly at the axis coordinate of
+     * point*, so the perp distance from the Moon center to the axis is
+     * just |point*|). The ICRF -> body transform is a pure rotation,
+     * so it maps s, point* and the along-axis distance unchanged; the
+     * moon_event classifier only uses the body-frame (s, point*, a*). */
+    {
+        /* mg is in AU (eraMoon98's native unit); the cone math in
+         * moon_event.c is in meters, so scale by the same AU that the
+         * cone constants use. */
+        const double AU = MOON_EV_AU_M;
+        double mgm[3] = {mg[0] * AU, mg[1] * AU, mg[2] * AU}; /* geocenter->Moon, meters */
+        double sl = sqrt(sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]);
+        double s[3] = {-sun[0] / sl, -sun[1] / sl, -sun[2] / sl};       /* unit axis, ICRF */
+        const double a = mgm[0] * s[0] + mgm[1] * s[1] + mgm[2] * s[2]; /* = mg . s, meters */
+        double p[3] = {-mgm[0] + a * s[0], -mgm[1] + a * s[1], -mgm[2] + a * s[2]};
+        double sd[3] = {p[0] * xb[0] + p[1] * xb[1] + p[2] * xb[2], p[0] * yb[0] + p[1] * yb[1] + p[2] * yb[2],
+                        p[0] * P[0] + p[1] * P[1] + p[2] * P[2]};
+        double sdd[3] = {s[0] * xb[0] + s[1] * xb[1] + s[2] * xb[2], s[0] * yb[0] + s[1] * yb[1] + s[2] * yb[2],
+                         s[0] * P[0] + s[1] * P[1] + s[2] * P[2]};
+        for (int i = 0; i < 3; i++) {
+            g->shadow_off[i] = (float)sd[i];
+            g->shadow_dir[i] = (float)sdd[i];
+        }
+        g->off_ax = (float)a; /* the Moon center's axial coordinate from the Earth (m) */
+    }
+
     /* Position angle (independent cross-check; gate field). */
     double pdot = P[0] * Lu[0] + P[1] * Lu[1] + P[2] * Lu[2];
     double Np[3] = {P[0] - pdot * Lu[0], P[1] - pdot * Lu[1], P[2] - pdot * Lu[2]};

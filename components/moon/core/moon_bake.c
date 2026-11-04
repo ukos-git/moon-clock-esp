@@ -341,6 +341,8 @@ typedef struct {
     int dark_zero; /* dark side written the backlit computed surface (moon_backlit_night) instead of earthshine */
     float dk_sup;  /* dark_zero only: the night side for d < dk_sup (0.0f = the plain d < 0 terminator; the dusk's
                       rim-sliver kill, see moon_shade_map_rows) */
+    const moon_event_t *bev; /* pre-calculated sky event (moon_event.h); NULL = no event, byte-identical
+                                (the blood moon's per-pixel umbra occlusion, see below) */
 } bake_ctx_t;
 
 static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) {
@@ -426,6 +428,23 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
     }
     float L = lns > 1.0f ? 1.0f : (lns < 0.0f ? 0.0f : lns);
 
+    /* Blood moon (bev->blood, moon_event.h): the Earth's umbra/penumbra
+     * darkens the LIT side per pixel BEFORE the tone LUT -- L *=
+     * (1 - 0.85 * occ) with occ the smooth 0..1 occlusion of this
+     * pixel's surface direction (r, body frame). The eclipse "bite"
+     * lands in the right place on the disk; a total eclipse still
+     * leaves a faint copper disk (the LUT's tinted floor). The backlit
+     * night side (lns, unmodified) is untouched: at full moon the
+     * visible disk is the lit side, and the night side's artistic
+     * level is calibrated separately. NULL bev = the pre-event bake
+     * byte-identically (the gate + every ordinary caller). */
+    if (c->bev != NULL && c->bev->blood) {
+        const float r3[3] = {rx, ry, rz};
+        const float occ = moon_event_occ(c->bev, r3);
+        if (occ > 0.0f)
+            L *= 1.0f - MOON_EV_BLOOD_K * occ;
+    }
+
     /* Albedo, nearest-neighbor -- EVERY in-disk pixel now (the backlit dark
      * side needs it as much as the lit side; the dark_zero = 0 earthshine
      * branch ignores it, so that path stays bit-identical to the old
@@ -510,8 +529,8 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
  * The remaining per-frame cost is the FPU + PSRAM bandwidth floor, not
  * load latency. */
 void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero,
-                    float dk_sup) {
+                    float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero, float dk_sup,
+                    const moon_bake_ev_t *bev) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)alb_w / 360.0f;
@@ -529,6 +548,7 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
         c.per_deg = per_deg;
         c.dark_zero = dark_zero;
         c.dk_sup = dk_sup;
+        c.bev = bev;
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             bake_px(&c, x0);
@@ -543,8 +563,9 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
 }
 
 void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *frame, int size,
-               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup) {
-    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero, dk_sup);
+               float radius, float cx, float cy, int alb_w, int alb_h, int dark_zero, float dk_sup,
+               const moon_bake_ev_t *bev) {
+    moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero, dk_sup, bev);
 }
 
 /* ---------------- constant-projection pass (the light-sleep dusk) ------
@@ -634,7 +655,7 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  * the dusk). Row-range build so the caller (the dusk task) can honor an
  * abort between rows. */
 void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup) {
+                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
     const float dlon = 2.0f * (float)M_PI / (float)map_w;
     const float cosd = cosf(dlon), sind = sinf(dlon);
@@ -681,7 +702,19 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
                 const float gs = glon * (cl * S1 - sl * S0) + glat * (S2 - sinlat * a);
                 lns = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
             }
-            const float L = lns > 1.0f ? 1.0f : (lns < 0.0f ? 0.0f : lns);
+            float L = lns > 1.0f ? 1.0f : (lns < 0.0f ? 0.0f : lns);
+            /* Blood moon (bev, moon_event.h): the cell's LIT side carries
+             * the same per-cell umbra/penumbra occlusion as the bake's
+             * lit pixels (L *= 1 - 0.85*occ, BEFORE the tone LUT) so the
+             * re-projected dusk frames and the final bake agree on the
+             * eclipse "bite". The cell's body direction is
+             * (coslat*cl, coslat*sl, sinlat). */
+            if (bev != NULL && bev->blood) {
+                const float dvec[3] = {coslat * cl, coslat * sl, sinlat};
+                const float occ = moon_event_occ(bev, dvec);
+                if (occ > 0.0f)
+                    L *= 1.0f - MOON_EV_BLOOD_K * occ;
+            }
             float out;
             /* dk_sup = 0.0f -> the plain d < 0 terminator (the margin is
              * inert there); the +MOON_DK_MARGIN erosion: see the doc above. */
@@ -708,8 +741,8 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
  * dusk epoch (~2 s on the S3 for the 864 x 432 map). dark_zero / dk_sup:
  * see moon_shade_map_rows. */
 void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup) {
-    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h, dark_zero, dk_sup);
+                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
+    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h, dark_zero, dk_sup, bev);
 }
 
 /* One pixel of the re-projection: bake_px WITHOUT the lighting -- the

@@ -10,6 +10,7 @@ idf_component_register(
         core/moon_bake.c
         core/moon_render.c
         core/moon_fixp.c
+        core/moon_event.c
         core/erfa/moon98.c
         core/erfa/epv00.c
         core/erfa/s2pv.c

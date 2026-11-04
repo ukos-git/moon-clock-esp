@@ -90,7 +90,7 @@ static int g_fail;
 static void bake_screen_pose(int64_t epoch, float theta, uint8_t *out) {
     moon_geom_t g;
     moon_geometry(epoch, &g);
-    moon_bake(&g, moon_albedo(), moon_relief(), out, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+    moon_bake(&g, moon_albedo(), moon_relief(), out, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
     if (theta != 0.0f) {
         static uint16_t rgb[PX * PX];
         int32_t c15 = moon_cos15(theta), s15 = moon_sin15(theta);
@@ -134,9 +134,9 @@ int main(void) {
             moon_geom_t gb, gwrong;
             moon_inplane_geometry(&g0, th, &gb);
             moon_inplane_geometry(&g0, -th, &gwrong);
-            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
             moon_bake(&gwrong, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0,
-                      0.0f);
+                      0.0f, NULL);
             /* NOTE: the on-screen pose is moon_rotate's NEAREST-NEIGHBOR
              * gather (an integer 1-px sample of the unrotated bake), while
              * the folded basis bakes the sphere EXACTLY per pixel. The
@@ -208,7 +208,7 @@ int main(void) {
         moon_geom_t gb;
         moon_inplane_geometry(&g0, 0.0f, &gb);
         moon_pole_geometry(&gb, phi, &gb);
-        moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
         int lit = 0, dark_hi = 0, dark_cnt = 0;
         long long sum = 0;
         for (int y = 0; y < PX; y++)
@@ -256,15 +256,15 @@ int main(void) {
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
          * dusk passes dark_zero = 1 (the computed backlit night side). */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
         for (unsigned t = 0; t < 4; t++) {
             moon_geom_t gb;
             moon_inplane_geometry(&g0, thetas3[t], &gb);
             moon_pole_geometry(&gb, phis3[t], &gb);
-            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0,
-                      0.0f); /* reference */
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f,
+                      NULL); /* reference */
             moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
             double sum = 0;
             int mx = 0, n = 0, big = 0;
@@ -302,9 +302,10 @@ int main(void) {
         moon_pole_geometry(&g0, 0.17453293f, &gaa); /* +10 deg */
         moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &ga, a, PX, RAD, CTR, CTR);
         moon_reproject(shade_map, MOON_ALB_W, MOON_ALB_H, &gaa, b, PX, RAD, CTR, CTR);
-        moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_bake(&ga, moon_albedo(), moon_relief(), a + PX * PX, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f,
+                  NULL);
         static uint8_t bb[PX * PX];
-        moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f);
+        moon_bake(&gaa, moon_albedo(), moon_relief(), bb, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
         double sr = 0, sb = 0;
         int nr = 0;
         for (int y = 0; y < PX; y++)
@@ -351,7 +352,7 @@ int main(void) {
         float fmin = A * cosf(phi) + B * sinf(phi) + g0.E[2] * g0.S[2];
         float dk_sup = sqrtf(fmaxf(0.0f, 1.0f - fmin * fmin));
         /* The backlit map, built ONCE from the unfolded geometry. */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup, NULL);
         /* Start (phi=0) and endpoint (phi*) folds: reproject vs per-frame bake. */
         const float folds[2] = {0.0f, phi};
         const char *folds_name[2] = {"start", "endpoint"};
@@ -359,7 +360,7 @@ int main(void) {
             moon_geom_t gb;
             moon_inplane_geometry(&g0, 0.0f, &gb);
             moon_pole_geometry(&gb, folds[t], &gb);
-            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 1, dk_sup);
+            moon_bake(&gb, moon_albedo(), moon_relief(), b, PX, RAD, CTR, CTR, MOON_ALB_W, MOON_ALB_H, 1, dk_sup, NULL);
             moon_reproject(backlit_map, MOON_ALB_W, MOON_ALB_H, &gb, a, PX, RAD, CTR, CTR);
             /* Pixel classes: 0 = black (out of disk / the sun-lit sliver,
              * clipped to pure black); 0 < g <= 40 = the faint backlit

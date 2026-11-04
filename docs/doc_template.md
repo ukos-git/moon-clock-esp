@@ -324,8 +324,9 @@ P4-specific code facts:
   releasing any one commits the whole value — `clock_set_time`
   (mktime/settimeofday + the alarm one-shot re-arm),
   `clock_sntp_set_time_trusted(true)` (undim + the alarm fire gate), and
-  `moon_ui_day_tick()` (the moon re-bakes when the calendar day changed — the
-  settings→home exit path does not run it).
+  `moon_ui_day_tick()` (the moon re-bakes when the calendar day changed OR the
+  sky-event signature changed, §5.5 — the settings→home exit path does not run
+  it).
 - **The DSI panel's strip writes are async.** The P4 DPI panel copies each
   strip via DMA2D and rejects a new draw while the previous copy is in flight
   (`dpi_panel_draw_bitmap: previous draw operation is not finished`); the S3
@@ -435,7 +436,11 @@ sounds** (2026-11-04, §7.5/§7.17 — the ring gains four selectable 1 s loops
 and the picker + preview screen, and the board gate drops so the S3 rings too —
 both boards carry the ES8311 + speaker amp): P4 **1,596,624 B** (`0x185cd0`,
 +16,544 B), S3 **1,520,016 B** (`0x173190`, +56,096 B; both ~30 % under the
-2048 K factory).
+2048 K factory); after the **sky-event colors** (2026-11-04, §5.5 — the
+`moon_event.c` classifier + the per-event tint LUTs + the per-pixel eclipse
+occlusion + the day-tick signature re-bake): P4 **1,605,856 B** (`0x1880e0`,
++9,232 B), S3 **1,525,184 B** (`0x1745c0`, +5,168 B; both ~30 % under the 2048
+K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -570,10 +575,13 @@ components/
   moon/                the portable core (pure C, no ESP/LVGL deps):
     core/moon_astro.c      ephemeris (vendored ERFA eraEpv00 + eraMoon98) -> body-frame geometry
     core/moon_bake.c       displaced-normal Lambert bake + shade map + constant-projection reproject
+    core/moon_event.c      sky-event classification (harvest / blue / super-micro /
+                           blood) + the eclipse shadow-cone geometry
     core/moon_fixp.c       fixed-point sin/cos tables
     core/moon_render.c     fixed-point in-plane gather (the free spin)
     core/erfa/             vendored public-domain ERFA subset
-    include/               moon.h, moon_consts.h (generated), moon_assets.h
+    include/               moon.h, moon_consts.h (generated), moon_assets.h,
+                           moon_event.h (the classifier API + the cone constants)
     host/ esp/             host-asset + device asset glue
   clock/               PCF85063A RTC (or the P4 software clock, M5.1), minute/
                            interrupt logic, idle detector; clock_sntp.c (NTP sync +
@@ -729,7 +737,16 @@ same models the validated astropy pipeline uses internally):
 - the **camera basis** (celestial-north up, east left) rotated by the exact
   **posangle** — the on-screen orientation of the lit limb;
 - outputs in `moon_geom_t`: S, E, right, up, sub-solar/sub-earth lon/lat,
-  posangle, phase angle, illumination `(1 + cos i)/2`, distance.
+  posangle, phase angle, illumination `(1 + cos i)/2`, distance;
+- the **eclipse shadow axis** (§5.5): the umbra cone's axis is the geocentric
+  anti-solar direction (the Earth's shadow extends away from the Sun). In
+  meters, Moon-centered, body frame: the axis passes through `shadow_off` (the
+  axis's closest point to the Moon's center) in the unit direction
+  `shadow_dir`; `off_ax` is the Moon center's own coordinate along the axis
+  (meters from the Earth). Computed from the exact geocentric Sun/Moon
+  positions (not the Moon-centric −S): `eraMoon98` returns the Moon vector in
+  **AU**, so it is scaled by the same AU as the cone constants before the meter
+  math.
 
 Gate validation vs NASA: max **0.43°** sub-solar / **0.51°** sub-earth /
 **0.44°** posangle over the 32-frame gate set — well inside the panel's 1-px
@@ -854,6 +871,90 @@ drives the display update, the deep-sleep countdown (`clock_timer`), the alarm
 scheduler, and the hourly NTP trigger. SNTP (`clock_sntp`, `pool.ntp.org`, 10 s
 timeout) syncs at boot (blocking) and on demand (background task) —
 wake/manual/hourly — after which the modem drops back to airplane.
+
+### 5.5 Sky events (the special full moons)
+
+The clock's moon should read clearly for the special full moons — the
+2026-11-04 bugreport: "pre-calculate sky-event colors" (harvest / blue /
+super-micromoon / blood), **more visible than in reality**. `moon_event.c`
+(core, ephemeris-only, the same `eraEpv00`+`eraMoon98` pair — the exact same
+translation unit builds into the device and the host simulator) classifies a
+UTC instant into `moon_event_t`:
+
+- **"Full moon" = moment, not dot**: `|epoch − F| ≤ 18 h`, where F = the exact
+  opposition (the argmax of S·E, the minimum phase angle). A literal
+  `S·E > 0.999` test (phase angle < 2.56°) **never fires** when the full moon's
+  ecliptic latitude exceeds 2.56° — up to 5.15°, where S·E bottoms at 0.996 —
+  so a dot-product threshold silently loses roughly half of all full moons. F
+  is found by a 6 h coarse S·E scan over a 60-day window refined to 10 min; the
+  result is cached per calendar day (the scan is the only expensive step; the
+  classifier probes ~2 ephemeris calls per minute tick otherwise).
+- **harvest**: F's civil date inside Sep 22 .. Oct 23 (the full moon closest to
+  the autumn equinox — the deterministic civil rule).
+- **blue**: F is the 2nd full moon of its civil month (F's PREVIOUS full-moon
+  instant falls in the same month; a month holds at most two full moons, so
+  this is exact).
+- **super / micro**: F's geocentric distance < 357,500 / > 405,500 km. The
+  60-year census (2000..2060, all 742 full moons, cross-checked against an
+  independent recompute — zero flag mismatches) envelopes 356,431 .. 406,528
+  km, so the naive perigee/apogee bounds would fire at most ONCE in 60 years;
+  these bounds sit ~1,000 km inside the extremes and fire 60 / 61 times
+  (roughly one super and one micro full moon per year).
+- **blood**: a lunar eclipse at the epoch — the Moon's center is inside the
+  Earth's shadow cone.
+
+**Eclipse geometry** (the constants live in `moon_event.h`, deliberately not
+the generated `moon_consts.h` — the gate never exercises them). Both shadow
+cones are the straight line from one solar limb to the opposite terrestrial
+limb, so their radii at the axial coordinate a (meters from the Earth) are
+linear: the umbra cone narrows to a tip at
+`D_tip = R_earth·AU / (R_sun − R_earth) ≈ 1.383e6 m` (the line sun-limb →
+earth-limb crosses the axis just past the Moon; the cone radius there is 0) and
+the penumbra diverges at slope `(R_sun + R_earth)/AU ≈ 0.004693 1/m`. At the
+mean lunar distance: umbra ≈ 4,520 km, penumbra ≈ 8,255 km (the almanac
+figures). The per-pixel occlusion `moon_event_occ` (header-inline, shared by
+the bake hot path and the host tools) projects the pixel's surface point onto
+the axis, takes the perpendicular distance, and returns a smooth 0..1 between
+the two cone edges (1 inside the umbra, 0 outside the penumbra, linear ramp
+between — the partial-eclipse "bite" lands in the right place on the disk).
+Validated at the 2025-03-14 total lunar eclipse against NASA: penumbral
+~03:50/09:50 vs 03:59/10:01, partial ~05:15/~09:45 vs 05:10/08:50, totality
+~06:20/~07:25 vs 06:27/07:33, greatest eclipse 07:03 vs 06:59 UTC — all
+contacts within ~10 min. (The Moon's center passes 2,229 km from the shadow
+axis at this eclipse's 0.32° ecliptic latitude, so the umbra fully engulfs the
+disk through totality and off(t) is hypotenuse-shaped — the linear ~59 km/min
+synodic drift shows on the flanks, the minimum at the axis.)
+
+**The pre-calculated color** = per-event tint LUTs. The bake stays 8-bit gray:
+`moon_gray565_set_event` (moon_render.c) rebuilds the 256-entry RGB565 LUT
+**once per event**, composed over the display's warm tint — harvest golden (R
+×1.10 / G ×0.92 / B ×0.62), blue cool (R ×0.92 / G ×1.00 / B ×1.12), blood
+copper-red (R ×1.15 / G ×0.55 / B ×0.42, first — the strongest statement),
+super ×1.08 / micro ×0.92 brightness, neutral otherwise (the LUT rebuilds only
+on a signature change; an all-false event = the warm LUT, byte-identical to the
+pre-event bake). The one per-pixel cost is the blood occlusion: the bake
+multiplies the lit Lambert by `1 − 0.85·occ` **before** the LUT (`moon_bake` /
+`moon_bake_rows` / `moon_shade_map_rows` / `moon_shade_map_build` gained an
+optional `const moon_bake_ev_t *bev` — NULL = byte-identical, which is exactly
+how the image gate runs, so the event feature never perturbs the gate's
+metrics).
+
+**The device path**: every bake site classifies its own epoch and sets the LUT
+before its first frame (`moon_bake_epoch` for the daily/orbit bake, the sweep
+for the boot sweep — the whole sweep deliberately plays in the current event's
+tint, a foreshadow; the occlusion itself lands on the final frame only, `bev`
+is the current-phase event at `f == frames−1`, the dusk for the sleep spin).
+The once-per-minute `moon_ui_day_tick` probes the 5-bit event signature and
+re-bakes on a signature change or hourly during a blood moon (the eclipse
+shadow sweeps in minutes — an event can START and END mid-day, at the hour it
+happens, not at the UTC midnight the date-change tick sees); it defers while
+any bake task is busy. Host-verified (`moon_sim --utc <ISO> --event`): the
+2025-03-14 eclipse renders a copper disk with the partial bite on the correct
+limb, 2025-10-07 harvest a golden disk, 2018-03-31 blue a cool one, the
+2016-11-14 (356,521 km) and 2014-01-16 (406,528 km) full moons the super /
+micro brightness scales. The 2018-01-31 "blue moon" is also `blood=1` — it was
+a genuine partial lunar eclipse, and the blood statement wins (it is first in
+the LUT cascade).
 
 ---
 
@@ -1932,8 +2033,9 @@ the SVS 5415 400x400 lunar image series, gitignored):
   gate geometry; `--rot`, `--pole` (a 1:1 copy of the device's dusk spin),
   `--darkzero` (the device's computed backlit night side), `--neutral` (the
   neutral gray→565 LUT — the default is the display's warm tint, §5.2 item 7),
-  `--list`/`--frames` batch modes). This is also the film renderer
-  (`docs/gen_media.py`).
+  `--event` (classify the instant's sky events, §5.5 — the blood occlusion +
+  the tinted LUT, the device's daily path), `--list`/`--frames` batch modes).
+  This is also the film renderer (`docs/gen_media.py`).
 - `host_sim/pole_test.c` — the dusk geometry proof (ad-hoc build, not a CMake
   target): right-sign fold beats wrong-sign 2.5×; φ\* analytic == grid minimum
   to 1e-5; the dark-side frame keeps contrast; map-once vs per-frame re-bake
@@ -2236,10 +2338,10 @@ docs/                        this document + the media (§1) + the Sphinx book
                              + the research notes (research/)
 ```
 
-Line counts (tracked, 2026-10-31): moon core ~5,400; ui ~10,100 (incl. the
-generated font subsets ~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200;
-board shim ~115; main ~450; wifi ~430; imu ~410 — **~26,400 lines** of tracked
-code.
+Line counts (tracked, moon core 2026-11-04 / rest 2026-10-31): moon core ~5,500
+(incl. moon_event.c, §5.5); ui ~10,100 (incl. the generated font subsets
+~4,100); clock ~3,100; host_sim ~3,500; BSP ~1,200; board shim ~115; main ~450;
+wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 
 ---
 

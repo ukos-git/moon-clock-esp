@@ -24,6 +24,12 @@
 static uint16_t g565[256];
 static int g565_init = 0;
 static int g565_warm = 1;
+/* The pre-calculated sky-event tint (moon_event.h, moon_gray565_set_event):
+ * per-channel multipliers composed OVER the warm base (display-only --
+ * the neutral gate LUT is never tinted: set_warm(0) wins over set_event,
+ * so the gate's C-vs-NASA / C-vs-Python numbers validate the physics
+ * without any event color entering them). All 1.0 = no event. */
+static float g565_ev_r = 1.0f, g565_ev_g = 1.0f, g565_ev_b = 1.0f;
 
 static void g565_build(void) {
     for (int g = 0; g < 256; g++) {
@@ -42,6 +48,20 @@ static void g565_build(void) {
             b5 = (g * 29 + 127) / 255; /* x0.933 ~= 31 * 0.933 = 28.9/255 per gray */
             if (b5 > 31)
                 b5 = 31;
+            /* Sky-event tint: multiply the channels by the (pre-calculated)
+             * event multipliers and cap (see moon_gray565_set_event). */
+            int nr = (int)(r5 * g565_ev_r + 0.5f);
+            if (nr > 31)
+                nr = 31;
+            int ng = (int)(g6 * g565_ev_g + 0.5f);
+            if (ng > 63)
+                ng = 63;
+            int nb = (int)(b5 * g565_ev_b + 0.5f);
+            if (nb > 31)
+                nb = 31;
+            r5 = nr;
+            g6 = ng;
+            b5 = nb;
         }
         g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
     }
@@ -51,6 +71,52 @@ static void g565_build(void) {
 void moon_gray565_set_warm(int on) {
     if (on != g565_warm) {
         g565_warm = on;
+        g565_build();
+    }
+}
+
+/* Sky-event tint multipliers (composed over the warm base, see the
+ * g565_ev_* note). The values are the plan's artistic tints -- the
+ * event should read CLEARLY, "more visible than in reality" (the
+ * 2026-11-04 bugreport): blood = copper-red (a total-eclipse disk reads
+ * deep orange-red at peak warm gray, ~(255, 138, 98) 8-bit), harvest =
+ * golden, blue = cool blue-grey, super/micro = +8% / -8% brightness on
+ * all channels. They compose multiplicatively (harvest + super, ...),
+ * so one call per day covers all of the instant's events. The LUT
+ * rebuilds only when the multipliers actually change (the device calls
+ * this once per day; an event-less day is a no-op). */
+void moon_gray565_set_event(const moon_event_t *ev) {
+    float r = 1.0f, g = 1.0f, b = 1.0f;
+    if (ev != NULL) {
+        if (ev->blood) {
+            r = 1.15f;
+            g = 0.55f;
+            b = 0.42f;
+        }
+        if (ev->harvest) {
+            r *= 1.10f;
+            g *= 0.92f;
+            b *= 0.62f;
+        }
+        if (ev->blue) {
+            r *= 0.92f;
+            g *= 1.00f;
+            b *= 1.12f;
+        }
+        if (ev->super_moon) {
+            r *= 1.08f;
+            g *= 1.08f;
+            b *= 1.08f;
+        } else if (ev->micro_moon) {
+            r *= 0.92f;
+            g *= 0.92f;
+            b *= 0.92f;
+        }
+    }
+    if (r != g565_ev_r || g != g565_ev_g || b != g565_ev_b) {
+        g565_ev_r = r;
+        g565_ev_g = g;
+        g565_ev_b = b;
         g565_build();
     }
 }

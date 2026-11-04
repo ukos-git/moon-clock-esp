@@ -399,7 +399,7 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
         moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
-                  MOON_ALB_H, 1, 0.0f);
+                  MOON_ALB_H, 1, 0.0f, NULL);
         for (int i = 0; i < MOON_PX * MOON_PX; i++)
             s_rgb[i] = moon_gray565(s_gray[i]);
         s_dsc = (lv_image_dsc_t){
