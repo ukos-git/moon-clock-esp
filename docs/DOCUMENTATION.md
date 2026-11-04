@@ -2197,7 +2197,6 @@ code.
 - `docs/book/_static/moonjs/moonlab.html` (6,944 B)
 - `docs/book/_static/moonjs/moonlab.js` (12,530 B)
 - `docs/book/_static/moonjs/moonlab_data.js` (1,851,565 B)
-- `docs/book/_static/photos/bench_crescent.jpg` (33,718 B)
 - `docs/book/_static/photos/bench_front.jpg` (90,688 B)
 - `docs/book/_static/photos/bench_panel.jpg` (25,922 B)
 - `docs/book/_static/photos/sim_alarm.png` (208,711 B)
@@ -2207,7 +2206,7 @@ code.
 - `docs/book/_static/photos/sim_light_sleep.png` (580,717 B)
 - `docs/book/conf.py` (2,738 B)
 - `docs/book/index.rst` (3,682 B)
-- `docs/book/part1/01-overview.rst` (5,565 B)
+- `docs/book/part1/01-overview.rst` (5,267 B)
 - `docs/book/part1/02-hardware-s3.rst` (5,140 B)
 - `docs/book/part1/03-hardware-p4.rst` (4,710 B)
 - `docs/book/part1/04-reference.rst` (4,323 B)
@@ -2238,7 +2237,7 @@ code.
 - `docs/book/tools/gen_kbd_panels.py` (4,654 B)
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
-- `docs/doc_template.md` (169,399 B)
+- `docs/doc_template.md` (169,402 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -33198,15 +33197,15 @@ static void moon_dusk_task(void *arg) {
      * one step change is at frame 1 (the parked pose's true terminator
      * -> the shifted one, ~7 deg of crescent edge today): the user-
      * accepted look over the ray.
- *
- * The kill margin (the 2026-11-04 bugreport, "kill the limb harder"): the
- * bound is dk_sup + MOON_DUSK_KILL_MARGIN, not the geometric dk_sup --
- * the lit crescent is THINNER by 0.12 (~7 deg in the cosine distance d),
- * still full brightness where it remains, and the map + the final bake
- * agree on the same bound (no pop at the endpoint). The bound is clamped
- * < 1.0: at dk_sup = 1 (the parked pose 90 deg from the Sun -- the phi*
- * minimum still half-lit) a wider bound would write the backlit side
- * over the whole disk and black out the half that is still lit. */
+     *
+     * The kill margin (the 2026-11-04 bugreport, "kill the limb harder"): the
+     * bound is dk_sup + MOON_DUSK_KILL_MARGIN, not the geometric dk_sup --
+     * the lit crescent is THINNER by 0.12 (~7 deg in the cosine distance d),
+     * still full brightness where it remains, and the map + the final bake
+     * agree on the same bound (no pop at the endpoint). The bound is clamped
+     * < 1.0: at dk_sup = 1 (the parked pose 90 deg from the Sun -- the phi*
+     * minimum still half-lit) a wider bound would write the backlit side
+     * over the whole disk and black out the half that is still lit. */
     float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
     float dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN;

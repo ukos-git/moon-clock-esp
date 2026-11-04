@@ -104,13 +104,6 @@ pipeline across panel technologies.
 How the book is organized
 -------------------------
 
-.. figure:: ../_static/photos/bench_crescent.jpg
-   :alt: The panel at the bench, current phase
-
-   The current phase on the panel — a thin lit crescent, the computed
-   backlit dark side everywhere else. This is what "physically
-   correct" looks like at the new-moon end of the synodic month.
-
 .. list-table::
    :header-rows: 1
    :widths: 10 14 76
