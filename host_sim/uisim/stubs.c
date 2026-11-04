@@ -256,6 +256,41 @@ void settings_set_timezone_idx(int idx) {
     s_tz_idx = idx;
 }
 
+/* ---- alarm sound selection (device: components/ui/alarm_audio.c +
+   settings_store) ----
+   The option names mirror the device's ALARM_NAMES; the sim holds the
+   stored id so the screen seeds + persists it like the device. The
+   preview "plays" a stub line (no audio in the sim). */
+
+#define STUB_ALARM_SOUNDS 4
+static const char *STUB_ALARM_NAMES[STUB_ALARM_SOUNDS] = {"Two-Tone", "Beep", "Bell", "Arpeggio"};
+static int s_alarm_sound = 0; /* the device default (two-tone) */
+
+int settings_alarm_sound_id(void) { return s_alarm_sound; }
+void settings_set_alarm_sound_id(int id) {
+    if (id < 0 || id >= STUB_ALARM_SOUNDS)
+        return;
+    s_alarm_sound = id;
+}
+
+int alarm_audio_count(void) { return STUB_ALARM_SOUNDS; }
+
+const char *alarm_audio_name(int id) {
+    if (id < 0 || id >= STUB_ALARM_SOUNDS)
+        return NULL;
+    return STUB_ALARM_NAMES[id];
+}
+
+void alarm_audio_select(int id) { settings_set_alarm_sound_id(id); }
+
+int alarm_audio_selected(void) { return s_alarm_sound; }
+
+void alarm_audio_preview(int id) {
+    if (id < 0 || id >= STUB_ALARM_SOUNDS)
+        return;
+    printf("[stub] preview sound %d (%s)\n", id, alarm_audio_name(id));
+}
+
 /* ---- wifi scan (canned AP list) ---- */
 
 typedef struct {

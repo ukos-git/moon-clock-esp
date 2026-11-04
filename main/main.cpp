@@ -518,8 +518,10 @@ extern "C" void app_main(void) {
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
 
-    // Alarm audio (P4: ES8311 speaker + amp on the shared I2C bus; S3:
-    // no-op stubs). Soft-fails like the IMU: the alarm stays display-only.
+    // Alarm audio (both boards: ES8311 speaker + amp on the shared I2C
+    // bus — both BSPs expose the same bsp_audio_codec_speaker_init).
+    // Soft-fails like the IMU: the alarm stays display-only. Runs after
+    // settings_store_load so the selected sound is the ring's.
     alarm_audio_init();
 
     // Base screen orientation (the panel's 90 deg CW mount offset): the

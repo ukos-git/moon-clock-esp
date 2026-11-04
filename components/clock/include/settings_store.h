@@ -62,6 +62,12 @@ void settings_set_dusk_anim_enable(bool on);
 int settings_timezone_idx(void);
 void settings_set_timezone_idx(int idx);
 
+/* Alarm sound selection, the index into the alarm_audio sound table
+ * (components/ui/alarm_audio.h's ALARM_SOUND_COUNT: 0..3 = two-tone,
+ * beep, bell, arpeggio; default 0). Validated to 0..3 here. */
+int settings_alarm_sound_id(void);
+void settings_set_alarm_sound_id(int id);
+
 #ifdef __cplusplus
 }
 #endif

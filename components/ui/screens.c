@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "actions.h"
+#include "alarm_audio.h"
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
 #include "clock_sntp.h"
@@ -87,6 +88,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
 #define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 regular set only) */
 #define GLYPH_GLOBE "\xEF\x82\xAC"     /* U+F0AC (timezone entry; the solid set -- both boards) */
+#define GLYPH_SPEAKER "\xEF\x80\xA8"   /* U+F028 (alarm-sound entry; the solid set -- both boards) */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
 #define SETTINGS_WHITE lv_color_white()
@@ -128,6 +130,7 @@ static void settings_wheel_prefill_ssid(const char *ssid);
 static void settings_wheel_screen_refresh(void);
 static void settings_time_screen_refresh(void);
 static void settings_tz_screen_refresh(void);
+static void settings_alarm_sound_screen_refresh(void);
 /* settings_screen_refresh_for is non-static (declared in screens.h; the
  * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
@@ -541,12 +544,13 @@ void create_screen_settings_hub() {
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
     /* Icon ring: EQUAL ARC DISTANCES -- the icons sit 360/n degrees apart
-     * on the ring (S3: 5 icons, 72 deg; P4: 6 icons, 60 deg). The
-     * deep-sleep icon anchors the bottom (180 deg); on the P4 the circle
-     * closes with the clock (manual time entry, U+F017 -- the P4 fonts_p4
-     * regular set only) at 12 o'clock. Moon weight distinguishes the two
-     * sleep screens (regular / solid); the globe (timezone, U+F0AC,
-     * solid) is on both boards. */
+     * on the ring (S3: 6 icons, 60 deg; P4: 7 icons, ~51.4 deg), the
+     * deep-sleep icon anchored at the bottom (180 deg). On the P4 the
+     * ring carries the clock (manual time entry, U+F017 -- the P4
+     * fonts_p4 regular set only) first. Moon weight distinguishes the
+     * two sleep screens (regular / solid); the globe (timezone, U+F0AC,
+     * solid) and the speaker (alarm sound, U+F028, solid) are on both
+     * boards. */
     struct hub_icon {
         const char *glyph;
         const lv_font_t *font;
@@ -561,12 +565,21 @@ void create_screen_settings_hub() {
         {GLYPH_MOON, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_DEEP_SLEEP},
         {GLYPH_WIFI, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_WIFI},
         {GLYPH_GLOBE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_TZ},
+        {GLYPH_SPEAKER, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_ALARM_SOUND},
     };
     const int32_t R = UI_PX(117); /* ~165 px ring radius at 466 (the scaled ring) */
     const size_t n = sizeof(ring) / sizeof(ring[0]);
     const float step = 360.0f / (float)n;
-    const float deep = (float)n - 3.0f; /* the deep-sleep entry's index (both boards) */
-    const float PI = 3.14159265f;       /* the LVGL math macro is config-gated */
+    /* The deep-sleep entry's index: the icon anchored at the bottom
+     * (180 deg). Found by target (not by n - 3 -- the ring's count
+     * differs between the boards and the anchor must not drift). */
+    float deep = 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        if (ring[i].target == SCREEN_ID_SETTINGS_DEEP_SLEEP) {
+            deep = (float)i;
+        }
+    }
+    const float PI = 3.14159265f; /* the LVGL math macro is config-gated */
     for (size_t i = 0; i < n; i++) {
         /* theta clockwise from 12 o'clock; deep sleep at 180 deg. */
         const float th = ((180.0f + step * ((float)i - deep)) * PI) / 180.0f;
@@ -664,6 +677,9 @@ void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_TZ:
         settings_tz_screen_refresh();
+        break;
+    case SCREEN_ID_SETTINGS_ALARM_SOUND:
+        settings_alarm_sound_screen_refresh();
         break;
     default:
         break;
@@ -2786,6 +2802,113 @@ void create_screen_settings_tz() {
 
 void tick_screen_settings_tz() {}
 
+/* --- alarm sound (S3 + P4): one roller over the four baked loops ----
+ *
+ * Both boards carry the ES8311 codec + speaker amp (the alarm_audio
+ * module), so there is no board gate. The roller lists the four loop
+ * names (alarm_audio's: two-tone / beep / bell / arpeggio); releasing
+ * it applies + persists the selection and plays a preview. A speaker
+ * button previews the currently selected loop. Reached by the hub's
+ * speaker icon on BOTH boards. */
+
+static void settings_alarm_sound_options(char *buf, size_t n) {
+    int pos = 0;
+    for (int i = 0; i < alarm_audio_count(); i++) {
+        pos += snprintf(buf + pos, n - pos, "%s\n", alarm_audio_name(i));
+    }
+}
+
+static void settings_alarm_sound_screen_refresh(void) {
+    if (!objects.settings_alarm_sound_roller) {
+        return;
+    }
+    int id = settings_alarm_sound_id();
+    lv_roller_set_selected(objects.settings_alarm_sound_roller, (int32_t)id, LV_ANIM_OFF);
+}
+
+/* Commit on RELEASED (the persist stays off the drag path). The
+ * selected index IS the sound id (the options were generated in the
+ * id order), so no string parsing. The new selection is applied,
+ * persisted, and previewed. */
+static void event_handler_cb_settings_alarm_sound_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    int32_t sel = lv_roller_get_selected(objects.settings_alarm_sound_roller);
+    if (sel < 0 || sel >= alarm_audio_count()) {
+        return;
+    }
+    alarm_audio_select((int)sel);
+    settings_set_alarm_sound_id((int)sel);
+    esp_err_t r = settings_store_save();
+    ESP_LOGW("settings_alarm_sound", "alarm sound %d (%s) selected + saved -> %s", (int)sel, alarm_audio_name((int)sel),
+             esp_err_to_name(r));
+    alarm_audio_preview((int)sel);
+}
+
+/* The preview button: the currently selected loop, once. (A release on
+ * the roller previews its own selection -- this is for re-hearing the
+ * standing choice without touching the roller.) */
+static void event_handler_cb_settings_alarm_sound_preview(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    ESP_LOGW("settings_alarm_sound", "preview sound %d (%s)", alarm_audio_selected(),
+             alarm_audio_name(alarm_audio_selected()));
+    alarm_audio_preview(alarm_audio_selected());
+}
+
+void create_screen_settings_alarm_sound() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_alarm_sound = obj;
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The caption. */
+    lv_obj_t *caption = lv_label_create(obj);
+    lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(caption, "ALARM SOUND");
+    lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
+    lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The sound-name roller (the 32 px ssid font), left of centre to
+     * make room for the preview button on the same line. */
+    char options[128];
+    settings_alarm_sound_options(options, sizeof(options));
+    objects.settings_alarm_sound_roller =
+        settings_create_roller(obj, options, &ui_font_montserrat_regular_32_ssid, UI_PX(110), 0, UI_PX(260));
+    lv_obj_align(objects.settings_alarm_sound_roller, LV_ALIGN_CENTER, -UI_PX(70), 0);
+    lv_obj_add_event_cb(objects.settings_alarm_sound_roller, event_handler_cb_settings_alarm_sound_commit,
+                        LV_EVENT_RELEASED, 0);
+
+    /* The preview button: the solid speaker glyph (U+F028) in a
+     * transparent 100 px box (the anim-toggle pattern), right of the
+     * roller on the same line. */
+    lv_obj_t *row = lv_obj_create(obj);
+    lv_obj_set_size(row, UI_PX(100), UI_PX(100));
+    lv_obj_align(row, LV_ALIGN_CENTER, UI_PX(150), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, event_handler_cb_settings_alarm_sound_preview, LV_EVENT_CLICKED, 0);
+
+    lv_obj_t *glyph = lv_label_create(row);
+    add_style_label_icon_solid(glyph);
+    lv_label_set_text(glyph, GLYPH_SPEAKER);
+    lv_obj_set_size(glyph, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(glyph, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(glyph, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(glyph, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    settings_alarm_sound_screen_refresh();
+}
+
+void tick_screen_settings_alarm_sound() {}
+
 /* The shared clock widget's alarm weekday prefix row (the prefix
  * label is its first child). ONE row for the one widget: the five
  * moon screens alias the same objects (layout contract 2), so there
@@ -3242,6 +3365,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_settings_wifi_password,
     tick_screen_settings_time,
     tick_screen_settings_tz,
+    tick_screen_settings_alarm_sound,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -3267,4 +3391,5 @@ void create_screens() {
     create_screen_settings_wifi_password();
     create_screen_settings_time();
     create_screen_settings_tz();
+    create_screen_settings_alarm_sound();
 }

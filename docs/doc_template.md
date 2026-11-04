@@ -38,15 +38,17 @@ exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri defa
 alarm** (the `*/5` debug rule burned the alarm screen in), the **P4 software
 clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed internal
 RTC timer + SNTP as the time base with the minute tick / countdown / alarm
-arming in software, §2.3), the **P4 alarm ring** (M5.5 — the fired alarm rings
+arming in software, §2.3), the **alarm ring** (M5.5 — the fired alarm rings
 through the board's ES8311 codec + speaker amp, volume ramped up gradually,
-touch snooze; S3 stays display-only, §7.5), the **implemented wheel v2** (§7.13
-— the "sweep wheel v2 hybrid": proportional press sectors + an overlay reveal +
-a DTMF-style centre preview; shipped in firmware, the interactive lab is the
-clickable reference, §7.14) and the **design-choice documentation** (§7.14: the
-keyboard lab committed to the repo, the comparable-layout survey and the idea
-sources; §12.4: the committed NASA side-by-side figures). See the standing rule
-in [CLAUDE.md](../CLAUDE.md) — this document is regenerated with
+touch snooze; **both boards** since the 2026-11-04 bugreport — the S3 also
+carries the ES8311, and the **alarm-sound picker** (§7.17) selects one of four
+baked loops, §7.5), the **implemented wheel v2** (§7.13 — the "sweep wheel v2
+hybrid": proportional press sectors + an overlay reveal + a DTMF-style centre
+preview; shipped in firmware, the interactive lab is the clickable reference,
+§7.14) and the **design-choice documentation** (§7.14: the keyboard lab
+committed to the repo, the comparable-layout survey and the idea sources;
+§12.4: the committed NASA side-by-side figures). See the standing rule in
+[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
 `python3 docs/gen_doc.py` and must stay in sync with the code._
 
 ---
@@ -305,13 +307,18 @@ P4-specific code facts:
   the codec handle is built once at boot (soft-fails like the IMU: init error →
   the alarm stays display-only), and per fire a short-lived ring task opens the
   codec (I2S TX, mono 16-bit @ 22050 Hz, MCLK = 256×FS — the ES8311's PLL pair)
-  and streams a pre-baked A5/E5 two-tone loop through the **blocking I2S
-  write** (it paces at the audio rate, so the stream is real-time) while the
-  **volume ramps up gradually** over the first ~2.5 s (no startup click at a
-  full level); the touch dismiss is the snooze — the task fades the volume out
-  over ~150 ms, closes the codec (DAC + I2S TX), and the next alarm re-opens
-  it. The S3 has no audio hardware: there the ring functions are no-op stubs
-  and the alarm path is untouched. The **manual time entry** (M5.6, 2026-11-01,
+  and streams the **selected sound** — one of four baked 1 s loops (the A5/E5
+  two-tone default, a 2 kHz square beep, a soft bell chime, a melodic arpeggio;
+  the picker is §7.17) through the **blocking I2S write** (it paces at the
+  audio rate, so the stream is real-time) while the **volume ramps up
+  gradually** over the first ~2.5 s (no startup click at a full level); the
+  touch dismiss is the snooze — the task fades the volume out over ~150 ms,
+  closes the codec (DAC + I2S TX), and the next alarm re-opens it. Both boards:
+  the P4's ring landed M5.5 (2026-11-01, P4-only at the time); the 2026-11-04
+  bugreport dropped the board gate — the S3's vendored BSP exposes the same
+  `bsp_audio_codec_speaker_init` (ES8311 on the same shared I2C bus, I2S mono
+  16-bit @ 22050), so the S3 rings too, and the loop buffer (4 × ~44 KB, PSRAM)
+  is the only S3 memory addition. The **manual time entry** (M5.6, 2026-11-01,
   §7.15) closes the flag's writer side: a P4-reached screen (the hub's 12
   o'clock clock icon) whose six rollers seed from `clock_sntp_get_system_time`;
   releasing any one commits the whole value — `clock_set_time`
@@ -422,7 +429,13 @@ factory); after the **dusk kill margin** (2026-11-04, §5.2 — the dusk's rim
 sliver kill is bound at `dk_sup + MOON_DUSK_KILL_MARGIN`, so the lit crescent
 is thinner through the whole spin at full brightness; the endpoint frame is
 byte-identical): P4 **1,580,080 B** (`0x181c30`, +16 B), S3 **1,463,920 B**
-(`0x165670`, +96 B; both ~30 % under the 2048 K factory).
+(`0x165670`, +96 B; both ~30 % under the 2048 K factory); after the **alarm
+sounds** (2026-11-04, §7.5/§7.17 — the ring gains four selectable 1 s loops
+(two-tone / beep / bell / arpeggio, the two-tone being the current P4 sound)
+and the picker + preview screen, and the board gate drops so the S3 rings too —
+both boards carry the ES8311 + speaker amp): P4 **1,596,624 B** (`0x185cd0`,
++16,544 B), S3 **1,520,016 B** (`0x173190`, +56,096 B; both ~30 % under the
+2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -437,9 +450,10 @@ one-shot armed from the synced time); the NVS epoch backup (M5.2's power-loss
 half) landed the same day, as did the **ES8311 alarm ring** (M5.5 — the fired
 alarm rings through the board's codec + speaker amp, volume ramped up
 gradually, touch dismiss = snooze; `components/ui/alarm_audio.c`, P4-only with
-S3 no-op stubs, §7.5) and the **P4 manual time entry** (M5.6 — the screen that
-writes the trusted flag, §7.15). The S3 build flow is unchanged; the shim +
-call-site migration add ~15 KB to the S3 binary (§3.1).
+S3 no-op stubs at the time — the 2026-11-04 bugreport made it both-boards and
+added the four-sound picker, §7.5/§7.17) and the **P4 manual time entry** (M5.6
+— the screen that writes the trusted flag, §7.15). The S3 build flow is
+unchanged; the shim + call-site migration add ~15 KB to the S3 binary (§3.1).
 
 ### 2.4 Flash + serial
 
@@ -489,7 +503,7 @@ Waveshare **ESP32-S3-Touch-AMOLED-1.75**, 16 MB flash variant:
 | Touch   | CST9217                | I2C (GPIO14/15), INT GPIO11, RESET GPIO40                                                                                                                                                           |
 | IMU     | QMI8658C               | I2C (shares the RTC bus), INT on EXIO6/QMI INT2                                                                                                                                                     |
 | RTC     | PCF85063A              | I2C behind the **TCA9554** IO expander (GPIO14/15, EXIO pins); **RTC_INT is NOT wired to any ESP32 GPIO** (AXP EXIO3 only) — the clock is time-source + 1.3 s software poll, never interrupt-driven |
-| Audio   | ES8311                 | I2S, unused by this product                                                                                                                                                                         |
+| Audio   | ES8311                 | I2S (the shared bus); the alarm ring + sound selection since the 2026-11-04 bugreport (the vendored BSP exposes `bsp_audio_codec_speaker_init`, §7.5)                                               |
 | USB     | USB-C                  | GPIO19/20, serial + flash                                                                                                                                                                           |
 
 Key S3 board quirk (full GPIO map in the README): the external RTC's interrupt
@@ -524,7 +538,7 @@ find every partition by label, not offset, so the widening is layout-invisible;
 | Wi-Fi     | ESP32-C6 (remote)   | over SDIO via `esp_hosted` 1.4.7 / `esp_wifi_remote` 0.14.5: CLK 18 / CMD 19 / D0–D3 14–17, 4-bit @ 40 MHz, slave reset GPIO54; 5 GHz-capable                                                                                       |
 | Time base | none (no RTC IC)    | the internal RTC timer on the **external 32 kHz crystal** (`CONFIG_RTC_CLK_SRC_EXT_CRYS`, M5.1 — the RC oscillator is a few % inaccurate, unusable as a time base) + SNTP; VBAT battery header (power-loss survival to be verified) |
 | IMU       | none                | the tilt path soft-fails: no tilt→spin / tilt→roll, orientation fixed at the base +90° step                                                                                                                                         |
-| Audio     | ES8311 codec        | the alarm ring (M5.5: ES8311 on the shared I2C bus + speaker amp, volume ramp + touch snooze, §7.5)                                                                                                                                 |
+| Audio     | ES8311 codec        | the alarm ring + sound selection (§7.5/§7.17: ES8311 on the shared I2C bus + speaker amp, volume ramp + touch snooze; both boards since the 2026-11-04 bugreport)                                                                   |
 
 Unlike the S3, the P4 PSRAM **is** DMA-capable — the S3's 32 KiB SPI-DMA strip
 staging (buffer_height 25, flush queue depth 1) is a QSPI-S3 artifact and does
@@ -565,11 +579,11 @@ components/
                            interrupt logic, idle detector; clock_sntp.c (NTP sync +
                            the time-trusted flag); clock_alarm_scheduler.c (cron-like
                            alarms, write/reload, */N>59); settings_store.c (store)
-  ui/                  LVGL 9.6 UI: screens.c (15 screens), moon_ui.c (the moon
+  ui/                  LVGL 9.6 UI: screens.c (16 screens), moon_ui.c (the moon
     actions.c                pipeline: sweep/spin/dusk/bake tasks), styles.c,
     images.c                 fonts/ + fonts_p4/ (per-panel lv_font_conv subsets);
-                             alarm_audio.c (the P4 ES8311 alarm ring, S3 no-op
-                             stubs)
+                             alarm_audio.c (the ES8311 alarm ring + four-sound
+                             picker, both boards)
   imu/                 QMI8658C driver (I2C), tilt/activity + wake model
   wifi/                ESP WiFi scan (settings screen)
   board/               the board shim: board_display.{c,h} — the app-side
@@ -688,10 +702,11 @@ idle (runtime timeout, default 60 s): light sleep = the DUSK
    (pole spin, 1 deg/frame, constant projection, shade map baked once)
    -> last frame arms the RTC deep-sleep countdown (default 60 s)
 deep sleep: dark side + clock hidden + backlight OFF
-alarm (RTC minute poll): alarm screen (until dismissed by touch; rings on the
-   P4 — the ES8311 codec, §7.5); fires from deep sleep too
+alarm (RTC minute poll): alarm screen (until dismissed by touch; rings on both
+   boards — the ES8311 codec, §7.5); fires from deep sleep too
 tap on airplane/WiFi: settings hub (icon ring + central circle-xmark exit)
-   sub-screens: alarm, pomodoro, alarm-time, light-sleep, deep-sleep, WiFi
+   sub-screens: alarm, pomodoro, alarm-time, light-sleep, deep-sleep, WiFi,
+   timezone (§7.16), alarm-sound (§7.17)
    (the WiFi list's AP rows open the circular wheel keyboard, §7.13)
 hourly (on the minute, at rest on airplane only): transient WiFi screen +
    NTP sync -> back to airplane
@@ -895,8 +910,8 @@ round AMOLED showing the Moon.
 
 ## 7. Screens — every live screen with its settings
 
-All 15 screens, exact panel pixels from the UI simulator at both panel sizes
-(all 15 live on the S3; the manual time entry, §7.15, now renders at 466 and
+All 16 screens, exact panel pixels from the UI simulator at both panel sizes
+(all 16 live on the S3; the manual time entry, §7.15, now renders at 466 and
 720 alike). The "settings displayed" column lists what the screen shows and
 what each control changes live.
 
@@ -1025,18 +1040,26 @@ what each control changes live.
   backlight restored). Touch dismisses and re-arms. The screen carries the
   alarm indicator icon and the time; there is **no automatic sleep transition**
   while it is up (task: the alarm must not dusk-sleep mid- dismiss).
-- **P4: the ring** (`components/ui/alarm_audio.c`, M5.5). The fired alarm also
-  rings through the board's ES8311 codec + speaker amp (the codec joins the
-  GT911 on the shared I2C bus; `bsp_audio_codec_speaker_init` at boot, soft
-  fail → display-only). A per-fire ring task streams a pre-baked A5/E5 two-tone
-  loop (mono 16-bit @ 22050 Hz, MCLK = 256×FS — the ES8311's PLL pair) through
-  the **blocking I2S write** (it paces at the audio rate, so the loop is
-  real-time) while the volume **ramps up gradually** over the first ~2.5 s (no
-  startup click at a full level). The touch dismiss **snoozes**: every dismiss
-  path runs through `action_wake_screen`, which sets the stop flag; the ring
-  task fades the volume out over ~150 ms and closes the codec (DAC + I2S TX
-  disabled — the next alarm re-opens it). The S3 has no audio hardware: the
-  ring functions are no-op stubs there and its alarm path is untouched.
+- **Both boards: the ring** (`components/ui/alarm_audio.c`, M5.5; both-boards
+  since the 2026-11-04 bugreport). The fired alarm rings through the board's
+  ES8311 codec + speaker amp — on the P4 the codec joins the GT911 on the
+  shared I2C bus, on the S3 it joins the CST9217 touch — and both BSPs expose
+  the same bring-up, `bsp_audio_codec_speaker_init` (called at boot, soft fail
+  → display-only). A per-fire ring task streams the **selected sound** — one of
+  four pre-baked 1 s loops (the A5/E5 two-tone default, a 2 kHz square beep, a
+  soft bell chime, a melodic arpeggio; the picker is §7.17) — mono 16-bit @
+  22050 Hz, MCLK = 256×FS (the ES8311's PLL pair), through the **blocking I2S
+  write** (it paces at the audio rate, so the loop is real-time) while the
+  volume **ramps up gradually** over the first ~2.5 s (no startup click at a
+  full level). The four loops are baked once into a PSRAM buffer (4 × ~44 KB)
+  at init; `alarm_audio_init` seeds the selection from
+  `settings_alarm_sound_id` (the store is loaded before it in `app_main`). The
+  touch dismiss **snoozes**: every dismiss path runs through
+  `action_wake_screen`, which sets the stop flag; the ring task fades the
+  volume out over ~150 ms and closes the codec (DAC + I2S TX disabled — the
+  next alarm re-opens it). A preview task (§7.17) shares the same player path
+  for one pass with a short ramp; the codec streams one loop at a time, so the
+  ring and a preview never overlap.
 
 ### 7.6 Settings hub
 
@@ -1045,19 +1068,21 @@ what each control changes live.
 - Central **circle-xmark exit** — the fa-circle-xmark glyph alone (U+F057; the
   glyph is the button, no ring chrome; 150 px tap box) → back to the **home
   (airplane) screen**, no sync kicked off.
-- **Icon ring, equal-arc** (2026-11-01): the entries sit on a circle of radius
-  `UI_PX(117)` at **equal 360/n arc distances** — 5 icons (72°) on the S3, 6
-  icons (60°) on the P4 — with deep sleep pinned at 6 o'clock (the bottom).
-  Clock positions: **S3** — top-left globe (U+F0AC, solid; the timezone / UTC
-  offset picker, §7.16), top-right alarm (alarm-clock, regular), mid-right
-  light sleep (moon, regular), bottom deep sleep (moon, solid — the weight
-  distinguishes the two moons), mid-left WiFi (wifi, solid). **P4** — the same
-  five plus a sixth icon at 12 o'clock: clock (regular, U+F017, the glyph the
-  FA regular set regenerated for it, §2.3b) opening the manual time entry
-  (§7.15; the S3 has no clock icon — its time comes from the PCF85063A). The
-  globe glyph was added to both boards' FA solid subsets (regenerated with
+- **Icon ring, equal-arc** (2026-11-01; 6/7 icons since the 2026-11-04
+  bugreport): the entries sit on a circle of radius `UI_PX(117)` at **equal
+  360/n arc distances** — 6 icons (60°) on the S3, 7 icons (~51.4°) on the P4 —
+  with deep sleep pinned at 6 o'clock (the bottom). Clock positions: **S3** —
+  top-left globe (U+F0AC, solid; the timezone / UTC offset picker, §7.16),
+  top-right alarm (alarm-clock, regular), mid-right light sleep (moon,
+  regular), bottom deep sleep (moon, solid — the weight distinguishes the two
+  moons), mid-left WiFi (wifi, solid), and (the 2026-11-04 addition) the
+  **speaker** (U+F028, solid; the alarm-sound picker, §7.17). **P4** — the same
+  six plus a sixth icon at 12 o'clock: clock (regular, U+F017, the glyph the FA
+  regular set regenerated for it, §2.3b) opening the manual time entry (§7.15;
+  the S3 has no clock icon — its time comes from the PCF85063A). The globe and
+  speaker glyphs were added to both boards' FA solid subsets (regenerated with
   U+F0AC = 61612 — the earlier regen used 61516 = U+F04C "pause" by mistake, so
-  the hub showed a missing-glyph box).
+  the hub showed a missing-glyph box — and U+F028 = 61480 for the speaker).
 - Grey = present/available, white = selected; the sub-screens' bottom-centre
   exit is the same glyph at 96 px and returns to the **calling level** (the
   hub, or the alarm screen for its two sub-screens). The exit is a plain
@@ -1501,6 +1526,38 @@ screenshots and prose are the earlier revision of §7.13 in git history).
 - **Settings displayed:** the active timezone, selectable across every 30-
   minute UTC offset + Europe/Berlin.
 
+### 7.17 Alarm sound (S3 + P4)
+
+![alarm sound](img/screens/settings_alarm_sound.png)
+
+- **Why it exists:** the ring (§7.5) had exactly one sound — the A5/E5
+  two-tone. The 2026-11-04 bugreport asked for four. Both boards carry the
+  ES8311 codec + speaker amp, so the picker has no board gate (unlike the
+  manual time entry, §7.15) — **reached by the hub's speaker icon (§7.6,
+  U+F028, solid, both boards)**.
+- **The four sounds** (`components/ui/alarm_audio.c`, baked once at init into a
+  PSRAM buffer — 1 s each, mono 16-bit @ 22050 Hz, ~44 KB each): 0 **Two-Tone**
+  (the original A5/E5, 4 × 250 ms, the default), 1 **Beep** (2 kHz square,
+  three 200 ms bursts with 200 ms gaps), 2 **Bell** (880 Hz fundamental +
+  partials, exponential decay τ 350 ms over the second), 3 **Arpeggio**
+  (C5–E5–G5–C6, 4 × 250 ms). Every loop carries a 10 ms attack/release envelope
+  per segment (no on/off clicks).
+- **Layout:** a caption ("ALARM SOUND", 32 px, grey) over a 32 px (ssid font)
+  4-name roller, width `UI_PX(260)`, height `UI_PX(110)`, left of centre, plus
+  a **speaker-glyph preview button** (solid U+F028 in a 100 px transparent box,
+  the anim-toggle pattern) right of it on the same line.
+- **Seed:** the roller seeds from `settings_alarm_sound_id()` on entry.
+- **Commit:** releasing the roller applies + persists the selection
+  (`alarm_audio_select` + `settings_set_alarm_sound_id` + `settings_store_save`
+  — the new `alarm_sound_id` key, range 0..3) and **plays a preview** of the
+  new sound. The speaker button previews the currently selected loop. The
+  preview is a short-lived player task (one loop pass, 300 ms ramp, ~150 ms
+  fade); it is ignored while anything is already playing — the codec streams
+  one loop at a time, so a preview and the ring never overlap. An init failure
+  (no ES8311) leaves the picker working: the selection is remembered and the
+  ring stays display-only.
+- **Settings displayed:** the selected alarm sound, 0..3.
+
 ---
 
 ## 8. Burn-in
@@ -1627,14 +1684,15 @@ upgrade from the UI tick.
   the clock containers via LVGL style transforms. Wake fires on **departure
   from the settled-pose EMA** (two bars + a 2-sample streak), not raw
   per-sample deltas — the fix for "wakes right after sleep".
-- **Base orientation** (task #59/T1): +90° step offset applied to the 15 screen
+- **Base orientation** (task #59/T1): +90° step offset applied to the 16 screen
   roots (all of `enum ScreensEnum` — the manual time entry §7.15 and the
   timezone screen §7.16 joined the 13 original roots in the 2026-11-04 fix:
   both had been missing from the transform list and read flipped 90° relative
-  to every other settings screen); the 180°-flip reference re-tracks only on
-  `step == 0` (T4). A rotated root's panel-sized layer (~0.4 MB at 466², ~1.0
-  MB at the P4's 720²) is allocated via CLIB malloc (the 64 KB LVGL pool OOM
-  was the original "off-screen + crash").
+  to every other settings screen; the alarm-sound screen §7.17 is the 16th
+  root); the 180°-flip reference re-tracks only on `step == 0` (T4). A rotated
+  root's panel-sized layer (~0.4 MB at 466², ~1.0 MB at the P4's 720²) is
+  allocated via CLIB malloc (the 64 KB LVGL pool OOM was the original
+  "off-screen + crash").
 - **2 s press re-sync** (2026-10-30): the home-pose anchor latches from the
   first 1 s of IMU samples after boot; if the device was flipped while that
   window filled, the anchor is 180° off and the UI stays upside down — and the
@@ -1787,25 +1845,26 @@ fires from there.
 
 Device captures (pyserial 115200, unattended runs with the test hooks):
 
-| Stage                                            | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Relief gradient cache (boot, 4,096 KB packed)    | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Boot sweep (S3)                                  | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Boot sweep (P4)                                  | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                                                                                                                                                                         |
-| Free spin                                        | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                                                                                                                     |
-| Dusk                                             | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots))                      |
-| Wake                                             | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Screen switch (moon)                             | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Screen switch (every switch fades)               | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                                                                                                                                                                      |
-| Settings hub idle CPU                            | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                                                                                                                                                                |
-| Image gate (host)                                | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Binary (2026-11-02, after wheel v2)              | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                                                                                                                                                                  |
-| Binary (2026-11-02, after the light-sleep dim)   | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                                            |
-| Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                    |
-| Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
-| Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
-| Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                             |
-| Binary (2026-11-04, after the dusk kill margin)  | S3: `0x165670` = 1,463,920 B in the 2,097,152 B partition (633,232 B free — the dusk's rim-sliver kill widened by `MOON_DUSK_KILL_MARGIN` 0.12, so the lit crescent is thinner through the pole spin at full brightness while the endpoint frame stays byte-identical, §5.2; host A/B mid-dusk lit 6023 → 3595 px, endpoint maxdiff 0). P4: `0x181c30` = 1,580,080 B in the 9,437,184 B partition (7,857,104 B free — +16 B; moon_ui.c is shared UI code, so the P4's dusk gets the same margin)                                                                                               |
+| Stage                                            | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relief gradient cache (boot, 4,096 KB packed)    | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Boot sweep (S3)                                  | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Boot sweep (P4)                                  | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                                                                                                                                                                                                      |
+| Free spin                                        | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                                                                                                                                                  |
+| Dusk                                             | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots))                                                   |
+| Wake                                             | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Screen switch (moon)                             | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Screen switch (every switch fades)               | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                                                                                                                                                                                                   |
+| Settings hub idle CPU                            | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Image gate (host)                                | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Binary (2026-11-02, after wheel v2)              | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                                                                                                                                                                                               |
+| Binary (2026-11-02, after the light-sleep dim)   | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                                                                         |
+| Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                                                 |
+| Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean)                              |
+| Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                                                        |
+| Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                                                          |
+| Binary (2026-11-04, after the dusk kill margin)  | S3: `0x165670` = 1,463,920 B in the 2,097,152 B partition (633,232 B free — the dusk's rim-sliver kill widened by `MOON_DUSK_KILL_MARGIN` 0.12, so the lit crescent is thinner through the pole spin at full brightness while the endpoint frame stays byte-identical, §5.2; host A/B mid-dusk lit 6023 → 3595 px, endpoint maxdiff 0). P4: `0x181c30` = 1,580,080 B in the 9,437,184 B partition (7,857,104 B free — +16 B; moon_ui.c is shared UI code, so the P4's dusk gets the same margin)                                                                                                                            |
+| Binary (2026-11-04, after the alarm sounds)      | S3: `0x173190` = 1,520,016 B in the 2,097,152 B partition (577,136 B free — the alarm-sound picker + both-boards audio +56,096 B over the dusk build: the four baked 1 s loops (4 × ~44 KB PSRAM), the ES8311 bring-up on the S3 (previously a no-op stub), and the new screen). P4: `0x185cd0` = 1,596,624 B in the 9,437,184 B partition (7,840,560 B free — +16,544 B; the board gate dropped, the selection + preview path, and the §7.17 screen; re-rendered in the UI simulator at both 466 and 720 — the speaker glyph (U+F028) renders on both, the 6-icon S3 / 7-icon P4 hub keeps deep sleep pinned at 6 o'clock) |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2155,8 +2214,9 @@ components/
     include/moon_consts.h    generated single source of truth (pole, DEM, earthshine, tone LUT)
     include/moon_assets.h    the asset partition access
   clock/                     RTC/minute/idle/sntp/alarm-scheduler/settings-store
-  ui/                        the LVGL UI: screens.c (15 screens) + moon_ui.c
+  ui/                        the LVGL UI: screens.c (16 screens) + moon_ui.c
     (the pipeline) + actions.c (flow) + styles.c (the theme) + fonts/ (generated)
+    + alarm_audio.c (the ES8311 ring + four-sound picker, both boards)
   imu/                       QMI8658C driver
   wifi/                      scan (settings)
   esp32_s3_touch_amoled_1_75/  the S3 BSP (CO5300 QSPI + CST9217 + TCA9554 +

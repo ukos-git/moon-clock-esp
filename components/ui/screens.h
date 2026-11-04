@@ -49,6 +49,7 @@ extern "C" {
  *      [12] settings_wifi_password   [27]  ..._label_clock_time      = objects[17] (alias)
  *      [13] settings_time            [28]  ..._label_clock_alarm     = objects[18] (alias)
  *      [14] settings_tz              [29]  deep_sleep_clock          (widget parent 4/5)
+ *      [15] settings_alarm_sound
  *                                 [30]  deep_sleep_clock__clock     = objects[16] (alias)
  *                                 [31]  ..._label_clock_time        = objects[17] (alias)
  *                                 [32]  ..._label_clock_alarm       = objects[18] (alias)
@@ -77,6 +78,7 @@ extern "C" {
  *                                 [55]  settings_time_roller_h      (manual time entry: time hour)
  *                                 [56]  settings_time_roller_mi     (time minute)
  *                                 [57]  settings_tz_roller          (timezone/UTC offset, clock_tz.h)
+ *                                 [58]  settings_alarm_sound_roller (alarm sound, alarm_audio's 4 loops)
  *
  * The wheel-keyboard's own widgets (the 26 letters, the group dividers,
  * the sweep highlight, the mode keys, the centre preview) are LOCAL to
@@ -98,8 +100,9 @@ typedef struct _objects_t {
     lv_obj_t *settings_deep_sleep;
     lv_obj_t *settings_wifi;
     lv_obj_t *settings_wifi_password;
-    lv_obj_t *settings_time; /* manual time/date entry (P4 entry point; the screen is shared) */
-    lv_obj_t *settings_tz;   /* timezone / UTC offset picker (S3 + P4 entry point) */
+    lv_obj_t *settings_time;        /* manual time/date entry (P4 entry point; the screen is shared) */
+    lv_obj_t *settings_tz;          /* timezone / UTC offset picker (S3 + P4 entry point) */
+    lv_obj_t *settings_alarm_sound; /* alarm sound picker (S3 + P4 entry point) */
     /* Per-screen children (see the layout contract above). */
     lv_obj_t *modem_sleep_clock;
     lv_obj_t *modem_sleep_clock__clock;
@@ -138,12 +141,13 @@ typedef struct _objects_t {
     lv_obj_t *settings_alarm_time_handle_start; /* the range-start drag handle (a day knob) */
     lv_obj_t *settings_alarm_time_handle_end;   /* the range-end drag handle (a day knob) */
     lv_obj_t *wifi_indicator_wifi; /* WiFi-screen indicator (below the clock): grey = connecting, white = connected */
-    lv_obj_t *settings_time_roller_d;  /* manual time entry: the date day (01-31) */
-    lv_obj_t *settings_time_roller_m;  /* the date month (01-12) */
-    lv_obj_t *settings_time_roller_y;  /* the date year (2000+YY, two-digit 00-99) */
-    lv_obj_t *settings_time_roller_h;  /* the time hour (00-23) */
-    lv_obj_t *settings_time_roller_mi; /* the time minute (00-59) */
-    lv_obj_t *settings_tz_roller;      /* the timezone / UTC offset (clock_tz option list) */
+    lv_obj_t *settings_time_roller_d;      /* manual time entry: the date day (01-31) */
+    lv_obj_t *settings_time_roller_m;      /* the date month (01-12) */
+    lv_obj_t *settings_time_roller_y;      /* the date year (2000+YY, two-digit 00-99) */
+    lv_obj_t *settings_time_roller_h;      /* the time hour (00-23) */
+    lv_obj_t *settings_time_roller_mi;     /* the time minute (00-59) */
+    lv_obj_t *settings_tz_roller;          /* the timezone / UTC offset (clock_tz option list) */
+    lv_obj_t *settings_alarm_sound_roller; /* the alarm sound name (alarm_audio's 4 loops) */
 } objects_t;
 
 extern objects_t objects;
@@ -164,6 +168,7 @@ enum ScreensEnum {
     SCREEN_ID_SETTINGS_WIFI_PASSWORD,
     SCREEN_ID_SETTINGS_TIME,
     SCREEN_ID_SETTINGS_TZ,
+    SCREEN_ID_SETTINGS_ALARM_SOUND,
 };
 
 void create_screen_modem_sleep();
@@ -226,6 +231,16 @@ void tick_screen_settings_time();
  * both reach it, so unlike the manual time entry there is no board gate. */
 void create_screen_settings_tz();
 void tick_screen_settings_tz();
+
+/* Alarm sound picker (both boards' entry point: the hub's speaker icon).
+ * Both boards carry the ES8311 codec + speaker amp, so unlike the
+ * manual time entry there is no board gate. A 4-name roller (the
+ * alarm_audio loops: two-tone / beep / bell / arpeggio) seeded from
+ * settings_alarm_sound_id; releasing the roller applies + previews the
+ * sound and persists it. A speaker button previews the currently
+ * selected loop. */
+void create_screen_settings_alarm_sound();
+void tick_screen_settings_alarm_sound();
 
 /* The circular wheel keyboard for WiFi password entry (reached by
  * tapping an AP row on the WiFi screen, which prefills the SSID).
