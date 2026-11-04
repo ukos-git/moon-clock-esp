@@ -281,7 +281,7 @@ static void ori_publish_spin_step(int32_t v10) {
 }
 
 static void ori_apply_v10(int32_t v10) {
-    lv_obj_t *roots[13] = {
+    lv_obj_t *roots[15] = {
         objects.modem_sleep,
         objects.wifi,
         objects.light_sleep,
@@ -295,8 +295,10 @@ static void ori_apply_v10(int32_t v10) {
         objects.settings_deep_sleep,
         objects.settings_wifi,
         objects.settings_wifi_password,
+        objects.settings_time,
+        objects.settings_tz,
     };
-    for (int i = 0; i < 13; i++) {
+    for (int i = 0; i < 15; i++) {
         if (!roots[i])
             continue;
         lv_obj_set_style_transform_pivot_x(roots[i], LV_PCT(50), 0);

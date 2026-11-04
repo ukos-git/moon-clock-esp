@@ -1332,7 +1332,15 @@ static void settings_anim_toggle(lv_obj_t *parent, int screen) {
     lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED, (void *)(intptr_t)screen);
 
     lv_obj_t *glyph = lv_label_create(row);
-    add_style_label_icon_solid(glyph);
+    /* The IDLE TIMEOUT (light-sleep entry, screen 0) toggle reads the
+     * regular (unfilled) moon, the SLEEP COUNTDOWN (deep-sleep entry,
+     * screen 1) the solid one -- the same weight the hub's two moon
+     * entries use (regular / solid). */
+    if (screen) {
+        add_style_label_icon_solid(glyph);
+    } else {
+        add_style_label_icon_regular(glyph);
+    }
     lv_label_set_text(glyph, GLYPH_MOON);
     lv_obj_set_size(glyph, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_align(glyph, LV_ALIGN_CENTER, 0, 0);
@@ -1628,7 +1636,11 @@ void tick_screen_settings_wifi() {
  *    hairline dividers and icons are thin lv_obj rectangles; the radial
  *    ones rotate with transform_rotation -- 0.1-degrees units (pass
  *    deg*10; v1 passed raw degrees and its ticks under-rotated 10x, a
- *    latent bug this rewrite fixes).
+ *    latent bug this rewrite fixes). LVGL's transform pivot defaults to
+ *    the object's TOP-LEFT corner, so every rotated bar (sector dividers,
+ *    box dividers, the mode-arc ticks, the commit key's X-bars) sets an
+ *    explicit LV_PCT(50) pivot or its rotation would swing it on a long
+ *    arc instead of spinning in place.
  *  - the clickable arcs (catch, mode arc, commit/discard) carry
  *    LV_OBJ_FLAG_ADV_HITTEST -- without it lv_arc falls back to a plain
  *    bounding-box test and the last-created arc wins the search.
@@ -1929,6 +1941,13 @@ static void settings_wheel_set_mode(int m) {
             int32_t dy_out = (int32_t)(WHEEL_OUTER_R_MID * sinf(a));
             lv_label_set_text(s_wheel_letters_out[s], one);
             lv_obj_align(s_wheel_letters_out[s], LV_ALIGN_CENTER, dx_out, dy_out);
+        } else {
+            /* The digit/symbol registers are 25 slots: the extra letter
+             * slot (25) must be CLEARED, not left holding the previous
+             * register's "z" at its stale position (the stray "Z" the
+             * user saw after a register switch). */
+            lv_label_set_text(s_wheel_letters_in[s], "");
+            lv_label_set_text(s_wheel_letters_out[s], "");
         }
         /* The box sector for global letter s: its equal share, raw angles
          * (may be negative or exceed 360; the setter normalises). */
@@ -1944,10 +1963,12 @@ static void settings_wheel_set_mode(int m) {
         }
     }
     /* Re-place the 12 sector dividers (the group boundaries) + the
-     * per-box dividers (the in-sector hairlines). LVGL rotates an object
-     * about its OWN centre, so a radial bar must be centred at the
-     * mid-radius (150..226 and 154..222 both centre at 188) and rotated
-     * by 0.1-degrees (pass deg*10) to run along the radial. */
+     * per-box dividers (the in-sector hairlines). LVGL's transform pivot
+     * defaults to the object's TOP-LEFT corner, so each bar carries an
+     * explicit centre pivot (set at creation) and the rotation about its
+     * own centre runs it along the radial; the bar is positioned so its
+     * centre sits at the mid-radius (150..226 and 154..222 both centre at
+     * 188), rotated by 0.1-degrees (pass deg*10). */
     for (int k = 0; k < WHEEL_N_SECTORS; k++) {
         int cnt = s_wheel_n_of[k];
         if (cnt > 0) {
@@ -2081,9 +2102,27 @@ static void event_handler_cb_wheel_commit(lv_event_t *e) {
     action_start_wifi_sync();
 }
 
-/* The trash DISCARD key (LVGL ~91.5..148.5). */
+/* The exit to the WiFi list (the centre long-press; the trash key with
+ * an EMPTY entry -- the keyboard has no other in-ring exit, the commit
+ * key is the circle-xmark). The refresh re-draws the SSID caption and
+ * resets the keyboard to lowercase. */
+static void settings_wheel_exit_to_list(void) {
+    loadScreen(SCREEN_ID_SETTINGS_WIFI);
+    ui_tick();
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
+}
+
+/* The trash DISCARD key (LVGL ~91.5..148.5). With a non-empty entry it
+ * CLEARS it; with an empty entry it EXITS the menu (the user's "trash
+ * with nothing entered should leave the screen" -- backspace on an empty
+ * entry is a no-op, so the trash doubles as the zero-input exit). */
 static void event_handler_cb_wheel_discard(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    if (s_wheel_pw_len == 0) {
+        ESP_LOGW("settings_wheel", "trash with empty entry -> back to the WiFi list");
+        settings_wheel_exit_to_list();
         return;
     }
     s_wheel_pw_len = 0;
@@ -2092,7 +2131,7 @@ static void event_handler_cb_wheel_discard(lv_event_t *e) {
     ESP_LOGW("settings_wheel", "discarded (pw cleared)");
 }
 
-/* The centre: a plain tap BACKSPACES (v2 -- the 400 ms long-press became
+/* The centre: a plain tap BACKSPACES (v2 -- the 400 ms long-press is
  * the ONLY way back to the WiFi list: v2 dropped v1's in-ring exit, the
  * circle-xmark glyph is now the commit key, and the centre box (r ~55)
  * never overlaps the sweep band (r 140..233), so the hold cannot start
@@ -2107,9 +2146,7 @@ static void event_handler_cb_wheel_center(lv_event_t *e) {
         }
     } else if (code == LV_EVENT_LONG_PRESSED) {
         ESP_LOGW("settings_wheel", "long press -> back to the WiFi list");
-        loadScreen(SCREEN_ID_SETTINGS_WIFI);
-        ui_tick();
-        settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
+        settings_wheel_exit_to_list();
     }
 }
 
@@ -2203,6 +2240,11 @@ void create_screen_settings_wifi_password() {
         lv_obj_set_style_bg_color(s_wheel_dividers[k], WHEEL_HAIR, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(s_wheel_dividers[k], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(s_wheel_dividers[k], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        /* The rotation below runs about the bar's OWN centre -- the LVGL
+         * default pivot is the top-left corner, which would swing the bar
+         * out on a long arc (the stray line the user saw through "z"). */
+        lv_obj_set_style_transform_pivot_x(s_wheel_dividers[k], LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(s_wheel_dividers[k], LV_PCT(50), 0);
         lv_obj_clear_flag(s_wheel_dividers[k], LV_OBJ_FLAG_CLICKABLE);
         for (int j = 0; j < 2; j++) {
             s_wheel_box_dividers[k][j] = lv_obj_create(obj);
@@ -2210,6 +2252,10 @@ void create_screen_settings_wifi_password() {
             lv_obj_set_style_bg_color(s_wheel_box_dividers[k][j], WHEEL_HAIR, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(s_wheel_box_dividers[k][j], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(s_wheel_box_dividers[k][j], 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            /* Centre pivot: the rotation runs about the bar's own centre
+             * (the LVGL default is the top-left corner). */
+            lv_obj_set_style_transform_pivot_x(s_wheel_box_dividers[k][j], LV_PCT(50), 0);
+            lv_obj_set_style_transform_pivot_y(s_wheel_box_dividers[k][j], LV_PCT(50), 0);
             lv_obj_clear_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_flag(s_wheel_box_dividers[k][j], LV_OBJ_FLAG_HIDDEN);
         }
@@ -2270,10 +2316,14 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
     lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
     /* r_out = W/2 - pad: the track's outer edge at r 144 needs pad 89.
-     * The INDICATOR radius is arc_r minus the indicator's own pad -- set
-     * it to 0 so the lit key covers exactly the track's annulus. */
+     * The INDICATOR has its OWN pad (radius = arc_r - the indicator pad):
+     * the same pad as the track, so the lit key's outer edge also lands at
+     * r 144 and its 60 px width covers the track's r 84..144 annulus
+     * exactly (a 0 indicator pad would push the lit key out to r 173..233,
+     * over the letter ring -- the "big lit wedge across the letters" the
+     * user saw). */
     lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 150, 390);
     lv_arc_set_angles(s_wheel_mode_arc, 150, 210);
     lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2310,6 +2360,10 @@ void create_screen_settings_wifi_password() {
         lv_obj_set_style_bg_color(t, lv_color_hex(0x5F5F5F), LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_set_style_border_width(t, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        /* Centre pivot: the rotation runs about the tick's own centre
+         * (the LVGL default is the top-left corner). */
+        lv_obj_set_style_transform_pivot_x(t, LV_PCT(50), 0);
+        lv_obj_set_style_transform_pivot_y(t, LV_PCT(50), 0);
         int32_t tx = (int32_t)(WHEEL_MODE_R_MID * cosf(a));
         int32_t ty = (int32_t)(WHEEL_MODE_R_MID * sinf(a));
         lv_obj_set_pos(t, WHEEL_C + tx - UI_PX(28), WHEEL_C + ty);
@@ -2374,6 +2428,11 @@ void create_screen_settings_wifi_password() {
             lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            /* Centre pivot: the 45/135-degree rotation runs about the bar's
+             * own centre (the LVGL default is the top-left corner, which
+             * swings the bars off the circle and reads as a stray dash). */
+            lv_obj_set_style_transform_pivot_x(bar, LV_PCT(50), 0);
+            lv_obj_set_style_transform_pivot_y(bar, LV_PCT(50), 0);
             lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);
             lv_obj_set_style_transform_rotation(bar, i == 0 ? 450 : 1350, 0); /* 0.1-deg units */
             lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
