@@ -908,22 +908,23 @@ the generated `moon_consts.h` — the gate never exercises them). Both shadow
 cones are the straight line from one solar limb to the opposite terrestrial
 limb, so their radii at the axial coordinate a (meters from the Earth) are
 linear: the umbra cone narrows to a tip at
-`D_tip = R_earth·AU / (R_sun − R_earth) ≈ 1.383e6 m` (the line sun-limb →
-earth-limb crosses the axis just past the Moon; the cone radius there is 0) and
-the penumbra diverges at slope `(R_sun + R_earth)/AU ≈ 0.004693 1/m`. At the
-mean lunar distance: umbra ≈ 4,520 km, penumbra ≈ 8,255 km (the almanac
-figures). The per-pixel occlusion `moon_event_occ` (header-inline, shared by
-the bake hot path and the host tools) projects the pixel's surface point onto
-the axis, takes the perpendicular distance, and returns a smooth 0..1 between
-the two cone edges (1 inside the umbra, 0 outside the penumbra, linear ramp
-between — the partial-eclipse "bite" lands in the right place on the disk).
-Validated at the 2025-03-14 total lunar eclipse against NASA: penumbral
-~03:50/09:50 vs 03:59/10:01, partial ~05:15/~09:45 vs 05:10/08:50, totality
-~06:20/~07:25 vs 06:27/07:33, greatest eclipse 07:03 vs 06:59 UTC — all
-contacts within ~10 min. (The Moon's center passes 2,229 km from the shadow
-axis at this eclipse's 0.32° ecliptic latitude, so the umbra fully engulfs the
-disk through totality and off(t) is hypotenuse-shaped — the linear ~59 km/min
-synodic drift shows on the flanks, the minimum at the axis.)
+`D_tip = R_earth·AU / (R_sun − R_earth) ≈ 1.383e9 m` (~ 1,383,000 km, the line
+sun-limb → earth-limb crosses the axis just past the Moon; the cone radius
+there is 0) and the penumbra diverges at slope
+`(R_sun + R_earth)/AU ≈ 0.004693 1/m`. At the mean lunar distance: umbra ≈
+4,520 km, penumbra ≈ 8,255 km (the almanac figures). The per-pixel occlusion
+`moon_event_occ` (header-inline, shared by the bake hot path and the host
+tools) projects the pixel's surface point onto the axis, takes the
+perpendicular distance, and returns a smooth 0..1 between the two cone edges (1
+inside the umbra, 0 outside the penumbra, linear ramp between — the
+partial-eclipse "bite" lands in the right place on the disk). Validated at the
+2025-03-14 total lunar eclipse against NASA: penumbral ~03:50/09:50 vs
+03:59/10:01, partial ~05:15/~09:45 vs 05:10/08:50, totality ~06:20/~07:25 vs
+06:27/07:33, greatest eclipse 07:03 vs 06:59 UTC — all contacts within ~10 min.
+(The Moon's center passes 2,229 km from the shadow axis at this eclipse's 0.32°
+ecliptic latitude, so the umbra fully engulfs the disk through totality and
+off(t) is hypotenuse-shaped — the linear ~59 km/min synodic drift shows on the
+flanks, the minimum at the axis.)
 
 **The pre-calculated color** = per-event tint LUTs. The bake stays 8-bit gray:
 `moon_gray565_set_event` (moon_render.c) rebuilds the 256-entry RGB565 LUT
@@ -2411,7 +2412,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (182,043 B)
+- `docs/doc_template.md` (182,059 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -15102,7 +15103,8 @@ static const unsigned char MOON_TONE_LUT[256] = {
  * the straight line from one solar limb to the opposite terrestrial
  * limb, so their radii at the axial coordinate a (m from the Earth)
  * are linear in a:
- *   umbra tip    D_tip = R_earth * AU / (R_sun - R_earth) ~ 1.383e6 m
+ *   umbra tip    D_tip = R_earth * AU / (R_sun - R_earth) ~ 1.383e9 m
+ *                (~ 1,383,000 km, the classical umbra-tip distance)
  *                (the line sun-limb -> earth-limb crosses the axis just
  *                past the Moon; the cone radius there is 0)
  *   penumbra     slope = (R_sun + R_earth) / AU ~ 0.004693 1/m

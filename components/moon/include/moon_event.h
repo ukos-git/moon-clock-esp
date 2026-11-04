@@ -32,7 +32,8 @@
  * the straight line from one solar limb to the opposite terrestrial
  * limb, so their radii at the axial coordinate a (m from the Earth)
  * are linear in a:
- *   umbra tip    D_tip = R_earth * AU / (R_sun - R_earth) ~ 1.383e6 m
+ *   umbra tip    D_tip = R_earth * AU / (R_sun - R_earth) ~ 1.383e9 m
+ *                (~ 1,383,000 km, the classical umbra-tip distance)
  *                (the line sun-limb -> earth-limb crosses the axis just
  *                past the Moon; the cone radius there is 0)
  *   penumbra     slope = (R_sun + R_earth) / AU ~ 0.004693 1/m
