@@ -18,11 +18,12 @@ including the ones that beat NASA on purpose, and the ones that were
 measured, rejected, and documented anyway.
 
 .. figure:: _static/photos/bench_front.jpg
-   :alt: The device on the bench stand, showing the current (near new-moon) phase
+   :alt: The device on the 3-D-printed bench stand
 
-   The product on the bench stand, photographed for this book (November
-   2026). The panel shows the current phase — a thin lit crescent with
-   the computed, backlit dark side everywhere else.
+   The product on the 3-D-printed bench stand, photographed for this
+   book (November 2026). The 3-D-shaded moon it renders — physically
+   correct, down to the computed backlit dark side — is the simulated
+   frame in Chapter 1.
 
 Contents
 --------

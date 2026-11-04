@@ -27,9 +27,10 @@ burn-in spin, the "dusk") possible on a $20 board.
    The finished clock, simulated: the home screen composited onto the
    Waveshare ESP32-S3-Touch-AMOLED-1.75's glass (a uisim frame at
    true panel geometry over the Waveshare product photo) — the moon
-   at the current phase, the minute, the seconds arc. The bench
-   photographs in the hardware chapters show the same product
-   physical; the renders show what the *panel* actually shows.
+   at the sim's fixed seed (2026-11-01 12:35 UTC, a waning gibbous),
+   the minute, the seconds arc. The bench photographs in the hardware
+   chapters show the same product physical; the renders show what the
+   *panel* actually shows.
 
 What makes it different
 -----------------------
