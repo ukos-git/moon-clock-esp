@@ -411,7 +411,11 @@ both ~30 % under the 2048 K factory); after the **per-digit clock roll**
 and rolls up into the next digit over 300 ms on a minute change,
 odometer-style, instead of a hard swap): P4 **1,580,064 B** (`0x181c20`, +640
 B), S3 **1,463,824 B** (`0x165610`, +576 B; both ~30 % under the 2048 K
-factory).
+factory); after the **dusk kill margin** (2026-11-04, §5.2 — the dusk's rim
+sliver kill is bound at `dk_sup + MOON_DUSK_KILL_MARGIN`, so the lit crescent
+is thinner through the whole spin at full brightness; the endpoint frame is
+byte-identical): P4 **1,580,080 B** (`0x181c30`, +16 B), S3 **1,463,920 B**
+(`0x165670`, +96 B; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -768,7 +772,19 @@ angular scale.
    dead. At the endpoint the visible disk is entirely d < dk_sup, so the band
    between the two bounds is never on screen (no pop). Every non-dusk caller
    passes `0.0f` (the margin is inert there — the night test reduces to
-   `lns ≤ 0`, byte-identical to the pre-fix code);
+   `lns ≤ 0`, byte-identical to the pre-fix code). **Dusk kill margin** (UI
+   layer, 2026-11-04 bugreport — "kill the limb harder"): the dusk task
+   (moon_ui.c) passes `dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN` (0.12, ~7° of
+   crescent edge) — not the geometric `dk_sup` — to BOTH the shade-map build
+   and the final endpoint bake (the core's own `MOON_DK_MARGIN` erosion still
+   applies on top, so map and final bake share the effective bound
+   `dk_sup + 0.12 + 0.010` and agree at the endpoint). The lit crescent is thus
+   thinner throughout the spin (host A/B at 2026-11-04, mid-dusk: lit 6023 →
+   3595 px) at full brightness where it remains; the backlit dark side and the
+   endpoint frame are byte-identical (the endpoint disk is entirely d ≤ dk_sup
+   < dk_kill, and `dk_sup` is ≤ ~0.15 at every epoch — the pole spin can always
+   reach the near-fully-dark view — so `dk_kill` is clamped to < 1.0 only as a
+   mathematical guard that never triggers);
 7. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
    then 8-bit → RGB565. The final 8-bit → RGB565 LUT is **warm by default** (an
    ARTISTIC display choice, `moon_render.c` `g565_build`): the NASA SVS
@@ -1782,6 +1798,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
 | Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
 | Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                             |
+| Binary (2026-11-04, after the dusk kill margin)  | S3: `0x165670` = 1,463,920 B in the 2,097,152 B partition (633,232 B free — the dusk's rim-sliver kill widened by `MOON_DUSK_KILL_MARGIN` 0.12, so the lit crescent is thinner through the pole spin at full brightness while the endpoint frame stays byte-identical, §5.2; host A/B mid-dusk lit 6023 → 3595 px, endpoint maxdiff 0). P4: `0x181c30` = 1,580,080 B in the 9,437,184 B partition (7,857,104 B free — +16 B; moon_ui.c is shared UI code, so the P4's dusk gets the same margin)                                                                                               |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2183,14 +2200,14 @@ code.
 - `docs/book/_static/photos/bench_crescent.jpg` (33,718 B)
 - `docs/book/_static/photos/bench_front.jpg` (90,688 B)
 - `docs/book/_static/photos/bench_panel.jpg` (25,922 B)
-- `docs/book/_static/photos/sim_alarm.png` (189,982 B)
-- `docs/book/_static/photos/sim_deep_sleep.png` (595,958 B)
-- `docs/book/_static/photos/sim_home.png` (666,617 B)
-- `docs/book/_static/photos/sim_keyboard.png` (281,706 B)
-- `docs/book/_static/photos/sim_light_sleep.png` (504,607 B)
+- `docs/book/_static/photos/sim_alarm.png` (208,711 B)
+- `docs/book/_static/photos/sim_deep_sleep.png` (681,857 B)
+- `docs/book/_static/photos/sim_home.png` (675,535 B)
+- `docs/book/_static/photos/sim_keyboard.png` (307,673 B)
+- `docs/book/_static/photos/sim_light_sleep.png` (580,717 B)
 - `docs/book/conf.py` (2,738 B)
-- `docs/book/index.rst` (3,675 B)
-- `docs/book/part1/01-overview.rst` (5,518 B)
+- `docs/book/index.rst` (3,682 B)
+- `docs/book/part1/01-overview.rst` (5,565 B)
 - `docs/book/part1/02-hardware-s3.rst` (5,140 B)
 - `docs/book/part1/03-hardware-p4.rst` (4,710 B)
 - `docs/book/part1/04-reference.rst` (4,323 B)
@@ -2221,7 +2238,7 @@ code.
 - `docs/book/tools/gen_kbd_panels.py` (4,654 B)
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
-- `docs/doc_template.md` (167,569 B)
+- `docs/doc_template.md` (169,399 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -33134,6 +33151,12 @@ static void moon_sweep_interrupt(void) {
  * CURRENT phase, not the dark-side disk, and the spin resumes from exactly
  * the parked pose.
  */
+/* The dusk's rim-sliver kill bound is dk_sup + this margin ("kill the
+ * limb harder", 2026-11-04 bugreport): 0.12 in the cosine distance d,
+ * ~7 deg of crescent edge. The lit region stays full brightness where
+ * it remains; the shade map and the final bake use the same bound. */
+#define MOON_DUSK_KILL_MARGIN 0.12f
+
 static void moon_dusk_task(void *arg) {
     (void)arg;
     int frames = s_dusk_frames;
@@ -33174,9 +33197,21 @@ static void moon_dusk_task(void *arg) {
      * in agreement with the final bake at the endpoint (no pop). The
      * one step change is at frame 1 (the parked pose's true terminator
      * -> the shifted one, ~7 deg of crescent edge today): the user-
-     * accepted look over the ray. */
+     * accepted look over the ray.
+ *
+ * The kill margin (the 2026-11-04 bugreport, "kill the limb harder"): the
+ * bound is dk_sup + MOON_DUSK_KILL_MARGIN, not the geometric dk_sup --
+ * the lit crescent is THINNER by 0.12 (~7 deg in the cosine distance d),
+ * still full brightness where it remains, and the map + the final bake
+ * agree on the same bound (no pop at the endpoint). The bound is clamped
+ * < 1.0: at dk_sup = 1 (the parked pose 90 deg from the Sun -- the phi*
+ * minimum still half-lit) a wider bound would write the backlit side
+ * over the whole disk and black out the half that is still lit. */
     float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
+    float dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN;
+    if (dk_kill >= 1.0f)
+        dk_kill = 0.999f;
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
     /* One-time: the full body-frame equirect map for this epoch (lit +
@@ -33186,10 +33221,12 @@ static void moon_dusk_task(void *arg) {
      * once, and the sweep does not use the map). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        /* dark_zero + dk_sup (+ margin): the backlit night side for
-         * d < dk_sup kills the 0 < d < dk_sup rim sliver in the MAP
-         * itself (the "white ray" on the re-projected frames, see above). */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_sup);
+        /* dark_zero + dk_kill (the geometric bound + the kill margin):
+         * the backlit night side for d < dk_kill kills the 0 < d <
+         * dk_kill rim sliver in the MAP itself (the "white ray" on the
+         * re-projected frames, see above), one step wider than the
+         * geometric sliver. */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -33231,7 +33268,7 @@ static void moon_dusk_task(void *arg) {
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
-                               dk_sup); /* kill the endpoint's lit rim sliver (the "white ray") */
+                               dk_kill); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -37545,7 +37582,8 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                         add_style_label_bold(slot);
                         /* The one-line height of the digits font = the cell
                          * height = the roll's translate distance. */
-                        s_clock_line_h[(size_t)i] = lv_font_get_line_height(lv_obj_get_style_text_font(slot, LV_PART_MAIN));
+                        s_clock_line_h[(size_t)i] =
+                            lv_font_get_line_height(lv_obj_get_style_text_font(slot, LV_PART_MAIN));
                         /* The CLIPPING CELL wrapping the label: fixed W x
                          * one-line, so the roll scrolls the label inside a
                          * one-digit window -- 12:35 -> 12:36 rolls the "5" up

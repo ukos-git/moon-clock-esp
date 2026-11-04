@@ -1773,6 +1773,12 @@ static void moon_sweep_interrupt(void) {
  * CURRENT phase, not the dark-side disk, and the spin resumes from exactly
  * the parked pose.
  */
+/* The dusk's rim-sliver kill bound is dk_sup + this margin ("kill the
+ * limb harder", 2026-11-04 bugreport): 0.12 in the cosine distance d,
+ * ~7 deg of crescent edge. The lit region stays full brightness where
+ * it remains; the shade map and the final bake use the same bound. */
+#define MOON_DUSK_KILL_MARGIN 0.12f
+
 static void moon_dusk_task(void *arg) {
     (void)arg;
     int frames = s_dusk_frames;
@@ -1813,9 +1819,21 @@ static void moon_dusk_task(void *arg) {
      * in agreement with the final bake at the endpoint (no pop). The
      * one step change is at frame 1 (the parked pose's true terminator
      * -> the shifted one, ~7 deg of crescent edge today): the user-
-     * accepted look over the ray. */
+     * accepted look over the ray.
+     *
+     * The kill margin (the 2026-11-04 bugreport, "kill the limb harder"): the
+     * bound is dk_sup + MOON_DUSK_KILL_MARGIN, not the geometric dk_sup --
+     * the lit crescent is THINNER by 0.12 (~7 deg in the cosine distance d),
+     * still full brightness where it remains, and the map + the final bake
+     * agree on the same bound (no pop at the endpoint). The bound is clamped
+     * < 1.0: at dk_sup = 1 (the parked pose 90 deg from the Sun -- the phi*
+     * minimum still half-lit) a wider bound would write the backlit side
+     * over the whole disk and black out the half that is still lit. */
     float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
     float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
+    float dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN;
+    if (dk_kill >= 1.0f)
+        dk_kill = 0.999f;
     int64_t t0 = esp_timer_get_time();
     bool s_frame_touched = false;
     /* One-time: the full body-frame equirect map for this epoch (lit +
@@ -1825,10 +1843,12 @@ static void moon_dusk_task(void *arg) {
      * once, and the sweep does not use the map). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        /* dark_zero + dk_sup (+ margin): the backlit night side for
-         * d < dk_sup kills the 0 < d < dk_sup rim sliver in the MAP
-         * itself (the "white ray" on the re-projected frames, see above). */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_sup);
+        /* dark_zero + dk_kill (the geometric bound + the kill margin):
+         * the backlit night side for d < dk_kill kills the 0 < d <
+         * dk_kill rim sliver in the MAP itself (the "white ray" on the
+         * re-projected frames, see above), one step wider than the
+         * geometric sliver. */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -1870,7 +1890,7 @@ static void moon_dusk_task(void *arg) {
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
                 moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1,
-                               dk_sup); /* kill the endpoint's lit rim sliver (the "white ray") */
+                               dk_kill); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
