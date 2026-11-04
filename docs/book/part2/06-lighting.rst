@@ -31,7 +31,8 @@ of sight — it is what makes the surface curve toward the viewer at the
 limb:
 
 .. figure:: ../_static/figs/ortho_view.png
-   :align: center
+   :alt: Orthographic view construction. (a) The pixel's screen offset (u, v) plus the out-of-page component w times E form the base direction. (b) Side view: the pixel sits off the line of sight by angle phi, so w equals cos(phi), 1 at the disk centre and 0 at the limb.
+   :figclass: align-center
    :width: 100%
 
    The orthographic view. (a) The pixel's screen offset builds the base direction: the in-page part is the 2-D offset :math:`(u, v)`, and the missing third component :math:`w\,\mathbf{E}` points at the viewer (out of the page). (b) Side view: the pixel sits off the line of sight by the angle :math:`\varphi`; :math:`w = \cos\varphi` is 1 at the disk centre and 0 at the limb — the term that pulls :math:`\hat{\mathbf{r}}` back toward the camera and makes the limb curve.
@@ -76,7 +77,8 @@ the base-sphere normal by the local slope, and take the Lambert with that
 normal. That is the **displaced-normal** model.
 
 .. figure:: ../_static/figs/terminator_ridge.png
-   :align: center
+   :alt: Cross-section of a ridge at the terminator. The flat model's straight lit/dark boundary (blue) misplaces two points against the jagged true boundary (red): M sits in the ridge's cast shadow but the flat model calls it lit; N sits night-side of the flat line but its inner wall is lit on the true surface.
+   :figclass: align-center
    :width: 78%
 
    Why the flat model fails, in one cross-section. The flat model's terminator is the straight line :math:`d = 0` (blue); the true lit/dark boundary (red) is jagged. M sits *day* side of the flat line but in the ridge's cast shadow — the flat model calls it lit, the true surface is dark. N sits *night* side of the flat line, but its inner wall turns toward the Sun — the flat model calls it black, the true surface is lit. These are exactly the jagged-edge details NASA's frames show.
@@ -124,7 +126,8 @@ and the *unclipped* :math:`lns` is kept around because the dark side
 lit from the anti-solar direction.
 
 .. figure:: ../_static/figs/displaced_normal.png
-   :align: center
+   :alt: The displaced-normal construction. (a) A point on a flank sloping toward the grazing Sun: the flat model's radial normal reads d about 0.07, the slope-tilted true normal reads lns about 0.22. (b) The small-slope form: lns = (d minus G dot S) over the square root of (1 plus the squared norm of G), accurate to under 0.5% at the Moon's real slopes.
+   :figclass: align-center
    :width: 100%
 
    The displaced-normal construction. (a) A point on a flank that slopes toward the grazing Sun: the flat model takes the radial (straight-up) normal and reads :math:`d \approx 0.07` (barely lit); the true normal, tilted by the local slope :math:`\mathbf{G}`, reads :math:`lns \approx 0.22` — three times brighter, and the difference is the ridge-shadow contrast the flat model cannot see. (b) The small-slope form worked out: :math:`lns = (d - \mathbf{G}\cdot\mathbf{S}) / \sqrt{1 + \lVert\mathbf{G}\rVert^2}` needs no explicit normalization, and is accurate to under 0.5% at the Moon's real slopes.
@@ -264,7 +267,8 @@ the subject of Chapter 7; the artistic pass that made the dark side read
 as a real moon is Chapter 8.
 
 .. figure:: ../_static/figs/earthshine.png
-   :align: center
+   :alt: The fitted earthshine cubic with the device constants: zero at the terminator (x = 0), peaking at only about 16 grey levels at the centre of the night disk (x = 1).
+   :figclass: align-center
    :width: 72%
 
    The fitted earthshine cubic with the device constants (``moon_consts.h``). It peaks at only ~16 grey levels at the dark-side centre (:math:`x = 1`) — deliberately faint. :math:`x = 0` at the terminator, :math:`x = 1` at the centre of the night disk.
@@ -281,7 +285,8 @@ freezes a **256-entry 8-bit tone LUT** that maps the raw
 :math:`\text{albedo}\cdot L` index to the reference's brightness:
 
 .. figure:: ../_static/figs/tone_lut.png
-   :align: center
+   :alt: The shipped 256-entry tone LUT: display brightness (y) against the raw albedo-times-L index (x). Bin 0 is 0, and the tail is not monotonic past about 220, so the brightest floors roll off rather than pinning at 255.
+   :figclass: align-center
    :width: 72%
 
    The shipped 256-entry tone LUT (``tone_lut.bin``), raw :math:`\text{albedo}\times L` index (x) against display brightness (y). Two load-bearing properties are visible: **bin 0 is 0** (no sunlight → the LUT contributes nothing; only earthshine remains), and the **tail is not monotonic past ~220** — the brightest crater floors and mare lowlands compress and dip slightly rather than pinning at 255, matching the reference's highlight rolloff.
@@ -328,7 +333,8 @@ chapter shows what happens to the pixels where :math:`lns \le 0` — the
 dark side, which is where this product made its most deliberate choices.
 
 .. figure:: ../_static/figs/bake_pipeline.png
-   :align: center
+   :alt: One frame through the whole bake pipeline, eight intermediate maps of a waning gibbous at 466 by 466: the base-sphere cosine d, the displaced-normal result lns (ragged terminator), the clipped lit side L, the unlit albedo A, the raw A-times-L product idx, the tone-mapped LUT, the earthshine term es (exaggerated 8x), and the final out the device shows.
+   :figclass: align-center
    :width: 100%
 
    One frame through the whole pipeline — each panel is the actual
