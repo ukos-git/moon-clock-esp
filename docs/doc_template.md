@@ -1041,10 +1041,12 @@ what each control changes live.
   px per digit — the maximum digit advance; 26 px for the colon — its own
   advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
   38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
-  (at 466) and only the ink moves. `objects[16+1]` stays the slot row — the P4
-  unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
-  cascades to the five labels — and the minute tick updates only the
-  character(s) that changed, not the whole string.
+  (at 466) and only the ink moves. `objects[17+1]` stays the slot row (the
+  index shifted +1 when the alarm-sound screen root joined `objects_t`,
+  2026-11-04 — the off-by-one that drew the bare slot row instead of the
+  centred flex widget) — the P4 unsynced-clock dim still targets it with
+  `lv_obj_set_style_opa` and the style cascades to the five labels — and the
+  minute tick updates only the character(s) that changed, not the whole string.
 - **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
   swap): each slot label sits in a one-line **clipping cell** (fixed width ×
   the digits font's line height — 71 px at 466; the cell clips its child to one

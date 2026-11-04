@@ -251,7 +251,10 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 16);
+            /* 17 = objects.modem_sleep_clock__clock (the widget
+             * container) -- objects_t shifted +1 when settings_alarm_sound
+             * joined the screen roots; 16 is the <screen>_clock parent. */
+            create_user_widget_clock(obj, 17);
         }
         {
             // arc-clock-seconds-modem
@@ -321,7 +324,7 @@ void create_screen_wifi() {
              * created once, on the modem-sleep screen, and
              * ui_clock_attach_to() reparents it here at the switch.
              * Only the container is created; the alias rows
-             * (wifi_clock__clock & co = objects[16/17/18]) are
+             * (wifi_clock__clock & co = objects[17/18/19]) are
              * assigned in create_screen_modem_sleep. */
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
@@ -2913,8 +2916,8 @@ void tick_screen_settings_alarm_sound() {}
  * label is its first child). ONE row for the one widget: the five
  * moon screens alias the same objects (layout contract 2), so there
  * is no per-screen set any more. Not part of objects_t: the layout
- * contract names only the slot row at 16+1 and the alarm label at
- * 16+2; the prefix row is internal to the widget. */
+ * contract names only the slot row at 17+1 and the alarm label at
+ * 17+2; the prefix row is internal to the widget. */
 static lv_obj_t *s_alarm_prefix;
 
 /* The shared clock widget's fixed-width HH:MM slot labels (see
@@ -2940,8 +2943,8 @@ static int32_t s_clock_line_h[5];
  * is a flex row holding the weekday prefix (32 px range font, grey,
  * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
  * row keeps the pair centred and cross-centres the two heights.
- * Called exactly once (BASE 16, the modem-sleep screen); the other
- * four moon screens' bases ALIAS objects[16/17/18] (the last block
+ * Called exactly once (BASE 17, the modem-sleep screen); the other
+ * four moon screens' bases ALIAS objects[17/18/19] (the last block
  * below), so all five screens read and tick the same three objects --
  * the clock is always current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
@@ -3086,11 +3089,14 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     }
     /* The four other moon screens ALIAS the same three objects at
      * their own bases (layout contract 2): one widget, five screens.
-     * The <screen>_clock containers (15/20/25/29/34) stay distinct
+     * The <screen>_clock containers (16/21/26/30/35) stay distinct
      * (the attach targets + the unclickable_recursive targets). */
     lv_obj_t *w[3] = {objects.modem_sleep_clock__clock, objects.modem_sleep_clock__label_clock_time,
                       objects.modem_sleep_clock__label_clock_alarm};
-    int bases[4] = {21, 26, 30, 35};
+    /* __clock slots: +1 each when settings_alarm_sound joined the screen
+     * roots (the flex is now at objects[17], the slot row [18], the alarm
+     * [19]); the four screens alias the shared widget at their __clock. */
+    int bases[4] = {22, 27, 31, 36};
     for (int b = 0; b < 4; b++) {
         for (int i = 0; i < 3; i++) {
             ((lv_obj_t **)&objects)[bases[b] + i] = w[i];
@@ -3193,7 +3199,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
     }
 #endif
     {
-        /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
+        /* The HH:MM slot row (objects[17+1] = objects[startWidgetIndex+1],
          * the shared set): each character that changes ROLLS (odometer
          * slide, see the block above), not a hard swap. */
         const char *new_val = get_var_clock_label();
@@ -3326,7 +3332,10 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
-    tick_user_widget_clock(16);
+    /* 17 = the shared flex widget's slot (shifted +1 when
+     * settings_alarm_sound joined the roots); +1 inside the tick is the
+     * HH:MM slot row. */
+    tick_user_widget_clock(17);
 }
 
 void change_color_theme(uint32_t theme_index) {

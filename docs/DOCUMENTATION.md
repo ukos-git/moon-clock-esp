@@ -1041,10 +1041,12 @@ what each control changes live.
   px per digit — the maximum digit advance; 26 px for the colon — its own
   advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
   38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
-  (at 466) and only the ink moves. `objects[16+1]` stays the slot row — the P4
-  unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
-  cascades to the five labels — and the minute tick updates only the
-  character(s) that changed, not the whole string.
+  (at 466) and only the ink moves. `objects[17+1]` stays the slot row (the
+  index shifted +1 when the alarm-sound screen root joined `objects_t`,
+  2026-11-04 — the off-by-one that drew the bare slot row instead of the
+  centred flex widget) — the P4 unsynced-clock dim still targets it with
+  `lv_obj_set_style_opa` and the style cascades to the five labels — and the
+  minute tick updates only the character(s) that changed, not the whole string.
 - **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
   swap): each slot label sits in a one-line **clipping cell** (fixed width ×
   the digits font's line height — 71 px at 466; the cell clips its child to one
@@ -2417,7 +2419,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (183,723 B)
+- `docs/doc_template.md` (183,896 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -16126,7 +16128,10 @@ void action_update_clock_display(lv_event_t *e) {
     // tick functions no longer tick it): a minute flip redraws the
     // digits wherever the widget is attached (a settings screen keeps
     // it computed-but-unrendered on the last moon screen).
-    tick_user_widget_clock(16);
+    /* 17 = the shared flex widget's objects_t slot (shifted +1 when
+     * settings_alarm_sound joined the screen roots); +1 inside the tick
+     * is the HH:MM slot row. */
+    tick_user_widget_clock(17);
 }
 
 /* Two-letter weekday of the next fire, for the main-screen alarm prefix
@@ -36864,7 +36869,10 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 16);
+            /* 17 = objects.modem_sleep_clock__clock (the widget
+             * container) -- objects_t shifted +1 when settings_alarm_sound
+             * joined the screen roots; 16 is the <screen>_clock parent. */
+            create_user_widget_clock(obj, 17);
         }
         {
             // arc-clock-seconds-modem
@@ -36934,7 +36942,7 @@ void create_screen_wifi() {
              * created once, on the modem-sleep screen, and
              * ui_clock_attach_to() reparents it here at the switch.
              * Only the container is created; the alias rows
-             * (wifi_clock__clock & co = objects[16/17/18]) are
+             * (wifi_clock__clock & co = objects[17/18/19]) are
              * assigned in create_screen_modem_sleep. */
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
@@ -39526,8 +39534,8 @@ void tick_screen_settings_alarm_sound() {}
  * label is its first child). ONE row for the one widget: the five
  * moon screens alias the same objects (layout contract 2), so there
  * is no per-screen set any more. Not part of objects_t: the layout
- * contract names only the slot row at 16+1 and the alarm label at
- * 16+2; the prefix row is internal to the widget. */
+ * contract names only the slot row at 17+1 and the alarm label at
+ * 17+2; the prefix row is internal to the widget. */
 static lv_obj_t *s_alarm_prefix;
 
 /* The shared clock widget's fixed-width HH:MM slot labels (see
@@ -39553,8 +39561,8 @@ static int32_t s_clock_line_h[5];
  * is a flex row holding the weekday prefix (32 px range font, grey,
  * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
  * row keeps the pair centred and cross-centres the two heights.
- * Called exactly once (BASE 16, the modem-sleep screen); the other
- * four moon screens' bases ALIAS objects[16/17/18] (the last block
+ * Called exactly once (BASE 17, the modem-sleep screen); the other
+ * four moon screens' bases ALIAS objects[17/18/19] (the last block
  * below), so all five screens read and tick the same three objects --
  * the clock is always current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
@@ -39699,11 +39707,14 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     }
     /* The four other moon screens ALIAS the same three objects at
      * their own bases (layout contract 2): one widget, five screens.
-     * The <screen>_clock containers (15/20/25/29/34) stay distinct
+     * The <screen>_clock containers (16/21/26/30/35) stay distinct
      * (the attach targets + the unclickable_recursive targets). */
     lv_obj_t *w[3] = {objects.modem_sleep_clock__clock, objects.modem_sleep_clock__label_clock_time,
                       objects.modem_sleep_clock__label_clock_alarm};
-    int bases[4] = {21, 26, 30, 35};
+    /* __clock slots: +1 each when settings_alarm_sound joined the screen
+     * roots (the flex is now at objects[17], the slot row [18], the alarm
+     * [19]); the four screens alias the shared widget at their __clock. */
+    int bases[4] = {22, 27, 31, 36};
     for (int b = 0; b < 4; b++) {
         for (int i = 0; i < 3; i++) {
             ((lv_obj_t **)&objects)[bases[b] + i] = w[i];
@@ -39806,7 +39817,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
     }
 #endif
     {
-        /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
+        /* The HH:MM slot row (objects[17+1] = objects[startWidgetIndex+1],
          * the shared set): each character that changes ROLLS (odometer
          * slide, see the block above), not a hard swap. */
         const char *new_val = get_var_clock_label();
@@ -39939,7 +39950,10 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
-    tick_user_widget_clock(16);
+    /* 17 = the shared flex widget's slot (shifted +1 when
+     * settings_alarm_sound joined the roots); +1 inside the tick is the
+     * HH:MM slot row. */
+    tick_user_widget_clock(17);
 }
 
 void change_color_theme(uint32_t theme_index) {
@@ -40027,13 +40041,13 @@ extern "C" {
  *    getLvglObjectFromIndex), so a mismatch is an out-of-bounds read,
  *    not a visible bug.
  *
- * 2. ONE shared clock widget. create_user_widget_clock(parent, 16) is
+ * 2. ONE shared clock widget. create_user_widget_clock(parent, 17) is
  *    called exactly once (the modem-sleep screen) and creates the only
- *    clock: objects[16] (the full-screen flex container), objects[17]
- *    (the HH:MM slot row) and objects[18] (the alarm label). The four
+ *    clock: objects[17] (the full-screen flex container), objects[18]
+ *    (the HH:MM slot row) and objects[19] (the alarm label). The four
  *    other moon screens ALIAS those same three objects at their own
- *    bases -- objects[21/22/23] (wifi), [26/27/28] (light sleep),
- *    [30/31/32] (deep sleep), [35/36/37] (alarm) point at the SAME
+ *    bases -- objects[22/23/24] (wifi), [27/28/29] (light sleep),
+ *    [31/32/33] (deep sleep), [36/37/38] (alarm) point at the SAME
  *    lv_obj_t's -- so every screen ticks and reads one set of labels
  *    that is always current: the vars are updated at the minute tick
  *    (which ticks the shared widget regardless of the active screen)
@@ -40041,57 +40055,59 @@ extern "C" {
  *    the widget onto the new moon screen and refreshes the vars from
  *    the RTC, so a switch (the wake in particular) shows the current
  *    minute immediately. The per-screen <screen>_clock containers
- *    ([15], [20], [25], [29], [34]) stay as the widget's parent
+ *    ([16], [21], [26], [30], [35]) stay as the widget's parent
  *    targets (plus the unclickable_recursive targets); the deep-sleep
- *    HIDDEN flag and the light-sleep alpha apply to the shared widget
- *    (objects[16]) itself. tick_user_widget_clock(16) is the only
- *    clock tick; the per-screen tick functions no longer tick it.
+ *    HIDDEN flag and the light-sleep alpha apply to the parent
+ *    containers (and thus hide/dim the attached widget too).
+ *    tick_user_widget_clock(17) is the only clock tick; the per-screen
+ *    tick functions no longer tick it. (The indices shifted +1 when
+ *    settings_alarm_sound joined the screen roots, 2026-11-04 -- the
+ *    off-by-one that drew the bare slot row instead of the flex widget.)
  *
- *      [0]  modem_sleep              [15]  modem_sleep_clock         (widget parent 1/5)
- *      [1]  wifi                     [16]  modem_sleep_clock__clock  (THE widget container)
- *      [2]  light_sleep              [17]  ..._label_clock_time      (the HH:MM slot row)
- *      [3]  deep_sleep               [18]  ..._label_clock_alarm     (the alarm label)
- *      [4]  alarm                    [19]  arc_clock_seconds_modem
- *      [5]  settings_hub             [20]  wifi_clock                (widget parent 2/5)
- *      [6]  settings_alarm           [21]  wifi_clock__clock         = objects[16] (alias)
- *      [7]  settings_pomodoro        [22]  ..._label_clock_time      = objects[17] (alias)
- *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm     = objects[18] (alias)
- *      [9]  settings_light_sleep     [24]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [25]  light_sleep_clock         (widget parent 3/5)
- *      [11] settings_wifi            [26]  light_sleep_clock__clock  = objects[16] (alias)
- *      [12] settings_wifi_password   [27]  ..._label_clock_time      = objects[17] (alias)
- *      [13] settings_time            [28]  ..._label_clock_alarm     = objects[18] (alias)
- *      [14] settings_tz              [29]  deep_sleep_clock          (widget parent 4/5)
- *      [15] settings_alarm_sound
- *                                 [30]  deep_sleep_clock__clock     = objects[16] (alias)
- *                                 [31]  ..._label_clock_time        = objects[17] (alias)
- *                                 [32]  ..._label_clock_alarm       = objects[18] (alias)
- *                                 [33]  screen_indicator_sleep1
- *                                 [34]  alarm_clock                 (widget parent 5/5)
- *                                 [35]  alarm_clock__clock          = objects[16] (alias)
- *                                 [36]  ..._label_clock_time        = objects[17] (alias)
- *                                 [37]  ..._label_clock_alarm       = objects[18] (alias)
- *                                 [38]  screen_indicator_alarm
- *                                 [39]  settings_hub_exit        (the settings hub's central exit)
- *                                 [40]  settings_alarm_master    (deactivate-all toggle)
- *                                 [41]  settings_alarm_pomodoro  (pomodoro entry)
- *                                 [42]  settings_alarm_clock     (real-alarm entry)
- *                                 [43]  settings_pomodoro_roller_h
- *                                 [44]  settings_pomodoro_roller_m
- *                                 [45]  settings_pomodoro_caption
- *                                 [46]  settings_alarm_time_roller_h
- *                                 [47]  settings_alarm_time_roller_m
- *                                 [48]  settings_alarm_time_band        (the day-range arc)
- *                                 [49]  settings_alarm_time_handle_start
- *                                 [50]  settings_alarm_time_handle_end
- *                                 [51]  wifi_indicator_wifi
- *                                 [52]  settings_time_roller_d      (manual time entry: date day)
- *                                 [53]  settings_time_roller_m      (date month)
- *                                 [54]  settings_time_roller_y      (date year, 2000+YY)
- *                                 [55]  settings_time_roller_h      (manual time entry: time hour)
- *                                 [56]  settings_time_roller_mi     (time minute)
- *                                 [57]  settings_tz_roller          (timezone/UTC offset, clock_tz.h)
- *                                 [58]  settings_alarm_sound_roller (alarm sound, alarm_audio's 4 loops)
+ *      [0]  modem_sleep              [16]  modem_sleep_clock         (widget parent 1/5)
+ *      [1]  wifi                     [17]  modem_sleep_clock__clock  (THE widget container)
+ *      [2]  light_sleep              [18]  ..._label_clock_time      (the HH:MM slot row)
+ *      [3]  deep_sleep               [19]  ..._label_clock_alarm     (the alarm label)
+ *      [4]  alarm                    [20]  arc_clock_seconds_modem
+ *      [5]  settings_hub             [21]  wifi_clock                (widget parent 2/5)
+ *      [6]  settings_alarm           [22]  wifi_clock__clock         = objects[17] (alias)
+ *      [7]  settings_pomodoro        [23]  ..._label_clock_time      = objects[18] (alias)
+ *      [8]  settings_alarm_time      [24]  ..._label_clock_alarm     = objects[19] (alias)
+ *      [9]  settings_light_sleep     [25]  arc_clock_seconds_wifi
+ *      [10] settings_deep_sleep      [26]  light_sleep_clock         (widget parent 3/5)
+ *      [11] settings_wifi            [27]  light_sleep_clock__clock  = objects[17] (alias)
+ *      [12] settings_wifi_password   [28]  ..._label_clock_time      = objects[18] (alias)
+ *      [13] settings_time            [29]  ..._label_clock_alarm     = objects[19] (alias)
+ *      [14] settings_tz              [30]  deep_sleep_clock          (widget parent 4/5)
+ *      [15] settings_alarm_sound     [31]  deep_sleep_clock__clock   = objects[17] (alias)
+ *                                 [32]  ..._label_clock_time        = objects[18] (alias)
+ *                                 [33]  ..._label_clock_alarm       = objects[19] (alias)
+ *                                 [34]  screen_indicator_sleep1
+ *                                 [35]  alarm_clock                 (widget parent 5/5)
+ *                                 [36]  alarm_clock__clock          = objects[17] (alias)
+ *                                 [37]  ..._label_clock_time        = objects[18] (alias)
+ *                                 [38]  ..._label_clock_alarm       = objects[19] (alias)
+ *                                 [39]  screen_indicator_alarm
+ *                                 [40]  settings_hub_exit        (the settings hub's central exit)
+ *                                 [41]  settings_alarm_master    (deactivate-all toggle)
+ *                                 [42]  settings_alarm_pomodoro  (pomodoro entry)
+ *                                 [43]  settings_alarm_clock     (real-alarm entry)
+ *                                 [44]  settings_pomodoro_roller_h
+ *                                 [45]  settings_pomodoro_roller_m
+ *                                 [46]  settings_pomodoro_caption
+ *                                 [47]  settings_alarm_time_roller_h
+ *                                 [48]  settings_alarm_time_roller_m
+ *                                 [49]  settings_alarm_time_band        (the day-range arc)
+ *                                 [50]  settings_alarm_time_handle_start
+ *                                 [51]  settings_alarm_time_handle_end
+ *                                 [52]  wifi_indicator_wifi
+ *                                 [53]  settings_time_roller_d      (manual time entry: date day)
+ *                                 [54]  settings_time_roller_m      (date month)
+ *                                 [55]  settings_time_roller_y      (date year, 2000+YY)
+ *                                 [56]  settings_time_roller_h      (manual time entry: time hour)
+ *                                 [57]  settings_time_roller_mi     (time minute)
+ *                                 [58]  settings_tz_roller          (timezone/UTC offset, clock_tz.h)
+ *                                 [59]  settings_alarm_sound_roller (alarm sound, alarm_audio's 4 loops)
  *
  * The wheel-keyboard's own widgets (the 26 letters, the group dividers,
  * the sweep highlight, the mode keys, the centre preview) are LOCAL to
