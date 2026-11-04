@@ -35,10 +35,26 @@ html_static_path = ["_static"]
 html_title = "The Moon Phase Clock"
 html_favicon = "_static/photos/bench_panel.jpg"
 
-# Furo theming: dark-first, moon-grey accents.
+# Furo theming: the theme follows the reader's OS preference (furo's
+# native default — furo 2025.12 has no default-theme option), with the
+# product's moon grey (SETTINGS_GREY, screens.c) as the accent in
+# place of the stock blue. The greys step per theme so links clear
+# WCAG AA on both backgrounds: light mode on #f8f8f6 (4.7–7.2:1),
+# dark mode on #131416 (5.4–8.9:1). ``color-brand-content`` is the
+# body link colour, ``color-brand-primary`` the sidebar/TOC active
+# links, ``color-brand-visited`` the visited links.
 pygments_style = "monokai"
 html_theme_options = {
-    "navigation_with_keys": True,
+    "light_css_variables": {
+        "color-brand-primary": "#525252",
+        "color-brand-content": "#5f5f5f",
+        "color-brand-visited": "#6e6e6e",
+    },
+    "dark_css_variables": {
+        "color-brand-primary": "#8a8a8a",
+        "color-brand-content": "#9b9b9b",
+        "color-brand-visited": "#b3b3b3",
+    },
 }
 
 # Math: MathJax (the geometry chapter uses it).

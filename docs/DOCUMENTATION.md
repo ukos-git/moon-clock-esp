@@ -2204,7 +2204,7 @@ code.
 - `docs/book/_static/photos/sim_home.png` (675,535 B)
 - `docs/book/_static/photos/sim_keyboard.png` (307,673 B)
 - `docs/book/_static/photos/sim_light_sleep.png` (580,717 B)
-- `docs/book/conf.py` (2,738 B)
+- `docs/book/conf.py` (3,511 B)
 - `docs/book/index.rst` (3,682 B)
 - `docs/book/part1/01-overview.rst` (5,267 B)
 - `docs/book/part1/02-hardware-s3.rst` (5,140 B)
