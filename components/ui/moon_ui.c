@@ -270,18 +270,21 @@ static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && setti
 #ifndef CONFIG_TEST_BAKE_NO_RELIEF
 #define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
-static uint8_t *s_frame;       /* 8-bit baked frame, MOON_PX^2 */
-static uint16_t *s_rgb;        /* RGB565 display buffer, MOON_PX^2 */
-static uint8_t *s_sweep_small; /* reduced-res intermediate sweep frame (see
-                                * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
-                                * reduction is disabled */
-static uint8_t *s_shade_map;   /* the dusk's pre-shaded body-frame equirect
-                                * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
-                                * dusk section -- built once per dusk epoch,
-                                * every dusk frame re-projects it instead of
-                                * re-baking the lighting) */
-static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
-static lv_obj_t *s_images[8];  /* 4 moon screens today; headroom for more */
+static uint8_t *s_frame;          /* 8-bit baked frame, MOON_PX^2 */
+static uint16_t *s_rgb;           /* RGB565 display buffer, MOON_PX^2 */
+static uint8_t *s_sweep_small;    /* reduced-res intermediate sweep frame (see
+                                   * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
+                                   * reduction is disabled */
+static uint8_t *s_shade_map;      /* the dusk's pre-shaded body-frame equirect
+                                   * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
+                                   * dusk section -- built once per dusk epoch,
+                                   * every dusk frame re-projects it instead of
+                                   * re-baking the lighting) */
+static uint8_t *s_shade_map_dark; /* the lit-fade companion: the same map
+                                   * with every LIT cell zeroed (see the
+                                   * dusk's MOON_DUSK_FADE_* below) */
+static lv_image_dsc_t s_dsc;      /* (MOON_PX), points at s_rgb */
+static lv_obj_t *s_images[8];     /* 4 moon screens today; headroom for more */
 static int s_n_images;
 static lv_obj_t *s_moon_roots[8];          /* the screen root each image was created in */
 static volatile bool s_moon_screen = true; /* the active screen carries a moon image */
@@ -1836,6 +1839,30 @@ static void moon_sweep_interrupt(void) {
  * ~7 deg of crescent edge. The lit region stays full brightness where
  * it remains; the shade map and the final bake use the same bound. */
 #define MOON_DUSK_KILL_MARGIN 0.12f
+/* The dusk's LIT-FADE ("completely remove the earth ray", 2026-11-04):
+ * the margin kill covers the ENDPOINT's rim sliver only. The lit crescent
+ * itself slides along the disk's limb while the pole spins and, hugging
+ * the rim, lingers as a bright arc (peak gray 237 in the re-projected
+ * frames) through the late dusk -- real sun-lit cells whose d is well
+ * above dk_kill, so no static kill bound can remove them without also
+ * killing the start-pose crescent. The fix fades the lit side to the
+ * backlit dark side over the spin: the shade map is built twice (the lit
+ * map + the all-dark companion -- the same map with the lit cells zeroed;
+ * the backlit cells are identical in both), and every intermediate frame
+ * re-projects the lerp lit*lit_w + dark*(1-lit_w), so ONLY the lit cells
+ * move. lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
+ * (the real current-phase crescent shows full -- no pop against the
+ * parked pose), then smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END --
+ * so the lit side is FULLY DARK before the endpoint and the spin's final
+ * stretch (MOON_DUSK_FADE_END -> 1.0) rests on the clean backlit dark
+ * side (the endpoint frame is the dk_kill bake, backlit dark side, so the
+ * fade lands on it with no pop). The completion is deliberately EARLY
+ * (not at the endpoint): a linear fade over the whole spin holds the rim
+ * arc at ~50 % brightness through the second half, which still reads as
+ * "the earth ray is still visible" -- the user's 2026-11-04 ask is that
+ * it be COMPLETELY gone, so it must be imperceptible well before arrival. */
+#define MOON_DUSK_FADE_HOLD 0.15f
+#define MOON_DUSK_FADE_END 0.70f
 
 static void moon_dusk_task(void *arg) {
     (void)arg;
@@ -1917,8 +1944,13 @@ static void moon_dusk_task(void *arg) {
          * the backlit night side for d < dk_kill kills the 0 < d <
          * dk_kill rim sliver in the MAP itself (the "white ray" on the
          * re-projected frames, see above), one step wider than the
-         * geometric sliver. bev = the blood-moon occlusion. */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill, bev);
+         * geometric sliver. bev = the blood-moon occlusion.
+         *
+         * s_shade_map_dark = the lit-fade companion (see the
+         * MOON_DUSK_FADE_HOLD doc): the same map with every lit cell
+         * zeroed, built in the SAME pass (no extra build). */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
+                            bev);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -1970,13 +2002,30 @@ static void moon_dusk_task(void *arg) {
         } else {
             /* Intermediate frames: RE-PROJECT the constant map through
              * the folded basis (no lighting recompute, no flicker) at
-             * full resolution. Row-by-row like the sweep so an abort
-             * lands within a row. */
+             * full resolution, with the LIT-FADE (see MOON_DUSK_FADE_HOLD):
+             * lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
+             * (the real current-phase crescent, full brightness), then
+             * smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END -- the last
+             * stretch of the spin (MOON_DUSK_FADE_END -> 1.0) rests on the
+             * clean backlit dark side, and the endpoint frame (the dk_kill
+             * bake) takes over with no pop. The lerp moves only the lit
+             * cells (the companion map is identical backlit there).
+             * Row-by-row like the sweep so an abort lands within a row. */
+            float t = (frames > 2) ? (float)f / (float)(frames - 2) : 0.0f;
+            float lit_w = 1.0f;
+            if (t > MOON_DUSK_FADE_HOLD) {
+                float p = (t - MOON_DUSK_FADE_HOLD) / (MOON_DUSK_FADE_END - MOON_DUSK_FADE_HOLD);
+                if (p > 1.0f)
+                    p = 1.0f;
+                float e = p * p * (3.0f - 2.0f * p); /* smoothstep */
+                lit_w = 1.0f - e;
+            }
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
-                /* Pure gather: the map already carries the dark side
-                 * (backlit, with the dk_sup + margin erosion) -- no bound. */
-                moon_reproject_rows(s_shade_map, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1);
+                /* The map already carries the dark side (backlit, with the
+                 * dk_sup + margin erosion) -- no bound; the fade lerp is
+                 * the earth-ray kill (lit_w 1 -> 0 over the spin). */
+                moon_reproject_rows(s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
+                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1, lit_w);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -2482,9 +2531,12 @@ void moon_ui_init(void) {
     /* The dusk's pre-shaded body-frame equirect map (the constant-
      * projection pass; see the dusk section): MOON_ALB_W x MOON_ALB_H
      * 8-bit cells, built once per dusk epoch, re-projected every dusk
-     * frame (no per-frame lighting recompute). */
+     * frame (no per-frame lighting recompute). + the lit-fade companion
+     * (the same map, the lit cells zeroed; see MOON_DUSK_FADE_HOLD) --
+     * the fade lerps the two, so only the lit crescent moves. */
     s_shade_map = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map) {
+    s_shade_map_dark = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
+    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map || !s_shade_map_dark) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }

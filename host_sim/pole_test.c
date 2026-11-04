@@ -256,7 +256,7 @@ int main(void) {
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
          * dusk passes dark_zero = 1 (the computed backlit night side). */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, NULL, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
         for (unsigned t = 0; t < 4; t++) {
@@ -352,7 +352,8 @@ int main(void) {
         float fmin = A * cosf(phi) + B * sinf(phi) + g0.E[2] * g0.S[2];
         float dk_sup = sqrtf(fmaxf(0.0f, 1.0f - fmin * fmin));
         /* The backlit map, built ONCE from the unfolded geometry. */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup, NULL);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, NULL, MOON_ALB_W, MOON_ALB_H, 1, dk_sup,
+                             NULL);
         /* Start (phi=0) and endpoint (phi*) folds: reproject vs per-frame bake. */
         const float folds[2] = {0.0f, phi};
         const char *folds_name[2] = {"start", "endpoint"};

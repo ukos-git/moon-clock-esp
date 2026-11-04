@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
         /* re-project: the dusk's per-frame map gather (one map load/px). */
         uint8_t *map = malloc((size_t)MOON_ALB_W * MOON_ALB_H);
         t0 = now_ms();
-        moon_shade_map_build(&g, alb, grel, map, MOON_ALB_W, MOON_ALB_H, 1, 0.1f, NULL);
+        moon_shade_map_build(&g, alb, grel, map, NULL, MOON_ALB_W, MOON_ALB_H, 1, 0.1f, NULL);
         double map_ms = now_ms() - t0;
         t0 = now_ms();
         for (int k = 0; k < iters; k++)

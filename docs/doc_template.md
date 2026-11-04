@@ -95,8 +95,11 @@ Markdown and renders the project's own media:
   - `docs/img/boot_sweep.mp4` — the boot synodic sweep (336 frames @240 px, new
     moon → now)
   - `docs/img/free_spin.mp4` — the settled free spin (36 frames @466 px, 10°)
-  - `docs/img/dusk.mp4` — the pole-axis sleep spin (0° → the fully-dark
-    endpoint, 1°/frame)
+  - `docs/img/dusk.mp4` — the light-sleep dusk, the device's own path mirrored
+    1:1 by `moon_sim --dusk` (one-time shade map at the endpoint's rim-sliver
+    kill bound + the lit-fade companion, 1°/frame along the shortest arc to the
+    fully-dark view, then the final dk_kill bake — the lit side fades to the
+    backlit dark side over the spin, §5.2 item 6)
   - `docs/img/fade.mp4` — the fade-to-black screen switch (airplane → settings
     hub; uisim frames blended through the linear brightness ramp — the panel's
     hardware dimming)
@@ -463,7 +466,20 @@ the settings screen's model — one fixed-width label per digit PAIR (140 px @46
 rolling as one two-line `old\nnew` block, §7.1): P4 **1,606,160 B**
 (`0x188270`, +176 B, flashed + camera-verified on the P4), S3 **1,511,360 B**
 (`0x170fc0`, +80 B on the defaults baseline, not flashed — the peer's board;
-both ~30 % under the 2048 K factory).
+both ~30 % under the 2048 K factory); after the **dusk lit-fade** (2026-11-04,
+§5.2 item 6 — the "earth ray" complete removal: the dusk's lit crescent slides
+along the disk limb during the spin and lingers as a bright rim arc no static
+kill bound can reach; the shade map is now built twice (lit + all-dark
+companion) and the re-projected frames lerp per pixel between them, the weight
+held 1.0 for the first 15 % of the spin then smoothstepped to exactly 0 by 70
+%, so the lit side is fully dark before the endpoint and the final dk_kill bake
+lands with no pop; the fade is host-verified at 400 px — the two-stage schedule
+makes the rim arc imperceptible (n>90 = 0) from f25, clean backlit disk
+(max 43) from f30): P4 **1,606,896 B** (`0x1884f0`, +736 B, flashed to the
+bench board — camera verification PENDING: the 2026-11-04 bench capture was
+invalidated mid-capture by a device readjustment, the dusk window re-shoot is
+queued), S3 **1,511,888 B** (`0x1711d0`, +528 B on the defaults baseline, not
+flashed — the peer's board; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -831,7 +847,7 @@ angular scale.
    parameter). The final bake writes the backlit night side for `d < dk_sup`.
    The sliver itself is sun-lit (lns > 0), so the backlit color clips to **pure
    black** there — exactly the old flat-floor kill, and the white ray stays
-   dead. At the endpoint the visible disk is entirely d < dk_sup, so the band
+   dead. At the endpoint the visible disk is entirely d < dk*sup, so the band
    between the two bounds is never on screen (no pop). Every non-dusk caller
    passes `0.0f` (the margin is inert there — the night test reduces to
    `lns ≤ 0`, byte-identical to the pre-fix code). **Dusk kill margin** (UI
@@ -846,7 +862,34 @@ angular scale.
    endpoint frame are byte-identical (the endpoint disk is entirely d ≤ dk_sup
    < dk_kill, and `dk_sup` is ≤ ~0.15 at every epoch — the pole spin can always
    reach the near-fully-dark view — so `dk_kill` is clamped to < 1.0 only as a
-   mathematical guard that never triggers);
+   mathematical guard that never triggers). **Dusk lit-fade — the "earth ray"
+   complete removal (2026-11-04)**: the kill margin above removes the
+   \_endpoint* sliver, but during the spin the lit crescent itself slides along
+   the disk limb and — hugging the rim — lingers as a bright arc (peak gray 237
+   in the right-rim band, mid/late frames) through the late dusk: real sun-lit
+   cells whose `d` is well above the kill bound, so no static bound can remove
+   them without also killing the start-pose crescent. The shade map is
+   therefore built **twice in one pass**: the lit map + a companion with every
+   _lit_ cell zeroed (the backlit cells are identical in both —
+   `moon_shade_map_rows` / `moon_shade_map_build` take the optional second
+   buffer, `map_dark`; NULL keeps the single-map behaviour byte-identical), and
+   every re-projected intermediate frame blends per pixel `lit*w + dark*(1-w)`
+   (the `moon_reproject_rows` `lit_w`
+   - companion lerp) — the lerp moves **exactly the lit cells**, the backlit
+     floor is untouched. The schedule (UI layer, `moon_ui.c`): `w = 1` held for
+     the first `MOON_DUSK_FADE_HOLD` (0.15) of the spin (the real current-phase
+     crescent at full brightness — no pop against the parked pose), then a
+     smoothstep to exactly `0` by `MOON_DUSK_FADE_END` (0.70) — the lit side is
+     fully dark well before the endpoint, and the spin's last stretch rests on
+     the clean backlit dark side, so the final dk_kill bake lands with no pop.
+     The completion is deliberately early: a linear full-spin fade holds the
+     rim arc at ~50 % brightness through the second half (host A/B @400 px,
+     2026-11-04, single-stage right-rim band max 166 at f14, still visible) —
+     the ask is that the ray be COMPLETELY gone, so the two-stage schedule
+     makes it imperceptible (n>90 = 0) from f25, clean backlit disk (max 43)
+     from f30. The host mirror (`moon_sim --dusk`, device geometry + schedule)
+     is the docs film renderer (§12.2); the gate path (no companion, plain
+     gather) stays byte-identical;
 7. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
    then 8-bit → RGB565. The final 8-bit → RGB565 LUT is **warm by default** (an
    ARTISTIC display choice, `moon_render.c` `g565_build`): the NASA SVS
@@ -1154,6 +1197,13 @@ what each control changes live.
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
   51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
   without a flat overlay).
+- The lit side **fades out over the spin** (the "earth ray" complete removal,
+  2026-11-04, §5.2 item 6): the dusk re-projects a per-pixel lerp between the
+  lit shade map and its all-dark companion — the fade weight held full for the
+  first ~15 % of the spin (the real current-phase crescent, no pop against the
+  parked pose) then smoothstepped to zero by ~70 %, so the bright rim arc is
+  gone long before the endpoint and the final backlit dark-side frame takes
+  over with no pop.
 - The clock's **opacity is a compile-time option**: the light-sleep entry sets
   the shared clock widget's container to `UI_CLOCK_ALPHA_PCT` (Kconfig, int,
   range 0–100, **default 100** = full opacity) and the wake restores it to
@@ -2057,6 +2107,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                                                          |
 | Binary (2026-11-04, after the dusk kill margin)  | S3: `0x165670` = 1,463,920 B in the 2,097,152 B partition (633,232 B free — the dusk's rim-sliver kill widened by `MOON_DUSK_KILL_MARGIN` 0.12, so the lit crescent is thinner through the pole spin at full brightness while the endpoint frame stays byte-identical, §5.2; host A/B mid-dusk lit 6023 → 3595 px, endpoint maxdiff 0). P4: `0x181c30` = 1,580,080 B in the 9,437,184 B partition (7,857,104 B free — +16 B; moon_ui.c is shared UI code, so the P4's dusk gets the same margin)                                                                                                                            |
 | Binary (2026-11-04, after the alarm sounds)      | S3: `0x173190` = 1,520,016 B in the 2,097,152 B partition (577,136 B free — the alarm-sound picker + both-boards audio +56,096 B over the dusk build: the four baked 1 s loops (4 × ~44 KB PSRAM), the ES8311 bring-up on the S3 (previously a no-op stub), and the new screen). P4: `0x185cd0` = 1,596,624 B in the 9,437,184 B partition (7,840,560 B free — +16,544 B; the board gate dropped, the selection + preview path, and the §7.17 screen; re-rendered in the UI simulator at both 466 and 720 — the speaker glyph (U+F028) renders on both, the 6-icon S3 / 7-icon P4 hub keeps deep sleep pinned at 6 o'clock) |
+| Binary (2026-11-04, after the dusk lit-fade)     | S3: `0x1711d0` = 1,511,888 B in the 2,097,152 B partition (585,264 B free — the dusk's lit-fade companion map + per-pixel lerp + two-stage schedule, §5.2 item 6; the tree also carries the clock-pair/roller UI commits that landed after the row above, which this row re-records in one shot). P4: `0x1884f0` = 1,606,896 B in the 9,437,184 B partition (7,830,288 B free — the same change; flashed to the bench board — camera verification pending, the 2026-11-04 capture was invalidated mid-capture by a device readjustment; the fade is host-verified, §5.2 item 6)                                             |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2122,6 +2173,10 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/main.c` (`moon_sim`) — the **exact device core** built for the
   host; writes PNGs at the real panel size (`--size 466` device / `--size 400`
   gate geometry; `--rot`, `--pole` (a 1:1 copy of the device's dusk spin),
+  `--dusk` (a 1:1 mirror of the device's light-sleep dusk — endpoint math,
+  one-time shade map + lit-fade companion, per-degree re-projection with the
+  two-stage lit fade, final dk_kill bake; `--dusk-kill` / `--dusk-fade-hold` /
+  `--dusk-fade-end` override the constants; the docs film renderer),
   `--darkzero` (the device's computed backlit night side), `--neutral` (the
   neutral gray→565 LUT — the default is the display's warm tint, §5.2 item 7),
   `--event` (classify the instant's sky events, §5.5 — the blood occlusion +

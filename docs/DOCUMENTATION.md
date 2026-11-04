@@ -95,8 +95,11 @@ Markdown and renders the project's own media:
   - `docs/img/boot_sweep.mp4` — the boot synodic sweep (336 frames @240 px, new
     moon → now)
   - `docs/img/free_spin.mp4` — the settled free spin (36 frames @466 px, 10°)
-  - `docs/img/dusk.mp4` — the pole-axis sleep spin (0° → the fully-dark
-    endpoint, 1°/frame)
+  - `docs/img/dusk.mp4` — the light-sleep dusk, the device's own path mirrored
+    1:1 by `moon_sim --dusk` (one-time shade map at the endpoint's rim-sliver
+    kill bound + the lit-fade companion, 1°/frame along the shortest arc to the
+    fully-dark view, then the final dk_kill bake — the lit side fades to the
+    backlit dark side over the spin, §5.2 item 6)
   - `docs/img/fade.mp4` — the fade-to-black screen switch (airplane → settings
     hub; uisim frames blended through the linear brightness ramp — the panel's
     hardware dimming)
@@ -463,7 +466,20 @@ the settings screen's model — one fixed-width label per digit PAIR (140 px @46
 rolling as one two-line `old\nnew` block, §7.1): P4 **1,606,160 B**
 (`0x188270`, +176 B, flashed + camera-verified on the P4), S3 **1,511,360 B**
 (`0x170fc0`, +80 B on the defaults baseline, not flashed — the peer's board;
-both ~30 % under the 2048 K factory).
+both ~30 % under the 2048 K factory); after the **dusk lit-fade** (2026-11-04,
+§5.2 item 6 — the "earth ray" complete removal: the dusk's lit crescent slides
+along the disk limb during the spin and lingers as a bright rim arc no static
+kill bound can reach; the shade map is now built twice (lit + all-dark
+companion) and the re-projected frames lerp per pixel between them, the weight
+held 1.0 for the first 15 % of the spin then smoothstepped to exactly 0 by 70
+%, so the lit side is fully dark before the endpoint and the final dk_kill bake
+lands with no pop; the fade is host-verified at 400 px — the two-stage schedule
+makes the rim arc imperceptible (n>90 = 0) from f25, clean backlit disk
+(max 43) from f30): P4 **1,606,896 B** (`0x1884f0`, +736 B, flashed to the
+bench board — camera verification PENDING: the 2026-11-04 bench capture was
+invalidated mid-capture by a device readjustment, the dusk window re-shoot is
+queued), S3 **1,511,888 B** (`0x1711d0`, +528 B on the defaults baseline, not
+flashed — the peer's board; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -831,7 +847,7 @@ angular scale.
    parameter). The final bake writes the backlit night side for `d < dk_sup`.
    The sliver itself is sun-lit (lns > 0), so the backlit color clips to **pure
    black** there — exactly the old flat-floor kill, and the white ray stays
-   dead. At the endpoint the visible disk is entirely d < dk_sup, so the band
+   dead. At the endpoint the visible disk is entirely d < dk*sup, so the band
    between the two bounds is never on screen (no pop). Every non-dusk caller
    passes `0.0f` (the margin is inert there — the night test reduces to
    `lns ≤ 0`, byte-identical to the pre-fix code). **Dusk kill margin** (UI
@@ -846,7 +862,34 @@ angular scale.
    endpoint frame are byte-identical (the endpoint disk is entirely d ≤ dk_sup
    < dk_kill, and `dk_sup` is ≤ ~0.15 at every epoch — the pole spin can always
    reach the near-fully-dark view — so `dk_kill` is clamped to < 1.0 only as a
-   mathematical guard that never triggers);
+   mathematical guard that never triggers). **Dusk lit-fade — the "earth ray"
+   complete removal (2026-11-04)**: the kill margin above removes the
+   \_endpoint* sliver, but during the spin the lit crescent itself slides along
+   the disk limb and — hugging the rim — lingers as a bright arc (peak gray 237
+   in the right-rim band, mid/late frames) through the late dusk: real sun-lit
+   cells whose `d` is well above the kill bound, so no static bound can remove
+   them without also killing the start-pose crescent. The shade map is
+   therefore built **twice in one pass**: the lit map + a companion with every
+   _lit_ cell zeroed (the backlit cells are identical in both —
+   `moon_shade_map_rows` / `moon_shade_map_build` take the optional second
+   buffer, `map_dark`; NULL keeps the single-map behaviour byte-identical), and
+   every re-projected intermediate frame blends per pixel `lit*w + dark*(1-w)`
+   (the `moon_reproject_rows` `lit_w`
+   - companion lerp) — the lerp moves **exactly the lit cells**, the backlit
+     floor is untouched. The schedule (UI layer, `moon_ui.c`): `w = 1` held for
+     the first `MOON_DUSK_FADE_HOLD` (0.15) of the spin (the real current-phase
+     crescent at full brightness — no pop against the parked pose), then a
+     smoothstep to exactly `0` by `MOON_DUSK_FADE_END` (0.70) — the lit side is
+     fully dark well before the endpoint, and the spin's last stretch rests on
+     the clean backlit dark side, so the final dk_kill bake lands with no pop.
+     The completion is deliberately early: a linear full-spin fade holds the
+     rim arc at ~50 % brightness through the second half (host A/B @400 px,
+     2026-11-04, single-stage right-rim band max 166 at f14, still visible) —
+     the ask is that the ray be COMPLETELY gone, so the two-stage schedule
+     makes it imperceptible (n>90 = 0) from f25, clean backlit disk (max 43)
+     from f30. The host mirror (`moon_sim --dusk`, device geometry + schedule)
+     is the docs film renderer (§12.2); the gate path (no companion, plain
+     gather) stays byte-identical;
 7. **Tone LUT**: 256-entry 8-bit → 8-bit curve (generated, in `moon_consts.h`),
    then 8-bit → RGB565. The final 8-bit → RGB565 LUT is **warm by default** (an
    ARTISTIC display choice, `moon_render.c` `g565_build`): the NASA SVS
@@ -1154,6 +1197,13 @@ what each control changes live.
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
   51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
   without a flat overlay).
+- The lit side **fades out over the spin** (the "earth ray" complete removal,
+  2026-11-04, §5.2 item 6): the dusk re-projects a per-pixel lerp between the
+  lit shade map and its all-dark companion — the fade weight held full for the
+  first ~15 % of the spin (the real current-phase crescent, no pop against the
+  parked pose) then smoothstepped to zero by ~70 %, so the bright rim arc is
+  gone long before the endpoint and the final backlit dark-side frame takes
+  over with no pop.
 - The clock's **opacity is a compile-time option**: the light-sleep entry sets
   the shared clock widget's container to `UI_CLOCK_ALPHA_PCT` (Kconfig, int,
   range 0–100, **default 100** = full opacity) and the wake restores it to
@@ -2057,6 +2107,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                                                          |
 | Binary (2026-11-04, after the dusk kill margin)  | S3: `0x165670` = 1,463,920 B in the 2,097,152 B partition (633,232 B free — the dusk's rim-sliver kill widened by `MOON_DUSK_KILL_MARGIN` 0.12, so the lit crescent is thinner through the pole spin at full brightness while the endpoint frame stays byte-identical, §5.2; host A/B mid-dusk lit 6023 → 3595 px, endpoint maxdiff 0). P4: `0x181c30` = 1,580,080 B in the 9,437,184 B partition (7,857,104 B free — +16 B; moon_ui.c is shared UI code, so the P4's dusk gets the same margin)                                                                                                                            |
 | Binary (2026-11-04, after the alarm sounds)      | S3: `0x173190` = 1,520,016 B in the 2,097,152 B partition (577,136 B free — the alarm-sound picker + both-boards audio +56,096 B over the dusk build: the four baked 1 s loops (4 × ~44 KB PSRAM), the ES8311 bring-up on the S3 (previously a no-op stub), and the new screen). P4: `0x185cd0` = 1,596,624 B in the 9,437,184 B partition (7,840,560 B free — +16,544 B; the board gate dropped, the selection + preview path, and the §7.17 screen; re-rendered in the UI simulator at both 466 and 720 — the speaker glyph (U+F028) renders on both, the 6-icon S3 / 7-icon P4 hub keeps deep sleep pinned at 6 o'clock) |
+| Binary (2026-11-04, after the dusk lit-fade)     | S3: `0x1711d0` = 1,511,888 B in the 2,097,152 B partition (585,264 B free — the dusk's lit-fade companion map + per-pixel lerp + two-stage schedule, §5.2 item 6; the tree also carries the clock-pair/roller UI commits that landed after the row above, which this row re-records in one shot). P4: `0x1884f0` = 1,606,896 B in the 9,437,184 B partition (7,830,288 B free — the same change; flashed to the bench board — camera verification pending, the 2026-11-04 capture was invalidated mid-capture by a device readjustment; the fade is host-verified, §5.2 item 6)                                             |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2122,6 +2173,10 @@ the SVS 5415 400x400 lunar image series, gitignored):
 - `host_sim/main.c` (`moon_sim`) — the **exact device core** built for the
   host; writes PNGs at the real panel size (`--size 466` device / `--size 400`
   gate geometry; `--rot`, `--pole` (a 1:1 copy of the device's dusk spin),
+  `--dusk` (a 1:1 mirror of the device's light-sleep dusk — endpoint math,
+  one-time shade map + lit-fade companion, per-degree re-projection with the
+  two-stage lit fade, final dk_kill bake; `--dusk-kill` / `--dusk-fade-hold` /
+  `--dusk-fade-end` override the constants; the docs film renderer),
   `--darkzero` (the device's computed backlit night side), `--neutral` (the
   neutral gray→565 LUT — the default is the display's warm tint, §5.2 item 7),
   `--event` (classify the instant's sky events, §5.5 — the blood occlusion +
@@ -2506,25 +2561,21 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (190,767 B)
+- `docs/doc_template.md` (195,581 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
-- `docs/img/boot_sweep.mp4` (1,930,341 B)
+- `docs/img/boot_sweep.mp4` (1,968,640 B)
 - `docs/img/boot_sweep.png` (326,556 B)
-- `docs/img/dusk.mp4` (664,850 B)
+- `docs/img/dusk.mp4` (143,215 B)
 - `docs/img/dusk.png` (246,903 B)
-- `docs/img/fade.mp4` (53,877 B)
-- `docs/img/free_spin.mp4` (773,462 B)
+- `docs/img/fade.mp4` (133,378 B)
+- `docs/img/free_spin.mp4` (311,561 B)
 - `docs/img/free_spin.png` (353,922 B)
 - `docs/img/nasa/nasa_00000.png` (155,164 B)
 - `docs/img/nasa/nasa_02190.png` (189,779 B)
 - `docs/img/nasa/nasa_04380.png` (214,721 B)
 - `docs/img/nasa/nasa_06570.png` (222,560 B)
 - `docs/img/nasa/nasa_08759.png` (234,030 B)
-- `docs/img/nasa/nasa_vs_c_p025.png` (193,698 B)
-- `docs/img/nasa/nasa_vs_c_p050.png` (246,000 B)
-- `docs/img/nasa/nasa_vs_c_p075.png` (272,808 B)
-- `docs/img/nasa/nasa_vs_c_p090.png` (293,456 B)
 - `docs/img/screens/alarm.png` (14,933 B)
 - `docs/img/screens/deep_sleep.png` (185,689 B)
 - `docs/img/screens/light_sleep.png` (194,761 B)
@@ -13976,9 +14027,22 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  * builds the map with its endpoint dk_sup; every other caller passes
  * 0.0f (the margin is inert there: the only dark_zero = 1 map caller is
  * the dusk). Row-range build so the caller (the dusk task) can honor an
- * abort between rows. */
-void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
+ * abort between rows.
+ *
+ * map_dark (NULL or a second map buffer, same dimensions): the dusk's
+ * LIT-FADE companion (the "earth ray" complete-kill, 2026-11-04) -- the
+ * same map with every LIT cell written 0 (pure black; the backlit cells
+ * are copied unchanged). The dusk fades the lit side to the backlit dark
+ * side over the spin (the lit crescent slides along the disk's limb while
+ * the pole spins and, hugging the rim, lingers as a bright arc through
+ * the late frames -- real sun-lit cells the dk_kill margin cannot touch,
+ * because their d is well above dk_kill). The re-project lerps the two
+ * maps per pixel (moon_reproject_rows lit_w): the backlit cells are
+ * identical in both, so only the lit cells move -- toward black as the
+ * spin advances. NULL = the lit map only (every non-dusk caller). */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                         uint8_t *map_dark, int map_w, int map_h, int y0, int y1, int dark_zero, float dk_sup,
+                         const moon_bake_ev_t *bev) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
     const float dlon = 2.0f * (float)M_PI / (float)map_w;
     const float cosd = cosf(dlon), sind = sinf(dlon);
@@ -13990,6 +14054,7 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
         const float sinlat = sinf(lat * deg2rad), coslat = cosf(lat * deg2rad);
         const uint8_t *arow = albedo + (size_t)y * map_w;
         uint8_t *mrow = map + (size_t)y * map_w;
+        uint8_t *mrow_dark = map_dark ? map_dark + (size_t)y * map_w : NULL;
         /* Gradient-cache row for the whole map row: the bake's
          * row_frac -> DEM-row mapping, at the cell centers. */
         int dr = 0;
@@ -14039,19 +14104,28 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
                     L *= 1.0f - MOON_EV_BLOOD_K * occ;
             }
             float out;
+            int lit;
             /* dk_sup = 0.0f -> the plain d < 0 terminator (the margin is
              * inert there); the +MOON_DK_MARGIN erosion: see the doc above. */
             if (dark_zero ? ((d < dk_sup + MOON_DK_MARGIN) || (lns <= 0.0f)) : (lns <= 0.0f)) {
+                lit = 0;
                 if (dark_zero) {
                     out = (float)moon_backlit_night((float)arow[x], lns); /* the computed night side */
                 } else {
                     out = MOON_TONE_LUT[0] + earthshine(d);
                 }
             } else {
+                lit = 1;
                 const int idx = (int)((float)arow[x] * L + 0.5f);
                 out = MOON_TONE_LUT[idx > 255 ? 255 : idx] + earthshine(d);
             }
             mrow[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+            /* The dusk's lit-fade companion (see moon_reproject_rows): the
+             * same cell with every LIT cell zeroed -- the all-dark map the
+             * fade lerps toward. NULL map_dark = the lit map only (every
+             * non-dusk caller). */
+            if (mrow_dark)
+                mrow_dark[x] = (uint8_t)(lit ? 0 : mrow[x]);
             /* Next cell: advance theta by one column (a complex rotation). */
             const float nct = ct * cosd - st * sind;
             st = ct * sind + st * cosd;
@@ -14061,11 +14135,12 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
 }
 
 /* Build the whole shade map (see the section header). One-time cost per
- * dusk epoch (~2 s on the S3 for the 864 x 432 map). dark_zero / dk_sup:
- * see moon_shade_map_rows. */
-void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
-    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h, dark_zero, dk_sup, bev);
+ * dusk epoch (~2 s on the S3 for the 864 x 432 map). dark_zero / dk_sup /
+ * map_dark: see moon_shade_map_rows. */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                          uint8_t *map_dark, int map_w, int map_h, int dark_zero, float dk_sup,
+                          const moon_bake_ev_t *bev) {
+    moon_shade_map_rows(g, albedo, grel, map, map_dark, map_w, map_h, 0, map_h, dark_zero, dk_sup, bev);
 }
 
 /* One pixel of the re-projection: bake_px WITHOUT the lighting -- the
@@ -14076,11 +14151,26 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * load-bearing note as bake_px). */
 typedef struct {
     const uint8_t *map;
+    const uint8_t *map_dark; /* the lit-fade companion (see the
+                                moon_shade_map_rows doc): NULL = the plain
+                                gather (every non-dusk caller) */
     int map_w, map_h;
     const moon_geom_t *g;
     uint8_t *row;
     float radius, cx, v;
     float per_deg;
+    float lit_w; /* lit-side weight (1.0f = the lit map; 0.0f = the dark
+                    companion): only the LIT cells differ between the two
+                    maps (the dark cells are identical in both), so the lerp
+                    moves exactly the lit crescent. The dusk's "earth ray"
+                    complete-kill: the lit crescent slides along the disk's
+                    limb while the pole spins and lingers as a bright rim
+                    arc through the late frames -- the fade drives it to
+                    black over the spin (lit_w 1 -> 0, eased, the first half
+                    of the frames) so it is GONE by the endpoint (the final
+                    frame is the dk_kill bake, which the fade does not
+                    touch). lit_w = 1.0f and map_dark = NULL are the
+                    unmodified gather. */
 } reproj_ctx_t;
 
 static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, int x) {
@@ -14115,7 +14205,19 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
         r = 0;
     else if (r >= c->map_h)
         r = c->map_h - 1;
-    c->row[x] = c->map[(size_t)r * c->map_w + col];
+    size_t i = (size_t)r * c->map_w + col;
+    const uint8_t litv = c->map[i];
+    if (c->map_dark == NULL) {
+        c->row[x] = litv;
+        return;
+    }
+    /* The lit fade (see lit_w): only the lit cells differ between the two
+     * maps, so this lerp moves exactly the crescent -- backlit cells stay
+     * at the companion's (identical) value, and the rim arc the dusk must
+     * remove eases to black. The lerp is exact at lit_w = 0/1 (the frame-0
+     * and any no-fade caller are the unmodified gather). */
+    const float lw = c->lit_w;
+    c->row[x] = (uint8_t)((float)litv * lw + (float)c->map_dark[i] * (1.0f - lw) + 0.5f);
 }
 
 /* Re-project the pre-shaded body-frame equirect map (moon_shade_map_build)
@@ -14128,15 +14230,21 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
  * side and the backlit night side (see moon_shade_map_rows) -- so the
  * re-project is a pure gather: no dark-side bound, no kill (the old
  * dk_sup early return is gone; the map's MOON_DK_MARGIN erosion does the
- * sliver/aliasing work up front). */
-void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1) {
+ * sliver/aliasing work up front).
+ *
+ * map_dark / lit_w (see reproj_ctx_t): the dusk's lit-fade variant --
+ * lerp the map toward its all-dark companion by (1 - lit_w), which moves
+ * exactly the lit cells (the companion is identical there). The plain
+ * gather is map_dark = NULL (or lit_w = 1.0f with it). */
+void moon_reproject_rows(const uint8_t *map, const uint8_t *map_dark, int map_w, int map_h, const moon_geom_t *g,
+                         uint8_t *frame, int size, float radius, float cx, float cy, int y0, int y1, float lit_w) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)map_w / 360.0f;
     for (int y = y0; y < y1; y++) {
         reproj_ctx_t c;
         c.map = map;
+        c.map_dark = map_dark;
         c.map_w = map_w;
         c.map_h = map_h;
         c.g = g;
@@ -14145,6 +14253,7 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
         c.cx = cx;
         c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
         c.per_deg = per_deg;
+        c.lit_w = lit_w;
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             reproject_px(&c, x0);
@@ -14160,7 +14269,7 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
 
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
                     float radius, float cx, float cy) {
-    moon_reproject_rows(map, map_w, map_h, g, frame, size, radius, cx, cy, 0, size);
+    moon_reproject_rows(map, NULL, map_w, map_h, g, frame, size, radius, cx, cy, 0, size, 1.0f);
 }
 ```
 
@@ -14976,14 +15085,28 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * passes 0.0f (the margin is inert there). bev: see moon_bake (the map
  * carries the blood occlusion too, so the re-projected dusk frames and
  * the final bake agree). Row-range build so the caller can honor an
- * abort between rows; grel NULL = relief-free Lambert. */
-void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
+ * abort between rows; grel NULL = relief-free Lambert.
+ *
+ * map_dark (NULL or a second buffer, same dimensions): the dusk's
+ * lit-fade companion -- the same map with every LIT cell zeroed (the
+ * all-dark map; the backlit cells are copied unchanged, so the two maps
+ * differ only where the lit crescent is). The dusk fades the lit side to
+ * black over the spin: the crescent slides along the disk's limb while
+ * the pole spins and lingers as a bright rim arc through the late frames
+ * (the "earth ray" -- its cells are real sun-lit cells well above
+ * dk_kill, so no static kill bound can remove them without also killing
+ * the start-pose crescent). The re-project lerps the two maps per pixel
+ * (moon_reproject_rows map_dark + lit_w). NULL = the lit map only
+ * (every non-dusk caller). */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                         uint8_t *map_dark, int map_w, int map_h, int y0, int y1, int dark_zero, float dk_sup,
+                         const moon_bake_ev_t *bev);
 
 /* Build the whole shade map (see moon_bake.c): one-time per epoch.
- * dark_zero / dk_sup / bev: see moon_shade_map_rows. */
-void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
+ * dark_zero / dk_sup / bev / map_dark: see moon_shade_map_rows. */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                          uint8_t *map_dark, int map_w, int map_h, int dark_zero, float dk_sup,
+                          const moon_bake_ev_t *bev);
 
 /* Re-project the pre-shaded map (moon_shade_map_build) through the camera
  * basis g into an 8-bit frame (size x size, row-major, 0 outside the
@@ -14997,9 +15120,16 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * the map's margin erosion does the sliver/aliasing work up front, so a
  * dark pixel samples backlit cells and can never light a dark pixel from
  * a lit one). Row-range variant so the dusk task can honor an abort
- * between rows. */
-void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1);
+ * between rows.
+ *
+ * map_dark / lit_w: the dusk's lit-fade variant (see moon_shade_map_rows'
+ * map_dark). Each pixel is lit * lit_w + dark * (1 - lit_w) of the two
+ * nearest-neighbor samples -- since the companion is identical to the lit
+ * map in the backlit cells, the lerp moves exactly the lit cells (the
+ * "earth ray" rim arc eases to black over the spin). The plain gather is
+ * map_dark = NULL (exact, no rounding). */
+void moon_reproject_rows(const uint8_t *map, const uint8_t *map_dark, int map_w, int map_h, const moon_geom_t *g,
+                         uint8_t *frame, int size, float radius, float cx, float cy, int y0, int y1, float lit_w);
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
                     float radius, float cx, float cy);
 
@@ -33676,18 +33806,21 @@ static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && setti
 #ifndef CONFIG_TEST_BAKE_NO_RELIEF
 #define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
-static uint8_t *s_frame;       /* 8-bit baked frame, MOON_PX^2 */
-static uint16_t *s_rgb;        /* RGB565 display buffer, MOON_PX^2 */
-static uint8_t *s_sweep_small; /* reduced-res intermediate sweep frame (see
-                                * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
-                                * reduction is disabled */
-static uint8_t *s_shade_map;   /* the dusk's pre-shaded body-frame equirect
-                                * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
-                                * dusk section -- built once per dusk epoch,
-                                * every dusk frame re-projects it instead of
-                                * re-baking the lighting) */
-static lv_image_dsc_t s_dsc;   /* (MOON_PX), points at s_rgb */
-static lv_obj_t *s_images[8];  /* 4 moon screens today; headroom for more */
+static uint8_t *s_frame;          /* 8-bit baked frame, MOON_PX^2 */
+static uint16_t *s_rgb;           /* RGB565 display buffer, MOON_PX^2 */
+static uint8_t *s_sweep_small;    /* reduced-res intermediate sweep frame (see
+                                   * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
+                                   * reduction is disabled */
+static uint8_t *s_shade_map;      /* the dusk's pre-shaded body-frame equirect
+                                   * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
+                                   * dusk section -- built once per dusk epoch,
+                                   * every dusk frame re-projects it instead of
+                                   * re-baking the lighting) */
+static uint8_t *s_shade_map_dark; /* the lit-fade companion: the same map
+                                   * with every LIT cell zeroed (see the
+                                   * dusk's MOON_DUSK_FADE_* below) */
+static lv_image_dsc_t s_dsc;      /* (MOON_PX), points at s_rgb */
+static lv_obj_t *s_images[8];     /* 4 moon screens today; headroom for more */
 static int s_n_images;
 static lv_obj_t *s_moon_roots[8];          /* the screen root each image was created in */
 static volatile bool s_moon_screen = true; /* the active screen carries a moon image */
@@ -35242,6 +35375,30 @@ static void moon_sweep_interrupt(void) {
  * ~7 deg of crescent edge. The lit region stays full brightness where
  * it remains; the shade map and the final bake use the same bound. */
 #define MOON_DUSK_KILL_MARGIN 0.12f
+/* The dusk's LIT-FADE ("completely remove the earth ray", 2026-11-04):
+ * the margin kill covers the ENDPOINT's rim sliver only. The lit crescent
+ * itself slides along the disk's limb while the pole spins and, hugging
+ * the rim, lingers as a bright arc (peak gray 237 in the re-projected
+ * frames) through the late dusk -- real sun-lit cells whose d is well
+ * above dk_kill, so no static kill bound can remove them without also
+ * killing the start-pose crescent. The fix fades the lit side to the
+ * backlit dark side over the spin: the shade map is built twice (the lit
+ * map + the all-dark companion -- the same map with the lit cells zeroed;
+ * the backlit cells are identical in both), and every intermediate frame
+ * re-projects the lerp lit*lit_w + dark*(1-lit_w), so ONLY the lit cells
+ * move. lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
+ * (the real current-phase crescent shows full -- no pop against the
+ * parked pose), then smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END --
+ * so the lit side is FULLY DARK before the endpoint and the spin's final
+ * stretch (MOON_DUSK_FADE_END -> 1.0) rests on the clean backlit dark
+ * side (the endpoint frame is the dk_kill bake, backlit dark side, so the
+ * fade lands on it with no pop). The completion is deliberately EARLY
+ * (not at the endpoint): a linear fade over the whole spin holds the rim
+ * arc at ~50 % brightness through the second half, which still reads as
+ * "the earth ray is still visible" -- the user's 2026-11-04 ask is that
+ * it be COMPLETELY gone, so it must be imperceptible well before arrival. */
+#define MOON_DUSK_FADE_HOLD 0.15f
+#define MOON_DUSK_FADE_END 0.70f
 
 static void moon_dusk_task(void *arg) {
     (void)arg;
@@ -35323,8 +35480,13 @@ static void moon_dusk_task(void *arg) {
          * the backlit night side for d < dk_kill kills the 0 < d <
          * dk_kill rim sliver in the MAP itself (the "white ray" on the
          * re-projected frames, see above), one step wider than the
-         * geometric sliver. bev = the blood-moon occlusion. */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill, bev);
+         * geometric sliver. bev = the blood-moon occlusion.
+         *
+         * s_shade_map_dark = the lit-fade companion (see the
+         * MOON_DUSK_FADE_HOLD doc): the same map with every lit cell
+         * zeroed, built in the SAME pass (no extra build). */
+        moon_shade_map_rows(&g0, alb, grel, s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
+                            bev);
         if ((y & 15) == 15)
             vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
     }
@@ -35376,13 +35538,30 @@ static void moon_dusk_task(void *arg) {
         } else {
             /* Intermediate frames: RE-PROJECT the constant map through
              * the folded basis (no lighting recompute, no flicker) at
-             * full resolution. Row-by-row like the sweep so an abort
-             * lands within a row. */
+             * full resolution, with the LIT-FADE (see MOON_DUSK_FADE_HOLD):
+             * lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
+             * (the real current-phase crescent, full brightness), then
+             * smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END -- the last
+             * stretch of the spin (MOON_DUSK_FADE_END -> 1.0) rests on the
+             * clean backlit dark side, and the endpoint frame (the dk_kill
+             * bake) takes over with no pop. The lerp moves only the lit
+             * cells (the companion map is identical backlit there).
+             * Row-by-row like the sweep so an abort lands within a row. */
+            float t = (frames > 2) ? (float)f / (float)(frames - 2) : 0.0f;
+            float lit_w = 1.0f;
+            if (t > MOON_DUSK_FADE_HOLD) {
+                float p = (t - MOON_DUSK_FADE_HOLD) / (MOON_DUSK_FADE_END - MOON_DUSK_FADE_HOLD);
+                if (p > 1.0f)
+                    p = 1.0f;
+                float e = p * p * (3.0f - 2.0f * p); /* smoothstep */
+                lit_w = 1.0f - e;
+            }
             for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
-                /* Pure gather: the map already carries the dark side
-                 * (backlit, with the dk_sup + margin erosion) -- no bound. */
-                moon_reproject_rows(s_shade_map, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1);
+                /* The map already carries the dark side (backlit, with the
+                 * dk_sup + margin erosion) -- no bound; the fade lerp is
+                 * the earth-ray kill (lit_w 1 -> 0 over the spin). */
+                moon_reproject_rows(s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
+                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1, lit_w);
                 if ((y & 15) == 15)
                     vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
             }
@@ -35888,9 +36067,12 @@ void moon_ui_init(void) {
     /* The dusk's pre-shaded body-frame equirect map (the constant-
      * projection pass; see the dusk section): MOON_ALB_W x MOON_ALB_H
      * 8-bit cells, built once per dusk epoch, re-projected every dusk
-     * frame (no per-frame lighting recompute). */
+     * frame (no per-frame lighting recompute). + the lit-fade companion
+     * (the same map, the lit cells zeroed; see MOON_DUSK_FADE_HOLD) --
+     * the fade lerps the two, so only the lit crescent moves. */
     s_shade_map = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map) {
+    s_shade_map_dark = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
+    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map || !s_shade_map_dark) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }
@@ -41734,202 +41916,74 @@ int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
 ```json
 dependencies:
   espressif/button:
-    component_hash: 26345e8700d3c6435925f9a8f246d224f9c1b99f937c243fe400844eec514b4a
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
-    - name: idf
-      require: private
-      version: '>=4.0'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__button
+      type: local
     version: 4.2.3
   espressif/cmake_utilities:
-    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    component_hash: 13fee78a3817e94eb8924bb86ae840940fca970fd3f356fb61e57bad612154f3
     dependencies:
     - name: idf
       require: private
       version: '>=4.1'
     source:
-      registry_url: https://components.espressif.com
-      type: service
-    version: 0.5.3
-  espressif/esp_codec_dev:
-    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.0'
-    source:
       registry_url: https://components.espressif.com/
       type: service
+    version: 1.3.0
+  espressif/esp_codec_dev:
+    dependencies: []
+    source:
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_codec_dev
+      type: local
     version: 1.5.11
   espressif/esp_io_expander:
-    component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander
+      type: local
     version: 1.2.1
   espressif/esp_io_expander_tca9554:
-    component_hash: ee94a439ade1c17129a491efe572c600899306a2ffadbde491852d95333e28b4
-    dependencies:
-    - name: espressif/esp_io_expander
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1.2.0
-    - name: idf
-      require: private
-      version: '>=5.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander_tca9554
+      type: local
     version: 2.0.3
   espressif/esp_lcd_co5300:
-    component_hash: 1a5cbaa0069c3c72c238e5a1eb32ec9dd390ec1c7c46b24bf44b9037f2fe6c56
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: idf
-      require: private
-      version: '>=5.4'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_co5300
+      type: local
     version: 2.2.0
   espressif/esp_lcd_panel_io_additions:
-    component_hash: 1856c8b2c11aaa8a9fd67481582162bcad25f7064661a995f35c2ee8dd10ebcc
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: espressif/esp_io_expander
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_panel_io_additions
+      type: local
     version: 1.0.1~1
   espressif/esp_lcd_touch:
-    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_touch
+      type: local
     version: 1.2.1
   espressif/esp_lv_decoder:
-    component_hash: 6e844411eb1089a6d971d25d08af0c00def2535a6a6c844acc42c85a7d80dd36
-    dependencies:
-    - name: espressif/esp_new_jpeg
-      registry_url: https://components.espressif.com
-      require: private
-      version: 1.*
-    - name: espressif/libpng
-      registry_url: https://components.espressif.com
-      require: private
-      version: 1.*
-    - name: espressif/qoi
-      registry_url: https://components.espressif.com
-      require: private
-      version: ^0.20260529.0
-    - name: idf
-      require: private
-      version: '>=5.3'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8.3,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
-    targets:
-    - esp32
-    - esp32s2
-    - esp32s3
-    - esp32s31
-    - esp32p4
-    - esp32c2
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32c61
-    - esp32h4
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_decoder
+      type: local
     version: 0.5.0
   espressif/esp_lv_fs:
-    component_hash: 66896007884b817df34c964f9a114fff538ee2674e99fee7159162498b93f94b
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: espressif/esp_mmap_assets
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=1.2'
-    - name: idf
-      require: private
-      version: '>=4.4'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_fs
+      type: local
     version: 1.0.1
   espressif/esp_lvgl_adapter:
-    component_hash: a86c36e1f762bca480672f17ecd759f54d38fd802a709fff142ccfac4d8466a6
-    dependencies:
-    - name: espressif/button
-      registry_url: https://components.espressif.com
-      require: public
-      version: 4.*
-    - name: espressif/esp_lcd_touch
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: espressif/esp_lv_decoder
-      registry_url: https://components.espressif.com
-      require: public
-      version: 0.*
-    - name: espressif/esp_lv_fs
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: espressif/freetype
-      registry_url: https://components.espressif.com
-      require: public
-      version: 2.*
-    - name: espressif/knob
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: idf
-      require: private
-      version: '>=5.5'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lvgl_adapter
+      type: local
     version: 0.1.4
   espressif/esp_mmap_assets:
     component_hash: 42310c362596de2a37248c2937b1754bc29cd0356b9839e2a77cf791e6bcdde1
@@ -41942,14 +41996,14 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.0.1
   espressif/esp_new_jpeg:
     component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32
@@ -41971,7 +42025,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.14.3~1
   espressif/knob:
@@ -41985,7 +42039,7 @@ dependencies:
       require: private
       version: '>=4.4.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.1.0
   espressif/libpng:
@@ -41999,7 +42053,7 @@ dependencies:
       require: private
       version: ^1.2.13
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.6.59
   espressif/qoi:
@@ -42009,7 +42063,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.20260529.0
   espressif/zlib:
@@ -42019,7 +42073,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.3.2~2
   idf:
@@ -42059,41 +42113,41 @@ dependencies:
       type: service
     version: 9.6.0~1
   waveshare/esp_lcd_touch_cst9217:
-    component_hash: f755f8e3ae61df23413256a6a447e367a4b844538229c183ff0e89dbbdc15319
-    dependencies:
-    - name: espressif/esp_lcd_touch
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1.1.0
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/waveshare__esp_lcd_touch_cst9217
+      type: local
     version: 2.0.0
   waveshare/pcf85063a:
-    component_hash: 1b1ac80637e2b3b0ae343184fbaf613b360834c0313bd9cad8f3a810d11e0b4b
-    dependencies:
-    - name: idf
-      version: '>=5.3.2'
+    dependencies: []
     source:
-      git: https://github.com/ukos-git/Waveshare-ESP32-components.git
-      path: sensor/pcf85063a
-      type: git
-    version: a415ab9f850f597fd58549f6574221f6a3607ab1
+      path: /home/matthias/esp/moon-phase/managed_components/waveshare__pcf85063a
+      type: local
+    version: 1.1.0
 direct_dependencies:
+- espressif/button
+- espressif/cmake_utilities
 - espressif/esp_codec_dev
 - espressif/esp_io_expander
 - espressif/esp_io_expander_tca9554
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
+- espressif/esp_lcd_touch
+- espressif/esp_lv_decoder
+- espressif/esp_lv_fs
 - espressif/esp_lvgl_adapter
+- espressif/esp_mmap_assets
+- espressif/esp_new_jpeg
+- espressif/freetype
+- espressif/knob
+- espressif/libpng
+- espressif/qoi
+- espressif/zlib
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: 61fdf624f28fd25fab5756458b5b80b6af66ceb0235d355f7121283f5bfd3f86
+manifest_hash: d701b54585645a72236de9ccf2bfd6b72562620f1fd29d99e013aea13276d79c
 target: esp32s3
 version: 2.0.0
 ```
@@ -42300,7 +42354,7 @@ int main(int argc, char **argv) {
         /* re-project: the dusk's per-frame map gather (one map load/px). */
         uint8_t *map = malloc((size_t)MOON_ALB_W * MOON_ALB_H);
         t0 = now_ms();
-        moon_shade_map_build(&g, alb, grel, map, MOON_ALB_W, MOON_ALB_H, 1, 0.1f, NULL);
+        moon_shade_map_build(&g, alb, grel, map, NULL, MOON_ALB_W, MOON_ALB_H, 1, 0.1f, NULL);
         double map_ms = now_ms() - t0;
         t0 = now_ms();
         for (int k = 0; k < iters; k++)
@@ -42615,21 +42669,37 @@ static int parse_iso(const char *s, int64_t *epoch) {
 }
 
 /* --- one frame ---------------------------------------------------------- */
-static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
-                            * backlit surface, dark_zero = 1) */
-static int g_event = 0;    /* --event: classify the instant's sky events
-                            * (moon_event.c) and bake the blood occlusion +
-                            * the tinted LUT (the device's daily path,
-                            * host-verified this way) */
-static int g_neutral = 0;  /* --neutral: the neutral gray->565 LUT (no warm
-                            * display tint) -- the image gate runs with this so
-                            * its metrics validate the physics, not the tint */
-static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
-                            * pole (+z), deg -- the device's dusk spin
-                            * (moon_ui.c moon_pole_geometry, copied
-                            * 1:1). The pole stays at the top of the
-                            * disk; the light source S stays put, so
-                            * the terminator sweeps the disk. */
+static int g_darkzero = 0;           /* --darkzero: the device's night side (the computed
+                                      * backlit surface, dark_zero = 1) */
+static int g_event = 0;              /* --event: classify the instant's sky events
+                                      * (moon_event.c) and bake the blood occlusion +
+                                      * the tinted LUT (the device's daily path,
+                                      * host-verified this way) */
+static int g_neutral = 0;            /* --neutral: the neutral gray->565 LUT (no warm
+                                      * display tint) -- the image gate runs with this so
+                                      * its metrics validate the physics, not the tint */
+static int g_pole_deg = 0;           /* --pole: camera basis rotation about the body
+                                      * pole (+z), deg -- the device's dusk spin
+                                      * (moon_ui.c moon_pole_geometry, copied
+                                      * 1:1). The pole stays at the top of the
+                                      * disk; the light source S stays put, so
+                                      * the terminator sweeps the disk. */
+static int g_dusk = 0;               /* --dusk: the device's light-sleep dusk, mirrored
+                                      * 1:1 from moon_dusk_task (shade map at dk_kill,
+                                      * pole-spin re-projects, final dk_kill bake) */
+static int g_dusk_kill_margin = 120; /* --dusk-kill x: the kill margin in
+                                      * thousandths of d (device's
+                                      * MOON_DUSK_KILL_MARGIN 0.12f = 120) */
+static int g_dusk_fade_hold = 150;   /* --dusk-fade-hold x: the lit-fade
+                                      * hold (thousandths of the spin;
+                                      * device's MOON_DUSK_FADE_HOLD 0.15f
+                                      * = 150) */
+static int g_dusk_fade_end = 700;    /* --dusk-fade-end x: the lit-fade
+                                      * completion (thousandths of the spin;
+                                      * device's MOON_DUSK_FADE_END 0.70f =
+                                      * 700) -- the lit side is fully dark by
+                                      * this point, so the spin's last third
+                                      * rests on the clean backlit dark side */
 
 /* The pole spin, host-side copy of moon_ui.c moon_pole_geometry:
  * each basis vector's x/y components are rotated about +z (right ->
@@ -42649,6 +42719,36 @@ static void pole_geometry(moon_geom_t *g, float phi) {
     y = g->E[1];
     g->E[0] = c * x - s * y;
     g->E[1] = s * x + c * y;
+}
+
+/* One gray frame -> the exact panel pixel (RGB565 via the identity
+ * moon_rotate) -> RGB24 PNG. The display LUT is the currently selected
+ * one (the warm device tint unless --neutral; the event tint if --event
+ * or the dusk selected it). */
+static int bake_to_png(const uint8_t *frame, int size, int center, int rot_deg, const char *path) {
+    static uint16_t *rgb;
+    static uint8_t *px;
+    if (!rgb)
+        rgb = malloc((size_t)size * size * 2);
+    if (!px)
+        px = malloc((size_t)size * size * 3);
+    float th = (float)rot_deg * 0.017453292519943295f;
+    moon_rotate(frame, size, rgb, size, center, center, center, center, moon_cos15(th), moon_sin15(th));
+    for (int i = 0; i < size * size; i++) {
+        /* Decode the exact panel pixel: R5 (5-bit), G6 (6-bit), B5 (5-bit).
+         * Green must be read as 6 bits and scaled by /63 -- decoding it as 5
+         * bits (/31) would hide the encoder's green-width in the PNG. */
+        uint16_t v = rgb[i];
+        int r5 = v >> 11, g6 = (v >> 5) & 63, b5 = v & 31;
+        px[i * 3 + 0] = (uint8_t)((r5 * 255 + 15) / 31);
+        px[i * 3 + 1] = (uint8_t)((g6 * 255 + 31) / 63);
+        px[i * 3 + 2] = (uint8_t)((b5 * 255 + 15) / 31);
+    }
+    if (stbi_write_png(path, size, size, 3, px, size * 3) == 0) {
+        fprintf(stderr, "write failed: %s\n", path);
+        return 0;
+    }
+    return 1;
 }
 
 static int render_one(const char *iso, int rot_deg, int pole_deg, int size, const char *out_path, int idx) {
@@ -42678,11 +42778,8 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
     }
 
     static uint8_t *frame;
-    static uint16_t *rgb;
     if (!frame)
         frame = malloc((size_t)size * size);
-    if (!rgb)
-        rgb = malloc((size_t)size * size * 2);
 
     moon_geom_t g;
     moon_geometry(epoch, &g);
@@ -42709,39 +42806,164 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
     }
     moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero, 0.0f, bev);
 
-    float th = (float)rot_deg * 0.017453292519943295f;
-    int32_t c15 = moon_cos15(th);
-    int32_t s15 = moon_sin15(th);
-    int fsize = size;
-    int fcx = center, fcyi = center;
-    moon_rotate(frame, fsize, rgb, size, center, center, fcx, fcyi, c15, s15);
-
-    /* RGB565 -> RGB24 for the PNG (the exact panel pixel). */
-    static uint8_t *px;
-    if (!px)
-        px = malloc((size_t)size * size * 3);
-    for (int i = 0; i < size * size; i++) {
-        /* Decode the exact panel pixel: R5 (5-bit), G6 (6-bit), B5 (5-bit).
-         * Green must be read as 6 bits and scaled by /63 -- decoding it as 5
-         * bits (/31) would hide the encoder's green-width in the PNG. */
-        uint16_t v = rgb[i];
-        int r5 = v >> 11, g6 = (v >> 5) & 63, b5 = v & 31;
-        px[i * 3 + 0] = (uint8_t)((r5 * 255 + 15) / 31);
-        px[i * 3 + 1] = (uint8_t)((g6 * 255 + 31) / 63);
-        px[i * 3 + 2] = (uint8_t)((b5 * 255 + 15) / 31);
-    }
-
     char p[512];
     if (idx >= 0)
         snprintf(p, sizeof p, "%s/sim.%04d.png", out_path, idx);
     else
         snprintf(p, sizeof p, "%s/sim.png", out_path);
-    if (stbi_write_png(p, size, size, 3, px, size * 3) == 0) {
-        fprintf(stderr, "write failed: %s\n", p);
+    if (!bake_to_png(frame, size, center, rot_deg, p))
         return 0;
-    }
     fprintf(stderr, "%s  utc=%s  rot=%d  phase=%.2f%%  ss=(%.2f,%.2f)\n", p, iso, rot_deg, g.illum * 100.0,
             g.subsolar_lon, g.subsolar_lat);
+    return 1;
+}
+
+/* The device's light-sleep dusk, mirrored 1:1 from moon_ui.c
+ * moon_dusk_task: the one-time shade map built at the endpoint's rim-sliver
+ * kill bound (dk_sup + the kill margin, the device's MOON_DUSK_KILL_MARGIN),
+ * one re-projected frame per degree of pole spin along the shortest arc to
+ * the fully unilluminated view, and the final full bake at the same bound.
+ * The in-plane fold (the parked free-spin angle) is a pure display rotation
+ * and is left out (it never shifts the endpoint: the in-plane fold leaves E
+ * unchanged). --dusk-kill x (thousandths of d) swaps the margin for an A/B
+ * comparison. Writes dusk.%03d.png per frame + dusk.map.png (the body-frame
+ * equirect map itself, for the lit-band inspection). */
+static int render_dusk(const char *iso, int size, const char *out_path) {
+    int64_t epoch;
+    if (!parse_iso(iso, &epoch)) {
+        fprintf(stderr, "bad time '%s'\n", iso);
+        return 0;
+    }
+    /* The device's bake geometry (moon_ui.c): radius = MOON_PX/2, center =
+     * MOON_PX/2 (400/200 on the S3, 618/309 on the P4) -- NOT the 400/199
+     * gate geometry. */
+    int radius = size / 2;
+    int center = size / 2;
+
+    const uint8_t *alb = moon_albedo();
+    const moon_grel_t *grel = moon_relief();
+    if (!alb || !grel) {
+        fprintf(stderr, "no albedo/relief\n");
+        return 0;
+    }
+    static uint8_t *frame;
+    if (!frame)
+        frame = malloc((size_t)size * size);
+    static uint8_t *map;
+    if (!map)
+        map = malloc((size_t)MOON_ALB_W * MOON_ALB_H);
+    static uint8_t *map_dark;
+    if (!map_dark)
+        map_dark = malloc((size_t)MOON_ALB_W * MOON_ALB_H);
+
+    /* The device's endpoint math (moon_dusk_task): orbit-fold the view
+     * first (host-side orbit = 0 -- the mirror is pose-independent for the
+     * endpoint), then phi* = atan2(-B, -A). */
+    moon_geom_t g0;
+    moon_geometry(epoch, &g0);
+    moon_geom_t g1 = g0; /* orbit 0: identity */
+    float A = g1.E[0] * g1.S[0] + g1.E[1] * g1.S[1];
+    float B = g1.E[0] * g1.S[1] - g1.E[1] * g1.S[0];
+    float phi_star = atan2f(-B, -A);
+    float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2];
+    float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
+    float dk_kill = dk_sup + (float)g_dusk_kill_margin / 1000.0f;
+    if (dk_kill >= 1.0f)
+        dk_kill = 0.999f;
+    int frames = (int)lrintf(fabsf(phi_star) * 57.29577951308232f);
+    if (frames < 1)
+        frames = 1;
+
+    /* Sky event for this epoch (the device sets the LUT + the blood
+     * occlusion for the dusk the same way). */
+    moon_event_t ev;
+    moon_event_classify(epoch, &ev);
+    moon_gray565_set_event(&ev);
+    const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
+
+    fprintf(stderr, "dusk: utc=%s phi*=%+.2f deg  E.S(phi*)=%.4f  dk_sup=%.4f  dk_kill=%.4f  %d frames\n", iso,
+            phi_star * 57.29577951308232f, e_dot_s_end, dk_sup, dk_kill, frames);
+
+    /* One-time body-frame equirect shade map at the kill bound + the
+     * lit-fade companion (the device builds both in the same pass). */
+    moon_shade_map_build(&g0, alb, grel, map, map_dark, MOON_ALB_W, MOON_ALB_H, 1, dk_kill, bev);
+    {
+        char p[512];
+        snprintf(p, sizeof p, "%s/dusk.map.png", out_path);
+        if (!bake_to_png(map, MOON_ALB_H, MOON_ALB_H / 2, 0, p)) {
+            fprintf(stderr, "map write failed\n");
+            return 0;
+        }
+    }
+    /* The map's lit band (the ray's source): over the lit cells (gray > the
+     * backlit peak + a margin), report the WIDEST base direction -- its
+     * d = r.S tells how far past dk_kill the lit crescent's edge reaches
+     * (relief-boosted lns keeps a cell lit past the base-sphere d = 0). */
+    {
+        int lit_cells = 0, max_lit = 0, max_any = 0;
+        float widest_d = -2.0f;
+        const float deg2rad = (float)M_PI / 180.0f;
+        for (int y = 0; y < MOON_ALB_H; y++) {
+            const float lat = 90.0f - 180.0f * ((float)y + 0.5f) / (float)MOON_ALB_H;
+            const float sinlat = sinf(lat * deg2rad), coslat = cosf(lat * deg2rad);
+            for (int x = 0; x < MOON_ALB_W; x++) {
+                const int v = map[(size_t)y * MOON_ALB_W + x];
+                if (v > max_any)
+                    max_any = v;
+                if (v > 64) { /* well past the backlit peak (~51) */
+                    lit_cells++;
+                    if (v > max_lit)
+                        max_lit = v;
+                    /* Cell body direction (the map build's theta convention). */
+                    const float th = (float)x / (float)MOON_ALB_W * 2.0f * (float)M_PI - (float)M_PI;
+                    const float cl = cosf(th), sl = (cosf(th) >= 0.0f) ? sinf(th) : -sinf(th);
+                    const float d = coslat * (cl * g0.S[0] + sl * g0.S[1]) + sinlat * g0.S[2];
+                    if (d > widest_d)
+                        widest_d = d;
+                }
+            }
+        }
+        fprintf(stderr,
+                "dusk map: %d lit cells, max lit gray %d, max any gray %d, widest lit cell d=%+.4f (dk_kill=%+.4f)\n",
+                lit_cells, max_lit, max_any, widest_d, dk_kill);
+    }
+
+    for (int f = 0; f < frames; f++) {
+        float phi = phi_star * ((float)f + 1.0f) / (float)frames;
+        moon_geom_t g = g1;
+        if (f == frames - 1) {
+            /* Final frame: the one pixel-exact dark-side bake at phi*, at
+             * the same bound as the map (the device's rule). */
+            pole_geometry(&g, phi);
+            moon_bake(&g, alb, grel, frame, size, (float)radius, (float)center, (float)center, MOON_ALB_W, MOON_ALB_H,
+                      1, dk_kill, bev);
+        } else {
+            /* Intermediate frames: re-project the constant map with the
+             * lit-fade (the device's rule: hold 1.0 for the first
+             * HOLD of the spin, smoothstep to 0.0 by END). */
+            pole_geometry(&g, phi);
+            float hold = (float)g_dusk_fade_hold / 1000.0f;
+            float end = (float)g_dusk_fade_end / 1000.0f;
+            float t = (frames > 2) ? (float)f / (float)(frames - 2) : 0.0f;
+            float lit_w = 1.0f;
+            if (t > hold) {
+                float p = (t - hold) / (end - hold);
+                if (p > 1.0f)
+                    p = 1.0f;
+                float e = p * p * (3.0f - 2.0f * p);
+                lit_w = 1.0f - e;
+            }
+            moon_reproject_rows(map, map_dark, MOON_ALB_W, MOON_ALB_H, &g, frame, size, (float)radius, (float)center,
+                                (float)center, 0, size, lit_w);
+        }
+        char p[512];
+        snprintf(p, sizeof p, "%s/dusk.%03d.png", out_path, f);
+        if (!bake_to_png(frame, size, center, 0, p)) {
+            fprintf(stderr, "frame %d write failed\n", f);
+            return 0;
+        }
+    }
+    fprintf(stderr, "%d dusk frames -> %s\n", frames, out_path);
     return 1;
 }
 
@@ -42779,6 +43001,14 @@ int main(int argc, char **argv) {
             g_neutral = 1;
         else if (!strcmp(argv[i], "--event"))
             g_event = 1;
+        else if (!strcmp(argv[i], "--dusk"))
+            g_dusk = 1;
+        else if (!strcmp(argv[i], "--dusk-kill"))
+            g_dusk_kill_margin = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--dusk-fade-hold"))
+            g_dusk_fade_hold = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--dusk-fade-end"))
+            g_dusk_fade_end = atoi(argv[++i]);
     }
 
     if (g_neutral)
@@ -42854,11 +43084,18 @@ int main(int argc, char **argv) {
         return ok == frames ? 0 : 1;
     }
 
+    if (g_dusk) {
+        if (!iso)
+            fprintf(stderr, "--dusk needs --utc ISO\n");
+        return render_dusk(iso, size, out) ? 0 : 1;
+    }
+
     if (iso)
         return render_one(iso, rot, g_pole_deg, size, out, -1) ? 0 : 1;
 
     fprintf(stderr, "usage: moon_sim --utc ISO|--list FILE|--frames N --start S --end E\n"
-                    "                [--rot deg] [--pole deg] [--size 400|466] [--out DIR] [--darkzero]\n");
+                    "                [--rot deg] [--pole deg] [--size 400|466] [--out DIR] [--darkzero]\n"
+                    "                [--dusk] [--dusk-kill thousandths]\n");
     return 2;
 }
 ```
@@ -43225,7 +43462,7 @@ int main(void) {
         /* dark_zero = 0: the host gate keeps the earthshine dark side and
          * verifies the re-projected map matches the full bake. The device
          * dusk passes dark_zero = 1 (the computed backlit night side). */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), shade_map, NULL, MOON_ALB_W, MOON_ALB_H, 0, 0.0f, NULL);
         const float thetas3[] = {0.3f, -1.1f, 2.4f, 5.9f};
         const float phis3[] = {0.0f, 0.5f, -2.9f, 0.7f}; /* the 3rd = a near-endpoint fold */
         for (unsigned t = 0; t < 4; t++) {
@@ -43321,7 +43558,8 @@ int main(void) {
         float fmin = A * cosf(phi) + B * sinf(phi) + g0.E[2] * g0.S[2];
         float dk_sup = sqrtf(fmaxf(0.0f, 1.0f - fmin * fmin));
         /* The backlit map, built ONCE from the unfolded geometry. */
-        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, MOON_ALB_W, MOON_ALB_H, 1, dk_sup, NULL);
+        moon_shade_map_build(&g0, moon_albedo(), moon_relief(), backlit_map, NULL, MOON_ALB_W, MOON_ALB_H, 1, dk_sup,
+                             NULL);
         /* Start (phi=0) and endpoint (phi*) folds: reproject vs per-frame bake. */
         const float folds[2] = {0.0f, phi};
         const char *folds_name[2] = {"start", "endpoint"};

@@ -97,26 +97,25 @@ def main():
     render_list("spin", [f"{iso(NOW)} {r} 0" for r in range(0, 360, 10)], 466)
     encode("spin", 8, FR / "spin" / "sim.%04d.png", OUT / "free_spin.mp4", size=466)
 
-    # 3. dusk: pole 0..179 @240 px; cut at the fully-dark endpoint (the
-    #    bright-pixel minimum = phi*).
-    print("== dusk (pole 0..179 @240 px) ==")
-    render_list("dusk", [f"{iso(NOW)} 0 {p}" for p in range(180)], 240)
-    files = sorted((FR / "dusk").glob("sim.*.png"))
-    counts = []
-    for f in files:
-        g = Image.open(f).convert("L")
-        counts.append(sum(1 for px in g.getdata() if px > 48))
-    # smooth (5-frame box) and find the minimum in the last third
-    smooth = [sum(counts[max(0, i - 2):i + 3]) / len(counts[max(0, i - 2):i + 3])
-              for i in range(len(counts))]
-    third = len(counts) // 3
-    endpoint = third + min(range(third, len(counts)), key=lambda i: smooth[i])
-    endpoint = min(endpoint + 2, len(counts) - 1)
-    print(f"  dusk endpoint (phi*) at frame {endpoint} (~{endpoint} deg)")
-    # trim the PNG list to the endpoint so ffmpeg sees a contiguous sequence
-    (FR / "dusk_trim").mkdir(exist_ok=True)
-    for i in range(endpoint + 1):
-        shutil.copy(files[i], FR / "dusk_trim" / f"sim.{i:04d}.png")
+    # 3. dusk: the DEVICE's light-sleep dusk, mirrored 1:1 by
+    #    moon_sim --dusk (one-time shade map at the endpoint's rim-sliver
+    #    kill bound + the lit-fade companion, one re-projected frame per
+    #    degree of pole spin along the shortest arc to the fully
+    #    unilluminated view, then the final dk_kill bake). The lit side
+    #    fades to the backlit dark side over the spin (the "earth ray"
+    #    complete-kill, 2026-11-04) -- the film shows that fade. 240 px.
+    print("== dusk (device --dusk mirror @240 px) ==")
+    d = FR / "dusk"
+    clear(d)
+    run([SIM, "--dusk", "--utc", iso(NOW), "--size", "240", "--out", str(d)])
+    files = sorted(d.glob("dusk.[0-9][0-9][0-9].png"))
+    print(f"  {len(files)} dusk frames (shortest arc to the dark side)")
+    # clear the trim dir: a longer list from a previous run would leave
+    # stale high-numbered frames behind and the ffmpeg sequence would read
+    # them.
+    clear(FR / "dusk_trim")
+    for i, f in enumerate(files):
+        shutil.copy(f, FR / "dusk_trim" / f"sim.{i:04d}.png")
     encode("dusk", 5, FR / "dusk_trim" / "sim.%04d.png", OUT / "dusk.mp4", size=240)
 
     # 4. fade-to-black screen switch: airplane (from) -> settings hub (to).

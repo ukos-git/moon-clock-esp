@@ -153,14 +153,28 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
  * passes 0.0f (the margin is inert there). bev: see moon_bake (the map
  * carries the blood occlusion too, so the re-projected dusk frames and
  * the final bake agree). Row-range build so the caller can honor an
- * abort between rows; grel NULL = relief-free Lambert. */
-void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
+ * abort between rows; grel NULL = relief-free Lambert.
+ *
+ * map_dark (NULL or a second buffer, same dimensions): the dusk's
+ * lit-fade companion -- the same map with every LIT cell zeroed (the
+ * all-dark map; the backlit cells are copied unchanged, so the two maps
+ * differ only where the lit crescent is). The dusk fades the lit side to
+ * black over the spin: the crescent slides along the disk's limb while
+ * the pole spins and lingers as a bright rim arc through the late frames
+ * (the "earth ray" -- its cells are real sun-lit cells well above
+ * dk_kill, so no static kill bound can remove them without also killing
+ * the start-pose crescent). The re-project lerps the two maps per pixel
+ * (moon_reproject_rows map_dark + lit_w). NULL = the lit map only
+ * (every non-dusk caller). */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                         uint8_t *map_dark, int map_w, int map_h, int y0, int y1, int dark_zero, float dk_sup,
+                         const moon_bake_ev_t *bev);
 
 /* Build the whole shade map (see moon_bake.c): one-time per epoch.
- * dark_zero / dk_sup / bev: see moon_shade_map_rows. */
-void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev);
+ * dark_zero / dk_sup / bev / map_dark: see moon_shade_map_rows. */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                          uint8_t *map_dark, int map_w, int map_h, int dark_zero, float dk_sup,
+                          const moon_bake_ev_t *bev);
 
 /* Re-project the pre-shaded map (moon_shade_map_build) through the camera
  * basis g into an 8-bit frame (size x size, row-major, 0 outside the
@@ -174,9 +188,16 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * the map's margin erosion does the sliver/aliasing work up front, so a
  * dark pixel samples backlit cells and can never light a dark pixel from
  * a lit one). Row-range variant so the dusk task can honor an abort
- * between rows. */
-void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1);
+ * between rows.
+ *
+ * map_dark / lit_w: the dusk's lit-fade variant (see moon_shade_map_rows'
+ * map_dark). Each pixel is lit * lit_w + dark * (1 - lit_w) of the two
+ * nearest-neighbor samples -- since the companion is identical to the lit
+ * map in the backlit cells, the lerp moves exactly the lit cells (the
+ * "earth ray" rim arc eases to black over the spin). The plain gather is
+ * map_dark = NULL (exact, no rounding). */
+void moon_reproject_rows(const uint8_t *map, const uint8_t *map_dark, int map_w, int map_h, const moon_geom_t *g,
+                         uint8_t *frame, int size, float radius, float cx, float cy, int y0, int y1, float lit_w);
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
                     float radius, float cx, float cy);
 

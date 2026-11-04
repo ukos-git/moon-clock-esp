@@ -653,9 +653,22 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
  * builds the map with its endpoint dk_sup; every other caller passes
  * 0.0f (the margin is inert there: the only dark_zero = 1 map caller is
  * the dusk). Row-range build so the caller (the dusk task) can honor an
- * abort between rows. */
-void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                         int map_h, int y0, int y1, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
+ * abort between rows.
+ *
+ * map_dark (NULL or a second map buffer, same dimensions): the dusk's
+ * LIT-FADE companion (the "earth ray" complete-kill, 2026-11-04) -- the
+ * same map with every LIT cell written 0 (pure black; the backlit cells
+ * are copied unchanged). The dusk fades the lit side to the backlit dark
+ * side over the spin (the lit crescent slides along the disk's limb while
+ * the pole spins and, hugging the rim, lingers as a bright arc through
+ * the late frames -- real sun-lit cells the dk_kill margin cannot touch,
+ * because their d is well above dk_kill). The re-project lerps the two
+ * maps per pixel (moon_reproject_rows lit_w): the backlit cells are
+ * identical in both, so only the lit cells move -- toward black as the
+ * spin advances. NULL = the lit map only (every non-dusk caller). */
+void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                         uint8_t *map_dark, int map_w, int map_h, int y0, int y1, int dark_zero, float dk_sup,
+                         const moon_bake_ev_t *bev) {
     const float S0 = g->S[0], S1 = g->S[1], S2 = g->S[2];
     const float dlon = 2.0f * (float)M_PI / (float)map_w;
     const float cosd = cosf(dlon), sind = sinf(dlon);
@@ -667,6 +680,7 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
         const float sinlat = sinf(lat * deg2rad), coslat = cosf(lat * deg2rad);
         const uint8_t *arow = albedo + (size_t)y * map_w;
         uint8_t *mrow = map + (size_t)y * map_w;
+        uint8_t *mrow_dark = map_dark ? map_dark + (size_t)y * map_w : NULL;
         /* Gradient-cache row for the whole map row: the bake's
          * row_frac -> DEM-row mapping, at the cell centers. */
         int dr = 0;
@@ -716,19 +730,28 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
                     L *= 1.0f - MOON_EV_BLOOD_K * occ;
             }
             float out;
+            int lit;
             /* dk_sup = 0.0f -> the plain d < 0 terminator (the margin is
              * inert there); the +MOON_DK_MARGIN erosion: see the doc above. */
             if (dark_zero ? ((d < dk_sup + MOON_DK_MARGIN) || (lns <= 0.0f)) : (lns <= 0.0f)) {
+                lit = 0;
                 if (dark_zero) {
                     out = (float)moon_backlit_night((float)arow[x], lns); /* the computed night side */
                 } else {
                     out = MOON_TONE_LUT[0] + earthshine(d);
                 }
             } else {
+                lit = 1;
                 const int idx = (int)((float)arow[x] * L + 0.5f);
                 out = MOON_TONE_LUT[idx > 255 ? 255 : idx] + earthshine(d);
             }
             mrow[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
+            /* The dusk's lit-fade companion (see moon_reproject_rows): the
+             * same cell with every LIT cell zeroed -- the all-dark map the
+             * fade lerps toward. NULL map_dark = the lit map only (every
+             * non-dusk caller). */
+            if (mrow_dark)
+                mrow_dark[x] = (uint8_t)(lit ? 0 : mrow[x]);
             /* Next cell: advance theta by one column (a complex rotation). */
             const float nct = ct * cosd - st * sind;
             st = ct * sind + st * cosd;
@@ -738,11 +761,12 @@ void moon_shade_map_rows(const moon_geom_t *g, const uint8_t *albedo, const moon
 }
 
 /* Build the whole shade map (see the section header). One-time cost per
- * dusk epoch (~2 s on the S3 for the 864 x 432 map). dark_zero / dk_sup:
- * see moon_shade_map_rows. */
-void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map, int map_w,
-                          int map_h, int dark_zero, float dk_sup, const moon_bake_ev_t *bev) {
-    moon_shade_map_rows(g, albedo, grel, map, map_w, map_h, 0, map_h, dark_zero, dk_sup, bev);
+ * dusk epoch (~2 s on the S3 for the 864 x 432 map). dark_zero / dk_sup /
+ * map_dark: see moon_shade_map_rows. */
+void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel, uint8_t *map,
+                          uint8_t *map_dark, int map_w, int map_h, int dark_zero, float dk_sup,
+                          const moon_bake_ev_t *bev) {
+    moon_shade_map_rows(g, albedo, grel, map, map_dark, map_w, map_h, 0, map_h, dark_zero, dk_sup, bev);
 }
 
 /* One pixel of the re-projection: bake_px WITHOUT the lighting -- the
@@ -753,11 +777,26 @@ void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo, const moo
  * load-bearing note as bake_px). */
 typedef struct {
     const uint8_t *map;
+    const uint8_t *map_dark; /* the lit-fade companion (see the
+                                moon_shade_map_rows doc): NULL = the plain
+                                gather (every non-dusk caller) */
     int map_w, map_h;
     const moon_geom_t *g;
     uint8_t *row;
     float radius, cx, v;
     float per_deg;
+    float lit_w; /* lit-side weight (1.0f = the lit map; 0.0f = the dark
+                    companion): only the LIT cells differ between the two
+                    maps (the dark cells are identical in both), so the lerp
+                    moves exactly the lit crescent. The dusk's "earth ray"
+                    complete-kill: the lit crescent slides along the disk's
+                    limb while the pole spins and lingers as a bright rim
+                    arc through the late frames -- the fade drives it to
+                    black over the spin (lit_w 1 -> 0, eased, the first half
+                    of the frames) so it is GONE by the endpoint (the final
+                    frame is the dk_kill bake, which the fade does not
+                    touch). lit_w = 1.0f and map_dark = NULL are the
+                    unmodified gather. */
 } reproj_ctx_t;
 
 static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, int x) {
@@ -792,7 +831,19 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
         r = 0;
     else if (r >= c->map_h)
         r = c->map_h - 1;
-    c->row[x] = c->map[(size_t)r * c->map_w + col];
+    size_t i = (size_t)r * c->map_w + col;
+    const uint8_t litv = c->map[i];
+    if (c->map_dark == NULL) {
+        c->row[x] = litv;
+        return;
+    }
+    /* The lit fade (see lit_w): only the lit cells differ between the two
+     * maps, so this lerp moves exactly the crescent -- backlit cells stay
+     * at the companion's (identical) value, and the rim arc the dusk must
+     * remove eases to black. The lerp is exact at lit_w = 0/1 (the frame-0
+     * and any no-fade caller are the unmodified gather). */
+    const float lw = c->lit_w;
+    c->row[x] = (uint8_t)((float)litv * lw + (float)c->map_dark[i] * (1.0f - lw) + 0.5f);
 }
 
 /* Re-project the pre-shaded body-frame equirect map (moon_shade_map_build)
@@ -805,15 +856,21 @@ static __attribute__((always_inline)) inline void reproject_px(reproj_ctx_t *c, 
  * side and the backlit night side (see moon_shade_map_rows) -- so the
  * re-project is a pure gather: no dark-side bound, no kill (the old
  * dk_sup early return is gone; the map's MOON_DK_MARGIN erosion does the
- * sliver/aliasing work up front). */
-void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
-                         float radius, float cx, float cy, int y0, int y1) {
+ * sliver/aliasing work up front).
+ *
+ * map_dark / lit_w (see reproj_ctx_t): the dusk's lit-fade variant --
+ * lerp the map toward its all-dark companion by (1 - lit_w), which moves
+ * exactly the lit cells (the companion is identical there). The plain
+ * gather is map_dark = NULL (or lit_w = 1.0f with it). */
+void moon_reproject_rows(const uint8_t *map, const uint8_t *map_dark, int map_w, int map_h, const moon_geom_t *g,
+                         uint8_t *frame, int size, float radius, float cx, float cy, int y0, int y1, float lit_w) {
     if (!s_tbl_init)
         tables_build();
     const float per_deg = (float)map_w / 360.0f;
     for (int y = y0; y < y1; y++) {
         reproj_ctx_t c;
         c.map = map;
+        c.map_dark = map_dark;
         c.map_w = map_w;
         c.map_h = map_h;
         c.g = g;
@@ -822,6 +879,7 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
         c.cx = cx;
         c.v = (cy - (float)y) / radius; /* v up: row 0 is top */
         c.per_deg = per_deg;
+        c.lit_w = lit_w;
         for (int x0 = 0; x0 < size; x0 += 4) {
             int n = size - x0;
             reproject_px(&c, x0);
@@ -837,5 +895,5 @@ void moon_reproject_rows(const uint8_t *map, int map_w, int map_h, const moon_ge
 
 void moon_reproject(const uint8_t *map, int map_w, int map_h, const moon_geom_t *g, uint8_t *frame, int size,
                     float radius, float cx, float cy) {
-    moon_reproject_rows(map, map_w, map_h, g, frame, size, radius, cx, cy, 0, size);
+    moon_reproject_rows(map, NULL, map_w, map_h, g, frame, size, radius, cx, cy, 0, size, 1.0f);
 }
