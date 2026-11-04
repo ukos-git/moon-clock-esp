@@ -487,7 +487,15 @@ extern "C" void app_main(void) {
      * spin rate, ~1 px at the rim at the active rate) -- invisible.
      * The S3's QSPI panel keeps its own bsp_display_start (NONE mode,
      * single GRAM). */
-    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
+    esp_lv_adapter_config_t p4_lv_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+    /* 12 KB, not the 8 KB default: the LVGL task runs moon_ui_day_tick
+     * every minute — the sky-event classify scan (§5.5: the 60-day
+     * full-moon S . E search on top of the era chain) and the inline
+     * day-change re-bake (moon_bake_epoch) — the same chain that
+     * overflowed the sweep task's 8 KB stack (stack-protection fault
+     * in sin on the P4, 2026-11-04). */
+    p4_lv_cfg.task_stack_size = 12288;
+    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = p4_lv_cfg,
                                      .rotation = ESP_LV_ADAPTER_ROTATE_0,
                                      .tear_avoid_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE,
                                      .touch_flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0}};

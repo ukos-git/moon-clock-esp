@@ -616,7 +616,7 @@ docs/                  this document + media
 
 | Task           | Core | Job                                                                                                                                                                                                                                                                   |
 | -------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, the fade-to-black switch legs, atomic whole-panel flushes; 8 KB stack                                                                                                                                     |
+| LVGL (adapter) | 0    | UI, input, the 10 ms tick (airplane/WiFi), screen switches, the fade-to-black switch legs, atomic whole-panel flushes; 12 KB stack (the sky-event classify scan + inline re-bake outgrew the 8 KB adapter default, §5.5 / §13)                                        |
 | spin render    | 1    | the free spin: one nearest-neighbor gather of the baked MOON_PX² frame (~8 ms on the S3) + a direct panel write of the moon area (8 fps default), rate = active period while in use, slow settled period (default 600 s/turn) at rest                                 |
 | moon bakes     | 1    | boot sweep (336 frames), daily re-bake, dusk shade map + final bake, row-by-row so an interrupt is honored                                                                                                                                                            |
 | wifi sync      | 1    | background `wifi_manager_init` + NTP (never on the LVGL task — the wake-freeze bug's fix)                                                                                                                                                                             |
@@ -949,13 +949,18 @@ The once-per-minute `moon_ui_day_tick` probes the 5-bit event signature and
 re-bakes on a signature change or hourly during a blood moon (the eclipse
 shadow sweeps in minutes — an event can START and END mid-day, at the hour it
 happens, not at the UTC midnight the date-change tick sees); it defers while
-any bake task is busy. Host-verified (`moon_sim --utc <ISO> --event`): the
-2025-03-14 eclipse renders a copper disk with the partial bite on the correct
-limb, 2025-10-07 harvest a golden disk, 2018-03-31 blue a cool one, the
-2016-11-14 (356,521 km) and 2014-01-16 (406,528 km) full moons the super /
-micro brightness scales. The 2018-01-31 "blue moon" is also `blood=1` — it was
-a genuine partial lunar eclipse, and the blood statement wins (it is first in
-the LUT cascade).
+any bake task is busy. The classify scan (60-day `S·E` search, §5.5's first
+paragraph) is deep — `full_moments → se_dot → moon_geometry → eraEpv00` — and
+lands on the sweep / orbit / dusk bake tasks **and** the LVGL task (the
+day-tick), whose 8 KB adapter-default stacks it overflowed: the P4's sweep task
+crashed on a stack-protection fault (`sin → rem_pio2` canary, 2026-11-04) →
+those four run at 12 KB (12288), the spin task (no era chain) stays at 8 KB.
+Host-verified (`moon_sim --utc <ISO> --event`): the 2025-03-14 eclipse renders
+a copper disk with the partial bite on the correct limb, 2025-10-07 harvest a
+golden disk, 2018-03-31 blue a cool one, the 2016-11-14 (356,521 km) and
+2014-01-16 (406,528 km) full moons the super / micro brightness scales. The
+2018-01-31 "blue moon" is also `blood=1` — it was a genuine partial lunar
+eclipse, and the blood statement wins (it is first in the LUT cascade).
 
 ---
 
@@ -2173,17 +2178,17 @@ What this project uses, and what the chip/board would not do:
 
 **Hard limits the design works around**
 
-| Limit                                              | Consequence in this project                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`) | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                               |
-| 2048 K app partition (widened from 1392 K)         | the flash budget is a standing constraint (current: 646,752 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                       |
-| LVGL 8 KB task stack                               | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task                                                                                                                                                                                                                    |
-| 64 KiB built-in LVGL pool                          | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                 |
-| Core-1 CPU starvation by long bakes                | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                  |
-| No GPU / no hardware 2-D                           | the spin is a CPU fixed-point gather (~8 ms) + a direct panel write; the SW renderer owns everything else; the display, not the CPU, is the bottleneck (~175 ms/frame); LVGL's glTF 3D extension is unusable on this chip (and on the P4) for the same reason — investigated 2026-10-30, see `docs/research/gltf-feasibility.md` |
-| FreeRTOS 100 Hz                                    | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                                                                                               |
-| RTC INT not wired to a GPIO                        | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                                                                                                  |
-| AMOLED burn-in                                     | the design-level constraint of §8                                                                                                                                                                                                                                                                                                |
+| Limit                                               | Consequence in this project                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PSRAM is not SPI-DMA-capable (below `SOC_DMA_LOW`)  | every display strip is staged into internal RAM; the S3 SPI DMA transaction cap is **32 KiB** → `buffer_height` 25 (23.3 KiB) + flush queue depth 1; a 50-row strip (46.6 KiB) → `ESP_ERR_NO_MEM` on every full-panel flush (the vendored BSP fix)                                                                                                                                                                                           |
+| 2048 K app partition (widened from 1392 K)          | the flash budget is a standing constraint (current: 646,752 B free); the widening was forced by the app outgrowing 1,425,408 B and is what houses the circular wheel keyboard (the widened SSID font + the screen + the save→connect flow)                                                                                                                                                                                                   |
+| LVGL 12 KB task stack (the adapter default is 8 KB) | whole-panel `lv_refr_now` overflows the 3.5 KB main task at boot → the atomic flush must run on the LVGL task. The 8 KB default was again too small once the sky-event classify scan + the inline re-bake joined the LVGL / sweep / orbit / dusk tasks (§5.5) — the P4's sweep task crashed with a stack-protection fault (sin → rem_pio2 canary, 2026-11-04) → those four tasks run at 12 KB (the spin task — no era chain — stays at 8 KB) |
+| 64 KiB built-in LVGL pool                           | a full-screen transformed layer (~0.9 MB) OOMs it → CLIB malloc (PSRAM); the original tilt crash                                                                                                                                                                                                                                                                                                                                             |
+| Core-1 CPU starvation by long bakes                 | the core-1 WDT idle-task check is off (bakes are bounded; core 0's check stays)                                                                                                                                                                                                                                                                                                                                                              |
+| No GPU / no hardware 2-D                            | the spin is a CPU fixed-point gather (~8 ms) + a direct panel write; the SW renderer owns everything else; the display, not the CPU, is the bottleneck (~175 ms/frame); LVGL's glTF 3D extension is unusable on this chip (and on the P4) for the same reason — investigated 2026-10-30, see `docs/research/gltf-feasibility.md`                                                                                                             |
+| FreeRTOS 100 Hz                                     | a 1 ms `vTaskDelay` floor is 0 ticks → the adapter's 1 ms minimum-delay made the LVGL task spin at ~3500 Hz (73-91 % of core 0) — the BSP `task_min_delay_ms = 10` fix (7-9 % now)                                                                                                                                                                                                                                                           |
+| RTC INT not wired to a GPIO                         | all RTC-driven behavior is software-polled (1.3 s); the PCF85063A ALM persists across boots → the 0-rule disarm                                                                                                                                                                                                                                                                                                                              |
+| AMOLED burn-in                                      | the design-level constraint of §8                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Not used (and why):** the ES8311 audio (no product need), PPA acceleration
 (off — the spin's keep-mask snapshot is a SW render), LVGL themes other than
@@ -2412,7 +2417,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (182,059 B)
+- `docs/doc_template.md` (183,723 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -7871,6 +7876,14 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg) {
      * latency cost is <= 10 ms (the indev read timer is 33 ms anyway);
      * the 50 ms moon tick and the 1 s timers are unaffected. */
     cfg->lv_adapter_cfg.task_min_delay_ms = 10;
+    /* 12 KB, not the adapter's 8 KB default: the LVGL task runs
+     * moon_ui_day_tick every minute — the sky-event classify scan (the
+     * 60-day full-moon S . E search, components/moon/core/moon_event.c)
+     * plus the inline day-change re-bake (moon_bake_epoch), the same
+     * chain that overflowed the sweep task's 8 KB stack (stack-protection
+     * fault in sin on the P4, 2026-11-04). The P4 sets the same size in
+     * main.cpp (its own adapter config). */
+    cfg->lv_adapter_cfg.task_stack_size = 12288;
     BSP_ERROR_CHECK_RETURN_NULL(esp_lv_adapter_init(&cfg->lv_adapter_cfg));
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
@@ -34581,7 +34594,10 @@ static void moon_orbit_start(void) {
     s_orbit_sweeping = true;
     s_orbit_strip_shown = 0;
     s_orbit_pub = 0;
-    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 8192, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
+    /* 12 KB, not 8: the task's moon_event_classify (the 60-day full-moon
+     * S . E scan, §5.5) adds ~400 B of frames on top of the era chain the
+     * bake already runs (moon_geometry -> eraEpv00/eraMoon98). */
+    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 12288, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
                                 1) != pdPASS) {
         ESP_LOGE(TAG, "orbit task allocation failed; viewport stays at the last bake");
         s_orbit_baking = false;
@@ -35888,7 +35904,11 @@ void moon_ui_replay_animation(void) {
      * may start baking s_rgb rows immediately; the spin's pause-poll and
      * the tick's display guard must already be stopped. */
     s_sweep_baking = true;
-    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 8192, NULL, configMAX_PRIORITIES - 3,
+    /* 12 KB, not 8: the sweep's moon_event_classify scan (§5.5) on top of
+     * the era chain and this task's int sm[MOON_PX] upscase scratch
+     * overflowed the 8 KB stack (stack-protection fault in sin on the P4,
+     * 2026-11-04). The spin task (no classify) stays at 8 KB. */
+    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 12288, NULL, configMAX_PRIORITIES - 3,
                                         &s_sweep_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "sweep task allocation failed; moon stays on the current frame");
         s_sweep_baking = false;
@@ -35943,8 +35963,9 @@ bool moon_ui_dusk_start(void) {
      * guards (spin drain, orbit drain, screen switch) must already be
      * stopped. */
     s_dusk_baking = true;
-    if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 8192, NULL, configMAX_PRIORITIES - 3, &s_dusk_task,
-                                        1, MALLOC_CAP_SPIRAM) != pdPASS) {
+    /* 12 KB: same classify-on-top-of-era-chain reason as the sweep. */
+    if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 12288, NULL, configMAX_PRIORITIES - 3,
+                                        &s_dusk_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "dusk task allocation failed; the moon stays parked");
         s_dusk_baking = false;
         return false;
@@ -46854,7 +46875,15 @@ extern "C" void app_main(void) {
      * spin rate, ~1 px at the rim at the active rate) -- invisible.
      * The S3's QSPI panel keeps its own bsp_display_start (NONE mode,
      * single GRAM). */
-    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
+    esp_lv_adapter_config_t p4_lv_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+    /* 12 KB, not the 8 KB default: the LVGL task runs moon_ui_day_tick
+     * every minute — the sky-event classify scan (§5.5: the 60-day
+     * full-moon S . E search on top of the era chain) and the inline
+     * day-change re-bake (moon_bake_epoch) — the same chain that
+     * overflowed the sweep task's 8 KB stack (stack-protection fault
+     * in sin on the P4, 2026-11-04). */
+    p4_lv_cfg.task_stack_size = 12288;
+    bsp_display_cfg_t p4_disp_cfg = {.lv_adapter_cfg = p4_lv_cfg,
                                      .rotation = ESP_LV_ADAPTER_ROTATE_0,
                                      .tear_avoid_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE,
                                      .touch_flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0}};

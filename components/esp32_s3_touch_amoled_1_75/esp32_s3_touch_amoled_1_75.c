@@ -603,6 +603,14 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg) {
      * latency cost is <= 10 ms (the indev read timer is 33 ms anyway);
      * the 50 ms moon tick and the 1 s timers are unaffected. */
     cfg->lv_adapter_cfg.task_min_delay_ms = 10;
+    /* 12 KB, not the adapter's 8 KB default: the LVGL task runs
+     * moon_ui_day_tick every minute — the sky-event classify scan (the
+     * 60-day full-moon S . E search, components/moon/core/moon_event.c)
+     * plus the inline day-change re-bake (moon_bake_epoch), the same
+     * chain that overflowed the sweep task's 8 KB stack (stack-protection
+     * fault in sin on the P4, 2026-11-04). The P4 sets the same size in
+     * main.cpp (its own adapter config). */
+    cfg->lv_adapter_cfg.task_stack_size = 12288;
     BSP_ERROR_CHECK_RETURN_NULL(esp_lv_adapter_init(&cfg->lv_adapter_cfg));
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);

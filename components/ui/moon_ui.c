@@ -1393,7 +1393,10 @@ static void moon_orbit_start(void) {
     s_orbit_sweeping = true;
     s_orbit_strip_shown = 0;
     s_orbit_pub = 0;
-    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 8192, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
+    /* 12 KB, not 8: the task's moon_event_classify (the 60-day full-moon
+     * S . E scan, §5.5) adds ~400 B of frames on top of the era chain the
+     * bake already runs (moon_geometry -> eraEpv00/eraMoon98). */
+    if (xTaskCreatePinnedToCore(moon_orbit_task, "moon_orbit", 12288, NULL, configMAX_PRIORITIES - 3, &s_orbit_task,
                                 1) != pdPASS) {
         ESP_LOGE(TAG, "orbit task allocation failed; viewport stays at the last bake");
         s_orbit_baking = false;
@@ -2700,7 +2703,11 @@ void moon_ui_replay_animation(void) {
      * may start baking s_rgb rows immediately; the spin's pause-poll and
      * the tick's display guard must already be stopped. */
     s_sweep_baking = true;
-    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 8192, NULL, configMAX_PRIORITIES - 3,
+    /* 12 KB, not 8: the sweep's moon_event_classify scan (§5.5) on top of
+     * the era chain and this task's int sm[MOON_PX] upscase scratch
+     * overflowed the 8 KB stack (stack-protection fault in sin on the P4,
+     * 2026-11-04). The spin task (no classify) stays at 8 KB. */
+    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 12288, NULL, configMAX_PRIORITIES - 3,
                                         &s_sweep_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "sweep task allocation failed; moon stays on the current frame");
         s_sweep_baking = false;
@@ -2755,8 +2762,9 @@ bool moon_ui_dusk_start(void) {
      * guards (spin drain, orbit drain, screen switch) must already be
      * stopped. */
     s_dusk_baking = true;
-    if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 8192, NULL, configMAX_PRIORITIES - 3, &s_dusk_task,
-                                        1, MALLOC_CAP_SPIRAM) != pdPASS) {
+    /* 12 KB: same classify-on-top-of-era-chain reason as the sweep. */
+    if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 12288, NULL, configMAX_PRIORITIES - 3,
+                                        &s_dusk_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "dusk task allocation failed; the moon stays parked");
         s_dusk_baking = false;
         return false;
