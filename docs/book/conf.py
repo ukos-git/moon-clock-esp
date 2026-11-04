@@ -51,7 +51,10 @@ mathjax_path = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?
 # current theme and re-renders on a theme toggle.
 html_js_files = [
     "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
-    "_static/mermaid_init.js",
+    # Local entry: no ``_static/`` prefix — furo emits it as
+    # ``<page-relative>_static/`` + entry, so prefixing it yields the
+    # doubled ``_static/_static/`` path (404, the init script never loads).
+    "mermaid_init.js",
 ]
 
 # autodoc: the moon package is small and fully documented; show everything.
