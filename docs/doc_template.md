@@ -381,7 +381,14 @@ bugreport fixes (the orientation roots extended to the manual time entry +
 timezone screens, the idle-timeout unfilled-moon toggle icon, and the five
 wheel-keyboard fixes — mode-indicator pad, centre pivots, the stale "Z", the
 empty-trash exit, the commit icon): P4 **1,579,424 B** (`0x1819a0`, +320 B), S3
-**1,463,104 B** (`0x165340`, +256 B; both ~30 % under the 2048 K factory).
+**1,463,104 B** (`0x165340`, +256 B; both ~30 % under the 2048 K factory);
+after the **single shared clock widget** (2026-11-04, §7.1 — the five moon
+screens share ONE clock row, reparented to the active screen by
+`ui_clock_attach_to` on every `loadScreen` with the vars refreshed from the
+RTC, so the wake shows the current minute in the switch's one atomic frame; the
+clock alpha in light sleep is the `UI_CLOCK_ALPHA_PCT` option, §7.3): P4
+**1,579,424 B** (`0x1819a0`, +0 B), S3 **1,463,248 B** (`0x1653d0`, +144 B;
+both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -865,10 +872,25 @@ lists what the screen shows and what each control changes live.
   px per digit — the maximum digit advance; 26 px for the colon — its own
   advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
   38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
-  (at 466) and only the ink moves. `objects[BASE+1]` stays the slot row — the
-  P4 unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the
-  style cascades to the five labels — and the minute tick updates only the
+  (at 466) and only the ink moves. `objects[16+1]` stays the slot row — the P4
+  unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
+  cascades to the five labels — and the minute tick updates only the
   character(s) that changed, not the whole string.
+- **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
+  (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
+  own clock widget (five sets of HH:MM slots + alarm label) and only the
+  _active_ screen's set was ticked — so a wake showed the pre-wake value held
+  by the newly revealed screen's labels until the next minute tick (the "quick
+  adjustment" on wake). There is now exactly one widget, created once on the
+  airplane screen (`objects[16/17/18]`); the other four screens' bases
+  (`objects[21/26/30/35]` +1/+2) **alias the same three objects** (the layout
+  contract in `screens.h`). The minute tick (`action_update_clock_display`)
+  ticks it from the vars regardless of the active screen, and the `loadScreen`
+  choke point reparents it onto the new moon screen and refreshes the vars from
+  the RTC _before_ the switch's atomic flush (`ui_clock_attach_to`), so every
+  switch — the wake in particular — shows the current minute in the one frame.
+  Settings screens are moon-less: the widget stays where it was, computed but
+  not rendered.
 - **No icons** — the moon stays in the foreground (user decision).
 - Tapping anywhere (the clock container is non-clickable so the tap falls
   through to the screen root) opens the settings hub.
@@ -896,9 +918,16 @@ lists what the screen shows and what each control changes live.
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
   51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
   without a flat overlay).
-- The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
-  opacity is the only "alpha"; the moon image is a sibling and stays
-  full-contrast).
+- The clock's **opacity is a compile-time option**: the light-sleep entry sets
+  the shared clock widget's container to `UI_CLOCK_ALPHA_PCT` (Kconfig, int,
+  range 0–100, **default 100** = full opacity) and the wake restores it to
+  full. The old hard-coded ~20 % alpha is gone: light sleep now dims the
+  _whole_ panel via its own hardware brightness (the line below), so the clock
+  no longer needs the low alpha to read as "barely visible" — the alpha is the
+  option to dim the clock _further_ relative to the moon (e.g. 40). One
+  application point (the light-sleep entry) covers every moon-background clock
+  display because the clock is a single shared widget (§7.1). The moon image is
+  a sibling of the clock container, so it stays at full contrast.
 - The **whole display glows down too**: the panel's own hardware brightness
   (the CO5300 0x51 / the P4 backlight PWM) ramps from its current level to
   `UI_LIGHT_SLEEP_DIM_PCT` (default 25 %, Kconfig) over `UI_SCREEN_SWITCH_FADE`
@@ -1454,9 +1483,10 @@ were made and implemented:
    static elements (they move with the 90° steps and with the tilt-driven roll,
    but between rolls they sit still). At the AMOLED's always-on duty cycle the
    digits are the long-term burn-in candidate; the mitigation is the stepped
-   re-orientation (a roll of the device re-poses them) plus the low digit
-   opacity in sleep (dimmed to ~20% in light sleep, hidden in deep sleep with
-   the backlight off).
+   re-orientation (a roll of the device re-poses them) plus the panel dim in
+   light sleep (`UI_LIGHT_SLEEP_DIM_PCT`, the whole display — the clock's own
+   `UI_CLOCK_ALPHA_PCT` default is 100, so the panel brightness carries the
+   readability) and the clock hidden in deep sleep (backlight off).
 
 ---
 
@@ -1711,6 +1741,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-02, after the light-sleep dim)   | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                                            |
 | Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                    |
 | Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
+| Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -1988,6 +2019,7 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 | `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                                                                                                                                                  |
 | `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                                                                                                                                                          |
 | `CONFIG_UI_LIGHT_SLEEP_DIM_PCT`                                               | 25              | the panel's hardware brightness in light sleep (%): the entry ramps DOWN to it and the wake / an alarm ring ramp back to 100, paced like the fade (§7.3, `moon_ui_panel_dim_ramp`)                                                                                                                                                  |
+| `CONFIG_UI_CLOCK_ALPHA_PCT`                                                   | 100             | the shared clock widget's opacity in light sleep (%): the entry sets the clock container to this (the panel dim above carries the readability; lower it to dim the clock further relative to the moon), the wake restores 100 (§7.3; Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `actions.c` is 100)         |
 | `CONFIG_UI_LIGHT_SLEEP_TICK_MS`                                               | 100             | LVGL tick cadence in light sleep                                                                                                                                                                                                                                                                                                    |
 | `CONFIG_UI_IMU_ENABLE`                                                        | y               | QMI8658C tilt (drive the clock roll + activity)                                                                                                                                                                                                                                                                                     |
 | `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                                                                                                                                                              |

@@ -756,6 +756,14 @@ static lv_timer_t *g_seconds_timer = NULL;
 #define CONFIG_UI_LIGHT_SLEEP_DIM_PCT 25
 #endif
 
+/* The shared clock widget's light-sleep opacity (percent). Kconfig
+ * UI_CLOCK_ALPHA_PCT (default 100): light sleep dims the WHOLE panel to
+ * UI_LIGHT_SLEEP_DIM_PCT via the hardware brightness, so the clock no
+ * longer needs the old 20 % alpha -- the default is 100 (no alpha). */
+#ifndef CONFIG_UI_CLOCK_ALPHA_PCT
+#define CONFIG_UI_CLOCK_ALPHA_PCT 100
+#endif
+
 /* Refresh the alarm label + weekday prefix (defined below, after the
  * clock display: called from the minute tick too). */
 static void refresh_alarm_display(const clock_time_t *now);
@@ -809,6 +817,13 @@ void action_update_clock_display(lv_event_t *e) {
 
     // Trigger UI update immediately to reflect the change
     ui_tick();
+
+    // The ONE shared clock widget is ticked HERE from the vars on every
+    // minute tick -- regardless of the active screen (the per-screen
+    // tick functions no longer tick it): a minute flip redraws the
+    // digits wherever the widget is attached (a settings screen keeps
+    // it computed-but-unrendered on the last moon screen).
+    tick_user_widget_clock(16);
 }
 
 /* Two-letter weekday of the next fire, for the main-screen alarm prefix
@@ -1103,6 +1118,14 @@ void action_wake_screen(lv_event_t *e) {
         }
     }
 
+    // Restore the shared clock widget's full opacity: the light-sleep
+    // entry dimmed the light_sleep_clock container to UI_CLOCK_ALPHA_PCT
+    // (the panel dim ramp below / to 100 is the readability; the clock
+    // itself is no longer alpha-dimmed). The widget reparents to the new
+    // screen's container on the switch, so this also keeps the container
+    // clean for the next light-sleep entry.
+    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_COVER, 0);
+
     // Was this call a real wake from sleep? The sleep transitions set
     // g_asleep; this handler consumes it. It drives the stale-alarm
     // branch below. Boot and the awake alarm-dismiss touch path see
@@ -1306,11 +1329,14 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
 
-    // Light sleep dims the clock to ~20% opacity (the AMOLED has no
-    // per-pixel alpha; a low-opacity container is the "barely
-    // visible" the design asks for). The moon image is a sibling of
-    // the clock container, so it stays at full contrast.
-    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_20, 0);
+    // Light sleep dims the clock to UI_CLOCK_ALPHA_PCT (the shared clock
+    // widget's container; the style cascades to the attached widget). The
+    // old 20 % alpha is now the Kconfig default 100 -- no alpha -- because
+    // the panel's own hardware brightness already glows the whole display
+    // (moon included) down to UI_LIGHT_SLEEP_DIM_PCT; the alpha is the
+    // option to dim the clock FURTHER relative to the moon. The moon image
+    // is a sibling of the clock container, so it stays at full contrast.
+    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
 
     // And the WHOLE display glows down: the panel's own hardware
     // brightness ramps from its current level (100 at the first sleep,

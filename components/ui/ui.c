@@ -61,6 +61,16 @@ void loadScreen(enum ScreensEnum screenId) {
     currentScreen = screenId - 1;
     lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
     lv_scr_load(screen);
+    /* Reparent the ONE shared clock widget onto the new moon screen and
+     * refresh its vars from the RTC BEFORE the switch's atomic flush, so
+     * the switch -- the wake in particular -- shows the current minute
+     * in that one frame (the pre-wake value held by the last-ticked
+     * screen's labels would otherwise linger until the next minute tick).
+     * The panel is still black here for a fading switch (the fade-in runs
+     * in moon_ui_screen_switched), so the reparent + label update are
+     * invisible. A non-moon (settings) screen keeps the widget where it
+     * was -- computed, not rendered. */
+    ui_clock_attach_to(screenId);
     moon_ui_screen_switched();
 }
 

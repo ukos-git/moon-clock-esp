@@ -381,7 +381,14 @@ bugreport fixes (the orientation roots extended to the manual time entry +
 timezone screens, the idle-timeout unfilled-moon toggle icon, and the five
 wheel-keyboard fixes — mode-indicator pad, centre pivots, the stale "Z", the
 empty-trash exit, the commit icon): P4 **1,579,424 B** (`0x1819a0`, +320 B), S3
-**1,463,104 B** (`0x165340`, +256 B; both ~30 % under the 2048 K factory).
+**1,463,104 B** (`0x165340`, +256 B; both ~30 % under the 2048 K factory);
+after the **single shared clock widget** (2026-11-04, §7.1 — the five moon
+screens share ONE clock row, reparented to the active screen by
+`ui_clock_attach_to` on every `loadScreen` with the vars refreshed from the
+RTC, so the wake shows the current minute in the switch's one atomic frame; the
+clock alpha in light sleep is the `UI_CLOCK_ALPHA_PCT` option, §7.3): P4
+**1,579,424 B** (`0x1819a0`, +0 B), S3 **1,463,248 B** (`0x1653d0`, +144 B;
+both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -865,10 +872,25 @@ lists what the screen shows and what each control changes live.
   px per digit — the maximum digit advance; 26 px for the colon — its own
   advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
   38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
-  (at 466) and only the ink moves. `objects[BASE+1]` stays the slot row — the
-  P4 unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the
-  style cascades to the five labels — and the minute tick updates only the
+  (at 466) and only the ink moves. `objects[16+1]` stays the slot row — the P4
+  unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
+  cascades to the five labels — and the minute tick updates only the
   character(s) that changed, not the whole string.
+- **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
+  (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
+  own clock widget (five sets of HH:MM slots + alarm label) and only the
+  _active_ screen's set was ticked — so a wake showed the pre-wake value held
+  by the newly revealed screen's labels until the next minute tick (the "quick
+  adjustment" on wake). There is now exactly one widget, created once on the
+  airplane screen (`objects[16/17/18]`); the other four screens' bases
+  (`objects[21/26/30/35]` +1/+2) **alias the same three objects** (the layout
+  contract in `screens.h`). The minute tick (`action_update_clock_display`)
+  ticks it from the vars regardless of the active screen, and the `loadScreen`
+  choke point reparents it onto the new moon screen and refreshes the vars from
+  the RTC _before_ the switch's atomic flush (`ui_clock_attach_to`), so every
+  switch — the wake in particular — shows the current minute in the one frame.
+  Settings screens are moon-less: the widget stays where it was, computed but
+  not rendered.
 - **No icons** — the moon stays in the foreground (user decision).
 - Tapping anywhere (the clock container is non-clickable so the tap falls
   through to the screen root) opens the settings hub.
@@ -896,9 +918,16 @@ lists what the screen shows and what each control changes live.
   surface** — the real lunar terrain lit from the anti-solar direction, peak ≈
   51/255 (K = 0.20, §5.2 item 4), so the far side stays visible on the AMOLED
   without a flat overlay).
-- The clock is **dimmed to ~20% opacity** (the panel has no alpha channel —
-  opacity is the only "alpha"; the moon image is a sibling and stays
-  full-contrast).
+- The clock's **opacity is a compile-time option**: the light-sleep entry sets
+  the shared clock widget's container to `UI_CLOCK_ALPHA_PCT` (Kconfig, int,
+  range 0–100, **default 100** = full opacity) and the wake restores it to
+  full. The old hard-coded ~20 % alpha is gone: light sleep now dims the
+  _whole_ panel via its own hardware brightness (the line below), so the clock
+  no longer needs the low alpha to read as "barely visible" — the alpha is the
+  option to dim the clock _further_ relative to the moon (e.g. 40). One
+  application point (the light-sleep entry) covers every moon-background clock
+  display because the clock is a single shared widget (§7.1). The moon image is
+  a sibling of the clock container, so it stays at full contrast.
 - The **whole display glows down too**: the panel's own hardware brightness
   (the CO5300 0x51 / the P4 backlight PWM) ramps from its current level to
   `UI_LIGHT_SLEEP_DIM_PCT` (default 25 %, Kconfig) over `UI_SCREEN_SWITCH_FADE`
@@ -1454,9 +1483,10 @@ were made and implemented:
    static elements (they move with the 90° steps and with the tilt-driven roll,
    but between rolls they sit still). At the AMOLED's always-on duty cycle the
    digits are the long-term burn-in candidate; the mitigation is the stepped
-   re-orientation (a roll of the device re-poses them) plus the low digit
-   opacity in sleep (dimmed to ~20% in light sleep, hidden in deep sleep with
-   the backlight off).
+   re-orientation (a roll of the device re-poses them) plus the panel dim in
+   light sleep (`UI_LIGHT_SLEEP_DIM_PCT`, the whole display — the clock's own
+   `UI_CLOCK_ALPHA_PCT` default is 100, so the panel brightness carries the
+   readability) and the clock hidden in deep sleep (backlight off).
 
 ---
 
@@ -1711,6 +1741,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-02, after the light-sleep dim)   | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                                            |
 | Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                    |
 | Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
+| Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -1988,6 +2019,7 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 | `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                                                                                                                                                  |
 | `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                                                                                                                                                          |
 | `CONFIG_UI_LIGHT_SLEEP_DIM_PCT`                                               | 25              | the panel's hardware brightness in light sleep (%): the entry ramps DOWN to it and the wake / an alarm ring ramp back to 100, paced like the fade (§7.3, `moon_ui_panel_dim_ramp`)                                                                                                                                                  |
+| `CONFIG_UI_CLOCK_ALPHA_PCT`                                                   | 100             | the shared clock widget's opacity in light sleep (%): the entry sets the clock container to this (the panel dim above carries the readability; lower it to dim the clock further relative to the moon), the wake restores 100 (§7.3; Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `actions.c` is 100)         |
 | `CONFIG_UI_LIGHT_SLEEP_TICK_MS`                                               | 100             | LVGL tick cadence in light sleep                                                                                                                                                                                                                                                                                                    |
 | `CONFIG_UI_IMU_ENABLE`                                                        | y               | QMI8658C tilt (drive the clock roll + activity)                                                                                                                                                                                                                                                                                     |
 | `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                                                                                                                                                              |
@@ -2089,52 +2121,61 @@ code.
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
 - `docs/book/_static/figs/art_ab.png` (272,440 B)
+- `docs/book/_static/figs/bake_pipeline.png` (35,003 B)
 - `docs/book/_static/figs/displaced_normal.png` (77,390 B)
-- `docs/book/_static/figs/earthshine.png` (60,019 B)
+- `docs/book/_static/figs/earthshine.png` (60,931 B)
 - `docs/book/_static/figs/k_ab.png` (372,229 B)
-- `docs/book/_static/figs/ortho_view.png` (72,100 B)
+- `docs/book/_static/figs/ortho_view.png` (73,885 B)
 - `docs/book/_static/figs/phase_strip.png` (582,201 B)
 - `docs/book/_static/figs/relief_ab.png` (235,889 B)
 - `docs/book/_static/figs/terminator_ridge.png` (86,681 B)
 - `docs/book/_static/figs/tint_ab.png` (226,332 B)
 - `docs/book/_static/figs/tone_lut.png` (69,774 B)
+- `docs/book/_static/mermaid_init.js` (1,929 B)
 - `docs/book/_static/moonjs/moonlab.html` (6,944 B)
 - `docs/book/_static/moonjs/moonlab.js` (12,530 B)
 - `docs/book/_static/moonjs/moonlab_data.js` (1,851,565 B)
 - `docs/book/_static/photos/bench_crescent.jpg` (33,718 B)
 - `docs/book/_static/photos/bench_front.jpg` (90,688 B)
 - `docs/book/_static/photos/bench_panel.jpg` (25,922 B)
-- `docs/book/conf.py` (2,085 B)
+- `docs/book/_static/photos/sim_alarm.png` (189,982 B)
+- `docs/book/_static/photos/sim_deep_sleep.png` (595,958 B)
+- `docs/book/_static/photos/sim_home.png` (666,617 B)
+- `docs/book/_static/photos/sim_keyboard.png` (281,706 B)
+- `docs/book/_static/photos/sim_light_sleep.png` (504,607 B)
+- `docs/book/conf.py` (2,537 B)
 - `docs/book/index.rst` (3,675 B)
-- `docs/book/part1/01-overview.rst` (4,746 B)
+- `docs/book/part1/01-overview.rst` (5,518 B)
 - `docs/book/part1/02-hardware-s3.rst` (5,140 B)
 - `docs/book/part1/03-hardware-p4.rst` (4,710 B)
 - `docs/book/part1/04-reference.rst` (4,323 B)
 - `docs/book/part2/05-geometry.rst` (9,991 B)
-- `docs/book/part2/06-lighting.rst` (12,705 B)
+- `docs/book/part2/06-lighting.rst` (16,553 B)
 - `docs/book/part2/07-darkside.rst` (10,230 B)
 - `docs/book/part2/08-artpass.rst` (10,162 B)
 - `docs/book/part2/09-interactive.rst` (7,448 B)
-- `docs/book/part3/10-architecture.rst` (10,467 B)
-- `docs/book/part3/11-core-c.rst` (10,604 B)
-- `docs/book/part3/12-rotate-lut.rst` (7,381 B)
-- `docs/book/part3/13-display.rst` (16,977 B)
-- `docs/book/part3/14-animations.rst` (16,650 B)
-- `docs/book/part3/15-clock-sleep.rst` (12,948 B)
+- `docs/book/part3/10-architecture.rst` (9,917 B)
+- `docs/book/part3/11-core-c.rst` (10,715 B)
+- `docs/book/part3/12-rotate-lut.rst` (7,430 B)
+- `docs/book/part3/13-display.rst` (17,077 B)
+- `docs/book/part3/14-animations.rst` (16,711 B)
+- `docs/book/part3/15-clock-sleep.rst` (18,720 B)
 - `docs/book/part3/16-p4port.rst` (12,513 B)
 - `docs/book/part4/17-imagegate.rst` (9,882 B)
-- `docs/book/part4/18-device-verify.rst` (10,877 B)
-- `docs/book/part4/19-performance.rst` (14,694 B)
-- `docs/book/part4/20-binary.rst` (9,588 B)
-- `docs/book/part5/21-keyboard.rst` (17,168 B)
+- `docs/book/part4/18-device-verify.rst` (10,968 B)
+- `docs/book/part4/19-performance.rst` (14,765 B)
+- `docs/book/part4/20-binary.rst` (9,633 B)
+- `docs/book/part5/21-keyboard.rst` (19,420 B)
 - `docs/book/part5/22-python-api.rst` (12,616 B)
 - `docs/book/part5/23-c-api.rst` (13,940 B)
-- `docs/book/part5/24-build-kconfig.rst` (12,617 B)
+- `docs/book/part5/24-build-kconfig.rst` (12,704 B)
 - `docs/book/part5/25-glossary-references.rst` (12,092 B)
+- `docs/book/tools/gen_bake_intermediates.js` (5,516 B)
+- `docs/book/tools/gen_bake_strip.py` (2,740 B)
 - `docs/book/tools/gen_figures.js` (3,669 B)
-- `docs/book/tools/gen_lighting_figs.py` (19,719 B)
+- `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
-- `docs/doc_template.md` (160,081 B)
+- `docs/doc_template.md` (163,718 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -2155,14 +2196,12 @@ code.
 - `docs/img/nasa/nasa_vs_c_p090.png` (293,456 B)
 - `docs/img/screens/alarm.png` (16,031 B)
 - `docs/img/screens/deep_sleep.png` (183,637 B)
-- `docs/img/screens/flush_q1.png` (19,604 B)
-- `docs/img/screens/flush_qN.png` (19,604 B)
 - `docs/img/screens/light_sleep.png` (192,749 B)
-- `docs/img/screens/modem_sleep.png` (199,693 B)
+- `docs/img/screens/modem_sleep.png` (200,182 B)
 - `docs/img/screens/p4/alarm.png` (30,253 B)
 - `docs/img/screens/p4/deep_sleep.png` (414,428 B)
 - `docs/img/screens/p4/light_sleep.png` (433,495 B)
-- `docs/img/screens/p4/modem_sleep.png` (441,479 B)
+- `docs/img/screens/p4/modem_sleep.png` (444,265 B)
 - `docs/img/screens/p4/settings_alarm.png` (25,293 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,158 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (24,506 B)
@@ -2177,10 +2216,7 @@ code.
 - `docs/img/screens/p4/settings_wifi_password_ABC.png` (72,329 B)
 - `docs/img/screens/p4/settings_wifi_password_sym.png` (69,786 B)
 - `docs/img/screens/p4/settings_wifi_password_touched.png` (74,898 B)
-- `docs/img/screens/p4/wifi.png` (437,886 B)
-- `docs/img/screens/reveal_diff.png` (11,979 B)
-- `docs/img/screens/reveal_rotated.png` (20,016 B)
-- `docs/img/screens/rottest_90.png` (15,230 B)
+- `docs/img/screens/p4/wifi.png` (440,015 B)
 - `docs/img/screens/settings_alarm.png` (12,924 B)
 - `docs/img/screens/settings_alarm_time.png` (18,050 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
@@ -2195,16 +2231,7 @@ code.
 - `docs/img/screens/settings_wifi_password_ABC.png` (44,070 B)
 - `docs/img/screens/settings_wifi_password_sym.png` (42,447 B)
 - `docs/img/screens/settings_wifi_password_touched.png` (45,953 B)
-- `docs/img/screens/snap_raw_q1.png` (19,423 B)
-- `docs/img/screens/wheel_123.png` (44,384 B)
-- `docs/img/screens/wheel_ABC.png` (44,070 B)
-- `docs/img/screens/wheel_abc.png` (43,808 B)
-- `docs/img/screens/wheel_back.png` (21,460 B)
-- `docs/img/screens/wheel_committed.png` (198,406 B)
-- `docs/img/screens/wheel_rest.png` (43,726 B)
-- `docs/img/screens/wheel_sym.png` (42,447 B)
-- `docs/img/screens/wheel_touched.png` (45,953 B)
-- `docs/img/screens/wifi.png` (198,406 B)
+- `docs/img/screens/wifi.png` (198,487 B)
 - `docs/keyboard/round-keyboard-lab.html` (61,449 B)
 - `docs/nasa_figs.py` (3,141 B)
 - `docs/research/circular-keyboard-alternatives.md` (34,999 B)
@@ -15161,6 +15188,14 @@ static lv_timer_t *g_seconds_timer = NULL;
 #define CONFIG_UI_LIGHT_SLEEP_DIM_PCT 25
 #endif
 
+/* The shared clock widget's light-sleep opacity (percent). Kconfig
+ * UI_CLOCK_ALPHA_PCT (default 100): light sleep dims the WHOLE panel to
+ * UI_LIGHT_SLEEP_DIM_PCT via the hardware brightness, so the clock no
+ * longer needs the old 20 % alpha -- the default is 100 (no alpha). */
+#ifndef CONFIG_UI_CLOCK_ALPHA_PCT
+#define CONFIG_UI_CLOCK_ALPHA_PCT 100
+#endif
+
 /* Refresh the alarm label + weekday prefix (defined below, after the
  * clock display: called from the minute tick too). */
 static void refresh_alarm_display(const clock_time_t *now);
@@ -15214,6 +15249,13 @@ void action_update_clock_display(lv_event_t *e) {
 
     // Trigger UI update immediately to reflect the change
     ui_tick();
+
+    // The ONE shared clock widget is ticked HERE from the vars on every
+    // minute tick -- regardless of the active screen (the per-screen
+    // tick functions no longer tick it): a minute flip redraws the
+    // digits wherever the widget is attached (a settings screen keeps
+    // it computed-but-unrendered on the last moon screen).
+    tick_user_widget_clock(16);
 }
 
 /* Two-letter weekday of the next fire, for the main-screen alarm prefix
@@ -15508,6 +15550,14 @@ void action_wake_screen(lv_event_t *e) {
         }
     }
 
+    // Restore the shared clock widget's full opacity: the light-sleep
+    // entry dimmed the light_sleep_clock container to UI_CLOCK_ALPHA_PCT
+    // (the panel dim ramp below / to 100 is the readability; the clock
+    // itself is no longer alpha-dimmed). The widget reparents to the new
+    // screen's container on the switch, so this also keeps the container
+    // clean for the next light-sleep entry.
+    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_COVER, 0);
+
     // Was this call a real wake from sleep? The sleep transitions set
     // g_asleep; this handler consumes it. It drives the stale-alarm
     // branch below. Boot and the awake alarm-dismiss touch path see
@@ -15711,11 +15761,14 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
 
-    // Light sleep dims the clock to ~20% opacity (the AMOLED has no
-    // per-pixel alpha; a low-opacity container is the "barely
-    // visible" the design asks for). The moon image is a sibling of
-    // the clock container, so it stays at full contrast.
-    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_20, 0);
+    // Light sleep dims the clock to UI_CLOCK_ALPHA_PCT (the shared clock
+    // widget's container; the style cascades to the attached widget). The
+    // old 20 % alpha is now the Kconfig default 100 -- no alpha -- because
+    // the panel's own hardware brightness already glows the whole display
+    // (moon included) down to UI_LIGHT_SLEEP_DIM_PCT; the alpha is the
+    // option to dim the clock FURTHER relative to the moon. The moon image
+    // is a sibling of the clock container, so it stays at full contrast.
+    lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
 
     // And the WHOLE display glows down: the panel's own hardware
     // brightness ramps from its current level (100 at the first sleep,
@@ -34576,9 +34629,12 @@ void moon_ui_dump_hang_context(void);
 
 /* From clock.h (the manual time-entry commit). The full header is not
  * included: it pulls the bsp/driver headers the host sim (the real
- * screens.c, unmodified) cannot resolve -- only this one prototype is
- * needed (clock_time_t comes via clock_sntp.h -> clock_types.h). */
+ * screens.c, unmodified) cannot resolve -- only these two prototypes
+ * are needed (clock_time_t comes via clock_sntp.h -> clock_types.h).
+ * clock_get_time is the shared clock widget's attach refresh
+ * (ui_clock_attach_to: a screen switch shows the current minute). */
 esp_err_t clock_set_time(const clock_time_t *time);
+esp_err_t clock_get_time(clock_time_t *out);
 
 objects_t objects;
 lv_obj_t *tick_value_change_obj;
@@ -34834,7 +34890,10 @@ void create_screen_modem_sleep() {
 }
 
 void tick_screen_modem_sleep() {
-    tick_user_widget_clock(16);
+    /* No clock tick here: the ONE shared clock widget is ticked from the
+     * vars by the minute tick (action_update_clock_display) and by the
+     * screen switch (ui_clock_attach_to); only the seconds arc is
+     * screen-local. */
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
@@ -34861,7 +34920,13 @@ void create_screen_wifi() {
     {
         lv_obj_t *parent_obj = obj;
         {
-            // wifi_clock
+            /* wifi_clock: the shared clock widget's PARENT on this
+             * screen (layout contract 2) -- the widget itself is
+             * created once, on the modem-sleep screen, and
+             * ui_clock_attach_to() reparents it here at the switch.
+             * Only the container is created; the alias rows
+             * (wifi_clock__clock & co = objects[16/17/18]) are
+             * assigned in create_screen_modem_sleep. */
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
@@ -34872,7 +34937,6 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 21);
         }
         {
             // arc-clock-seconds-wifi
@@ -34922,7 +34986,8 @@ void create_screen_wifi() {
 }
 
 void tick_screen_wifi() {
-    tick_user_widget_clock(21);
+    /* No clock tick: the shared widget is ticked from the vars (minute
+     * tick + screen switch); only the seconds arc is screen-local. */
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
@@ -34966,14 +35031,15 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 26);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(26); }
+/* No clock tick: the shared widget is ticked from the vars by the
+ * minute tick and by ui_clock_attach_to (layout contract 2). */
+void tick_screen_light_sleep() {}
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -34995,7 +35061,6 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 30);
         }
         {
             // screen-indicator-sleep1
@@ -35011,7 +35076,9 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(30); }
+void tick_screen_deep_sleep() {} /* no clock tick: the shared widget is
+                                     ticked from the vars (minute tick +
+                                     screen switch). */
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_wake_screen) only fires while the device is
@@ -35037,7 +35104,6 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 35);
         }
         {
             // screen-indicator-alarm
@@ -35053,7 +35119,9 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(35); }
+void tick_screen_alarm() {} /* no clock tick: the shared widget is
+                             * ticked from the minute tick regardless of
+                             * the active screen */
 
 /* ---------------- settings screens ----------------
  *
@@ -37325,63 +37393,33 @@ void create_screen_settings_tz() {
 
 void tick_screen_settings_tz() {}
 
-/* The alarm weekday prefixes, one per clock widget. Not part of
- * objects_t: the layout contract there only names the three widget
- * slots the tick reads, and the prefix label is internal to the
- * widget (created with it, found by walking the row's children). */
-static lv_obj_t *s_alarm_prefix[5];
+/* The shared clock widget's alarm weekday prefix row (the prefix
+ * label is its first child). ONE row for the one widget: the five
+ * moon screens alias the same objects (layout contract 2), so there
+ * is no per-screen set any more. Not part of objects_t: the layout
+ * contract names only the slot row at 16+1 and the alarm label at
+ * 16+2; the prefix row is internal to the widget. */
+static lv_obj_t *s_alarm_prefix;
 
-/* The clock widget's fixed-width HH:MM slot labels (see
- * create_user_widget_clock), one per widget (the five moon screens)
- * and per character (H H : M M). Not part of objects_t: the layout
- * contract names only the slot row at BASE+1, the labels are internal
- * to the widget -- created with it, indexed by the widget's BASE, like
- * s_alarm_prefix. */
-static lv_obj_t *s_clock_time_slot[5][5];
+/* The shared clock widget's fixed-width HH:MM slot labels (see
+ * create_user_widget_clock), per character (H H : M M). ONE set for
+ * the one widget (the 2026-11-04 bugreport's "single shared widget":
+ * the five moon screens used to each carry their own five labels and
+ * only the active screen's set was ticked, so a wake showed the
+ * pre-wake value until the next minute tick; now the one set is
+ * updated at the minute tick and at every screen switch, so it is
+ * always current wherever it is attached). */
+static lv_obj_t *s_clock_time_slot[5];
 
-/* Clock-widget base -> slot index (the objects_t bases, screens.h:
- * modem 16, wifi 21, light 26, deep 30, alarm 35). */
-static int clock_time_slot_index(int startWidgetIndex) {
-    switch (startWidgetIndex) {
-    case 16:
-        return 0;
-    case 21:
-        return 1;
-    case 26:
-        return 2;
-    case 30:
-        return 3;
-    case 35:
-        return 4;
-    default:
-        return -1;
-    }
-}
-
-/* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
- * modem 16, wifi 21, light 26, deep 30, alarm 35). */
-static int widget_prefix_slot(int startWidgetIndex) {
-    switch (startWidgetIndex) {
-    case 16:
-        return 0;
-    case 21:
-        return 1;
-    case 26:
-        return 2;
-    case 30:
-        return 3;
-    case 35:
-        return 4;
-    default:
-        return -1;
-    }
-}
-
-/* The clock widget (see create_user_widget_clock): full-screen flex
+/* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
  * is a flex row holding the weekday prefix (32 px range font, grey,
  * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
- * row keeps the pair centred and cross-centres the two heights. */
+ * row keeps the pair centred and cross-centres the two heights.
+ * Called exactly once (BASE 16, the modem-sleep screen); the other
+ * four moon screens' bases ALIAS objects[16/17/18] (the last block
+ * below), so all five screens read and tick the same three objects --
+ * the clock is always current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     lv_obj_t *obj = parent_obj;
     {
@@ -37437,10 +37475,9 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    const int ci = clock_time_slot_index(startWidgetIndex);
                     for (int i = 0; i < 5; i++) {
                         lv_obj_t *slot = lv_label_create(obj);
-                        s_clock_time_slot[(size_t)ci][i] = slot;
+                        s_clock_time_slot[(size_t)i] = slot;
                         lv_obj_set_size(slot, i == 2 ? UI_PX(26) : UI_PX(67), LV_SIZE_CONTENT);
                         lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                         add_style_label_bold(slot);
@@ -37464,9 +37501,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    const int slot = widget_prefix_slot(startWidgetIndex);
-                    if (slot >= 0)
-                        s_alarm_prefix[(size_t)slot] = obj;
+                    s_alarm_prefix = obj;
                     {
                         lv_obj_t *parent_obj = obj;
                         {
@@ -37496,6 +37531,18 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             }
         }
     }
+    /* The four other moon screens ALIAS the same three objects at
+     * their own bases (layout contract 2): one widget, five screens.
+     * The <screen>_clock containers (15/20/25/29/34) stay distinct
+     * (the attach targets + the unclickable_recursive targets). */
+    lv_obj_t *w[3] = {objects.modem_sleep_clock__clock, objects.modem_sleep_clock__label_clock_time,
+                      objects.modem_sleep_clock__label_clock_alarm};
+    int bases[4] = {21, 26, 30, 35};
+    for (int b = 0; b < 4; b++) {
+        for (int i = 0; i < 3; i++) {
+            ((lv_obj_t **)&objects)[bases[b] + i] = w[i];
+        }
+    }
 }
 
 /* Refresh one alarm prefix label from the var (empty within 24 h of
@@ -37512,12 +37559,11 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 }
 
 #if !CONFIG_CLOCK_USE_PCF85063A
-/* Unsynced-clock dim (P4): the trust flag is global but each screen carries
- * its own clock label, so the applied state is tracked per widget slot -- a
- * screen that was loaded before the trust flip still converges on its next
- * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.)
- * Indexed by the clock widget's BASE (the highest is 34, the alarm screen). */
-static bool s_clock_unsynced_dim[36];
+/* Unsynced-clock dim (P4): the trust flag is global; ONE shared clock
+ * widget means the applied state is a single bool -- the widget brightens
+ * on the sync wherever it is attached (the S3's PCF clock is
+ * self-trusting; the block below is P4-only). */
+static bool s_clock_unsynced_dim;
 #endif
 
 void tick_user_widget_clock(int startWidgetIndex) {
@@ -37526,23 +37572,23 @@ void tick_user_widget_clock(int startWidgetIndex) {
     // Dim the time while the P4 clock is unsynced (no SNTP since boot and
     // no trusted manual entry) so an approximate value reads as
     // approximate; the label brightens on the sync (the flag flips in the
-    // SNTP callback; this converges on the next tick of each screen).
+    // SNTP callback; this converges on the next tick).
     {
         bool dim = !clock_sntp_time_trusted();
-        if (dim != s_clock_unsynced_dim[(size_t)startWidgetIndex]) {
-            s_clock_unsynced_dim[(size_t)startWidgetIndex] = dim;
+        if (dim != s_clock_unsynced_dim) {
+            s_clock_unsynced_dim = dim;
             lv_obj_set_style_opa(((lv_obj_t **)&objects)[startWidgetIndex + 1], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
         }
     }
 #endif
     {
-        /* The HH:MM slot row (objects[BASE+1]): update each character's
-         * label individually (only the ones that change) so the minute
-         * flip redraws one fixed-width cell, not the whole string. */
+        /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
+         * the shared set): update each character's label individually (only
+         * the ones that change) so the minute flip redraws one fixed-width
+         * cell, not the whole string. */
         const char *new_val = get_var_clock_label();
-        const int ci = clock_time_slot_index(startWidgetIndex);
         for (int i = 0; i < 5; i++) {
-            lv_obj_t *slot = s_clock_time_slot[(size_t)ci][i];
+            lv_obj_t *slot = s_clock_time_slot[(size_t)i];
             if (lv_label_get_text(slot)[0] == new_val[i])
                 continue;
             char buf[2] = {new_val[i], 0};
@@ -37563,8 +37609,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
         }
     }
     {
-        const int slot = widget_prefix_slot(startWidgetIndex);
-        if (slot >= 0 && tick_alarm_prefix(s_alarm_prefix[(size_t)slot]))
+        if (tick_alarm_prefix(s_alarm_prefix))
             label_changed = true;
     }
     if (label_changed)
@@ -37573,6 +37618,60 @@ void tick_user_widget_clock(int startWidgetIndex) {
          * the old ones at pixels it still covers), so the mask must
          * follow the label (LVGL task here, as the snapshot needs). */
         moon_ui_rebuild_ui_mask();
+}
+
+/* The shared clock widget's per-screen PARENT container (layout
+ * contract 2): the <screen>_clock container on each moon screen. The
+ * settings screens have no moon (and no clock) -- the widget stays
+ * where it was, computed but not rendered. Returns NULL for the
+ * non-moon screens. */
+static lv_obj_t *clock_attach_parent(enum ScreensEnum screenId) {
+    switch (screenId) {
+    case SCREEN_ID_MODEM_SLEEP:
+        return objects.modem_sleep_clock;
+    case SCREEN_ID_WIFI:
+        return objects.wifi_clock;
+    case SCREEN_ID_LIGHT_SLEEP:
+        return objects.light_sleep_clock;
+    case SCREEN_ID_DEEP_SLEEP:
+        return objects.deep_sleep_clock;
+    case SCREEN_ID_ALARM:
+        return objects.alarm_clock;
+    default:
+        return 0;
+    }
+}
+
+/* The loadScreen hook (LVGL task; called BEFORE the screen switch's
+ * atomic flush, so the refreshed digits are part of that one frame).
+ * Reparents the ONE shared clock widget onto the new moon screen and
+ * refreshes its vars from the RTC, so the switch -- the wake in
+ * particular -- shows the current minute immediately instead of the
+ * pre-wake value held by the last-ticked screen's labels (the
+ * "quick adjustment" on wake, the 2026-11-04 bugreport). The widget
+ * reparents, not re-creates: its style, position and labels carry over
+ * (a reparent to a fresh container keeps the full-screen layout). */
+void ui_clock_attach_to(enum ScreensEnum screenId) {
+    lv_obj_t *parent = clock_attach_parent(screenId);
+    if (!parent || !objects.modem_sleep_clock__clock) {
+        return; /* a non-moon screen (keep the widget where it was) or
+                 * before the widget exists (pre create_screens) */
+    }
+    if (lv_obj_get_parent(objects.modem_sleep_clock__clock) != parent)
+        lv_obj_set_parent(objects.modem_sleep_clock__clock, parent);
+    /* Refresh the vars NOW (the minute tick normally does this; a
+     * screen switch can land well before the next tick). The clock
+     * label + seconds come from the wall clock; the alarm label +
+     * weekday prefix from the scheduler cache (no I2C). */
+    clock_time_t now;
+    if (clock_get_time(&now) == ESP_OK) {
+        char s[8];
+        snprintf(s, sizeof(s), "%02d:%02d", now.hour, now.minute);
+        set_var_clock_label(s);
+        set_var_clock_seconds(now.second);
+    }
+    action_update_alarm_display(NULL);
+    tick_user_widget_clock(16);
 }
 
 void change_color_theme(uint32_t theme_index) {
@@ -37658,34 +37757,49 @@ extern "C" {
  *    getLvglObjectFromIndex), so a mismatch is an out-of-bounds read,
  *    not a visible bug.
  *
- * 2. create_user_widget_clock(parent, BASE) writes objects[BASE ..
- *    BASE+2] (container, time label, alarm label) and tick_user_widget_clock
- *    reads the same three. BASE is the index of the <screen>_clock__clock
- *    member below:
+ * 2. ONE shared clock widget. create_user_widget_clock(parent, 16) is
+ *    called exactly once (the modem-sleep screen) and creates the only
+ *    clock: objects[16] (the full-screen flex container), objects[17]
+ *    (the HH:MM slot row) and objects[18] (the alarm label). The four
+ *    other moon screens ALIAS those same three objects at their own
+ *    bases -- objects[21/22/23] (wifi), [26/27/28] (light sleep),
+ *    [30/31/32] (deep sleep), [35/36/37] (alarm) point at the SAME
+ *    lv_obj_t's -- so every screen ticks and reads one set of labels
+ *    that is always current: the vars are updated at the minute tick
+ *    (which ticks the shared widget regardless of the active screen)
+ *    and ui_clock_attach_to() (the loadScreen choke point) reparents
+ *    the widget onto the new moon screen and refreshes the vars from
+ *    the RTC, so a switch (the wake in particular) shows the current
+ *    minute immediately. The per-screen <screen>_clock containers
+ *    ([15], [20], [25], [29], [34]) stay as the widget's parent
+ *    targets (plus the unclickable_recursive targets); the deep-sleep
+ *    HIDDEN flag and the light-sleep alpha apply to the shared widget
+ *    (objects[16]) itself. tick_user_widget_clock(16) is the only
+ *    clock tick; the per-screen tick functions no longer tick it.
  *
- *      [0]  modem_sleep              [15]  modem_sleep_clock
- *      [1]  wifi                     [16]  modem_sleep_clock__clock        BASE 16
- *      [2]  light_sleep              [17]  ..._label_clock_time
- *      [3]  deep_sleep               [18]  ..._label_clock_alarm
+ *      [0]  modem_sleep              [15]  modem_sleep_clock         (widget parent 1/5)
+ *      [1]  wifi                     [16]  modem_sleep_clock__clock  (THE widget container)
+ *      [2]  light_sleep              [17]  ..._label_clock_time      (the HH:MM slot row)
+ *      [3]  deep_sleep               [18]  ..._label_clock_alarm     (the alarm label)
  *      [4]  alarm                    [19]  arc_clock_seconds_modem
- *      [5]  settings_hub             [20]  wifi_clock
- *      [6]  settings_alarm           [21]  wifi_clock__clock               BASE 21
- *      [7]  settings_pomodoro        [22]  ..._label_clock_time
- *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm
+ *      [5]  settings_hub             [20]  wifi_clock                (widget parent 2/5)
+ *      [6]  settings_alarm           [21]  wifi_clock__clock         = objects[16] (alias)
+ *      [7]  settings_pomodoro        [22]  ..._label_clock_time      = objects[17] (alias)
+ *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm     = objects[18] (alias)
  *      [9]  settings_light_sleep     [24]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [25]  light_sleep_clock
- *      [11] settings_wifi            [26]  light_sleep_clock__clock        BASE 26
- *      [12] settings_wifi_password   [27]  ..._label_clock_time
- *      [13] settings_time            [28]  ..._label_clock_alarm
- *      [14] settings_tz              [29]  deep_sleep_clock
- *                                 [30]  deep_sleep_clock__clock           BASE 30
- *                                 [31]  ..._label_clock_time
- *                                 [32]  ..._label_clock_alarm
+ *      [10] settings_deep_sleep      [25]  light_sleep_clock         (widget parent 3/5)
+ *      [11] settings_wifi            [26]  light_sleep_clock__clock  = objects[16] (alias)
+ *      [12] settings_wifi_password   [27]  ..._label_clock_time      = objects[17] (alias)
+ *      [13] settings_time            [28]  ..._label_clock_alarm     = objects[18] (alias)
+ *      [14] settings_tz              [29]  deep_sleep_clock          (widget parent 4/5)
+ *                                 [30]  deep_sleep_clock__clock     = objects[16] (alias)
+ *                                 [31]  ..._label_clock_time        = objects[17] (alias)
+ *                                 [32]  ..._label_clock_alarm       = objects[18] (alias)
  *                                 [33]  screen_indicator_sleep1
- *                                 [34]  alarm_clock
- *                                 [35]  alarm_clock__clock                BASE 35
- *                                 [36]  ..._label_clock_time
- *                                 [37]  ..._label_clock_alarm
+ *                                 [34]  alarm_clock                 (widget parent 5/5)
+ *                                 [35]  alarm_clock__clock          = objects[16] (alias)
+ *                                 [36]  ..._label_clock_time        = objects[17] (alias)
+ *                                 [37]  ..._label_clock_alarm       = objects[18] (alias)
  *                                 [38]  screen_indicator_alarm
  *                                 [39]  settings_hub_exit        (the settings hub's central exit)
  *                                 [40]  settings_alarm_master    (deactivate-all toggle)
@@ -37880,8 +37994,22 @@ void tick_screen_settings_wifi_password();
  * tap on it fires LV_EVENT_CLICKED on it. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size);
 
+/* The ONE shared clock widget (layout contract 2): called exactly
+ * once, from the modem-sleep screen, with BASE 16. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex);
+
+/* Tick the shared clock from its vars (the minute tick + the attach).
+ * The base is 16 for every caller -- the other four moon screens
+ * alias the same objects, so there is nothing else to tick. */
 void tick_user_widget_clock(int startWidgetIndex);
+
+/* The loadScreen hook (LVGL task): reparent the shared clock widget
+ * onto the active moon screen (settings screens keep it where it
+ * was -- computed, not rendered) and refresh the clock vars from the
+ * RTC so the switch shows the current minute immediately. Called
+ * BEFORE the screen switch's atomic flush, so the fresh digits are
+ * part of that one frame. */
+void ui_clock_attach_to(enum ScreensEnum screenId);
 
 enum Themes {
     THEME_ID_MOON,
@@ -38231,6 +38359,16 @@ void loadScreen(enum ScreensEnum screenId) {
     currentScreen = screenId - 1;
     lv_obj_t *screen = getLvglObjectFromIndex(currentScreen);
     lv_scr_load(screen);
+    /* Reparent the ONE shared clock widget onto the new moon screen and
+     * refresh its vars from the RTC BEFORE the switch's atomic flush, so
+     * the switch -- the wake in particular -- shows the current minute
+     * in that one frame (the pre-wake value held by the last-ticked
+     * screen's labels would otherwise linger until the next minute tick).
+     * The panel is still black here for a fading switch (the fade-in runs
+     * in moon_ui_screen_switched), so the reparent + label update are
+     * invisible. A non-moon (settings) screen keeps the widget where it
+     * was -- computed, not rendered. */
+    ui_clock_attach_to(screenId);
     moon_ui_screen_switched();
 }
 
@@ -43452,18 +43590,32 @@ const char *esp_err_to_name(esp_err_t code) {
     }
 }
 
-/* ---- global clock vars (vars.c) ---- */
+/* ---- global clock vars (vars.c) ----
+
+   The REAL vars.c COPIES each value into a static buffer (snprintf /
+   strncpy); the setter is handed a caller stack buffer that is valid only
+   for the call. The stub mirrors that contract (copy, not pointer-store) --
+   a pointer-storing stub dangles the moment the caller returns, and the
+   shared clock widget's attach refresh (ui_clock_attach_to) sets the alarm
+   label from a stack buffer then ticks the widget, so a dangling pointer
+   would read as garbage (the tofu boxes). */
 
 static int32_t s_clock_seconds = 37;
-static const char *s_clock_label = "12:35";
-static const char *s_alarm_label = "12:35"; /* the fixed rule's time */
+static char s_clock_label[6] = "12:35";
+static char s_alarm_label[6] = "12:35"; /* the fixed rule's time */
 
 int32_t get_var_clock_seconds() { return s_clock_seconds; }
 void set_var_clock_seconds(int32_t value) { s_clock_seconds = value; }
 const char *get_var_clock_label() { return s_clock_label; }
-void set_var_clock_label(const char *value) { s_clock_label = value; }
+void set_var_clock_label(const char *value) {
+    snprintf(s_clock_label, sizeof s_clock_label, "%s", value);
+    s_clock_label[sizeof s_clock_label - 1] = 0;
+}
 const char *get_var_alarm_label() { return s_alarm_label; }
-void set_var_alarm_label(const char *value) { s_alarm_label = value; }
+void set_var_alarm_label(const char *value) {
+    snprintf(s_alarm_label, sizeof s_alarm_label, "%s", value);
+    s_alarm_label[sizeof s_alarm_label - 1] = 0;
+}
 
 /* The weekday prefix ("" within 24 h of the fire, else the 2-letter
  * day of the fire). Canned: "Mo" (the fixed rule's next fire is
@@ -43501,6 +43653,15 @@ esp_err_t clock_set_time(const clock_time_t *t) {
     return ESP_OK;
 }
 void clock_sntp_set_time_trusted(bool trusted) { (void)trusted; }
+
+/* The shared clock widget's attach refresh (screens.c ui_clock_attach_to)
+   reads the wall clock directly. */
+esp_err_t clock_get_time(clock_time_t *out) {
+    if (!out)
+        return ESP_FAIL;
+    *out = s_sim_time;
+    return ESP_OK;
+}
 
 /* ---- alarm scheduler (canned rule state) ---- */
 
@@ -43545,6 +43706,26 @@ esp_err_t clock_alarm_deactivate_all(void) {
     s_alarm_mask = 0;
     printf("[stub] deactivate_all\n");
     return ESP_OK;
+}
+
+/* The shared clock widget's attach refresh (screens.c) calls the real
+   actions.c alarm-display update (scheduler cache -> the label + the
+   weekday-prefix vars). The stub replays it from the canned rule: a
+   scheduled fire reads its HH:MM + the canned "Mo" weekday prefix (the
+   Mon-Fri 12:35 rule, >24 h out on the sim clock), none reads "--:--" +
+   an empty prefix. */
+void action_update_alarm_display(void *e) {
+    (void)e;
+    char label[6];
+    if (s_alarm_mask) {
+        snprintf(label, sizeof(label), "%02d:%02d", s_alarm_h, s_alarm_m);
+        set_var_alarm_label(label);
+        set_var_alarm_prefix("Mo");
+    } else {
+        snprintf(label, sizeof(label), "--:--");
+        set_var_alarm_label(label);
+        set_var_alarm_prefix("");
+    }
 }
 
 /* ---- runtime settings store (canned values) ---- */
@@ -43666,6 +43847,11 @@ void loadScreen(enum ScreensEnum screenId) {
     s_cur_screen = screenId - 1;
     lv_obj_t *screen = ((lv_obj_t **)&objects)[s_cur_screen];
     lv_scr_load(screen);
+    /* The device's loadScreen (ui.c) reparents the ONE shared clock widget
+       onto the new moon screen and refreshes the clock vars from the RTC
+       before the atomic flush (ui_clock_attach_to); the stub mirrors it so
+       the snapshots exercise the shared-widget path. */
+    ui_clock_attach_to(screenId);
 }
 
 enum ScreensEnum ui_current_screen(void) { return (enum ScreensEnum)(s_cur_screen + 1); }

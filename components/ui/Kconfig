@@ -41,6 +41,24 @@ menu "UI Component Configuration"
             0 = the panel goes fully dark in light sleep (the wake fades
             it back in).
 
+    config UI_CLOCK_ALPHA_PCT
+        int "Clock opacity in light sleep (percent)"
+        default 100
+        range 0 100
+        help
+            The shared clock widget's LVGL opacity while the light-sleep
+            screen is shown, as a percentage (0 = fully hidden, 100 =
+            full opacity). Light sleep ALSO dims the whole panel to
+            UI_LIGHT_SLEEP_DIM_PCT via the hardware brightness, so the
+            clock no longer needs the old 20 % alpha to read as "barely
+            visible" -- the default is 100 (no alpha; the panel dim does
+            the job). Lower this to dim the clock further relative to the
+            moon (e.g. 40 = the clock glows at 40 % of the panel's
+            light-sleep brightness). The wake / an alarm ring restores the
+            clock to full opacity. The single shared clock widget means
+            one application point (the light-sleep entry) covers every
+            moon-background clock display.
+
     config UI_MOON_ANIM_ENABLE
         bool "Play the synodic boot sweep (new moon -> now) at boot"
         default y

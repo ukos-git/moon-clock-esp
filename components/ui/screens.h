@@ -14,34 +14,49 @@ extern "C" {
  *    getLvglObjectFromIndex), so a mismatch is an out-of-bounds read,
  *    not a visible bug.
  *
- * 2. create_user_widget_clock(parent, BASE) writes objects[BASE ..
- *    BASE+2] (container, time label, alarm label) and tick_user_widget_clock
- *    reads the same three. BASE is the index of the <screen>_clock__clock
- *    member below:
+ * 2. ONE shared clock widget. create_user_widget_clock(parent, 16) is
+ *    called exactly once (the modem-sleep screen) and creates the only
+ *    clock: objects[16] (the full-screen flex container), objects[17]
+ *    (the HH:MM slot row) and objects[18] (the alarm label). The four
+ *    other moon screens ALIAS those same three objects at their own
+ *    bases -- objects[21/22/23] (wifi), [26/27/28] (light sleep),
+ *    [30/31/32] (deep sleep), [35/36/37] (alarm) point at the SAME
+ *    lv_obj_t's -- so every screen ticks and reads one set of labels
+ *    that is always current: the vars are updated at the minute tick
+ *    (which ticks the shared widget regardless of the active screen)
+ *    and ui_clock_attach_to() (the loadScreen choke point) reparents
+ *    the widget onto the new moon screen and refreshes the vars from
+ *    the RTC, so a switch (the wake in particular) shows the current
+ *    minute immediately. The per-screen <screen>_clock containers
+ *    ([15], [20], [25], [29], [34]) stay as the widget's parent
+ *    targets (plus the unclickable_recursive targets); the deep-sleep
+ *    HIDDEN flag and the light-sleep alpha apply to the shared widget
+ *    (objects[16]) itself. tick_user_widget_clock(16) is the only
+ *    clock tick; the per-screen tick functions no longer tick it.
  *
- *      [0]  modem_sleep              [15]  modem_sleep_clock
- *      [1]  wifi                     [16]  modem_sleep_clock__clock        BASE 16
- *      [2]  light_sleep              [17]  ..._label_clock_time
- *      [3]  deep_sleep               [18]  ..._label_clock_alarm
+ *      [0]  modem_sleep              [15]  modem_sleep_clock         (widget parent 1/5)
+ *      [1]  wifi                     [16]  modem_sleep_clock__clock  (THE widget container)
+ *      [2]  light_sleep              [17]  ..._label_clock_time      (the HH:MM slot row)
+ *      [3]  deep_sleep               [18]  ..._label_clock_alarm     (the alarm label)
  *      [4]  alarm                    [19]  arc_clock_seconds_modem
- *      [5]  settings_hub             [20]  wifi_clock
- *      [6]  settings_alarm           [21]  wifi_clock__clock               BASE 21
- *      [7]  settings_pomodoro        [22]  ..._label_clock_time
- *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm
+ *      [5]  settings_hub             [20]  wifi_clock                (widget parent 2/5)
+ *      [6]  settings_alarm           [21]  wifi_clock__clock         = objects[16] (alias)
+ *      [7]  settings_pomodoro        [22]  ..._label_clock_time      = objects[17] (alias)
+ *      [8]  settings_alarm_time      [23]  ..._label_clock_alarm     = objects[18] (alias)
  *      [9]  settings_light_sleep     [24]  arc_clock_seconds_wifi
- *      [10] settings_deep_sleep      [25]  light_sleep_clock
- *      [11] settings_wifi            [26]  light_sleep_clock__clock        BASE 26
- *      [12] settings_wifi_password   [27]  ..._label_clock_time
- *      [13] settings_time            [28]  ..._label_clock_alarm
- *      [14] settings_tz              [29]  deep_sleep_clock
- *                                 [30]  deep_sleep_clock__clock           BASE 30
- *                                 [31]  ..._label_clock_time
- *                                 [32]  ..._label_clock_alarm
+ *      [10] settings_deep_sleep      [25]  light_sleep_clock         (widget parent 3/5)
+ *      [11] settings_wifi            [26]  light_sleep_clock__clock  = objects[16] (alias)
+ *      [12] settings_wifi_password   [27]  ..._label_clock_time      = objects[17] (alias)
+ *      [13] settings_time            [28]  ..._label_clock_alarm     = objects[18] (alias)
+ *      [14] settings_tz              [29]  deep_sleep_clock          (widget parent 4/5)
+ *                                 [30]  deep_sleep_clock__clock     = objects[16] (alias)
+ *                                 [31]  ..._label_clock_time        = objects[17] (alias)
+ *                                 [32]  ..._label_clock_alarm       = objects[18] (alias)
  *                                 [33]  screen_indicator_sleep1
- *                                 [34]  alarm_clock
- *                                 [35]  alarm_clock__clock                BASE 35
- *                                 [36]  ..._label_clock_time
- *                                 [37]  ..._label_clock_alarm
+ *                                 [34]  alarm_clock                 (widget parent 5/5)
+ *                                 [35]  alarm_clock__clock          = objects[16] (alias)
+ *                                 [36]  ..._label_clock_time        = objects[17] (alias)
+ *                                 [37]  ..._label_clock_alarm       = objects[18] (alias)
  *                                 [38]  screen_indicator_alarm
  *                                 [39]  settings_hub_exit        (the settings hub's central exit)
  *                                 [40]  settings_alarm_master    (deactivate-all toggle)
@@ -236,8 +251,22 @@ void tick_screen_settings_wifi_password();
  * tap on it fires LV_EVENT_CLICKED on it. */
 lv_obj_t *settings_create_exit_button(lv_obj_t *parent, int size);
 
+/* The ONE shared clock widget (layout contract 2): called exactly
+ * once, from the modem-sleep screen, with BASE 16. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex);
+
+/* Tick the shared clock from its vars (the minute tick + the attach).
+ * The base is 16 for every caller -- the other four moon screens
+ * alias the same objects, so there is nothing else to tick. */
 void tick_user_widget_clock(int startWidgetIndex);
+
+/* The loadScreen hook (LVGL task): reparent the shared clock widget
+ * onto the active moon screen (settings screens keep it where it
+ * was -- computed, not rendered) and refresh the clock vars from the
+ * RTC so the switch shows the current minute immediately. Called
+ * BEFORE the screen switch's atomic flush, so the fresh digits are
+ * part of that one frame. */
+void ui_clock_attach_to(enum ScreensEnum screenId);
 
 enum Themes {
     THEME_ID_MOON,

@@ -24,6 +24,10 @@ CONFIG_UI_MOON_ANIM_ON_WAKE=n
 # Light-sleep dusk: the pole-axis spin to the fully unilluminated side;
 # the deep-sleep countdown is armed on its last frame.
 CONFIG_UI_MOON_DUSK_ENABLE=y
+# Clock opacity in light sleep (percent, 0..100): the light-sleep entry
+# dims the ONE shared clock widget to this opacity (the panel dim carries
+# the readability now, so 100 = no extra alpha is the default).
+CONFIG_UI_CLOCK_ALPHA_PCT=100
 # Screen switches (e.g. into the settings hub) fade to black with the
 # panel's OWN hardware brightness (the CO5300 0x51 command, the same
 # dimming the deep-sleep backlight off/on uses): the fade-out ramp

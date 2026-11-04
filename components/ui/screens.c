@@ -22,9 +22,12 @@
 
 /* From clock.h (the manual time-entry commit). The full header is not
  * included: it pulls the bsp/driver headers the host sim (the real
- * screens.c, unmodified) cannot resolve -- only this one prototype is
- * needed (clock_time_t comes via clock_sntp.h -> clock_types.h). */
+ * screens.c, unmodified) cannot resolve -- only these two prototypes
+ * are needed (clock_time_t comes via clock_sntp.h -> clock_types.h).
+ * clock_get_time is the shared clock widget's attach refresh
+ * (ui_clock_attach_to: a screen switch shows the current minute). */
 esp_err_t clock_set_time(const clock_time_t *time);
+esp_err_t clock_get_time(clock_time_t *out);
 
 objects_t objects;
 lv_obj_t *tick_value_change_obj;
@@ -280,7 +283,10 @@ void create_screen_modem_sleep() {
 }
 
 void tick_screen_modem_sleep() {
-    tick_user_widget_clock(16);
+    /* No clock tick here: the ONE shared clock widget is ticked from the
+     * vars by the minute tick (action_update_clock_display) and by the
+     * screen switch (ui_clock_attach_to); only the seconds arc is
+     * screen-local. */
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
@@ -307,7 +313,13 @@ void create_screen_wifi() {
     {
         lv_obj_t *parent_obj = obj;
         {
-            // wifi_clock
+            /* wifi_clock: the shared clock widget's PARENT on this
+             * screen (layout contract 2) -- the widget itself is
+             * created once, on the modem-sleep screen, and
+             * ui_clock_attach_to() reparents it here at the switch.
+             * Only the container is created; the alias rows
+             * (wifi_clock__clock & co = objects[16/17/18]) are
+             * assigned in create_screen_modem_sleep. */
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
             lv_obj_set_pos(obj, 0, 0);
@@ -318,7 +330,6 @@ void create_screen_wifi() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 21);
         }
         {
             // arc-clock-seconds-wifi
@@ -368,7 +379,8 @@ void create_screen_wifi() {
 }
 
 void tick_screen_wifi() {
-    tick_user_widget_clock(21);
+    /* No clock tick: the shared widget is ticked from the vars (minute
+     * tick + screen switch); only the seconds arc is screen-local. */
     {
         int32_t new_val = get_var_clock_seconds();
         int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
@@ -412,14 +424,15 @@ void create_screen_light_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 26);
         }
     }
 
     tick_screen_light_sleep();
 }
 
-void tick_screen_light_sleep() { tick_user_widget_clock(26); }
+/* No clock tick: the shared widget is ticked from the vars by the
+ * minute tick and by ui_clock_attach_to (layout contract 2). */
+void tick_screen_light_sleep() {}
 
 void create_screen_deep_sleep() {
     lv_obj_t *obj = lv_obj_create(0);
@@ -441,7 +454,6 @@ void create_screen_deep_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 30);
         }
         {
             // screen-indicator-sleep1
@@ -457,7 +469,9 @@ void create_screen_deep_sleep() {
     tick_screen_deep_sleep();
 }
 
-void tick_screen_deep_sleep() { tick_user_widget_clock(30); }
+void tick_screen_deep_sleep() {} /* no clock tick: the shared widget is
+                                     ticked from the vars (minute tick +
+                                     screen switch). */
 
 /* The alarm screen dismisses on touch. The idle-wake path (touch while
  * asleep -> action_wake_screen) only fires while the device is
@@ -483,7 +497,6 @@ void create_screen_alarm() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            create_user_widget_clock(obj, 35);
         }
         {
             // screen-indicator-alarm
@@ -499,7 +512,9 @@ void create_screen_alarm() {
     tick_screen_alarm();
 }
 
-void tick_screen_alarm() { tick_user_widget_clock(35); }
+void tick_screen_alarm() {} /* no clock tick: the shared widget is
+                             * ticked from the minute tick regardless of
+                             * the active screen */
 
 /* ---------------- settings screens ----------------
  *
@@ -2771,63 +2786,33 @@ void create_screen_settings_tz() {
 
 void tick_screen_settings_tz() {}
 
-/* The alarm weekday prefixes, one per clock widget. Not part of
- * objects_t: the layout contract there only names the three widget
- * slots the tick reads, and the prefix label is internal to the
- * widget (created with it, found by walking the row's children). */
-static lv_obj_t *s_alarm_prefix[5];
+/* The shared clock widget's alarm weekday prefix row (the prefix
+ * label is its first child). ONE row for the one widget: the five
+ * moon screens alias the same objects (layout contract 2), so there
+ * is no per-screen set any more. Not part of objects_t: the layout
+ * contract names only the slot row at 16+1 and the alarm label at
+ * 16+2; the prefix row is internal to the widget. */
+static lv_obj_t *s_alarm_prefix;
 
-/* The clock widget's fixed-width HH:MM slot labels (see
- * create_user_widget_clock), one per widget (the five moon screens)
- * and per character (H H : M M). Not part of objects_t: the layout
- * contract names only the slot row at BASE+1, the labels are internal
- * to the widget -- created with it, indexed by the widget's BASE, like
- * s_alarm_prefix. */
-static lv_obj_t *s_clock_time_slot[5][5];
+/* The shared clock widget's fixed-width HH:MM slot labels (see
+ * create_user_widget_clock), per character (H H : M M). ONE set for
+ * the one widget (the 2026-11-04 bugreport's "single shared widget":
+ * the five moon screens used to each carry their own five labels and
+ * only the active screen's set was ticked, so a wake showed the
+ * pre-wake value until the next minute tick; now the one set is
+ * updated at the minute tick and at every screen switch, so it is
+ * always current wherever it is attached). */
+static lv_obj_t *s_clock_time_slot[5];
 
-/* Clock-widget base -> slot index (the objects_t bases, screens.h:
- * modem 16, wifi 21, light 26, deep 30, alarm 35). */
-static int clock_time_slot_index(int startWidgetIndex) {
-    switch (startWidgetIndex) {
-    case 16:
-        return 0;
-    case 21:
-        return 1;
-    case 26:
-        return 2;
-    case 30:
-        return 3;
-    case 35:
-        return 4;
-    default:
-        return -1;
-    }
-}
-
-/* Clock-widget base -> prefix slot (the objects_t bases, screens.h:
- * modem 16, wifi 21, light 26, deep 30, alarm 35). */
-static int widget_prefix_slot(int startWidgetIndex) {
-    switch (startWidgetIndex) {
-    case 16:
-        return 0;
-    case 21:
-        return 1;
-    case 26:
-        return 2;
-    case 30:
-        return 3;
-    case 35:
-        return 4;
-    default:
-        return -1;
-    }
-}
-
-/* The clock widget (see create_user_widget_clock): full-screen flex
+/* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
  * is a flex row holding the weekday prefix (32 px range font, grey,
  * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
- * row keeps the pair centred and cross-centres the two heights. */
+ * row keeps the pair centred and cross-centres the two heights.
+ * Called exactly once (BASE 16, the modem-sleep screen); the other
+ * four moon screens' bases ALIAS objects[16/17/18] (the last block
+ * below), so all five screens read and tick the same three objects --
+ * the clock is always current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     lv_obj_t *obj = parent_obj;
     {
@@ -2883,10 +2868,9 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    const int ci = clock_time_slot_index(startWidgetIndex);
                     for (int i = 0; i < 5; i++) {
                         lv_obj_t *slot = lv_label_create(obj);
-                        s_clock_time_slot[(size_t)ci][i] = slot;
+                        s_clock_time_slot[(size_t)i] = slot;
                         lv_obj_set_size(slot, i == 2 ? UI_PX(26) : UI_PX(67), LV_SIZE_CONTENT);
                         lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                         add_style_label_bold(slot);
@@ -2910,9 +2894,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    const int slot = widget_prefix_slot(startWidgetIndex);
-                    if (slot >= 0)
-                        s_alarm_prefix[(size_t)slot] = obj;
+                    s_alarm_prefix = obj;
                     {
                         lv_obj_t *parent_obj = obj;
                         {
@@ -2942,6 +2924,18 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             }
         }
     }
+    /* The four other moon screens ALIAS the same three objects at
+     * their own bases (layout contract 2): one widget, five screens.
+     * The <screen>_clock containers (15/20/25/29/34) stay distinct
+     * (the attach targets + the unclickable_recursive targets). */
+    lv_obj_t *w[3] = {objects.modem_sleep_clock__clock, objects.modem_sleep_clock__label_clock_time,
+                      objects.modem_sleep_clock__label_clock_alarm};
+    int bases[4] = {21, 26, 30, 35};
+    for (int b = 0; b < 4; b++) {
+        for (int i = 0; i < 3; i++) {
+            ((lv_obj_t **)&objects)[bases[b] + i] = w[i];
+        }
+    }
 }
 
 /* Refresh one alarm prefix label from the var (empty within 24 h of
@@ -2958,12 +2952,11 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 }
 
 #if !CONFIG_CLOCK_USE_PCF85063A
-/* Unsynced-clock dim (P4): the trust flag is global but each screen carries
- * its own clock label, so the applied state is tracked per widget slot -- a
- * screen that was loaded before the trust flip still converges on its next
- * tick. (The S3's PCF clock is self-trusting; the block below is P4-only.)
- * Indexed by the clock widget's BASE (the highest is 34, the alarm screen). */
-static bool s_clock_unsynced_dim[36];
+/* Unsynced-clock dim (P4): the trust flag is global; ONE shared clock
+ * widget means the applied state is a single bool -- the widget brightens
+ * on the sync wherever it is attached (the S3's PCF clock is
+ * self-trusting; the block below is P4-only). */
+static bool s_clock_unsynced_dim;
 #endif
 
 void tick_user_widget_clock(int startWidgetIndex) {
@@ -2972,23 +2965,23 @@ void tick_user_widget_clock(int startWidgetIndex) {
     // Dim the time while the P4 clock is unsynced (no SNTP since boot and
     // no trusted manual entry) so an approximate value reads as
     // approximate; the label brightens on the sync (the flag flips in the
-    // SNTP callback; this converges on the next tick of each screen).
+    // SNTP callback; this converges on the next tick).
     {
         bool dim = !clock_sntp_time_trusted();
-        if (dim != s_clock_unsynced_dim[(size_t)startWidgetIndex]) {
-            s_clock_unsynced_dim[(size_t)startWidgetIndex] = dim;
+        if (dim != s_clock_unsynced_dim) {
+            s_clock_unsynced_dim = dim;
             lv_obj_set_style_opa(((lv_obj_t **)&objects)[startWidgetIndex + 1], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
         }
     }
 #endif
     {
-        /* The HH:MM slot row (objects[BASE+1]): update each character's
-         * label individually (only the ones that change) so the minute
-         * flip redraws one fixed-width cell, not the whole string. */
+        /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
+         * the shared set): update each character's label individually (only
+         * the ones that change) so the minute flip redraws one fixed-width
+         * cell, not the whole string. */
         const char *new_val = get_var_clock_label();
-        const int ci = clock_time_slot_index(startWidgetIndex);
         for (int i = 0; i < 5; i++) {
-            lv_obj_t *slot = s_clock_time_slot[(size_t)ci][i];
+            lv_obj_t *slot = s_clock_time_slot[(size_t)i];
             if (lv_label_get_text(slot)[0] == new_val[i])
                 continue;
             char buf[2] = {new_val[i], 0};
@@ -3009,8 +3002,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
         }
     }
     {
-        const int slot = widget_prefix_slot(startWidgetIndex);
-        if (slot >= 0 && tick_alarm_prefix(s_alarm_prefix[(size_t)slot]))
+        if (tick_alarm_prefix(s_alarm_prefix))
             label_changed = true;
     }
     if (label_changed)
@@ -3019,6 +3011,60 @@ void tick_user_widget_clock(int startWidgetIndex) {
          * the old ones at pixels it still covers), so the mask must
          * follow the label (LVGL task here, as the snapshot needs). */
         moon_ui_rebuild_ui_mask();
+}
+
+/* The shared clock widget's per-screen PARENT container (layout
+ * contract 2): the <screen>_clock container on each moon screen. The
+ * settings screens have no moon (and no clock) -- the widget stays
+ * where it was, computed but not rendered. Returns NULL for the
+ * non-moon screens. */
+static lv_obj_t *clock_attach_parent(enum ScreensEnum screenId) {
+    switch (screenId) {
+    case SCREEN_ID_MODEM_SLEEP:
+        return objects.modem_sleep_clock;
+    case SCREEN_ID_WIFI:
+        return objects.wifi_clock;
+    case SCREEN_ID_LIGHT_SLEEP:
+        return objects.light_sleep_clock;
+    case SCREEN_ID_DEEP_SLEEP:
+        return objects.deep_sleep_clock;
+    case SCREEN_ID_ALARM:
+        return objects.alarm_clock;
+    default:
+        return 0;
+    }
+}
+
+/* The loadScreen hook (LVGL task; called BEFORE the screen switch's
+ * atomic flush, so the refreshed digits are part of that one frame).
+ * Reparents the ONE shared clock widget onto the new moon screen and
+ * refreshes its vars from the RTC, so the switch -- the wake in
+ * particular -- shows the current minute immediately instead of the
+ * pre-wake value held by the last-ticked screen's labels (the
+ * "quick adjustment" on wake, the 2026-11-04 bugreport). The widget
+ * reparents, not re-creates: its style, position and labels carry over
+ * (a reparent to a fresh container keeps the full-screen layout). */
+void ui_clock_attach_to(enum ScreensEnum screenId) {
+    lv_obj_t *parent = clock_attach_parent(screenId);
+    if (!parent || !objects.modem_sleep_clock__clock) {
+        return; /* a non-moon screen (keep the widget where it was) or
+                 * before the widget exists (pre create_screens) */
+    }
+    if (lv_obj_get_parent(objects.modem_sleep_clock__clock) != parent)
+        lv_obj_set_parent(objects.modem_sleep_clock__clock, parent);
+    /* Refresh the vars NOW (the minute tick normally does this; a
+     * screen switch can land well before the next tick). The clock
+     * label + seconds come from the wall clock; the alarm label +
+     * weekday prefix from the scheduler cache (no I2C). */
+    clock_time_t now;
+    if (clock_get_time(&now) == ESP_OK) {
+        char s[8];
+        snprintf(s, sizeof(s), "%02d:%02d", now.hour, now.minute);
+        set_var_clock_label(s);
+        set_var_clock_seconds(now.second);
+    }
+    action_update_alarm_display(NULL);
+    tick_user_widget_clock(16);
 }
 
 void change_color_theme(uint32_t theme_index) {

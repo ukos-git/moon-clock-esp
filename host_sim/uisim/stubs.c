@@ -53,18 +53,32 @@ const char *esp_err_to_name(esp_err_t code) {
     }
 }
 
-/* ---- global clock vars (vars.c) ---- */
+/* ---- global clock vars (vars.c) ----
+
+   The REAL vars.c COPIES each value into a static buffer (snprintf /
+   strncpy); the setter is handed a caller stack buffer that is valid only
+   for the call. The stub mirrors that contract (copy, not pointer-store) --
+   a pointer-storing stub dangles the moment the caller returns, and the
+   shared clock widget's attach refresh (ui_clock_attach_to) sets the alarm
+   label from a stack buffer then ticks the widget, so a dangling pointer
+   would read as garbage (the tofu boxes). */
 
 static int32_t s_clock_seconds = 37;
-static const char *s_clock_label = "12:35";
-static const char *s_alarm_label = "12:35"; /* the fixed rule's time */
+static char s_clock_label[6] = "12:35";
+static char s_alarm_label[6] = "12:35"; /* the fixed rule's time */
 
 int32_t get_var_clock_seconds() { return s_clock_seconds; }
 void set_var_clock_seconds(int32_t value) { s_clock_seconds = value; }
 const char *get_var_clock_label() { return s_clock_label; }
-void set_var_clock_label(const char *value) { s_clock_label = value; }
+void set_var_clock_label(const char *value) {
+    snprintf(s_clock_label, sizeof s_clock_label, "%s", value);
+    s_clock_label[sizeof s_clock_label - 1] = 0;
+}
 const char *get_var_alarm_label() { return s_alarm_label; }
-void set_var_alarm_label(const char *value) { s_alarm_label = value; }
+void set_var_alarm_label(const char *value) {
+    snprintf(s_alarm_label, sizeof s_alarm_label, "%s", value);
+    s_alarm_label[sizeof s_alarm_label - 1] = 0;
+}
 
 /* The weekday prefix ("" within 24 h of the fire, else the 2-letter
  * day of the fire). Canned: "Mo" (the fixed rule's next fire is
@@ -102,6 +116,15 @@ esp_err_t clock_set_time(const clock_time_t *t) {
     return ESP_OK;
 }
 void clock_sntp_set_time_trusted(bool trusted) { (void)trusted; }
+
+/* The shared clock widget's attach refresh (screens.c ui_clock_attach_to)
+   reads the wall clock directly. */
+esp_err_t clock_get_time(clock_time_t *out) {
+    if (!out)
+        return ESP_FAIL;
+    *out = s_sim_time;
+    return ESP_OK;
+}
 
 /* ---- alarm scheduler (canned rule state) ---- */
 
@@ -146,6 +169,26 @@ esp_err_t clock_alarm_deactivate_all(void) {
     s_alarm_mask = 0;
     printf("[stub] deactivate_all\n");
     return ESP_OK;
+}
+
+/* The shared clock widget's attach refresh (screens.c) calls the real
+   actions.c alarm-display update (scheduler cache -> the label + the
+   weekday-prefix vars). The stub replays it from the canned rule: a
+   scheduled fire reads its HH:MM + the canned "Mo" weekday prefix (the
+   Mon-Fri 12:35 rule, >24 h out on the sim clock), none reads "--:--" +
+   an empty prefix. */
+void action_update_alarm_display(void *e) {
+    (void)e;
+    char label[6];
+    if (s_alarm_mask) {
+        snprintf(label, sizeof(label), "%02d:%02d", s_alarm_h, s_alarm_m);
+        set_var_alarm_label(label);
+        set_var_alarm_prefix("Mo");
+    } else {
+        snprintf(label, sizeof(label), "--:--");
+        set_var_alarm_label(label);
+        set_var_alarm_prefix("");
+    }
 }
 
 /* ---- runtime settings store (canned values) ---- */
@@ -267,6 +310,11 @@ void loadScreen(enum ScreensEnum screenId) {
     s_cur_screen = screenId - 1;
     lv_obj_t *screen = ((lv_obj_t **)&objects)[s_cur_screen];
     lv_scr_load(screen);
+    /* The device's loadScreen (ui.c) reparents the ONE shared clock widget
+       onto the new moon screen and refreshes the clock vars from the RTC
+       before the atomic flush (ui_clock_attach_to); the stub mirrors it so
+       the snapshots exercise the shared-widget path. */
+    ui_clock_attach_to(screenId);
 }
 
 enum ScreensEnum ui_current_screen(void) { return (enum ScreensEnum)(s_cur_screen + 1); }
