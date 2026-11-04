@@ -406,7 +406,12 @@ screens share ONE clock row, reparented to the active screen by
 RTC, so the wake shows the current minute in the switch's one atomic frame; the
 clock alpha in light sleep is the `UI_CLOCK_ALPHA_PCT` option, §7.3): P4
 **1,579,424 B** (`0x1819a0`, +0 B), S3 **1,463,248 B** (`0x1653d0`, +144 B;
-both ~30 % under the 2048 K factory).
+both ~30 % under the 2048 K factory); after the **per-digit clock roll**
+(2026-11-04, §7.1 — each HH:MM slot label now sits in a one-line clipping cell
+and rolls up into the next digit over 300 ms on a minute change,
+odometer-style, instead of a hard swap): P4 **1,580,064 B** (`0x181c20`, +640
+B), S3 **1,463,824 B** (`0x165610`, +576 B; both ~30 % under the 2048 K
+factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -895,6 +900,21 @@ what each control changes live.
   unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
   cascades to the five labels — and the minute tick updates only the
   character(s) that changed, not the whole string.
+- **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
+  swap): each slot label sits in a one-line **clipping cell** (fixed width ×
+  the digits font's line height — 71 px at 466; the cell clips its child to one
+  digit). When a digit changes, the label's text is swapped to a two-line
+  `old\nnew` and the label is **translated up one line height** over 300 ms
+  (`lv_anim` on `translate_y`, ease-in) — the old digit rolls out the top of
+  the window as the new one rolls in from the bottom (12:35 → 12:36: the "5"
+  rolls up into the "6"). At rest each slot is a single line at translate 0. An
+  in-flight guard retargets: a change landing mid-roll drops the roll (snap
+  back to translate 0) and hard-swaps to the latest digit, so a slot never runs
+  two animations. The spin's UI keep-mask is rebuilt at roll start (the tick's
+  `label_changed` path) and on settle (the anim's completed-cb, LVGL task).
+  Verified in the UI simulator with the `--rolltest` hook (before / mid-roll /
+  after frames; the settled frame is pixel-identical to the resting screen
+  apart from the changed digit).
 - **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
   (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
   own clock widget (five sets of HH:MM slots + alarm label) and only the
@@ -1761,6 +1781,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                    |
 | Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
 | Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
+| Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                             |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +

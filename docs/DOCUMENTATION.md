@@ -406,7 +406,12 @@ screens share ONE clock row, reparented to the active screen by
 RTC, so the wake shows the current minute in the switch's one atomic frame; the
 clock alpha in light sleep is the `UI_CLOCK_ALPHA_PCT` option, §7.3): P4
 **1,579,424 B** (`0x1819a0`, +0 B), S3 **1,463,248 B** (`0x1653d0`, +144 B;
-both ~30 % under the 2048 K factory).
+both ~30 % under the 2048 K factory); after the **per-digit clock roll**
+(2026-11-04, §7.1 — each HH:MM slot label now sits in a one-line clipping cell
+and rolls up into the next digit over 300 ms on a minute change,
+odometer-style, instead of a hard swap): P4 **1,580,064 B** (`0x181c20`, +640
+B), S3 **1,463,824 B** (`0x165610`, +576 B; both ~30 % under the 2048 K
+factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -895,6 +900,21 @@ what each control changes live.
   unsynced-clock dim still targets it with `lv_obj_set_style_opa` and the style
   cascades to the five labels — and the minute tick updates only the
   character(s) that changed, not the whole string.
+- **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
+  swap): each slot label sits in a one-line **clipping cell** (fixed width ×
+  the digits font's line height — 71 px at 466; the cell clips its child to one
+  digit). When a digit changes, the label's text is swapped to a two-line
+  `old\nnew` and the label is **translated up one line height** over 300 ms
+  (`lv_anim` on `translate_y`, ease-in) — the old digit rolls out the top of
+  the window as the new one rolls in from the bottom (12:35 → 12:36: the "5"
+  rolls up into the "6"). At rest each slot is a single line at translate 0. An
+  in-flight guard retargets: a change landing mid-roll drops the roll (snap
+  back to translate 0) and hard-swaps to the latest digit, so a slot never runs
+  two animations. The spin's UI keep-mask is rebuilt at roll start (the tick's
+  `label_changed` path) and on settle (the anim's completed-cb, LVGL task).
+  Verified in the UI simulator with the `--rolltest` hook (before / mid-roll /
+  after frames; the settled frame is pixel-identical to the resting screen
+  apart from the changed digit).
 - **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
   (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
   own clock widget (five sets of HH:MM slots + alarm label) and only the
@@ -1761,6 +1781,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-02, after the clock-digit slots) | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                    |
 | Binary (2026-11-04, after the bugreport fixes)   | S3: `0x165340` = 1,463,104 B in the 2,097,152 B partition (634,048 B free — the orientation-root fix for the manual time entry / timezone screens, the idle-timeout unfilled-moon toggle icon, and the five wheel-keyboard fixes +256 B over the slots build). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — +320 B; the wheel's centre-pivot, mode-indicator-pad, stale-label, empty-trash-exit and commit-icon fixes, re-rendered in the UI simulator at both 466 and 720 — no stray lines, the lit 60° key on the r 84–144 track, all four registers clean) |
 | Binary (2026-11-04, after the shared clock)      | S3: `0x1653d0` = 1,463,248 B in the 2,097,152 B partition (633,904 B free — the ONE shared clock widget + `ui_clock_attach_to` + the `UI_CLOCK_ALPHA_PCT` option +144 B over the bugreport build; the four duplicate widgets are gone, the wake refreshes the clock from the RTC in the switch's atomic frame). P4: `0x1819a0` = 1,579,424 B in the 9,437,184 B partition (7,857,760 B free — the net −456 B widget deletion is inside the linker's alignment slack)                                                                                                                           |
+| Binary (2026-11-04, after the digit roll)        | S3: `0x165610` = 1,463,824 B in the 2,097,152 B partition (633,328 B free — the HH:MM digit ROLL +576 B over the shared-clock build: each slot label sits in a one-line clipping cell and rolls up into the next digit over 300 ms on a minute change, §7.1). P4: `0x181c20` = 1,580,064 B in the 9,437,184 B partition (7,857,120 B free — +640 B; the roll verified in the UI simulator with the `--rolltest` hook at both 466 and 720 — before / mid-roll / after frames, the settled frame pixel-identical to the resting screen apart from the changed digit)                             |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2167,7 +2188,7 @@ code.
 - `docs/book/_static/photos/sim_home.png` (666,617 B)
 - `docs/book/_static/photos/sim_keyboard.png` (281,706 B)
 - `docs/book/_static/photos/sim_light_sleep.png` (504,607 B)
-- `docs/book/conf.py` (2,537 B)
+- `docs/book/conf.py` (2,738 B)
 - `docs/book/index.rst` (3,675 B)
 - `docs/book/part1/01-overview.rst` (5,518 B)
 - `docs/book/part1/02-hardware-s3.rst` (5,140 B)
@@ -2200,7 +2221,7 @@ code.
 - `docs/book/tools/gen_kbd_panels.py` (4,654 B)
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
-- `docs/doc_template.md` (165,370 B)
+- `docs/doc_template.md` (167,569 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -2219,14 +2240,14 @@ code.
 - `docs/img/nasa/nasa_vs_c_p050.png` (246,000 B)
 - `docs/img/nasa/nasa_vs_c_p075.png` (272,808 B)
 - `docs/img/nasa/nasa_vs_c_p090.png` (293,456 B)
-- `docs/img/screens/alarm.png` (16,031 B)
-- `docs/img/screens/deep_sleep.png` (183,637 B)
-- `docs/img/screens/light_sleep.png` (192,749 B)
-- `docs/img/screens/modem_sleep.png` (200,182 B)
-- `docs/img/screens/p4/alarm.png` (30,253 B)
-- `docs/img/screens/p4/deep_sleep.png` (414,428 B)
-- `docs/img/screens/p4/light_sleep.png` (433,495 B)
-- `docs/img/screens/p4/modem_sleep.png` (444,265 B)
+- `docs/img/screens/alarm.png` (14,605 B)
+- `docs/img/screens/deep_sleep.png` (185,517 B)
+- `docs/img/screens/light_sleep.png` (194,614 B)
+- `docs/img/screens/modem_sleep.png` (202,023 B)
+- `docs/img/screens/p4/alarm.png` (28,621 B)
+- `docs/img/screens/p4/deep_sleep.png` (417,878 B)
+- `docs/img/screens/p4/light_sleep.png` (436,826 B)
+- `docs/img/screens/p4/modem_sleep.png` (447,289 B)
 - `docs/img/screens/p4/settings_alarm.png` (25,293 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,158 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (24,506 B)
@@ -2241,7 +2262,7 @@ code.
 - `docs/img/screens/p4/settings_wifi_password_ABC.png` (72,329 B)
 - `docs/img/screens/p4/settings_wifi_password_sym.png` (69,786 B)
 - `docs/img/screens/p4/settings_wifi_password_touched.png` (74,898 B)
-- `docs/img/screens/p4/wifi.png` (440,015 B)
+- `docs/img/screens/p4/wifi.png` (443,007 B)
 - `docs/img/screens/settings_alarm.png` (12,924 B)
 - `docs/img/screens/settings_alarm_time.png` (18,050 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
@@ -2256,7 +2277,7 @@ code.
 - `docs/img/screens/settings_wifi_password_ABC.png` (44,070 B)
 - `docs/img/screens/settings_wifi_password_sym.png` (42,447 B)
 - `docs/img/screens/settings_wifi_password_touched.png` (45,953 B)
-- `docs/img/screens/wifi.png` (198,487 B)
+- `docs/img/screens/wifi.png` (200,257 B)
 - `docs/keyboard/round-keyboard-lab.html` (61,449 B)
 - `docs/nasa_figs.py` (3,141 B)
 - `docs/research/circular-keyboard-alternatives.md` (34,999 B)
@@ -37433,8 +37454,16 @@ static lv_obj_t *s_alarm_prefix;
  * only the active screen's set was ticked, so a wake showed the
  * pre-wake value until the next minute tick; now the one set is
  * updated at the minute tick and at every screen switch, so it is
- * always current wherever it is attached). */
+ * always current wherever it is attached). Each slot label sits in a
+ * fixed one-line CLIPPING cell (s_clock_time_cell) so the digit ROLL
+ * (odometer slide, see the block above tick_user_widget_clock) scrolls
+ * the label inside a one-digit window. */
 static lv_obj_t *s_clock_time_slot[5];
+static lv_obj_t *s_clock_time_cell[5];
+
+/* Each slot's one-line height (the roll's translate distance + the cell
+ * height), captured at creation from the digits font. ONE set. */
+static int32_t s_clock_line_h[5];
 
 /* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
@@ -37501,11 +37530,39 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     for (int i = 0; i < 5; i++) {
+                        int32_t w = i == 2 ? UI_PX(26) : UI_PX(67);
+                        /* The digit LABEL (created first: its font line
+                         * height sizes the cell and the roll distance). A
+                         * fixed-width centred glyph that the cell CLIPS to
+                         * one line. At rest it is a single line (the current
+                         * digit); the roll swaps it to a two-line "old\nnew"
+                         * text and slides it up one line (see the roll block
+                         * above tick_user_widget_clock). */
                         lv_obj_t *slot = lv_label_create(obj);
                         s_clock_time_slot[(size_t)i] = slot;
-                        lv_obj_set_size(slot, i == 2 ? UI_PX(26) : UI_PX(67), LV_SIZE_CONTENT);
+                        lv_obj_set_size(slot, w, LV_SIZE_CONTENT);
                         lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                         add_style_label_bold(slot);
+                        /* The one-line height of the digits font = the cell
+                         * height = the roll's translate distance. */
+                        s_clock_line_h[(size_t)i] = lv_font_get_line_height(lv_obj_get_style_text_font(slot, LV_PART_MAIN));
+                        /* The CLIPPING CELL wrapping the label: fixed W x
+                         * one-line, so the roll scrolls the label inside a
+                         * one-digit window -- 12:35 -> 12:36 rolls the "5" up
+                         * into "6" (odometer). Default overflow = children
+                         * clipped to the cell. */
+                        lv_obj_t *cell = lv_obj_create(obj);
+                        s_clock_time_cell[(size_t)i] = cell;
+                        lv_obj_set_size(cell, w, s_clock_line_h[(size_t)i]);
+                        lv_obj_set_style_bg_opa(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                        /* Move the label into the cell, pinned to the cell's
+                         * TOP (so a two-line label's FIRST line sits in the
+                         * window at translate 0). */
+                        lv_obj_set_parent(slot, cell);
+                        lv_obj_set_pos(slot, 0, 0);
                         lv_label_set_text(slot, "");
                     }
                 }
@@ -37591,6 +37648,64 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 static bool s_clock_unsynced_dim;
 #endif
 
+/* ---- HH:MM digit ROLL (odometer) -- 2026-11-04 bugreport, item 6 ----
+ *
+ * The minute tick no longer hard-swaps each digit's character: the slot
+ * label (which sits in a one-line clipping cell, see
+ * create_user_widget_clock) is swapped to a two-line "old\nnew" text and
+ * slid UP one line height inside the cell -- the old digit rolls out the
+ * top, the new digit rolls in from the bottom (12:35 -> 12:36: the "5"
+ * rolls up into "6"). At rest each slot is a single line (the current
+ * digit) at translate 0.
+ *
+ * In-flight guard: a screen-switch attach can re-run the tick mid-roll.
+ * If it is converging on the LATEST character it is left to finish; if a
+ * NEWER character arrived, the roll is dropped (translate snapped to 0)
+ * and the slot hard-swaps to the latest. The spin's UI keep-mask is
+ * rebuilt when the pixels change (roll start via the tick's
+ * label_changed, and settle, in the animation timer). */
+#define CLOCK_ROLL_MS 300 /* one digit's roll time */
+
+/* Per-slot in-flight flag + the character the slot is rolling toward.
+ * ONE set for the one widget. */
+static int s_clock_rolling[5];
+static char s_clock_roll_target[5];
+
+static void clock_roll_done(lv_anim_t *a);
+
+static int clock_slot_index(lv_obj_t *slot) {
+    for (int i = 0; i < 5; i++) {
+        if (s_clock_time_slot[(size_t)i] == slot)
+            return i;
+    }
+    return -1;
+}
+
+static void clock_roll_exec(void *obj, int32_t y) {
+    lv_obj_set_style_translate_y((lv_obj_t *)obj, y, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+/* The roll finished (LVGL task, from the animation timer). The slot is
+ * at translate -line_height showing the new digit in the window: settle
+ * to the resting state -- single line (the rolled-in digit) at translate
+ * 0. Both changes land in the same frame (LVGL renders after the timer
+ * handler returns), so the digit holds its on-screen position -- no
+ * flicker. Rebuild the spin's UI keep-mask (the settled digit's pixels
+ * are authoritative now). */
+static void clock_roll_done(lv_anim_t *a) {
+    lv_obj_t *slot = (lv_obj_t *)a->var;
+    int i = clock_slot_index(slot);
+    if (i < 0)
+        return;
+    lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    char buf[2] = {s_clock_roll_target[i], 0};
+    tick_value_change_obj = slot;
+    lv_label_set_text(slot, buf);
+    tick_value_change_obj = NULL;
+    s_clock_rolling[i] = 0;
+    moon_ui_rebuild_ui_mask();
+}
+
 void tick_user_widget_clock(int startWidgetIndex) {
     bool label_changed = false;
 #if !CONFIG_CLOCK_USE_PCF85063A
@@ -37608,18 +37723,62 @@ void tick_user_widget_clock(int startWidgetIndex) {
 #endif
     {
         /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
-         * the shared set): update each character's label individually (only
-         * the ones that change) so the minute flip redraws one fixed-width
-         * cell, not the whole string. */
+         * the shared set): each character that changes ROLLS (odometer
+         * slide, see the block above), not a hard swap. */
         const char *new_val = get_var_clock_label();
         for (int i = 0; i < 5; i++) {
             lv_obj_t *slot = s_clock_time_slot[(size_t)i];
-            if (lv_label_get_text(slot)[0] == new_val[i])
+            char old = lv_label_get_text(slot)[0];
+            if (old == new_val[i])
                 continue;
-            char buf[2] = {new_val[i], 0};
-            tick_value_change_obj = slot;
-            lv_label_set_text(slot, buf);
-            tick_value_change_obj = NULL;
+            if (old == 0) {
+                /* A slot that has never shown a digit (the first attach):
+                 * there is no old digit to roll out -- hard-set the new
+                 * one (rolling "from" empty would build a two-line buffer
+                 * that strlen reads as empty: a blank flash). */
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                label_changed = true;
+                continue;
+            }
+            if (s_clock_rolling[i] && s_clock_roll_target[i] == new_val[i])
+                continue; /* a roll toward the LATEST character is in
+                           * flight: let it finish (its settle rewrites
+                           * the slot to that character) */
+            if (s_clock_rolling[i]) {
+                /* A NEWER character arrived mid-roll: drop the roll
+                 * (snap the slot back to the window) and hard-swap it to
+                 * the latest -- no double animation on one slot. */
+                lv_anim_delete(slot, clock_roll_exec);
+                lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                s_clock_rolling[i] = 0;
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+            } else {
+                /* Idle: start the roll. The label holds the old digit in
+                 * the window at translate 0; swap it to the two-line
+                 * "old\nnew" (the old digit stays put, the new one is
+                 * clipped below the window) and slide up one line. */
+                char buf[4] = {old, '\n', new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                s_clock_roll_target[i] = new_val[i];
+                s_clock_rolling[i] = 1;
+                lv_anim_t anim;
+                lv_anim_init(&anim);
+                lv_anim_set_var(&anim, slot);
+                lv_anim_set_values(&anim, 0, -s_clock_line_h[(size_t)i]);
+                lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
+                lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
+                lv_anim_set_exec_cb(&anim, clock_roll_exec);
+                lv_anim_set_completed_cb(&anim, clock_roll_done);
+                lv_anim_start(&anim);
+            }
             label_changed = true;
         }
     }
@@ -43002,6 +43161,14 @@ const char *esp_err_to_name(esp_err_t code);
  *               settings_hub settings_alarm settings_pomodoro
  *               settings_alarm_time settings_light_sleep
  *               settings_deep_sleep settings_wifi
+ *
+ * Special modes:
+ *   --rolltest  verify the HH:MM digit ROLL (odometer): loads home, changes
+ *               the minute 12:35 -> 12:36 through the real var + tick path,
+ *               and writes out/roll_{before,mid,after}.png (settle -> the
+ *               "5" sliding up into "6" -> settle).
+ *   --rottest / --reveal <q> [screen] / --wheel: the other verification
+ *               hooks (see their blocks below).
  */
 #include <dirent.h>
 #include <math.h>
@@ -43016,6 +43183,7 @@ const char *esp_err_to_name(esp_err_t code);
 #include "stb_image_write.h"
 #include "ui.h"
 #include "ui_px.h"
+#include "vars.h"
 
 /* The panel size (the S3's 466x466 by default; the P4's 720x720 with
  * `build.sh run --panel 720`). The screens themselves carry their own
@@ -43279,8 +43447,12 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
         return 1;
 
     loadScreen(id);
-    ui_tick();       /* seed the screen's widgets from the stubbed state */
-    pump(disp, 100); /* let pending invalidations settle */
+    ui_tick(); /* seed the screen's widgets from the stubbed state */
+    /* 300 ms: the HH:MM digit roll (the attach refresh rolls changed
+     * digits through the 300 ms odometer slide) must have FINISHED
+     * before the capture, or the digits would read mid-roll in the
+     * snapshot. */
+    pump(disp, 300); /* let pending invalidations + the roll settle */
     lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
     lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
     if (!buf) {
@@ -43297,8 +43469,14 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
 int main(int argc, char **argv) {
     mkdir("out", 0755);
 
-    lv_tick_set_cb(tick_cb);
     lv_init();
+    /* The tick callback comes AFTER lv_init: lv_init's
+     * LV_GLOBAL_INIT zeroes the global (incl. the tick state), so a
+     * callback set before it is wiped and lv_tick_get() stays pinned at
+     * 0 -- the animation engine (time-based) then never advances in the
+     * sim. The device build is unaffected (its tick comes from the OS
+     * layer). */
+    lv_tick_set_cb(tick_cb);
     lv_display_t *disp = lv_display_create(W, H);
     lv_display_set_flush_cb(disp, flush_cb);
     lv_display_set_buffers(disp, s_fb, NULL, sizeof s_fb, LV_DISPLAY_RENDER_MODE_FULL);
@@ -43331,6 +43509,35 @@ int main(int argc, char **argv) {
         int rc = write_png("out/rottest_90.png", buf);
         lv_draw_buf_destroy(buf);
         return rc;
+    }
+
+    /* --rolltest: verify the HH:MM digit ROLL (odometer). Load the home
+     * screen (the shared clock widget shows 12:35 from the stub), then
+     * change the minute to 12:36 through the REAL var + tick path and
+     * capture: the "5" minute digit should roll UP into "6" (the old
+     * "5" exits the top of its window as the "6" enters from the bottom).
+     * Three frames: settled before, mid-roll (~150 ms), settled after. */
+    if (argc > 1 && !strcmp(argv[1], "--rolltest")) {
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        pump(disp, 300); /* let the initial digits settle (no roll at rest) */
+        lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_MODEM_SLEEP - 1];
+        lv_draw_buf_t *b1 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_before.png", b1);
+        lv_draw_buf_destroy(b1);
+        /* Trigger the minute change through the real var + tick path. */
+        set_var_clock_label("12:36");
+        tick_user_widget_clock(16);
+        pump(disp, 150); /* mid-roll: the "5" is sliding up out of the window */
+        lv_draw_buf_t *b2 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_mid.png", b2);
+        lv_draw_buf_destroy(b2);
+        pump(disp, 300); /* let the roll finish + settle to the resting state */
+        lv_draw_buf_t *b3 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_after.png", b3);
+        lv_draw_buf_destroy(b3);
+        printf("[rolltest] before / mid / after written\n");
+        return 0;
     }
 
     /* --reveal: prove the device's reveal strip write matches the

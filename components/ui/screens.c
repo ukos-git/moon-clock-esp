@@ -2801,8 +2801,16 @@ static lv_obj_t *s_alarm_prefix;
  * only the active screen's set was ticked, so a wake showed the
  * pre-wake value until the next minute tick; now the one set is
  * updated at the minute tick and at every screen switch, so it is
- * always current wherever it is attached). */
+ * always current wherever it is attached). Each slot label sits in a
+ * fixed one-line CLIPPING cell (s_clock_time_cell) so the digit ROLL
+ * (odometer slide, see the block above tick_user_widget_clock) scrolls
+ * the label inside a one-digit window. */
 static lv_obj_t *s_clock_time_slot[5];
+static lv_obj_t *s_clock_time_cell[5];
+
+/* Each slot's one-line height (the roll's translate distance + the cell
+ * height), captured at creation from the digits font. ONE set. */
+static int32_t s_clock_line_h[5];
 
 /* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
@@ -2869,11 +2877,40 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     for (int i = 0; i < 5; i++) {
+                        int32_t w = i == 2 ? UI_PX(26) : UI_PX(67);
+                        /* The digit LABEL (created first: its font line
+                         * height sizes the cell and the roll distance). A
+                         * fixed-width centred glyph that the cell CLIPS to
+                         * one line. At rest it is a single line (the current
+                         * digit); the roll swaps it to a two-line "old\nnew"
+                         * text and slides it up one line (see the roll block
+                         * above tick_user_widget_clock). */
                         lv_obj_t *slot = lv_label_create(obj);
                         s_clock_time_slot[(size_t)i] = slot;
-                        lv_obj_set_size(slot, i == 2 ? UI_PX(26) : UI_PX(67), LV_SIZE_CONTENT);
+                        lv_obj_set_size(slot, w, LV_SIZE_CONTENT);
                         lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                         add_style_label_bold(slot);
+                        /* The one-line height of the digits font = the cell
+                         * height = the roll's translate distance. */
+                        s_clock_line_h[(size_t)i] =
+                            lv_font_get_line_height(lv_obj_get_style_text_font(slot, LV_PART_MAIN));
+                        /* The CLIPPING CELL wrapping the label: fixed W x
+                         * one-line, so the roll scrolls the label inside a
+                         * one-digit window -- 12:35 -> 12:36 rolls the "5" up
+                         * into "6" (odometer). Default overflow = children
+                         * clipped to the cell. */
+                        lv_obj_t *cell = lv_obj_create(obj);
+                        s_clock_time_cell[(size_t)i] = cell;
+                        lv_obj_set_size(cell, w, s_clock_line_h[(size_t)i]);
+                        lv_obj_set_style_bg_opa(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                        /* Move the label into the cell, pinned to the cell's
+                         * TOP (so a two-line label's FIRST line sits in the
+                         * window at translate 0). */
+                        lv_obj_set_parent(slot, cell);
+                        lv_obj_set_pos(slot, 0, 0);
                         lv_label_set_text(slot, "");
                     }
                 }
@@ -2959,6 +2996,64 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 static bool s_clock_unsynced_dim;
 #endif
 
+/* ---- HH:MM digit ROLL (odometer) -- 2026-11-04 bugreport, item 6 ----
+ *
+ * The minute tick no longer hard-swaps each digit's character: the slot
+ * label (which sits in a one-line clipping cell, see
+ * create_user_widget_clock) is swapped to a two-line "old\nnew" text and
+ * slid UP one line height inside the cell -- the old digit rolls out the
+ * top, the new digit rolls in from the bottom (12:35 -> 12:36: the "5"
+ * rolls up into "6"). At rest each slot is a single line (the current
+ * digit) at translate 0.
+ *
+ * In-flight guard: a screen-switch attach can re-run the tick mid-roll.
+ * If it is converging on the LATEST character it is left to finish; if a
+ * NEWER character arrived, the roll is dropped (translate snapped to 0)
+ * and the slot hard-swaps to the latest. The spin's UI keep-mask is
+ * rebuilt when the pixels change (roll start via the tick's
+ * label_changed, and settle, in the animation timer). */
+#define CLOCK_ROLL_MS 300 /* one digit's roll time */
+
+/* Per-slot in-flight flag + the character the slot is rolling toward.
+ * ONE set for the one widget. */
+static int s_clock_rolling[5];
+static char s_clock_roll_target[5];
+
+static void clock_roll_done(lv_anim_t *a);
+
+static int clock_slot_index(lv_obj_t *slot) {
+    for (int i = 0; i < 5; i++) {
+        if (s_clock_time_slot[(size_t)i] == slot)
+            return i;
+    }
+    return -1;
+}
+
+static void clock_roll_exec(void *obj, int32_t y) {
+    lv_obj_set_style_translate_y((lv_obj_t *)obj, y, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+/* The roll finished (LVGL task, from the animation timer). The slot is
+ * at translate -line_height showing the new digit in the window: settle
+ * to the resting state -- single line (the rolled-in digit) at translate
+ * 0. Both changes land in the same frame (LVGL renders after the timer
+ * handler returns), so the digit holds its on-screen position -- no
+ * flicker. Rebuild the spin's UI keep-mask (the settled digit's pixels
+ * are authoritative now). */
+static void clock_roll_done(lv_anim_t *a) {
+    lv_obj_t *slot = (lv_obj_t *)a->var;
+    int i = clock_slot_index(slot);
+    if (i < 0)
+        return;
+    lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    char buf[2] = {s_clock_roll_target[i], 0};
+    tick_value_change_obj = slot;
+    lv_label_set_text(slot, buf);
+    tick_value_change_obj = NULL;
+    s_clock_rolling[i] = 0;
+    moon_ui_rebuild_ui_mask();
+}
+
 void tick_user_widget_clock(int startWidgetIndex) {
     bool label_changed = false;
 #if !CONFIG_CLOCK_USE_PCF85063A
@@ -2976,18 +3071,62 @@ void tick_user_widget_clock(int startWidgetIndex) {
 #endif
     {
         /* The HH:MM slot row (objects[16+1] = objects[startWidgetIndex+1],
-         * the shared set): update each character's label individually (only
-         * the ones that change) so the minute flip redraws one fixed-width
-         * cell, not the whole string. */
+         * the shared set): each character that changes ROLLS (odometer
+         * slide, see the block above), not a hard swap. */
         const char *new_val = get_var_clock_label();
         for (int i = 0; i < 5; i++) {
             lv_obj_t *slot = s_clock_time_slot[(size_t)i];
-            if (lv_label_get_text(slot)[0] == new_val[i])
+            char old = lv_label_get_text(slot)[0];
+            if (old == new_val[i])
                 continue;
-            char buf[2] = {new_val[i], 0};
-            tick_value_change_obj = slot;
-            lv_label_set_text(slot, buf);
-            tick_value_change_obj = NULL;
+            if (old == 0) {
+                /* A slot that has never shown a digit (the first attach):
+                 * there is no old digit to roll out -- hard-set the new
+                 * one (rolling "from" empty would build a two-line buffer
+                 * that strlen reads as empty: a blank flash). */
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                label_changed = true;
+                continue;
+            }
+            if (s_clock_rolling[i] && s_clock_roll_target[i] == new_val[i])
+                continue; /* a roll toward the LATEST character is in
+                           * flight: let it finish (its settle rewrites
+                           * the slot to that character) */
+            if (s_clock_rolling[i]) {
+                /* A NEWER character arrived mid-roll: drop the roll
+                 * (snap the slot back to the window) and hard-swap it to
+                 * the latest -- no double animation on one slot. */
+                lv_anim_delete(slot, clock_roll_exec);
+                lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                s_clock_rolling[i] = 0;
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+            } else {
+                /* Idle: start the roll. The label holds the old digit in
+                 * the window at translate 0; swap it to the two-line
+                 * "old\nnew" (the old digit stays put, the new one is
+                 * clipped below the window) and slide up one line. */
+                char buf[4] = {old, '\n', new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                s_clock_roll_target[i] = new_val[i];
+                s_clock_rolling[i] = 1;
+                lv_anim_t anim;
+                lv_anim_init(&anim);
+                lv_anim_set_var(&anim, slot);
+                lv_anim_set_values(&anim, 0, -s_clock_line_h[(size_t)i]);
+                lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
+                lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
+                lv_anim_set_exec_cb(&anim, clock_roll_exec);
+                lv_anim_set_completed_cb(&anim, clock_roll_done);
+                lv_anim_start(&anim);
+            }
             label_changed = true;
         }
     }

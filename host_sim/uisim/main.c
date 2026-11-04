@@ -12,6 +12,14 @@
  *               settings_hub settings_alarm settings_pomodoro
  *               settings_alarm_time settings_light_sleep
  *               settings_deep_sleep settings_wifi
+ *
+ * Special modes:
+ *   --rolltest  verify the HH:MM digit ROLL (odometer): loads home, changes
+ *               the minute 12:35 -> 12:36 through the real var + tick path,
+ *               and writes out/roll_{before,mid,after}.png (settle -> the
+ *               "5" sliding up into "6" -> settle).
+ *   --rottest / --reveal <q> [screen] / --wheel: the other verification
+ *               hooks (see their blocks below).
  */
 #include <dirent.h>
 #include <math.h>
@@ -26,6 +34,7 @@
 #include "stb_image_write.h"
 #include "ui.h"
 #include "ui_px.h"
+#include "vars.h"
 
 /* The panel size (the S3's 466x466 by default; the P4's 720x720 with
  * `build.sh run --panel 720`). The screens themselves carry their own
@@ -289,8 +298,12 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
         return 1;
 
     loadScreen(id);
-    ui_tick();       /* seed the screen's widgets from the stubbed state */
-    pump(disp, 100); /* let pending invalidations settle */
+    ui_tick(); /* seed the screen's widgets from the stubbed state */
+    /* 300 ms: the HH:MM digit roll (the attach refresh rolls changed
+     * digits through the 300 ms odometer slide) must have FINISHED
+     * before the capture, or the digits would read mid-roll in the
+     * snapshot. */
+    pump(disp, 300); /* let pending invalidations + the roll settle */
     lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
     lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
     if (!buf) {
@@ -307,8 +320,14 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
 int main(int argc, char **argv) {
     mkdir("out", 0755);
 
-    lv_tick_set_cb(tick_cb);
     lv_init();
+    /* The tick callback comes AFTER lv_init: lv_init's
+     * LV_GLOBAL_INIT zeroes the global (incl. the tick state), so a
+     * callback set before it is wiped and lv_tick_get() stays pinned at
+     * 0 -- the animation engine (time-based) then never advances in the
+     * sim. The device build is unaffected (its tick comes from the OS
+     * layer). */
+    lv_tick_set_cb(tick_cb);
     lv_display_t *disp = lv_display_create(W, H);
     lv_display_set_flush_cb(disp, flush_cb);
     lv_display_set_buffers(disp, s_fb, NULL, sizeof s_fb, LV_DISPLAY_RENDER_MODE_FULL);
@@ -341,6 +360,35 @@ int main(int argc, char **argv) {
         int rc = write_png("out/rottest_90.png", buf);
         lv_draw_buf_destroy(buf);
         return rc;
+    }
+
+    /* --rolltest: verify the HH:MM digit ROLL (odometer). Load the home
+     * screen (the shared clock widget shows 12:35 from the stub), then
+     * change the minute to 12:36 through the REAL var + tick path and
+     * capture: the "5" minute digit should roll UP into "6" (the old
+     * "5" exits the top of its window as the "6" enters from the bottom).
+     * Three frames: settled before, mid-roll (~150 ms), settled after. */
+    if (argc > 1 && !strcmp(argv[1], "--rolltest")) {
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        pump(disp, 300); /* let the initial digits settle (no roll at rest) */
+        lv_obj_t *root = ((lv_obj_t **)&objects)[SCREEN_ID_MODEM_SLEEP - 1];
+        lv_draw_buf_t *b1 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_before.png", b1);
+        lv_draw_buf_destroy(b1);
+        /* Trigger the minute change through the real var + tick path. */
+        set_var_clock_label("12:36");
+        tick_user_widget_clock(16);
+        pump(disp, 150); /* mid-roll: the "5" is sliding up out of the window */
+        lv_draw_buf_t *b2 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_mid.png", b2);
+        lv_draw_buf_destroy(b2);
+        pump(disp, 300); /* let the roll finish + settle to the resting state */
+        lv_draw_buf_t *b3 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_after.png", b3);
+        lv_draw_buf_destroy(b3);
+        printf("[rolltest] before / mid / after written\n");
+        return 0;
     }
 
     /* --reveal: prove the device's reveal strip write matches the
