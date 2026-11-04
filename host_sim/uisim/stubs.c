@@ -104,6 +104,22 @@ bool clock_sntp_time_trusted(void) { return true; }
    a no-op set, and the trust flag toggle (no-op; the snapshot above
    reports trusted already). */
 static clock_time_t s_sim_time = {2026, 11, 1, 12, 35, 7};
+
+/* UISIM_TIME="HH:MM" (host-only test hook, the UISIM_BLACK_MOON pattern):
+   override the seed wall clock so a snapshot can reproduce an on-device
+   capture (e.g. the 16:16 cheese photo). */
+__attribute__((constructor)) static void sim_time_env(void) {
+    const char *e = getenv("UISIM_TIME");
+    int h = -1, m = -1;
+    if (e && sscanf(e, "%d:%d", &h, &m) == 2) {
+        if (h >= 0 && h <= 23)
+            s_sim_time.hour = h;
+        if (m >= 0 && m <= 59)
+            s_sim_time.minute = m;
+        printf("[stub] UISIM_TIME %s -> %02d:%02d\n", e, s_sim_time.hour, s_sim_time.minute);
+    }
+}
+
 esp_err_t clock_sntp_get_system_time(clock_time_t *t) {
     *t = s_sim_time;
     return ESP_OK;

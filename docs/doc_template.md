@@ -456,7 +456,14 @@ window, §7.1): P4 **1,605,984 B** (`0x188160`, +128 B), S3 **1,511,280 B**
 regenerates the S3 sdkconfig from the defaults split, so this S3 figure is on
 the defaults baseline, not the previous hand-tuned `0x174600` one; the roller
 delta on the S3 is not isolated from that baseline change; both ~30 % under the
-2048 K factory).
+2048 K factory); after the **clock pair cells + pair roll** (2026-11-04 — "the
+numbers are not fitting in the boxes": the per-digit 67 px slots replaced by
+the settings screen's model — one fixed-width label per digit PAIR (140 px @466
+/ 216 px @720, the roller's box), text centred in the fixed box, and the pair
+rolling as one two-line `old\nnew` block, §7.1): P4 **1,606,160 B**
+(`0x188270`, +176 B, flashed + camera-verified on the P4), S3 **1,511,360 B**
+(`0x170fc0`, +80 B on the defaults baseline, not flashed — the peer's board;
+both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -1049,45 +1056,62 @@ what each control changes live.
   whenever the fire is more than 24 h away; within 24 h the prefix drops and
   the time stands alone (the weekday only carries meaning across a day the rule
   skips).
-- **The clock digits sit in fixed-width slots** (the "no wobble" fix): the 96
-  px numbers font is _proportional_ — "1" advances 37.6 px, "4" 66.1 px, the
-  colon 25.1 px — so one label reading HH:MM ran 175.6 px wide at "11:11" and
-  289.6 px at "44:44", and the whole string hopped sideways on every minute
-  change. Each character now has its own centred `lv_label` of fixed width (67
-  px per digit — the maximum digit advance; 26 px for the colon — its own
-  advance; `UI_PX`-scaled for the P4's 148 px font, where the maxes are 101.9 /
-  38.7 px against the 103 / 40 px slots), so the string is a constant 294 px
-  (at 466) and only the ink moves. `objects[17+1]` stays the slot row (the
-  index shifted +1 when the alarm-sound screen root joined `objects_t`,
-  2026-11-04 — the off-by-one that drew the bare slot row instead of the
-  centred flex widget) — the P4 unsynced-clock dim still targets it with
-  `lv_obj_set_style_opa` and the style cascades to the five labels — and the
-  minute tick updates only the character(s) that changed, not the whole string.
-- **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
-  swap): each slot label sits in a one-line **clipping cell** (fixed width ×
-  the digits font's line height — 71 px at 466; the cell clips its child to one
-  digit). When a digit changes, the label's text is swapped to a **three-line
-  digit strip** `mid-1\nmid\nmid+1` (on the mod-10 wheel, 9 wraps to 0) centred
-  on the digit currently in the window, pre-translated so the middle line sits
-  in the cell, and **scrolled one line in the direction of change** over 300 ms
-  (`lv_anim` on `translate_y`, the roller's **ease-out** path — the 2026-11-04
-  "clock rollers" request adopted the settings roller's physical wheel motion,
-  fast start and gentle settle, in place of the earlier always-up 2-line
-  `ease-in` slide): 12:35 → 12:36 rolls the "5" UP out of the window as the "6"
-  enters from below; 12:36 → 12:35 rolls the "6" DOWN as the "5" enters from
-  above. The one-line cell clips the strip, so — unlike the multi-line settings
-  roller window — no adjacent digit ever peeks into the window: at rest each
-  slot is a single line at translate 0, and the settle rewrites the label to
-  the one-line target in the same frame the animation completes (the digit
-  holds its on-screen position, no flicker). Only single-step wheel changes
-  (delta 1 or 9) animate; a larger jump (a manual time entry) and any non-digit
-  character hard-swap. An in-flight guard retargets: a change landing mid-roll
-  settles the slot to the latest (one line at translate 0), so a slot never
-  runs two animations. The spin's UI keep-mask is rebuilt at roll start (the
-  tick's `label_changed` path) and on settle (the anim's completed-cb, LVGL
-  task). Verified in the UI simulator with the `--rolltest` hook (before /
-  mid + after for BOTH directions; the settled frames are pixel-identical to
-  the resting screen apart from the changed digit).
+- **The clock digits sit in fixed-width PAIR cells, the settings screen's
+  model** (the "no wobble" + "numbers not fitting in the boxes" fix): the 96 px
+  numbers font is _proportional_ — "1" advances 37.6 px, "4" 66.1 px, the colon
+  25.1 px — so a loose per-digit slotting (the intermediate 67 px slots) left
+  each glyph centred in its own wide box and "16:16" read as scattered (the
+  2026-11-04 cheese photo). The layout now copies the time-entry screen: the HH
+  and MM pairs each live in ONE `lv_label` of the cell's FIXED width (140 px at
+  466 — the settings roller's box; the worst-case "44" pair advances 132 px
+  there / 204 px at the P4's 148 font, ≥ 4 px margin) and a CONTENT height,
+  text centred in the box — the pair reads tight like the settings screen, and
+  because the width is fixed, a digit change can never move the pair (or the
+  other pair) sideways: the row is a constant 306 px (140 + 26 + 140 at 466;
+  `UI_PX`-scaled to 472 px at 720). Each pair label tops its one-line clipping
+  cell; the cell clips the roll strip to the one-line window (see below).
+  `objects[17+1]` stays the row (the index shifted +1 when the alarm-sound
+  screen root joined `objects_t`, 2026-11-04 — the off-by-one that drew the
+  bare row instead of the centred flex widget) — the P4 unsynced-clock dim
+  still targets it with `lv_obj_set_style_opa` and the style cascades to the
+  children — and the minute tick updates only the pair(s) that changed, not the
+  whole string.
+- **The pairs ROLL** (odometer; 2026-11-04 bugreport — the "clock rollers"
+  request, and its follow-up "make it look like the settings screens", both
+  landed as the SETTINGS ROLLER'S motion: the roller scrolls the whole value as
+  one block, so here the PAIR scrolls as one block, not each digit): each pair
+  label sits in a one-line **clipping cell** (fixed width × the digits font's
+  line height — 71 px at 466 / 108 px at 720; the cell clips its child to one
+  line). When a pair changes, the label's text is swapped to a **two-line
+  strip** `old\nnew` (up) or `new\nold` (down), centred on the old pair — the
+  label is fixed-width with a CONTENT height, so the strip tops the window
+  (line 1 at translate 0, line 2 at +line_h) and the roll keeps the OLD line in
+  the window: up (the new pair enters from below) pre- translates to 0 —
+  visually identical to the resting pair, swapped in the same frame — and
+  **scrolls one line up** to −line_h; down (the new pair enters from above)
+  pre-translates to −line_h (the old line is line 2, in the window) and scrolls
+  to 0 — over 300 ms, `lv_anim` on `translate_y` with the roller's **ease-out**
+  path (fast start, gentle settle — a physical wheel): 12:35 → 12:36 rolls the
+  "35" pair UP as "36" enters from below (the unchanged "3" sits on both strip
+  lines — it does not move); 12:36 → 12:35 rolls the pair DOWN as "35" enters
+  from above. The one-line cell clips the strip, so — unlike the multi-line
+  settings roller window — no adjacent digit ever peeks into the window: at
+  rest each pair is a single line at translate 0, and the settle rewrites the
+  label to the one-line target in the same frame the animation completes (the
+  pair holds its on-screen position, no flicker). Only single-step wheel
+  changes animate: every digit that changes must move delta 1 (up) or 9 (down),
+  all in the SAME direction; a larger jump (a manual time entry, 59 → 00), a
+  mixed direction and any non-digit character hard-swap. An in-flight guard
+  retargets: a change landing mid-roll settles the pair to the latest (one line
+  at translate 0), so a label never runs two animations. The spin's UI
+  keep-mask is rebuilt at roll start (the tick's `label_changed` path) and on
+  settle (the anim's completed-cb, LVGL task). Verified in the UI simulator
+  with the `--rolltest` hook (before / mid + after for BOTH directions, both
+  panels; the settled frames are pixel-identical to the resting screen apart
+  from the changed pair) and on the P4 through the bench camera: the minute
+  ticks 17:22 → 17:25 read tight and centred at every boundary, and the
+  frame-exact 17:29 → 17:30 capture shows the pair sliding in as one block with
+  the unchanged digit in place.
 - **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
   (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
   own clock widget (five sets of HH:MM slots + alarm label) and only the

@@ -2929,23 +2929,47 @@ void tick_screen_settings_alarm_sound() {}
  * 17+2; the prefix row is internal to the widget. */
 static lv_obj_t *s_alarm_prefix;
 
-/* The shared clock widget's fixed-width HH:MM slot labels (see
- * create_user_widget_clock), per character (H H : M M). ONE set for
- * the one widget (the 2026-11-04 bugreport's "single shared widget":
- * the five moon screens used to each carry their own five labels and
- * only the active screen's set was ticked, so a wake showed the
- * pre-wake value until the next minute tick; now the one set is
- * updated at the minute tick and at every screen switch, so it is
- * always current wherever it is attached). Each slot label sits in a
- * fixed one-line CLIPPING cell (s_clock_time_cell) so the digit ROLL
- * (odometer slide, see the block above tick_user_widget_clock) scrolls
- * the label inside a one-digit window. */
-static lv_obj_t *s_clock_time_slot[5];
-static lv_obj_t *s_clock_time_cell[5];
+/* The shared clock widget's HH:MM pair labels (see
+ * create_user_widget_clock), one per digit PAIR (0 = HH, 1 = MM) --
+ * the settings time screen's model: the roller scrolls the whole
+ * value as one block inside a fixed-width box, so the pair here
+ * scrolls as one 2-line block inside its cell. ONE set for the one
+ * widget (the 2026-11-04 bugreport's "single shared widget": the five
+ * moon screens used to each carry their own labels and only the
+ * active screen's set was ticked, so a wake showed the pre-wake value
+ * until the next minute tick; now the one set is updated at the
+ * minute tick and at every screen switch, so it is always current
+ * wherever it is attached). Each pair label sits in a one-line
+ * CLIPPING cell so the PAIR ROLL (odometer slide, see the block
+ * above tick_user_widget_clock) scrolls the label inside a one-line
+ * window. */
+static lv_obj_t *s_clock_pair_label[2];
 
-/* Each slot's one-line height (the roll's translate distance + the cell
- * height), captured at creation from the digits font. ONE set. */
-static int32_t s_clock_line_h[5];
+/* Each pair's one-line height (the roll's translate distance + the
+ * cell height), captured at creation from the digits font. */
+static int32_t s_clock_line_h[2];
+
+/* One clock row cell (the HH / colon / MM box): fixed w x one line,
+ * transparent, non-scrollable, CLIPPING (the default overflow) --
+ * that clip is the one-line WINDOW the pair roll scrolls inside.
+ * No layout inside: the pair label is created at the cell origin
+ * (0,0) with a FIXED width (the cell width, the settings roller's
+ * fixed box) and a content HEIGHT (one line at rest, the 2-line
+ * strip during a roll -- the height follows the content, so the
+ * label's own clip follows the strip, and the CELL clips the strip
+ * to the one-line window). Fixed width = no horizontal re-layout
+ * ever: every text change is centred inside the same box, exactly
+ * like the settings roller (the proportional font's pair width
+ * varies, "11" 116 px vs "44" 204 px at 720, but the box does not).
+ * The roll-start comment carries the translate arithmetic. */
+static lv_obj_t *clock_row_cell(lv_obj_t *row, int32_t w, int32_t line_h) {
+    lv_obj_t *cell = lv_obj_create(row);
+    lv_obj_set_size(cell, w, line_h);
+    lv_obj_set_style_bg_opa(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    return cell;
+}
 
 /* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
@@ -2981,21 +3005,31 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
             {
                 lv_obj_t *parent_obj = obj;
                 {
-                    // label-clock-time: fixed-width HH:MM slots. The
-                    // 96 px numbers font is PROPORTIONAL ("1" advances
-                    // 37.6 px, "4" 66.1 px, the colon 25.1 px), so one
-                    // label reading HH:MM is 175.6 px wide at "11:11"
-                    // and 289.6 px at "44:44" -- the whole string hopped
-                    // sideways on every minute change. Each character
-                    // now sits in its own centred label of FIXED width
-                    // (67 px per digit -- the max digit advance; 26 px
-                    // for the colon -- its advance; UI_PX-scaled for the
-                    // P4's 148 px font, where the maxes are 101.9 / 38.7
-                    // px against the 103 / 40 px slots), so the string
-                    // is a constant 294 px (at 466) and only the ink
-                    // moves. objects[BASE+1] stays the slot row: the
-                    // tick's unsynced-dim lv_obj_set_style_opa targets
-                    // it and the style cascades to the five labels.
+                    // label-clock-time: the HH:MM row as TWO PAIR CELLS +
+                    // the COLON cell -- the settings time screen's
+                    // geometry (its roller box is 140 px, the digit pair
+                    // centred inside), and its MOTION: the roller scrolls
+                    // the whole value as one block, so each pair scrolls
+                    // as one 2-line block inside its cell (the unchanged
+                    // digit appears on both lines and does not move --
+                    // a real split-flap pair). The 96 px numbers font is
+                    // PROPORTIONAL ("1" advances 37.6 px, "4" 66.1 px at
+                    // 466), so the earlier per-digit 67 px slots left
+                    // each glyph centred in its own wide box -- "16:16"
+                    // read as scattered, "the numbers are not fitting
+                    // in the boxes" (the 2026-11-04 cheese photo).
+                    // Each pair cell (140 px -- the settings roller's
+                    // box; the worst-case "44" pair advances 132 px at
+                    // 466 / 204 px at the 148 font, >= 4 px margin)
+                    // holds ONE label at the cell's FIXED width and a
+                    // content height, text centred in the box: the pair
+                    // reads tight like the settings screen, and because
+                    // the width is fixed a digit change can never move
+                    // the pair (or the other pair) sideways. The row's
+                    // total width is constant (140 + 26 + 140 px at
+                    // 466). objects[BASE+1] stays the row: the tick's
+                    // unsynced-dim lv_obj_set_style_opa targets it and
+                    // the style cascades to the children.
                     lv_obj_t *obj = lv_obj_create(parent_obj);
                     ((lv_obj_t **)&objects)[startWidgetIndex + 1] = obj;
                     lv_obj_set_pos(obj, 0, 0);
@@ -3011,49 +3045,40 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    for (int i = 0; i < 5; i++) {
-                        int32_t w = i == 2 ? UI_PX(26) : UI_PX(67);
-                        /* The digit LABEL (created first: its font line
-                         * height sizes the cell and the roll distance). A
-                         * fixed-width centred glyph that the cell CLIPS to
-                         * one line. At rest it is a single line (the current
-                         * digit); the roll swaps it to a three-line digit
-                         * strip (old-1, old, old+1 on the wheel) centred on
-                         * the old digit and scrolls it one line in the
-                         * direction of change, the settings roller's motion
-                         * (see the roll block above
-                         * tick_user_widget_clock). */
-                        lv_obj_t *slot = lv_label_create(obj);
-                        s_clock_time_slot[(size_t)i] = slot;
-                        lv_obj_set_size(slot, w, LV_SIZE_CONTENT);
-                        lv_obj_set_style_text_align(slot, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                        add_style_label_bold(slot);
+                    {
                         /* The one-line height of the digits font = the cell
-                         * height = the roll's translate distance. */
-                        s_clock_line_h[(size_t)i] =
-                            lv_font_get_line_height(lv_obj_get_style_text_font(slot, LV_PART_MAIN));
-                        /* The CLIPPING CELL wrapping the label: fixed W x
-                         * one-line, so the roll scrolls the label inside a
-                         * one-digit window -- 12:35 -> 12:36 rolls the "5" up
-                         * into "6" (odometer). Default overflow = children
-                         * clipped to the cell. */
-                        lv_obj_t *cell = lv_obj_create(obj);
-                        s_clock_time_cell[(size_t)i] = cell;
-                        lv_obj_set_size(cell, w, s_clock_line_h[(size_t)i]);
-                        lv_obj_set_style_bg_opa(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-                        lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
-                        lv_obj_clear_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-                        /* Move the label into the cell, pinned to the cell's
-                         * TOP: at rest the one-line digit sits in the
-                         * window at translate 0; the roll swaps it to the
-                         * three-line strip and pre-translates it so the
-                         * strip's MIDDLE line (the old digit) is in the
-                         * window (see the roll block above
-                         * tick_user_widget_clock). */
-                        lv_obj_set_parent(slot, cell);
-                        lv_obj_set_pos(slot, 0, 0);
-                        lv_label_set_text(slot, "");
+                         * height = the pair roll's translate distance. */
+                        int32_t line_h = lv_font_get_line_height(&ui_font_montserrat_bold_96_numbers);
+                        /* The three row cells: the HH pair, the colon, the
+                         * MM pair (child order = left to right). Each PAIR
+                         * cell holds its ONE pair label (fixed width = the
+                         * cell width -- the settings roller's fixed box --
+                         * content height, text centred): at rest a single
+                         * line; during a roll the 2-line old/new strip,
+                         * scrolled one line in the direction of change (the
+                         * settings roller's motion, see the roll block
+                         * above tick_user_widget_clock). The cell CLIPS the
+                         * strip to the one-line window (default overflow).
+                         * The colon cell holds its plain label the same way. */
+                        lv_obj_t *cell_hh = clock_row_cell(obj, UI_PX(140), line_h);
+                        lv_obj_t *cell_colon = clock_row_cell(obj, UI_PX(26), line_h);
+                        lv_obj_t *cell_mm = clock_row_cell(obj, UI_PX(140), line_h);
+                        s_clock_pair_label[0] = lv_label_create(cell_hh);
+                        s_clock_pair_label[1] = lv_label_create(cell_mm);
+                        lv_obj_t *label_colon = lv_label_create(cell_colon);
+                        for (int i = 0; i < 2; i++) {
+                            lv_obj_t *label = s_clock_pair_label[(size_t)i];
+                            lv_obj_set_size(label, UI_PX(140), LV_SIZE_CONTENT);
+                            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                            add_style_label_bold(label);
+                            s_clock_line_h[(size_t)i] =
+                                lv_font_get_line_height(lv_obj_get_style_text_font(label, LV_PART_MAIN));
+                            lv_label_set_text(label, "");
+                        }
+                        lv_obj_set_size(label_colon, UI_PX(26), LV_SIZE_CONTENT);
+                        lv_obj_set_style_text_align(label_colon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        add_style_label_bold(label_colon);
+                        lv_label_set_text(label_colon, ":");
                     }
                 }
                 {
@@ -3141,53 +3166,65 @@ static bool tick_alarm_prefix(lv_obj_t *row) {
 static bool s_clock_unsynced_dim;
 #endif
 
-/* ---- HH:MM digit ROLL (odometer) -- 2026-11-04 bugreport, item 6 ----
+/* ---- HH:MM PAIR ROLL (odometer) -- 2026-11-04 bugreport, item 6 ----
  *
- * The minute tick no longer hard-swaps each digit's character: the slot
- * label (which sits in a one-line clipping cell, see
- * create_user_widget_clock) is swapped to a THREE-LINE digit strip
- * (mid-1, mid, mid+1 on the mod-10 wheel -- 9 wraps to 0) centred on the
- * digit currently in the window, and SCROLLED one line in the direction
- * of change, the settings roller's motion (the user preferred it over the
- * earlier always-up 2-line slide): 12:35 -> 12:36 rolls the "5" UP out of
- * the window as the "6" enters from below; 12:36 -> 12:35 rolls the "6"
- * DOWN as the "5" enters from above. The scroll uses the roller's
- * ease-out path (fast start, gentle settle -- a physical wheel, not a
- * ramp). The one-line CELL clips the strip, so -- unlike the multi-line
- * settings roller window -- no adjacent digit ever peeks into the
- * window: at rest each slot shows exactly one digit.
+ * The minute tick no longer hard-swaps the time: each digit PAIR (the
+ * HH and MM pair labels, one per pair cell -- see
+ * create_user_widget_clock) is swapped to a TWO-LINE strip (old pair
+ * over new pair) and SCROLLED one line in the direction of change --
+ * the SETTINGS ROLLER's motion, the user's reference ("peak into the
+ * settings screens how the clock is done there"): the roller scrolls
+ * the whole value as one block, so 12:35 -> 12:36 rolls the MM pair
+ * UP out of its window as "36" enters from below (the unchanged "3"
+ * sits on both lines -- it does not move), and 12:36 -> 12:35 rolls
+ * the pair DOWN as "35" enters from above. The scroll uses the
+ * roller's ease-out path (fast start, gentle settle -- a physical
+ * wheel, not a ramp). The one-line CELL clips the strip, so no
+ * adjacent digit ever peeks into the window: at rest each pair shows
+ * exactly its two digits, tight and centred in its fixed box -- and
+ * the fixed box width means a digit change can never move the pair
+ * sideways (the proportional font's pair width varies, "11" 78 px vs
+ * "44" 132 px at 466).
  *
- * Geometry: the strip sits pinned to the cell top at translate
- * -line_height (its middle line = mid in the window; visually identical
- * to the resting one-line mid, swapped in the same frame). The up roll
- * animates to -2*line_height (line 3, mid+1, enters), the down roll to
- * 0 (line 1, mid-1, enters). The settle rewrites the label to the
- * one-line target at translate 0 in the same frame the animation
- * completes (LVGL renders after the timer handler) -- the target digit
- * holds its on-screen position, no flicker.
+ * Geometry: the label sits at the cell origin with a fixed width and
+ * a CONTENT height, so the strip is top-aligned in the one-line
+ * window (cell 0..line_h): line 1 at translate 0, line 2 at
+ * +line_height (below the window). The roll keeps the OLD line in the
+ * window: up (new pair enters from below) = old over new, the old
+ * line is line 1 -- pre-translated to 0 (visually identical to the
+ * resting pair, swapped in the same frame) and animated to
+ * -line_height; down (new pair enters from above) = new over old,
+ * the old line is line 2 -- in the window only at -line_height, so
+ * pre-translated there and animated to 0. The settle rewrites the
+ * label to the one-line target at translate 0 in the same frame the
+ * animation completes (LVGL renders after the timer handler) -- the
+ * target holds its on-screen position, no flicker.
  *
- * Only single-step changes (delta 1 or 9 on the wheel) animate; a larger
- * jump (a manual time entry far from the current minute) and any
- * non-digit character hard-swap instead.
+ * Only single-step wheel changes animate: every digit that changes
+ * must move delta 1 (up) or 9 (down), all in the SAME direction
+ * (12:35 -> 12:36: the "5" alone changes, delta 1 -> up). A larger
+ * jump (a manual time entry far from the current minute, 59 -> 00)
+ * and any non-digit character hard-swap instead.
  *
- * In-flight guard: a screen-switch attach can re-run the tick mid-roll.
- * If it is converging on the LATEST character it is left to finish; if a
- * NEWER character arrived, the roll is dropped (the label settles to the
- * latest at translate 0) and no second animation starts. The spin's UI
- * keep-mask is rebuilt when the pixels change (roll start via the tick's
- * label_changed, and settle, in the animation timer). */
-#define CLOCK_ROLL_MS 300 /* one digit's roll time (the roller's default) */
+ * In-flight guard: a screen-switch attach can re-run the tick
+ * mid-roll. If it is converging on the LATEST pair it is left to
+ * finish; if a NEWER pair arrived, the roll is dropped (the label
+ * settles to the latest at translate 0) and no second animation
+ * starts. The spin's UI keep-mask is rebuilt when the pixels change
+ * (roll start via the tick's label_changed, and settle, in the
+ * animation timer). */
+#define CLOCK_ROLL_MS 300 /* one pair's roll time (the roller's default) */
 
-/* Per-slot in-flight flag + the character the slot is rolling toward.
+/* Per-pair in-flight flag + the pair the label is rolling toward.
  * ONE set for the one widget. */
-static int s_clock_rolling[5];
-static char s_clock_roll_target[5];
+static int s_clock_rolling[2];
+static char s_clock_roll_target[2][3]; /* "NN" + NUL */
 
 static void clock_roll_done(lv_anim_t *a);
 
-static int clock_slot_index(lv_obj_t *slot) {
-    for (int i = 0; i < 5; i++) {
-        if (s_clock_time_slot[(size_t)i] == slot)
+static int clock_pair_index(lv_obj_t *label) {
+    for (int i = 0; i < 2; i++) {
+        if (s_clock_pair_label[(size_t)i] == label)
             return i;
     }
     return -1;
@@ -3197,23 +3234,21 @@ static void clock_roll_exec(void *obj, int32_t y) {
     lv_obj_set_style_translate_y((lv_obj_t *)obj, y, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
-/* The roll finished (LVGL task, from the animation timer). The slot is
- * at the strip's end translate (-2*line_height for an up roll, 0 for a
- * down roll) with the new digit in the window: settle to the resting
- * state -- single line (the rolled-in digit) at translate 0. Both
- * changes land in the same frame (LVGL renders after the timer handler
- * returns), so the digit holds its on-screen position -- no flicker.
- * Rebuild the spin's UI keep-mask (the settled digit's pixels are
- * authoritative now). */
+/* The roll finished (LVGL task, from the animation timer). The pair
+ * label is at the strip's end translate with the NEW pair in the
+ * window: settle to the resting state -- one line (the rolled-in pair)
+ * at translate 0. Both changes land in the same frame (LVGL renders
+ * after the timer handler returns), so the pair holds its on-screen
+ * position -- no flicker. Rebuild the spin's UI keep-mask (the
+ * settled pair's pixels are authoritative now). */
 static void clock_roll_done(lv_anim_t *a) {
-    lv_obj_t *slot = (lv_obj_t *)a->var;
-    int i = clock_slot_index(slot);
+    lv_obj_t *label = (lv_obj_t *)a->var;
+    int i = clock_pair_index(label);
     if (i < 0)
         return;
-    lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    char buf[2] = {s_clock_roll_target[i], 0};
-    tick_value_change_obj = slot;
-    lv_label_set_text(slot, buf);
+    lv_obj_set_style_translate_y(label, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    tick_value_change_obj = label;
+    lv_label_set_text(label, s_clock_roll_target[(size_t)i]);
     tick_value_change_obj = NULL;
     s_clock_rolling[i] = 0;
     moon_ui_rebuild_ui_mask();
@@ -3235,86 +3270,112 @@ void tick_user_widget_clock(int startWidgetIndex) {
     }
 #endif
     {
-        /* The HH:MM slot row (objects[17+1] = objects[startWidgetIndex+1],
-         * the shared set): each character that changes ROLLS (odometer
-         * slide, see the block above), not a hard swap. */
+        /* The HH:MM row (objects[17+1], the shared set): each digit
+         * PAIR that changes ROLLS (odometer slide, the settings
+         * roller's motion, see the block above), not a hard swap. */
         const char *new_val = get_var_clock_label();
-        for (int i = 0; i < 5; i++) {
-            lv_obj_t *slot = s_clock_time_slot[(size_t)i];
-            char old = lv_label_get_text(slot)[0];
-            if (old == new_val[i])
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *label = s_clock_pair_label[(size_t)i];
+            /* new_val is "HH:MM": the HH pair at 0,1, the MM pair at
+             * 3,4 (index 2 is the colon). */
+            int a = i == 0 ? 0 : 3;
+            char new_pair[3] = {new_val[a], new_val[a + 1], 0};
+            if (s_clock_rolling[i]) {
+                if (strcmp(s_clock_roll_target[(size_t)i], new_pair) == 0)
+                    continue; /* a roll toward the LATEST pair is in
+                               * flight: let it finish (its settle
+                               * rewrites the label) */
+                /* A NEWER pair arrived mid-roll: settle the label to
+                 * the latest (one line at translate 0) -- no second
+                 * animation on one label. */
+                lv_anim_delete(label, clock_roll_exec);
+                lv_obj_set_style_translate_y(label, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                s_clock_rolling[i] = 0;
+                tick_value_change_obj = label;
+                lv_label_set_text(label, new_pair);
+                tick_value_change_obj = NULL;
+                label_changed = true;
                 continue;
-            if (old == 0) {
-                /* A slot that has never shown a digit (the first attach):
-                 * there is no old digit to roll out -- hard-set the new
+            }
+            const char *old = lv_label_get_text(label);
+            if (old[0] == 0) {
+                /* A pair that has never shown digits (the first tick):
+                 * there is no old pair to roll out -- hard-set the new
                  * one (rolling "from" empty would build a strip the
                  * first line of which reads as empty: a blank flash). */
-                char buf[2] = {new_val[i], 0};
-                tick_value_change_obj = slot;
-                lv_label_set_text(slot, buf);
+                tick_value_change_obj = label;
+                lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
                 label_changed = true;
                 continue;
             }
-            if (s_clock_rolling[i] && s_clock_roll_target[i] == new_val[i])
-                continue; /* a roll toward the LATEST character is in
-                           * flight: let it finish (its settle rewrites
-                           * the slot to that character) */
-            if (s_clock_rolling[i]) {
-                /* A NEWER character arrived mid-roll: settle the slot to
-                 * the latest (one line at translate 0) -- no second
-                 * animation on one slot. */
-                lv_anim_delete(slot, clock_roll_exec);
-                lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-                s_clock_rolling[i] = 0;
-                char buf[2] = {new_val[i], 0};
-                tick_value_change_obj = slot;
-                lv_label_set_text(slot, buf);
+            if (old[0] == new_pair[0] && old[1] == new_pair[1])
+                continue;
+            /* The wheel delta on the mod-10 digit circles: every
+             * CHANGED digit must move delta 1 (up, new below the old)
+             * or delta 9 (down, new above), all in the SAME direction
+             * -- 12:35 -> 12:36: the "3" is unchanged, the "5" moves
+             * delta 1, so the pair rolls UP. Anything else (a larger
+             * jump, e.g. a manual time entry far from the current
+             * minute, or a mixed direction) hard-swaps. */
+            int dir = 0;
+            for (int j = 0; j < 2; j++) {
+                if (old[j] < '0' || old[j] > '9' || new_pair[j] < '0' || new_pair[j] > '9') {
+                    dir = -1;
+                    break;
+                }
+                if (old[j] == new_pair[j])
+                    continue;
+                int d = (new_pair[j] - old[j] + 10) % 10;
+                if (d != 1 && d != 9) {
+                    dir = -1;
+                    break;
+                }
+                if (dir == 0)
+                    dir = d;
+                else if (dir != d) {
+                    dir = -1;
+                    break;
+                }
+            }
+            if (dir < 0) {
+                tick_value_change_obj = label;
+                lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
                 label_changed = true;
                 continue;
             }
-            /* Idle: start the roll. The wheel delta on the mod-10 digit
-             * circle: 1 = the new digit is BELOW the old (roll up), 9 =
-             * ABOVE (roll down); anything else (a large jump, e.g. a
-             * manual time entry) and any non-digit hard-swap. */
-            if (old < '0' || old > '9' || new_val[i] < '0' || new_val[i] > '9') {
-                char buf[2] = {new_val[i], 0};
-                tick_value_change_obj = slot;
-                lv_label_set_text(slot, buf);
-                tick_value_change_obj = NULL;
-                label_changed = true;
-                continue;
-            }
-            int delta = (new_val[i] - old + 10) % 10;
-            if (delta != 1 && delta != 9) {
-                char buf[2] = {new_val[i], 0};
-                tick_value_change_obj = slot;
-                lv_label_set_text(slot, buf);
-                tick_value_change_obj = NULL;
-                label_changed = true;
-                continue;
-            }
-            /* Build the three-line strip (old-1, old, old+1 on the wheel;
-             * 9 wraps to 0) centred on old: at translate -line_height its
-             * middle line (old) is in the window -- visually identical to
-             * the resting one-line old, swapped in this same frame -- and
-             * the new digit sits one line below (delta 1) or above
-             * (delta 9). Animate one line in the direction of change with
-             * the roller's ease-out path. */
-            char lo = old == '0' ? '9' : (char)(old - 1);
-            char hi = old == '9' ? '0' : (char)(old + 1);
-            char strip[6] = {lo, '\n', old, '\n', hi, 0};
-            tick_value_change_obj = slot;
-            lv_label_set_text(slot, strip);
-            lv_obj_set_style_translate_y(slot, -s_clock_line_h[(size_t)i], LV_PART_MAIN | LV_STATE_DEFAULT);
+            /* Build the two-line strip centred on the old pair. The
+             * label tops the cell (line 1 at translate 0, line 2 at
+             * +line_height inside the 1-line window at cell 0..line_h):
+             * UP (dir 1) = old over new -- the old line (line 1) is in
+             * the window at translate 0 (visually identical to the
+             * resting pair, swapped in this same frame), animated to
+             * -line_height as the new line (line 2) enters from below;
+             * DOWN (dir 9) = new over old -- the old line is line 2,
+             * in the window only at translate -line_height (at +0 or
+             * +line_height it sits below the window: a blank flash),
+             * so pre-translate to -line_height and animate to 0 as the
+             * new line (line 1) enters from above. The roller's
+             * ease-out path. */
+            char strip[6];
+            if (dir == 1)
+                snprintf(strip, sizeof strip, "%s\n%s", old, new_pair);
+            else
+                snprintf(strip, sizeof strip, "%s\n%s", new_pair, old);
+            int32_t lh = s_clock_line_h[(size_t)i];
+            int32_t from = dir == 1 ? 0 : -lh;
+            int32_t to = dir == 1 ? -lh : 0;
+            tick_value_change_obj = label;
+            lv_label_set_text(label, strip);
+            lv_obj_set_style_translate_y(label, from, LV_PART_MAIN | LV_STATE_DEFAULT);
             tick_value_change_obj = NULL;
-            s_clock_roll_target[i] = new_val[i];
             s_clock_rolling[i] = 1;
+            strcpy(s_clock_roll_target[(size_t)i], new_pair);
             lv_anim_t anim;
             lv_anim_init(&anim);
-            lv_anim_set_var(&anim, slot);
-            lv_anim_set_values(&anim, -s_clock_line_h[(size_t)i], delta == 1 ? -2 * s_clock_line_h[(size_t)i] : 0);
+            lv_anim_set_var(&anim, label);
+            lv_anim_set_values(&anim, from, to);
             lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
             lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
             lv_anim_set_exec_cb(&anim, clock_roll_exec);

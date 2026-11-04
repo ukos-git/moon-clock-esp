@@ -366,12 +366,14 @@ int main(int argc, char **argv) {
         return rc;
     }
 
-    /* --rolltest: verify the HH:MM digit ROLL (odometer). Load the home
-     * screen (the shared clock widget shows 12:35 from the stub), then
-     * change the minute to 12:36 through the REAL var + tick path and
-     * capture: the "5" minute digit should roll UP into "6" (the old
-     * "5" exits the top of its window as the "6" enters from the bottom).
-     * Three frames: settled before, mid-roll (~150 ms), settled after. */
+    /* --rolltest: verify the HH:MM PAIR ROLL (odometer, the settings
+     * roller's motion). Load the home screen (the shared clock widget
+     * shows 12:35 from the stub), then change the minute to 12:36
+     * through the REAL var + tick path and capture: the MM pair should
+     * roll UP (the old "35" exits the top of its one-line window as
+     * "36" enters from the bottom, as one block), then back DOWN.
+     * Five frames: settled before, up mid-roll (~150 ms), up settled,
+     * down mid-roll, down settled. */
     if (argc > 1 && !strcmp(argv[1], "--rolltest")) {
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
