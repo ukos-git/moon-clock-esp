@@ -49,6 +49,19 @@ extern void action_switch_to_light_sleep_screen(lv_event_t *e);
  * (LVGL task context). */
 void action_roll_test_cb(lv_timer_t *timer);
 
+/* Demo mode (UI_DEMO_MODE): MM:SS clock + the five moon screens on a fixed
+ * rotation, until the next reset. True while the demo owns the display
+ * (guards the clock label's HH:MM writes, the hourly sync, and the
+ * sync-complete hand-off). action_clock_widget_label writes the widget's
+ * label from the wall-clock digits in the mode's format (HH:MM, or MM:SS
+ * in the demo) so no write point fights the demo. ui_demo_second_cb is the
+ * 1 s LVGL timer callback (created in main.cpp only when the mode is on). */
+bool action_demo_active(void);
+void action_clock_widget_label(int hour, int minute, int second);
+#if CONFIG_UI_DEMO_MODE
+void ui_demo_second_cb(lv_timer_t *timer);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

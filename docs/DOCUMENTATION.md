@@ -440,7 +440,14 @@ both boards carry the ES8311 + speaker amp): P4 **1,596,624 B** (`0x185cd0`,
 `moon_event.c` classifier + the per-event tint LUTs + the per-pixel eclipse
 occlusion + the day-tick signature re-bake): P4 **1,605,856 B** (`0x1880e0`,
 +9,232 B), S3 **1,525,184 B** (`0x1745c0`, +5,168 B; both ~30 % under the 2048
-K factory).
+K factory); after the **clock-widget off-by-one fix + hub ring radius + demo
+mode** (2026-11-04 — the `objects_t` +1 shift restored the centred flex clock
+widget; the hub ring `UI_PX(117)` → `UI_PX(140)`, §7.6; the new
+`CONFIG_UI_DEMO_MODE` demo build — MM:SS clock + the five moon screens on a 15
+s rotation, §7.18 — compiles in as +640 B on the P4 but is off in the
+production defaults): P4 **1,605,856 B** (`0x1880e0`, unchanged — the demo code
+is compiled out; the demo _variant_ is **1,606,496 B** `0x188340`), S3
+**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -1178,20 +1185,25 @@ what each control changes live.
   glyph is the button, no ring chrome; 150 px tap box) → back to the **home
   (airplane) screen**, no sync kicked off.
 - **Icon ring, equal-arc** (2026-11-01; 6/7 icons since the 2026-11-04
-  bugreport): the entries sit on a circle of radius `UI_PX(117)` at **equal
+  bugreport): the entries sit on a circle of radius `UI_PX(140)` at **equal
   360/n arc distances** — 6 icons (60°) on the S3, 7 icons (~51.4°) on the P4 —
-  with deep sleep pinned at 6 o'clock (the bottom). Clock positions: **S3** —
-  top-left globe (U+F0AC, solid; the timezone / UTC offset picker, §7.16),
-  top-right alarm (alarm-clock, regular), mid-right light sleep (moon,
-  regular), bottom deep sleep (moon, solid — the weight distinguishes the two
-  moons), mid-left WiFi (wifi, solid), and (the 2026-11-04 addition) the
-  **speaker** (U+F028, solid; the alarm-sound picker, §7.17). **P4** — the same
-  six plus a sixth icon at 12 o'clock: clock (regular, U+F017, the glyph the FA
-  regular set regenerated for it, §2.3b) opening the manual time entry (§7.15;
-  the S3 has no clock icon — its time comes from the PCF85063A). The globe and
-  speaker glyphs were added to both boards' FA solid subsets (regenerated with
-  U+F0AC = 61612 — the earlier regen used 61516 = U+F04C "pause" by mistake, so
-  the hub showed a missing-glyph box — and U+F028 = 61480 for the speaker).
+  with deep sleep pinned at 6 o'clock (the bottom). The radius moved up from
+  `UI_PX(117)` with the 2026-11-04 "stacked icons" report: at 117 the icons
+  huddled against the 96/148 px central exit disk while ~68 px of free margin
+  sat outside them, up to the panel edge; 140 balances the inner gap (R − 96 =
+  44 px at 466) against the outer margin (185 px panel radius − R = 45 px) —
+  68/70 at 720. Clock positions: **S3** — top-left globe (U+F0AC, solid; the
+  timezone / UTC offset picker, §7.16), top-right alarm (alarm-clock, regular),
+  mid-right light sleep (moon, regular), bottom deep sleep (moon, solid — the
+  weight distinguishes the two moons), mid-left WiFi (wifi, solid), and (the
+  2026-11-04 addition) the **speaker** (U+F028, solid; the alarm-sound picker,
+  §7.17). **P4** — the same six plus a sixth icon at 12 o'clock: clock
+  (regular, U+F017, the glyph the FA regular set regenerated for it, §2.3b)
+  opening the manual time entry (§7.15; the S3 has no clock icon — its time
+  comes from the PCF85063A). The globe and speaker glyphs were added to both
+  boards' FA solid subsets (regenerated with U+F0AC = 61612 — the earlier regen
+  used 61516 = U+F04C "pause" by mistake, so the hub showed a missing-glyph box
+  — and U+F028 = 61480 for the speaker).
 - Grey = present/available, white = selected; the sub-screens' bottom-centre
   exit is the same glyph at 96 px and returns to the **calling level** (the
   hub, or the alarm screen for its two sub-screens). The exit is a plain
@@ -1666,6 +1678,34 @@ screenshots and prose are the earlier revision of §7.13 in git history).
   (no ES8311) leaves the picker working: the selection is remembered and the
   ring stays display-only.
 - **Settings displayed:** the selected alarm sound, 0..3.
+
+### 7.18 Demo mode (both boards, off by default)
+
+- **Why it exists:** for product demos (and the camera recording of clock
+  changes) the HH:MM clock reads "static" for a whole minute.
+  `CONFIG_UI_DEMO_MODE` (default **n**) swaps the shared clock widget to
+  **MM:SS** (the seconds roll over like the odometer every second) and cycles
+  the five moon screens on a fixed rotation.
+- **The rotation** (`components/ui/actions.c`, one 1000 ms `lv_timer` wired in
+  `main.cpp` next to the test hooks): after the boot sweep finishes
+  (`moon_ui_sweeping()` gate), the timer writes the MM:SS label and ticks the
+  widget, and every `CONFIG_UI_DEMO_SCREEN_SEC` seconds (default **15**, range
+  5-600) advances to the next screen in the fixed order modem sleep → wifi →
+  light sleep → deep sleep → alarm (→ wrap).
+- **Isolation:** arming the demo disables the idle timer
+  (`clock_idle_set_enabled(false)`), the demo's per-second tick keeps the idle
+  watch clear (`clock_idle_reset_timer()`, LOGD — silent), the hourly sync is
+  skipped while the demo is active (`action_demo_active()` in the sync
+  condition), and the sync-complete hand-off is held (`!action_demo_active()`
+  guard — the flag is left unclaimed, the demo owns the display). The demo runs
+  until the next reset — there is no exit path by design (it is a demo build,
+  not a runtime state).
+- **The format rule:** `action_clock_widget_label(h, m, s)` is the single place
+  the widget label is written from wall-clock digits — HH:MM normally, MM:SS in
+  the demo — so the minute tick and the screen attach (`ui_clock_attach_to`)
+  cannot fight the demo's seconds label.
+- **Demo build:** `CONFIG_UI_DEMO_MODE=y` adds 640 B on the P4 (1,606,496 B,
+  `0x188340`); the production defaults leave it off (1,605,856 B, `0x1880e0`).
 
 ---
 
@@ -2259,6 +2299,8 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 | `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                                                                                                                                                               |
 | `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                                                                                                                                                 |
 | `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                                                                                                                                                           |
+| `CONFIG_UI_DEMO_MODE`                                                         | n               | the demo build (§7.18): the clock widget shows MM:SS and the five moon screens rotate on a fixed order until the next reset; `n` leaves the macro UNDEFINED — the `#ifndef` seed in `actions.c`/`main.cpp` is 0; the demo disables the idle timer and skips the hourly sync                                                         |
+| `CONFIG_UI_DEMO_SCREEN_SEC`                                                   | 15              | demo mode: seconds per screen in the rotation (range 5-600)                                                                                                                                                                                                                                                                         |
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 
@@ -2419,7 +2461,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (183,896 B)
+- `docs/doc_template.md` (187,558 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -2450,7 +2492,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/img/screens/p4/settings_alarm_sound.png` (29,577 B)
 - `docs/img/screens/p4/settings_alarm_time.png` (34,158 B)
 - `docs/img/screens/p4/settings_deep_sleep.png` (24,506 B)
-- `docs/img/screens/p4/settings_hub.png` (43,031 B)
+- `docs/img/screens/p4/settings_hub.png` (43,871 B)
 - `docs/img/screens/p4/settings_light_sleep.png` (23,302 B)
 - `docs/img/screens/p4/settings_pomodoro.png` (25,247 B)
 - `docs/img/screens/p4/settings_time.png` (30,167 B)
@@ -2466,7 +2508,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/img/screens/settings_alarm_sound.png` (15,139 B)
 - `docs/img/screens/settings_alarm_time.png` (18,050 B)
 - `docs/img/screens/settings_deep_sleep.png` (12,166 B)
-- `docs/img/screens/settings_hub.png` (22,974 B)
+- `docs/img/screens/settings_hub.png` (22,596 B)
 - `docs/img/screens/settings_light_sleep.png` (11,285 B)
 - `docs/img/screens/settings_pomodoro.png` (12,588 B)
 - `docs/img/screens/settings_time.png` (14,679 B)
@@ -15980,7 +16022,11 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     // outcomes (success AND failure) must leave the transient WiFi
     // screen. Only while awake: if the device re-slept during the
     // handshake, drop the hand-off and let the next wake re-trigger it.
-    if (!s_wifi_sync_running && s_wifi_sync_done) {
+    /* The demo mode (UI_DEMO_MODE) runs until the next reset: a sync
+     * completing under it (a boot sync that outlived the sweep) must
+     * not hand the display off to the airplane screen mid-recording.
+     * The flag is left unclaimed -- the demo owns the display. */
+    if (!s_wifi_sync_running && s_wifi_sync_done && !action_demo_active()) {
         s_wifi_sync_done = false;
         if (!clock_is_idle()) {
             if (ui_current_screen() == SCREEN_ID_WIFI) {
@@ -16073,6 +16119,101 @@ static lv_timer_t *g_seconds_timer = NULL;
  * clock display: called from the minute tick too). */
 static void refresh_alarm_display(const clock_time_t *now);
 
+/* ---- demo mode (UI_DEMO_MODE): MM:SS clock + the moon screens on a
+ * fixed rotation ---------------------------------------------
+ *
+ * A showcase mode for the clock's motion: the shared clock widget shows
+ * MM:SS (the seconds roll through the per-digit odometer every second)
+ * instead of HH:MM, and the five moon screens rotate every
+ * UI_DEMO_SCREEN_SEC seconds. The demo runs until the next reset: it
+ * holds the idle timer (every demo second is activity), skips the hourly
+ * on-demand WiFi sync, and ignores the sync-complete hand-off, so a
+ * recording run is never cut by a sleep transition or a radio wake.
+ * One 1000 ms lv_timer (LVGL task, wired in main.cpp next to the test
+ * hooks) drives it; the callback arms itself the moment the boot sweep
+ * is done (a screen switch mid-sweep is guarded off, the same gate as
+ * the test hooks). Off by default (production builds).
+ */
+#ifndef CONFIG_UI_DEMO_MODE
+#define CONFIG_UI_DEMO_MODE 0
+#endif
+#ifndef CONFIG_UI_DEMO_SCREEN_SEC
+#define CONFIG_UI_DEMO_SCREEN_SEC 15
+#endif
+
+#if CONFIG_UI_DEMO_MODE
+/* The rotation order: the five moon screens (the settings screens show
+ * no moon, and the demo is the moon's showcase). */
+static const enum ScreensEnum s_demo_order[] = {SCREEN_ID_MODEM_SLEEP, SCREEN_ID_WIFI,
+                                                SCREEN_ID_LIGHT_SLEEP, SCREEN_ID_DEEP_SLEEP,
+                                                SCREEN_ID_ALARM};
+static bool s_demo_armed = false;
+static size_t s_demo_index = 0;
+static uint32_t s_demo_seconds = 0;
+#endif
+
+/* True while the demo is running (the clock label's MM:SS/HH:MM guard:
+ * the minute tick and the screen-switch attach write through
+ * action_clock_widget_label, which follows this at every write point). */
+bool action_demo_active(void) {
+#if CONFIG_UI_DEMO_MODE
+    return s_demo_armed;
+#else
+    return false;
+#endif
+}
+
+/* Refresh the shared clock widget's label from the wall-clock digits:
+ * HH:MM normally, MM:SS in the demo mode. The minute tick, the
+ * screen-switch attach and the demo's per-second tick all go through
+ * this, so the format follows the mode at every write point (no
+ * HH:MM write can fight the demo's MM:SS). */
+void action_clock_widget_label(int hour, int minute, int second) {
+    char s[8];
+    if (action_demo_active())
+        snprintf(s, sizeof(s), "%02d:%02d", minute, second);
+    else
+        snprintf(s, sizeof(s), "%02d:%02d", hour, minute);
+    set_var_clock_label(s);
+}
+
+#if CONFIG_UI_DEMO_MODE
+/* One demo second (LVGL task; created as a 1000 ms lv_timer in
+ * main.cpp). */
+void ui_demo_second_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (!s_demo_armed) {
+        if (moon_ui_sweeping())
+            return; /* hold until the boot sweep is done */
+        s_demo_armed = true;
+        s_demo_index = 0;
+        s_demo_seconds = 0;
+        /* The demo runs until the next reset: keep the sleep transitions
+         * out of the recording (the per-second clock_idle_reset_timer
+         * below is belt and braces -- the orientation-step re-enable
+         * cannot expire a timer that is reset every second). */
+        clock_idle_set_enabled(false);
+        ESP_LOGI(TAG, "Demo mode: MM:SS clock + the %u moon screens rotate every %d s",
+                 (unsigned)(sizeof(s_demo_order) / sizeof(s_demo_order[0])), CONFIG_UI_DEMO_SCREEN_SEC);
+    }
+    /* MM:SS (the minute tick and the attach are guarded, so nothing
+     * fights it) + roll the changed slot(s) through the odometer. */
+    clock_time_t now;
+    if (clock_get_time(&now) == ESP_OK)
+        action_clock_widget_label(now.hour, now.minute, now.second);
+    tick_user_widget_clock(17);
+    /* Rotate the moon screens. */
+    if (++s_demo_seconds >= (uint32_t)CONFIG_UI_DEMO_SCREEN_SEC) {
+        s_demo_seconds = 0;
+        s_demo_index = (s_demo_index + 1) % (sizeof(s_demo_order) / sizeof(s_demo_order[0]));
+        loadScreen(s_demo_order[s_demo_index]);
+        ui_tick();
+    }
+    /* The demo is activity: hold the idle timer. */
+    clock_idle_reset_timer();
+}
+#endif
+
 /**
  * @brief Update the clock display with current time from RTC
  */
@@ -16093,24 +16234,26 @@ void action_update_clock_display(lv_event_t *e) {
      * 30 s radio wake for an NTP fetch is a net power loss -- the next
      * wake re-syncs), no interference with the boot sweep, no yanking
      * a settings session away. */
-    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !s_wifi_sync_running && !moon_ui_sweeping() &&
-        !wifi_manager_is_connected() && clock_sntp_needs_sync() && ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
+    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() && !s_wifi_sync_running &&
+        !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
+        ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
         ESP_LOGI(TAG, "Hourly sync due at the top of the minute; activating WiFi");
         action_start_wifi_sync();
         return;
     }
 
     if (ret == ESP_OK) {
-        char time_str[16];
-        snprintf(time_str, sizeof(time_str), "%02d:%02d", current_time.hour, current_time.minute);
-
-        set_var_clock_label(time_str);
+        /* HH:MM -- or MM:SS while the demo runs (action_clock_widget_label
+         * picks the format from the mode; the demo's per-second tick owns
+         * the label then, but writing the same value is a no-op for the
+         * slot row). The seconds var feeds the arc (both formats share it
+         * via the widget's format, not the var). */
+        action_clock_widget_label(current_time.hour, current_time.minute, current_time.second);
         set_var_clock_seconds(current_time.second);
         /* The alarm's weekday prefix flips exactly at the 24 h boundary
          * and the time after a fire/re-arm, so refresh it here, at the
          * minute tick (the vars change lands via ui_tick below). */
         refresh_alarm_display(&current_time);
-        ESP_LOGD(TAG, "Clock updated: %s", time_str);
     } else {
         ESP_LOGE(TAG, "Failed to get time from RTC: %s", esp_err_to_name(ret));
         set_var_clock_label("--:--");
@@ -16750,6 +16893,19 @@ extern void action_switch_to_light_sleep_screen(lv_event_t *e);
  * without a physical tilt. Create the timer only when the hook is on
  * (LVGL task context). */
 void action_roll_test_cb(lv_timer_t *timer);
+
+/* Demo mode (UI_DEMO_MODE): MM:SS clock + the five moon screens on a fixed
+ * rotation, until the next reset. True while the demo owns the display
+ * (guards the clock label's HH:MM writes, the hourly sync, and the
+ * sync-complete hand-off). action_clock_widget_label writes the widget's
+ * label from the wall-clock digits in the mode's format (HH:MM, or MM:SS
+ * in the demo) so no write point fights the demo. ui_demo_second_cb is the
+ * 1 s LVGL timer callback (created in main.cpp only when the mode is on). */
+bool action_demo_active(void);
+void action_clock_widget_label(int hour, int minute, int second);
+#if CONFIG_UI_DEMO_MODE
+void ui_demo_second_cb(lv_timer_t *timer);
+#endif
 
 #ifdef __cplusplus
 }
@@ -37188,7 +37344,16 @@ void create_screen_settings_hub() {
         {GLYPH_GLOBE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_TZ},
         {GLYPH_SPEAKER, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_ALARM_SOUND},
     };
-    const int32_t R = UI_PX(117); /* ~165 px ring radius at 466 (the scaled ring) */
+    /* Ring radius, balanced against the central exit disk (96 px ink at
+     * the 96 px font, 148 px on the P4's scaled icon font): at 140 (466)
+     * the icons' inner edge sits 44 px off the disk's rim and their outer
+     * edge 45 px off the panel rim (233 = 466/2) -- equal breathing room
+     * both sides (117 huddled the icons against the disk with ~68 px of
+     * free margin outside; the 2026-11-04 "stacked icons" report). At
+     * 720 the same UI_PX ratio gives R = 216 (inner 68 / outer 70). The
+     * 6-icon S3 ring's chord at 140 is 140 px > the 96 px icon width, so
+     * the icons never crowd each other. */
+    const int32_t R = UI_PX(140);
     const size_t n = sizeof(ring) / sizeof(ring[0]);
     const float step = 360.0f / (float)n;
     /* The deep-sleep entry's index: the icon anchored at the bottom
@@ -39944,9 +40109,10 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
      * weekday prefix from the scheduler cache (no I2C). */
     clock_time_t now;
     if (clock_get_time(&now) == ESP_OK) {
-        char s[8];
-        snprintf(s, sizeof(s), "%02d:%02d", now.hour, now.minute);
-        set_var_clock_label(s);
+        /* The HH:MM/MM:SS format rule of the minute tick (action
+         * clock_widget_label): in the demo mode the attach must not
+         * fight the per-second MM:SS label. */
+        action_clock_widget_label(now.hour, now.minute, now.second);
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
@@ -46103,6 +46269,17 @@ void action_update_alarm_display(void *e) {
     }
 }
 
+/* The clock widget's label format rule (the real actions.c picks HH:MM,
+   or MM:SS while the demo mode runs -- never on in the sim). The stub
+   carries HH:MM and keeps action_demo_active false. */
+bool action_demo_active(void) { return false; }
+void action_clock_widget_label(int hour, int minute, int second) {
+    (void)second;
+    char s[8];
+    snprintf(s, sizeof(s), "%02d:%02d", hour, minute);
+    set_var_clock_label(s);
+}
+
 /* ---- runtime settings store (canned values) ---- */
 
 static uint32_t s_idle_sec = 60, s_countdown_sec = 60;
@@ -46450,6 +46627,12 @@ dependencies:
 #endif
 #ifndef CONFIG_TEST_ALARM_RING_SEC
 #define CONFIG_TEST_ALARM_RING_SEC 0
+#endif
+#ifndef CONFIG_UI_DEMO_MODE
+#define CONFIG_UI_DEMO_MODE 0
+#endif
+#ifndef CONFIG_UI_DEMO_SCREEN_SEC
+#define CONFIG_UI_DEMO_SCREEN_SEC 15
 #endif
 
 // Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
@@ -47047,6 +47230,15 @@ extern "C" void app_main(void) {
     // 0 = off).
     if (CONFIG_TEST_ALARM_RING_SEC > 0)
         lv_timer_create(alarm_ring_test_cb, 1000, NULL);
+
+    // Demo mode (CONFIG_UI_DEMO_MODE; off by default): MM:SS clock + the
+    // five moon screens on a rotation until the next reset. The 1 s
+    // callback waits out the boot sweep before it touches the display
+    // (the same guard as the test hooks) and runs in the LVGL task, so
+    // loadScreen / ui_tick are safe.
+#if CONFIG_UI_DEMO_MODE
+    lv_timer_create(ui_demo_second_cb, 1000, NULL);
+#endif
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

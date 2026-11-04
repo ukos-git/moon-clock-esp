@@ -440,7 +440,14 @@ both boards carry the ES8311 + speaker amp): P4 **1,596,624 B** (`0x185cd0`,
 `moon_event.c` classifier + the per-event tint LUTs + the per-pixel eclipse
 occlusion + the day-tick signature re-bake): P4 **1,605,856 B** (`0x1880e0`,
 +9,232 B), S3 **1,525,184 B** (`0x1745c0`, +5,168 B; both ~30 % under the 2048
-K factory).
+K factory); after the **clock-widget off-by-one fix + hub ring radius + demo
+mode** (2026-11-04 — the `objects_t` +1 shift restored the centred flex clock
+widget; the hub ring `UI_PX(117)` → `UI_PX(140)`, §7.6; the new
+`CONFIG_UI_DEMO_MODE` demo build — MM:SS clock + the five moon screens on a 15
+s rotation, §7.18 — compiles in as +640 B on the P4 but is off in the
+production defaults): P4 **1,605,856 B** (`0x1880e0`, unchanged — the demo code
+is compiled out; the demo _variant_ is **1,606,496 B** `0x188340`), S3
+**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -1178,20 +1185,25 @@ what each control changes live.
   glyph is the button, no ring chrome; 150 px tap box) → back to the **home
   (airplane) screen**, no sync kicked off.
 - **Icon ring, equal-arc** (2026-11-01; 6/7 icons since the 2026-11-04
-  bugreport): the entries sit on a circle of radius `UI_PX(117)` at **equal
+  bugreport): the entries sit on a circle of radius `UI_PX(140)` at **equal
   360/n arc distances** — 6 icons (60°) on the S3, 7 icons (~51.4°) on the P4 —
-  with deep sleep pinned at 6 o'clock (the bottom). Clock positions: **S3** —
-  top-left globe (U+F0AC, solid; the timezone / UTC offset picker, §7.16),
-  top-right alarm (alarm-clock, regular), mid-right light sleep (moon,
-  regular), bottom deep sleep (moon, solid — the weight distinguishes the two
-  moons), mid-left WiFi (wifi, solid), and (the 2026-11-04 addition) the
-  **speaker** (U+F028, solid; the alarm-sound picker, §7.17). **P4** — the same
-  six plus a sixth icon at 12 o'clock: clock (regular, U+F017, the glyph the FA
-  regular set regenerated for it, §2.3b) opening the manual time entry (§7.15;
-  the S3 has no clock icon — its time comes from the PCF85063A). The globe and
-  speaker glyphs were added to both boards' FA solid subsets (regenerated with
-  U+F0AC = 61612 — the earlier regen used 61516 = U+F04C "pause" by mistake, so
-  the hub showed a missing-glyph box — and U+F028 = 61480 for the speaker).
+  with deep sleep pinned at 6 o'clock (the bottom). The radius moved up from
+  `UI_PX(117)` with the 2026-11-04 "stacked icons" report: at 117 the icons
+  huddled against the 96/148 px central exit disk while ~68 px of free margin
+  sat outside them, up to the panel edge; 140 balances the inner gap (R − 96 =
+  44 px at 466) against the outer margin (185 px panel radius − R = 45 px) —
+  68/70 at 720. Clock positions: **S3** — top-left globe (U+F0AC, solid; the
+  timezone / UTC offset picker, §7.16), top-right alarm (alarm-clock, regular),
+  mid-right light sleep (moon, regular), bottom deep sleep (moon, solid — the
+  weight distinguishes the two moons), mid-left WiFi (wifi, solid), and (the
+  2026-11-04 addition) the **speaker** (U+F028, solid; the alarm-sound picker,
+  §7.17). **P4** — the same six plus a sixth icon at 12 o'clock: clock
+  (regular, U+F017, the glyph the FA regular set regenerated for it, §2.3b)
+  opening the manual time entry (§7.15; the S3 has no clock icon — its time
+  comes from the PCF85063A). The globe and speaker glyphs were added to both
+  boards' FA solid subsets (regenerated with U+F0AC = 61612 — the earlier regen
+  used 61516 = U+F04C "pause" by mistake, so the hub showed a missing-glyph box
+  — and U+F028 = 61480 for the speaker).
 - Grey = present/available, white = selected; the sub-screens' bottom-centre
   exit is the same glyph at 96 px and returns to the **calling level** (the
   hub, or the alarm screen for its two sub-screens). The exit is a plain
@@ -1666,6 +1678,34 @@ screenshots and prose are the earlier revision of §7.13 in git history).
   (no ES8311) leaves the picker working: the selection is remembered and the
   ring stays display-only.
 - **Settings displayed:** the selected alarm sound, 0..3.
+
+### 7.18 Demo mode (both boards, off by default)
+
+- **Why it exists:** for product demos (and the camera recording of clock
+  changes) the HH:MM clock reads "static" for a whole minute.
+  `CONFIG_UI_DEMO_MODE` (default **n**) swaps the shared clock widget to
+  **MM:SS** (the seconds roll over like the odometer every second) and cycles
+  the five moon screens on a fixed rotation.
+- **The rotation** (`components/ui/actions.c`, one 1000 ms `lv_timer` wired in
+  `main.cpp` next to the test hooks): after the boot sweep finishes
+  (`moon_ui_sweeping()` gate), the timer writes the MM:SS label and ticks the
+  widget, and every `CONFIG_UI_DEMO_SCREEN_SEC` seconds (default **15**, range
+  5-600) advances to the next screen in the fixed order modem sleep → wifi →
+  light sleep → deep sleep → alarm (→ wrap).
+- **Isolation:** arming the demo disables the idle timer
+  (`clock_idle_set_enabled(false)`), the demo's per-second tick keeps the idle
+  watch clear (`clock_idle_reset_timer()`, LOGD — silent), the hourly sync is
+  skipped while the demo is active (`action_demo_active()` in the sync
+  condition), and the sync-complete hand-off is held (`!action_demo_active()`
+  guard — the flag is left unclaimed, the demo owns the display). The demo runs
+  until the next reset — there is no exit path by design (it is a demo build,
+  not a runtime state).
+- **The format rule:** `action_clock_widget_label(h, m, s)` is the single place
+  the widget label is written from wall-clock digits — HH:MM normally, MM:SS in
+  the demo — so the minute tick and the screen attach (`ui_clock_attach_to`)
+  cannot fight the demo's seconds label.
+- **Demo build:** `CONFIG_UI_DEMO_MODE=y` adds 640 B on the P4 (1,606,496 B,
+  `0x188340`); the production defaults leave it off (1,605,856 B, `0x1880e0`).
 
 ---
 
@@ -2259,6 +2299,8 @@ component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 | `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                                                                                                                                                               |
 | `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                                                                                                                                                 |
 | `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                                                                                                                                                           |
+| `CONFIG_UI_DEMO_MODE`                                                         | n               | the demo build (§7.18): the clock widget shows MM:SS and the five moon screens rotate on a fixed order until the next reset; `n` leaves the macro UNDEFINED — the `#ifndef` seed in `actions.c`/`main.cpp` is 0; the demo disables the idle timer and skips the hourly sync                                                         |
+| `CONFIG_UI_DEMO_SCREEN_SEC`                                                   | 15              | demo mode: seconds per screen in the rotation (range 5-600)                                                                                                                                                                                                                                                                         |
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 

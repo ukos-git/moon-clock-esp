@@ -59,6 +59,31 @@ menu "UI Component Configuration"
             one application point (the light-sleep entry) covers every
             moon-background clock display.
 
+    config UI_DEMO_MODE
+        bool "Demo mode: MM:SS clock + the moon screens on a rotation"
+        default n
+        help
+            A showcase mode for the clock's motion: the shared clock
+            widget shows MM:SS (the seconds roll through the per-digit
+            odometer every second) instead of HH:MM, and the five moon
+            screens (airplane, wifi, light sleep, deep sleep, alarm)
+            auto-rotate every UI_DEMO_SCREEN_SEC seconds. The demo runs
+            until the next reset: it holds the idle timer (every demo
+            second counts as activity), skips the hourly on-demand WiFi
+            sync, and ignores the sync-complete hand-off, so a recording
+            run is never cut by a sleep transition or a radio wake. Off
+            (default) in production builds.
+
+    config UI_DEMO_SCREEN_SEC
+        int "Demo mode: seconds per screen in the rotation"
+        default 15
+        range 5 600
+        help
+            How long the demo mode (UI_DEMO_MODE) shows each of the five
+            moon screens before rotating to the next. 15 s is the default
+            (75 s per full cycle); lower it for a faster rotation when
+            recording.
+
     config UI_MOON_ANIM_ENABLE
         bool "Play the synodic boot sweep (new moon -> now) at boot"
         default y

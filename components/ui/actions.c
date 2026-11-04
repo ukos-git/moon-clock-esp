@@ -676,7 +676,11 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     // outcomes (success AND failure) must leave the transient WiFi
     // screen. Only while awake: if the device re-slept during the
     // handshake, drop the hand-off and let the next wake re-trigger it.
-    if (!s_wifi_sync_running && s_wifi_sync_done) {
+    /* The demo mode (UI_DEMO_MODE) runs until the next reset: a sync
+     * completing under it (a boot sync that outlived the sweep) must
+     * not hand the display off to the airplane screen mid-recording.
+     * The flag is left unclaimed -- the demo owns the display. */
+    if (!s_wifi_sync_running && s_wifi_sync_done && !action_demo_active()) {
         s_wifi_sync_done = false;
         if (!clock_is_idle()) {
             if (ui_current_screen() == SCREEN_ID_WIFI) {
@@ -769,6 +773,100 @@ static lv_timer_t *g_seconds_timer = NULL;
  * clock display: called from the minute tick too). */
 static void refresh_alarm_display(const clock_time_t *now);
 
+/* ---- demo mode (UI_DEMO_MODE): MM:SS clock + the moon screens on a
+ * fixed rotation ---------------------------------------------
+ *
+ * A showcase mode for the clock's motion: the shared clock widget shows
+ * MM:SS (the seconds roll through the per-digit odometer every second)
+ * instead of HH:MM, and the five moon screens rotate every
+ * UI_DEMO_SCREEN_SEC seconds. The demo runs until the next reset: it
+ * holds the idle timer (every demo second is activity), skips the hourly
+ * on-demand WiFi sync, and ignores the sync-complete hand-off, so a
+ * recording run is never cut by a sleep transition or a radio wake.
+ * One 1000 ms lv_timer (LVGL task, wired in main.cpp next to the test
+ * hooks) drives it; the callback arms itself the moment the boot sweep
+ * is done (a screen switch mid-sweep is guarded off, the same gate as
+ * the test hooks). Off by default (production builds).
+ */
+#ifndef CONFIG_UI_DEMO_MODE
+#define CONFIG_UI_DEMO_MODE 0
+#endif
+#ifndef CONFIG_UI_DEMO_SCREEN_SEC
+#define CONFIG_UI_DEMO_SCREEN_SEC 15
+#endif
+
+#if CONFIG_UI_DEMO_MODE
+/* The rotation order: the five moon screens (the settings screens show
+ * no moon, and the demo is the moon's showcase). */
+static const enum ScreensEnum s_demo_order[] = {SCREEN_ID_MODEM_SLEEP, SCREEN_ID_WIFI, SCREEN_ID_LIGHT_SLEEP,
+                                                SCREEN_ID_DEEP_SLEEP, SCREEN_ID_ALARM};
+static bool s_demo_armed = false;
+static size_t s_demo_index = 0;
+static uint32_t s_demo_seconds = 0;
+#endif
+
+/* True while the demo is running (the clock label's MM:SS/HH:MM guard:
+ * the minute tick and the screen-switch attach write through
+ * action_clock_widget_label, which follows this at every write point). */
+bool action_demo_active(void) {
+#if CONFIG_UI_DEMO_MODE
+    return s_demo_armed;
+#else
+    return false;
+#endif
+}
+
+/* Refresh the shared clock widget's label from the wall-clock digits:
+ * HH:MM normally, MM:SS in the demo mode. The minute tick, the
+ * screen-switch attach and the demo's per-second tick all go through
+ * this, so the format follows the mode at every write point (no
+ * HH:MM write can fight the demo's MM:SS). */
+void action_clock_widget_label(int hour, int minute, int second) {
+    char s[8];
+    if (action_demo_active())
+        snprintf(s, sizeof(s), "%02d:%02d", minute, second);
+    else
+        snprintf(s, sizeof(s), "%02d:%02d", hour, minute);
+    set_var_clock_label(s);
+}
+
+#if CONFIG_UI_DEMO_MODE
+/* One demo second (LVGL task; created as a 1000 ms lv_timer in
+ * main.cpp). */
+void ui_demo_second_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (!s_demo_armed) {
+        if (moon_ui_sweeping())
+            return; /* hold until the boot sweep is done */
+        s_demo_armed = true;
+        s_demo_index = 0;
+        s_demo_seconds = 0;
+        /* The demo runs until the next reset: keep the sleep transitions
+         * out of the recording (the per-second clock_idle_reset_timer
+         * below is belt and braces -- the orientation-step re-enable
+         * cannot expire a timer that is reset every second). */
+        clock_idle_set_enabled(false);
+        ESP_LOGI(TAG, "Demo mode: MM:SS clock + the %u moon screens rotate every %d s",
+                 (unsigned)(sizeof(s_demo_order) / sizeof(s_demo_order[0])), CONFIG_UI_DEMO_SCREEN_SEC);
+    }
+    /* MM:SS (the minute tick and the attach are guarded, so nothing
+     * fights it) + roll the changed slot(s) through the odometer. */
+    clock_time_t now;
+    if (clock_get_time(&now) == ESP_OK)
+        action_clock_widget_label(now.hour, now.minute, now.second);
+    tick_user_widget_clock(17);
+    /* Rotate the moon screens. */
+    if (++s_demo_seconds >= (uint32_t)CONFIG_UI_DEMO_SCREEN_SEC) {
+        s_demo_seconds = 0;
+        s_demo_index = (s_demo_index + 1) % (sizeof(s_demo_order) / sizeof(s_demo_order[0]));
+        loadScreen(s_demo_order[s_demo_index]);
+        ui_tick();
+    }
+    /* The demo is activity: hold the idle timer. */
+    clock_idle_reset_timer();
+}
+#endif
+
 /**
  * @brief Update the clock display with current time from RTC
  */
@@ -789,24 +887,26 @@ void action_update_clock_display(lv_event_t *e) {
      * 30 s radio wake for an NTP fetch is a net power loss -- the next
      * wake re-syncs), no interference with the boot sweep, no yanking
      * a settings session away. */
-    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !s_wifi_sync_running && !moon_ui_sweeping() &&
-        !wifi_manager_is_connected() && clock_sntp_needs_sync() && ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
+    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() &&
+        !s_wifi_sync_running && !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
+        ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
         ESP_LOGI(TAG, "Hourly sync due at the top of the minute; activating WiFi");
         action_start_wifi_sync();
         return;
     }
 
     if (ret == ESP_OK) {
-        char time_str[16];
-        snprintf(time_str, sizeof(time_str), "%02d:%02d", current_time.hour, current_time.minute);
-
-        set_var_clock_label(time_str);
+        /* HH:MM -- or MM:SS while the demo runs (action_clock_widget_label
+         * picks the format from the mode; the demo's per-second tick owns
+         * the label then, but writing the same value is a no-op for the
+         * slot row). The seconds var feeds the arc (both formats share it
+         * via the widget's format, not the var). */
+        action_clock_widget_label(current_time.hour, current_time.minute, current_time.second);
         set_var_clock_seconds(current_time.second);
         /* The alarm's weekday prefix flips exactly at the 24 h boundary
          * and the time after a fire/re-arm, so refresh it here, at the
          * minute tick (the vars change lands via ui_tick below). */
         refresh_alarm_display(&current_time);
-        ESP_LOGD(TAG, "Clock updated: %s", time_str);
     } else {
         ESP_LOGE(TAG, "Failed to get time from RTC: %s", esp_err_to_name(ret));
         set_var_clock_label("--:--");

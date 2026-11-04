@@ -47,6 +47,12 @@
 #ifndef CONFIG_TEST_ALARM_RING_SEC
 #define CONFIG_TEST_ALARM_RING_SEC 0
 #endif
+#ifndef CONFIG_UI_DEMO_MODE
+#define CONFIG_UI_DEMO_MODE 0
+#endif
+#ifndef CONFIG_UI_DEMO_SCREEN_SEC
+#define CONFIG_UI_DEMO_SCREEN_SEC 15
+#endif
 
 // Hang watcher (TEST_HANG_WATCH): the LVGL task is the heartbeat source
 // (a 200 ms lv_timer runs on it; every other lv_timer -- the RTC poll,
@@ -643,6 +649,15 @@ extern "C" void app_main(void) {
     // 0 = off).
     if (CONFIG_TEST_ALARM_RING_SEC > 0)
         lv_timer_create(alarm_ring_test_cb, 1000, NULL);
+
+    // Demo mode (CONFIG_UI_DEMO_MODE; off by default): MM:SS clock + the
+    // five moon screens on a rotation until the next reset. The 1 s
+    // callback waits out the boot sweep before it touches the display
+    // (the same guard as the test hooks) and runs in the LVGL task, so
+    // loadScreen / ui_tick are safe.
+#if CONFIG_UI_DEMO_MODE
+    lv_timer_create(ui_demo_second_cb, 1000, NULL);
+#endif
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

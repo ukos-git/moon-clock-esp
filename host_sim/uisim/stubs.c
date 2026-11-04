@@ -191,6 +191,17 @@ void action_update_alarm_display(void *e) {
     }
 }
 
+/* The clock widget's label format rule (the real actions.c picks HH:MM,
+   or MM:SS while the demo mode runs -- never on in the sim). The stub
+   carries HH:MM and keeps action_demo_active false. */
+bool action_demo_active(void) { return false; }
+void action_clock_widget_label(int hour, int minute, int second) {
+    (void)second;
+    char s[8];
+    snprintf(s, sizeof(s), "%02d:%02d", hour, minute);
+    set_var_clock_label(s);
+}
+
 /* ---- runtime settings store (canned values) ---- */
 
 static uint32_t s_idle_sec = 60, s_countdown_sec = 60;

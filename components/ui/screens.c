@@ -570,7 +570,16 @@ void create_screen_settings_hub() {
         {GLYPH_GLOBE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_TZ},
         {GLYPH_SPEAKER, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_ALARM_SOUND},
     };
-    const int32_t R = UI_PX(117); /* ~165 px ring radius at 466 (the scaled ring) */
+    /* Ring radius, balanced against the central exit disk (96 px ink at
+     * the 96 px font, 148 px on the P4's scaled icon font): at 140 (466)
+     * the icons' inner edge sits 44 px off the disk's rim and their outer
+     * edge 45 px off the panel rim (233 = 466/2) -- equal breathing room
+     * both sides (117 huddled the icons against the disk with ~68 px of
+     * free margin outside; the 2026-11-04 "stacked icons" report). At
+     * 720 the same UI_PX ratio gives R = 216 (inner 68 / outer 70). The
+     * 6-icon S3 ring's chord at 140 is 140 px > the 96 px icon width, so
+     * the icons never crowd each other. */
+    const int32_t R = UI_PX(140);
     const size_t n = sizeof(ring) / sizeof(ring[0]);
     const float step = 360.0f / (float)n;
     /* The deep-sleep entry's index: the icon anchored at the bottom
@@ -3326,9 +3335,10 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
      * weekday prefix from the scheduler cache (no I2C). */
     clock_time_t now;
     if (clock_get_time(&now) == ESP_OK) {
-        char s[8];
-        snprintf(s, sizeof(s), "%02d:%02d", now.hour, now.minute);
-        set_var_clock_label(s);
+        /* The HH:MM/MM:SS format rule of the minute tick (action
+         * clock_widget_label): in the demo mode the attach must not
+         * fight the per-second MM:SS label. */
+        action_clock_widget_label(now.hour, now.minute, now.second);
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
