@@ -8,13 +8,23 @@ clock are all on the same small board, and the clock body (a 3D-printed
 stand, see the photograph in Chapter 1) is mostly the board plus a
 battery.
 
-.. figure:: ../_static/photos/bench_front.jpg
-   :alt: The S3 board mounted on the bench stand
+The whole product is one small board: the panel, the touch, the motion
+sensor, and the real-time clock all share the ESP32-S3's QSPI, I²C, and
+I²S buses. The schematic below traces those buses from the SoC to each
+component and calls out the one wiring detail that constrains the sleep
+machine — the RTC's alarm line never reaches a wake input.
 
-   The Waveshare ESP32-S3-Touch-AMOLED-1.75 on the bench stand. The
-   round glass is the 1.75-inch AMOLED under the capacitive touch
-   layer; the clock face (Chapter 15) renders into the same 466×466
-   framebuffer the moon uses.
+.. graphviz:: ../_graphs/s3-wiring.dot
+   :alt: S3 component wiring schematic
+   :align: center
+   :caption: The S3 board's component wiring — QSPI (CO5300 AMOLED), I²C (touch, IMU, TCA9554 expander, PCF85063A RTC), I²S (ES8311 codec).
+
+The orange path is the wake-up caveat: the RTC's ALM output lands on the
+TCA9554 expander's pin 3, which a running CPU polls at 1.3 s — it is
+**not** wired to an ESP wake input, so a true ``esp_deep_sleep`` could
+never be woken by a timer or alarm on this board. (The product's "deep
+sleep" is app-level — the backlight off, the CPU still running — so the
+alarm still fires via that poll. Chapter 15.)
 
 SoC and memory
 --------------
@@ -66,12 +76,18 @@ Touch, motion, time
   the **clock roll** (the clock face counter-rotates to stay upright
   as you tilt the board, Chapter 15).
 - **PCF85063A** RTC, behind a **TCA9554** IO expander, I²C. The RTC
-  is what keeps the clock alive through light sleep (deep sleep turns
-  the backlight off but the RTC keeps running; the alarm can fire
-  from deep sleep, Chapter 15). The alarm is armed through the RTC's
-  hardware alarm (``clock_clear_alarm`` / re-arm — see Chapter 15 for
-  the "stale armed ALM fires a phantom alarm" bug that required
-  disarming on a zero-rule boot).
+  keeps the clock alive through light sleep, and because the product's
+  "deep sleep" is app-level (the backlight off, the CPU still running)
+  the alarm still fires from the dark screen. It fires by *polling*,
+  not by a wake line: the PCF's ALM output is wired to the TCA9554
+  expander's pin 3, and a running CPU reads that pin at 1.3 s intervals
+  (the ``lv_timer`` interrupt handler). That line is **not** an ESP
+  wake input, which is why the board could never be woken from a true
+  ``esp_deep_sleep`` on a timer or alarm — the same fact the schematic
+  above calls out. The alarm is armed through the RTC's hardware alarm
+  (``clock_clear_alarm`` / re-arm — Chapter 15 documents the "stale
+  armed ALM fires a phantom alarm" bug that required disarming on a
+  zero-rule boot).
 
 Power
 -----

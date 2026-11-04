@@ -2419,6 +2419,8 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 `docs/` holds this document, its generator, the media, and the research notes:
 
 - `docs/__pycache__/gen_media.cpython-314.pyc` (12,121 B)
+- `docs/book/_graphs/p4-wiring.dot` (3,057 B)
+- `docs/book/_graphs/s3-wiring.dot` (3,179 B)
 - `docs/book/_static/figs/art_ab.png` (272,440 B)
 - `docs/book/_static/figs/bake_pipeline.png` (35,003 B)
 - `docs/book/_static/figs/displaced_normal.png` (77,390 B)
@@ -2442,11 +2444,11 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/_static/photos/sim_home.png` (675,535 B)
 - `docs/book/_static/photos/sim_keyboard.png` (307,673 B)
 - `docs/book/_static/photos/sim_light_sleep.png` (523,471 B)
-- `docs/book/conf.py` (3,511 B)
+- `docs/book/conf.py` (3,895 B)
 - `docs/book/index.rst` (3,682 B)
 - `docs/book/part1/01-overview.rst` (5,267 B)
-- `docs/book/part1/02-hardware-s3.rst` (5,140 B)
-- `docs/book/part1/03-hardware-p4.rst` (4,710 B)
+- `docs/book/part1/02-hardware-s3.rst` (6,224 B)
+- `docs/book/part1/03-hardware-p4.rst` (5,908 B)
 - `docs/book/part1/04-reference.rst` (4,323 B)
 - `docs/book/part2/05-geometry.rst` (9,991 B)
 - `docs/book/part2/06-lighting.rst` (18,312 B)
@@ -2480,7 +2482,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (188,958 B)
+- `docs/doc_template.md` (188,956 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -40106,8 +40108,7 @@ void tick_user_widget_clock(int startWidgetIndex) {
             lv_anim_t anim;
             lv_anim_init(&anim);
             lv_anim_set_var(&anim, slot);
-            lv_anim_set_values(&anim, -s_clock_line_h[(size_t)i],
-                                delta == 1 ? -2 * s_clock_line_h[(size_t)i] : 0);
+            lv_anim_set_values(&anim, -s_clock_line_h[(size_t)i], delta == 1 ? -2 * s_clock_line_h[(size_t)i] : 0);
             lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
             lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
             lv_anim_set_exec_cb(&anim, clock_roll_exec);
@@ -41648,74 +41649,202 @@ int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
 ```json
 dependencies:
   espressif/button:
-    dependencies: []
+    component_hash: 26345e8700d3c6435925f9a8f246d224f9c1b99f937c243fe400844eec514b4a
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: idf
+      require: private
+      version: '>=4.0'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__button
-      type: local
+      registry_url: https://components.espressif.com
+      type: service
     version: 4.2.3
   espressif/cmake_utilities:
-    component_hash: 13fee78a3817e94eb8924bb86ae840940fca970fd3f356fb61e57bad612154f3
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
     - name: idf
       require: private
       version: '>=4.1'
     source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.5.3
+  espressif/esp_codec_dev:
+    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.3.0
-  espressif/esp_codec_dev:
-    dependencies: []
-    source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_codec_dev
-      type: local
     version: 1.5.11
   espressif/esp_io_expander:
-    dependencies: []
+    component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 1.2.1
   espressif/esp_io_expander_tca9554:
-    dependencies: []
+    component_hash: ee94a439ade1c17129a491efe572c600899306a2ffadbde491852d95333e28b4
+    dependencies:
+    - name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.2.0
+    - name: idf
+      require: private
+      version: '>=5.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander_tca9554
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 2.0.3
   espressif/esp_lcd_co5300:
-    dependencies: []
+    component_hash: 1a5cbaa0069c3c72c238e5a1eb32ec9dd390ec1c7c46b24bf44b9037f2fe6c56
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.4'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_co5300
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 2.2.0
   espressif/esp_lcd_panel_io_additions:
-    dependencies: []
+    component_hash: 1856c8b2c11aaa8a9fd67481582162bcad25f7064661a995f35c2ee8dd10ebcc
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1
+    - name: idf
+      require: private
+      version: '>=4.4.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_panel_io_additions
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 1.0.1~1
   espressif/esp_lcd_touch:
-    dependencies: []
+    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_touch
-      type: local
+      registry_url: https://components.espressif.com
+      type: service
     version: 1.2.1
   espressif/esp_lv_decoder:
-    dependencies: []
+    component_hash: 6e844411eb1089a6d971d25d08af0c00def2535a6a6c844acc42c85a7d80dd36
+    dependencies:
+    - name: espressif/esp_new_jpeg
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: espressif/libpng
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: espressif/qoi
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.20260529.0
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8.3,<10'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_decoder
-      type: local
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
     version: 0.5.0
   espressif/esp_lv_fs:
-    dependencies: []
+    component_hash: 66896007884b817df34c964f9a114fff538ee2674e99fee7159162498b93f94b
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_mmap_assets
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.2'
+    - name: idf
+      require: private
+      version: '>=4.4'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_fs
-      type: local
+      registry_url: https://components.espressif.com
+      type: service
     version: 1.0.1
   espressif/esp_lvgl_adapter:
-    dependencies: []
+    component_hash: a86c36e1f762bca480672f17ecd759f54d38fd802a709fff142ccfac4d8466a6
+    dependencies:
+    - name: espressif/button
+      registry_url: https://components.espressif.com
+      require: public
+      version: 4.*
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/esp_lv_decoder
+      registry_url: https://components.espressif.com
+      require: public
+      version: 0.*
+    - name: espressif/esp_lv_fs
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/freetype
+      registry_url: https://components.espressif.com
+      require: public
+      version: 2.*
+    - name: espressif/knob
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.5'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lvgl_adapter
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 0.1.4
   espressif/esp_mmap_assets:
     component_hash: 42310c362596de2a37248c2937b1754bc29cd0356b9839e2a77cf791e6bcdde1
@@ -41728,14 +41857,14 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 2.0.1
   espressif/esp_new_jpeg:
     component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
     dependencies: []
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     targets:
     - esp32
@@ -41757,7 +41886,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 2.14.3~1
   espressif/knob:
@@ -41771,7 +41900,7 @@ dependencies:
       require: private
       version: '>=4.4.1'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 1.1.0
   espressif/libpng:
@@ -41785,7 +41914,7 @@ dependencies:
       require: private
       version: ^1.2.13
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 1.6.59
   espressif/qoi:
@@ -41795,7 +41924,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 0.20260529.0
   espressif/zlib:
@@ -41805,7 +41934,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 1.3.2~2
   idf:
@@ -41845,41 +41974,41 @@ dependencies:
       type: service
     version: 9.6.0~1
   waveshare/esp_lcd_touch_cst9217:
-    dependencies: []
+    component_hash: f755f8e3ae61df23413256a6a447e367a4b844538229c183ff0e89dbbdc15319
+    dependencies:
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.1.0
+    - name: idf
+      require: private
+      version: '>=4.4.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/waveshare__esp_lcd_touch_cst9217
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 2.0.0
   waveshare/pcf85063a:
-    dependencies: []
+    component_hash: 1b1ac80637e2b3b0ae343184fbaf613b360834c0313bd9cad8f3a810d11e0b4b
+    dependencies:
+    - name: idf
+      version: '>=5.3.2'
     source:
-      path: /home/matthias/esp/moon-phase/managed_components/waveshare__pcf85063a
-      type: local
-    version: 1.1.0
+      git: https://github.com/ukos-git/Waveshare-ESP32-components.git
+      path: sensor/pcf85063a
+      type: git
+    version: a415ab9f850f597fd58549f6574221f6a3607ab1
 direct_dependencies:
-- espressif/button
-- espressif/cmake_utilities
 - espressif/esp_codec_dev
 - espressif/esp_io_expander
 - espressif/esp_io_expander_tca9554
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
-- espressif/esp_lcd_touch
-- espressif/esp_lv_decoder
-- espressif/esp_lv_fs
 - espressif/esp_lvgl_adapter
-- espressif/esp_mmap_assets
-- espressif/esp_new_jpeg
-- espressif/freetype
-- espressif/knob
-- espressif/libpng
-- espressif/qoi
-- espressif/zlib
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: d701b54585645a72236de9ccf2bfd6b72562620f1fd29d99e013aea13276d79c
+manifest_hash: 61fdf624f28fd25fab5756458b5b80b6af66ceb0235d355f7121283f5bfd3f86
 target: esp32s3
 version: 2.0.0
 ```

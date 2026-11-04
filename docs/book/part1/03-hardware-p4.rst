@@ -11,6 +11,27 @@ different controller, a different pixel format, and a different DMA
 story. This chapter covers what the port took and what the
 measurements showed.
 
+Component wiring
+----------------
+
+Like the S3, the 4C is a single board: the panel, the touch, and the
+Wi-Fi all hang off the P4's peripheral buses, plus the ES8311 audio
+codec. The schematic below traces them and shows the key difference
+from the S3 in the wake-up story — **the board carries no RTC IC and
+no IO expander**, so ``board_io_expander_init()`` returns ``NULL`` and
+the only wake source is a software ``esp_timer`` one-shot.
+
+.. graphviz:: ../_graphs/p4-wiring.dot
+   :alt: P4 component wiring schematic
+   :align: center
+   :caption: The P4 4C's component wiring — MIPI-DSI (JD9365 IPS), I²C (GT911 touch), SDIO (ESP32-C6 Wi-Fi via esp_hosted), I²S (ES8311 codec).
+
+The green box is the wake-up caveat: with no RTC and no expander, an
+alarm can only be caught by a running CPU's ``esp_timer`` one-shot, so
+while an alarm is pending the device deliberately stays in **light
+sleep** (dim panel) instead of dropping to the deep state (backlight
+off) — a deep-sleep wake does not exist on this board (Chapter 15).
+
 Why a second board
 ------------------
 
@@ -52,7 +73,7 @@ Panel differences that matter to the pipeline
      - DSI async DMA (the spin's ~3,900 "previous draw not finished" rejects are the async-DMA throughput floor, absorbed by a retry — Chapter 13)
    * - Moon scale
      - MOON_PX 400, MOON_R 200
-     - MOON_PX 618, MOON_R 309 (2026-11-01 WIP: 650)
+     - MOON_PX 650, MOON_R 325 (upscaled from 618/309 with the 2026-11-01 seam work)
    * - Teardown mode
      - n/a
      - 1-FB ``LV_COLOR_FORMAT`` single-buffer with ``LV_DISPLAY_RENDER_MODE_NONE`` (the 3-FB partial-mode scanout flip showed the spin pose from an old frame's last visit — Chapter 13)
@@ -96,13 +117,15 @@ Measured results on the P4
 
 On-device captures (full run, 0 WDT / 0 panic):
 
-- Boot sweep: 336/336 frames @ 618 px completed.
-- Final bake: 599 ms at 618 px (vs ~959 ms at 650 px after the 2026-11-01
-  WIP landed).
+- Boot sweep: 336/336 frames completed.
+- Final bake: ~959 ms at 650 px (599 ms at the earlier 618 px scale,
+  before the 2026-11-01 upscale).
 - Dusk: ~43 s for the full constant-projection spin.
 - The async-DMA rejects during the spin are absorbed — 0 dropped
   strips after the ``moon_panel_draw_wait`` retry.
 
-The binary is 1,575,152 B (0x1808f0) after the 2026-11-01 TZ/settings
-work landed — 16% of the 9 MB factory partition. The S3 binary at the
-same point was 1,459,744 B (0x164620), 31% of its 2 MB partition.
+After the 2026-11-04 clock rollers landed, the P4 binary is 1,605,984 B
+(``0x188160``) — about 17 % of the 9 MB factory partition. The S3
+binary at the same point is 1,511,280 B (``0x170f70``), about 72 % of
+its 2 MB factory partition (the ~28 % headroom under the 2,097,152 B
+ceiling; Chapter 20 tracks the full binary-size chain).

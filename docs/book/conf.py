@@ -27,8 +27,17 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
     "sphinx.ext.imgconverter",
+    "sphinx.ext.graphviz",
     "sphinx_copybutton",
 ]
+
+# The hardware-wiring schematics (chapters 2-3) are authored as Graphviz
+# ``.dot`` files and rendered to inline SVG at build time (Sphinx-native
+# ``.. graphviz::`` directives). ``dot`` (Graphviz) must be on PATH for a
+# clean build — the ``.dot`` sources are checked in so the SVG is
+# reproducible.
+graphviz_output_format = "svg"
+graphviz_dot = "dot"
 
 html_theme = "furo"
 html_static_path = ["_static"]
