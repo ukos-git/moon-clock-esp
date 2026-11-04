@@ -447,7 +447,16 @@ widget; the hub ring `UI_PX(117)` → `UI_PX(140)`, §7.6; the new
 s rotation, §7.18 — compiles in as +640 B on the P4 but is off in the
 production defaults): P4 **1,605,856 B** (`0x1880e0`, unchanged — the demo code
 is compiled out; the demo _variant_ is **1,606,496 B** `0x188340`), S3
-**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory).
+**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory); after
+the **clock rollers** (2026-11-04 — the digit roll adopts the settings roller's
+motion: a three-line `mid-1/mid/mid+1` wheel strip scrolled one line in the
+direction of change with the roller's ease-out path, clipped to the one-line
+window, §7.1): P4 **1,605,984 B** (`0x188160`, +128 B), S3 **1,511,280 B**
+(`0x170f70` — the `idf.py set-target esp32s3` that this build needed
+regenerates the S3 sdkconfig from the defaults split, so this S3 figure is on
+the defaults baseline, not the previous hand-tuned `0x174600` one; the roller
+delta on the S3 is not isolated from that baseline change; both ~30 % under the
+2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -1057,18 +1066,28 @@ what each control changes live.
 - **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
   swap): each slot label sits in a one-line **clipping cell** (fixed width ×
   the digits font's line height — 71 px at 466; the cell clips its child to one
-  digit). When a digit changes, the label's text is swapped to a two-line
-  `old\nnew` and the label is **translated up one line height** over 300 ms
-  (`lv_anim` on `translate_y`, ease-in) — the old digit rolls out the top of
-  the window as the new one rolls in from the bottom (12:35 → 12:36: the "5"
-  rolls up into the "6"). At rest each slot is a single line at translate 0. An
-  in-flight guard retargets: a change landing mid-roll drops the roll (snap
-  back to translate 0) and hard-swaps to the latest digit, so a slot never runs
-  two animations. The spin's UI keep-mask is rebuilt at roll start (the tick's
-  `label_changed` path) and on settle (the anim's completed-cb, LVGL task).
-  Verified in the UI simulator with the `--rolltest` hook (before / mid-roll /
-  after frames; the settled frame is pixel-identical to the resting screen
-  apart from the changed digit).
+  digit). When a digit changes, the label's text is swapped to a **three-line
+  digit strip** `mid-1\nmid\nmid+1` (on the mod-10 wheel, 9 wraps to 0) centred
+  on the digit currently in the window, pre-translated so the middle line sits
+  in the cell, and **scrolled one line in the direction of change** over 300 ms
+  (`lv_anim` on `translate_y`, the roller's **ease-out** path — the 2026-11-04
+  "clock rollers" request adopted the settings roller's physical wheel motion,
+  fast start and gentle settle, in place of the earlier always-up 2-line
+  `ease-in` slide): 12:35 → 12:36 rolls the "5" UP out of the window as the "6"
+  enters from below; 12:36 → 12:35 rolls the "6" DOWN as the "5" enters from
+  above. The one-line cell clips the strip, so — unlike the multi-line settings
+  roller window — no adjacent digit ever peeks into the window: at rest each
+  slot is a single line at translate 0, and the settle rewrites the label to
+  the one-line target in the same frame the animation completes (the digit
+  holds its on-screen position, no flicker). Only single-step wheel changes
+  (delta 1 or 9) animate; a larger jump (a manual time entry) and any non-digit
+  character hard-swap. An in-flight guard retargets: a change landing mid-roll
+  settles the slot to the latest (one line at translate 0), so a slot never
+  runs two animations. The spin's UI keep-mask is rebuilt at roll start (the
+  tick's `label_changed` path) and on settle (the anim's completed-cb, LVGL
+  task). Verified in the UI simulator with the `--rolltest` hook (before /
+  mid + after for BOTH directions; the settled frames are pixel-identical to
+  the resting screen apart from the changed digit).
 - **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
   (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
   own clock widget (five sets of HH:MM slots + alarm label) and only the
@@ -2461,7 +2480,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (187,558 B)
+- `docs/doc_template.md` (188,958 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,930,341 B)
@@ -16144,9 +16163,8 @@ static void refresh_alarm_display(const clock_time_t *now);
 #if CONFIG_UI_DEMO_MODE
 /* The rotation order: the five moon screens (the settings screens show
  * no moon, and the demo is the moon's showcase). */
-static const enum ScreensEnum s_demo_order[] = {SCREEN_ID_MODEM_SLEEP, SCREEN_ID_WIFI,
-                                                SCREEN_ID_LIGHT_SLEEP, SCREEN_ID_DEEP_SLEEP,
-                                                SCREEN_ID_ALARM};
+static const enum ScreensEnum s_demo_order[] = {SCREEN_ID_MODEM_SLEEP, SCREEN_ID_WIFI, SCREEN_ID_LIGHT_SLEEP,
+                                                SCREEN_ID_DEEP_SLEEP, SCREEN_ID_ALARM};
 static bool s_demo_armed = false;
 static size_t s_demo_index = 0;
 static uint32_t s_demo_seconds = 0;
@@ -16234,8 +16252,8 @@ void action_update_clock_display(lv_event_t *e) {
      * 30 s radio wake for an NTP fetch is a net power loss -- the next
      * wake re-syncs), no interference with the boot sweep, no yanking
      * a settings session away. */
-    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() && !s_wifi_sync_running &&
-        !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
+    if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() &&
+        !s_wifi_sync_running && !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
         ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
         ESP_LOGI(TAG, "Hourly sync due at the top of the minute; activating WiFi");
         action_start_wifi_sync();
@@ -39791,9 +39809,12 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                          * height sizes the cell and the roll distance). A
                          * fixed-width centred glyph that the cell CLIPS to
                          * one line. At rest it is a single line (the current
-                         * digit); the roll swaps it to a two-line "old\nnew"
-                         * text and slides it up one line (see the roll block
-                         * above tick_user_widget_clock). */
+                         * digit); the roll swaps it to a three-line digit
+                         * strip (old-1, old, old+1 on the wheel) centred on
+                         * the old digit and scrolls it one line in the
+                         * direction of change, the settings roller's motion
+                         * (see the roll block above
+                         * tick_user_widget_clock). */
                         lv_obj_t *slot = lv_label_create(obj);
                         s_clock_time_slot[(size_t)i] = slot;
                         lv_obj_set_size(slot, w, LV_SIZE_CONTENT);
@@ -39816,8 +39837,12 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                         lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
                         lv_obj_clear_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
                         /* Move the label into the cell, pinned to the cell's
-                         * TOP (so a two-line label's FIRST line sits in the
-                         * window at translate 0). */
+                         * TOP: at rest the one-line digit sits in the
+                         * window at translate 0; the roll swaps it to the
+                         * three-line strip and pre-translates it so the
+                         * strip's MIDDLE line (the old digit) is in the
+                         * window (see the roll block above
+                         * tick_user_widget_clock). */
                         lv_obj_set_parent(slot, cell);
                         lv_obj_set_pos(slot, 0, 0);
                         lv_label_set_text(slot, "");
@@ -39912,19 +39937,38 @@ static bool s_clock_unsynced_dim;
  *
  * The minute tick no longer hard-swaps each digit's character: the slot
  * label (which sits in a one-line clipping cell, see
- * create_user_widget_clock) is swapped to a two-line "old\nnew" text and
- * slid UP one line height inside the cell -- the old digit rolls out the
- * top, the new digit rolls in from the bottom (12:35 -> 12:36: the "5"
- * rolls up into "6"). At rest each slot is a single line (the current
- * digit) at translate 0.
+ * create_user_widget_clock) is swapped to a THREE-LINE digit strip
+ * (mid-1, mid, mid+1 on the mod-10 wheel -- 9 wraps to 0) centred on the
+ * digit currently in the window, and SCROLLED one line in the direction
+ * of change, the settings roller's motion (the user preferred it over the
+ * earlier always-up 2-line slide): 12:35 -> 12:36 rolls the "5" UP out of
+ * the window as the "6" enters from below; 12:36 -> 12:35 rolls the "6"
+ * DOWN as the "5" enters from above. The scroll uses the roller's
+ * ease-out path (fast start, gentle settle -- a physical wheel, not a
+ * ramp). The one-line CELL clips the strip, so -- unlike the multi-line
+ * settings roller window -- no adjacent digit ever peeks into the
+ * window: at rest each slot shows exactly one digit.
+ *
+ * Geometry: the strip sits pinned to the cell top at translate
+ * -line_height (its middle line = mid in the window; visually identical
+ * to the resting one-line mid, swapped in the same frame). The up roll
+ * animates to -2*line_height (line 3, mid+1, enters), the down roll to
+ * 0 (line 1, mid-1, enters). The settle rewrites the label to the
+ * one-line target at translate 0 in the same frame the animation
+ * completes (LVGL renders after the timer handler) -- the target digit
+ * holds its on-screen position, no flicker.
+ *
+ * Only single-step changes (delta 1 or 9 on the wheel) animate; a larger
+ * jump (a manual time entry far from the current minute) and any
+ * non-digit character hard-swap instead.
  *
  * In-flight guard: a screen-switch attach can re-run the tick mid-roll.
  * If it is converging on the LATEST character it is left to finish; if a
- * NEWER character arrived, the roll is dropped (translate snapped to 0)
- * and the slot hard-swaps to the latest. The spin's UI keep-mask is
- * rebuilt when the pixels change (roll start via the tick's
+ * NEWER character arrived, the roll is dropped (the label settles to the
+ * latest at translate 0) and no second animation starts. The spin's UI
+ * keep-mask is rebuilt when the pixels change (roll start via the tick's
  * label_changed, and settle, in the animation timer). */
-#define CLOCK_ROLL_MS 300 /* one digit's roll time */
+#define CLOCK_ROLL_MS 300 /* one digit's roll time (the roller's default) */
 
 /* Per-slot in-flight flag + the character the slot is rolling toward.
  * ONE set for the one widget. */
@@ -39946,12 +39990,13 @@ static void clock_roll_exec(void *obj, int32_t y) {
 }
 
 /* The roll finished (LVGL task, from the animation timer). The slot is
- * at translate -line_height showing the new digit in the window: settle
- * to the resting state -- single line (the rolled-in digit) at translate
- * 0. Both changes land in the same frame (LVGL renders after the timer
- * handler returns), so the digit holds its on-screen position -- no
- * flicker. Rebuild the spin's UI keep-mask (the settled digit's pixels
- * are authoritative now). */
+ * at the strip's end translate (-2*line_height for an up roll, 0 for a
+ * down roll) with the new digit in the window: settle to the resting
+ * state -- single line (the rolled-in digit) at translate 0. Both
+ * changes land in the same frame (LVGL renders after the timer handler
+ * returns), so the digit holds its on-screen position -- no flicker.
+ * Rebuild the spin's UI keep-mask (the settled digit's pixels are
+ * authoritative now). */
 static void clock_roll_done(lv_anim_t *a) {
     lv_obj_t *slot = (lv_obj_t *)a->var;
     int i = clock_slot_index(slot);
@@ -39994,8 +40039,8 @@ void tick_user_widget_clock(int startWidgetIndex) {
             if (old == 0) {
                 /* A slot that has never shown a digit (the first attach):
                  * there is no old digit to roll out -- hard-set the new
-                 * one (rolling "from" empty would build a two-line buffer
-                 * that strlen reads as empty: a blank flash). */
+                 * one (rolling "from" empty would build a strip the
+                 * first line of which reads as empty: a blank flash). */
                 char buf[2] = {new_val[i], 0};
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
@@ -40008,9 +40053,9 @@ void tick_user_widget_clock(int startWidgetIndex) {
                            * flight: let it finish (its settle rewrites
                            * the slot to that character) */
             if (s_clock_rolling[i]) {
-                /* A NEWER character arrived mid-roll: drop the roll
-                 * (snap the slot back to the window) and hard-swap it to
-                 * the latest -- no double animation on one slot. */
+                /* A NEWER character arrived mid-roll: settle the slot to
+                 * the latest (one line at translate 0) -- no second
+                 * animation on one slot. */
                 lv_anim_delete(slot, clock_roll_exec);
                 lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                 s_clock_rolling[i] = 0;
@@ -40018,27 +40063,56 @@ void tick_user_widget_clock(int startWidgetIndex) {
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
                 tick_value_change_obj = NULL;
-            } else {
-                /* Idle: start the roll. The label holds the old digit in
-                 * the window at translate 0; swap it to the two-line
-                 * "old\nnew" (the old digit stays put, the new one is
-                 * clipped below the window) and slide up one line. */
-                char buf[4] = {old, '\n', new_val[i], 0};
+                label_changed = true;
+                continue;
+            }
+            /* Idle: start the roll. The wheel delta on the mod-10 digit
+             * circle: 1 = the new digit is BELOW the old (roll up), 9 =
+             * ABOVE (roll down); anything else (a large jump, e.g. a
+             * manual time entry) and any non-digit hard-swap. */
+            if (old < '0' || old > '9' || new_val[i] < '0' || new_val[i] > '9') {
+                char buf[2] = {new_val[i], 0};
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
                 tick_value_change_obj = NULL;
-                s_clock_roll_target[i] = new_val[i];
-                s_clock_rolling[i] = 1;
-                lv_anim_t anim;
-                lv_anim_init(&anim);
-                lv_anim_set_var(&anim, slot);
-                lv_anim_set_values(&anim, 0, -s_clock_line_h[(size_t)i]);
-                lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
-                lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
-                lv_anim_set_exec_cb(&anim, clock_roll_exec);
-                lv_anim_set_completed_cb(&anim, clock_roll_done);
-                lv_anim_start(&anim);
+                label_changed = true;
+                continue;
             }
+            int delta = (new_val[i] - old + 10) % 10;
+            if (delta != 1 && delta != 9) {
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                label_changed = true;
+                continue;
+            }
+            /* Build the three-line strip (old-1, old, old+1 on the wheel;
+             * 9 wraps to 0) centred on old: at translate -line_height its
+             * middle line (old) is in the window -- visually identical to
+             * the resting one-line old, swapped in this same frame -- and
+             * the new digit sits one line below (delta 1) or above
+             * (delta 9). Animate one line in the direction of change with
+             * the roller's ease-out path. */
+            char lo = old == '0' ? '9' : (char)(old - 1);
+            char hi = old == '9' ? '0' : (char)(old + 1);
+            char strip[6] = {lo, '\n', old, '\n', hi, 0};
+            tick_value_change_obj = slot;
+            lv_label_set_text(slot, strip);
+            lv_obj_set_style_translate_y(slot, -s_clock_line_h[(size_t)i], LV_PART_MAIN | LV_STATE_DEFAULT);
+            tick_value_change_obj = NULL;
+            s_clock_roll_target[i] = new_val[i];
+            s_clock_rolling[i] = 1;
+            lv_anim_t anim;
+            lv_anim_init(&anim);
+            lv_anim_set_var(&anim, slot);
+            lv_anim_set_values(&anim, -s_clock_line_h[(size_t)i],
+                                delta == 1 ? -2 * s_clock_line_h[(size_t)i] : 0);
+            lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
+            lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+            lv_anim_set_exec_cb(&anim, clock_roll_exec);
+            lv_anim_set_completed_cb(&anim, clock_roll_done);
+            lv_anim_start(&anim);
             label_changed = true;
         }
     }
@@ -41574,202 +41648,74 @@ int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
 ```json
 dependencies:
   espressif/button:
-    component_hash: 26345e8700d3c6435925f9a8f246d224f9c1b99f937c243fe400844eec514b4a
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
-    - name: idf
-      require: private
-      version: '>=4.0'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__button
+      type: local
     version: 4.2.3
   espressif/cmake_utilities:
-    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    component_hash: 13fee78a3817e94eb8924bb86ae840940fca970fd3f356fb61e57bad612154f3
     dependencies:
     - name: idf
       require: private
       version: '>=4.1'
     source:
-      registry_url: https://components.espressif.com
-      type: service
-    version: 0.5.3
-  espressif/esp_codec_dev:
-    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.0'
-    source:
       registry_url: https://components.espressif.com/
       type: service
+    version: 1.3.0
+  espressif/esp_codec_dev:
+    dependencies: []
+    source:
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_codec_dev
+      type: local
     version: 1.5.11
   espressif/esp_io_expander:
-    component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander
+      type: local
     version: 1.2.1
   espressif/esp_io_expander_tca9554:
-    component_hash: ee94a439ade1c17129a491efe572c600899306a2ffadbde491852d95333e28b4
-    dependencies:
-    - name: espressif/esp_io_expander
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1.2.0
-    - name: idf
-      require: private
-      version: '>=5.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_io_expander_tca9554
+      type: local
     version: 2.0.3
   espressif/esp_lcd_co5300:
-    component_hash: 1a5cbaa0069c3c72c238e5a1eb32ec9dd390ec1c7c46b24bf44b9037f2fe6c56
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: idf
-      require: private
-      version: '>=5.4'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_co5300
+      type: local
     version: 2.2.0
   espressif/esp_lcd_panel_io_additions:
-    component_hash: 1856c8b2c11aaa8a9fd67481582162bcad25f7064661a995f35c2ee8dd10ebcc
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: espressif/esp_io_expander
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_panel_io_additions
+      type: local
     version: 1.0.1~1
   espressif/esp_lcd_touch:
-    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lcd_touch
+      type: local
     version: 1.2.1
   espressif/esp_lv_decoder:
-    component_hash: 6e844411eb1089a6d971d25d08af0c00def2535a6a6c844acc42c85a7d80dd36
-    dependencies:
-    - name: espressif/esp_new_jpeg
-      registry_url: https://components.espressif.com
-      require: private
-      version: 1.*
-    - name: espressif/libpng
-      registry_url: https://components.espressif.com
-      require: private
-      version: 1.*
-    - name: espressif/qoi
-      registry_url: https://components.espressif.com
-      require: private
-      version: ^0.20260529.0
-    - name: idf
-      require: private
-      version: '>=5.3'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8.3,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
-    targets:
-    - esp32
-    - esp32s2
-    - esp32s3
-    - esp32s31
-    - esp32p4
-    - esp32c2
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32c61
-    - esp32h4
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_decoder
+      type: local
     version: 0.5.0
   espressif/esp_lv_fs:
-    component_hash: 66896007884b817df34c964f9a114fff538ee2674e99fee7159162498b93f94b
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: espressif/esp_mmap_assets
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=1.2'
-    - name: idf
-      require: private
-      version: '>=4.4'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lv_fs
+      type: local
     version: 1.0.1
   espressif/esp_lvgl_adapter:
-    component_hash: a86c36e1f762bca480672f17ecd759f54d38fd802a709fff142ccfac4d8466a6
-    dependencies:
-    - name: espressif/button
-      registry_url: https://components.espressif.com
-      require: public
-      version: 4.*
-    - name: espressif/esp_lcd_touch
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: espressif/esp_lv_decoder
-      registry_url: https://components.espressif.com
-      require: public
-      version: 0.*
-    - name: espressif/esp_lv_fs
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: espressif/freetype
-      registry_url: https://components.espressif.com
-      require: public
-      version: 2.*
-    - name: espressif/knob
-      registry_url: https://components.espressif.com
-      require: public
-      version: 1.*
-    - name: idf
-      require: private
-      version: '>=5.5'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
-      version: '>=8,<10'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/espressif__esp_lvgl_adapter
+      type: local
     version: 0.1.4
   espressif/esp_mmap_assets:
     component_hash: 42310c362596de2a37248c2937b1754bc29cd0356b9839e2a77cf791e6bcdde1
@@ -41782,14 +41728,14 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.0.1
   espressif/esp_new_jpeg:
     component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32
@@ -41811,7 +41757,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.14.3~1
   espressif/knob:
@@ -41825,7 +41771,7 @@ dependencies:
       require: private
       version: '>=4.4.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.1.0
   espressif/libpng:
@@ -41839,7 +41785,7 @@ dependencies:
       require: private
       version: ^1.2.13
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.6.59
   espressif/qoi:
@@ -41849,7 +41795,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.20260529.0
   espressif/zlib:
@@ -41859,7 +41805,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.3.2~2
   idf:
@@ -41899,41 +41845,41 @@ dependencies:
       type: service
     version: 9.6.0~1
   waveshare/esp_lcd_touch_cst9217:
-    component_hash: f755f8e3ae61df23413256a6a447e367a4b844538229c183ff0e89dbbdc15319
-    dependencies:
-    - name: espressif/esp_lcd_touch
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1.1.0
-    - name: idf
-      require: private
-      version: '>=4.4.2'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/matthias/esp/moon-phase/managed_components/waveshare__esp_lcd_touch_cst9217
+      type: local
     version: 2.0.0
   waveshare/pcf85063a:
-    component_hash: 1b1ac80637e2b3b0ae343184fbaf613b360834c0313bd9cad8f3a810d11e0b4b
-    dependencies:
-    - name: idf
-      version: '>=5.3.2'
+    dependencies: []
     source:
-      git: https://github.com/ukos-git/Waveshare-ESP32-components.git
-      path: sensor/pcf85063a
-      type: git
-    version: a415ab9f850f597fd58549f6574221f6a3607ab1
+      path: /home/matthias/esp/moon-phase/managed_components/waveshare__pcf85063a
+      type: local
+    version: 1.1.0
 direct_dependencies:
+- espressif/button
+- espressif/cmake_utilities
 - espressif/esp_codec_dev
 - espressif/esp_io_expander
 - espressif/esp_io_expander_tca9554
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
+- espressif/esp_lcd_touch
+- espressif/esp_lv_decoder
+- espressif/esp_lv_fs
 - espressif/esp_lvgl_adapter
+- espressif/esp_mmap_assets
+- espressif/esp_new_jpeg
+- espressif/freetype
+- espressif/knob
+- espressif/libpng
+- espressif/qoi
+- espressif/zlib
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: 61fdf624f28fd25fab5756458b5b80b6af66ceb0235d355f7121283f5bfd3f86
+manifest_hash: d701b54585645a72236de9ccf2bfd6b72562620f1fd29d99e013aea13276d79c
 target: esp32s3
 version: 2.0.0
 ```
@@ -45473,8 +45419,11 @@ const char *esp_err_to_name(esp_err_t code);
  * Special modes:
  *   --rolltest  verify the HH:MM digit ROLL (odometer): loads home, changes
  *               the minute 12:35 -> 12:36 through the real var + tick path,
- *               and writes out/roll_{before,mid,after}.png (settle -> the
- *               "5" sliding up into "6" -> settle).
+ *               and writes out/roll_{before,up_mid,up_after,down_mid,
+ *               down_after}.png -- settle, then 12:35 -> 12:36 (the "5"
+ *               rolls UP into the "6"), then 12:36 -> 12:35 (the "6" rolls
+ *               DOWN into the "5"): the direction-aware strip scroll, both
+ *               clipped to the one-line window.
  *   --rottest / --reveal <q> [screen] / --wheel: the other verification
  *               hooks (see their blocks below).
  */
@@ -45834,18 +45783,32 @@ int main(int argc, char **argv) {
         lv_draw_buf_t *b1 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
         write_png("out/roll_before.png", b1);
         lv_draw_buf_destroy(b1);
-        /* Trigger the minute change through the real var + tick path. */
+        /* Trigger the minute change through the real var + tick path:
+         * 12:35 -> 12:36 (the "5" rolls UP into "6", ease-out). */
         set_var_clock_label("12:36");
-        tick_user_widget_clock(16);
-        pump(disp, 150); /* mid-roll: the "5" is sliding up out of the window */
+        tick_user_widget_clock(17);
+        pump(disp, 150); /* mid-roll: the "5" sliding up out of the window */
         lv_draw_buf_t *b2 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
-        write_png("out/roll_mid.png", b2);
+        write_png("out/roll_up_mid.png", b2);
         lv_draw_buf_destroy(b2);
-        pump(disp, 300); /* let the roll finish + settle to the resting state */
+        pump(disp, 300); /* let the up roll finish + settle */
         lv_draw_buf_t *b3 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
-        write_png("out/roll_after.png", b3);
+        write_png("out/roll_up_after.png", b3);
         lv_draw_buf_destroy(b3);
-        printf("[rolltest] before / mid / after written\n");
+        /* Now the reverse direction: 12:36 -> 12:35 (the "6" rolls DOWN
+         * into "5"). Verify the direction-aware scroll + that no
+         * adjacent digit peeks into the one-line window. */
+        set_var_clock_label("12:35");
+        tick_user_widget_clock(17);
+        pump(disp, 150); /* mid-roll: the "6" sliding down out of the window */
+        lv_draw_buf_t *b4 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_down_mid.png", b4);
+        lv_draw_buf_destroy(b4);
+        pump(disp, 300); /* let the down roll finish + settle */
+        lv_draw_buf_t *b5 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_down_after.png", b5);
+        lv_draw_buf_destroy(b5);
+        printf("[rolltest] before / up_mid / up_after / down_mid / down_after written\n");
         return 0;
     }
 

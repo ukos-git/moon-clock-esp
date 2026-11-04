@@ -447,7 +447,16 @@ widget; the hub ring `UI_PX(117)` → `UI_PX(140)`, §7.6; the new
 s rotation, §7.18 — compiles in as +640 B on the P4 but is off in the
 production defaults): P4 **1,605,856 B** (`0x1880e0`, unchanged — the demo code
 is compiled out; the demo _variant_ is **1,606,496 B** `0x188340`), S3
-**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory).
+**1,525,248 B** (`0x174600`, +64 B; both ~30 % under the 2048 K factory); after
+the **clock rollers** (2026-11-04 — the digit roll adopts the settings roller's
+motion: a three-line `mid-1/mid/mid+1` wheel strip scrolled one line in the
+direction of change with the roller's ease-out path, clipped to the one-line
+window, §7.1): P4 **1,605,984 B** (`0x188160`, +128 B), S3 **1,511,280 B**
+(`0x170f70` — the `idf.py set-target esp32s3` that this build needed
+regenerates the S3 sdkconfig from the defaults split, so this S3 figure is on
+the defaults baseline, not the previous hand-tuned `0x174600` one; the roller
+delta on the S3 is not isolated from that baseline change; both ~30 % under the
+2048 K factory).
 
 Two P4-only build facts: LVGL's fast-math functions go to PSRAM XIP rather than
 internal IRAM (`CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n` — on RISC-V
@@ -1057,18 +1066,28 @@ what each control changes live.
 - **The digits ROLL** (odometer; 2026-11-04 bugreport, replacing the plain hard
   swap): each slot label sits in a one-line **clipping cell** (fixed width ×
   the digits font's line height — 71 px at 466; the cell clips its child to one
-  digit). When a digit changes, the label's text is swapped to a two-line
-  `old\nnew` and the label is **translated up one line height** over 300 ms
-  (`lv_anim` on `translate_y`, ease-in) — the old digit rolls out the top of
-  the window as the new one rolls in from the bottom (12:35 → 12:36: the "5"
-  rolls up into the "6"). At rest each slot is a single line at translate 0. An
-  in-flight guard retargets: a change landing mid-roll drops the roll (snap
-  back to translate 0) and hard-swaps to the latest digit, so a slot never runs
-  two animations. The spin's UI keep-mask is rebuilt at roll start (the tick's
-  `label_changed` path) and on settle (the anim's completed-cb, LVGL task).
-  Verified in the UI simulator with the `--rolltest` hook (before / mid-roll /
-  after frames; the settled frame is pixel-identical to the resting screen
-  apart from the changed digit).
+  digit). When a digit changes, the label's text is swapped to a **three-line
+  digit strip** `mid-1\nmid\nmid+1` (on the mod-10 wheel, 9 wraps to 0) centred
+  on the digit currently in the window, pre-translated so the middle line sits
+  in the cell, and **scrolled one line in the direction of change** over 300 ms
+  (`lv_anim` on `translate_y`, the roller's **ease-out** path — the 2026-11-04
+  "clock rollers" request adopted the settings roller's physical wheel motion,
+  fast start and gentle settle, in place of the earlier always-up 2-line
+  `ease-in` slide): 12:35 → 12:36 rolls the "5" UP out of the window as the "6"
+  enters from below; 12:36 → 12:35 rolls the "6" DOWN as the "5" enters from
+  above. The one-line cell clips the strip, so — unlike the multi-line settings
+  roller window — no adjacent digit ever peeks into the window: at rest each
+  slot is a single line at translate 0, and the settle rewrites the label to
+  the one-line target in the same frame the animation completes (the digit
+  holds its on-screen position, no flicker). Only single-step wheel changes
+  (delta 1 or 9) animate; a larger jump (a manual time entry) and any non-digit
+  character hard-swap. An in-flight guard retargets: a change landing mid-roll
+  settles the slot to the latest (one line at translate 0), so a slot never
+  runs two animations. The spin's UI keep-mask is rebuilt at roll start (the
+  tick's `label_changed` path) and on settle (the anim's completed-cb, LVGL
+  task). Verified in the UI simulator with the `--rolltest` hook (before /
+  mid + after for BOTH directions; the settled frames are pixel-identical to
+  the resting screen apart from the changed digit).
 - **ONE shared clock widget** (2026-11-04 bugreport): the five moon screens
   (airplane / WiFi / light sleep / deep sleep / alarm) used to each carry their
   own clock widget (five sets of HH:MM slots + alarm label) and only the

@@ -3017,9 +3017,12 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                          * height sizes the cell and the roll distance). A
                          * fixed-width centred glyph that the cell CLIPS to
                          * one line. At rest it is a single line (the current
-                         * digit); the roll swaps it to a two-line "old\nnew"
-                         * text and slides it up one line (see the roll block
-                         * above tick_user_widget_clock). */
+                         * digit); the roll swaps it to a three-line digit
+                         * strip (old-1, old, old+1 on the wheel) centred on
+                         * the old digit and scrolls it one line in the
+                         * direction of change, the settings roller's motion
+                         * (see the roll block above
+                         * tick_user_widget_clock). */
                         lv_obj_t *slot = lv_label_create(obj);
                         s_clock_time_slot[(size_t)i] = slot;
                         lv_obj_set_size(slot, w, LV_SIZE_CONTENT);
@@ -3042,8 +3045,12 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                         lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
                         lv_obj_clear_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
                         /* Move the label into the cell, pinned to the cell's
-                         * TOP (so a two-line label's FIRST line sits in the
-                         * window at translate 0). */
+                         * TOP: at rest the one-line digit sits in the
+                         * window at translate 0; the roll swaps it to the
+                         * three-line strip and pre-translates it so the
+                         * strip's MIDDLE line (the old digit) is in the
+                         * window (see the roll block above
+                         * tick_user_widget_clock). */
                         lv_obj_set_parent(slot, cell);
                         lv_obj_set_pos(slot, 0, 0);
                         lv_label_set_text(slot, "");
@@ -3138,19 +3145,38 @@ static bool s_clock_unsynced_dim;
  *
  * The minute tick no longer hard-swaps each digit's character: the slot
  * label (which sits in a one-line clipping cell, see
- * create_user_widget_clock) is swapped to a two-line "old\nnew" text and
- * slid UP one line height inside the cell -- the old digit rolls out the
- * top, the new digit rolls in from the bottom (12:35 -> 12:36: the "5"
- * rolls up into "6"). At rest each slot is a single line (the current
- * digit) at translate 0.
+ * create_user_widget_clock) is swapped to a THREE-LINE digit strip
+ * (mid-1, mid, mid+1 on the mod-10 wheel -- 9 wraps to 0) centred on the
+ * digit currently in the window, and SCROLLED one line in the direction
+ * of change, the settings roller's motion (the user preferred it over the
+ * earlier always-up 2-line slide): 12:35 -> 12:36 rolls the "5" UP out of
+ * the window as the "6" enters from below; 12:36 -> 12:35 rolls the "6"
+ * DOWN as the "5" enters from above. The scroll uses the roller's
+ * ease-out path (fast start, gentle settle -- a physical wheel, not a
+ * ramp). The one-line CELL clips the strip, so -- unlike the multi-line
+ * settings roller window -- no adjacent digit ever peeks into the
+ * window: at rest each slot shows exactly one digit.
+ *
+ * Geometry: the strip sits pinned to the cell top at translate
+ * -line_height (its middle line = mid in the window; visually identical
+ * to the resting one-line mid, swapped in the same frame). The up roll
+ * animates to -2*line_height (line 3, mid+1, enters), the down roll to
+ * 0 (line 1, mid-1, enters). The settle rewrites the label to the
+ * one-line target at translate 0 in the same frame the animation
+ * completes (LVGL renders after the timer handler) -- the target digit
+ * holds its on-screen position, no flicker.
+ *
+ * Only single-step changes (delta 1 or 9 on the wheel) animate; a larger
+ * jump (a manual time entry far from the current minute) and any
+ * non-digit character hard-swap instead.
  *
  * In-flight guard: a screen-switch attach can re-run the tick mid-roll.
  * If it is converging on the LATEST character it is left to finish; if a
- * NEWER character arrived, the roll is dropped (translate snapped to 0)
- * and the slot hard-swaps to the latest. The spin's UI keep-mask is
- * rebuilt when the pixels change (roll start via the tick's
+ * NEWER character arrived, the roll is dropped (the label settles to the
+ * latest at translate 0) and no second animation starts. The spin's UI
+ * keep-mask is rebuilt when the pixels change (roll start via the tick's
  * label_changed, and settle, in the animation timer). */
-#define CLOCK_ROLL_MS 300 /* one digit's roll time */
+#define CLOCK_ROLL_MS 300 /* one digit's roll time (the roller's default) */
 
 /* Per-slot in-flight flag + the character the slot is rolling toward.
  * ONE set for the one widget. */
@@ -3172,12 +3198,13 @@ static void clock_roll_exec(void *obj, int32_t y) {
 }
 
 /* The roll finished (LVGL task, from the animation timer). The slot is
- * at translate -line_height showing the new digit in the window: settle
- * to the resting state -- single line (the rolled-in digit) at translate
- * 0. Both changes land in the same frame (LVGL renders after the timer
- * handler returns), so the digit holds its on-screen position -- no
- * flicker. Rebuild the spin's UI keep-mask (the settled digit's pixels
- * are authoritative now). */
+ * at the strip's end translate (-2*line_height for an up roll, 0 for a
+ * down roll) with the new digit in the window: settle to the resting
+ * state -- single line (the rolled-in digit) at translate 0. Both
+ * changes land in the same frame (LVGL renders after the timer handler
+ * returns), so the digit holds its on-screen position -- no flicker.
+ * Rebuild the spin's UI keep-mask (the settled digit's pixels are
+ * authoritative now). */
 static void clock_roll_done(lv_anim_t *a) {
     lv_obj_t *slot = (lv_obj_t *)a->var;
     int i = clock_slot_index(slot);
@@ -3220,8 +3247,8 @@ void tick_user_widget_clock(int startWidgetIndex) {
             if (old == 0) {
                 /* A slot that has never shown a digit (the first attach):
                  * there is no old digit to roll out -- hard-set the new
-                 * one (rolling "from" empty would build a two-line buffer
-                 * that strlen reads as empty: a blank flash). */
+                 * one (rolling "from" empty would build a strip the
+                 * first line of which reads as empty: a blank flash). */
                 char buf[2] = {new_val[i], 0};
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
@@ -3234,9 +3261,9 @@ void tick_user_widget_clock(int startWidgetIndex) {
                            * flight: let it finish (its settle rewrites
                            * the slot to that character) */
             if (s_clock_rolling[i]) {
-                /* A NEWER character arrived mid-roll: drop the roll
-                 * (snap the slot back to the window) and hard-swap it to
-                 * the latest -- no double animation on one slot. */
+                /* A NEWER character arrived mid-roll: settle the slot to
+                 * the latest (one line at translate 0) -- no second
+                 * animation on one slot. */
                 lv_anim_delete(slot, clock_roll_exec);
                 lv_obj_set_style_translate_y(slot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                 s_clock_rolling[i] = 0;
@@ -3244,27 +3271,55 @@ void tick_user_widget_clock(int startWidgetIndex) {
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
                 tick_value_change_obj = NULL;
-            } else {
-                /* Idle: start the roll. The label holds the old digit in
-                 * the window at translate 0; swap it to the two-line
-                 * "old\nnew" (the old digit stays put, the new one is
-                 * clipped below the window) and slide up one line. */
-                char buf[4] = {old, '\n', new_val[i], 0};
+                label_changed = true;
+                continue;
+            }
+            /* Idle: start the roll. The wheel delta on the mod-10 digit
+             * circle: 1 = the new digit is BELOW the old (roll up), 9 =
+             * ABOVE (roll down); anything else (a large jump, e.g. a
+             * manual time entry) and any non-digit hard-swap. */
+            if (old < '0' || old > '9' || new_val[i] < '0' || new_val[i] > '9') {
+                char buf[2] = {new_val[i], 0};
                 tick_value_change_obj = slot;
                 lv_label_set_text(slot, buf);
                 tick_value_change_obj = NULL;
-                s_clock_roll_target[i] = new_val[i];
-                s_clock_rolling[i] = 1;
-                lv_anim_t anim;
-                lv_anim_init(&anim);
-                lv_anim_set_var(&anim, slot);
-                lv_anim_set_values(&anim, 0, -s_clock_line_h[(size_t)i]);
-                lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
-                lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
-                lv_anim_set_exec_cb(&anim, clock_roll_exec);
-                lv_anim_set_completed_cb(&anim, clock_roll_done);
-                lv_anim_start(&anim);
+                label_changed = true;
+                continue;
             }
+            int delta = (new_val[i] - old + 10) % 10;
+            if (delta != 1 && delta != 9) {
+                char buf[2] = {new_val[i], 0};
+                tick_value_change_obj = slot;
+                lv_label_set_text(slot, buf);
+                tick_value_change_obj = NULL;
+                label_changed = true;
+                continue;
+            }
+            /* Build the three-line strip (old-1, old, old+1 on the wheel;
+             * 9 wraps to 0) centred on old: at translate -line_height its
+             * middle line (old) is in the window -- visually identical to
+             * the resting one-line old, swapped in this same frame -- and
+             * the new digit sits one line below (delta 1) or above
+             * (delta 9). Animate one line in the direction of change with
+             * the roller's ease-out path. */
+            char lo = old == '0' ? '9' : (char)(old - 1);
+            char hi = old == '9' ? '0' : (char)(old + 1);
+            char strip[6] = {lo, '\n', old, '\n', hi, 0};
+            tick_value_change_obj = slot;
+            lv_label_set_text(slot, strip);
+            lv_obj_set_style_translate_y(slot, -s_clock_line_h[(size_t)i], LV_PART_MAIN | LV_STATE_DEFAULT);
+            tick_value_change_obj = NULL;
+            s_clock_roll_target[i] = new_val[i];
+            s_clock_rolling[i] = 1;
+            lv_anim_t anim;
+            lv_anim_init(&anim);
+            lv_anim_set_var(&anim, slot);
+            lv_anim_set_values(&anim, -s_clock_line_h[(size_t)i], delta == 1 ? -2 * s_clock_line_h[(size_t)i] : 0);
+            lv_anim_set_duration(&anim, CLOCK_ROLL_MS);
+            lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+            lv_anim_set_exec_cb(&anim, clock_roll_exec);
+            lv_anim_set_completed_cb(&anim, clock_roll_done);
+            lv_anim_start(&anim);
             label_changed = true;
         }
     }

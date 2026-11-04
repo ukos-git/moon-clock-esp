@@ -16,8 +16,11 @@
  * Special modes:
  *   --rolltest  verify the HH:MM digit ROLL (odometer): loads home, changes
  *               the minute 12:35 -> 12:36 through the real var + tick path,
- *               and writes out/roll_{before,mid,after}.png (settle -> the
- *               "5" sliding up into "6" -> settle).
+ *               and writes out/roll_{before,up_mid,up_after,down_mid,
+ *               down_after}.png -- settle, then 12:35 -> 12:36 (the "5"
+ *               rolls UP into the "6"), then 12:36 -> 12:35 (the "6" rolls
+ *               DOWN into the "5"): the direction-aware strip scroll, both
+ *               clipped to the one-line window.
  *   --rottest / --reveal <q> [screen] / --wheel: the other verification
  *               hooks (see their blocks below).
  */
@@ -377,18 +380,32 @@ int main(int argc, char **argv) {
         lv_draw_buf_t *b1 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
         write_png("out/roll_before.png", b1);
         lv_draw_buf_destroy(b1);
-        /* Trigger the minute change through the real var + tick path. */
+        /* Trigger the minute change through the real var + tick path:
+         * 12:35 -> 12:36 (the "5" rolls UP into "6", ease-out). */
         set_var_clock_label("12:36");
-        tick_user_widget_clock(16);
-        pump(disp, 150); /* mid-roll: the "5" is sliding up out of the window */
+        tick_user_widget_clock(17);
+        pump(disp, 150); /* mid-roll: the "5" sliding up out of the window */
         lv_draw_buf_t *b2 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
-        write_png("out/roll_mid.png", b2);
+        write_png("out/roll_up_mid.png", b2);
         lv_draw_buf_destroy(b2);
-        pump(disp, 300); /* let the roll finish + settle to the resting state */
+        pump(disp, 300); /* let the up roll finish + settle */
         lv_draw_buf_t *b3 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
-        write_png("out/roll_after.png", b3);
+        write_png("out/roll_up_after.png", b3);
         lv_draw_buf_destroy(b3);
-        printf("[rolltest] before / mid / after written\n");
+        /* Now the reverse direction: 12:36 -> 12:35 (the "6" rolls DOWN
+         * into "5"). Verify the direction-aware scroll + that no
+         * adjacent digit peeks into the one-line window. */
+        set_var_clock_label("12:35");
+        tick_user_widget_clock(17);
+        pump(disp, 150); /* mid-roll: the "6" sliding down out of the window */
+        lv_draw_buf_t *b4 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_down_mid.png", b4);
+        lv_draw_buf_destroy(b4);
+        pump(disp, 300); /* let the down roll finish + settle */
+        lv_draw_buf_t *b5 = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        write_png("out/roll_down_after.png", b5);
+        lv_draw_buf_destroy(b5);
+        printf("[rolltest] before / up_mid / up_after / down_mid / down_after written\n");
         return 0;
     }
 
