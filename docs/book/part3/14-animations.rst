@@ -74,7 +74,8 @@ sets ``s_sweep_abort``, which the loop polls too).
 display; the **final frame** (the current phase the spin resumes
 from) always bakes at full ``MOON_PX``. The bake cost scales with
 :math:`(S/400)^2`; the measured per-frame table on the 336-frame
-sweep (S3, from the pipeline's own header) is:
+sweep (on the S3 board — the Waveshare ESP32-S3-Touch-AMOLED-1.75 —
+from the pipeline's own header) is:
 
 .. list-table::
    :header-rows: 1

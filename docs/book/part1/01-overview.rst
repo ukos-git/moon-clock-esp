@@ -15,9 +15,21 @@ It is not a photo. It is not a clock face with a moon icon. It is a
 relief), lit by the real Sun from the real subsolar point of the
 current moment, projected through the real camera libration. The
 pipeline is small enough to run in about 1.4 MB of flash and to bake a
-full frame in well under a second on the S3 — which is what makes the
+full frame in well under a second on the S3 board (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75, Chapter 2) — which is what makes the
 animations in Chapter 14 (a two-minute boot sweep, the continuous
 burn-in spin, the "dusk") possible on a $20 board.
+
+.. figure:: ../_static/photos/sim_home.png
+   :alt: Simulated render of the finished clock on the Waveshare ESP32-S3-Touch-AMOLED-1.75
+   :figclass: align-center
+
+   The finished clock, simulated: the home screen composited onto the
+   Waveshare ESP32-S3-Touch-AMOLED-1.75's glass (a uisim frame at
+   true panel geometry over the Waveshare product photo) — the moon
+   at the current phase, the minute, the seconds arc. The bench
+   photographs in the hardware chapters show the same product
+   physical; the renders show what the *panel* actually shows.
 
 What makes it different
 -----------------------
@@ -56,7 +68,10 @@ direction:
 The two boards
 --------------
 
-The same portable C core runs on two hardware targets:
+The same portable C core runs on two hardware targets — the
+**Waveshare ESP32-S3-Touch-AMOLED-1.75** (the primary, "S3" below) and
+the **Waveshare ESP32-P4-WIFI6-Touch-LCD-XC** (the secondary, "4C"
+below):
 
 .. list-table::
    :header-rows: 1

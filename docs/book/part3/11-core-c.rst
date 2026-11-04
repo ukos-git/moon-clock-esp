@@ -4,7 +4,9 @@ Chapter 11 — The portable C core
 This chapter walks the device-side renderer: the dependency-free C
 library in ``components/moon`` that turns a UTC epoch into a 400×400
 gray frame. Everything in it compiles unchanged on the host (the
-simulator, the gate) and on the S3/P4; the only platform assumptions
+simulator, the gate) and on both device boards (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75, "S3", and the Waveshare
+ESP32-P4-WIFI6-Touch-LCD-XC, "4C"); the only platform assumptions
 are a float FPU and a ``malloc``-like allocator.
 
 The file layout

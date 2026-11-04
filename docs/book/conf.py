@@ -44,6 +44,16 @@ html_theme_options = {
 # Math: MathJax (the geometry chapter uses it).
 mathjax_path = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"
 
+# Mermaid: the architecture stack (Chapter 10) and the sleep state
+# machine (Chapter 15) are rendered client-side from ``.. raw:: html``
+# ``<pre class="mermaid">`` blocks. Pinned CDN build (the book already
+# loads MathJax from a CDN) + the small init script that picks furo's
+# current theme and re-renders on a theme toggle.
+html_js_files = [
+    "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
+    "_static/mermaid_init.js",
+]
+
 # autodoc: the moon package is small and fully documented; show everything.
 autodoc_default_options = {
     "members": True,

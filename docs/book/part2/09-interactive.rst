@@ -19,14 +19,14 @@ the same soft terminator, the same warm tint.
 .. raw:: html
 
    <iframe src="../_static/moonjs/moonlab.html"
-           style="width:100%; min-height:640px; border:0; border-radius:12px;"
+           style="width:100%; min-height:880px; border:0; border-radius:12px;"
            loading="lazy" title="Moon Lab — interactive moon simulator"></iframe>
 
 What you can drive
 ------------------
 
-- **Date** — any 2-hour instant across 2026. The phase, illumination,
-  and terminator position follow the validated ephemeris.
+- **Date** — any 2-hour instant across 2026 **and 2027**. The phase,
+  illumination, and terminator position follow the validated ephemeris.
 - **Backlit dark-side level (K)** — :math:`MOON_NIGHT_BACKLIT_K`, the
   constant Chapter 8 calibrated. Drag it from 0 (silhouette) to 0.5
   (too loud) and watch the dark side's relief emerge and then
@@ -75,8 +75,8 @@ The geometry — the one thing that cannot be cheaply computed in the
 browser without a full ephemeris library — is precomputed by
 ``docs/book/tools/gen_moonjs.py`` using the *same code path* as the
 validated Python prototype (``moon.astro``: PyERFA ephemeris + the
-calibrated IAU_Moon body frame), sampled 2-hourly across the year into a
-:math:`\text{Float32}` table. ``geometryAt`` linearly interpolates that
+calibrated IAU_Moon body frame), sampled 2-hourly across both years
+(8760 rows) into a :math:`\text{Float32}` table. ``geometryAt`` linearly interpolates that
 table and renormalizes the vectors; the error is well below the
 ephemeris's own tolerance.
 

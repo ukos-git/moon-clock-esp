@@ -12,7 +12,8 @@ spin write, the watchdog — is a consequence of those three facts.
 The panel and the numbers that constrain it
 -------------------------------------------
 
-The S3 board's panel is the CO5300: 466×466, RGB565, driven over
+The S3 board's panel (the Waveshare ESP32-S3-Touch-AMOLED-1.75,
+Chapter 2) is the CO5300: 466×466, RGB565, driven over
 QSPI by the ESP32-S3's **SPI2_HOST** peripheral (the "GPSPI" bus in
 the IDF's naming). The numbers that matter:
 
@@ -369,7 +370,8 @@ correct. The spin's *direct* write bypasses the adapter's swap, so
    static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (v << 8)); }
    #endif
 
-The P4's MIPI-DSI panel wants LVGL-native order (its adapter bridge
+The P4 board's (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) MIPI-DSI
+panel wants LVGL-native order (its adapter bridge
 does not swap — ``lv_draw_sw_rgb565_swap`` fires only for the
 "OTHER" panel interface), so the identity is correct there. Getting
 this wrong is invisible in the simulator (the host renderer writes

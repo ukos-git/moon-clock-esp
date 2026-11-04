@@ -20,6 +20,35 @@ image, the switch between them is the *both-moon* case of the fade
 rule (Chapter 14): no dim, one atomic whole-panel flush, and the
 spin/sweep animation flows seamlessly across the switch.
 
+.. figure:: ../../img/screens/modem_sleep.png
+   :alt: The airplane (home) screen
+   :figclass: align-center
+
+   The **airplane** (modem-sleep) screen — the moon, the minute, the
+   seconds arc. No icons.
+
+.. figure:: ../../img/screens/wifi.png
+   :alt: The transient WiFi screen
+   :figclass: align-center
+
+   The **WiFi** screen — the *same* moon image plus the transient
+   sync indicator, shown only while a sync is in flight; the switch
+   back is the no-dim both-moon case.
+
+The same UI on the second board — the Waveshare
+ESP32-P4-WIFI6-Touch-LCD-XC (720×720 round IPS, Chapter 3): the moon
+bakes at a larger disk (650 px), the clock digits sit on the 148-px
+font, but the screen logic — these transitions, the wake paths, the
+sleep states — is the machine this chapter describes, unchanged.
+
+.. figure:: ../../img/screens/p4/modem_sleep.png
+   :alt: The airplane screen on the P4 board
+   :figclass: align-center
+
+   The **airplane** screen on the P4 board (Waveshare
+   ESP32-P4-WIFI6-Touch-LCD-XC) — the same layout at 720×720: the
+   moon at 650 px, the 148-px clock digits, the seconds arc.
+
 The **settings hub** (tap on the home or WiFi screen) and its
 sub-screens (alarm, pomodoro, alarm time, light-sleep, deep-sleep,
 timezone, WiFi) carry *no* moon image. ``moon_screen_has_image()``
@@ -27,6 +56,62 @@ checks the active screen's root against the moon images' roots — and
 that check is the lever that **starts and stops the spin render
 task**: on a moon-less screen the spin and the tick's full-panel
 ``lv_refr_now`` would idle at ~50% of one core redrawing nothing.
+
+.. figure:: ../../img/screens/settings_hub.png
+   :alt: The settings hub
+   :figclass: align-center
+
+   The **settings hub** — the sub-screens as a hub-and-spoke around
+   the exit. The moon is gone: a hub screen is one of the moon-less
+   screens the spin task keys off.
+
+The sub-screens:
+
+.. figure:: ../../img/screens/settings_alarm.png
+   :alt: The alarm rules screen
+   :figclass: align-center
+
+   The **alarm** hub icon: the rule list (add / delete / edit) plus a
+   default Mon–Fri 07:00 rule (the project default that replaced the
+   old every-5-minute rule).
+
+.. figure:: ../../img/screens/settings_alarm_time.png
+   :alt: The alarm time screen
+   :figclass: align-center
+
+   The **alarm time** screen — the week arc (Mo–Fr here) selects the
+   rule's active days; the time wheel picks the hour and minute.
+
+.. figure:: ../../img/screens/settings_pomodoro.png
+   :alt: The pomodoro repeat-interval screen
+   :figclass: align-center
+
+   The **pomodoro** interval — the focus/timer repeat interval in
+   minutes.
+
+.. figure:: ../../img/screens/settings_deep_sleep.png
+   :alt: The deep-sleep countdown settings screen
+   :figclass: align-center
+
+   The **sleep countdown** — the light-sleep → deep-sleep seconds
+   (the one-shot armed on the dusk's last frame, above).
+
+.. figure:: ../../img/screens/settings_tz.png
+   :alt: The timezone / UTC-offset settings screen
+   :figclass: align-center
+
+   The **timezone / UTC offset** screen — one of 53 thirty-minute
+   offsets (Europe/Berlin here); committing rewrites the RTC
+   epoch-consistently and re-arms the alarm (Chapter 10,
+   ``clock_tz``).
+
+.. figure:: ../../img/screens/settings_wifi.png
+   :alt: The WiFi networks screen
+   :figclass: align-center
+
+   The **WiFi networks** screen — the scan results (the quiescent
+   AP-scan of the on-demand sync, Chapter 10); selecting a network
+   opens the password entry with the on-screen keyboard (Chapter 21).
 
 The minute-driven clock
 -----------------------
@@ -43,6 +128,21 @@ gates matter:
   and the minute update re-applies.
 - **The sweep gate** — an on-demand WiFi sync (below) may not fire
   while the boot sweep is playing: it would switch screens mid-sweep.
+
+The minute label is drawn as **fixed-width HH:MM slots** — the numbers
+font is proportional, so a single label would read 175 px at ``11:11``
+and 290 px at ``44:44`` and the whole string would hop sideways on every
+minute change. Each character sits in its own centred, fixed-width slot
+label instead, so the string is a constant width and only the ink moves.
+
+.. figure:: ../../img/screens/settings_time.png
+   :alt: The set time/date screen with the fixed-width HH:MM clock
+   :figclass: align-center
+
+   The **set time/date** screen — the clock digits are the same
+   fixed-width HH:MM slots as the home screen (each character in its
+   own centred slot, so the string never shifts), over the date; the
+   X commits the time.
 
 The 90° orientation steps
 -------------------------
@@ -92,6 +192,13 @@ departure (below); the timer's timeout (``settings_idle_timeout_sec``,
 default 60 s, user-tunable 10–300 in settings) is the light-sleep
 trigger.
 
+.. figure:: ../../img/screens/settings_light_sleep.png
+   :alt: The idle-timeout settings screen
+   :figclass: align-center
+
+   The **idle timeout** setting — the wheel picks the seconds (the
+   light-sleep trigger above), the X commits and returns.
+
 **Light sleep** (``action_switch_to_light_sleep_screen``):
 
 - the moon **dusk** plays (Chapter 14) — the constant-projection pole
@@ -105,6 +212,27 @@ trigger.
   — the RTC one-shot fires only once the fully unilluminated side is
   on screen, so the sleep depth follows the animation, not a timer
   started at the entry.
+
+.. figure:: ../../img/screens/light_sleep.png
+   :alt: The light-sleep screen
+   :figclass: align-center
+
+   The **light-sleep** screen — the dusk has settled on the dark side
+   and the panel is ramped to 25 %; the clock still runs underneath.
+
+   On the real glass the 25 % is a *hardware* dim (the 0x51 ramp), so
+   the whole panel — moon and digits — glows at a quarter of the home
+   screen's brightness. The flat capture above cannot show that; the
+   simulated composite can:
+
+.. figure:: ../_static/photos/sim_light_sleep.png
+   :alt: Simulated light-sleep render at 25 percent hardware brightness
+   :figclass: align-center
+
+   Light sleep on the Waveshare ESP32-S3-Touch-AMOLED-1.75 — the same
+   frame at 25 % hardware brightness: the moon's lit side still reads
+   as a moon, but the panel's black is truly black (AMOLED) and the
+   whole image is a quarter as bright as the home screen.
 
 **Deep sleep** (``action_switch_to_deep_sleep_screen``):
 
@@ -134,7 +262,27 @@ seconds timer, the clock update (the backlight gate), the WiFi radio.
 The RTC's crystal clock keeps running, which is what the alarm wake
 relies on.
 
-One S3/P4 asymmetry: the P4 has no PCF85063A ALM wake (the app-level
+.. figure:: ../../img/screens/deep_sleep.png
+   :alt: The deep-sleep screen
+   :figclass: align-center
+
+   The **deep-sleep** screen — the moon at its static phase under the
+   crescent sleep glyph. This capture is the frame *just after* the
+   entry: the code then hides the clock label and turns the backlight
+   off, so on the panel the screen goes black right after this. The
+   simulated composite shows the same last-lit frame on the glass:
+
+.. figure:: ../_static/photos/sim_deep_sleep.png
+   :alt: Simulated deep-sleep last-lit frame
+   :figclass: align-center
+
+   Deep sleep's last lit frame on the Waveshare ESP32-S3-Touch-AMOLED-1.75
+   — the static moon and the crescent glyph; one backlight write later
+   the panel is off until the next wake.
+
+One S3/P4 asymmetry (the Waveshare ESP32-S3-Touch-AMOLED-1.75
+versus the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC): the P4 has no
+PCF85063A ALM wake (the app-level
 deep sleep does not call ``esp_deep_sleep`` — the crystal clock runs
 through it), so on the P4 the device **stays in light sleep while an
 alarm is pending** (dim panel, dark side) instead of dropping to the
@@ -187,6 +335,24 @@ Three wakes, one handler (``action_wake_screen``):
 3. **Alarm** — the ALM pin (S3: a real deep-sleep wake; P4: the
    software one-shot from light sleep).
 
+.. figure:: ../../img/screens/alarm.png
+   :alt: The alarm screen
+   :figclass: align-center
+
+   The **alarm** screen — the third wake, shown while the ring plays
+   (a touch is the snooze/dismiss). The weekday arc above the clock
+   marks the rule's active days. On the glass (this is the only wake
+   that matters to the dark panel — the alarm rings on a backlight
+   that was off):
+
+.. figure:: ../_static/photos/sim_alarm.png
+   :alt: Simulated alarm screen on the panel
+   :figclass: align-center
+
+   The alarm wake on the Waveshare ESP32-S3-Touch-AMOLED-1.75 — the
+   minute and the alarm glyph at full brightness, straight out of
+   deep sleep.
+
 All three run the same tail:
 
 .. code-block:: c
@@ -237,31 +403,27 @@ path fires. The policy is deliberately conservative:
 The state machine, in full
 ---------------------------
 
-::
+.. raw:: html
 
-   BOOT
-     └─ (NTP ok) WIFI screen ←── boot sweep (336 f, ~2.8 min)
-          └─ sync complete ──► AIRPLANE (home) ←──┐
-     └─ (NTP fail) AIRPLANE                      │
-                                                 │  tap → HUB → sub-screens
-   AIRPLANE ── idle 60 s ──► LIGHT SLEEP ──┐     │   (hub exit → sync → AIRPLANE)
-     ▲                                     │     │
-     │ wake (touch / tilt / alarm)         │     │
-     │  • backlight → 100                 │ dusk │
-     │  • static phase + spin resume      │ (pole│
-     │  • on-demand sync (WiFi screen)    │  spin│
-     └─────────────────────────────────────┤  to  │
-                                           │  dark│
-                                           │  side│
-                                           │  + 25%│
-                                           │  dim) │
-                                           └─ RTC countdown (30 s) ─► DEEP SLEEP
-                                                                         • WiFi deinit
-                                                                         • clock hidden
-                                                                         • backlight OFF
-                                                                         • ticks paused
-        DEEP SLEEP ── ALM pin (S3) / software one-shot (P4) ──► wake path
-        DEEP SLEEP ── touch (S3: no) / tilt ──► wake path
+   <pre class="mermaid">
+   stateDiagram-v2
+     [*] --> BOOT
+     BOOT --> WIFI: NTP ok — boot sweep (336 f, ~2.8 min)
+     BOOT --> AIRPLANE: NTP fail
+     WIFI --> AIRPLANE: sync complete
+     AIRPLANE --> HUB: tap — the sub-screens (exit returns via the on-demand sync)
+     HUB --> AIRPLANE
+     AIRPLANE --> LIGHT_SLEEP: idle 60 s — dusk (pole spin to dark side, + 25% dim)
+     LIGHT_SLEEP --> AIRPLANE: wake (touch / tilt / alarm) — backlight → 100, static phase, on-demand sync
+     LIGHT_SLEEP --> DEEP_SLEEP: RTC countdown (30 s)
+     DEEP_SLEEP --> LIGHT_SLEEP: ALM pending (P4 stays dim, does not drop out)
+     DEEP_SLEEP --> AIRPLANE: wake — ALM pin (S3) / software one-shot (P4), or tilt
+     DEEP_SLEEP --> DEEP_SLEEP: touch — none on the S3
+   </pre>
+
+The deep-sleep entry (the right-hand column above) does the rest:
+WiFi deinit, the clock label hidden, the backlight off, the tick and
+seconds timers paused.
 
 Every transition is one atomic flush (the invariant), every panel
 brightness write is the serialized 0x51 path (Chapter 13), and every

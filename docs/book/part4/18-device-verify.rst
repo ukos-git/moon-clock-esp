@@ -5,7 +5,8 @@ The host gate proves the *math* renders correctly. It cannot prove
 the *device* runs correctly: a frame that is pixel-perfect on x86 is
 still a half-screen tear if the panel write interleaves with a
 re-bake, and a 1.3 s bake that fits in a 5 s WDT window on the
-simulator can still starve a FreeRTOS task on the S3. This chapter is
+simulator can still starve a FreeRTOS task on the S3 (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75). This chapter is
 the second half of the validation: what "verified" means on the
 device, the evidence captured on the serial line, and the three
 incidents the device — and not the simulator — caught.
@@ -76,8 +77,9 @@ Three properties are checked: the span is found (the new-moon scan
 logged a plausible day count — a degenerate ephemeris logs a full
 29.53 d fallback); the per-frame ``shown`` deltas are ~150 ms
 (display-paced, not the ~1.3 s bake); and the hand-off to the spin
-happens (the re-anchor + ``spin started``). The P4 acceptance is the
-same flow on the 650 px disk: **336/336 frames, 0 WDT/panic**, with
+happens (the re-anchor + ``spin started``). The P4 board's
+(Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) acceptance is the same flow
+on the 650 px disk: **336/336 frames, 0 WDT/panic**, with
 the final full-res bake at **599 ms @ 618 px / 959 ms @ 650 px**
 (the P4 bake is ~15× faster than the S3's per pixel — the RISC-V
 vector unit and the X16 PSRAM bandwidth, Chapter 19).

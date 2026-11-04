@@ -1,8 +1,10 @@
 Chapter 24 — Build system and Kconfig
 =====================================
 
-Two boards, one tree: the S3 build is the default target and the P4
-build is a sibling with its own partition table, its own dependency
+Two boards, one tree: the S3 build (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75) is the default target and the P4 build
+(the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) is a sibling with its own
+partition table, its own dependency
 lock, and a board-select Kconfig that gates the app's board-specific
 code. This chapter is the build layer — the three-file
 ``sdkconfig.defaults`` split, the P4 target block in the root

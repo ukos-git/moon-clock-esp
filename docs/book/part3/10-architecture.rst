@@ -25,41 +25,40 @@ them:
 The layer stack
 ---------------
 
-::
+.. raw:: html
 
-  +---------------------------------------------------------------+
-  | main.cpp — app_main: BSP bring-up, wifi boot, clock init,     |
-  |   the boot sweep host, deep-sleep entry                        |
-  +---------------------------------------------------------------+
-  | components/clock — clock.c (minute-driven display, 90-deg     |
-  |   roll), clock_sntp (NTP), clock_idle (activity/sleep state   |
-  |   machine), clock_alarm_scheduler (PCF85063A alarm rules),    |
-  |   clock_tz (53 timezone offsets), settings_store (SPIFFS)     |
-  +---------------------------------------------------------------+
-  | components/wifi — wifi_manager (connect, deinit, credentials), |
-  |   wifi scan (settings screen)                                  |
-  +---------------------------------------------------------------+
-  | components/ui — screens.c (all screens, UI_PX panel-scaled),   |
-  |   actions.c (navigation + wake/sleep flow), moon_ui.c (the     |
-  |   moon pipeline: bake tasks, spin, sweep, dusk, panel write)   |
-  +---------------------------------------------------------------+
-  | components/moon — the portable core (Chapter 11):             |
-  |   moon_astro (ERFA ephemeris -> moon_geom_t), moon_bake        |
-  |   (the per-pixel model, Chapter 6), moon_render (rotate +     |
-  |   g565 LUT), moon_fixp (Q15.15), moon_assets (albedo + DEM)   |
-  +---------------------------------------------------------------+
-  | components/board — the board shim: board_display(),           |
-  |   board_panel(), board_touch(), board_imu(), board_rtc()      |
-  |   (S3 and P4 both, one API)                                    |
-  +---------------------------------------------------------------+
-  | vendored BSPs — esp32_s3_touch_amoled_1_75 (CO5300 QSPI),     |
-  |   ESP32_P4 (JD9365 MIPI-DSI) — display init, touch, IMU, RTC  |
-  +---------------------------------------------------------------+
+   <pre class="mermaid">
+   flowchart TB
+     main["main.cpp — app_main: BSP bring-up, wifi boot, clock init, boot sweep, deep-sleep entry"]
+     clock["components/clock — minute display, NTP, idle/sleep state, alarm scheduler, timezone, settings"]
+     wifi["components/wifi — wifi_manager, wifi scan"]
+     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · spin · sweep · dusk · panel write)"]
+     moon["components/moon — the portable core (Ch. 11): ephemeris, bake, render, Q15.15, assets"]
+     board["components/board — the board shim: display / panel / touch / IMU / RTC (S3 + P4, one API)"]
+     bsp["vendored BSPs — S3: CO5300 QSPI · P4: JD9365 MIPI-DSI"]
+     main --> clock
+     main --> wifi
+     main --> ui
+     ui --> moon
+     clock --> board
+     wifi --> board
+     ui --> board
+     board --> bsp
+   </pre>
+
+The stack reads top-down (each layer calls the ones below it; the
+``components/moon`` core calls no layer at all — it is the portable,
+dependency-free library Chapter 11 walks). The per-file detail each
+box summarizes lives in the chapters that own that layer: the clock
+files in Chapter 15, the UI files in Chapters 14–15, the core in
+Chapter 11, the shim and BSPs in Chapters 13 and 16.
 
 The ``components/moon`` core is the only code that knows what a moon
 pixel is. ``components/ui`` knows what a *screen* is. The clock
-component knows what a *minute* is. The board shim is where "S3" and
-"P4" stop being two codebases: every call site sees
+component knows what a *minute* is. The board shim is where "S3" (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75) and "P4" (the Waveshare
+ESP32-P4-WIFI6-Touch-LCD-XC, "4C") stop being two codebases: every
+call site sees
 ``board_panel()``/``board_display()``, and only the shim's two
 implementations know which silicon is underneath.
 

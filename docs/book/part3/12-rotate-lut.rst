@@ -11,7 +11,8 @@ Why a rotation at all
 ---------------------
 
 The bake renders one fixed phase per frame — baking is ~1.3 s on the
-S3, so it cannot follow a hand-held rotation. The product decision
+S3 board (the Waveshare ESP32-S3-Touch-AMOLED-1.75), so it cannot
+follow a hand-held rotation. The product decision
 was: the *baked* moon should still turn under the viewer's hand the
 way a physical model does. The solution is to bake the phase **once**,
 then rotate the baked frame in-plane every display frame with a cheap

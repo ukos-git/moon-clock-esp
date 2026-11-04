@@ -3,7 +3,8 @@ Chapter 19 — Performance, measured
 
 This chapter is the performance comparison the project owes: the
 same moon bake, timed on **four engines** — the C core on the host,
-the C core on the S3, the C core on the P4, the Python prototype
+the C core on each board (the Waveshare ESP32-S3-Touch-AMOLED-1.75
+and the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC), the Python prototype
 (numpy, float64, vectorized), and the JavaScript port (V8, scalar) —
 across **every disk size** the product renders, plus the per-pipeline
 breakdowns (geometry, relief build, rotation, shade map, re-project)

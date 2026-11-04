@@ -21,12 +21,12 @@ Measured from the checked-in build tree (2026-11-02):
      - Size
      - ``factory`` ceiling
      - Headroom
-   * - ESP32-S3 (466 panel)
+   * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
      - 1,462,560 B (0x165120)
      - 2,097,152 B (2048 K)
      - 634,592 B (30 %)
-   * - ESP32-P4 (720 panel)
+   * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
      - 1,578,592 B (0x181660)
      - 9,437,184 B (9216 K)

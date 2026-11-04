@@ -9,8 +9,9 @@ Writes docs/book/_static/moonjs/moonlab_data.js with:
     are a near-linear meters map so the average keeps the slopes).
   - lut: the 256-entry tone LUT (assets/images/moon/tone_lut.bin).
   - geo: Float32 table, one row of 14 floats per timestamp (2-hourly over
-    all of 2026): S_body, E_body, right_body, up_body (3 each), phase
-    angle (deg), illumination. Computed with the SAME code path as the
+    2026 + 2027 — the sim's date slider spans both years, 8760 steps):
+    S_body, E_body, right_body, up_body (3 each), phase angle (deg),
+    illumination. Computed with the SAME code path as the
     validated Python prototype (moon.astro: PyERFA ephemeris + the
     calibrated IAU_Moon body frame), so the sim's geometry is the
     validated geometry.
@@ -47,7 +48,7 @@ lut = np.fromfile(os.path.join(MOON_DIR, "tone_lut.bin"), dtype=np.uint8)
 # this resolution, same central differences as moon_relief_build).
 dem_ds = dem.reshape(512, 2, 1024, 2).mean(axis=(1, 3)).round().astype(np.int8)
 
-# --- geometry table, 2-hourly over 2026 ------------------------------------
+# --- geometry table, 2-hourly over 2026 + 2027 ------------------------------
 # Vectorized port of moon.astro.geometry (array Time -> array positions).
 J2000 = 2451545.0
 P = np.array([np.cos(np.radians(C.POLE_DEC_ICRF)) * np.cos(np.radians(C.POLE_RA_ICRF)),
@@ -79,9 +80,10 @@ def body_basis_th(W_rad):
         rodrigues(np.broadcast_to(y0, (len(W_rad), 3)).copy(), P, W_rad), P[None, :]
 
 
-n = 8760 // 2  # 2-hourly over the year (2026-01-01T00:00 -> 2026-12-31T22:00)
+n = 8760  # 2-hourly over TWO years (2026-01-01T00:00 -> 2027-12-31T22:00) --
+          # the sim's date slider spans both years (8760 steps of 2 h).
 jd0 = 2461042.5  # 2026-01-01T00:00 UTC
-jd = np.linspace(jd0, jd0 + 365.0, n)
+jd = np.linspace(jd0, jd0 + 730.0, n)
 t = Time(jd, format="jd", scale="utc")
 
 def bary(name):

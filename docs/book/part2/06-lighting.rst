@@ -28,7 +28,15 @@ center in units of the disk radius. Outside the unit circle
 (:math:`u^2 + v^2 > 1`) the pixel is off the disk and is black. The
 :math:`w` term is the part of the direction that points along the line
 of sight — it is what makes the surface curve toward the viewer at the
-limb.
+limb:
+
+.. figure:: ../_static/figs/ortho_view.png
+   :align: center
+   :width: 100%
+
+   The orthographic view. (a) The pixel's screen offset builds the base direction: the in-page part is the 2-D offset :math:`(u, v)`, and the missing third component :math:`w\,\mathbf{E}` points at the viewer (out of the page). (b) Side view: the pixel sits off the line of sight by the angle :math:`\varphi`; :math:`w = \cos\varphi` is 1 at the disk centre and 0 at the limb — the term that pulls :math:`\hat{\mathbf{r}}` back toward the camera and makes the limb curve.
+
+In the C core, per pixel:
 
 In the C core, per pixel:
 
@@ -66,6 +74,12 @@ show none of that.
 The fix is to give every surface point its **own normal**, displaced from
 the base-sphere normal by the local slope, and take the Lambert with that
 normal. That is the **displaced-normal** model.
+
+.. figure:: ../_static/figs/terminator_ridge.png
+   :align: center
+   :width: 78%
+
+   Why the flat model fails, in one cross-section. The flat model's terminator is the straight line :math:`d = 0` (blue); the true lit/dark boundary (red) is jagged. M sits *day* side of the flat line but in the ridge's cast shadow — the flat model calls it lit, the true surface is dark. N sits *night* side of the flat line, but its inner wall turns toward the Sun — the flat model calls it black, the true surface is lit. These are exactly the jagged-edge details NASA's frames show.
 
 The displaced-normal Lambert
 -----------------------------
@@ -109,6 +123,12 @@ and the *unclipped* :math:`lns` is kept around because the dark side
 (Chapter 7) needs :math:`\mathrm{clip}(-lns, 0, 1)` — the same surface
 lit from the anti-solar direction.
 
+.. figure:: ../_static/figs/displaced_normal.png
+   :align: center
+   :width: 100%
+
+   The displaced-normal construction. (a) A point on a flank that slopes toward the grazing Sun: the flat model takes the radial (straight-up) normal and reads :math:`d \approx 0.07` (barely lit); the true normal, tilted by the local slope :math:`\mathbf{G}`, reads :math:`lns \approx 0.22` — three times brighter, and the difference is the ridge-shadow contrast the flat model cannot see. (b) The small-slope form worked out: :math:`lns = (d - \mathbf{G}\cdot\mathbf{S}) / \sqrt{1 + \lVert\mathbf{G}\rVert^2}` needs no explicit normalization, and is accurate to under 0.5% at the Moon's real slopes.
+
 The model is applied over the **whole lit disk**, not just the terminator
 band. An earlier version blended a clipped relief term only in a thin
 band around :math:`d=0` (a compute shortcut); it left the terminator
@@ -136,7 +156,8 @@ the LOLA height quantized to 8 bits over a fixed meter range:
 
 The bake needs the *gradient* of this map, not the heights. The naive
 approach — a 4-neighbor central-difference gather per pixel — is six
-dependent PSRAM loads per pixel, which on the S3 measured at ~3.3 s/frame.
+dependent PSRAM loads per pixel, which on the S3 (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75) measured at ~3.3 s/frame.
 The key optimization (Chapter 11) is to **precompute the gradient once,
 per DEM cell**, into a packed cache:
 
@@ -242,6 +263,12 @@ dark side. The *display* dark side — the computed backlit surface — is
 the subject of Chapter 7; the artistic pass that made the dark side read
 as a real moon is Chapter 8.
 
+.. figure:: ../_static/figs/earthshine.png
+   :align: center
+   :width: 72%
+
+   The fitted earthshine cubic with the device constants (``moon_consts.h``). It peaks at only ~16 grey levels at the dark-side centre (:math:`x = 1`) — deliberately faint. :math:`x = 0` at the terminator, :math:`x = 1` at the centre of the night disk.
+
 The tone LUT
 ------------
 
@@ -252,6 +279,12 @@ aesthetics" — their brightness is not the raw physical
 compression applied. Rather than fit a per-pixel curve, the project
 freezes a **256-entry 8-bit tone LUT** that maps the raw
 :math:`\text{albedo}\cdot L` index to the reference's brightness:
+
+.. figure:: ../_static/figs/tone_lut.png
+   :align: center
+   :width: 72%
+
+   The shipped 256-entry tone LUT (``tone_lut.bin``), raw :math:`\text{albedo}\times L` index (x) against display brightness (y). Two load-bearing properties are visible: **bin 0 is 0** (no sunlight → the LUT contributes nothing; only earthshine remains), and the **tail is not monotonic past ~220** — the brightest crater floors and mare lowlands compress and dip slightly rather than pinning at 255, matching the reference's highlight rolloff.
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (the final pixel)
@@ -293,3 +326,24 @@ Putting the pieces together, one lit pixel is:
 Every step is a few FPU ops plus byte/word loads from PSRAM. The next
 chapter shows what happens to the pixels where :math:`lns \le 0` — the
 dark side, which is where this product made its most deliberate choices.
+
+.. figure:: ../_static/figs/bake_pipeline.png
+   :align: center
+   :width: 100%
+
+   One frame through the whole pipeline — each panel is the actual
+   intermediate result at one step of the 10-line model above (a waning
+   gibbous at 50% illumination, 466×466, the same code the Moon Lab
+   simulator runs). :math:`d`: the smooth base-sphere cosine.
+   :math:`lns`: the displaced-normal result — the terminator is now
+   ragged, and the dark side is not perfectly flat. :math:`L`: the clip
+   — the dark side is hard black, but the lit side keeps the ridge
+   shadows. :math:`A`: the albedo, unlit. :math:`idx`: the raw
+   :math:`A\cdot L` product. :math:`\mathrm{LUT}`: the tone-mapped
+   brightness. :math:`\mathrm{es}`: the earthshine added to the dark
+   side (exaggerated ×8 for visibility — it is a ~16-grey-level
+   gradient). :math:`\mathrm{out}`: the final pixel the device shows.
+
+The figure is generated from the same code the reader drives:
+``node docs/book/tools/gen_bake_intermediates.js`` dumps the eight
+intermediate maps, ``docs/book/tools/gen_bake_strip.py`` lays them out.

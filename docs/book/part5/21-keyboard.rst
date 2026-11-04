@@ -165,6 +165,23 @@ the ESP32-S3 + LVGL, and the verdict — so the lab is the *clickable
 half* of this chapter: the static text says what was decided, the
 page lets a user **operate** what was decided and what was rejected.
 
+.. figure:: ../_static/figs/kbd_panels.png
+   :alt: The nine on-hardware keyboard panels at true 1:1 scale
+   :figclass: align-center
+
+   The lab's nine **on-hardware** methods at true 1:1 scale (466×466,
+   the device's own panel geometry, the device's own AMOLED palette),
+   in verdict-strip order, rendered from the lab page itself
+   (``docs/book/tools/gen_kbd_panels.py``): #1 the sweep wheel v2 that
+   shipped, #2 the DTMF multi-tap its coarse-press model inherits, #3
+   the dwell fallback, #4 the auto-scan accessibility setting, #5 the
+   swipe sectors held for now, and the rejections (#6 the sub-fingertip
+   QWERTY, #7 the one-stroke ring) plus the experiments (#8 the IMU
+   twist, #9 the encoder upgrade for a future board). The four
+   off-hardware methods (row 10–13: voice, camera/OCR, QR/NFC/BLE
+   handoff, T9 decode) are text cards in the lab — there is no panel
+   to render.
+
 The v2 12-sector hybrid wheel
 -----------------------------
 
@@ -316,6 +333,61 @@ long-press, register switch); it cannot prove the *feel* on the
 CST9217's real glass — which is the pending device check (the
 research's open question 2: what does the sweep *actually* feel like,
 and does the 0.7–1.5 s/character estimate hold on real glass).
+
+The shots below are from that pass (466 px, the Waveshare
+ESP32-S3-Touch-AMOLED-1.75 panel geometry — the 720-px P4 set sits
+alongside in ``docs/img/screens/p4/``): the wheel at rest in the
+``abc`` register, a press in flight (the pressed sector's reveal
+boxes, the centre preview + "release commits"), and the three other
+registers — the grouping is fixed across all of them, as designed.
+
+First the same at-rest screen composited onto the real glass (the
+Waveshare ESP32-S3-Touch-AMOLED-1.75 product photo, uisim frame at
+true panel geometry) — then the flat captures:
+
+.. figure:: ../_static/photos/sim_keyboard.png
+   :alt: Simulated render of the v2 keyboard on the panel glass
+   :figclass: align-center
+
+   The v2 wheel on the Waveshare glass — the 12-sector letter ring,
+   the register/shift arc, and the centre entry preview, as the panel
+   actually shows them.
+
+.. figure:: ../../img/screens/settings_wifi_password.png
+   :alt: The v2 keyboard at rest, abc register
+   :figclass: align-center
+
+   The **v2 wheel at rest** — the 12-sector grouped letters, the
+   register/shift arc (abc / ABC / 123 / #$$), the SSID caption, the
+   backspace and commit keys in the bottom band.
+
+.. figure:: ../../img/screens/settings_wifi_password_touched.png
+   :alt: The v2 keyboard mid-press with the sector reveal
+   :figclass: align-center
+
+   **A press in flight** — touch-down on the g/h sector reveals
+   only that sector's boxes (the lit h inverts), and the centre
+   previews the character with "release commits".
+
+.. figure:: ../../img/screens/settings_wifi_password_ABC.png
+   :alt: The v2 keyboard in the ABC register
+   :figclass: align-center
+
+   The **ABC register** — the same 12 sector groups, upper case;
+   the press in the centre carries over (h still previewed).
+
+.. figure:: ../../img/screens/settings_wifi_password_123.png
+   :alt: The v2 keyboard in the 123 register
+   :figclass: align-center
+
+   The **123 register** — digits 0–9 with a symbol tail; shorter than
+   26 slots, the groups fill in order.
+
+.. figure:: ../../img/screens/settings_wifi_password_sym.png
+   :alt: The v2 keyboard in the #$/symbol register
+   :figclass: align-center
+
+   The **#$/symbol register** — the punctuation and bracket tail.
 
 The decisions, recorded
 -----------------------
