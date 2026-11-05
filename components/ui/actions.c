@@ -762,11 +762,14 @@ static lv_timer_t *g_seconds_timer = NULL;
 #endif
 
 /* The shared clock widget's light-sleep opacity (percent). Kconfig
- * UI_CLOCK_ALPHA_PCT (default 100): light sleep dims the WHOLE panel to
- * UI_LIGHT_SLEEP_DIM_PCT via the hardware brightness, so the clock no
- * longer needs the old 20 % alpha -- the default is 100 (no alpha). */
+ * UI_CLOCK_ALPHA_PCT (default 20): the light-sleep clock's "alpha" -- the
+ * panel has no true alpha channel, so the clock's own opacity IS the
+ * alpha over the already hardware-dimmed (UI_LIGHT_SLEEP_DIM_PCT) panel.
+ * 20 % is the original "barely visible" look; raise it for a brighter
+ * clock. Deep sleep keeps the dead display (backlight off, clock hidden),
+ * so this is light-sleep only. */
 #ifndef CONFIG_UI_CLOCK_ALPHA_PCT
-#define CONFIG_UI_CLOCK_ALPHA_PCT 100
+#define CONFIG_UI_CLOCK_ALPHA_PCT 20
 #endif
 
 /* Refresh the alarm label + weekday prefix (defined below, after the
@@ -1434,12 +1437,13 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
 
     // Light sleep dims the clock to UI_CLOCK_ALPHA_PCT (the shared clock
-    // widget's container; the style cascades to the attached widget). The
-    // old 20 % alpha is now the Kconfig default 100 -- no alpha -- because
-    // the panel's own hardware brightness already glows the whole display
-    // (moon included) down to UI_LIGHT_SLEEP_DIM_PCT; the alpha is the
-    // option to dim the clock FURTHER relative to the moon. The moon image
-    // is a sibling of the clock container, so it stays at full contrast.
+    // widget's container; the style cascades to the attached widget). This
+    // IS the clock's "alpha": the panel has no true alpha channel, so the
+    // clock's own opacity is the alpha over the already hardware-dimmed
+    // (UI_LIGHT_SLEEP_DIM_PCT) panel. The default 20 % is the original
+    // "barely visible" look; raise it for a brighter clock. The moon image
+    // is a sibling of the clock container, so it stays at full contrast
+    // relative to the clock.
     lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
 
     // And the WHOLE display glows down: the panel's own hardware

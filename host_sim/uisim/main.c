@@ -306,6 +306,21 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
 
     loadScreen(id);
     ui_tick(); /* seed the screen's widgets from the stubbed state */
+    /* Mirror the device's sleep ENTRIES (actions.c) so the snapshot is
+     * the device's actual look, not the bare screen:
+     *  - light sleep: the clock container dims to UI_CLOCK_ALPHA_PCT
+     *    (the clock's "alpha"; the panel's own hardware dim is a
+     *    brightness ramp, not pixels -- not simulated);
+     *  - deep sleep: the clock is HIDDEN (the dead display: the device
+     *    also turns the backlight off, which is not a pixel change). */
+    if (id == SCREEN_ID_LIGHT_SLEEP) {
+#ifndef CONFIG_UI_CLOCK_ALPHA_PCT
+#define CONFIG_UI_CLOCK_ALPHA_PCT 20
+#endif
+        lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
+    } else if (id == SCREEN_ID_DEEP_SLEEP) {
+        lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
+    }
     /* 300 ms: the HH:MM digit roll (the attach refresh rolls changed
      * digits through the 300 ms odometer slide) must have FINISHED
      * before the capture, or the digits would read mid-roll in the
@@ -430,8 +445,9 @@ int main(int argc, char **argv) {
         printf("CONT[17] x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
                (long)(a.y2 - a.y1 + 1));
         lv_obj_get_coords(row, &a);
-        printf("ROW[18]  x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
-               (long)(a.y2 - a.y1 + 1));
+        printf("ROW[18]  x=%ld y=%ld w=%ld h=%ld padRow=%d padCol=%d\n", (long)a.x1, (long)a.y1,
+               (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1), lv_obj_get_style_pad_row(row, 0),
+               lv_obj_get_style_pad_column(row, 0));
         for (int32_t i = 0; i < lv_obj_get_child_count(row); i++) {
             lv_obj_t *cell = lv_obj_get_child(row, i);
             lv_obj_get_coords(cell, &a);
@@ -452,6 +468,22 @@ int main(int argc, char **argv) {
                        lv_obj_get_style_translate_y(lab, 0), (int)lv_obj_get_style_text_align(lab, 0),
                        lv_label_get_text(lab), f ? (int)lv_font_get_line_height(f) : -1);
             }
+        }
+        /* The next-alarm ROW (right-aligned, 2026-11-05): objects[19] is
+         * the alarm TIME label; the row is its parent (s_alarm_prefix, a
+         * file-static). The row box must match the time row's width/edges;
+         * its labels (prefix + time) sit at the RIGHT edge, so the time's
+         * right edge lands under the MM pair's right edge. */
+        lv_obj_t *arow = lv_obj_get_parent(((lv_obj_t **)&objects)[19]);
+        lv_obj_get_coords(arow, &a);
+        printf("AROW  x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
+               (long)(a.y2 - a.y1 + 1));
+        for (int32_t i = 0; i < lv_obj_get_child_count(arow); i++) {
+            lv_obj_t *lab = lv_obj_get_child(arow, i);
+            lv_obj_get_coords(lab, &a);
+            printf("  ALAB[%ld] x=%ld y=%ld w=%ld h=%ld contW=%ld contH=%ld text=\"%s\"\n", (long)i, (long)a.x1,
+                   (long)a.y1, (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1), (long)lv_obj_get_content_width(lab),
+                   (long)lv_obj_get_content_height(lab), lv_label_get_text(lab));
         }
         return 0;
     }

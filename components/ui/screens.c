@@ -3120,11 +3120,21 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                 }
                 {
                     // label-clock-alarm-row: the prefix + HH:MM pair,
-                    // kept together so the weekday prefix appears to
-                    // the left of the time as one centred unit.
+                    // RIGHT-aligned (2026-11-05) -- the row is exactly as
+                    // wide as the HH:MM row above (the same 136+30+136 px
+                    // cells PLUS the same 2 x flex pad_row the theme puts
+                    // between the time row's cells -- read from the time
+                    // row, so it tracks the theme's DPI gap at 466 and
+                    // 720), and its contents sit at the RIGHT edge: the
+                    // time's right edge always lands under the MM pair's
+                    // right edge, and the weekday prefix hangs off to the
+                    // left (the ragged LEFT edge; the time never jumps
+                    // when the prefix appears/disappears).
                     lv_obj_t *obj = lv_obj_create(parent_obj);
                     lv_obj_set_pos(obj, 0, 0);
-                    lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+                    lv_obj_t *time_row = ((lv_obj_t **)&objects)[startWidgetIndex + 1];
+                    int32_t alarm_w = UI_PX(136) + UI_PX(30) + UI_PX(136) + 2 * lv_obj_get_style_pad_row(time_row, 0);
+                    lv_obj_set_size(obj, alarm_w, LV_SIZE_CONTENT);
                     lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -3133,7 +3143,7 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_layout(obj, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_END, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     s_alarm_prefix = obj;
                     {
