@@ -21,6 +21,9 @@
  *               rolls UP into the "6"), then 12:36 -> 12:35 (the "6" rolls
  *               DOWN into the "5"): the direction-aware strip scroll, both
  *               clipped to the one-line window.
+ *   --clockprobe  print the HH:MM row object geometry (cells, pads, label
+ *                 bboxes + text_align) to stdout -- verifies the pair-cell
+ *                 clip/anchoring fix without eyeballing the PNG.
  *   --rottest / --reveal <q> [screen] / --wheel: the other verification
  *               hooks (see their blocks below).
  */
@@ -408,6 +411,48 @@ int main(int argc, char **argv) {
         write_png("out/roll_down_after.png", b5);
         lv_draw_buf_destroy(b5);
         printf("[rolltest] before / up_mid / up_after / down_mid / down_after written\n");
+        return 0;
+    }
+
+    /* --clockprobe: dump the REAL LVGL geometry of the HH:MM pair cells
+     * (the full-screen container, the slot row, its three clipping
+     * cells and the fixed-width labels inside them) at the current
+     * UISIM_TIME -- authoritative numbers for the cell sizing work.
+     * Usage:  UISIM_TIME=21:26 uisim --clockprobe */
+    if (argc > 1 && !strcmp(argv[1], "--clockprobe")) {
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        pump(disp, 300); /* settle any attach-refresh roll */
+        lv_obj_t *cont = ((lv_obj_t **)&objects)[17];
+        lv_obj_t *row = ((lv_obj_t **)&objects)[18];
+        lv_area_t a;
+        lv_obj_get_coords(cont, &a);
+        printf("CONT[17] x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
+               (long)(a.y2 - a.y1 + 1));
+        lv_obj_get_coords(row, &a);
+        printf("ROW[18]  x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
+               (long)(a.y2 - a.y1 + 1));
+        for (int32_t i = 0; i < lv_obj_get_child_count(row); i++) {
+            lv_obj_t *cell = lv_obj_get_child(row, i);
+            lv_obj_get_coords(cell, &a);
+            printf("CELL[%ld] x=%ld y=%ld w=%ld h=%ld "
+                   "padL=%d padR=%d padT=%d padB=%d\n",
+                   (long)i, (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1),
+                   lv_obj_get_style_pad_left(cell, 0), lv_obj_get_style_pad_right(cell, 0),
+                   lv_obj_get_style_pad_top(cell, 0), lv_obj_get_style_pad_bottom(cell, 0));
+            for (int32_t j = 0; j < lv_obj_get_child_count(cell); j++) {
+                lv_obj_t *lab = lv_obj_get_child(cell, j);
+                lv_obj_get_coords(lab, &a);
+                const lv_font_t *f = lv_obj_get_style_text_font(lab, 0);
+                printf("  LAB[%ld][%ld] x=%ld y=%ld w=%ld h=%ld "
+                       "contW=%ld contH=%ld transY=%d align=%d "
+                       "text=\"%s\" lh=%d\n",
+                       (long)i, (long)j, (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1),
+                       (long)lv_obj_get_content_width(lab), (long)lv_obj_get_content_height(lab),
+                       lv_obj_get_style_translate_y(lab, 0), (int)lv_obj_get_style_text_align(lab, 0),
+                       lv_label_get_text(lab), f ? (int)lv_font_get_line_height(f) : -1);
+            }
+        }
         return 0;
     }
 

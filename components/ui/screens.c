@@ -2961,12 +2961,21 @@ static int32_t s_clock_line_h[2];
  * ever: every text change is centred inside the same box, exactly
  * like the settings roller (the proportional font's pair width
  * varies, "11" 116 px vs "44" 204 px at 720, but the box does not).
- * The roll-start comment carries the translate arithmetic. */
+ * The roll-start comment carries the translate arithmetic.
+ * ZERO PADDING: the theme's base style pads 20 px (all sides); the
+ * label is created at the content origin at the cell's FIXED width,
+ * so any padding shifts it right+down and the cell's clip cuts its
+ * right/bottom 20 px (the "21:26" photo: digits cut at the bottom,
+ * the colon cut at the right). */
 static lv_obj_t *clock_row_cell(lv_obj_t *row, int32_t w, int32_t line_h) {
     lv_obj_t *cell = lv_obj_create(row);
     lv_obj_set_size(cell, w, line_h);
     lv_obj_set_style_bg_opa(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_left(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(cell, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     return cell;
 }
@@ -3018,18 +3027,22 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     // each glyph centred in its own wide box -- "16:16"
                     // read as scattered, "the numbers are not fitting
                     // in the boxes" (the 2026-11-04 cheese photo).
-                    // Each pair cell (140 px -- the settings roller's
-                    // box; the worst-case "44" pair advances 132 px at
-                    // 466 / 204 px at the 148 font, >= 4 px margin)
-                    // holds ONE label at the cell's FIXED width and a
-                    // content height, text centred in the box: the pair
-                    // reads tight like the settings screen, and because
-                    // the width is fixed a digit change can never move
-                    // the pair (or the other pair) sideways. The row's
-                    // total width is constant (140 + 26 + 140 px at
-                    // 466). objects[BASE+1] stays the row: the tick's
-                    // unsynced-dim lv_obj_set_style_opa targets it and
-                    // the style cascades to the children.
+                    // Each pair cell (136 px -- 4 px inside the worst
+                    // case, the "44" pair that advances 132 px at 466
+                    // / 204 px at the P4 148 font; the earlier 140 px
+                    // box left a ~32 px margin at narrow pairs like
+                    // "11", the "too much margin between the numbers
+                    // and the colon" of the 2026-11-05 photo) holds ONE
+                    // label at the cell's FIXED width and a content
+                    // height, text centred in the box: the pair reads
+                    // tight, and because the width is fixed a digit
+                    // change can never move the pair (or the other
+                    // pair) sideways. The colon cell is 30 px (advance
+                    // 25.1 px at 466 / 38.75 px at the 148 font). The
+                    // row's total width is constant (136 + 30 + 136 px
+                    // at 466). objects[BASE+1] stays the row: the
+                    // tick's unsynced-dim lv_obj_set_style_opa targets
+                    // it and the style cascades to the children.
                     lv_obj_t *obj = lv_obj_create(parent_obj);
                     ((lv_obj_t **)&objects)[startWidgetIndex + 1] = obj;
                     lv_obj_set_pos(obj, 0, 0);
@@ -3060,22 +3073,46 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                          * above tick_user_widget_clock). The cell CLIPS the
                          * strip to the one-line window (default overflow).
                          * The colon cell holds its plain label the same way. */
-                        lv_obj_t *cell_hh = clock_row_cell(obj, UI_PX(140), line_h);
-                        lv_obj_t *cell_colon = clock_row_cell(obj, UI_PX(26), line_h);
-                        lv_obj_t *cell_mm = clock_row_cell(obj, UI_PX(140), line_h);
+                        /* Pair cells 136 px (466): the worst-case "44"
+                         * pair advances 132 px (the settings roller's
+                         * 140 px box left a ~4 px-per-side margin at
+                         * worst case and a ~32 px one at "11" -- the
+                         * "too much margin between the numbers and the
+                         * colon" of the 2026-11-05 photo). The colon
+                         * cell 30 px: its advance is 25.1 px (466) /
+                         * 38.75 px (the P4 148 font) -- 26 px left the
+                         * ink ~0.6 px from the cell edge at 720. */
+                        lv_obj_t *cell_hh = clock_row_cell(obj, UI_PX(136), line_h);
+                        lv_obj_t *cell_colon = clock_row_cell(obj, UI_PX(30), line_h);
+                        lv_obj_t *cell_mm = clock_row_cell(obj, UI_PX(136), line_h);
                         s_clock_pair_label[0] = lv_label_create(cell_hh);
                         s_clock_pair_label[1] = lv_label_create(cell_mm);
                         lv_obj_t *label_colon = lv_label_create(cell_colon);
                         for (int i = 0; i < 2; i++) {
                             lv_obj_t *label = s_clock_pair_label[(size_t)i];
-                            lv_obj_set_size(label, UI_PX(140), LV_SIZE_CONTENT);
-                            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+                            lv_obj_set_size(label, UI_PX(136), LV_SIZE_CONTENT);
+                            /* ANCHORED toward the colon, not centred
+                             * (tabular figures): centring leaves a gap
+                             * to the colon that varies with the digits
+                             * ("21" 145 px advance vs "44" 204 px at
+                             * 720 -- 64 px vs 9 px of ink-gap, the
+                             * "too much margin between the numbers and
+                             * the colon" of the 2026-11-05 photo).
+                             * The HH pair is RIGHT-aligned (its right
+                             * edge, colon-side, stays put for every
+                             * hour) and the MM pair LEFT-aligned; the
+                             * variable space falls on the outside edge
+                             * where it reads as the clock's centre
+                             * margin. The roll strip (old\nnew) keeps
+                             * both lines aligned the same way. */
+                            lv_obj_set_style_text_align(label, i == 0 ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT,
+                                                        LV_PART_MAIN | LV_STATE_DEFAULT);
                             add_style_label_bold(label);
                             s_clock_line_h[(size_t)i] =
                                 lv_font_get_line_height(lv_obj_get_style_text_font(label, LV_PART_MAIN));
                             lv_label_set_text(label, "");
                         }
-                        lv_obj_set_size(label_colon, UI_PX(26), LV_SIZE_CONTENT);
+                        lv_obj_set_size(label_colon, UI_PX(30), LV_SIZE_CONTENT);
                         lv_obj_set_style_text_align(label_colon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                         add_style_label_bold(label_colon);
                         lv_label_set_text(label_colon, ":");

@@ -29,3 +29,35 @@ config BOARD_P4
         crystal RTC timer + SNTP; alarms are software esp_timer.
         32 MB flash, 32 MB PSRAM.
 endchoice
+
+# --- Component-manager if-clause guard keys (esp_hosted registry manifests) ---
+#
+# The esp_hosted 3.x manifests on the registry declare optional USB-host
+# transport dependencies (espressif/usb_host_cdc_acm,
+# cherry-embedded/cherryusb, espressif/iot_usbh_rndis), each gated by
+# `if: ESP_HOSTED_HOST_USB_*_MANIFEST` — Kconfig symbols defined only in
+# esp_hosted 3.x's own Kconfig. The version solver evaluates the if-clauses
+# of EVERY candidate version while resolving (esp_wifi_remote 0.14.5
+# depends on esp_hosted >=0.0.6, an unbounded range), so those clauses are
+# parsed against this project's sdkconfig.json even though the tree pins
+# esp_hosted 1.4.7 (which does not define the symbols). Since esp_hosted
+# 3.1.0 (2026-11-05) landed on the registry, a re-resolution therefore hit
+# the interface-v4 "missing required kconfig option" fatal (prepare.py
+# exit 10). Defining the three keys here makes the clauses evaluate to
+# false (the C6 is transported over SDIO — no USB host backend) instead of
+# aborting the configure. They must be INT, not bool: the clauses compare
+# against 1 ($CONFIG{...} == 1), and the if-clause parser (if_parser.py)
+# dispatches on the sdkconfig.json value type — a bool value makes it
+# eval_bool("1"), a hard "Invalid boolean" error; an int value is a
+# normal 0 == 1 comparison.
+config ESP_HOSTED_HOST_USB_CDC_ACM_MANIFEST
+    int
+    default 0
+
+config ESP_HOSTED_HOST_USB_CHERRYUSB_MANIFEST
+    int
+    default 0
+
+config ESP_HOSTED_HOST_USB_RNDIS_MANIFEST
+    int
+    default 0
