@@ -256,24 +256,28 @@ static int wheel_snapshot_rot(lv_display_t *disp, const char *name) {
  * wheel. The row handler prefills the (stub) first AP's SSID.
  *
  * The hub's ring (create_screen_settings_hub): n icons 360/n apart,
- * deep-sleep anchored at 180 deg, th = 180 + step*(i - (n-3)) degrees
- * clockwise from 12 o'clock, position (R sin th, -R cos th) about the
- * centre (R = UI_PX(117)). The WiFi entry's index differs per board (the
- * P4 ring opens with the clock icon at 12 o'clock), so mirror it here. */
+ * the deep-sleep icon anchored at 180 deg -- found BY TARGET on the
+ * device (index 2 of the S3's 6-icon ring, 3 of the P4's 7-icon ring;
+ * the P4 ring opens with the clock icon at 12 o'clock), th =
+ * 180 + step*(i - deep) degrees clockwise from 12 o'clock, position
+ * (R sin th, -R cos th) about the centre (R = UI_PX(140)). The WiFi
+ * entry's index differs per board, so mirror both indices here. */
 static void wheel_hub_wifi_icon(int32_t *x, int32_t *y) {
     int n;
     int wifi_i;
+    int deep_i;
 #if defined(CONFIG_BOARD_P4)
-    n = 6;
+    n = 7;
     wifi_i = 4;
+    deep_i = 3;
 #else
-    n = 5;
+    n = 6;
     wifi_i = 3;
+    deep_i = 2;
 #endif
     const float step = 360.0f / (float)n;
-    const float deep = (float)n - 3.0f;
-    const float th = ((180.0f + step * ((float)wifi_i - deep)) * 3.14159265f) / 180.0f;
-    const int32_t R = UI_PX(117);
+    const float th = ((180.0f + step * ((float)wifi_i - (float)deep_i)) * 3.14159265f) / 180.0f;
+    const int32_t R = UI_PX(140);
     *x = UI_PANEL_PX / 2 + (int32_t)(R * sinf(th));
     *y = UI_PANEL_PX / 2 - (int32_t)(R * cosf(th));
 }
