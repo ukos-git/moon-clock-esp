@@ -1,0 +1,21 @@
+// Build + flash sequence for one board (port = <port>, the identified node)
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph build_flash {
+    rankdir=TB;
+    label="build + flash (one board)";
+    labelloc=t;
+    fontsize=14;
+    fontname=sans;
+    node [fontname=sans, shape=box, style="rounded,filled", margin=0.25, fontsize=10.5];
+    edge [fontname=sans, fontsize=10];
+
+    env   [label="source ~/esp/esp-idf/export.sh\n(ESP-IDF 5.5.1 in every build shell)", fillcolor="#f5e6b8"];
+    assets [label="moon assets (local, gitignored):\ncd assets/images/moon && .venv/bin/python -m moon.assets\n-> components/moon/generated/{s3,p4}/moon_consts.h\n   + assets/images/moon/moon_assets.bin", fillcolor="#d9d2ea"];
+    cfg   [label="idf.py set-target + merge of the three\nsdkconfig.defaults files (later file wins)\n-> live sdkconfig", fillcolor="#cfe0c8"];
+    build [label="idf.py build\n(component manager resolves dependencies.lock)", fillcolor="#cfe0c8"];
+    size  [label="check the binary size against the factory\npartition (2048 K S3 / 9216 K P4)", fillcolor="#f5e6b8"];
+    flash [label="idf.py flash -p <port>\n(app + storage SPIFFS + moon_assets blob)", fillcolor="#cfe0c8"];
+    mon   [label="idf.py monitor -p <port>\n(serial console, 115200)", fillcolor="#e8e8e8"];
+
+    env -> assets -> cfg -> build -> size -> flash -> mon;
+}

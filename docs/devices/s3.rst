@@ -49,8 +49,8 @@ The panel: CO5300 over QSPI
 ----------------------------
 
 The **CO5300** controller drives a 466×466 RGB565 (5-6-5, no alpha)
-AMOLED panel over **QSPI**. Two properties matter to the rest of this
-book:
+AMOLED panel over **QSPI**. Two properties matter to the rest of these
+docs:
 
 - **No alpha channel.** The panel is either on with an RGB565 color or
   off; there is no per-pixel transparency. "Fading out" a screen means
@@ -136,3 +136,118 @@ The panel's DMA staging, the 25-row flush-strip limit, and the
 ``s_panel_mtx`` that serializes brightness writes are described where
 they matter: the display pipeline (:doc:`the display pipeline <../implementation/display>`) and the sleep/dim
 machinery (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
+
+Building and flashing the S3
+----------------------------
+
+The S3 is the **default target**: a plain ``idf.py build`` (fresh
+clone, no ``sdkconfig``) configures ``esp32s3`` from
+``sdkconfig.defaults``. The full build + flash sequence
+(:doc:`the board index <index>` for the shared conventions and the
+port-identification procedure):
+
+.. code-block:: bash
+   :caption: The S3 target (``<port>`` = the identified port — run ``esptool.py --port <port> chip_id`` first)
+
+   source ~/esp/esp-idf/export.sh
+
+   # moon assets (local, gitignored; regenerate after touching the
+   # asset pipeline or MOON_ALBEDO_W):
+   cd assets/images/moon && .venv/bin/python -m moon.assets --target s3
+
+   cd ../..
+   idf.py build                          # default target = esp32s3
+   # check the binary size against the 2048 K factory partition
+   idf.py flash -p <port>                # app + storage SPIFFS + moon_assets
+   idf.py monitor -p <port>              # serial console, 115200
+
+Pre-configured defaults
+-----------------------
+
+The S3 build merges the shared defaults with
+``sdkconfig.defaults.esp32s3`` (auto-appended for
+``IDF_TARGET=esp32s3``, later file wins). The S3 file, in full:
+
+.. code-block:: text
+   :caption: sdkconfig.defaults.esp32s3 (the S3-specific values)
+
+   CONFIG_IDF_TARGET="esp32s3"
+   # Octal PSRAM at 80 MHz: the S3's in-package 8 MB.
+   CONFIG_SPIRAM_MODE_OCT=y
+   CONFIG_SPIRAM_SPEED_80M=y
+   # The S3 core clock (the P4 runs at its own 400 MHz default).
+   CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+   # Task watchdog: core 1 runs the bounded moon bakes + the spin
+   # render; a full bake can starve the CPU1 idle task for >5 s,
+   # which would trip the (log-only) WDT. The bakes are bounded and
+   # self-cancelling, so core 1's idle check is off; core 0's stays
+   # on as the hang safety net.
+   CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+   # LCD flush queue depth 1: the S3 SPI DMA caps one transfer at
+   # 32 KiB and PSRAM is not DMA-capable, so every strip is staged
+   # into internal RAM; depth 1 keeps the peak internal allocation
+   # at one ~23 KB strip (deeper queues exhausted the heap).
+   CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1
+
+**The board line asymmetry:** this file carries **no**
+``CONFIG_BOARD_S3=y`` — the S3 is the *default* of the board
+``choice`` (see below), so the default already selects it. The P4
+file, by contrast, **does** carry ``CONFIG_BOARD_P4=y`` (overriding
+the default back to the P4). The root ``CMakeLists``
+target/board guard makes a stray board line in the wrong file a
+build-time ``FATAL_ERROR``.
+
+The shared file (``sdkconfig.defaults``) contributes the board-neutral
+values: the 16 MB flash header (``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``
+— both boards flash a 16 MB header), ``CONFIG_PARTITION_TABLE_CUSTOM=y``
+(the S3 keeps the default ``partitions.csv``), ``CONFIG_SPIRAM=y``,
+the LVGL 9.6 setup (notably ``CONFIG_LV_USE_CLIB_MALLOC=y`` — the
+clock-roll's full-screen PSRAM transform layer needs the libc
+allocator, not LVGL's 64 KB static pool), and the UI seeds
+(``CONFIG_UI_SCREEN_SWITCH_FADE=240``,
+``CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S=600``,
+``CONFIG_UI_MOON_SPIN_FPS=8``, ``CONFIG_UI_CLOCK_ALPHA_PCT=20``,
+``CONFIG_UI_MOON_DUSK_ENABLE=y``,
+``CONFIG_UI_MOON_ANIM_ON_WAKE=n`` — obsolete, kept for config
+validation).
+
+Compile-time settings
+---------------------
+
+The full Kconfig reference the S3 build compiles against follows —
+the board choice, the esp_hosted guard keys (defined in the board
+Kconfig; evaluated only against the P4's esp_hosted dependency set,
+but part of the same menu), the clock keys, the full UI menu, the
+moon constants, and the S3 partition table. The tables are
+single-sourced with :doc:`the reference section <../reference/index>`
+(the same fragments are included there), so the two can't drift.
+
+Board selection
+---------------
+
+.. include:: ../reference/_fragments/kconfig-board-choice.inc
+
+The esp_hosted guard keys
+-------------------------
+
+.. include:: ../reference/_fragments/kconfig-guard-keys.inc
+
+Clock component
+---------------
+
+.. include:: ../reference/_fragments/kconfig-clock.inc
+
+UI component
+------------
+
+.. include:: ../reference/_fragments/kconfig-ui.inc
+
+Moon constants
+--------------
+
+.. include:: ../reference/_fragments/moon-consts.inc
+
+Partition table
+---------------
+
+.. include:: ../reference/_fragments/partitions-s3.inc

@@ -216,9 +216,11 @@ write path was correct, the panel's window re-latch was not). A
 pipeline is accepted when *all four* surfaces agree: the log says it
 ran, the timing says it ran at budget, the panel says it displayed
 (no underrun, no seam), and the eye says it is the right picture. The
-book's numbers (:doc:`the animation pipelines <../implementation/animations>` and :doc:`performance <performance>`) carry all four; a number without
-the eye's sign-off is a hypothesis, not a verification.
+numbers in :doc:`the animation pipelines <../implementation/animations>` and
+:doc:`performance <performance>` carry all four; a number without the
+eye's sign-off is a hypothesis, not a verification.
 
 The remaining page of the section is the *performance* of all of it —
-the extensive comparison the user asked for (:doc:`performance <performance>`), with the
-binary-size chronology as its budget book (:doc:`the binary-size chronology <binary>`).
+the extensive comparison the user asked for (:doc:`performance <performance>`),
+with the binary-size chronology as its budget ledger
+(:doc:`the binary-size chronology <binary>`).

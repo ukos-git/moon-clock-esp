@@ -1,0 +1,26 @@
+// The three-file sdkconfig merge order (ESP-IDF kconfgen: later file wins)
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph sdkconfig_merge {
+    rankdir=TB;
+    label="sdkconfig merge — one shared file + two per-target files";
+    labelloc=t;
+    fontsize=14;
+    fontname=sans;
+    node [fontname=sans, shape=box, style="rounded,filled", margin=0.25, fontsize=10.5];
+    edge [fontname=sans, fontsize=10];
+
+    shared [label="sdkconfig.defaults\n(loaded for EVERY board: LVGL 9.6 setup,\ncomponent-manager manifest, PARTITION_TABLE_CUSTOM,\nclock/UI defaults, target = esp32s3)",
+           fillcolor="#f5e6b8"];
+    s3file [label="sdkconfig.defaults.esp32s3\n(auto-appended when IDF_TARGET=esp32s3\noctal PSRAM 80 MHz, 240 MHz core,\nCPU1 idle-WDT off, flush queue depth 1\nNOTE: no CONFIG_BOARD_S3=y — the choice default)",
+            fillcolor="#cfe0c8"];
+    p4file [label="sdkconfig.defaults.esp32p4\n(auto-appended when IDF_TARGET=esp32p4\nBOARD_P4=y, partitions_p4.csv, rev v1.3,\nPSRAM 200 MHz + experimental flag, XIP, L2 256 K,\nPCF85063A off, C6-over-SDIO pins)",
+            fillcolor="#d9d2ea"];
+    s3live [label="sdkconfig\n(S3 live config)", fillcolor="#e8e8e8"];
+    p4live [label="sdkconfig.p4\n(P4 live config)", fillcolor="#e8e8e8"];
+    guard  [label="root CMakeLists: FATAL_ERROR on\nIDF_TARGET / board-choice mismatch", fillcolor="#f3d6d0"];
+
+    shared -> s3file -> s3live;
+    shared -> p4file -> p4live;
+    s3live -> guard;
+    p4live -> guard;
+}

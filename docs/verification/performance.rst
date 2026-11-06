@@ -83,7 +83,7 @@ The four engines
 
 The Python and JS comparators run the *port* paths (the validated
 prototype's ``moon.renderer`` via ``animation.render_frame``; the
-book's ``moonlab.js`` ``MoonLab.bake`` at the display settings,
+site's ``moonlab.js`` ``MoonLab.bake`` at the display settings,
 K=0.20, soft=0.03, backlit, relief on), sized to match the C bake's
 square disk.
 

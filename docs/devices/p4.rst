@@ -109,8 +109,9 @@ milestone labels used in the project's tracking):
   ``CONFIG_BOARD_P4``; the keep-mask (burn-in spin's UI mask) was
   re-derived on the upscaled arc.
 
-M5 (clock degradation + manual time entry on P4) and M6 (docs) are the
-open items as of this writing.
+M5 (clock degradation + manual time entry on P4) is the remaining
+open firmware item as of this writing; the M6 docs milestone is the
+Sphinx site this page belongs to.
 
 Measured results on the P4
 --------------------------
@@ -129,3 +130,203 @@ After the 2026-11-04 clock rollers landed, the P4 binary is 1,605,984 B
 binary at the same point is 1,511,280 B (``0x170f70``), about 72 % of
 its 2 MB factory partition (the ~28 % headroom under the 2,097,152 B
 ceiling; :doc:`the binary-size chronology <../verification/binary>` tracks the full binary-size chain).
+
+Building and flashing the P4
+----------------------------
+
+The P4 is the second target: the build pins ``IDF_TARGET=esp32p4``
+and keeps its own build directory (``build/p4``) and its own
+dependency lock (``dependencies.lock.p4``, gitignored — the S3 build
+keeps ``dependencies.lock``), so the two targets never share state
+(:doc:`the board index <index>` for the shared conventions, the
+sequential-build rule, and the port-identification procedure):
+
+.. code-block:: bash
+   :caption: The P4 target (``<port>`` = the identified port — run ``esptool.py --port <port> chip_id`` first)
+
+   source ~/esp/esp-idf/export.sh
+
+   # moon assets (local, gitignored; regenerate after touching the
+   # asset pipeline or MOON_ALBEDO_W):
+   cd assets/images/moon && .venv/bin/python -m moon.assets --target p4
+
+   cd ../..
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
+   # check the binary size against the 9216 K factory partition
+   # (the 32 MB chip carries a 16 MB binary header — esptool's
+   # size-mismatch warning is expected)
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 monitor -p <port>
+
+The first ``set-target esp32p4`` pulls the P4's component set (the
+vendored 4C BSP; esp_hosted + esp_wifi_remote for the remote C6 over
+SDIO, pinned in ``main/idf_component.yml``) — the three ``int``
+``ESP_HOSTED_HOST_USB_*_MANIFEST`` guard keys
+(:doc:`board selection <../reference/kconfig-board>`) keep the
+component manager's version solver from aborting on that set.
+
+Pre-configured defaults
+-----------------------
+
+The P4 build merges the shared defaults with
+``sdkconfig.defaults.esp32p4`` (auto-appended for
+``IDF_TARGET=esp32p4``, later file wins). The P4 file, in full:
+
+.. code-block:: text
+   :caption: sdkconfig.defaults.esp32p4 (the P4-specific values)
+
+   # P4-only defaults (auto-loaded after sdkconfig.defaults when
+   # IDF_TARGET=esp32p4). Values proven by the M0 scratch bring-up
+   # (ESP32-P4-WIFI6-Touch-LCD-XC 4C, 2026-10-31) against IDF 5.5.1.
+   CONFIG_IDF_TARGET="esp32p4"
+   # Board select (see components/board/Kconfig.projbuild): the app's
+   # P4-only code paths gate on CONFIG_BOARD_P4.
+   CONFIG_BOARD_P4=y
+   # Partition table: the shared defaults enable CONFIG_PARTITION_TABLE_CUSTOM;
+   # IDF picks the CSV through the Kconfig value (the partition_table component's
+   # project hook re-derives PARTITION_CSV_PATH from it, clobbering any plain
+   # cmake set). The S3 keeps its default "partitions.csv" (2048K factory);
+   # the P4 takes the 32 MB table with the 9216K factory.
+   CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
+   # Silicon: the attached board is rev v1.3 (legacy profile). 5.5.1 has no
+   # ESP32P4_SELECTS_REV_LESS_V3 / REV_MIN_300 — 100..199 is the rev1_3 band.
+   CONFIG_ESP32P4_REV_MIN_100=y
+   CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+   CONFIG_BOOTLOADER_LOG_LEVEL=2
+   CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+   CONFIG_COMPILER_OPTIMIZATION_PERF=y
+   # In-package PSRAM at 200 MHz (the rev v1.3 cap). SPIRAM_SPEED_200M is
+   # gated on the experimental flag in 5.5.1 — without it the speed silently
+   # falls back to 20 MHz (DSI underruns).
+   CONFIG_SPIRAM_SPEED_200M=y
+   CONFIG_SPIRAM_SPEED=200
+   # Execute from PSRAM + the 256 KB L2 @ 128 B lines (M0 template values).
+   CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+   CONFIG_CACHE_L2_CACHE_256KB=y
+   CONFIG_CACHE_L2_CACHE_LINE_128B=y
+   # The LVGL adapter task + the moon bakes want a taller main stack and a
+   # 1000 Hz tick (the 1 ms task-delay floor resolves to real ticks).
+   CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+   CONFIG_FREERTOS_HZ=1000
+   CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+   CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+   # Required by SPIRAM_SPEED_200M in 5.5.1 (see above).
+   CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+   # The 4C panel (720x720). The 800x800 3.4C is CONFIG_BSP_LCD_TYPE_800_800_3_4_INCH.
+   CONFIG_BSP_LCD_TYPE_720_720_4_INCH=y
+   # ONE panel frame buffer (the BSP default is 3): with 3, the XC BSP's
+   # TRIPLE_PARTIAL display start flips the continuous MIPI-DPI scanout
+   # between the FBs on every LVGL refresh, while the spin's direct strip
+   # burst only updates the FB being scanned -- so a flip briefly shows the
+   # spin pose from that FB's last visit (older theta = counter-clockwise)
+   # until the next spin frame corrects it (the spin's CCW flicker). 1 FB +
+   # the adapter's NONE tear mode (set in main.cpp) makes every writer --
+   # LVGL strips and spin strips -- write the single scanned surface; the
+   # residual tearing is at most one frame (invisible at the spin rate).
+   CONFIG_BSP_LCD_DPI_BUFFER_NUMS=1
+   # Remote C6 Wi-Fi over SDIO (M2): the esp_hosted / esp_wifi_remote pair
+   # (component-manager deps, pinned in main/idf_component.yml). All SDIO
+   # pins (CLK 18 / CMD 19 / D0-D3 14-17), the slave target (esp32c6), the
+   # 4-bit @ 40 MHz bus and the slave reset (GPIO54) are esp_hosted
+   # defaults that already match this board — the M0 bring-up associated
+   # with none of them explicitly set. STA only (the app has no soft-AP
+   # path): keep the slave's soft-AP buffers out.
+   CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+   # The remote-side twin: esp_wifi_remote's injected Kconfig carries
+   # WIFI_RMT_SOFTAP_SUPPORT (default y) and re-defaults the host's
+   # ESP_WIFI_SOFTAP_SUPPORT from it — set both or the host one bounces back to y.
+   CONFIG_WIFI_RMT_SOFTAP_SUPPORT=n
+   # LVGL fast-math functions: XIP (PSRAM), NOT internal IRAM. The shared
+   # sdkconfig.defaults sets LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y for the S3, where
+   # LVGL's esp.cmake maps LV_ATTRIBUTE_FAST_MEM to IRAM_ATTR = Xtensa .iram
+   # (fast memory, a real win). On the P4 (RISC-V) IRAM_ATTR = .iram1.N, which
+   # lands in the scarce internal sram_low and overflows the link (~113 KB of
+   # LVGL in ~60 KB of headroom). The M0 known-good LVGL demo left it unset
+   # (LVGL in XIP, ~2.6 KB IRAM) and ran clean; PSRAM XIP is proven here. The
+   # P4 file is appended after the shared one, so this =n wins on esp32p4 and
+   # the S3 keeps its IRAM fast-math. (Per-target override; see CLAUDE.md
+   # "Kconfig n leaves the macro UNDEFINED" — this is a *defaults-file* value,
+   # not a #define, so it is fine.)
+   CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
+   # Idle-task WDT, CPU1: the moon_sweep task (the boot sweep, then the burn-in
+   # spin) can own one core for seconds at a time (first bake ~5-6 s); the idle
+   # task on that core then cannot feed the 5 s WDT, so the check fires on every
+   # boot sweep. Same treatment as the S3 (sdkconfig.defaults.esp32s3): disable
+   # the CPU1 idle check only (CPU0 stays checked).
+   CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+   # Clock: the 4C has no PCF85063A / IO expander — the external-RTC-IC path
+   # (PCF registers for time/minute/countdown/alarm) is off. The time base is
+   # the system clock over the crystal-backed internal RTC timer + SNTP; the
+   # minute tick and the countdown/alarm arming run in software (esp_timer).
+   # (Kconfig `n` leaves the macro UNDEFINED — the code gates on
+   # #if CONFIG_CLOCK_USE_PCF85063A, which resolves false.)
+   CONFIG_CLOCK_USE_PCF85063A=n
+   # RTC clock source: the external 32 kHz crystal (the 4C mounts it, with a
+   # VBAT battery header). The internal RC oscillator is only a few %
+   # accurate and is unusable as a clock time base.
+   CONFIG_RTC_CLK_SRC_EXT_CRYS=y
+
+**The board line asymmetry, the P4 half:** this file **does** carry
+``CONFIG_BOARD_P4=y`` — the Kconfig ``choice``'s default is the S3,
+so selecting the P4 must override it, while the S3 file needs no
+board line at all (:doc:`the S3 board <s3>`). The root
+``CMakeLists`` target/board guard makes a stray board line in the
+wrong file a build-time ``FATAL_ERROR``.
+
+The shared file (``sdkconfig.defaults``) contributes the
+board-neutral values: the 16 MB flash header
+(``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y`` — both boards flash a 16 MB
+header even though the P4's chip is 32 MB),
+``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the P4 file then selects
+``partitions_p4.csv`` through
+``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``), ``CONFIG_SPIRAM=y``,
+the LVGL 9.6 setup (notably
+``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y`` — which the P4 file
+**flips to ``n``** above, because on the RISC-V P4 ``IRAM_ATTR``
+would overflow the scarce ``sram_low``), and the same UI seeds the
+S3 page lists. The P4's ``UI_MOON_ANIM_BAKE_PX`` default (650)
+comes from the Kconfig ``default 650 if BOARD_P4`` line, not a
+defaults-file pin.
+
+Compile-time settings
+---------------------
+
+The full Kconfig reference the P4 build compiles against follows —
+the board choice (with the ``CONFIG_BOARD_P4=y`` line above), the
+esp_hosted guard keys (the P4 is the target whose esp_hosted
+dependency set their ``if:`` clauses evaluate against), the clock
+keys (with ``CLOCK_USE_PCF85063A`` off — the board carries no RTC
+IC), the full UI menu, the moon constants, and the P4 partition
+table. The tables are single-sourced with :doc:`the reference
+section <../reference/index>` (the same fragments are included
+there), so the two can't drift.
+
+Board selection
+---------------
+
+.. include:: ../reference/_fragments/kconfig-board-choice.inc
+
+The esp_hosted guard keys
+-------------------------
+
+.. include:: ../reference/_fragments/kconfig-guard-keys.inc
+
+Clock component
+---------------
+
+.. include:: ../reference/_fragments/kconfig-clock.inc
+
+UI component
+------------
+
+.. include:: ../reference/_fragments/kconfig-ui.inc
+
+Moon constants
+--------------
+
+.. include:: ../reference/_fragments/moon-consts.inc
+
+Partition table
+---------------
+
+.. include:: ../reference/_fragments/partitions-p4.inc

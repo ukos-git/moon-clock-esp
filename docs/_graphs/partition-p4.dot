@@ -1,0 +1,19 @@
+// P4 (32 MB flash) partition layout — partitions_p4.csv
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph partitions_p4 {
+    rankdir=LR;
+    label="partitions_p4.csv — P4 4C, 32 MB flash (total 14428 K)";
+    labelloc=t;
+    fontsize=14;
+    fontname=sans;
+    node [fontname=sans, shape=box, style="rounded,filled", height=0.55, margin=0.22, fontsize=11];
+    edge [fontname=sans, fontsize=9, arrowhead=none];
+
+    boot    [label="bootloader +\npartition table\n(nvs 24 K + phy 4 K)", fillcolor="#e8e8e8", fillstyle=solid];
+    factory [label="factory (app)\n9216 K", fillcolor="#cfe0c8", fillstyle=solid];
+    storage [label="storage (SPIFFS)\n64 K", fillcolor="#f5e6b8", fillstyle=solid];
+    assets  [label="moon_assets\n5120 K\n(2048x1024 albedo +\n2048x1024 DEM = 4096 K)", fillcolor="#d9d2ea", fillstyle=solid];
+    free    [label="unused\n~17.6 MB", fillcolor="#f4f4f4", fillstyle=solid];
+
+    boot -> factory -> storage -> assets -> free;
+}
