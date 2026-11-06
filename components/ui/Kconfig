@@ -124,22 +124,31 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_BAKE_PX
         int "Synodic boot sweep intermediate-frame bake resolution (px)"
-        default 240
-        range 100 400
+        # Kconfig evaluates multiple default lines FIRST-MATCH-WINS, so the
+        # conditional line must precede the unconditional fallback.
+        default 650 if BOARD_P4
+        default 400
+        range 100 650
         help
             The on-screen size the boot sweep's INTERMEDIATE frames are
             baked at before being upscased (nearest-neighbor) to the full
-            MOON_PX for display. 240 (the default) keeps the 336-frame
-            sweep under ~3 min (~0.28 s bake + ~0.23 s display+tick per
-            frame). Measured on the 336-frame sweep: 200 -> ~0.21
+            MOON_PX for display. Both boards default to their own MOON_PX
+            (S3 400, P4 650) -- every intermediate frame baked at full
+            resolution, pixel-identical to the static/spin bakes (no
+            upsample softness at the terminator), at the cost of a longer
+            sweep. Measured on the S3 336-frame sweep: 200 -> ~0.21
             s/frame (~2.4 min), 240 -> ~0.28 s (~2.8 min), 320 -> ~0.48 s
-            (~4.0 min), 400 (= MOON_PX) -> ~0.72 s (~5.3 min) -- 400 bakes
-            every frame at full resolution, pixel-identical to the
-            static/spin bakes (no upsample softness at the terminator),
-            at the cost of a ~5 min sweep. The reduced-res frames are
-            physically correct (the lighting/relief model is
+            (~4.0 min), 400 (= MOON_PX) -> ~0.72 s (~5.3 min). The P4
+            default 650 is an EXTRAPOLATION (~1.5-2 s/frame -> ~8-11 min
+            for 336 frames, unmeasured on the panel); if the boot sweep
+            becomes too slow, drop it (e.g. 512) -- one Kconfig value.
+            Values above the board's MOON_PX are clamped to it: a bake
+            above native adds no display quality (the screen shows
+            MOON_PX), and the sharpness comes from the MOON_ALBEDO_W
+            texture oversampling, not supersampled bakes. The reduced-res
+            frames are physically correct (the lighting/relief model is
             resolution-independent; only the screen sampling is coarser,
-            400/S x 400/S blocks), which is acceptable in the fast
+            MOON_PX/S x MOON_PX/S blocks), which is acceptable in the fast
             montage. The last frame and the static/spin phase are ALWAYS
             full resolution regardless of this setting. (The light-sleep
             dusk does not bake intermediate frames at all: its constant-

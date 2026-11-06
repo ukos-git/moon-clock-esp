@@ -13,43 +13,52 @@ terminator across the disk to the fully unilluminated side. Time comes from NTP
 (brief on-demand WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
-_State of this document: 2026-11-01, after the **dual-board build — P4
-plumbing, Wi-Fi, moon and UI scale-up** (the repo now also builds for the
-Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720 round IPS — §2.3, §3.2;
-the S3 build is unchanged; the P4's remote-C6 Wi-Fi, the 650 px moon disk
-(2026-11-01: grown 618 → 650 px so the gap to the seconds arc is ~half the
-arc's thickness, §3.2) and the 720 px UI upscale — panel-scaled layout +
-regenerated fonts, §6 — are done on-device; the P4 spin's CCW flicker is fixed
-at the source — one framebuffer, no scanout flip, §4.3; the P4 clock
-degradation (no RTC IC: crystal RTC timer + SNTP + software alarms) is the
-follow-on milestone), the **computed (backlit) night side** — the unilluminated
-side is now the real lunar surface lit faintly from the anti-solar direction
-instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item 4; the `dk_sup` rim
-kill is baked into the shade map and `moon_reproject` is a pure gather — §5.2
-item 6), and the burn-in spin's **direct panel write** (the render task writes
-the MOON_PX² moon area straight to the panel at 8 fps instead of routing
-through LVGL's ~175 ms re-render; the settled rate is a constant slow spin, so
-the moon no longer freezes before light sleep), the **fade-to-black screen
-switch** (replacing the concentric reveal that showed white strip bars; now a
-hardware panel-brightness ramp — the CO5300's own dimming command — so the
-transition writes no pixels at all), the **alarm weekday prefix** ("Mo 07:00"
-on the home screen when the next fire is >24 h away), the **fa-circle-xmark
-exit glyph** (U+F057 — the glyph is the button), and the **7:00 Mon–Fri default
-alarm** (the `*/5` debug rule burned the alarm screen in), the **P4 software
-clock** (M5.1 — no RTC IC: `CLOCK_USE_PCF85063A=n`, the crystal-backed internal
-RTC timer + SNTP as the time base with the minute tick / countdown / alarm
-arming in software, §2.3), the **alarm ring** (M5.5 — the fired alarm rings
-through the board's ES8311 codec + speaker amp, volume ramped up gradually,
-touch snooze; **both boards** since the 2026-11-04 bugreport — the S3 also
-carries the ES8311, and the **alarm-sound picker** (§7.17) selects one of four
-baked loops, §7.5), the **implemented wheel v2** (§7.13 — the "sweep wheel v2
-hybrid": proportional press sectors + an overlay reveal + a DTMF-style centre
-preview; shipped in firmware, the interactive lab is the clickable reference,
-§7.14) and the **design-choice documentation** (§7.14: the keyboard lab
-committed to the repo, the comparable-layout survey and the idea sources;
-§12.4: the committed NASA side-by-side figures). See the standing rule in
-[CLAUDE.md](../CLAUDE.md) — this document is regenerated with
-`python3 docs/gen_doc.py` and must stay in sync with the code._
+_State of this document: 2026-11-06, after the **per-board moon asset
+resolution** (the albedo texture and the sweep bake are Kconfig-selected per
+board — `MOON_ALBEDO_W` 864 on the S3 / 2048 on the P4, `UI_MOON_ANIM_BAKE_PX`
+native per board 400 / 650, so the P4's boot sweep and stand-still images run
+at full display capability: the P4's 650 px disk samples the 2048×1024 LROC
+texture at 1.57 texels per screen px, and every sweep frame bakes at full 650
+px — device-measured 2026-11-06: the full 336-frame sweep in 598 s,
+`albedo 2048x1024 loaded to PSRAM`, 0 WDT, §2.4/§2.5/§11/§14.2b; the S3's asset
+bytes are byte-identical, so its 466 screenshots are unchanged), and after the
+**dual-board build — P4 plumbing, Wi-Fi, moon and UI scale-up** (the repo now
+also builds for the Waveshare **ESP32-P4-WIFI6-Touch-LCD-XC "4C"**, 720×720
+round IPS — §2.3, §3.2; the S3 build is unchanged; the P4's remote-C6 Wi-Fi,
+the 650 px moon disk (2026-11-01: grown 618 → 650 px so the gap to the seconds
+arc is ~half the arc's thickness, §3.2) and the 720 px UI upscale —
+panel-scaled layout + regenerated fonts, §6 — are done on-device; the P4 spin's
+CCW flicker is fixed at the source — one framebuffer, no scanout flip, §4.3;
+the P4 clock degradation (no RTC IC: crystal RTC timer + SNTP + software
+alarms) is the follow-on milestone), the **computed (backlit) night side** —
+the unilluminated side is now the real lunar surface lit faintly from the
+anti-solar direction instead of the flat `MOON_NIGHT_FLOOR` overlay (§5.2 item
+4; the `dk_sup` rim kill is baked into the shade map and `moon_reproject` is a
+pure gather — §5.2 item 6), and the burn-in spin's **direct panel write** (the
+render task writes the MOON_PX² moon area straight to the panel at 8 fps
+instead of routing through LVGL's ~175 ms re-render; the settled rate is a
+constant slow spin, so the moon no longer freezes before light sleep), the
+**fade-to-black screen switch** (replacing the concentric reveal that showed
+white strip bars; now a hardware panel-brightness ramp — the CO5300's own
+dimming command — so the transition writes no pixels at all), the **alarm
+weekday prefix** ("Mo 07:00" on the home screen when the next fire is >24 h
+away), the **fa-circle-xmark exit glyph** (U+F057 — the glyph is the button),
+and the **7:00 Mon–Fri default alarm** (the `*/5` debug rule burned the alarm
+screen in), the **P4 software clock** (M5.1 — no RTC IC:
+`CLOCK_USE_PCF85063A=n`, the crystal-backed internal RTC timer + SNTP as the
+time base with the minute tick / countdown / alarm arming in software, §2.3),
+the **alarm ring** (M5.5 — the fired alarm rings through the board's ES8311
+codec + speaker amp, volume ramped up gradually, touch snooze; **both boards**
+since the 2026-11-04 bugreport — the S3 also carries the ES8311, and the
+**alarm-sound picker** (§7.17) selects one of four baked loops, §7.5), the
+**implemented wheel v2** (§7.13 — the "sweep wheel v2 hybrid": proportional
+press sectors + an overlay reveal + a DTMF-style centre preview; shipped in
+firmware, the interactive lab is the clickable reference, §7.14) and the
+**design-choice documentation** (§7.14: the keyboard lab committed to the repo,
+the comparable-layout survey and the idea sources; §12.4: the committed NASA
+side-by-side figures). See the standing rule in [CLAUDE.md](../CLAUDE.md) —
+this document is regenerated with `python3 docs/gen_doc.py` and must stay in
+sync with the code._
 
 ---
 
@@ -88,12 +97,18 @@ Markdown and renders the project's own media:
   `docs/img/screens/*.png`. **The same 19 shots at the P4's 720x720 panel**
   (the 650 px moon disk, the 720 px UI — panel-scaled layout + the P4's
   148/74/50 px fonts): `docs/img/screens/p4/*.png` (`build.sh run --panel 720`
-  builds into its own `build-720/` dir).
+  builds into its own `build-720/` dir). The 720 set renders the P4's **real
+  2048x1024 albedo texture** (the panel arg selects the asset target: 466 →
+  `out/s3/` + `generated/s3/`, 720 → `out/p4/` + `generated/p4/`, mirroring the
+  device's `CONFIG_BOARD_P4` switch) — since 2026-11-06 the P4 moon shots are
+  the sharper 1.57-texels-per-screen-px render, while the 466 set is
+  byte-identical to the pre-change S3 texture.
 - **4 films** of the live animations — the first three with frames rendered by
   the device's own moon core (`host_sim/build/moon_sim`, the exact device
   translation units):
-  - `docs/img/boot_sweep.mp4` — the boot synodic sweep (336 frames @240 px, new
-    moon → now)
+  - `docs/img/boot_sweep.mp4` — the boot synodic sweep (336 frames, new moon →
+    now; the film's host frames render at 240 px for size — the device sweeps
+    at the board's native `UI_MOON_ANIM_BAKE_PX`, S3 400 / P4 650 px, §2.4)
   - `docs/img/free_spin.mp4` — the settled free spin (36 frames @466 px, 10°)
   - `docs/img/dusk.mp4` — the light-sleep dusk, the device's own path mirrored
     1:1 by `moon_sim --dusk` (one-time shade map at the endpoint's rim-sliver
@@ -136,11 +151,15 @@ Markdown and renders the project's own media:
   embedded in [§17](#17-complete-source-code) (generated, so it cannot drift
   from the code it documents).
 
-Regeneration: `python3 docs/gen_media.py` (films, needs `host_sim/.venv` with
-PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
+Regeneration:
+`cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4` (the
+pre-baked per-board moon assets, §2.5 — the first step, every other render
+depends on them), `python3 docs/gen_media.py` (films, needs `host_sim/.venv`
+with PIL + ffmpeg), `host_sim/uisim/build.sh run` then copy
 `host_sim/uisim/out/*.png` → `docs/img/screens/`,
 `host_sim/.venv/bin/python host_sim/check_gate.py` (the gate must pass — its
-32-frame output in `/tmp/moon-sim-gate/` feeds the NASA figures),
+32-frame output in `/tmp/moon-sim-gate/` feeds the NASA figures; run it for
+BOTH board textures, `--target s3` and `--target p4`, §12.1),
 `host_sim/.venv/bin/python docs/nasa_figs.py` (the `nasa_vs_c_*.png` figures),
 the book's figures —
 `docs/book/.venv/bin/python docs/book/tools/gen_lighting_figs.py` (ch.6
@@ -541,33 +560,63 @@ idf.py flash -p /dev/ttyACM0        # ~40 s at 460800 baud
 python3 -m serial.tools.miniterm /dev/ttyACM0 115200   # or pyserial capture
 ```
 
-**First boot** (≈4 min): the clock is acquired by the _blocking_ boot sync
-(WiFi + NTP before the display starts), the UI is born on the **airplane** home
-screen, and the **synodic boot sweep** plays: 336 frames @240 px from the last
-new moon to now, ending on the current phase; the free spin then re-anchors
-from the sweep's last frame. The sweep is display-paced and the per-frame bake
-cost is now _flat across the synodic cycle_: with the backlit night side (§5.2
-item 4) every in-disk pixel loads the albedo + relief gradient, so a dark frame
-costs about what a bright one does — measured 2026-11-01 on the P4 at a 22 d
-moon age, 180–183 ms @240 px (previously 64–138 ms on the S3's flat-floor
-model, which skipped the albedo on the dark side) and the final frame bakes at
-full 650 px in **959 ms** (was ~595 ms — the dark pixels now load albedo too) —
-**~125 s total** (336 × ~370 ms display-paced). The S3's older figures (79–541
-ms @240 px median 306, 231 s total, 2026-10-31) predate the backlit change and
-will shift the same way; re-measure on the S3 device. Serial markers to watch:
-`WiFi connected`, `SNTP sync`, `synodic boot sweep started: 336 frames`,
-`sweep N/336 baked in ~180ms @240px`, `spin started`. A clean boot shows **0
-WDT / 0 panic / 0 NO_MEM**.
+**First boot** (the sweep-bound: ~6 min on the S3, ~10 min on the P4 — both
+boards sweep at their board's native `UI_MOON_ANIM_BAKE_PX`, S3 400 px / P4 650
+px, §11): the clock is acquired by the _blocking_ boot sync (WiFi + NTP before
+the display starts), the UI is born on the **airplane** home screen, and the
+**synodic boot sweep** plays: 336 frames from the last new moon to now, every
+frame baked at full board resolution (no intermediate upsample softness),
+ending on the current phase; the free spin then re-anchors from the sweep's
+last frame. The sweep is display-paced; with the backlit night side (§5.2
+item 4) every in-disk pixel loads the albedo + relief gradient, and the
+per-frame bake cost now varies with illumination — the darker the frame (more
+backlit night-side work), the slower: measured 2026-11-06 on the P4 at 650 px
+(the per-board 2048x1024 texture), bright frames (~≥ 70 % illumination) bake
+**~1.14–1.45 s** (median 1.22 s), dark frames (< 30 %) **~1.70–2.08 s** (median
+1.85 s) — **336 frames in 512 s of bake, 598 s wall-clock including the ~185 ms
+display leg** (`sweep bake done in 598226ms`, 0 WDT / 0 panic). On the S3 at
+400 px the same 336-frame sweep measures ~0.72 s/frame (~5.3 min bake — the S3
+resolution matrix, §11). Serial markers to watch: `WiFi connected`,
+`SNTP sync`, `synodic boot sweep started: 336 frames`,
+`sweep N/336 baked in ~1500ms @650px` (P4) / `~720ms @400px` (S3),
+`spin started`. A clean boot shows **0 WDT / 0 panic / 0 NO_MEM**.
 
-### 2.5 Regenerating the moon assets (optional)
+### 2.5 Regenerating the moon assets (per board target)
 
-The `moon_assets` partition holds the 864x432 equirect albedo + 2048x1024 int8
-relief DEM (2,470,400 B < 2,621,440 B), pre-generated and baked from
-`assets/images/moon/moon_assets.bin` into `build/storage.bin`… (no — into
-`build/` and flashed at `0x17c000`). Regenerate from LROC + LOLA sources:
-`assets/images/moon/.venv/bin/python -m moon.assets`. The albedo **must be
-loaded 16-bit** (tifffile), and the texture carries an 180° longitude offset
-(`MOON_TEX_LON_OFFSET`).
+The `moon_assets` partition holds the equirect albedo + the 2048x1024 int8
+relief DEM — one pre-baked blob **per board target** (§3.1 / §3.2): the S3
+864x432 albedo + DEM = 2,470,400 B < the 2560 K partition; the P4 2048x1024
+albedo + DEM = 4,194,304 B < the 5120 K partition. The blobs live at
+`assets/images/moon/out/{s3,p4}/moon_assets.bin` (gitignored, like the rest of
+`assets/`) and are flashed to the `moon_assets` partition by the build (the
+root `CMakeLists` selects `out/<target>/` from `IDF_TARGET`).
+
+The texture width is the Kconfig `MOON_ALBEDO_W` (height = width / 2, even
+only; §14.2b): both boards default to the best resolution their flash + PSRAM
+budgets allow — 864 on the S3, 2048 on the P4. The **tracked** generated
+headers follow the same per-target split:
+`components/moon/generated/{s3, p4}/moon_consts.h` (the build adds the matching
+include dir; the C reads `MOON_ALB_W` from the header, never the Kconfig
+macro). A root-`CMakeLists` consistency guard fails the configure (FATAL_ERROR,
+not at flash/boot) on an odd width, on a manifest whose baked width ≠
+`MOON_ALBEDO_W`, or on a blob that overflows the board's `moon_assets`
+partition row (it names the KiB it needs — a 2560-wide albedo would need ≥ 5248
+K, e.g.).
+
+Regenerate from the LROC + LOLA sources (the 4096x2048 16-bit sRGB LROC TIFF;
+the albedo **must be loaded 16-bit** via tifffile, and the texture carries an
+180° longitude offset, `MOON_TEX_LON_OFFSET`):
+
+```bash
+cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4   # both, default sizes
+cd assets/images/moon && .venv/bin/python -m moon.assets --target p4 --alb 2560x1280   # a custom width
+```
+
+The pipeline validates the per-target partition fit and prints the steady-state
+asset PSRAM (3× albedo + DEM — the two shade maps + the gather texture,
+§5.2/§5.3), writes the per-target `moon_assets_manifest.json` (`alb_w`,
+`combined_bytes`, … — the consistency guard's input), and copies the generated
+header into `components/moon/generated/<target>/`.
 
 ---
 
@@ -595,7 +644,7 @@ the PCF85063A as the time-of-truth source.
 | Name           | Type   | Size                     | Holds                                                                  |
 | -------------- | ------ | ------------------------ | ---------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K               | IDF                                                                    |
-| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1621a0` (1,450,400 B), 646,752 B free |
+| `factory`      | app    | **2048 K** (2,097,152 B) | the firmware — current binary `0x1711b0` (1,511,856 B), 585,296 B free |
 | `storage`      | spiffs | 64 K                     | `wifi_credentials.txt`, `alarm.txt`, `settings.txt` (~1 KB)            |
 | `moon_assets`  | data   | 2560 K                   | 864x432 albedo + 2048x1024 int8 relief DEM                             |
 
@@ -605,7 +654,9 @@ partition was widened 1392 K → 2048 K when the app outgrew the old ceiling —
 the circular wheel keyboard (the widened full-ASCII SSID font, the 13th screen,
 and the save→connect flow, §7.13) pushed the binary past 1,425,408 B. Consumers
 find every partition by label, not offset, so the widening is layout-invisible;
-646,752 B of headroom remain for the future text-input family.
+585,296 B of factory headroom remain. The S3's `moon_assets` row stays 2560 K —
+the per-board albedo width (864) is the PSRAM limit, not the partition (§2.5,
+§14.2b).
 
 ### 3.2 The P4 board (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC "4C")
 
@@ -633,9 +684,9 @@ MB, so esptool's size-mismatch warning is expected):**
 | Name           | Type   | Size       | Holds                                                                                                                                                   |
 | -------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | nvs / phy_init | data   | 24 K + 4 K | IDF (the PHY runs on the C6 slave; `phy_init` is kept anyway — the xiaozhi v2.5.2 4C merged binary and the esp_hosted host-side examples both carry it) |
-| `factory`      | app    | **9216 K** | the firmware — current binary `0x179d40` (1,547,584 B), ~7.9 MB free — huge headroom vs the S3's 2048 K                                                 |
+| `factory`      | app    | **9216 K** | the firmware — current binary `0x1885c0` (1,607,104 B), 7,830,080 B free — huge headroom vs the S3's 2048 K                                             |
 | `storage`      | spiffs | 64 K       | `wifi_credentials.txt`, `alarm.txt` (same SPIFFS re-bake warning as the S3, §2.3)                                                                       |
-| `moon_assets`  | data   | 2560 K     | the same size-independent albedo + DEM blob as the S3                                                                                                   |
+| `moon_assets`  | data   | **5120 K** | the P4's 2048x1024 albedo + 2048x1024 DEM blob (4,194,304 B; the S3 keeps its 2560 K / 864x432 row — the albedo width is per-board, §2.5)               |
 
 ---
 
@@ -654,9 +705,14 @@ components/
     core/moon_fixp.c       fixed-point sin/cos tables
     core/moon_render.c     fixed-point in-plane gather (the free spin)
     core/erfa/             vendored public-domain ERFA subset
-    include/               moon.h, moon_consts.h (generated), moon_assets.h,
-                           moon_event.h (the classifier API + the cone constants)
+    include/               moon.h, moon_assets.h, moon_event.h (the
+                           classifier API + the cone constants)
+    generated/{s3,p4}/     moon_consts.h (generated, tracked — the per-target
+                           texture/DEM/LUT constants; the build's include-dir
+                           switch picks the board's header, §2.5)
     host/ esp/             host-asset + device asset glue
+    Kconfig                MOON_ALBEDO_W (the albedo width; per-board default,
+                           consumed by the root-CMake consistency guard only)
   clock/               PCF85063A RTC (or the P4 software clock, M5.1), minute/
                            interrupt logic, idle detector; clock_sntp.c (NTP sync +
                            the time-trusted flag); clock_alarm_scheduler.c (cron-like
@@ -833,9 +889,11 @@ angular scale.
 1. **Base-sphere direction** `r = u·right + v·up + w·E` from the on-screen (u,
    v) of the pixel (disk radius = MOON_PX/2: 200 px on the S3's 466 px panel,
    325 px on the P4's 720 px panel);
-2. **Equirect albedo** (864x432, LROC WAC, row 0 = north, 180° longitude
-   offset) gathered through the _live_ camera basis (libration + posangle exact
-   per frame);
+2. **Equirect albedo** (the per-board `MOON_ALB_W`x`MOON_ALB_H` texture —
+   864x432 on the S3, 2048x1024 on the P4, §2.5 — LROC WAC, row 0 = north, 180°
+   longitude offset) gathered through the _live_ camera basis (libration
+   - posangle exact per frame; ≥ 1 texel per screen px on both boards — ~1.05
+     on the S3's 400 px disk, ~1.57 on the P4's 650 px disk);
 3. **Displaced-normal Lambert**: the surface normal is perturbed by the LOLA
    relief (2048x1024 int8 DEM, -8518…+10416 m, 254 steps) — a 4-neighbor
    central-difference gradient, pre-baked once into a packed uint16 slope cache
@@ -877,20 +935,21 @@ angular scale.
    shade map writes the backlit night side for `d < dk_sup + MOON_DK_MARGIN`
    (margin 0.010 — the re-project's nearest-neighbor gather can round a
    boundary pixel to a cell up to ~half a theta-cell + half a lat-cell away in
-   d, ≈ 0.0073 at 864x432, so a lit-center cell would re-light the sliver
-   without the erosion), and `moon_reproject` is a **pure gather** (no `dk_sup`
-   parameter). The final bake writes the backlit night side for `d < dk_sup`.
-   The sliver itself is sun-lit (lns > 0), so the backlit color clips to **pure
-   black** there — exactly the old flat-floor kill, and the white ray stays
-   dead. At the endpoint the visible disk is entirely d < dk*sup, so the band
-   between the two bounds is never on screen (no pop). Every non-dusk caller
-   passes `0.0f` (the margin is inert there — the night test reduces to
-   `lns ≤ 0`, byte-identical to the pre-fix code). **Dusk kill margin** (UI
-   layer, 2026-11-04 bugreport — "kill the limb harder"): the dusk task
-   (moon_ui.c) passes `dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN` (0.12, ~7° of
-   crescent edge) — not the geometric `dk_sup` — to BOTH the shade-map build
-   and the final endpoint bake (the core's own `MOON_DK_MARGIN` erosion still
-   applies on top, so map and final bake share the effective bound
+   d, ≈ 0.0073 at the S3's 864-wide map (≈ 0.0030 at the P4's 2048), so a
+   lit-center cell would re-light the sliver without the erosion), and
+   `moon_reproject` is a **pure gather** (no `dk_sup` parameter). The final
+   bake writes the backlit night side for `d < dk_sup`. The sliver itself is
+   sun-lit (lns > 0), so the backlit color clips to **pure black** there —
+   exactly the old flat-floor kill, and the white ray stays dead. At the
+   endpoint the visible disk is entirely d < dk*sup, so the band between the
+   two bounds is never on screen (no pop). Every non-dusk caller passes `0.0f`
+   (the margin is inert there — the night test reduces to `lns ≤ 0`,
+   byte-identical to the pre-fix code). **Dusk kill margin** (UI layer,
+   2026-11-04 bugreport — "kill the limb harder"): the dusk task (moon_ui.c)
+   passes `dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN` (0.12, ~7° of crescent
+   edge) — not the geometric `dk_sup` — to BOTH the shade-map build and the
+   final endpoint bake (the core's own `MOON_DK_MARGIN` erosion still applies
+   on top, so map and final bake share the effective bound
    `dk_sup + 0.12 + 0.010` and agree at the endpoint). The lit crescent is thus
    thinner throughout the spin (host A/B at 2026-11-04, mid-dusk: lit 6023 →
    3595 px) at full brightness where it remains; the backlit dark side and the
@@ -944,11 +1003,14 @@ only on the body-frame surface direction and the epoch's fixed body-frame Sun �
 the camera basis selects _which direction is visible_ but never enters the
 color. Consequences: the free spin and the boot sweep need no lighting
 recompute (fixed-point gather only), and the dusk is a **constant projection**
-— one body-frame shaded equirect map (`moon_shade_map_build`, 864x432, PSRAM,
-~1.6 s on the S3 / 282 ms on the P4, 2026-11-01) is re-projected through the
-folded camera basis per frame (~50 ms, `moon_reproject`); the final dark-side
-frame is the one pixel-exact full `moon_bake` at φ\* = `atan2(-B, -A)` (today
-+134.78° orbit-folded).
+— one body-frame shaded equirect map (`moon_shade_map_build`, at the per-board
+albedo grid — 864x432 on the S3, 2048x1024 on the P4; the P4's map is 2,097,152
+B each, the lit + backlit pair ~4.1 MB of the 32 MB pool, §2.5), ~1.6 s on the
+S3 / 282 ms on the P4 (2026-11-01 — both at the then-864-wide map; the P4's
+2048-wide map builds the ~4× cell count, expected ~1.5 s) is re-projected
+through the folded camera basis per frame (~50 ms, `moon_reproject`); the final
+dark-side frame is the one pixel-exact full `moon_bake` at φ\* =
+`atan2(-B, -A)` (today +134.78° orbit-folded).
 
 ### 5.3 Rotation (the free spin)
 
@@ -1932,8 +1994,10 @@ were made and implemented:
 Frames are the device's exact panel pixels (the portable core, RGB565),
 rendered on the host and encoded here.
 
-**Boot sweep** — one synodic month, new moon → now (336 frames @240 px, the
-device's own sweep; ~2.8 min on-device, 67 s at 5 fps here):
+**Boot sweep** — one synodic month, new moon → now (336 frames, the device's
+own sweep; the film's host frames render at 240 px for size — on-device the
+sweep bakes every frame at the board's native `UI_MOON_ANIM_BAKE_PX`, S3 400 px
+/ P4 650 px, ~5.3 min / ~8.5 min, §11; 67 s at 5 fps here):
 
 ![boot sweep montage](img/boot_sweep.png)
 <video src="img/boot_sweep.mp4" controls width="466"></video>
@@ -2166,15 +2230,15 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Stage                                                                          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Relief gradient cache (boot, 4,096 KB packed)                                  | **2,913 ms** once (S3; the P4 measures **~1.0 s** for the same cache)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Boot sweep (S3)                                                                | 336 frames @240 px; bake **~78-82 ms**, display **~305 ms**/frame → **~2.8 min** total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Boot sweep (P4)                                                                | 336 frames; intermediates @240 px bake **~64-138 ms** (illumination-dependent), display **~155 ms**/frame; the FINAL frame bakes at full **650 px in ~595 ms** (the 618 px bake measured ~599 ms on 2026-10-31); **~121 s** bake total (21 d moon age)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Boot sweep (S3)                                                                | 336 frames @ **400 px** (the board's native `UI_MOON_ANIM_BAKE_PX` — every frame full resolution, no upsample; the pre-native default was 240 px). Device-measured resolution matrix (the 336-frame sweep at each bake size): 200 → ~0.21 s/frame (~2.4 min), 240 → ~0.28 s (~2.8 min), 320 → ~0.48 s (~4.0 min), 400 → **~0.72 s** (~**5.3 min** total bake; the ~305 ms display leg adds to the wall clock)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Boot sweep (P4)                                                                | 336 frames @ **650 px** (native; the pre-native default was 240 px intermediates upsampled 2.7× — visibly soft). Device-measured 2026-11-06 (the per-board 2048x1024 texture, ~9 d moon age): the bake cost varies with illumination — bright frames (≥ 70 % illum) **~1.14–1.45 s** (median 1.22 s), mid (30–70 %) **~1.39–1.71 s**, dark (< 30 %) **~1.70–2.08 s** (median 1.85 s); **336 frames in 512 s bake** (598 s wall clock incl. the ~185 ms display leg, `sweep bake done in 598226ms`), 0 WDT / 0 panic over the full sweep — the escape valve is `UI_MOON_ANIM_BAKE_PX=512` (one Kconfig value) if the ~10 min boot ever becomes too slow                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Free spin                                                                      | **~8 ms** fixed-point gather + direct panel write per frame (wrapped `draw_bitmap`, LVGL bypassed) — one continuous 400×400 QSPI window write on the S3 (CASET/RASET once, 23,300 B chunks CS-held), 10×65-row DSI strips on the P4 — 8 fps; settled 600 s/turn; 0 WDT resets (the P4's small strips kill the DPI FIFO underrun a 206-row strip caused — 65 rows on the 650 px disk, §4.3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Dusk                                                                           | shade-map build **~1.6 s** once (abortable) + re-projected frames **~50 ms** each (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Dusk                                                                           | shade-map build **~1.6 s** once at the S3's 864-wide map (the P4's 2048-wide map carries ~4× the cells — the 282 ms measured 2026-11-01 was the then-864 map; the 2048 build is expected ~1.5 s — abortable) + re-projected frames **~50 ms** each (unchanged — the gather is panel-size-bound, not texture-bound) (1°/frame; 14-95 s to φ\*) + final full-res bake + 30 s default countdown (P4 2026-10-31: 104 frames / **43.1 s** / +104°, final 650 px bake clean, 0 DSI underruns; P4: the countdown arm previously soft-failed `ESP_ERR_INVALID_STATE` on the absent PCF85063A — M5.1 (2026-11-01) re-routes it to the `esp_timer` one-shot, **device-verified 2026-11-02** (`0x181660` run: dusk 84 frames clean, countdown armed + expired at 60 s, deep-sleep transition fired, 0 WDT / reboots))                                                                                                                                                                                                                                                                                                                       |
 | Wake                                                                           | static current phase at the parked pose (no animation); background WiFi reconnect (no display freeze)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Screen switch (moon)                                                           | one atomic whole-panel flush, ~175 ms of core-0 work (display-bound)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Screen switch (every switch fades)                                             | two hardware brightness ramps (the CO5300 `0x51` command, 12 steps each × ~100 µs SPI transactions, `UI_SCREEN_SWITCH_FADE` 240 ms per ramp, each step under `s_panel_mtx` with the spin's panel writes held) + ONE atomic whole-panel flush of the new screen — it runs while the panel is still black, so the fade itself writes no pixels and costs zero strip traffic                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Settings hub idle CPU                                                          | **7-9 % of one core** (after the 10 ms adapter `task_min_delay_ms` fix; the old 1 ms floor made `vTaskDelay(0)` a yield and the LVGL task spun ~3500 Hz at 73-91 % of core 0), UI loop 93-95 Hz                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Image gate (host)                                                              | C vs NASA: max MAE **8.90** ≤ 12, SSIM **0.908**; C vs Python: max **1.31** ≤ 2 (32-frame set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Image gate (host)                                                              | **S3 864 texture:** C vs NASA max MAE **8.90** ≤ 12, mean SSIM **0.908**; C vs Python max **1.31** ≤ 2 (32-frame set — byte-identical to the pre-change baseline). **P4 2048 texture** (`--target p4`, 2026-11-06): C vs NASA max MAE **8.92** ≤ 12, mean SSIM **0.907**; C vs Python max **1.35** ≤ 2 — both textures pass their own gate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Binary (2026-11-02, after wheel v2)                                            | S3: `0x165030` = 1,462,320 B in the 2,097,152 B partition (634,832 B free — the factory was widened 1392 K → 2048 K for the circular wheel keyboard; wheel v2 +2,576 B over the M5.8 1,459,744 B). P4: `0x181520` = 1,578,272 B in the 9,437,184 B partition (7,858,912 B free — wheel v2 +3,120 B over the M5.8 1,575,152 B)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Binary (2026-11-02, after the light-sleep dim)                                 | S3: `0x165120` = 1,462,560 B in the 2,097,152 B partition (634,592 B free — dim +240 B over the wheel-v2 build). P4: `0x181660` = 1,578,592 B in the 9,437,184 B partition (7,858,592 B free — dim +320 B over the wheel-v2 build; device-verified both directions: 100 → 25 % on the idle-timeout light-sleep entry, 25 → 100 % on the auto-wake via the WiFi-sync path, production build flashed)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Binary (2026-11-02, after the clock-digit slots)                               | S3: `0x165240` = 1,462,848 B in the 2,097,152 B partition (634,304 B free — slots +288 B over the dim build). P4: `0x181860` = 1,579,104 B in the 9,437,184 B partition (7,858,080 B free — slots +512 B over the dim build; fixed-width HH:MM slots verified in the UI simulator at both extremes — "11:11" and "44:44" render centred, unclipped, and the minute flip can no longer move the hour digits)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -2188,6 +2252,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-05, after the sleep alpha + ragged-right alarm row)            | S3: `0x171220` = 1,511,968 B in the 2,097,152 B partition (585,184 B free — the light-sleep clock's `UI_CLOCK_ALPHA_PCT` default 100 → 20 (the re-added "alpha channel": the clock's own opacity over the already-dimmed panel, §7.3) + the next-alarm row right-aligned so the time's right edge lands under the MM pair's right edge and the weekday prefix hangs off left (the ragged left edge; §7.1): the row box = the time row's cells + the theme's 2 × pad_row, read live from the time row). P4: `0x1884f0` = 1,606,896 B in the 9,437,184 B partition (7,830,288 B free — the same change, size-neutral: the alpha is a value and the alarm-row width computation (`lv_obj_get_style_pad_row`) + `LV_FLEX_ALIGN_END` absorb into the linker's alignment slack; verified in the UI simulator at both 466 and 720 — the 20 % light-sleep clock and the right-aligned alarm row. **Flashed 2026-11-05 ~23:35** to the bench board at /dev/ttyACM0 after the cable re-plug — clean boot, 0 WDT, sweep running; `idf.py flash` wiped spiffs settings.txt → Kconfig defaults)                                               |
 | Binary (2026-11-06, after the centre-anchored alarm row + the wheel wedge fix) | S3: `0x1712f0` = 1,512,176 B in the 2,097,152 B partition (584,976 B free — the next-alarm row re-anchored from the screen CENTRE (v2: the v1 right-edge row read off-centre) — two zero-pad half-boxes meet at the row's centre (= the colon), the prefix's right edge and the time's left edge pinned to it, the halves' flex gap zeroed, §7.1 — plus the wheel mode-arc INDICATOR pad → 0 (the item-5a fix had put the track's pad on the indicator too, dropping its radius to `UI_PX(55)` and clamping the 60 px width into a filled sector from the centre — the "pie wedges from the middle" of the 2026-11-05 photo; §7.13). +208 B over the ragged-right build. P4: `0x1885f0` = 1,607,152 B in the 9,437,184 B partition (7,830,032 B free — the same change, +256 B; **flashed 2026-11-06** to the bench board at /dev/ttyACM0 — clean boot, 0 WDT/panics over the boot-sweep window, sweep 336 frames running, SNTP/TZ fine; UI simulator at both 466 and 720: the lit 60° key is a ring segment on the r 84–144 track (no fill inside r 84) and the alarm row's two labels are pinned exactly to the screen centre) |
 | Binary (2026-11-06, after the scan 0-AP retry)                                 | S3: `0x171390` = 1,512,336 B in the 2,097,152 B partition (584,816 B free — the scan task's bounded 0-AP retry: up to 4 attempts with a 1 s settle, breaking early on any AP found, because the screen renders the per-entry scan result once and a 0-AP first scan would park "NO APS FOUND" until a close/re-open; a genuinely empty range still ends on NO APS FOUND after ~9 s). P4: `0x1887c0` = 1,607,616 B in the 9,437,184 B partition (7,829,568 B free — +464 B; **flashed 2026-11-06** to the bench board at /dev/ttyACM0, production build `TEST_WIFI_SCAN_SEC=0` — device-captured via the hook build: the `TEST_WIFI_SCAN_SEC=300` boot held the WiFi settings screen open at t≈320 s, the scan brought the remote radio up, "Scan done: 3 APs" on the first attempt (~2.6 s through the `esp_hosted` RPC), the radio went down again, 0 WDT/panics over the full 420 s capture; the production boot then connected to the network at t≈4.6 s and ran the sweep with 0 WDT)                                                                                                                                        |
+| Binary (2026-11-06, after the per-board moon asset resolution)                 | S3: `0x1711b0` = 1,511,856 B in the 2,097,152 B partition (585,296 B free — −480 B over the scan-retry build: the C changes are a `#ifndef` seed + comments only, so the delta is linker/alignment slack; the S3 asset bytes are byte-identical to the pre-change 864 bake — the pipeline re-derivation is deterministic). P4: `0x1885c0` = 1,607,104 B in the 9,437,184 B partition (7,830,080 B free — the 2048x1024 albedo texture + the native 650 px sweep bake; **flashed 2026-11-06** to the bench board at /dev/ttyACM0, device-captured: `moon: albedo 2048x1024 loaded to PSRAM from moon_assets (2097152 bytes)`, PSRAM free 25.5 MB before the relief cache, the FULL 336-frame native sweep ran to `sweep bake done in 598226ms` with 0 WDT / 0 panic / 0 NO_MEM over the ~10 min)                                                                                                                                                                                                                                                                                                                                  |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2199,12 +2264,16 @@ DMA-capable (the DPI FIFO runs PSRAM-backed; the spin's 10×65-row DSI strips
 exist only because a 206-row strip underruns the FIFO at X16+XIP). The S3 panel
 path is the QSPI CO5300 (one continuous 400×400 window write for the spin,
 max*transfer_sz 23,300 B); the P4 panel path is the MIPI-DSI JD9365 (10×65-row
-strips, one framebuffer, NONE tear mode). The S3 bakes at 240 px intermediates
-/ 400 px final; the P4 at 240 px intermediates / **650 px** final (~595–599 ms,
-the 720 px disk). The S3 keeps the PCF85063A RTC; the P4 runs the M5.1 software
-clock (the 1.3 s poll + `esp_timer` one-shots). Both boards share the moon core
-verbatim (`components/moon/core`), so the \_computation* is identical — the
-difference is the panel, the DMA topology, and the disk size.
+strips, one framebuffer, NONE tear mode). The S3 bakes every sweep frame at
+**400 px** (its native `MOON_PX`); the P4 at **650 px** (its native `MOON_PX`,
+~1.2–1.9 s/frame by illumination, 2026-11-06). The albedo texture is per-board
+too — 864x432 on the S3 (PSRAM-limited), 2048x1024 on the P4 (the
+`MOON_ALBEDO_W` Kconfig, §14.2b) — so the P4's terminator samples ~1.57 texels
+per screen px against the S3's ~1.05. The S3 keeps the PCF85063A RTC; the P4
+runs the M5.1 software clock (the 1.3 s poll + `esp_timer` one-shots). Both
+boards share the moon core verbatim (`components/moon/core`), so the
+\_computation* is identical — the difference is the panel, the DMA topology,
+and the disk size.
 
 ---
 
@@ -2214,8 +2283,27 @@ The product's physical-correctness claim is gated, not asserted:
 
 ### 12.1 The image gate — `host_sim/check_gate.py`
 
-Full path: `host_sim/check_gate.py`. Run:
-`host_sim/.venv/bin/python host_sim/check_gate.py [--sim host_sim/build/moon_sim] [--out /tmp/moon-sim-gate]`.
+Full path: `host_sim/check_gate.py`. Run per board texture (the gate must pass
+for **both** targets — the P4's sharper texture has its own numbers):
+
+```bash
+host_sim/.venv/bin/python host_sim/check_gate.py --target s3          # default; build/moon_sim, 864x432 texture
+host_sim/.venv/bin/python host_sim/check_gate.py --target p4          # build-p4/moon_sim, 2048x1024 texture
+# [--sim PATH]  [--out /tmp/moon-sim-gate]
+```
+
+The sim's asset dimensions are parsed from its startup line
+(`moon assets: albedo WxH, dem WxH`) and the gate **exits 2 on a stale-binary
+mismatch** (sim built against a different target's texture than `--target`
+names) — rebuild the sim for the target before re-running.
+
+Current results (2026-11-06, 32-frame set, both textures deterministic from the
+same sources): **s3 — C vs NASA mean MAE 6.68 (max 8.90) / mean content SSIM
+0.908; C vs Python max 1.31** (byte-identical to the pre-change 864 baseline —
+the S3 asset re-derivation is deterministic). **p4 — C vs NASA mean MAE 6.73
+(max 8.92) / mean SSIM 0.907; C vs Python max 1.35** (the 2048 texture is
+within ~0.05 of the 864 one at this fixed 400 px gate geometry — the
+oversampling pays off on the panel, not on the gate).
 
 Two diffs over the 32-frame gate set, both at 5-bit panel fidelity (the
 device's exact gray→RGB565 quantization):
@@ -2243,10 +2331,14 @@ the SVS 5415 400x400 lunar image series, gitignored):
   the gate runs against.
 - `assets/images/moon/moon/` — the Python prototype package (`astro.py`
   geometry, `renderer.py`, `textures.py`, `metrics.py`, `register.py`,
-  `validate.py`, `constants.py`, `assets.py` — LROC/LOLA download + the
-  `moon.assets` generator, `calibrate.py`, `animation.py`), and
-  `assets/images/moon/moon_assets_gen.c` + `moon_assets.bin` — the generated
-  device assets.
+  `validate.py`, `constants.py` — the per-target `TARGETS` table (albedo width
+  / partition / PSRAM per board), `assets.py` — LROC/LOLA download + the
+  per-target `moon.assets` generator, `calibrate.py`, `animation.py`), and
+  `assets/images/moon/out/{s3,p4}/` — the generated per-board device assets
+  (`moon_assets.bin` the flashed blob, `moon_assets_gen.c` the host-sim
+  equivalent, `moon_consts.h` copied to `components/moon/generated/<target>/`,
+  `moon_assets_manifest.json` the root-CMake consistency guard's input; all
+  gitignored except the copied header, §2.5).
 
 ### 12.2 The host simulators
 
@@ -2470,33 +2562,83 @@ files are globbed), so the choice sits in the always-built board-shim
 component. The root `CMakeLists.txt` `FATAL_ERROR`s if `IDF_TARGET` and the
 `BOARD` choice disagree.
 
+**Per-board Kconfig defaults (`default X if BOARD_P4` — 2026-11-06, first use
+of the pattern).** `UI_MOON_ANIM_BAKE_PX` and `MOON_ALBEDO_W` each carry a
+board-conditional default. Kconfig evaluates multiple `default` lines
+**FIRST-MATCH-WINS**, so the conditional line MUST precede the unconditional
+fallback (`default 650 if BOARD_P4` then `default 400` — the reverse order
+always resolves 400, because the unconditional line's condition is true and
+wins the loop before the `BOARD_P4` clause is seen). Second gotcha: a
+hand-edited live `sdkconfig` **pin** beats both defaults — after changing a
+Kconfig default, remove the stale `CONFIG_…` line from `sdkconfig`
+(`sed -i '/^CONFIG_UI_MOON_ANIM_BAKE_PX/d' sdkconfig sdkconfig.p4`; never
+`idf.py save-defconfig` here — it writes the shared file only and would clobber
+the 3-file split).
+
 ### 14.2 UI component (`components/ui/Kconfig`)
 
-| Option                                                                        | Default         | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CONFIG_UI_MOON_ANIM_ENABLE`                                                  | y               | the boot synodic sweep (336 frames); `#ifndef` fallback in `moon_ui.c` re-enables it if the symbol is undefined — disable by _setting 0_                                                                                                                                                                                                                                                                                                                                |
-| `CONFIG_UI_MOON_ANIM_FRAMES`                                                  | 336             | sweep length                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `CONFIG_UI_MOON_ANIM_BAKE_PX`                                                 | 240             | sweep bake resolution (the reduced-res fast path)                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CONFIG_UI_MOON_ANIM_ON_WAKE`                                                 | n               | (obsolete test hook — the sweep is boot-only)                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `CONFIG_UI_MOON_DUSK_ENABLE`                                                  | y               | the light-sleep pole spin (constant projection)                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `CONFIG_UI_MOON_SPIN_ENABLE`                                                  | y               | the free spin (direct panel write via the wrapped `esp_lcd_panel_draw_bitmap`; paused while the orbit re-bake, the boot sweep, or the dusk owns the buffer — the screen-switch fade also holds the spin's panel writes (`s_fade_busy`, the angle keeps integrating) so the 0x51 ramp is the only panel-io traffic in flight, §10.4)                                                                                                                                     |
-| `CONFIG_UI_MOON_SPIN_PERIOD_S`                                                | 300             | active spin: seconds per full turn while in use (range 30-7200)                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S`                                        | 600             | settled spin: seconds per full turn at rest (range 60-7200) — the constant slow burn-in spin (the phase-true coast it read as a freeze)                                                                                                                                                                                                                                                                                                                                 |
-| `CONFIG_UI_MOON_SPIN_FPS`                                                     | 8               | spin frame rate: gathered + panel-written frames per second (range 2-30)                                                                                                                                                                                                                                                                                                                                                                                                |
-| `CONFIG_UI_MOON_SPIN_SETTLE_S`                                                | 10              | activity→settled-spin window                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `CONFIG_UI_MOON_ORBIT_ENABLE`                                                 | n               | tilt-driven viewport orbit (off on the S3 — the relief re-bake cadence doesn't fit; retry on the P4). Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `moon_ui.c` is `#define 0`                                                                                                                                                                                                                                                                     |
-| `CONFIG_UI_MOON_ORBIT_MAX_DEG` / `_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport bounds, step, dead zone, low-pass %                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC`                                          | 60              | deep-sleep countdown (runtime-overridable)                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `CONFIG_UI_LIGHT_SLEEP_DIM_PCT`                                               | 25              | the panel's hardware brightness in light sleep (%): the entry ramps DOWN to it and the wake / an alarm ring ramp back to 100, paced like the fade (§7.3, `moon_ui_panel_dim_ramp`)                                                                                                                                                                                                                                                                                      |
-| `CONFIG_UI_CLOCK_ALPHA_PCT`                                                   | 20              | the shared clock widget's opacity in light sleep (%): the clock's own "alpha" (the panel has no true alpha channel) — the entry sets the clock container to this over the already-dimmed panel (the original "barely visible" 20 % look; 100 = a full-brightness clock over the dim moon), the wake restores 100; deep sleep is the dead display so it is light-sleep only (§7.3; Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef` fallback in `actions.c` is 20) |
-| `CONFIG_UI_LIGHT_SLEEP_TICK_MS`                                               | 100             | LVGL tick cadence in light sleep                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `CONFIG_UI_IMU_ENABLE`                                                        | y               | QMI8658C tilt (drive the clock roll + activity)                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `CONFIG_UI_IMU_ACTIVITY_DEG` / `_WAKE_DEG`                                    | 5 / 20          | activity bar / wake bar (departure-from-settled model)                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG`                               | 1 / 0           | sign/offset calibration for the mount                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `CONFIG_UI_CLOCK_ROLL_SIGN`                                                   | 1               | flips the tilt→clock-roll sign for a mirrored mount                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `CONFIG_UI_SCREEN_SWITCH_FADE`                                                | 240             | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)                                                                                                                                                                                                                                                                                                                                                                                               |
-| `CONFIG_UI_DEMO_MODE`                                                         | n               | the demo build (§7.18): the clock widget shows MM:SS and the five moon screens rotate on a fixed order until the next reset; `n` leaves the macro UNDEFINED — the `#ifndef` seed in `actions.c`/`main.cpp` is 0; the demo disables the idle timer and skips the hourly sync                                                                                                                                                                                             |
-| `CONFIG_UI_DEMO_SCREEN_SEC`                                                   | 15              | demo mode: seconds per screen in the rotation (range 5-600)                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Option                        | Default                                                                      | Meaning                                                                                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_UI_MOON_ANIM_ENABLE`  | y                                                                            | the boot synodic sweep (336 frames); `#ifndef` fallback in `moon_ui.c` re-enables it if the symbol is undefined — disable by _setting 0_ |
+| `CONFIG_UI_MOON_ANIM_FRAMES`  | 336                                                                          | sweep length                                                                                                                             |
+| `CONFIG_UI_MOON_ANIM_BAKE_PX` | **400** (S3) /                                                               |
+| **650** (P4)                  | sweep intermediate-frame bake resolution — native per board (`default 650 if |
+
+      BOARD_P4`, `default 400`; the conditional line precedes the fallback — Kconfig defaults are
+      first-match-wins, §14.1). Every intermediate frame bakes at full MOON_PX: no upsample
+      softness, cost = the board's sweep time (S3 ~5.3 min / P4 ~8.5 min, §11). Values above the
+      board's MOON_PX clamp to it — the sharpness budget is `MOON_ALBEDO_W` texture oversampling,
+      not supersampled bakes (§14.2b) |                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+| `CONFIG_UI_MOON_ANIM_ON_WAKE` | n | (obsolete test hook — the sweep is
+boot-only) | | `CONFIG_UI_MOON_DUSK_ENABLE` | y | the light-sleep pole spin
+(constant projection) | | `CONFIG_UI_MOON_SPIN_ENABLE` | y | the free spin
+(direct panel write via the wrapped `esp_lcd_panel_draw_bitmap`; paused while
+the orbit re-bake, the boot sweep, or the dusk owns the buffer — the
+screen-switch fade also holds the spin's panel writes (`s_fade_busy`, the angle
+keeps integrating) so the 0x51 ramp is the only panel-io traffic in flight,
+§10.4) | | `CONFIG_UI_MOON_SPIN_PERIOD_S` | 300 | active spin: seconds per full
+turn while in use (range 30-7200) | | `CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S` |
+600 | settled spin: seconds per full turn at rest (range 60-7200) — the
+constant slow burn-in spin (the phase-true coast it read as a freeze) | |
+`CONFIG_UI_MOON_SPIN_FPS` | 8 | spin frame rate: gathered + panel-written
+frames per second (range 2-30) | | `CONFIG_UI_MOON_SPIN_SETTLE_S` | 10 |
+activity→settled-spin window | | `CONFIG_UI_MOON_ORBIT_ENABLE` | n |
+tilt-driven viewport orbit (off on the S3 — the relief re-bake cadence doesn't
+fit; retry on the P4). Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef`
+fallback in `moon_ui.c` is `#define 0` | | `CONFIG_UI_MOON_ORBIT_MAX_DEG` /
+`_STEP_DEG` / `_DEADZONE_DEG` / `_LPF_ALPHA` | 30 / 1 / 2 / 30 | orbit viewport
+bounds, step, dead zone, low-pass % | | `CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC` |
+60 | deep-sleep countdown (runtime-overridable) | |
+`CONFIG_UI_LIGHT_SLEEP_DIM_PCT` | 25 | the panel's hardware brightness in light
+sleep (%): the entry ramps DOWN to it and the wake / an alarm ring ramp back to
+100, paced like the fade (§7.3, `moon_ui_panel_dim_ramp`) | |
+`CONFIG_UI_CLOCK_ALPHA_PCT` | 20 | the shared clock widget's opacity in light
+sleep (%): the clock's own "alpha" (the panel has no true alpha channel) — the
+entry sets the clock container to this over the already-dimmed panel (the
+original "barely visible" 20 % look; 100 = a full-brightness clock over the dim
+moon), the wake restores 100; deep sleep is the dead display so it is
+light-sleep only (§7.3; Kconfig-`n` leaves the macro UNDEFINED — the `#ifndef`
+fallback in `actions.c` is 20) | | `CONFIG_UI_LIGHT_SLEEP_TICK_MS` | 100 | LVGL
+tick cadence in light sleep | | `CONFIG_UI_IMU_ENABLE` | y | QMI8658C tilt
+(drive the clock roll + activity) | | `CONFIG_UI_IMU_ACTIVITY_DEG` /
+`_WAKE_DEG` | 5 / 20 | activity bar / wake bar (departure-from-settled model) |
+| `CONFIG_UI_IMU_ANGLE_SIGN` / `_ROLL_OFFSET_DEG` | 1 / 0 | sign/offset
+calibration for the mount | | `CONFIG_UI_CLOCK_ROLL_SIGN` | 1 | flips the
+tilt→clock-roll sign for a mirrored mount | | `CONFIG_UI_SCREEN_SWITCH_FADE` |
+240 | the fade-to-black screen switch (ms per leg; 0 = the plain atomic switch)
+| | `CONFIG_UI_DEMO_MODE` | n | the demo build (§7.18): the clock widget shows
+MM:SS and the five moon screens rotate on a fixed order until the next reset;
+`n` leaves the macro UNDEFINED — the `#ifndef` seed in `actions.c`/`main.cpp`
+is 0; the demo disables the idle timer and skips the hourly sync | |
+`CONFIG_UI_DEMO_SCREEN_SEC` | 15 | demo mode: seconds per screen in the
+rotation (range 5-600) |
+
+### 14.2b Moon component (`components/moon/Kconfig`)
+
+| Option          | Default                                                                                                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MOON_ALBEDO_W` | **864** (S3) / **2048** (P4) — `default 2048 if BOARD_P4` then `default 864` (first-match-wins order, §14.1) | the equirect albedo texture width (height = width / 2, even only, range 864–4096). Both boards default to the best resolution their flash + PSRAM budgets allow (resolution over speed). Consumed **only by the root-CMake consistency guard** — the C reads `MOON_ALB_W` from the generated per-board `moon_consts.h`, never the macro. After changing it: regenerate `cd assets/images/moon && .venv/bin/python -m moon.assets --target <t> --alb WxH` (the build FATAL_ERRORs until the manifest matches, §2.5). Budgets: S3 864 = 2,470,400 B of 2560 K (1024 fills the partition exactly but adds ~0.45 MB the 8 MB PSRAM pool cannot spare); P4 2048 = 4,194,304 B of 5120 K (2560 would need ≥ 5248 K) |
 
 ### 14.3 Clock component (`components/clock/Kconfig`)
 

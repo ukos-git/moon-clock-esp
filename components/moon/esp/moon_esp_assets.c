@@ -1,6 +1,8 @@
 /* Device asset backend: equirect albedo + relief gradient cache.
  *
- * The combined image (assets/images/moon/moon_assets.bin) is
+ * The combined image (assets/images/moon/out/<target>/moon_assets.bin,
+ * per-board -- the root CMakeLists picks out/s3 or out/p4 by IDF_TARGET)
+ * is
  *   [0 .. ALB)                     albedo, MOON_ALB_W x MOON_ALB_H u8
  *   [ALB .. ALB + DEM)             relief DEM, MOON_DEM_W x MOON_DEM_H i8
  * and lives on the moon_assets data partition (subtype "undefined").
@@ -24,6 +26,13 @@
 #include "esp_log.h"
 #include "esp_partition.h"
 #include "esp_timer.h"
+
+/* The asset blob and the bake assume an equirect 2:1 albedo (the generator
+ * enforces this; a hand-edited header must not break it silently). */
+#if MOON_ALB_W % 2 || MOON_ALB_H * 2 != MOON_ALB_W
+#error                                                                                                                 \
+    "moon_consts.h: albedo must be equirect 2:1 (even MOON_ALB_W, MOON_ALB_H == MOON_ALB_W / 2) -- regenerate the assets (python -m moon.assets)"
+#endif
 
 static const char *TAG = "moon";
 

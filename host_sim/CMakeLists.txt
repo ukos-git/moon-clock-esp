@@ -4,17 +4,28 @@
 # gray->RGB565) rendered on the host, image-diffed against NASA with the
 # same metrics as the Python prototype.
 #
-# The albedo source (moon_assets_gen.c) is GENERATED and stays gitignored
-# under assets/images/moon/ (see the moon.assets pipeline):
-#   assets/images/moon/.venv/bin/python -m moon.assets
+# The asset blobs (moon_assets_gen.c) are GENERATED and stay gitignored
+# under assets/images/moon/out/<target>/ (see the moon.assets pipeline).
+# One simulator per board target: -DMOON_ASSETS_TARGET=s3 (default; build
+# dir build/) or p4 (build dir build-p4/) -- the sim links the target's
+# texture and reads its per-board moon_consts.h, so the gate can diff the
+# C core at each board's asset size:
+#   assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4
+#   cmake -DMOON_ASSETS_TARGET=p4 -B build-p4 && cmake --build build-p4
 cmake_minimum_required(VERSION 3.16)
 project(moon_sim C)
 
-set(MOON_ASSETS_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../assets/images/moon/moon_assets_gen.c)
-if(NOT EXISTS ${MOON_ASSETS_GEN})
+set(MOON_ASSETS_TARGET "s3" CACHE STRING "Board target for the host assets: s3 | p4")
+if(NOT MOON_ASSETS_TARGET MATCHES "^(s3|p4)$")
+    message(FATAL_ERROR "MOON_ASSETS_TARGET must be s3 or p4 (got '${MOON_ASSETS_TARGET}')")
+endif()
+set(MOON_ASSETS_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../assets/images/moon/out/${MOON_ASSETS_TARGET}/moon_assets_gen.c)
+set(MOON_CONSTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../components/moon/generated/${MOON_ASSETS_TARGET})
+if(NOT EXISTS ${MOON_ASSETS_GEN} OR NOT IS_DIRECTORY ${MOON_CONSTS_DIR})
     message(FATAL_ERROR
-        "Missing generated asset ${MOON_ASSETS_GEN}.\n"
-        "Regenerate it with: assets/images/moon/.venv/bin/python -m moon.assets")
+        "Missing generated assets for target '${MOON_ASSETS_TARGET}'\n"
+        "(need ${MOON_ASSETS_GEN} and ${MOON_CONSTS_DIR}/).\n"
+        "Regenerate with: assets/images/moon/.venv/bin/python -m moon.assets --target ${MOON_ASSETS_TARGET}")
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -53,6 +64,7 @@ set(MOON_CORE_SRCS
 
 set(MOON_CORE_INCS
     ${MOON_CORE}/include
+    ${MOON_CONSTS_DIR}
     ${MOON_CORE}/core/erfa
     ${MOON_HOST}
     ${MOON_CORE}/../..

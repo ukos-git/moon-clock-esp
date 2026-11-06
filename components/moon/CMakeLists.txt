@@ -4,6 +4,16 @@
 # same translation units are also built into the host simulator
 # (host_sim/CMakeLists.txt), which is the C-vs-NASA gate. Device glue:
 # esp/moon_esp_assets.c (albedo from the moon_assets raw partition).
+#
+# The generated per-board header (generated/{s3,p4}/moon_consts.h, produced
+# by the asset pipeline -- see components/moon/Kconfig MOON_ALBEDO_W) is
+# selected by INCLUDE_DIRS, so every consumer's `#include "moon_consts.h"`
+# resolves to the board's own texture dims without touching the core.
+if(CONFIG_BOARD_P4)
+    set(MOON_GEN_DIR generated/p4)
+else()
+    set(MOON_GEN_DIR generated/s3)
+endif()
 idf_component_register(
     SRCS
         core/moon_astro.c
@@ -25,6 +35,7 @@ idf_component_register(
         esp/moon_esp_assets.c
     INCLUDE_DIRS
         include
+        ${MOON_GEN_DIR}
         core/erfa
     REQUIRES esp_partition esp_timer log
 )

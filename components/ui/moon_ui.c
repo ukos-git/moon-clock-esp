@@ -263,7 +263,9 @@ static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && setti
 #define CONFIG_UI_MOON_ANIM_FRAMES 168
 #endif
 #ifndef CONFIG_UI_MOON_ANIM_BAKE_PX
-#define CONFIG_UI_MOON_ANIM_BAKE_PX 240
+/* Tracks the Kconfig S3 default (native 400 = MOON_PX; the P4 default is
+ * 650 = its MOON_PX, selected via `default 650 if BOARD_P4`). */
+#define CONFIG_UI_MOON_ANIM_BAKE_PX 400
 #endif
 /* Perf A/B hook (unset bools are absent from sdkconfig.h; fall back to
  * 0 = relief ON, the normal path). */
@@ -1625,7 +1627,13 @@ static void moon_sweep_task(void *arg) {
          * is always baked at full MOON_PX: it is the current phase the
          * spin resumes from, and it is the only frame that lingers on
          * screen. With the reduction disabled (bake px >= MOON_PX) every
-         * frame bakes at full resolution (the old path). */
+         * frame bakes at full resolution (the old path).
+         *
+         * The S > MOON_PX clamp below is permanent: baking ABOVE the
+         * panel's native MOON_PX adds no display quality (the screen
+         * can only show MOON_PX) and costs (S/MOON_PX)^2 PSRAM/RAM and
+         * bake time; the sharpness budget is the MOON_ALBEDO_W texture
+         * oversampling, not supersampled bakes. */
         double t = (double)(frames - 1 - f) / (double)(frames - 1);
         int64_t epoch = now - (int64_t)(t * span);
         moon_geom_t g;
@@ -2533,7 +2541,12 @@ void moon_ui_init(void) {
      * 8-bit cells, built once per dusk epoch, re-projected every dusk
      * frame (no per-frame lighting recompute). + the lit-fade companion
      * (the same map, the lit cells zeroed; see MOON_DUSK_FADE_HOLD) --
-     * the fade lerps the two, so only the lit crescent moves. */
+     * the fade lerps the two, so only the lit crescent moves. The maps
+     * follow the per-board albedo (MOON_ALBEDO_W): at the P4's 2048
+     * that is two 2,097,152 B maps (+3.45 MB of asset PSRAM), and the
+     * epoch build scales with the cell count (~5.4x the S3 864's 282 ms
+     * -> ~1.5 s); the per-frame re-project cost stays ~50 ms either way
+     * (it samples at MOON_PX density, not the map density). */
     s_shade_map = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
     s_shade_map_dark = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
     if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map || !s_shade_map_dark) {

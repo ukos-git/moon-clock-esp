@@ -1,0 +1,38 @@
+menu "Moon Phase Asset Configuration"
+
+    config MOON_ALBEDO_W
+        int "Equirect albedo texture width (px; height = width / 2)"
+        # Kconfig evaluates multiple default lines FIRST-MATCH-WINS, so the
+        # conditional line must precede the unconditional fallback.
+        default 2048 if BOARD_P4
+        default 864
+        range 864 4096
+        help
+            The width of the equirect 2:1 albedo texture (in pixels; the
+            height is width/2) baked from the 4096x2048 16-bit LROC
+            source by the asset pipeline (assets/images/moon, gitignored)
+            and flashed into the moon_assets partition. Both boards
+            default to the best resolution their flash + PSRAM budgets
+            allow (resolution over speed):
+
+              S3 (16 MB flash, 8 MB PSRAM): 864 (432) -- 2,470,400 B of
+                  the 2560K partition; 864 is the max the PSRAM pool can
+                  spare (1024 would fill the partition exactly but adds
+                  ~0.45 MB of asset PSRAM the pool cannot spare).
+              P4 (32 MB flash, 32 MB PSRAM): 2048 (1024) -- 4,194,304 B
+                  of the 5120K partition; matches the 2048-wide relief
+                  DEM grid (1.57x oversampling at the 650 px disk).
+
+            The width must be EVEN (equirect 2:1) and must match the
+            generated assets: the root CMakeLists FATAL_ERRORs on an
+            odd width or on a moon_assets.bin whose manifest width
+            differs from this value, and refuses a blob that overflows
+            the board's moon_assets partition (naming the KiB it needs).
+            After changing it, regenerate the affected target:
+              cd assets/images/moon && .venv/bin/python -m moon.assets \
+                  --target p4 --alb 2560x1280
+            (the Kconfig value only selects which pre-baked texture the
+            build flashes; the texture itself is produced by the
+            pipeline, never at compile time).
+
+endmenu

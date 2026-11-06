@@ -17,5 +17,12 @@ host_sim/uisim/out/
 # uisim --panel N builds (build-720/ for the P4; the default build/ is
 # covered above)
 host_sim/uisim/build-*/
+# the P4 host-sim build dir (host_sim/CMakeLists -DMOON_ASSETS_TARGET=p4,
+# its own build/ under build-p4/ — the pattern 'build/' alone does not
+# match)
+host_sim/build-p4/
 docs/book/.venv/
 docs/book/_build/
+# composite_dark.py intermediate frames (vendored output is
+# _static/photos/sim_*.png; the scratch dir is a byproduct)
+docs/book/tools/scratch/

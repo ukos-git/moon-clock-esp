@@ -59,7 +59,8 @@
  * The Xtensa FPU has no atan/asin, so the texture long/lat come from two
  * small internal-RAM tables (worst-case error << 0.05 texture row /
  * 0.001 deg) instead of the libm transcendentals, and the albedo is
- * sampled nearest-neighbor: the 864-wide texture is ~1.05 texture px per
+ * sampled nearest-neighbor: the per-board equirect texture (MOON_ALB_W,
+ * 864 on the S3 / 2048 on the P4, see moon_consts.h) is >= 1 texel per
  * screen px on the disk, so NN is sub-pixel-accurate. (The validated gate
  * re-checks the NN/bilinear and table/atan2 differences against the
  * Python model after any change here.)

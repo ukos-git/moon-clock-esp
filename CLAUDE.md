@@ -22,13 +22,18 @@ hardware facts, test system, build steps) **update the project documentation**
    `python3 docs/gen_doc.py` (embeds every tracked source file verbatim, plus
    the docs/ inventory and this CLAUDE.md). Commit template, generator output,
    and the code change together.
-3. If the change adds/reworks a screen, regenerate the screenshots:
-   `host_sim/uisim/build.sh run` and copy `host_sim/uisim/out/*.png` into
-   `docs/img/screens/`. New animations: `python3 docs/gen_media.py` (needs
-   `host_sim/.venv`, PIL, ffmpeg).
+3. If the change adds/reworks a screen, regenerate the screenshots BOTH panels:
+   `host_sim/uisim/build.sh run` → `docs/img/screens/` (466, the S3 set — must
+   stay sha256-identical when the S3 assets are unchanged), and
+   `build.sh run --panel 720` (plain + `--wheel`) → `docs/img/screens/p4/` (the
+   wheel shots come from `out/wheel_{rest,touched,ABC,123,sym}.png`, `rest` =
+   the un-touched `settings_wifi_password.png`). New animations:
+   `python3 docs/gen_media.py` (needs `host_sim/.venv`, PIL, ffmpeg).
 4. If the change touches the moon bake path, the host image gate must pass
-   before the doc's numbers are trustworthy:
-   `host_sim/.venv/bin/python host_sim/check_gate.py`.
+   before the doc's numbers are trustworthy — BOTH board textures:
+   `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` and
+   `--target p4` (the gate exits 2 on a stale sim binary built against the
+   other target's texture).
 
 ## Hard invariants (violations ship visible bugs)
 
@@ -59,16 +64,27 @@ hardware facts, test system, build steps) **update the project documentation**
 
 ```bash
 source ~/esp/esp-idf/export.sh
-# S3 (466) — the default target; the S3 board is /dev/ttyACM0
-idf.py build && idf.py flash -p /dev/ttyACM0
+# Port map (verified 2026-11-01, re-verify with esptool after any re-plug):
+#   /dev/ttyACM0 = the P4 4C board (the flashable bench board)
+#   /dev/ttyACM1 = the S3 board (a PEER's board — never flash it here)
+# S3 (466) — the default target; its board is /dev/ttyACM1 (peer's —
+# do NOT flash; the S3's device verification stands in via host parity)
+idf.py build
 # P4 4C (720) — the Kconfig BOARD choice comes from
 # sdkconfig.defaults.esp32p4 (CONFIG_BOARD_P4=y); own build dir + own
-# dependencies.lock.p4 (gitignored); the P4 board is /dev/ttyACM1
+# dependencies.lock.p4 (gitignored); the P4 board is /dev/ttyACM0
 idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
-idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p /dev/ttyACM1
+idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p /dev/ttyACM0
+# moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
+# assets/images/moon/out/{s3,p4}/); the root CMakeLists FATAL_ERRORs on a
+# width/manifest/partition mismatch — regenerate after touching the
+# pipeline or MOON_ALBEDO_W:
+cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4
 python3 docs/gen_doc.py                        # regenerate docs/DOCUMENTATION.md
-host_sim/.venv/bin/python host_sim/check_gate.py   # moon image gate (NASA refs)
-host_sim/uisim/build.sh run                    # real screens -> PNG snapshots
+host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate (NASA refs)
+host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # both board textures must pass
+host_sim/uisim/build.sh run                    # real screens -> PNG snapshots (466)
+host_sim/uisim/build.sh run --panel 720        # the P4 set (720, the 2048 texture)
 python3 docs/gen_media.py                      # docs videos (moon_sim frames)
 ```
 
@@ -78,7 +94,12 @@ per-target file is auto-appended when it exists, later file wins).
 `idf.py save-defconfig` writes the _shared_ file only — with this split it
 would clobber the board-specific lines, so keep the three files hand-curated (a
 stray board line in the wrong file is caught by the root CMakeLists'
-target/board `FATAL_ERROR`).
+target/board `FATAL_ERROR`). A hand-edited live `sdkconfig` pin ALSO beats a
+Kconfig default (Kconfig defaults are first-match-wins and a `CONFIG_…=…` line
+in the live file wins over every `default` line) — after changing a default,
+delete the stale pin so the new default takes effect:
+`sed -i '/^CONFIG_UI_MOON_ANIM_BAKE_PX=/d; /^CONFIG_MOON_ALBEDO_W=/d' sdkconfig sdkconfig.p4`
+(the per-target `sdkconfig.p4` backups follow the same rule).
 
 zsh: quote globs (`--include='*.c'`). Pre-commit runs clang-format on C/H only
 — **never run clang-format on Kconfig/other extensionless files** (it mangles

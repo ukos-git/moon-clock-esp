@@ -11,6 +11,16 @@
 #include "moon_assets.h"
 #include "moon_consts.h"
 
+/* The asset blob and the bake assume an equirect 2:1 albedo (the generator
+ * enforces this; a hand-edited header must not break it silently). The
+ * MOON_ALBEDO/MOON_DEM sizes below must also match the generated
+ * moon_assets_gen.c (the gate's stale-binary guard cross-checks the
+ * arrays' dims at runtime). */
+#if MOON_ALB_W % 2 || MOON_ALB_H * 2 != MOON_ALB_W
+#error                                                                                                                 \
+    "moon_consts.h: albedo must be equirect 2:1 (even MOON_ALB_W, MOON_ALB_H == MOON_ALB_W / 2) -- regenerate the assets (python -m moon.assets)"
+#endif
+
 extern const uint8_t MOON_ALBEDO[MOON_ALB_W * MOON_ALB_H];
 extern const int8_t MOON_DEM[MOON_DEM_W * MOON_DEM_H];
 

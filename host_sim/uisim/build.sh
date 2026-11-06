@@ -38,12 +38,21 @@ UI="$ROOT/components/ui"
 BUILD="$PWD/build"
 JOBS="$(nproc)"
 
-# The font set follows the panel (the device CMakeLists does the same
-# switch on CONFIG_BOARD_P4): 466 -> fonts/, anything else -> fonts_p4/
-# (the 720 px set; the symbol names are identical, screens.c is shared).
+# The font set and the moon asset target follow the panel (the device
+# CMakeLists do the same switch on CONFIG_BOARD_P4): 466 -> fonts/ + the
+# S3's 864x432 texture, anything else -> fonts_p4/ + the P4's 2048x1024
+# texture (out/<t>/moon_assets_gen.c + generated/<t>/moon_consts.h). The
+# symbol names are identical, screens.c is shared.
 FONT_DIR="$UI/fonts"
+MOON_ASSET_TARGET=s3
 if [ "$PANEL" != 466 ]; then
     FONT_DIR="$UI/fonts_p4"
+    MOON_ASSET_TARGET=p4
+fi
+MOON_GEN_C="$ROOT/assets/images/moon/out/$MOON_ASSET_TARGET/moon_assets_gen.c"
+if [ ! -f "$MOON_GEN_C" ]; then
+    echo "missing $MOON_GEN_C -- regenerate: assets/images/moon/.venv/bin/python -m moon.assets --target $MOON_ASSET_TARGET" >&2
+    exit 1
 fi
 
 CC=${CC:-gcc}
@@ -71,6 +80,7 @@ INCLUDES=(
     "-I$ROOT/components/clock/include"
     "-I$ROOT/components/wifi/include"
     "-I$MOON/include"
+    "-I$MOON/generated/$MOON_ASSET_TARGET"
     "-I$MOON/core/erfa"
     "-I$ROOT"
 )
@@ -99,7 +109,7 @@ mkdir -p "$BUILD/obj"
         "$MOON/core/moon_event.c"
     find "$MOON/core/erfa" -name '*.c'
     echo "$MOON/host/moon_host_assets.c"
-    echo "$ROOT/assets/images/moon/moon_assets_gen.c"
+    echo "$MOON_GEN_C"
     echo "$PWD/stubs.c"; echo "$PWD/main.c"; echo "$PWD/stb_impl.c"
 } | sort -u > "$SRC_LIST"
 

@@ -10,13 +10,19 @@
 #                            headroom vs the S3's 2048K)
 #   storage (spiffs) 64K    (holds ~1KB: wifi_credentials.txt + alarm.txt;
 #                            64K leaves headroom for SPIFFS garbage collection)
-#   moon_assets      2560K  (equirect albedo + int8 relief DEM, size-
-#                            independent blob: 864x432 albedo + 2048x1024
-#                            DEM = 2,470,400 B < 2,621,440 B)
-# Total = 11868K.
+#   moon_assets      5120K  (per-board equirect albedo + int8 relief DEM,
+#                            blob size set by the asset pipeline's
+#                            MOON_ALBEDO_W; the P4 default 2048x1024
+#                            albedo + 2048x1024 DEM = 4,194,304 B <
+#                            5,242,880 B. A 2560-wide albedo (2,228,224 B
+#                            albedo + 2,097,152 B DEM = 5,373,952 B) would
+#                            need >= 5248K -- the root CMakeLists guard
+#                            refuses a blob that overflows this row, naming
+#                            the KiB it needs.)
+# Total = 14428K.
 # Name,        Type, SubType, Offset,   Size,    Flags
 nvs,           data, nvs,     ,         0x6000,
 phy_init,      data, phy,     ,         0x1000,
 factory,       app,  factory, ,         9216K,
 storage,       data, spiffs,  ,         64K,
-moon_assets,   data, undefined, ,       2560K,
+moon_assets,   data, undefined, ,       5120K,

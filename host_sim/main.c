@@ -390,6 +390,12 @@ int main(int argc, char **argv) {
     if (g_neutral)
         moon_gray565_set_warm(0);
 
+    /* Asset dims at startup (the gate's stale-binary guard parses this:
+     * a simulator linked against the wrong target's moon_consts.h +
+     * moon_assets_gen.c would otherwise diff quietly at the wrong
+     * texture size). */
+    fprintf(stderr, "moon assets: albedo %dx%d, dem %dx%d\n", MOON_ALB_W, MOON_ALB_H, MOON_DEM_W, MOON_DEM_H);
+
     if (mkdir(out, 0755) != 0) {
         /* exists */
     }

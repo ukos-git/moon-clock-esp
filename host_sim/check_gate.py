@@ -21,13 +21,24 @@ If the C port is faithful (check 2), check 1 inherits the prototype's
 NASA agreement -- the residual between the two is exactly the porting
 error. Running both keeps the fidelity claim explicit instead of implicit.
 
-Run:  python check_gate.py [--sim build/moon_sim] [--out /tmp/moon-sim-gate]
+The texture size is per BOARD TARGET (--target s3|p4, default s3): the
+gate bakes the albedo at constants.TARGETS[t] and runs the matching
+simulator build (build/ for s3, build-p4/ for p4, built with
+-DMOON_ASSETS_TARGET=<t>). The gate renders at --size 400 (the reference
+geometry) in both cases; only the texture resolution differs. A
+stale-binary guard cross-checks the sim's startup line
+("moon assets: albedo WxH, dem WxH") against the target's table and
+exits 2 on mismatch (the sim would otherwise diff quietly at the wrong
+texture size).
+
+Run:  python check_gate.py [--target s3|p4] [--sim <bin>] [--out DIR]
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -66,17 +77,28 @@ def load_gray(path: str) -> np.ndarray:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sim", default=os.path.join(HERE, "build", "moon_sim"))
+    ap.add_argument("--target", choices=sorted(C.TARGETS), default="s3",
+                    help="board target: texture sizes from constants.TARGETS, "
+                         "sim build dir build/ (s3) or build-p4/ (p4)")
+    ap.add_argument("--sim", default=None,
+                    help="simulator binary (default: build/moon_sim for s3, "
+                         "build-p4/moon_sim for p4)")
     ap.add_argument("--out", default="/tmp/moon-sim-gate")
     ap.add_argument("--frames", type=int, default=32)
     ap.add_argument("--json", default="/tmp/moon-research/mooninfo_2025.json")
     args = ap.parse_args()
 
+    spec = C.TARGETS[args.target]
+    alb_w, alb_h = spec["alb"]
+    dem_w, dem_h = spec["dem"]
+    sim = args.sim or os.path.join(
+        HERE, "build-p4" if args.target == "p4" else "build", "moon_sim")
+
     os.makedirs(args.out, exist_ok=True)
     rec = json.load(open(args.json))
     frames = select_frames(rec, args.frames)
-    alb = A.bake_albedo(A.load_albedo())
-    dem, dem_lo, dem_hi = A.bake_dem(A.load_height())
+    alb = A.bake_albedo(A.load_albedo(), alb_w, alb_h)
+    dem, dem_lo, dem_hi = A.bake_dem(A.load_height(), dem_w, dem_h)
     mps = (dem_hi - dem_lo) / A.DEM_STEPS
     lut = np.asarray(C.TONE_LUT, dtype=np.uint8)
 
@@ -89,11 +111,25 @@ def main() -> int:
     # (see moon_render.c g565_build). The gate validates the PHYSICS
     # (neutral gray vs NASA / vs the Python prototype), so it renders the
     # neutral LUT -- the tint never enters the gate numbers.
-    r = subprocess.run([args.sim, "--list", list_path, "--size", "400",
+    r = subprocess.run([sim, "--list", list_path, "--size", "400",
                         "--neutral", "--out", args.out],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print("simulator failed:\n" + r.stdout + r.stderr)
+        return 2
+    # Stale-binary guard: the sim prints its asset dims at startup; a sim
+    # built against the other target's textures would otherwise diff
+    # quietly at the wrong resolution.
+    m = re.search(r"moon assets: albedo (\d+)x(\d+), dem (\d+)x(\d+)",
+                  r.stderr)
+    if not m or tuple(int(v) for v in m.groups()) != (alb_w, alb_h, dem_w,
+                                                      dem_h):
+        print("stale simulator: %s reports '%s' but target %s needs "
+              "%dx%d albedo / %dx%d dem -- rebuild it "
+              "(cmake -DMOON_ASSETS_TARGET=%s -B build%s)"
+              % (sim, m.group(0) if m else "(no asset line in stderr)",
+                 args.target, alb_w, alb_h, dem_w, dem_h, args.target,
+                 "-p4" if args.target == "p4" else ""))
         return 2
 
     # --- Python model: 5-bit render_from_assets per frame ------------------
