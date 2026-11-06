@@ -112,12 +112,13 @@ copybutton_prompt_text = r">>> |\.\.\. |\$ |esp32s3-moon~ |host:"
 copybutton_prompt_is_regexp = True
 
 master_doc = "index"
-# code/gen/ is generated at build time by the mooncode extension (it is
-# excluded from the source scan so it is neither picked up twice nor
-# required to exist on a fresh checkout). book/ is the old chapter book
-# still on disk during the migration — it leaves in stage 4, with this
-# exclude entry.
-exclude_patterns = ["_build", ".venv", "book", "code/gen", "Thumbs.db", ".DS_Store"]
+# code/gen/ is written at build time by the mooncode extension at
+# ``builder-inited`` — i.e. BEFORE the source scan — so the generated
+# RST is picked up normally (it must NOT be excluded, or the gen/index
+# toctree entry would dangle). book/ is the old chapter book still on
+# disk during the migration — it leaves in stage 4, with this exclude
+# entry.
+exclude_patterns = ["_build", ".venv", "book", "Thumbs.db", ".DS_Store"]
 
 latex_elements = {
     "papersize": "a4paper",
