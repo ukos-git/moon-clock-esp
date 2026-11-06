@@ -1,0 +1,26 @@
+{
+  "screen": "settings-tz",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Caption",
+      "x": 233,
+      "y": 123,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Offset roller (UTC-12 … +14, Berlin)",
+      "x": 233,
+      "y": 233,
+      "dir": "n"
+    },
+    {
+      "id": 3,
+      "text": "Exit → hub",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

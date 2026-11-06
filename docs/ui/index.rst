@@ -34,6 +34,3 @@ three objects, reparented on the screen switch.
    settings-time
    settings-tz
    settings-alarm-sound
-
-(The per-page content — screenshots, annotated callouts, element
-tables — lands in stage 6.)

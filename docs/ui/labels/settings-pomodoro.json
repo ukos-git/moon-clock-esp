@@ -1,0 +1,33 @@
+{
+  "screen": "settings-pomodoro",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Caption",
+      "x": 233,
+      "y": 133,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Hour roller (00–23)",
+      "x": 153,
+      "y": 210,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Minute roller (00–59)",
+      "x": 303,
+      "y": 210,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Exit → alarm settings",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

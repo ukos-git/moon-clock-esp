@@ -1,0 +1,33 @@
+{
+  "screen": "settings-time",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Caption",
+      "x": 233,
+      "y": 123,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Time row HH:MM",
+      "x": 158,
+      "y": 180,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Date row DD.MM.YY",
+      "x": 308,
+      "y": 303,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Exit → hub",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

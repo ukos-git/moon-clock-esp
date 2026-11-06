@@ -1,0 +1,33 @@
+{
+  "screen": "settings-deep-sleep",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Caption",
+      "x": 233,
+      "y": 108,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Sleep countdown (1–30 min)",
+      "x": 143,
+      "y": 233,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Dusk animation toggle",
+      "x": 323,
+      "y": 233,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Exit → hub",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

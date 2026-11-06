@@ -42,6 +42,7 @@ Contents
 
    ui/index
    keyboard
+   keyboard-lab
 
 .. toctree::
    :maxdepth: 2

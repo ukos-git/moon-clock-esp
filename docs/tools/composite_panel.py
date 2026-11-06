@@ -42,7 +42,8 @@ CX, CY = FIT["cx"], FIT["cy"]
 R_A = FIT["R_content"]
 R_RIM = FIT["R_rim_outer"]
 HERO = HERE / "waveshare-hero.webp"
-UISIM = HERE.parents[2] / "host_sim" / "uisim" / "out"
+# HERE is docs/tools/, so the repo root is parents[1].
+UISIM = HERE.parents[1] / "host_sim" / "uisim" / "out"
 
 # The five book figures: uisim screen name -> composite filename.
 # light_sleep is the panel's hardware 0x51 brightness at 25% (dim).

@@ -1,0 +1,26 @@
+{
+  "screen": "alarm",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Clock HH:MM",
+      "x": 140,
+      "y": 210,
+      "dir": "s"
+    },
+    {
+      "id": 2,
+      "text": "Alarm indicator",
+      "x": 185,
+      "y": 320,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Any touch dismisses",
+      "x": 420,
+      "y": 40,
+      "dir": "e"
+    }
+  ]
+}

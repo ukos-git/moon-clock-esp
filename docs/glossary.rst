@@ -145,7 +145,8 @@ Project jargon
   keyboard (:doc:`the round keyboard <keyboard>`).
 - **The lab** — the interactive design lab at
   ``docs/_static/keyboard/round-keyboard-lab.html`` (the 13 operable
-  input-method panels, :doc:`the round keyboard <keyboard>`).
+  input-method panels, each in its own widget,
+  :doc:`the round keyboard lab <keyboard-lab>`).
 - **uisim** — the host UI simulator: the real screens rendered to
   PNG with re-driven indev timestamps (``host_sim/uisim``).
 - **moon_sim / moon_bench** — the host C-sim (the gate's C frames)

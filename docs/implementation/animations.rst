@@ -24,7 +24,7 @@ The boot sweep
 
 .. raw:: html
 
-   <video src="../img/boot_sweep.mp4" controls muted playsinline width="400"></video>
+   <video src="../_static/img/boot_sweep.mp4" controls muted playsinline width="400"></video>
 
    The boot sweep, filmed from the bake (``boot_sweep.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 
@@ -131,7 +131,7 @@ The free spin
 
 .. raw:: html
 
-   <video src="../img/free_spin.mp4" controls muted playsinline width="400"></video>
+   <video src="../_static/img/free_spin.mp4" controls muted playsinline width="400"></video>
 
    The free spin (burn-in rotation), filmed from the bake (``free_spin.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 
@@ -232,7 +232,7 @@ The dusk
 
 .. raw:: html
 
-   <video src="../img/dusk.mp4" controls muted playsinline width="400"></video>
+   <video src="../_static/img/dusk.mp4" controls muted playsinline width="400"></video>
 
    The dusk (light-sleep entry), filmed from the bake (``dusk.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 
@@ -322,7 +322,7 @@ The fade (no pixels written)
 
 .. raw:: html
 
-   <video src="../img/fade.mp4" controls muted playsinline width="400"></video>
+   <video src="../_static/img/fade.mp4" controls muted playsinline width="400"></video>
 
    The fade-to-black screen switch, filmed from the bake (``fade.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 

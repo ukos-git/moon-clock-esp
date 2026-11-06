@@ -1,0 +1,33 @@
+{
+  "screen": "modem-sleep",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Moon — the current phase (static)",
+      "x": 150,
+      "y": 150,
+      "dir": "w"
+    },
+    {
+      "id": 2,
+      "text": "Clock HH:MM (the shared widget)",
+      "x": 140,
+      "y": 210,
+      "dir": "s"
+    },
+    {
+      "id": 3,
+      "text": "Seconds arc (0–60 s)",
+      "x": 233,
+      "y": 45,
+      "dir": "n"
+    },
+    {
+      "id": 4,
+      "text": "Tap anywhere → settings hub",
+      "x": 420,
+      "y": 40,
+      "dir": "e"
+    }
+  ]
+}

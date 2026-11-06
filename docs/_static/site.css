@@ -1,0 +1,7 @@
+/* The P4 screenshots and the annotated panel+legend composites are wider
+ * than the content column; scale them down instead of overflowing. */
+.md-content img,
+.wy-content img {
+    max-width: 100%;
+    height: auto;
+}

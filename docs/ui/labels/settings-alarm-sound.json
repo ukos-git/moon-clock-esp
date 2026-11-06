@@ -1,0 +1,33 @@
+{
+  "screen": "settings-alarm-sound",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Caption",
+      "x": 233,
+      "y": 123,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Sound roller (4 loops)",
+      "x": 163,
+      "y": 233,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Preview (speaker)",
+      "x": 383,
+      "y": 233,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Exit → hub",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

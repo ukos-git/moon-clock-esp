@@ -1,0 +1,33 @@
+{
+  "screen": "settings-alarm",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Master — tap deactivates all",
+      "x": 233,
+      "y": 203,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Pomodoro (stopwatch)",
+      "x": 103,
+      "y": 363,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Real alarm (clock)",
+      "x": 363,
+      "y": 363,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Exit → hub",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}

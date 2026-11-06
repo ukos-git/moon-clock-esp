@@ -1,0 +1,382 @@
+<title>Sweep wheel v2 — operable at 1:1</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  SWEEP WHEEL v2 — standalone operable widget
+  The shipped 12-sector hybrid password wheel (docs/keyboard.rst),
+  extracted VERBATIM from the full 13-alternatives lab
+  (docs/_static/keyboard/round-keyboard-lab.html, panel #1) so the
+  main keyboard page carries the one design that shipped, operable
+  at true 1:1 scale. The 12-sector hybrid geometry (proportional
+  sectors, the reveal, the DTMF-style centre preview, release-only
+  commit) is unchanged — this file is the widget only, not the
+  alternatives study (that stays in round-keyboard-lab.html).
+
+  DESIGN SYSTEM (same contract as the lab)
+  - Type: Montserrat (the device's own typeface) for display + body;
+    IBM Plex Mono for spec numerals.
+  - Chrome palette is theme-aware (cool paper / graphite). The AMOLED
+    panel is FIXED in both themes: #000 ground, #f2f3f5 letters,
+    #7d818a moon-grey, #3a3d44 hairline. The device is the device.
+  - The panel is <svg viewBox="0 0 466 466"> -> true 1:1 geometry.
+    0 deg = up, clockwise (LVGL / mock.py convention).
+  - No libraries, no localStorage, no page-level state.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f3f4f6; --card: #ffffff; --fg: #191b1f; --dim: #676c76;
+  --line: #dcdfe5; --accent: #3360df;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101216; --card: #16181d; --fg: #e9ebef; --dim: #939aa6;
+  --line: #2a2e37; --accent: #7b9bff;
+  color-scheme: dark;
+}}
+:root[data-theme="dark"] {
+  --bg: #101216; --card: #16181d; --fg: #e9ebef; --dim: #939aa6;
+  --line: #2a2e37; --accent: #7b9bff;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: Montserrat, system-ui, sans-serif;
+  margin: 0;
+  padding: 12px 16px 20px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 520px; margin: 0 auto; }
+.eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 6px; }
+h1 { font-size: clamp(20px, 4.5vw, 26px); font-weight: 700; letter-spacing: -.015em; margin: 0 0 6px; text-wrap: balance; }
+.hint { font-size: 12.5px; line-height: 1.5; color: var(--dim); margin: 0 0 12px; max-width: 52ch; }
+.hint b { color: var(--fg); font-weight: 600; }
+.wslot { margin: 0 auto; }
+.pdisk { display: block; width: 100%; max-width: 466px; margin: 0 auto; touch-action: none; }
+.pdisk text { font-family: Montserrat, sans-serif; user-select: none; }
+.pdisk:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 50%; }
+.foot { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .06em; color: var(--dim); text-align: center; margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Moon Phase Clock · 466×466 CO5300 · the shipped wheel</p>
+    <h1>Sweep wheel v2 — 12-sector hybrid</h1>
+    <p class="hint">Press a sector — the ring reveals only that group's letters. Sweep to the letter, <b>release commits</b>; the centre previews the pick live. <b>⊗</b> commits · <b>🗑</b> discards · centre tap = backspace · top arc = abc / ABC / 123 / #$.</p>
+  </header>
+  <div id="wheel" class="wslot"></div>
+  <p class="foot">1:1 mock of the device wheel · docs/keyboard.rst</p>
+</div>
+<script>
+"use strict";
+/* ---------- shared geometry / svg helpers ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const C = 233;
+const D2R = Math.PI / 180;
+const COL = { disk: "#000000", ink: "#f2f3f5", grey: "#7d818a", hair: "#3a3d44", mid: "#9aa0ab", dim: "#5a5d64", fill: "#1b1c1f" };
+function polar(r, deg) { const t = deg * D2R; return { x: C + r * Math.sin(t), y: C - r * Math.cos(t) }; }
+function ang(p) { return (Math.atan2(p.x - C, C - p.y) / D2R + 360) % 360; }
+function dist(p) { return Math.hypot(p.x - C, p.y - C); }
+function el(n, at, pa) {
+  const e = document.createElementNS(NS, n);
+  for (const k in at) e.setAttribute(k, at[k]);
+  if (pa) pa.appendChild(e);
+  return e;
+}
+function ptOf(svg, e) {
+  const r = svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * 466 / r.width, y: (e.clientY - r.top) * 466 / r.height };
+}
+function sector(a0, a1, r1, r2) {
+  const large = (a1 - a0) % 360 > 180 ? 1 : 0;
+  const p0 = polar(r2, a0), p1 = polar(r2, a1), p2 = polar(r1, a1), p3 = polar(r1, a0);
+  return "M" + p0.x + " " + p0.y + "A" + r2 + " " + r2 + " 0 " + large + " 1 " + p1.x + " " + p1.y +
+         "L" + p2.x + " " + p2.y + "A" + r1 + " " + r1 + " 0 " + large + " 0 " + p3.x + " " + p3.y + "Z";
+}
+function base(slot, aria) {
+  const svg = el("svg", { viewBox: "0 0 466 466", "class": "pdisk", "aria-label": aria, role: "img", tabindex: "0" }, slot);
+  el("circle", { cx: C, cy: C, r: 232, fill: COL.disk, stroke: COL.hair, "stroke-width": 2 }, svg);
+  return svg;
+}
+function centerText(svg) {
+  const main = el("text", { x: C, y: C - 6, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 25, "font-weight": 600, fill: COL.ink }, svg);
+  const sub = el("text", { x: C, y: C + 24, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 11.5, "font-weight": 500, fill: COL.grey }, svg);
+  return { main, sub };
+}
+
+/* ---------- sweep wheel v2 — 12-sector hybrid (the shipped wheel) ----------
+   The user's mix of the 12-sector DTMF coarse press, the swipe
+   direction pick and the sweep wheel's reveal + release commit:
+   - 12 initial-press sectors SIZED TO THEIR GROUP: every letter owns
+     an EQUAL share of the ring — 360/26 ≈ 13.846° each — so a
+     2-letter sector spans 27.7°, the two 3-letter sectors 41.5°, and
+     every inner-ring gap is exactly one letter share: the ring reads
+     perfectly even all the way around.
+   - each sector's options sit on ONE radius: letters at r168 at rest,
+     revealed at r209
+   - on press, the reveal OVERLAYS the inner circle — the boxes span
+     r150–226, fully using the inner radius fraction, so the selection
+     zone is as wide as the whole letter band. It shows ONLY that
+     sector's options: solid boxes tile the sector edge-to-edge (no
+     gaps, no alpha), the lit box is fully white with a near-black
+     letter, hairline dividers between a group's boxes
+   - the SELECTED letter previews in the centre (DTMF-style): while
+     pressed the centre shows the lit option big; on release the char
+     commits and the full already-entered text re-appears
+   - register-shift keys: 4 × 60°, on the TOP 240°, r 84–144 —
+     extended toward the inner circle, leaving only a 6 px gap to the
+     r150 hairline
+   - the ⊗ commit and a trash-can discard split the bottom 120° (60°
+     each); both icons sit at r114 — the same radius the shift ring's
+     labels use, so the two icons visibly align with the shift circle;
+     centre single tap = backspace
+   - instant display update: the 12 reveal groups are pre-built ONCE;
+     a press toggles only opacity/fill/text (the firmware analogue:
+     pre-built LVGL arcs, region-limited invalidation, one atomic
+     lv_refr_now under s_rgb_mtx — never a full-screen redraw)   */
+function buildWheel(slot) {
+  const svg = base(slot, "Hybrid sweep wheel: press one of twelve sectors, the outer ring reveals only that sector's options, sweep or point, release commits");
+  const MODES = [
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "0123456789#@._-+*?!/&%:;,=",
+    "#$%&@!_=<>[]{}~^:,/?*+.-;'"
+  ];
+  const MLBL = ["abc", "ABC", "123", "#$"];
+  let mode = 0, pw = [], press = null, cdown = false, lit = null;
+
+  /* FREQUENCY-GROUPED sectors: the 20 most
+     frequent English letters get 2-letter groups — the wide targets; the
+     six rarest (j k q v x z) form the two 3-letter groups. Every register
+     carries this exact 26-char shape, so the
+     finger's sector boundaries never move between registers. */
+  const LETTER_SECTORS = [
+    ["a","b"],["c","d"],["e","f"],["g","h"],["i","l"],["j","k","q"],
+    ["m","n"],["o","p"],["r","s"],["t","u"],["v","x","z"],["w","y"],
+  ];
+  const idxOf = MODES.map((s, m) => {
+    const out = [];
+    if (m === 0) {
+      for (const grp of LETTER_SECTORS) out.push(grp.map(ch => s.indexOf(ch)));
+    } else {
+      const n = s.length === 26 ? [2,2,2,2,2,3,2,2,2,2,3,2] : [2,2,2,2,2,2,2,2,2,2,1,1];
+      let i = 0;
+      for (const c of n) out.push([...Array(c).keys()].map(x => i++));
+    }
+    return out;
+  });
+  const nOf = idxOf[0].map(a => a.length); /* per-sector option count */
+
+  /* PROPORTIONAL sectors: every letter owns an EQUAL share of the
+     whole ring — 360/26 ≈ 13.846° — so a sector spans share × nOf[k]
+     (2-letter → 27.7°, 3-letter → 41.5°) and EVERY inner gap is one
+     share: perfectly even all the way around. Letter j of sector k
+     sits at the centre of its share: 13.846° × (letterIndex + 0.5). */
+  const SHARE = 360 / 26;
+  const secOff = []; { let i = 0; for (let k = 0; k < 12; k++) { secOff.push(i); i += nOf[k]; } }
+  const secA0 = (k) => secOff[k] * SHARE;          /* sector start angle */
+  const secW = (k) => nOf[k] * SHARE;             /* sector span */
+  const slotA = (k, j) => secA0(k) + (j + 0.5) * SHARE; /* option centre */
+  function mkLab(parent, deg, r, size, weight, fill) {
+    const pt = polar(r, deg);
+    return el("text", { x: pt.x, y: pt.y, "text-anchor": "middle", "dominant-baseline": "central", "font-size": size, "font-weight": weight, fill, transform: "rotate(" + deg + " " + pt.x + " " + pt.y + ")", "pointer-events": "none" }, parent);
+  }
+
+  /* rest state: band hairlines + 12 sector dividers */
+  el("circle", { cx: C, cy: C, r: 150, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, svg);
+  el("circle", { cx: C, cy: C, r: 226, fill: "none", stroke: COL.hair, "stroke-width": 1.5 }, svg);
+  for (let k = 0; k < 12; k++) {
+    const q1 = polar(150, secA0(k)), q2 = polar(226, secA0(k));
+    el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, svg);
+  }
+
+  /* inner compass labels (small) — the sector's options at rest */
+  const inner = [];
+  for (let k = 0; k < 12; k++) {
+    const g = el("g", {}, svg), labels = [];
+    for (let j = 0; j < nOf[k]; j++) {
+      const a = slotA(k, j);
+      labels.push({ el: mkLab(g, a, 168, 26, 500, "#c9ccd3"), pt: polar(168, a) });
+    }
+    inner.push({ g, labels });
+  }
+
+  /* outer reveal — PRE-BUILT ONCE per sector; a press toggles opacity and
+     slot styling only (instant, no redraw). On touch-down it OVERLAYS the
+     inner circle — the boxes span r150–226, the whole letter band, so the
+     selection zone is maximally wide. They tile the sector edge-to-edge
+     (no gaps, no alpha); the lit box is solid white, its letter near-black */
+  const reveal = [];
+  for (let k = 0; k < 12; k++) {
+    const g = el("g", { opacity: 0, "pointer-events": "none" }, svg), slots = [];
+    for (let j = 0; j < nOf[k]; j++) {
+      const a0 = secA0(k) + j * SHARE, a1 = secA0(k) + (j + 1) * SHARE;
+      const f = el("path", { d: sector(a0, a1, 150, 226), fill: "#2b2e34" }, g);
+      const t = mkLab(g, slotA(k, j), 209, 26, 500, COL.ink);
+      slots.push({ f, t });
+      if (j > 0) { /* hairline divider between the boxes of one group */
+        const q1 = polar(154, a0), q2 = polar(222, a0);
+        el("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, stroke: COL.hair, "stroke-width": 1 }, g);
+      }
+    }
+    reveal.push({ g, slots });
+  }
+
+  /* register-shift arc — 4 × 60°, one 240° span centred on the TOP (0°),
+     r 84–144 (extended in, 6 px gap to the r150 hairline):
+     abc at left (270°), ABC upper-left (330°), 123 upper-right (30°), #$ at
+     right (90°). The bottom 120° gap (120°–240°) is the ⊗ commit key. */
+  const MA0 = 240, MSPAN = 240;
+  const mArc = el("g", {}, svg);
+  el("path", { d: sector(MA0, MA0 + MSPAN, 84, 144), fill: COL.fill }, mArc);
+  const mkeys = [];
+  for (let i = 0; i < 4; i++) {
+    const ka = MA0 + MSPAN * i / 4, kb = MA0 + MSPAN * (i + 1) / 4;
+    const seg = el("path", { d: sector(ka + 1.5, kb - 1.5, 86, 142), fill: "transparent" }, mArc);
+    const lab = mkLab(mArc, MA0 + MSPAN * (i + 0.5) / 4, 114, 16, 600, COL.grey);
+    mkeys.push({ seg, lab });
+  }
+  for (let i = 0; i <= 4; i++) {
+    const a = MA0 + MSPAN * i / 4, p1 = polar(86, a), p2 = polar(142, a);
+    el("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, stroke: COL.grey, "stroke-width": 1 }, mArc);
+  }
+
+  /* the bottom 120° (120°–240°) splits into the ⊗ commit (120°–180°)
+     and the trash-can discard (180°–240°); both icons at r114 — the same
+     radius the shift-ring labels use, so the icons align with that circle */
+  const cArc = el("g", {}, svg);
+  el("path", { d: sector(121.5, 178.5, 84, 144), fill: "rgba(242,243,245,.05)" }, cArc);
+  el("path", { d: sector(181.5, 238.5, 84, 144), fill: "rgba(242,243,245,.05)" }, cArc);
+  const cP = polar(114, 150), xs = 6.5; /* ⊗ commit, mid of 120°–180° */
+  el("circle", { cx: cP.x, cy: cP.y, r: 13, fill: "none", stroke: COL.ink, "stroke-width": 2 }, cArc);
+  el("line", { x1: cP.x - xs, y1: cP.y - xs, x2: cP.x + xs, y2: cP.y + xs, stroke: COL.ink, "stroke-width": 2 }, cArc);
+  el("line", { x1: cP.x - xs, y1: cP.y + xs, x2: cP.x + xs, y2: cP.y - xs, stroke: COL.ink, "stroke-width": 2 }, cArc);
+  const tP = polar(114, 210); /* trash can, mid of 180°–240° */
+  el("line", { x1: tP.x - 9, y1: tP.y - 6, x2: tP.x + 9, y2: tP.y - 6, stroke: COL.ink, "stroke-width": 2 }, cArc); /* lid */
+  el("path", { d: "M" + (tP.x - 3.5) + " " + (tP.y - 6) + "V" + (tP.y - 9) + "H" + (tP.x + 3.5) + "V" + (tP.y - 6), fill: "none", stroke: COL.ink, "stroke-width": 1.5 }, cArc); /* handle */
+  el("path", { d: "M" + (tP.x - 7) + " " + (tP.y - 3.5) + "H" + (tP.x + 7) + "L" + (tP.x + 5) + " " + (tP.y + 8) + "H" + (tP.x - 5) + "Z", fill: "none", stroke: COL.ink, "stroke-width": 2 }, cArc); /* body */
+  el("line", { x1: tP.x - 2, y1: tP.y - 1, x2: tP.x - 1.2, y2: tP.y + 5, stroke: COL.ink, "stroke-width": 1.5 }, cArc);
+  el("line", { x1: tP.x + 2, y1: tP.y - 1, x2: tP.x + 1.2, y2: tP.y + 5, stroke: COL.ink, "stroke-width": 1.5 }, cArc);
+
+  const { main, sub } = centerText(svg);
+  const flash = el("circle", { cx: C, cy: C, r: 232, fill: COL.ink, opacity: 0, "pointer-events": "none" }, svg);
+
+  function restring() {
+    for (let k = 0; k < 12; k++) {
+      for (let j = 0; j < nOf[k]; j++) {
+        const ch = MODES[mode][idxOf[mode][k][j]];
+        inner[k].labels[j].el.textContent = ch;
+        reveal[k].slots[j].t.textContent = ch;
+      }
+    }
+    mkeys.forEach((km, i) => {
+      km.seg.setAttribute("fill", i === mode ? "rgba(242,243,245,.28)" : "transparent");
+      km.lab.textContent = MLBL[i];
+      km.lab.setAttribute("fill", i === mode ? COL.ink : COL.grey);
+    });
+  }
+  function resetRevealStyles() {
+    reveal.forEach(rv => rv.slots.forEach(s => {
+      s.f.setAttribute("fill", "#2b2e34");
+      s.t.setAttribute("fill", COL.ink);
+      s.t.setAttribute("font-weight", 500);
+    }));
+  }
+  function showReveal(k) {
+    resetRevealStyles();
+    reveal.forEach((rv, i) => rv.g.setAttribute("opacity", i === k ? 1 : 0));
+    inner.forEach((inr, i) => inr.labels.forEach(L => L.el.setAttribute("fill", i === k ? "#c9ccd3" : COL.dim)));
+  }
+  function hideReveal() {
+    reveal.forEach(rv => rv.g.setAttribute("opacity", 0));
+    inner.forEach(inr => inr.labels.forEach(L => { L.el.setAttribute("fill", "#c9ccd3"); L.el.setAttribute("font-weight", 500); }));
+  }
+  function setLit(k, j, kind) { lit = { k, j, kind }; applyLit(); }
+  function applyLit() {
+    if (!lit) return;
+    /* DTMF-style centre preview: while pressed, the centre
+       shows the selected letter big; on release it commits and the full
+       already-entered text re-appears (clearPreview) */
+    main.textContent = MODES[mode][idxOf[mode][lit.k][lit.j]];
+    main.setAttribute("font-size", 44);
+    sub.textContent = "release commits";
+    /* solid, no alpha: the lit box is fully white with a near-black letter */
+    reveal[lit.k].slots.forEach((s, i) => {
+      const on = lit.kind === "rev" && i === lit.j;
+      s.f.setAttribute("fill", on ? "#f2f3f5" : "#2b2e34");
+      s.t.setAttribute("fill", on ? "#101115" : COL.ink);
+      s.t.setAttribute("font-weight", on ? 700 : 500);
+    });
+  }
+  function updateLit(p) {
+    const a = ang(p), k = press.k;
+    /* the reveal boxes tile the sector edge-to-edge across the whole
+       band (r150–226), so the box under the finger is exact — no
+       nearest-centre guesswork, no inner/outer split */
+    const rel = ((a - secA0(k)) % 360 + 360) % 360;
+    setLit(k, Math.min(nOf[k] - 1, Math.floor(rel / SHARE)), "rev");
+  }
+  function refresh(msg) {
+    /* leave the big centre preview: the full already-entered text
+       re-appears (DTMF-style handback) */
+    main.setAttribute("font-size", 25);
+    main.textContent = pw.length ? (pw.length > 6 ? "…" : "") + pw.slice(-6).join("") : "····";
+    sub.textContent = msg === undefined ? "" : msg;
+  }
+  function doBack() { if (pw.length) { pw.pop(); refresh("backspace"); } }
+
+  svg.addEventListener("pointerdown", (e) => {
+    const p = ptOf(svg, e);
+    svg.setPointerCapture(e.pointerId);
+    const d = dist(p), a = ang(p);
+    if (d < 78) { cdown = true; return; } /* centre: single tap = backspace */
+    if (d <= 146) {
+      const rel = ((a - MA0) % 360 + 360) % 360;
+      if (rel < MSPAN) { mode = Math.floor(rel / (MSPAN / 4)); restring(); return; } /* top 240°: shift */
+      const relC = ((a - 120) % 360 + 360) % 360;
+      if (relC < 120) { /* bottom 120°: ⊗ commit (120°–180°) / trash (180°–240°) */
+        if (relC < 60) {
+          flash.setAttribute("opacity", 0.2);
+          setTimeout(() => flash.setAttribute("opacity", 0), 140);
+          refresh("committed ✓");
+        } else {
+          pw = [];
+          refresh("discarded");
+        }
+      }
+      return;
+    }
+    if (d <= 238) {
+      /* sectors are proportional (not on a 30° grid): find the one whose
+         [start, start+span) contains the finger's angle */
+      let k = 0;
+      for (let i = 0; i < 12; i++) { if (a >= secA0(i) && a < secA0(i) + secW(i)) { k = i; break; } }
+      press = { k };
+      showReveal(press.k);
+      updateLit(p);
+    }
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!press) return;
+    /* the reveal is STICKY to the initial-press sector (the spec: it shows
+       only that sector's options) — sliding across a sector boundary does
+       not re-key the set, it just extends the sweep over its outer slots */
+    updateLit(ptOf(svg, e));
+  });
+  svg.addEventListener("pointerup", () => {
+    if (press) {
+      if (lit) {
+        const ch = MODES[mode][idxOf[mode][lit.k][lit.j]];
+        pw.push(ch);
+        refresh("committed " + ch);
+      }
+      lit = null; press = null;
+      hideReveal();
+    } else if (cdown) { cdown = false; doBack(); } /* centre tap = backspace */
+  });
+  restring();
+  refresh("press a sector · release commits · ⊗ commits · 🗑 discards · centre tap = back");
+}
+
+buildWheel(document.getElementById("wheel"));
+</script>

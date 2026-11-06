@@ -14,7 +14,7 @@ html:
 	$(SPHINX) -b html $(DOCS) $(BUILD)/html
 
 ## media: regenerate screenshots + annotations + device composites
-##        (the moonmedia builder; add --videos for the mp4 set)
+##        (the moonmedia builder; MEDIA_VIDEOS=1 includes the mp4 set)
 media:
 	$(SPHINX) -b media $(DOCS) $(BUILD)/media
 

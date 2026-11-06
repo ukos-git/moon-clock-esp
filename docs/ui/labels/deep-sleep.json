@@ -1,0 +1,26 @@
+{
+  "screen": "deep-sleep",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Dark side — the backlit surface",
+      "x": 150,
+      "y": 150,
+      "dir": "w"
+    },
+    {
+      "id": 2,
+      "text": "Clock (hidden at full deep dim)",
+      "x": 140,
+      "y": 210,
+      "dir": "s"
+    },
+    {
+      "id": 3,
+      "text": "Sleep indicator",
+      "x": 185,
+      "y": 320,
+      "dir": "w"
+    }
+  ]
+}

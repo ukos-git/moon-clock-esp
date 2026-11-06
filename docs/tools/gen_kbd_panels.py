@@ -1,10 +1,11 @@
 """Render the round-keyboard lab's on-hardware panels and montage them.
 
-Drives headless Chromium (playwright) over docs/keyboard/round-keyboard-lab.html,
-screenshots the nine 1:1 (466x466) panel SVGs in the lab's own dark AMOLED
-theme, and lays them out as a 3x3 montage with rank + verdict labels into
+Drives headless Chromium (playwright) over
+docs/_static/keyboard/round-keyboard-lab.html, screenshots the nine 1:1
+(466x466) panel SVGs in the lab's own dark AMOLED theme, and lays them
+out as a 3x3 montage with rank + verdict labels into
 docs/_static/figs/kbd_panels.png — the clickable lab's static half for
-the book's keyboard chapter.
+the keyboard-lab page (docs/keyboard-lab.rst).
 
 The labels (rank, verdict chip, name) are read from the rendered DOM, so the
 figure cannot drift from the lab page it depicts. The four off-hardware
@@ -24,7 +25,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LAB = os.path.abspath(os.path.join(HERE, "..", "..", "..", "docs", "keyboard", "round-keyboard-lab.html"))
+LAB = os.path.abspath(os.path.join(HERE, "..", "_static", "keyboard", "round-keyboard-lab.html"))
 OUT = os.path.abspath(os.path.join(HERE, "..", "_static", "figs", "kbd_panels.png"))
 WORK = "/tmp/kbd_panels"
 

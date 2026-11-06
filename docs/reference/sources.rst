@@ -39,6 +39,9 @@ The project's in-tree research
   feasibility note (the 2D bake's justification, :doc:`the lighting model <../science/lighting>`).
 - ``docs/_static/keyboard/round-keyboard-lab.html`` — the
   interactive design lab (the operable 13 panels, embedded in
+  :doc:`the round keyboard lab <../keyboard-lab>`) and
+  ``docs/_static/keyboard/sweep-wheel-v2.html`` — the standalone
+  operable widget of the shipped wheel (embedded in
   :doc:`the round keyboard <../keyboard>`).
 
 The HCI literature (the keyboard's citations, :doc:`the round keyboard <../keyboard>`)

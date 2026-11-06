@@ -1,0 +1,47 @@
+{
+  "screen": "settings-alarm-time",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Day arc — a press snaps to a day",
+      "x": 150,
+      "y": 26,
+      "dir": "w"
+    },
+    {
+      "id": 2,
+      "text": "Range start handle (Mon)",
+      "x": 15,
+      "y": 229,
+      "dir": "s"
+    },
+    {
+      "id": 3,
+      "text": "Range end handle (Fri)",
+      "x": 345,
+      "y": 46,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Hour / minute rollers",
+      "x": 153,
+      "y": 187,
+      "dir": "w"
+    },
+    {
+      "id": 5,
+      "text": "Range summary (Mo-Fr)",
+      "x": 233,
+      "y": 133,
+      "dir": "n"
+    },
+    {
+      "id": 6,
+      "text": "Exit → alarm settings",
+      "x": 233,
+      "y": 387,
+      "dir": "s"
+    }
+  ]
+}
