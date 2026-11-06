@@ -21,8 +21,13 @@ host_sim/uisim/build-*/
 # its own build/ under build-p4/ — the pattern 'build/' alone does not
 # match)
 host_sim/build-p4/
+docs/.venv/
+docs/_build/
+# the old book leaves in stage 4 (take its venv/_build lines with it)
 docs/book/.venv/
 docs/book/_build/
+# mooncode's generated source pages (code/gen/ is rebuilt at build time)
+docs/code/gen/
 # composite_dark.py intermediate frames (vendored output is
 # _static/photos/sim_*.png; the scratch dir is a byproduct)
-docs/book/tools/scratch/
+docs/tools/scratch/
