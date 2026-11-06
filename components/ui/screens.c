@@ -2358,15 +2358,19 @@ void create_screen_settings_wifi_password() {
     s_wheel_mode_arc = lv_arc_create(obj);
     lv_obj_set_pos(s_wheel_mode_arc, 0, 0);
     lv_obj_set_size(s_wheel_mode_arc, UI_PANEL_PX, UI_PANEL_PX);
-    /* r_out = W/2 - pad: the track's outer edge at r 144 needs pad 89.
-     * The INDICATOR has its OWN pad (radius = arc_r - the indicator pad):
-     * the same pad as the track, so the lit key's outer edge also lands at
-     * r 144 and its 60 px width covers the track's r 84..144 annulus
-     * exactly (a 0 indicator pad would push the lit key out to r 173..233,
-     * over the letter ring -- the "big lit wedge across the letters" the
-     * user saw). */
+    /* r_out = W/2 - pad: the track's outer edge at r 144 needs the MAIN pad
+     * WHEEL_C - UI_PX(144) (arc_r = W/2 - MAIN pad = UI_PX(144)). The
+     * INDICATOR has its OWN pad: indicator radius = arc_r - INDICATOR pad.
+     * It MUST stay 0 -- the item-5a fix (2026-11-04) put the TRACK's pad on
+     * the indicator too, which dropped the indicator radius to UI_PX(55)
+     * and made the 60 px width clamp (lv_draw_sw_arc: width = min(width,
+     * radius)) into a FILLED sector from the centre (the "pie wedges from
+     * the middle" the user saw cycling the registers, 2026-11-05). A 0
+     * indicator pad leaves the radius at UI_PX(144), so the lit 60-degree
+     * key's outer edge lands at r 144 and its 60 px width covers the track's
+     * r 84..144 annulus exactly (the ring segment, not a pie). */
     lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(s_wheel_mode_arc, WHEEL_C - UI_PX(144), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_mode_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_arc_set_bg_angles(s_wheel_mode_arc, 150, 390);
     lv_arc_set_angles(s_wheel_mode_arc, 150, 210);
     lv_obj_set_style_arc_width(s_wheel_mode_arc, UI_PX(60), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -2949,6 +2953,30 @@ static lv_obj_t *s_clock_pair_label[2];
  * cell height), captured at creation from the digits font. */
 static int32_t s_clock_line_h[2];
 
+/* One of the next-alarm row's HALF-BOXES (the centre-anchored pair,
+ * 2026-11-05 v2): fixed w x content height, transparent, ZERO
+ * padding (the theme's 20 px base pad would shift the child's ink),
+ * a flex row that places its single label at the box's inner edge
+ * (END = the box's right edge, START = its left edge) and
+ * cross-centres it. The two halves meet at the row's centre (the
+ * colon), so each label's inner edge is pinned to the centre. */
+static lv_obj_t *alarm_row_half(lv_obj_t *row, int32_t w, bool inner_left) {
+    lv_obj_t *box = lv_obj_create(row);
+    lv_obj_set_size(box, w, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_left(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(box, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_layout(box, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_flex_flow(box, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_flex_main_place(box, inner_left ? LV_FLEX_ALIGN_START : LV_FLEX_ALIGN_END,
+                                     LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_flex_cross_place(box, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    return box;
+}
+
 /* One clock row cell (the HH / colon / MM box): fixed w x one line,
  * transparent, non-scrollable, CLIPPING (the default overflow) --
  * that clip is the one-line WINDOW the pair roll scrolls inside.
@@ -2982,13 +3010,16 @@ static lv_obj_t *clock_row_cell(lv_obj_t *row, int32_t w, int32_t line_h) {
 
 /* The ONE shared clock widget (layout contract 2): full-screen flex
  * column (time on top, the alarm row bottom-centred). The alarm row
- * is a flex row holding the weekday prefix (32 px range font, grey,
- * empty within 24 h of the fire) and the HH:MM label (48 px) -- the
- * row keeps the pair centred and cross-centres the two heights.
- * Called exactly once (BASE 17, the modem-sleep screen); the other
- * four moon screens' bases ALIAS objects[17/18/19] (the last block
- * below), so all five screens read and tick the same three objects --
- * the clock is always current on whichever screen it is attached to. */
+ * is CENTER-anchored (2026-11-05 v2): two half-width boxes meet at
+ * the row's centre (= the time row's centre = the colon), the LEFT
+ * box right-aligns the weekday prefix (32 px range font, grey, empty
+ * within 24 h of the fire) and the RIGHT box left-aligns the HH:MM
+ * label (48 px) -- each label's inner edge is pinned to the centre
+ * (see the row block + alarm_row_half below). Called exactly once
+ * (BASE 17, the modem-sleep screen); the other four moon screens'
+ * bases ALIAS objects[17/18/19] (the last block below), so all five
+ * screens read and tick the same three objects -- the clock is always
+ * current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     lv_obj_t *obj = parent_obj;
     {
@@ -3120,16 +3151,23 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                 }
                 {
                     // label-clock-alarm-row: the prefix + HH:MM pair,
-                    // RIGHT-aligned (2026-11-05) -- the row is exactly as
-                    // wide as the HH:MM row above (the same 136+30+136 px
-                    // cells PLUS the same 2 x flex pad_row the theme puts
-                    // between the time row's cells -- read from the time
-                    // row, so it tracks the theme's DPI gap at 466 and
-                    // 720), and its contents sit at the RIGHT edge: the
-                    // time's right edge always lands under the MM pair's
-                    // right edge, and the weekday prefix hangs off to the
-                    // left (the ragged LEFT edge; the time never jumps
-                    // when the prefix appears/disappears).
+                    // CENTER-anchored (2026-11-05 v2) -- the row is
+                    // exactly as wide as the HH:MM row above (the same
+                    // 136+30+136 px cells PLUS the same 2 x flex
+                    // pad_row the theme puts between the time row's
+                    // cells -- read from the time row, so it tracks the
+                    // theme's DPI gap at 466 and 720), so its centre
+                    // = the time row's centre = the colon = the screen
+                    // centre. Two half-boxes meet at the centre: the
+                    // LEFT half right-aligns the weekday prefix (its
+                    // RIGHT edge pinned at the centre -- the ragged
+                    // edge is the left one) and the RIGHT half
+                    // left-aligns the time (its LEFT edge pinned at
+                    // the centre -- the ragged edge is the right one).
+                    // Each element keeps its anchor through clock
+                    // adjustments: a digit change grows the time
+                    // rightward, the prefix appears/disappears
+                    // leftward, and neither ever crosses the colon.
                     lv_obj_t *obj = lv_obj_create(parent_obj);
                     lv_obj_set_pos(obj, 0, 0);
                     lv_obj_t *time_row = ((lv_obj_t **)&objects)[startWidgetIndex + 1];
@@ -3141,35 +3179,43 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
                     lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    /* The theme's flex gap (pad_column, DPI-scaled 10/11 px)
+                     * would wedge 10 px between the two halves (and push
+                     * them 5 px past the row's edges): zero it so the
+                     * halves MEET at the centre; the 8 px label pads are
+                     * the gap to the centre. */
+                    lv_obj_set_style_pad_column(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_layout(obj, LV_LAYOUT_FLEX, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_flow(obj, LV_FLEX_FLOW_ROW, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_END, LV_PART_MAIN | LV_STATE_DEFAULT);
+                    lv_obj_set_style_flex_main_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_flex_cross_place(obj, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
                     s_alarm_prefix = obj;
+                    lv_obj_t *half_l = alarm_row_half(obj, alarm_w / 2, false);
+                    lv_obj_t *half_r = alarm_row_half(obj, alarm_w - alarm_w / 2, true);
                     {
-                        lv_obj_t *parent_obj = obj;
-                        {
-                            // label-clock-alarm-prefix (2-letter weekday,
-                            // e.g. "Mo"; empty when the fire is <= 24 h)
-                            lv_obj_t *obj = lv_label_create(parent_obj);
-                            lv_obj_set_pos(obj, 0, 0);
-                            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-                            lv_obj_set_style_text_font(obj, &ui_font_montserrat_regular_32_range,
-                                                       LV_PART_MAIN | LV_STATE_DEFAULT);
-                            lv_obj_set_style_text_color(obj, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-                            /* The trailing pad is the gap to the time. */
-                            lv_obj_set_style_pad_right(obj, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
-                            lv_label_set_text(obj, "");
-                        }
-                        {
-                            // label-clock-alarm
-                            lv_obj_t *obj = lv_label_create(parent_obj);
-                            ((lv_obj_t **)&objects)[startWidgetIndex + 2] = obj;
-                            lv_obj_set_pos(obj, 0, 0);
-                            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-                            add_style_label_regular(obj);
-                            lv_label_set_text(obj, "");
-                        }
+                        // label-clock-alarm-prefix (2-letter weekday,
+                        // e.g. "Mo"; empty when the fire is <= 24 h)
+                        lv_obj_t *obj = lv_label_create(half_l);
+                        lv_obj_set_pos(obj, 0, 0);
+                        lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+                        lv_obj_set_style_text_font(obj, &ui_font_montserrat_regular_32_range,
+                                                   LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_obj_set_style_text_color(obj, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        /* The trailing pad is the gap to the centre
+                         * (the time's own leading pad mirrors it). */
+                        lv_obj_set_style_pad_right(obj, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_label_set_text(obj, "");
+                    }
+                    {
+                        // label-clock-alarm
+                        lv_obj_t *obj = lv_label_create(half_r);
+                        ((lv_obj_t **)&objects)[startWidgetIndex + 2] = obj;
+                        lv_obj_set_pos(obj, 0, 0);
+                        lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+                        add_style_label_regular(obj);
+                        /* The leading pad is the gap to the centre. */
+                        lv_obj_set_style_pad_left(obj, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+                        lv_label_set_text(obj, "");
                     }
                 }
             }
@@ -3192,10 +3238,12 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     }
 }
 
-/* Refresh one alarm prefix label from the var (empty within 24 h of
- * the fire). Returns whether the text changed. */
+/* Refresh the alarm prefix label from the var (empty within 24 h of
+ * the fire). The centre-anchored row holds the label inside its LEFT
+ * half-box (row child 0), so the label is one level down. Returns
+ * whether the text changed. */
 static bool tick_alarm_prefix(lv_obj_t *row) {
-    lv_obj_t *prefix = lv_obj_get_child(row, 0);
+    lv_obj_t *prefix = lv_obj_get_child(lv_obj_get_child(row, 0), 0);
     const char *new_val = get_var_alarm_prefix();
     if (strcmp(new_val, lv_label_get_text(prefix)) == 0)
         return false;

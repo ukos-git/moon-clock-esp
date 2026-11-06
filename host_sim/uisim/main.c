@@ -227,6 +227,30 @@ static int wheel_snapshot(lv_display_t *disp, const char *name) {
     return rc;
 }
 
+/* The rot-mode snapshot: the DEVICE render path -- the wheel root carries
+ * the orientation pipeline's +90-degree transform, so the flush renders
+ * the rotated screen into the display front buffer (the transform layer
+ * is exercised for real, unlike the screen-local lv_snapshot above,
+ * which ignores the transform). Dump s_fb directly. */
+static int wheel_snapshot_rot(lv_display_t *disp, const char *name) {
+    lv_refr_now(disp);
+    char path[64];
+    snprintf(path, sizeof path, "out/wheel_%s.png", name);
+    static uint8_t *rgb;
+    if (!rgb) {
+        rgb = malloc((size_t)W * H * 3);
+        if (!rgb)
+            return 1;
+    }
+    for (int i = 0; i < W * H; i++) {
+        uint16_t p = ((const uint16_t *)s_fb)[i];
+        rgb[i * 3] = (uint8_t)((p >> 11) * 255 / 31);
+        rgb[i * 3 + 1] = (uint8_t)((p >> 5 & 0x3F) * 255 / 63);
+        rgb[i * 3 + 2] = (uint8_t)((p & 0x1F) * 255 / 31);
+    }
+    return stbi_write_png(path, W, H, 3, rgb, W * 3) ? 0 : 1;
+}
+
 /* Drive the real flow to the wheel: settings-hub WiFi icon (on the icon
  * ring) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID prefill + the
  * wheel. The row handler prefills the (stub) first AP's SSID.
@@ -469,21 +493,31 @@ int main(int argc, char **argv) {
                        lv_label_get_text(lab), f ? (int)lv_font_get_line_height(f) : -1);
             }
         }
-        /* The next-alarm ROW (right-aligned, 2026-11-05): objects[19] is
-         * the alarm TIME label; the row is its parent (s_alarm_prefix, a
-         * file-static). The row box must match the time row's width/edges;
-         * its labels (prefix + time) sit at the RIGHT edge, so the time's
-         * right edge lands under the MM pair's right edge. */
-        lv_obj_t *arow = lv_obj_get_parent(((lv_obj_t **)&objects)[19]);
+        /* The next-alarm ROW (centre-anchored, 2026-11-05 v2):
+         * objects[19] is the alarm TIME label, inside the row's RIGHT
+         * half-box; the ROW (s_alarm_prefix, a file-static) is its
+         * grandparent. The row box must match the time row's width
+         * (centre = the colon); the two half-boxes meet at the centre,
+         * the prefix's right edge and the time's left edge pinned
+         * there. */
+        lv_obj_t *arow = lv_obj_get_parent(lv_obj_get_parent(((lv_obj_t **)&objects)[19]));
         lv_obj_get_coords(arow, &a);
         printf("AROW  x=%ld y=%ld w=%ld h=%ld\n", (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
                (long)(a.y2 - a.y1 + 1));
         for (int32_t i = 0; i < lv_obj_get_child_count(arow); i++) {
-            lv_obj_t *lab = lv_obj_get_child(arow, i);
-            lv_obj_get_coords(lab, &a);
-            printf("  ALAB[%ld] x=%ld y=%ld w=%ld h=%ld contW=%ld contH=%ld text=\"%s\"\n", (long)i, (long)a.x1,
-                   (long)a.y1, (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1), (long)lv_obj_get_content_width(lab),
-                   (long)lv_obj_get_content_height(lab), lv_label_get_text(lab));
+            lv_obj_t *half = lv_obj_get_child(arow, i);
+            lv_obj_get_coords(half, &a);
+            printf("  HALF[%ld] x=%ld y=%ld w=%ld h=%ld\n", (long)i, (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1),
+                   (long)(a.y2 - a.y1 + 1));
+            for (int32_t j = 0; j < lv_obj_get_child_count(half); j++) {
+                lv_obj_t *lab = lv_obj_get_child(half, j);
+                lv_obj_get_coords(lab, &a);
+                printf("    ALAB[%ld][%ld] x=%ld y=%ld w=%ld h=%ld contW=%ld contH=%ld padL=%d padR=%d "
+                       "text=\"%s\"\n",
+                       (long)i, (long)j, (long)a.x1, (long)a.y1, (long)(a.x2 - a.x1 + 1), (long)(a.y2 - a.y1 + 1),
+                       (long)lv_obj_get_content_width(lab), (long)lv_obj_get_content_height(lab),
+                       lv_obj_get_style_pad_left(lab, 0), lv_obj_get_style_pad_right(lab, 0), lv_label_get_text(lab));
+            }
         }
         return 0;
     }
@@ -595,11 +629,29 @@ int main(int argc, char **argv) {
         lv_indev_set_read_cb(indev, wheel_indev_read);
         s_wheel_indev = indev;
 
+        /* rot mode (--wheel rot): the wheel root carries the device
+         * orientation pipeline's +90-degree transform (the base offset
+         * the device always applies) and the snapshots are the display
+         * front buffer (the real rotated flush, transform layer
+         * included). Every scripted tap angle gets the same +90-degree
+         * display shift (a point at object angle a lands at display
+         * angle a+90). */
+        int rot = argc > 2 && !strcmp(argv[2], "rot");
+        double rot_shift = rot ? 90.0 : 0.0;
+        int (*snap)(lv_display_t *, const char *) = rot ? wheel_snapshot_rot : wheel_snapshot;
+
         int fail = 0;
         wheel_enter(disp, indev);
+        if (rot) {
+            lv_obj_t *wroot = ((lv_obj_t **)&objects)[SCREEN_ID_SETTINGS_WIFI_PASSWORD - 1];
+            lv_obj_set_style_transform_pivot_x(wroot, LV_PCT(50), 0);
+            lv_obj_set_style_transform_pivot_y(wroot, LV_PCT(50), 0);
+            lv_obj_set_style_transform_rotation(wroot, 900, 0);
+            pump(disp, 100);
+        }
 
         /* rest: the prefilled SSID, empty password (the "...." placeholder). */
-        fail |= wheel_snapshot(disp, "rest");
+        fail |= snap(disp, "rest");
 
         /* touched (v2): press directly in the ring band (r 140..233) at
          * slot 7 ('h', the "gh" sector) and hold -- the pressed sector's
@@ -607,9 +659,9 @@ int main(int argc, char **argv) {
          * letter at the centre. The radii are the panel-scaled wheel's
          * (ui_px.h); the mid-band radius 188 is the wheel's own middle. */
         lv_point_t p1;
-        wheel_point_deg(wheel_slot_deg(7), UI_PX(188), &p1);
+        wheel_point_deg(wheel_slot_deg(7) + rot_shift, UI_PX(188), &p1);
         wheel_press_at(disp, p1.x, p1.y);
-        fail |= wheel_snapshot(disp, "touched");
+        fail |= snap(disp, "touched");
         wheel_release_at(disp, p1.x, p1.y); /* commits the 'h' */
 
         /* all four register modes: the 240-degree arc's four 60-degree
@@ -618,9 +670,9 @@ int main(int argc, char **argv) {
         const char *mode_names[4] = {"abc", "ABC", "123", "sym"};
         for (int k = 0; k < 4; k++) {
             lv_point_t pk;
-            wheel_point_deg(180.0 + 60.0 * k, UI_PX(114), &pk);
+            wheel_point_deg(180.0 + 60.0 * k + rot_shift, UI_PX(114), &pk);
             wheel_tap(disp, pk.x, pk.y);
-            fail |= wheel_snapshot(disp, mode_names[k]);
+            fail |= snap(disp, mode_names[k]);
         }
 
         /* Commit (v2): a tap on the house circle-xmark key at the bottom
@@ -631,7 +683,7 @@ int main(int argc, char **argv) {
          * backspaces -- it would lose the 'h'. */
         {
             lv_point_t pc;
-            wheel_point_deg(60.0, UI_PX(114), &pc);
+            wheel_point_deg(60.0 + rot_shift, UI_PX(114), &pc);
             wheel_tap(disp, pc.x, pc.y);
         }
         pump(disp, 100);
