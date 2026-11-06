@@ -369,6 +369,14 @@ P4-specific code facts:
   radio (`s_wifi_event_group != NULL`), which also kills the zombie "Retry
   connecting / connection failed" pair the airplane/light-sleep deinit left
   behind.
+- **A 0-AP scan retries in place (2026-11-06).** The screen's refresh runs per
+  entry only and renders the scan result once — so a first scan that returns 0
+  APs (the flaky `esp_hosted` RPC scan through the remote C6 right after a
+  connected bring-up, or a scan right after the 100 ms settle) parked the
+  screen on "NO APS FOUND" until the user closed and re-opened it (the
+  2026-11-06 report). The scan task now makes up to 4 attempts with a 1 s
+  settle between them and breaks early as soon as any AP is found; a genuinely
+  empty radio range still ends on NO APS FOUND after ~9 s.
 - **The sync-complete idle re-arm is sweep-aware.** The `ui_tick` pickup that
   drops the transient WiFi screen to airplane re-armed the idle timer
   unconditionally — but the boot sweep owns the idle lifecycle (it disables the
@@ -2179,6 +2187,7 @@ Device captures (pyserial 115200, unattended runs with the test hooks):
 | Binary (2026-11-05, after the clock pair cells)                                | S3: `0x1711f0` = 1,511,920 B in the 2,097,152 B partition (585,232 B free — the HH:MM pair-cell clip/anchoring fix +32 B over the dusk build: the cells now zero the theme's 20 px base padding (the digits' bottom / the colon's right 20 px were clipped, §7.1) and the pairs are anchored colon-side, 136/30/136 px). P4: `0x1884f0` = 1,606,896 B in the 9,437,184 B partition (7,830,288 B free — the same change, size-neutral: the four pad setters absorb into the linker's alignment slack; flashed to the bench board at /dev/ttyACM0 — the bottom clip and the colon's right margin gone, the pairs tight to the colon, verified with the `--clockprobe` geometry hook at both 466 and 720)                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Binary (2026-11-05, after the sleep alpha + ragged-right alarm row)            | S3: `0x171220` = 1,511,968 B in the 2,097,152 B partition (585,184 B free — the light-sleep clock's `UI_CLOCK_ALPHA_PCT` default 100 → 20 (the re-added "alpha channel": the clock's own opacity over the already-dimmed panel, §7.3) + the next-alarm row right-aligned so the time's right edge lands under the MM pair's right edge and the weekday prefix hangs off left (the ragged left edge; §7.1): the row box = the time row's cells + the theme's 2 × pad_row, read live from the time row). P4: `0x1884f0` = 1,606,896 B in the 9,437,184 B partition (7,830,288 B free — the same change, size-neutral: the alpha is a value and the alarm-row width computation (`lv_obj_get_style_pad_row`) + `LV_FLEX_ALIGN_END` absorb into the linker's alignment slack; verified in the UI simulator at both 466 and 720 — the 20 % light-sleep clock and the right-aligned alarm row. **Flashed 2026-11-05 ~23:35** to the bench board at /dev/ttyACM0 after the cable re-plug — clean boot, 0 WDT, sweep running; `idf.py flash` wiped spiffs settings.txt → Kconfig defaults)                                               |
 | Binary (2026-11-06, after the centre-anchored alarm row + the wheel wedge fix) | S3: `0x1712f0` = 1,512,176 B in the 2,097,152 B partition (584,976 B free — the next-alarm row re-anchored from the screen CENTRE (v2: the v1 right-edge row read off-centre) — two zero-pad half-boxes meet at the row's centre (= the colon), the prefix's right edge and the time's left edge pinned to it, the halves' flex gap zeroed, §7.1 — plus the wheel mode-arc INDICATOR pad → 0 (the item-5a fix had put the track's pad on the indicator too, dropping its radius to `UI_PX(55)` and clamping the 60 px width into a filled sector from the centre — the "pie wedges from the middle" of the 2026-11-05 photo; §7.13). +208 B over the ragged-right build. P4: `0x1885f0` = 1,607,152 B in the 9,437,184 B partition (7,830,032 B free — the same change, +256 B; **flashed 2026-11-06** to the bench board at /dev/ttyACM0 — clean boot, 0 WDT/panics over the boot-sweep window, sweep 336 frames running, SNTP/TZ fine; UI simulator at both 466 and 720: the lit 60° key is a ring segment on the r 84–144 track (no fill inside r 84) and the alarm row's two labels are pinned exactly to the screen centre) |
+| Binary (2026-11-06, after the scan 0-AP retry)                                 | S3: `0x171390` = 1,512,336 B in the 2,097,152 B partition (584,816 B free — the scan task's bounded 0-AP retry: up to 4 attempts with a 1 s settle, breaking early on any AP found, because the screen renders the per-entry scan result once and a 0-AP first scan would park "NO APS FOUND" until a close/re-open; a genuinely empty range still ends on NO APS FOUND after ~9 s). P4: `0x1887c0` = 1,607,616 B in the 9,437,184 B partition (7,829,568 B free — +464 B; **flashed 2026-11-06** to the bench board at /dev/ttyACM0, production build `TEST_WIFI_SCAN_SEC=0` — device-captured via the hook build: the `TEST_WIFI_SCAN_SEC=300` boot held the WiFi settings screen open at t≈320 s, the scan brought the remote radio up, "Scan done: 3 APs" on the first attempt (~2.6 s through the `esp_hosted` RPC), the radio went down again, 0 WDT/panics over the full 420 s capture; the production boot then connected to the network at t≈4.6 s and ran the sweep with 0 WDT)                                                                                                                                        |
 
 **Board performance indicators (S3 vs P4).** The table above is the extensible
 anchor: whenever a stage is re-measured on either board, the row grows (board +
@@ -2331,7 +2340,9 @@ Headless captures drive the state machine through the **Kconfig test hooks**
 - `TEST_WIFI_SCAN_SEC` — opens the settings WiFi screen N s after boot (waiting
   out the boot sweep and disabling idle monitoring), then holds while the
   background scan completes — the headless scan-path check for the remote-C6
-  board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs).
+  board (the `esp_hosted` RPC scan through the C6, including 5 GHz APs, and the
+  scan task's bounded 0-AP retry: a clean "Scan done: N APs" with 0 WDT
+  confirms the retry path, 2026-11-06).
 - `TEST_ALARM_RING_SEC` — fires the real alarm path (the ring start + alarm
   screen) N s after the boot sweep, then drives the full ring lifecycle: stop
   (the touch-dismiss fade + codec close), re-fire (the codec re-open), and a
@@ -2648,7 +2659,7 @@ wifi ~430; imu ~410 — **~26,400 lines** of tracked code.
 - `docs/book/tools/gen_lighting_figs.py` (19,711 B)
 - `docs/book/tools/gen_moonjs.py` (6,207 B)
 - `docs/book/tools/waveshare-hero.webp` (86,164 B)
-- `docs/doc_template.md` (219,476 B)
+- `docs/doc_template.md` (221,371 B)
 - `docs/gen_doc.py` (3,435 B)
 - `docs/gen_media.py` (7,041 B)
 - `docs/img/boot_sweep.mp4` (1,968,640 B)
@@ -42031,33 +42042,50 @@ static void wifi_scan_task_fn(void *arg) {
         }
     }
 
+    /* Bounded retry (2026-11-06): the FIRST scan of a screen open --
+     * the esp_hosted RPC scan through the remote C6 while the radio is
+     * connected, or right after the 100 ms bring-up settle -- can
+     * intermittently return 0 APs. The screen renders the result ONCE
+     * (the refresh runs per entry only), so a 0-AP first scan would
+     * park it on "NO APS FOUND" until the user closes and re-opens the
+     * screen (the 2026-11-06 report). Up to 4 attempts with a 1 s
+     * settle between them cover the flaky first scan; a genuinely
+     * empty radio range still ends on NO APS FOUND after ~9 s. */
+    const int WIFI_SCAN_MAX_ATTEMPTS = 4;
     wifi_scan_config_t scan_cfg = {
         .show_hidden = true,
         .channel = 0,
     };
-    esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
-    if (ret == ESP_OK) {
-        uint16_t ap_cnt = 0;
-        esp_wifi_scan_get_ap_num(&ap_cnt);
-        if (esp_wifi_scan_get_ap_records(&ap_cnt, s_scan_raw) == ESP_OK) {
-            s_scan_count = ap_cnt < WIFI_SCAN_MAX_APS ? (int)ap_cnt : WIFI_SCAN_MAX_APS;
-            for (int i = 0; i < s_scan_count; i++) {
-                size_t len = strlen((const char *)s_scan_raw[i].ssid);
-                if (len > 32) {
-                    len = 32;
+    for (int attempt = 1; attempt <= WIFI_SCAN_MAX_ATTEMPTS; attempt++) {
+        esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
+        if (ret == ESP_OK) {
+            uint16_t ap_cnt = 0;
+            esp_wifi_scan_get_ap_num(&ap_cnt);
+            if (esp_wifi_scan_get_ap_records(&ap_cnt, s_scan_raw) == ESP_OK) {
+                s_scan_count = ap_cnt < WIFI_SCAN_MAX_APS ? (int)ap_cnt : WIFI_SCAN_MAX_APS;
+                for (int i = 0; i < s_scan_count; i++) {
+                    size_t len = strlen((const char *)s_scan_raw[i].ssid);
+                    if (len > 32) {
+                        len = 32;
+                    }
+                    memcpy(s_scan_aps[i].ssid, s_scan_raw[i].ssid, len);
+                    s_scan_aps[i].ssid[len] = '\0';
+                    s_scan_aps[i].rssi = s_scan_raw[i].rssi;
+                    s_scan_aps[i].auth = s_scan_raw[i].authmode;
                 }
-                memcpy(s_scan_aps[i].ssid, s_scan_raw[i].ssid, len);
-                s_scan_aps[i].ssid[len] = '\0';
-                s_scan_aps[i].rssi = s_scan_raw[i].rssi;
-                s_scan_aps[i].auth = s_scan_raw[i].authmode;
+                ESP_LOGI(TAG, "Scan done: %d APs%s", s_scan_count, attempt > 1 ? " (retry)" : "");
+            } else {
+                s_scan_count = 0;
             }
-            ESP_LOGI(TAG, "Scan done: %d APs", s_scan_count);
         } else {
             s_scan_count = 0;
+            ESP_LOGE(TAG, "Scan failed: %s", esp_err_to_name(ret));
         }
-    } else {
-        s_scan_count = 0;
-        ESP_LOGE(TAG, "Scan failed: %s", esp_err_to_name(ret));
+        if (s_scan_count > 0 || attempt == WIFI_SCAN_MAX_ATTEMPTS) {
+            break;
+        }
+        ESP_LOGW(TAG, "Scan attempt %d returned 0 APs -- retrying in 1 s", attempt);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     if (we_own_radio) {

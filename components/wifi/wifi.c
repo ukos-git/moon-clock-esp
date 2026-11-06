@@ -369,33 +369,50 @@ static void wifi_scan_task_fn(void *arg) {
         }
     }
 
+    /* Bounded retry (2026-11-06): the FIRST scan of a screen open --
+     * the esp_hosted RPC scan through the remote C6 while the radio is
+     * connected, or right after the 100 ms bring-up settle -- can
+     * intermittently return 0 APs. The screen renders the result ONCE
+     * (the refresh runs per entry only), so a 0-AP first scan would
+     * park it on "NO APS FOUND" until the user closes and re-opens the
+     * screen (the 2026-11-06 report). Up to 4 attempts with a 1 s
+     * settle between them cover the flaky first scan; a genuinely
+     * empty radio range still ends on NO APS FOUND after ~9 s. */
+    const int WIFI_SCAN_MAX_ATTEMPTS = 4;
     wifi_scan_config_t scan_cfg = {
         .show_hidden = true,
         .channel = 0,
     };
-    esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
-    if (ret == ESP_OK) {
-        uint16_t ap_cnt = 0;
-        esp_wifi_scan_get_ap_num(&ap_cnt);
-        if (esp_wifi_scan_get_ap_records(&ap_cnt, s_scan_raw) == ESP_OK) {
-            s_scan_count = ap_cnt < WIFI_SCAN_MAX_APS ? (int)ap_cnt : WIFI_SCAN_MAX_APS;
-            for (int i = 0; i < s_scan_count; i++) {
-                size_t len = strlen((const char *)s_scan_raw[i].ssid);
-                if (len > 32) {
-                    len = 32;
+    for (int attempt = 1; attempt <= WIFI_SCAN_MAX_ATTEMPTS; attempt++) {
+        esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
+        if (ret == ESP_OK) {
+            uint16_t ap_cnt = 0;
+            esp_wifi_scan_get_ap_num(&ap_cnt);
+            if (esp_wifi_scan_get_ap_records(&ap_cnt, s_scan_raw) == ESP_OK) {
+                s_scan_count = ap_cnt < WIFI_SCAN_MAX_APS ? (int)ap_cnt : WIFI_SCAN_MAX_APS;
+                for (int i = 0; i < s_scan_count; i++) {
+                    size_t len = strlen((const char *)s_scan_raw[i].ssid);
+                    if (len > 32) {
+                        len = 32;
+                    }
+                    memcpy(s_scan_aps[i].ssid, s_scan_raw[i].ssid, len);
+                    s_scan_aps[i].ssid[len] = '\0';
+                    s_scan_aps[i].rssi = s_scan_raw[i].rssi;
+                    s_scan_aps[i].auth = s_scan_raw[i].authmode;
                 }
-                memcpy(s_scan_aps[i].ssid, s_scan_raw[i].ssid, len);
-                s_scan_aps[i].ssid[len] = '\0';
-                s_scan_aps[i].rssi = s_scan_raw[i].rssi;
-                s_scan_aps[i].auth = s_scan_raw[i].authmode;
+                ESP_LOGI(TAG, "Scan done: %d APs%s", s_scan_count, attempt > 1 ? " (retry)" : "");
+            } else {
+                s_scan_count = 0;
             }
-            ESP_LOGI(TAG, "Scan done: %d APs", s_scan_count);
         } else {
             s_scan_count = 0;
+            ESP_LOGE(TAG, "Scan failed: %s", esp_err_to_name(ret));
         }
-    } else {
-        s_scan_count = 0;
-        ESP_LOGE(TAG, "Scan failed: %s", esp_err_to_name(ret));
+        if (s_scan_count > 0 || attempt == WIFI_SCAN_MAX_ATTEMPTS) {
+            break;
+        }
+        ESP_LOGW(TAG, "Scan attempt %d returned 0 APs -- retrying in 1 s", attempt);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     if (we_own_radio) {
