@@ -6,7 +6,7 @@
  * Writes PPM frames (P6) into the out dir; assemble_figures.py composes the
  * montages with PIL (labels, grids).
  *
- * Usage:  node docs/book/tools/gen_figures.js <out_dir>
+ * Usage:  node docs/tools/gen_figures.js <out_dir>
  */
 "use strict";
 const fs = require("fs");

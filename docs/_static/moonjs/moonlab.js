@@ -1,11 +1,11 @@
 /* moonlab.js — the Moon Phase Clock simulator for the book's interactive
- * chapter (docs/book/09-interactive).
+ * chapter (docs/science/interactive).
  *
  * This is a line-faithful JavaScript port of the portable C core
  * (components/moon/core/moon_bake.c :: bake_px + moon_relief_row /
  * moon_relief_build, moon_render.c :: g565_build), with the geometry
  * coming from the validated Python prototype (moon.astro) precomputed
- * into a table by docs/book/tools/gen_moonjs.py. It runs in the browser
+ * into a table by docs/tools/gen_moonjs.py. It runs in the browser
  * (window.MOONLAB) and in Node (module.exports) so the book's A/B
  * figures can be generated from the same code that the reader drives.
  *

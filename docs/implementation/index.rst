@@ -1,7 +1,7 @@
 The implementation
 ==================
 
-The C core, the display pipeline, the animation system, the clock and sleep machine, and the P4 port — file by file. (Content lands in stage 4.)
+The C core, the display pipeline, the animation system, the clock and sleep machine, and the P4 port — file by file.
 
 .. toctree::
    :maxdepth: 2

@@ -3,7 +3,7 @@
 Drives headless Chromium (playwright) over docs/keyboard/round-keyboard-lab.html,
 screenshots the nine 1:1 (466x466) panel SVGs in the lab's own dark AMOLED
 theme, and lays them out as a 3x3 montage with rank + verdict labels into
-docs/book/_static/figs/kbd_panels.png — the clickable lab's static half for
+docs/_static/figs/kbd_panels.png — the clickable lab's static half for
 the book's keyboard chapter.
 
 The labels (rank, verdict chip, name) are read from the rendered DOM, so the
@@ -11,7 +11,7 @@ figure cannot drift from the lab page it depicts. The four off-hardware
 methods (voice, camera/OCR, QR/NFC/BLE handoff, T9 decode) are text cards in
 the lab and are documented in the chapter's list-table instead.
 
-Run:  python3 docs/book/tools/gen_kbd_panels.py
+Run:  python3 docs/tools/gen_kbd_panels.py
 (needs system python with playwright + PIL; the chromium binary comes from
 the ms-playwright cache)
 """

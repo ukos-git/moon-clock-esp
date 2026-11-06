@@ -2,9 +2,9 @@
 
 Reads the 8 raw buffers gen_bake_intermediates.js wrote (d, lns, L, A, idx,
 lutv, es, out) and lays them out left-to-right in pipeline order with a
-caption line, saved to docs/book/_static/figs/bake_pipeline.png.
+caption line, saved to docs/_static/figs/bake_pipeline.png.
 
-Run:  docs/book/.venv/bin/python docs/book/tools/gen_bake_strip.py <inddir>
+Run:  docs/book/.venv/bin/python docs/tools/gen_bake_strip.py <inddir>
 """
 from __future__ import annotations
 

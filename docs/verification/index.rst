@@ -1,7 +1,7 @@
 Verification and performance
 ============================
 
-The evidence: the image gate against NASA's rendered moon, on-device verification, and the performance measurements. (Content lands in stage 4.)
+The evidence: the image gate against NASA's rendered moon, on-device verification, the performance measurements, and the binary-size chronology.
 
 .. toctree::
    :maxdepth: 2

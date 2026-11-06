@@ -16,7 +16,7 @@ Output: fit.json next to this script, with the glass geometry the
 
 Run (from the repo root) only when the photo is swapped:
 
-    python3 docs/book/tools/fit_device.py
+    python3 docs/tools/fit_device.py
 """
 import json
 from pathlib import Path

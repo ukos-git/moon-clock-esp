@@ -5,8 +5,8 @@ tracked C sources (``git ls-files '*.c' '*.h' '*.cpp'`` under
 ``components/`` and ``main/`` at the repo root) and writes real RST
 into ``code/gen/`` (gitignored, excluded from no toctree): one page
 per file, one section per function with an explicit ``.. _cfn-<name>:``
-anchor, the body as a ``.. code-block:: c :lineanchors:`` block so
-every line gets a ``#L<lineno>`` anchor with its TRUE file line
+anchor, the body as a Pygments-highlighted block (``linespans="L"``)
+so every line gets a ``#L-<lineno>`` anchor with its TRUE file line
 number. ``code/`` is the LAST toctree entry in ``index.rst`` (the
 reverse index below relies on that order at write time).
 
@@ -19,7 +19,7 @@ the build):
     :cfunc:`moon_ui_screen_switched`
         the ``#cfn-<name>`` anchor (first definition wins);
     :clabel:`components/ui/screens.c:612`
-        the ``#L612`` line anchor (out-of-range lines degrade too).
+        the ``#L-612`` line anchor (out-of-range lines degrade too).
 
 Code → doc: every generated page ends with a "Referenced from" section
 listing the doc pages whose :cfile:/:cfunc:/:clabel: targets hit it.
@@ -456,7 +456,8 @@ def _clabel_role(name, rawtext, text, lineno, inliner, options=None, content=Non
         return [nodes.literal(rawtext, text, classes=["clabel", "xref"])], []
     env = inliner.document.settings.env
     target = FILES[rel]
-    frag = "L" + ln if ln else ""
+    # Pygments linespans="L" anchors are id="L-<n>" (dash included)
+    frag = "L-" + ln if ln else ""
     px = pending_xref(rawtext, refdoc=env.docname, reftype="clabel",
                       reftarget=target, refid=frag, refexplicit=True)
     px.append(nodes.literal(rawtext, text, classes=["clabel", "xref"]))

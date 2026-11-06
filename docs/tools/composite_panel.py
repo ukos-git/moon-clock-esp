@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Composite uisim 466x466 screens into the Waveshare product photo.
 
-The book's device composites (docs/book/_static/photos/sim_*.png) are a
+The book's device composites (docs/_static/photos/sim_*.png) are a
 uisim frame at true panel geometry over the Waveshare S3-Touch-AMOLED
 product photo (waveshare-hero.webp, vendored here). This module is the
 white-backdrop compositing core; composite_dark.py is the regeneration

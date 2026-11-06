@@ -9,11 +9,11 @@ and replaces the studio backdrop with the book's dark background
 under the device, so the composites sit on the page instead of
 fighting it.
 
-Regenerates docs/book/_static/photos/sim_{home,light_sleep,alarm,
+Regenerates docs/_static/photos/sim_{home,light_sleep,alarm,
 keyboard,deep_sleep}.png. Run (from the repo root):
 
     host_sim/uisim/build.sh run          # the uisim frames (gitignored)
-    python3 docs/book/tools/composite_dark.py
+    python3 docs/tools/composite_dark.py
 
 The hero photo + fit are vendored next to this script
 (waveshare-hero.webp, fit.json — derive the fit with fit_device.py if

@@ -23,9 +23,6 @@ host_sim/uisim/build-*/
 host_sim/build-p4/
 docs/.venv/
 docs/_build/
-# the old book leaves in stage 4 (take its venv/_build lines with it)
-docs/book/.venv/
-docs/book/_build/
 # mooncode's generated source pages (code/gen/ is rebuilt at build time)
 docs/code/gen/
 # composite_dark.py intermediate frames (vendored output is

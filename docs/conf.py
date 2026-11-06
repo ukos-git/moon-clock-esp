@@ -115,10 +115,8 @@ master_doc = "index"
 # code/gen/ is written at build time by the mooncode extension at
 # ``builder-inited`` — i.e. BEFORE the source scan — so the generated
 # RST is picked up normally (it must NOT be excluded, or the gen/index
-# toctree entry would dangle). book/ is the old chapter book still on
-# disk during the migration — it leaves in stage 4, with this exclude
-# entry.
-exclude_patterns = ["_build", ".venv", "book", "Thumbs.db", ".DS_Store"]
+# toctree entry would dangle).
+exclude_patterns = ["_build", ".venv", "Thumbs.db", ".DS_Store"]
 
 latex_elements = {
     "papersize": "a4paper",

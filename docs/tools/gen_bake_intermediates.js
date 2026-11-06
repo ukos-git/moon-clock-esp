@@ -20,7 +20,7 @@
  * strip figure. This is the "intermediate results of the calculation" the
  * lighting chapter describes one step at a time, made visible.
  *
- * Run: node docs/book/tools/gen_bake_intermediates.js <outdir> [isoDate]
+ * Run: node docs/tools/gen_bake_intermediates.js <outdir> [isoDate]
  */
 "use strict";
 const fs = require("fs");
