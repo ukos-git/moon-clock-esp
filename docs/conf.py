@@ -58,7 +58,6 @@ html_theme = "furo"
 # SWAP → "sphinx_rtd_theme" (sphinx-rtd-theme is in requirements.txt).
 html_static_path = ["_static"]
 html_title = "The Moon Phase Clock"
-html_favicon = "_static/photos/bench_panel.jpg"
 
 # Furo theming: the theme follows the reader's OS preference (furo's
 # native default — furo 2025.12 has no default-theme option), with the

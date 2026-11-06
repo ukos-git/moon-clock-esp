@@ -55,16 +55,18 @@ The build commands
 ------------------
 
 .. code-block:: bash
-   :caption: The two targets (CLAUDE.md's Commands, verbatim)
+   :caption: The two targets (``<port>`` = the board you identified; see
+             :doc:`the boards <../devices/index>`)
 
    source ~/esp/esp-idf/export.sh
 
    # S3 (466) — the default target
-   idf.py build && idf.py flash -p /dev/ttyACM1
+   idf.py build
+   idf.py flash -p <port>
 
    # P4 4C (720) — own build dir + own dependencies.lock.p4
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p /dev/ttyACM0
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
 
 Two constraints the commands encode:
 

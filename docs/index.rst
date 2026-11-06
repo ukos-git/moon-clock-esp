@@ -13,13 +13,6 @@ sleep/wake machine, the settings stack, and the validation gates that
 prove the rendering matches NASA's rendered moon to within a couple of
 gray levels per pixel.
 
-.. figure:: _static/photos/bench_front.jpg
-   :alt: The device on the 3-D-printed bench stand
-
-   The product on the 3-D-printed bench stand. The 3-D-shaded moon it
-   renders — physically correct, down to the computed backlit dark
-   side — is simulated from the same C core in :doc:`science/geometry`.
-
 Contents
 --------
 

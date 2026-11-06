@@ -11,6 +11,15 @@ the terminator across the disk to the fully unilluminated side. Time comes from
 NTP (brief hourly WiFi activation, then back to airplane mode); the PCF85063A
 RTC holds the clock between syncs.
 
+The product runs on two Waveshare boards from one tree: the **ESP32-S3 Touch
+AMOLED 1.75** (466x466 QSPI AMOLED, the default target) and the **ESP32-P4
+WIFI6 Touch LCD XC "4C"** (720x720 round MIPI-DSI IPS, remote C6 Wi-Fi over
+SDIO, ported as a full sibling). The complete documentation -- the science, the
+implementation, the build system, the per-board references, and the per-screen
+UI reference with both-panel screenshots -- is the Sphinx site under `docs/`
+(build it with `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`;
+code links resolve to the locally generated source pages).
+
 ## Build
 
 ```bash
@@ -45,8 +54,11 @@ Waveshare **ESP32-S3 Touch AMOLED 1.75**, with the 16 MB flash variant:
 | Flash      | 16 MB                                |
 
 Flash layout (`partitions.csv`): fixed 80 K (bootloader + table + NVS + PHY),
-`factory` 1392 K (measured app 1.42 MB, ~1.3 KB margin), `storage` 64 K SPIFFS,
-`moon_assets` 2560 K (albedo + DEM).
+`factory` 2048 K (measured app 1.44 MB, ~572 KiB margin -- widened from the old
+1392 K ceiling by the circular keyboard's widened font), `storage` 64 K SPIFFS,
+`moon_assets` 2560 K (albedo + DEM). The P4 4C uses `partitions_p4.csv` (32 MB
+chip: `factory` 9216 K, `moon_assets` 5120 K with the 2048-wide per-board
+albedo).
 
 ## Moon rendering
 
@@ -107,7 +119,8 @@ idf.py clang-check --exit-code --run-clang-tidy-options="-header-filter=''" main
 
 Kconfig switches for headless verification (all default off):
 `TEST_SETTINGS_DEMO_SEC` (scripted settings run after boot),
-`TEST_AUTO_WAKE_SEC`, `TEST_BAKE_NO_RELIEF`, `TEST_FORCE_NTP_SYNC`.
+`TEST_AUTO_WAKE_SEC`, `TEST_BAKE_NO_RELIEF`, and more -- the full list is the
+Kconfig table in the [documentation](docs/reference/kconfig-ui.rst).
 
 ## Hardware Differences Affecting RTC-Driven Clocks
 
