@@ -1,0 +1,453 @@
+{
+ "generated_utc": "2026-11-07T17:48:10Z",
+ "utc": "2026-04-15T12:00",
+ "iters": 5,
+ "sizes": [
+  200,
+  240,
+  320,
+  400,
+  466,
+  618,
+  650
+ ],
+ "host": {
+  "s3": {
+   "default": {
+    "_relief": 15.9,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.63,
+     "rotate": 0.05,
+     "mapbuild": 2.7,
+     "reproj": 0.33
+    },
+    "240": {
+     "bake": 0.94,
+     "rotate": 0.07,
+     "mapbuild": 2.48,
+     "reproj": 0.41
+    },
+    "320": {
+     "bake": 1.51,
+     "rotate": 0.11,
+     "mapbuild": 2.49,
+     "reproj": 0.82
+    },
+    "400": {
+     "bake": 2.44,
+     "rotate": 0.3,
+     "mapbuild": 3.69,
+     "reproj": 1.7
+    },
+    "466": {
+     "bake": 3.36,
+     "rotate": 0.26,
+     "mapbuild": 2.58,
+     "reproj": 1.53
+    },
+    "618": {
+     "bake": 5.7,
+     "rotate": 0.46,
+     "mapbuild": 2.9,
+     "reproj": 2.8
+    },
+    "650": {
+     "bake": 6.19,
+     "rotate": 0.5,
+     "mapbuild": 2.47,
+     "reproj": 2.98
+    }
+   },
+   "no_relief": {
+    "_relief": null,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.39,
+     "rotate": 0.05,
+     "mapbuild": 0.98,
+     "reproj": 0.29
+    },
+    "240": {
+     "bake": 0.56,
+     "rotate": 0.07,
+     "mapbuild": 0.97,
+     "reproj": 0.43
+    },
+    "320": {
+     "bake": 1.01,
+     "rotate": 0.14,
+     "mapbuild": 1.25,
+     "reproj": 0.72
+    },
+    "400": {
+     "bake": 1.54,
+     "rotate": 0.19,
+     "mapbuild": 0.94,
+     "reproj": 1.12
+    },
+    "466": {
+     "bake": 1.99,
+     "rotate": 0.25,
+     "mapbuild": 0.95,
+     "reproj": 1.52
+    },
+    "618": {
+     "bake": 3.47,
+     "rotate": 0.44,
+     "mapbuild": 0.92,
+     "reproj": 2.71
+    },
+    "650": {
+     "bake": 3.92,
+     "rotate": 0.5,
+     "mapbuild": 0.9,
+     "reproj": 2.96
+    }
+   },
+   "display": {
+    "_relief": 16.5,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.82,
+     "rotate": 0.05,
+     "mapbuild": 2.46,
+     "reproj": 0.29
+    },
+    "240": {
+     "bake": 1.06,
+     "rotate": 0.06,
+     "mapbuild": 2.48,
+     "reproj": 0.42
+    },
+    "320": {
+     "bake": 1.85,
+     "rotate": 0.11,
+     "mapbuild": 2.44,
+     "reproj": 0.8
+    },
+    "400": {
+     "bake": 2.91,
+     "rotate": 0.18,
+     "mapbuild": 2.61,
+     "reproj": 1.14
+    },
+    "466": {
+     "bake": 3.89,
+     "rotate": 0.25,
+     "mapbuild": 2.48,
+     "reproj": 1.54
+    },
+    "618": {
+     "bake": 6.72,
+     "rotate": 0.44,
+     "mapbuild": 2.48,
+     "reproj": 2.68
+    },
+    "650": {
+     "bake": 7.77,
+     "rotate": 0.49,
+     "mapbuild": 2.55,
+     "reproj": 2.96
+    }
+   }
+  },
+  "p4": {
+   "default": {
+    "_relief": 15.8,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.71,
+     "rotate": 0.05,
+     "mapbuild": 13.07,
+     "reproj": 0.31
+    },
+    "240": {
+     "bake": 0.85,
+     "rotate": 0.07,
+     "mapbuild": 13.68,
+     "reproj": 0.44
+    },
+    "320": {
+     "bake": 1.49,
+     "rotate": 0.11,
+     "mapbuild": 12.68,
+     "reproj": 0.79
+    },
+    "400": {
+     "bake": 2.3,
+     "rotate": 0.17,
+     "mapbuild": 12.59,
+     "reproj": 1.15
+    },
+    "466": {
+     "bake": 3.08,
+     "rotate": 0.25,
+     "mapbuild": 12.63,
+     "reproj": 1.54
+    },
+    "618": {
+     "bake": 5.41,
+     "rotate": 0.41,
+     "mapbuild": 12.73,
+     "reproj": 2.75
+    },
+    "650": {
+     "bake": 5.99,
+     "rotate": 0.45,
+     "mapbuild": 12.72,
+     "reproj": 2.98
+    }
+   },
+   "no_relief": {
+    "_relief": null,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.45,
+     "rotate": 0.05,
+     "mapbuild": 5.41,
+     "reproj": 0.29
+    },
+    "240": {
+     "bake": 0.57,
+     "rotate": 0.09,
+     "mapbuild": 6.28,
+     "reproj": 0.44
+    },
+    "320": {
+     "bake": 1.11,
+     "rotate": 0.12,
+     "mapbuild": 5.06,
+     "reproj": 0.75
+    },
+    "400": {
+     "bake": 1.52,
+     "rotate": 0.18,
+     "mapbuild": 5.11,
+     "reproj": 1.15
+    },
+    "466": {
+     "bake": 2.17,
+     "rotate": 0.24,
+     "mapbuild": 5.04,
+     "reproj": 1.56
+    },
+    "618": {
+     "bake": 3.6,
+     "rotate": 0.42,
+     "mapbuild": 5.17,
+     "reproj": 2.79
+    },
+    "650": {
+     "bake": 4.25,
+     "rotate": 0.57,
+     "mapbuild": 5.08,
+     "reproj": 3.0
+    }
+   },
+   "display": {
+    "_relief": 15.9,
+    "_geo": 0.0,
+    "200": {
+     "bake": 0.84,
+     "rotate": 0.05,
+     "mapbuild": 13.69,
+     "reproj": 0.33
+    },
+    "240": {
+     "bake": 1.07,
+     "rotate": 0.06,
+     "mapbuild": 12.92,
+     "reproj": 0.44
+    },
+    "320": {
+     "bake": 1.87,
+     "rotate": 0.11,
+     "mapbuild": 14.71,
+     "reproj": 0.83
+    },
+    "400": {
+     "bake": 3.6,
+     "rotate": 0.18,
+     "mapbuild": 12.88,
+     "reproj": 1.21
+    },
+    "466": {
+     "bake": 4.02,
+     "rotate": 0.24,
+     "mapbuild": 13.49,
+     "reproj": 1.62
+    },
+    "618": {
+     "bake": 7.05,
+     "rotate": 0.42,
+     "mapbuild": 13.18,
+     "reproj": 2.76
+    },
+    "650": {
+     "bake": 7.82,
+     "rotate": 0.46,
+     "mapbuild": 13.33,
+     "reproj": 3.62
+    }
+   }
+  }
+ },
+ "python": {
+  "200": 11.899330012965947,
+  "240": 17.702042998280376,
+  "320": 35.34308198140934,
+  "400": 58.829703950323164,
+  "466": 81.58139098668471,
+  "618": 138.7185970088467,
+  "650": 146.99984894832596
+ },
+ "js": {
+  "bake": {
+   "200": 2.651,
+   "240": 3.732,
+   "320": 6.616,
+   "400": 10.377,
+   "466": 13.941,
+   "618": 23.378,
+   "650": 25.63
+  },
+  "relief_build": 11.771
+ },
+ "device": {
+  "points": {
+   "s3": [
+    {
+     "size": 240,
+     "ms": 280.0,
+     "note": "sweep intermediate, accepted 336-frame capture"
+    },
+    {
+     "size": 400,
+     "ms": 720.0,
+     "note": "sweep final, accepted capture"
+    },
+    {
+     "size": 466,
+     "ms": 1300.0,
+     "note": "full-res panel bake, accepted capture"
+    }
+   ],
+   "p4": [
+    {
+     "size": 618,
+     "ms": 600.0,
+     "note": "sweep final, M3/M4 acceptance capture"
+    },
+    {
+     "size": 650,
+     "ms": 960.0,
+     "note": "sweep final @650, M3/M4 acceptance capture"
+    }
+   ]
+  },
+  "oneshot": {
+   "s3": {
+    "relief_build": 1300.0,
+    "shademap_build": 1600.0
+   },
+   "p4": {
+    "shademap_build": 282.0
+   }
+  },
+  "pipelines": [
+   {
+    "board": "S3",
+    "name": "sweep bake @240 px (intermediate)",
+    "ms": 280.0,
+    "cat": "bake"
+   },
+   {
+    "board": "S3",
+    "name": "sweep final bake @400 px",
+    "ms": 720.0,
+    "cat": "bake"
+   },
+   {
+    "board": "S3",
+    "name": "full-res bake @466 px",
+    "ms": 1300.0,
+    "cat": "bake"
+   },
+   {
+    "board": "P4",
+    "name": "sweep final bake @618 px",
+    "ms": 600.0,
+    "cat": "bake"
+   },
+   {
+    "board": "P4",
+    "name": "sweep final bake @650 px",
+    "ms": 960.0,
+    "cat": "bake"
+   },
+   {
+    "board": "S3",
+    "name": "spin frame (gather+composite+write)",
+    "ms": 45.0,
+    "cat": "display"
+   },
+   {
+    "board": "S3",
+    "name": "dusk frame (re-project)",
+    "ms": 50.0,
+    "cat": "display"
+   },
+   {
+    "board": "S3",
+    "name": "sweep display step (per frame)",
+    "ms": 230.0,
+    "cat": "display"
+   },
+   {
+    "board": "P4",
+    "name": "dusk total (14\u201395 s over |phi*|)",
+    "ms": 43000.0,
+    "cat": "display"
+   },
+   {
+    "board": "S3",
+    "name": "shade-map build (once, at dusk entry)",
+    "ms": 1600.0,
+    "cat": "build"
+   },
+   {
+    "board": "P4",
+    "name": "shade-map build (once, at dusk entry)",
+    "ms": 282.0,
+    "cat": "build"
+   },
+   {
+    "board": "S3",
+    "name": "relief cache build (once, at boot)",
+    "ms": 1300.0,
+    "cat": "build"
+   },
+   {
+    "board": "both",
+    "name": "screen-switch fade (no pixels written)",
+    "ms": 240.0,
+    "cat": "fade"
+   }
+  ],
+  "cpu": [
+   {
+    "name": "settings hub, idle (post loop-rate fix)",
+    "pct": 8.0,
+    "lo": 7.0,
+    "hi": 9.0
+   },
+   {
+    "name": "spin render, core 1 (gather + composite)",
+    "pct": 48.0,
+    "lo": 48.0,
+    "hi": 48.0
+   }
+  ]
+ }
+}
