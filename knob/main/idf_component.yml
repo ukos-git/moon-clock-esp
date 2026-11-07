@@ -9,3 +9,6 @@ dependencies:
     version: '>=5.4'
   lvgl/lvgl: ^9
   espressif/esp_lcd_sh8601: ^2
+  # mDNS discovery of the clock (_moonclock._udp.local). Same registry
+  # component the clock advertises with (components/companion).
+  espressif/mdns: ^1

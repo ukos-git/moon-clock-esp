@@ -1,12 +1,9 @@
 /**
  * @file main.c
- * @brief K1 skeleton test for the Waveshare ESP32-S3-Knob-Touch-LCD-1.8
- *        companion firmware: panel + CST816S + EC1 dial on one screen.
- *
- * Serial-verification target (task #19): boot log shows panel/touch/dial
- * init, the screen shows "KNOB K1", a live detent count and the last touch
- * point; tapping anywhere zeroes the count. K2 replaces the chrome with
- * the Wi-Fi join; K4 replaces it with the KEYBOARD/STEPPER modes.
+ * @brief Companion-knob firmware for the Waveshare ESP32-S3-Knob-Touch-
+ *        LCD-1.8 (task #16): panel + CST816S + EC1 dial, Wi-Fi STA from
+ *        the baked spiffs file, and the KEYBOARD/STEPPER mirror modes
+ *        (knob_ui) that drive the clock over UDP (knob_link).
  */
 #include <stdio.h>
 
@@ -21,6 +18,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_link.h"
+#include "knob_ui.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
 
@@ -28,17 +26,10 @@ static const char *TAG = "knob_main";
 
 static esp_lcd_panel_handle_t s_panel;
 static lv_display_t *s_disp;
-static lv_obj_t *s_dial_label;
-static lv_obj_t *s_touch_label;
 /* LVGL runs in one task; this mutex is the lock for anything that touches
  * it. Must be a MUTEX, not a portMUX: lv_timer_handler renders for tens of
  * ms and a spinlock around it trips the interrupt watchdog. */
 static SemaphoreHandle_t s_lvgl_mux;
-
-/* Last touch sample, written by the indev read cb (LVGL task context). */
-static uint16_t s_touch_x;
-static uint16_t s_touch_y;
-static bool s_touch_down;
 
 /* ---- LVGL plumbing ---------------------------------------------------- */
 
@@ -51,14 +42,10 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     uint16_t x = 0, y = 0;
     bool pressed = false;
     if (knob_board_touch_read(&x, &y, &pressed) == ESP_OK && pressed) {
-        s_touch_x = x;
-        s_touch_y = y;
-        s_touch_down = true;
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PRESSED;
     } else {
-        s_touch_down = false;
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -81,53 +68,6 @@ static bool trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_d
 static void tick_timer_cb(void *arg) {
     (void)arg;
     lv_tick_inc(2);
-}
-
-/* ---- K1 test screen ---------------------------------------------------- */
-
-static void tap_reset_cb(lv_event_t *e) {
-    (void)e;
-    knob_board_encoder_reset();
-}
-
-static void ui_timer_cb(lv_timer_t *timer) {
-    (void)timer;
-    char buf[96];
-    snprintf(buf, sizeof(buf), "dial %ld", (long)knob_board_encoder_count());
-    lv_label_set_text(s_dial_label, buf);
-    snprintf(buf, sizeof(buf), "touch %u,%u %s", s_touch_x, s_touch_y, s_touch_down ? "DOWN" : "up");
-    lv_label_set_text(s_touch_label, buf);
-}
-
-static void ui_create(void) {
-    lv_obj_t *scr = lv_screen_active();
-
-    lv_obj_t *tap = lv_obj_create(scr);
-    lv_obj_set_size(tap, KNOB_LCD_H_RES, KNOB_LCD_V_RES);
-    lv_obj_set_style_bg_opa(tap, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(tap, 0, 0);
-    lv_obj_set_style_pad_all(tap, 0, 0);
-    lv_obj_set_scrollable(tap, false);
-    lv_obj_add_event_cb(tap, tap_reset_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "KNOB K1");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 70);
-    lv_obj_set_clickable(title, false);
-
-    s_dial_label = lv_label_create(scr);
-    lv_label_set_text(s_dial_label, "dial 0");
-    lv_obj_set_style_text_font(s_dial_label, &lv_font_montserrat_48, 0);
-    lv_obj_center(s_dial_label);
-    lv_obj_set_clickable(s_dial_label, false);
-
-    s_touch_label = lv_label_create(scr);
-    lv_label_set_text(s_touch_label, "touch -,- up");
-    lv_obj_align(s_touch_label, LV_ALIGN_BOTTOM_MID, 0, -70);
-    lv_obj_set_clickable(s_touch_label, false);
-
-    lv_timer_create(ui_timer_cb, 100, NULL);
 }
 
 static void lvgl_task(void *arg) {
@@ -177,8 +117,13 @@ void app_main(void) {
     if (wifi_err != ESP_OK) {
         ESP_LOGW(TAG, "WiFi join incomplete (%s) — retrying in background", esp_err_to_name(wifi_err));
     }
+    /* K4: TX socket + mDNS discoverer (background task; the UI status
+     * line reports "wifi ... / clock? / clock <ip>"). */
+    if (knob_link_start() != ESP_OK) {
+        ESP_LOGW(TAG, "companion TX not started — dial frames disabled");
+    }
 
-    ui_create();
+    knob_ui_create();
 
     const esp_timer_create_args_t tick_args = {
         .callback = tick_timer_cb,
