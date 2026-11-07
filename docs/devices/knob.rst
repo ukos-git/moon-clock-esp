@@ -24,10 +24,9 @@ touch display. It is a **dual-MCU** board —
    * - ESP32-U4WDH
      - the **knob-side MCU**, a programmable ESP32-class SoC
        (classic-ESP32 core: Wi-Fi/BT, dual-core 240 MHz) — not a
-       dumb bridge chip; it owns the board's working USB side
-       through a CH340-family UART converter; the product
-       description puts the rotary encoder on this chip (verify
-       against the schematic at bring-up)
+       dumb bridge chip; the schematic gives it its **own encoder
+       (EC2)**, its own I2S feed to the DAC, and the CH340-family
+       UART bridge that is the board's working USB side
 
 The board has **one** USB-C receptacle, and it is
 **orientation-switchable between the two MCUs** (Waveshare wiki,
@@ -54,6 +53,68 @@ rotary-encoder letter selection for the Wi-Fi keyboard
 (:doc:`../keyboard`) and date/time/timer adjustment on the clock —
 turning instead of tapping the wheel. The port is tracked as its own
 work item.
+
+Hardware map (vendor schematic + demo, extracted 2026-11-07)
+-------------------------------------------------------------
+
+The facts below come from the vendor's own sources — the five-page
+schematic and the per-function ESP-IDF demo downloaded from the wiki
+on 2026-11-07 — not from third-party boardsites, whose claims it
+corrects: the vendor demo drives the panel with
+``esp_lcd_sh8601`` (not the third-party "ST77916"), and the
+schematic's LEDA/LEDK nets show a **backlit LCD** (the product
+name's "LCD" is literal, not an AMOLED).
+
+The ESP32-S3 side (vendor-demo-confirmed, schematic cross-checked):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Function
+     - Pins (S3)
+   * - LCD, QSPI x4, 360×360, ``esp_lcd_sh8601``
+     - CLK 13, CS 14, D0–3 15–18, RST 21; **TE not wired**;
+       backlight GPIO 47 (PWM through an AO3400A PMOS, LEDA tied
+       to 3V3 — a backlit LCD panel)
+   * - Touch, CST816S at I2C address 0x15
+     - SDA 11, SCL 12 (5K1 pull-ups), INT 9 (the vendor demo
+       polls, INT unused), RST 10
+   * - Encoder EC1 — this chip's dial
+     - A = GPIO 8, B = GPIO 7, 10K pull-ups; the vendor's encoder
+       library is a software-polling debouncer (no PCNT, no IRQ)
+   * - Battery "voltage" ADC
+     - GPIO 1 (ADC1_CH0) behind a 10K/10K divider whose top rail
+       the schematic draws as **5V** — the *hypothesis* that the
+       factory gauge measures VBUS rather than the cell would
+       explain the impossible 4.6 V read on the bench while
+       charging; multimeter-verify before ever trusting the gauge
+   * - I2S to the DAC mux
+     - BCK 39, DIN 41, WS 40 — the U4WDH has its own set (BCK 25,
+       DIN 26, WS 27); a CH445P analog mux picks one source for
+       the PCM5100APWR DAC
+   * - PDM mic / SD card / native USB
+     - mic CLK 45, DATA 46; SDMMC CMD 3, CLK 4, D0–3 5/6/42/2;
+       USB D+/D− 19/20 — the ``303a:1001`` path
+
+The ESP32-U4WDH side owns its **encoder EC2** (A = GPIO 19,
+B = GPIO 22) and the **CH340-family bridge (U10)** the bench found
+at ``1a86:7523``: it hangs on the U4's UART0 with an RTS/DTR-driven
+IO0/EN auto-boot circuit — which is why that orientation flashes the
+U4 like any normal ESP32 board.
+
+A dedicated **inter-MCU UART** exists on the board: S3 TX GPIO 38 /
+RX GPIO 48 ↔ U4 GPIO 23 / 18. None of the vendor's per-function
+demos uses it — it is how the two *factory* demo firmwares talk to
+each other. The companion port ignores it: the knob talks to the
+clock over Wi-Fi, not over the board's internal link.
+
+The remaining peripherals, for the record: haptics are a **DRV2605**
+on the same I2C bus (SDA 11 / SCL 12) with EN/TRIG lines and an LRA
+motor; audio is the **PCM5100APWR** DAC on its own SGM2036 rail.
+The DAC source-mux select net is drawn as "I2S SWITCH IN" on the S3
+sheet with an impossible "GPIO100" label (the S3 has no GPIO100) —
+a drawing quirk, and irrelevant to the MVP (no audio).
 
 USB enumeration behaviour (bench-observed, 2026-11-07)
 -------------------------------------------------------
