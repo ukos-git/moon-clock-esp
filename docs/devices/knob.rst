@@ -22,8 +22,12 @@ touch display. It is a **dual-MCU** board —
    * - ESP32-S3R8
      - the app MCU: panel, touch, rotary encoder
    * - ESP32-U4WDH
-     - a USB-serial bridge (WCH), giving the board a console/flash
-       path that does not use the S3's native USB
+     - the **knob-side MCU**, a programmable ESP32-class SoC
+       (classic-ESP32 core: Wi-Fi/BT, dual-core 240 MHz) — not a
+       dumb bridge chip; it owns the board's working USB side
+       through a CH340-family UART converter; the product
+       description puts the rotary encoder on this chip (verify
+       against the schematic at bring-up)
 
 Its intended role in this project is a **companion input device**:
 rotary-encoder letter selection for the Wi-Fi keyboard
@@ -41,13 +45,25 @@ clock boards' (:doc:`identifying the boards <index>`).
 
 What the bench captured, in order:
 
-1. **First plug-in:** the board claimed a ``/dev/ttyUSB*`` node driven
-   by the **CH340-family** kernel driver — the U4WDH side. This is
-   the working path: the U4WDH bridge enumerates as a plain USB-UART.
-2. **Same socket, plug rotated 180°:** the board went **completely
-   off the bus** — no ``ttyUSB*`` node, no new ``ttyACM*`` node, no
-   kernel message claiming anything. The ESP32-S3's native-USB side
-   did not enumerate in the tested orientations.
+1. **The U4WDH side works.** It claims a ``/dev/ttyUSB*`` node via
+   the **CH341** kernel driver (``1a86:7523`` "USB Serial") — a
+   CH340-family UART converter sitting on the U4WDH's UART, with
+   DTR/RTS wired to its boot circuit. ``esptool`` speaks to the
+   **U4WDH itself** through it: ``ESP32-U4WDH (revision v3.1)``,
+   MAC ``<mac-u4wdh>``, 4 MB flash (stub upload + run clean,
+   ``flash_id`` reads the chip) — a normal ESP32-class flashing
+   target, factory firmware still present.
+2. **The S3R8 side has not enumerated.** With the plug rotated 180°
+   in the same socket the board went **completely off the bus** —
+   no ``ttyUSB*``, no new ``ttyACM*``, no kernel claim at all; and
+   the ESP32-S3's native USB has not appeared in the orientations
+   tested so far. Until it does, the display MCU is unreachable and
+   the black screen is unexplained-but-expected (Waveshare ships
+   these with the app side unflashed — the health signals are the
+   power LED and the serial node, never the panel).
+3. One **transient** in the first session: the U4 node dropped ~25 s
+   after enumeration (a clean USB disconnect, no driver error) and
+   came back healthy on re-plug; not reproduced since.
 
 Interpretation, **unconfirmed** (re-test during bring-up): USB-C
 receptacles on boards of this class often wire only one orientation's
