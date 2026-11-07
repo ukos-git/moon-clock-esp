@@ -106,8 +106,21 @@ The mechanical fault is worth its own sentence: the board browned
 out on boot (display came up, died mid-boot) while the CNC case
 screws were tight, and booted **stably** the moment they were
 loosened — overtightened case screws flexing the PCB or pinching a
-ground path. If a knob board misbehaves erratically, check screw
-torque before suspecting silicon.
+ground path. Pressing the *display* against the housing also
+resets the device outright. And the factory settings menu's
+battery gauge read 4.6 V — impossible for a single-cell LiPo
+(4.2 V max), so the gauge lies (or the cell is abused) and a
+load-sagging supply fits every flaky observation (mid-dump
+brown-outs, pressure reboots, "flat" behaviour at full gauge).
+If a knob board misbehaves erratically: screw torque, panel
+pressure, then the battery connection — before suspecting silicon.
+
+The factory demo's settings menu also carries **"reboot to MSC"**
+(the S3 re-enumerates as a USB mass-storage disk — Waveshare's
+drag-and-drop ``.bin`` flashing path, and therefore the *restore*
+path for the stock firmware) and **"factory reset"**. Keep that
+door closed while developing, and remember MSC exists when the
+serial path is fighting a weak rail.
 
 The bring-up checklist this whole saga produced, in order:
 **charge** (a flat LiPo browns out boot *and* enumeration),
