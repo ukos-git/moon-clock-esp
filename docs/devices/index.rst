@@ -5,13 +5,17 @@ The project targets two Waveshare boards. This page covers what both
 share — the ESP-IDF toolchain, how to tell which USB port is which
 board, and the build/flash conventions — and the per-board pages
 cover the hardware, the pre-configured defaults, and the full
-compile-time settings.
+compile-time settings. A third Waveshare board, the
+ESP32-S3-Knob-Touch-LCD-1.8, is on the bench as a companion input
+device with its port pending
+(:doc:`the Knob board <knob>`).
 
 .. toctree::
    :maxdepth: 1
 
    s3
    p4
+   knob
 
 The two targets
 ---------------
