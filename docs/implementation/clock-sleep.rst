@@ -177,7 +177,9 @@ own transform would, and the UI keep-mask re-rotates with the step
 (:doc:`the display pipeline <display>`).
 
 Two calibration facts are load-bearing. The panel's **mount offset**
-puts the flat-on-desk pose at step 1 (the base +90°), so the step
+(Kconfig ``UI_ORI_BASE_V10``, per board: the P4 panel is mounted +90°
+— step 1 — and the S3 AMOLED housing +180° — step 2, bench 2026-11-08)
+puts the flat-on-desk pose at that step, so the step
 machine's "home" is the physical desk pose, not the panel's 0°. And
 a **180° flip** re-tracks the home axis only from step 0 — adopted
 mid-flip, the flip's transient pose would become the new home (the

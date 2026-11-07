@@ -170,6 +170,12 @@ IMU and tilt coupling
        (100 ms sampling → int4 quantization → 1 s running mean →
        quadrant decision via integer dot/cross); if the UI rotates the
        wrong way when tilted, set −1.
+   * - ``UI_ORI_BASE_V10``
+     - ``1800`` S3 / ``900`` P4
+     - Base screen orientation in 1/10 deg (clockwise) at step 0: the
+       per-board panel mount offset, applied at init and on the 2 s
+       press re-sync; the spin's direct-panel pre-rotation and UI
+       keep-mask derive from the pushed value. Multiple of 900.
    * - ``UI_MOON_ORBIT_ENABLE``
      - ``n``
      - Sphere model: peek at the dark side via out-of-plane tilt.

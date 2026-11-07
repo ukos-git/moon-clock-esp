@@ -155,10 +155,15 @@ static void wifi_sync_kickoff(void) {
 #define ORI_Q_SCALE 8     /* int4 quantization: 1 level = 1/8 g (clamped +-1 g) */
 #define ORI_FLAT_GATE2 4  /* squared flat gate: below |g_xy| = 0.25 g the pose is undefined */
 /* The base orientation (LVGL units, positive = clockwise): the panel is
- * physically mounted 90 deg off, so even the "no tilt" state (step 0)
- * displays rotated +90 deg CW. Applied at init (action_orientation_init)
- * and baked into every correction below. */
-#define ORI_BASE_V10 900
+ * physically mounted off, so even the "no tilt" state (step 0) displays
+ * pre-rotated. Per-board via Kconfig (UI_ORI_BASE_V10): P4 900 (task
+ * #54 bench), S3 AMOLED 1800 (bench 2026-11-08 - its content sat 90 deg
+ * CCW of true up at rest). The #ifndef seed only serves hosts without
+ * the generated sdkconfig; on device the Kconfig value always wins. */
+#ifndef CONFIG_UI_ORI_BASE_V10
+#define CONFIG_UI_ORI_BASE_V10 900
+#endif
+#define ORI_BASE_V10 CONFIG_UI_ORI_BASE_V10
 
 static int32_t s_win_x[ORI_WINDOW]; /* the sample window (int4-quantized) */
 static int32_t s_win_y[ORI_WINDOW];
