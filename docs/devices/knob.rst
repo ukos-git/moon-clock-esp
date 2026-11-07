@@ -92,20 +92,32 @@ What the bench captured, in order:
    came back healthy on re-plug; not reproduced since — and the
    battery now offers a mundane suspect (rail sag) for it too.
    Charge before trusting any enumeration result.
+4. **The S3 side enumerates — once the board is genuinely stable on
+   its rail.** With the power stable (see the screw note below),
+   the S3 orientation claimed ``303a:1001`` "USB JTAG/serial debug
+   unit" as a ``ttyACM*`` node, and ``esptool`` confirmed the
+   silicon: ``ESP32-S3 (QFN56) revision v0.2``, Wi-Fi/BLE,
+   **8 MB embedded PSRAM** (the "R8" of ESP32-S3R8),
+   ``USB mode: USB-Serial/JTAG``, stub upload + run clean. No BOOT
+   press was needed — the whole "S3 side never enumerates" saga was
+   flat battery plus a mechanical rail fault.
 
-The open question is therefore not a defect but an unmet
-expectation: with the plug in the **S3 orientation** the bench saw
-*nothing* enumerate — no ``ttyUSB*``, no ``ttyACM*``. Given the
-battery discovery, the checklist in order: **charge the board**
-(a flat LiPo browns out boot, and nothing enumerates below the
-supervisor threshold), **power it on** with the back power button,
-then a **known-good data cable** (a charge-only cable reproduces
-the same total silence), and only then the manual download-mode
-sequence — hold the **back-side BOOT button** while power-cycling
-(the knob is a dial, not a button). If the factory demo runs, it
-may also enumerate on its own (its "PC secondary screen" feature
-implies native-USB CDC use) — check the plain bus first, the
-button trick second.
+The mechanical fault is worth its own sentence: the board browned
+out on boot (display came up, died mid-boot) while the CNC case
+screws were tight, and booted **stably** the moment they were
+loosened — overtightened case screws flexing the PCB or pinching a
+ground path. If a knob board misbehaves erratically, check screw
+torque before suspecting silicon.
+
+The bring-up checklist this whole saga produced, in order:
+**charge** (a flat LiPo browns out boot *and* enumeration),
+**power on** with the back power button, **known-good data
+cable** (a charge-only one reproduces the same total silence),
+**case-screw torque** (above) — and only then the manual
+download-mode sequence, hold the back-side BOOT while
+power-cycling. On this unit the BOOT press was never needed;
+both chips answered esptool on the first attempt with stable
+power.
 
 One trap this surfaced, in the other direction: a ``1a86:55d3``
 "USB Single Serial" (CH9102) ``ttyACM`` node appeared alongside and
