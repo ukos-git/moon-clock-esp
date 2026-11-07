@@ -87,11 +87,21 @@ static void enc_task(void *arg) {
                  * cancels to zero. One polarity sampled once = one
                  * step per detent, B (stable) the sign. */
                 if (was == 0 && la == 1) {
+                    /* Sign from INSTANTANEOUS B at the edge (bench
+                     * 2026-11-08): B's low window is SHORTER than the
+                     * settle filter's accept time, so the filtered b is
+                     * always stale at the A rise - every detent read one
+                     * sign and the ring only ever advanced one way.
+                     * Raw B at the edge carries the truth (the early
+                     * double-count build saw +-1 pairs from it), and
+                     * this mirrors the vendor's proven iot_knob: settle
+                     * A, sample B at the moment A edges. */
+                    const int bsign = gpio_get_level(ENC_PIN_B);
                     portENTER_CRITICAL(&s_count_mux);
-                    s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
+                    s_count += bsign ? -1 : +1; /* bench-flip if reversed */
                     const int32_t c = s_count;
                     portEXIT_CRITICAL(&s_count_mux);
-                    ESP_LOGI(TAG, "A rise (B=%d) count %d", b, (int)c);
+                    ESP_LOGI(TAG, "A rise (Braw=%d bset=%d) count %d", bsign, b, (int)c);
                 }
             }
         }
