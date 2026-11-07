@@ -12,6 +12,7 @@
 
 #include "actions.h"
 #include "alarm_audio.h"
+#include "companion.h"
 #include "imu.h"
 #include "moon_ui.h"
 #include "screens.h"
@@ -702,6 +703,18 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
         }
     }
+    /* Companion knob frames (task #16): drained HERE — the LVGL task —
+     * never on the listener core (the wake-fix "upgrade from the UI tick"
+     * pattern). Skipped while idle; the listener just queues (16 deep),
+     * waking on a dial turn is K5's job. Bounded per tick so a frame
+     * flood cannot starve the minute tick. */
+    if (!clock_is_idle()) {
+        companion_frame_t cf;
+        int budget = 8;
+        while (budget-- > 0 && companion_poll(&cf)) {
+            screens_companion_handle(&cf);
+        }
+    }
     ui_tick();
 }
 
@@ -1320,8 +1333,11 @@ void action_wake_screen(lv_event_t *e) {
 void action_switch_to_airplane_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to the airplane screen");
 
-    // Deinitialize WiFi if it's running
-    if (!g_wifi_deinited && wifi_manager_is_connected()) {
+    // Deinitialize WiFi if it's running — unless the companion knob needs
+    // the radio (COMPANION_KEEP_WIFI: the listener stays reachable).
+    if (companion_wifi_keep_connected()) {
+        ESP_LOGI(TAG, "airplane hand-off: radio stays associated (companion)");
+    } else if (!g_wifi_deinited && wifi_manager_is_connected()) {
         wifi_manager_deinit();
         g_wifi_deinited = true;
         ESP_LOGI(TAG, "WiFi deinitialized for the airplane screen");
@@ -1390,8 +1406,11 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // The wake handler reads this to know its call is a real wake.
     g_asleep = true;
 
-    // Deinitialize WiFi/network to save power (airplane / modem sleep)
-    if (!g_wifi_deinited && wifi_manager_is_connected()) {
+    // Deinitialize WiFi/network to save power (airplane / modem sleep) —
+    // the companion hand-off keeps it associated (see airplane screen).
+    if (companion_wifi_keep_connected()) {
+        ESP_LOGI(TAG, "light sleep: radio stays associated (companion)");
+    } else if (!g_wifi_deinited && wifi_manager_is_connected()) {
         wifi_manager_deinit();
         g_wifi_deinited = true;
         ESP_LOGI(TAG, "WiFi deinitialized for light sleep");

@@ -9,6 +9,7 @@
 #include "clock_idle.h"
 #include "clock_sntp.h"
 #include "clock_tz.h"
+#include "companion.h"
 #include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
@@ -771,10 +772,7 @@ static int settings_roller_value(lv_obj_t *roller) {
     return atoi(buf);
 }
 
-static void event_handler_cb_settings_pomodoro_released(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
+static void settings_pomodoro_save_value(void) {
     int total = 60 * settings_roller_value(objects.settings_pomodoro_roller_h) +
                 settings_roller_value(objects.settings_pomodoro_roller_m);
     if (total < 1) {
@@ -783,6 +781,13 @@ static void event_handler_cb_settings_pomodoro_released(lv_event_t *e) {
     }
     esp_err_t r = clock_alarm_set_pomodoro_interval(total);
     ESP_LOGW("settings_pomodoro", "interval %d min -> %s", total, esp_err_to_name(r));
+}
+
+static void event_handler_cb_settings_pomodoro_released(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    settings_pomodoro_save_value();
 }
 
 /* Seed both rollers from the stored interval (0:00 when none). */
@@ -1087,10 +1092,7 @@ static void event_handler_cb_settings_alarm_time_handle(lv_event_t *e) {
 /* Persist time + day range (only on RELEASED: the SPIFFS write + the
  * RTC reschedule stay off the drag path). The range always covers at
  * least one day, so no empty-mask rejection is needed. */
-static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
+static void settings_alarm_time_save_value(void) {
     int h = settings_roller_value(objects.settings_alarm_time_roller_h);
     int m = settings_roller_value(objects.settings_alarm_time_roller_m);
     uint8_t mask = alarm_range_to_mask(s_alarm_range_start, s_alarm_range_end);
@@ -1108,6 +1110,15 @@ static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
     ESP_LOGW("settings_alarm_time", "read-back: rule_types=0x%02x fixed=%s got %02d:%02d mask 0x%02x %s", types,
              rr == ESP_OK ? "ok" : esp_err_to_name(rr), rh, rm, rmask,
              (rr == ESP_OK && rh == h && rm == m && rmask == mask && (types & 0x02)) ? "MATCH" : "MISMATCH");
+}
+
+/* Persist on a roller RELEASED (the SPIFFS write + RTC reschedule stay
+ * off the drag path). Shared with the companion knob's COMMIT frame. */
+static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    settings_alarm_time_save_value();
 }
 
 /* Seed the rollers + range from the stored fixed-time rule (or 12:00,
@@ -2051,6 +2062,16 @@ static void settings_wheel_set_mode(int m) {
  * boxes (the exact box under the finger lights + previews); PRESSING
  * tracks the finger (the sticky sector's box under the finger); RELEASED
  * commits the highlighted letter when the finger is still in the band. */
+/* Append slot s's character to the entry (bounds-checked). Shared by the
+ * touch release path and the companion knob's KEY_ADD frame. */
+static void settings_wheel_add_slot(int s) {
+    if (s >= 0 && s < s_wheel_n && s_wheel_pw_len < WHEEL_PW_MAX) {
+        s_wheel_pw[s_wheel_pw_len++] = s_wheel_chars[s];
+        s_wheel_pw[s_wheel_pw_len] = 0;
+        ESP_LOGW("settings_wheel", "entered letter %c (pw %d chars)", s_wheel_chars[s], s_wheel_pw_len);
+    }
+}
+
 static void event_handler_cb_wheel_sweep(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
@@ -2077,10 +2098,8 @@ static void event_handler_cb_wheel_sweep(lv_event_t *e) {
     } else if (code == LV_EVENT_RELEASED) {
         int j;
         bool in_band = wheel_point_to_slot(&j);
-        if (in_band && s_wheel_hot >= 0 && s_wheel_hot < s_wheel_n && s_wheel_pw_len < WHEEL_PW_MAX) {
-            s_wheel_pw[s_wheel_pw_len++] = s_wheel_chars[s_wheel_hot];
-            s_wheel_pw[s_wheel_pw_len] = 0;
-            ESP_LOGW("settings_wheel", "entered letter %c (pw %d chars)", s_wheel_chars[s_wheel_hot], s_wheel_pw_len);
+        if (in_band) {
+            settings_wheel_add_slot(s_wheel_hot);
         }
         settings_wheel_set_revealed(false, -1);
         settings_wheel_pw_label();
@@ -2126,11 +2145,9 @@ static void event_handler_cb_wheel_mode(lv_event_t *e) {
     }
 }
 
-/* The house circle-xmark COMMIT key (LVGL ~31.5..88.5). */
-static void event_handler_cb_wheel_commit(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
-        return;
-    }
+/* Persist the entry and start the sync. Shared by the house circle-xmark
+ * COMMIT key and the companion knob's KEY_COMMIT frame. */
+static void settings_wheel_commit_password(void) {
     if (s_wheel_pw_len == 0) {
         ESP_LOGW("settings_wheel", "commit: empty password ignored");
         return;
@@ -2143,6 +2160,14 @@ static void event_handler_cb_wheel_commit(lv_event_t *e) {
     ESP_LOGW("settings_wheel", "credentials saved (SSID %zu chars, pw %d chars); starting sync", strlen(s_wheel_ssid),
              s_wheel_pw_len);
     action_start_wifi_sync();
+}
+
+/* The house circle-xmark COMMIT key (LVGL ~31.5..88.5). */
+static void event_handler_cb_wheel_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    settings_wheel_commit_password();
 }
 
 /* The exit to the WiFi list (the centre long-press; the trash key with
@@ -2771,10 +2796,7 @@ static void settings_tz_screen_refresh(void) {
 /* Commit on RELEASED (the zone switch + re-arm + store save stay off
  * the drag path). The selected index IS the option index (the options
  * were generated in the index order), so no string parsing. */
-static void event_handler_cb_settings_tz_commit(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
+static void settings_tz_commit_value(void) {
     int32_t sel = lv_roller_get_selected(objects.settings_tz_roller);
     if (sel < 0 || sel >= CLOCK_TZ_COUNT) {
         return;
@@ -2787,6 +2809,14 @@ static void event_handler_cb_settings_tz_commit(lv_event_t *e) {
     } else {
         ESP_LOGW("settings_tz", "timezone idx %d rejected: %s", (int)sel, esp_err_to_name(r));
     }
+}
+
+/* Commit on RELEASED (shared with the companion knob's COMMIT frame). */
+static void event_handler_cb_settings_tz_commit(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    settings_tz_commit_value();
 }
 
 void create_screen_settings_tz() {
@@ -3622,4 +3652,222 @@ void create_screens() {
     create_screen_settings_time();
     create_screen_settings_tz();
     create_screen_settings_alarm_sound();
+}
+
+/* ==================== companion knob injection API (task #16) =========
+ *
+ * screens_companion_handle() is the single door the companion component's
+ * queued frames walk through — called ONLY from ui_tick_timer_cb (the
+ * LVGL task), so every effect here is a same-context UI call like a touch
+ * event. The clock is authoritative: each frame kind is gated against the
+ * CURRENT screen and dropped otherwise; the knob is a dumb remote whose
+ * own screen is only a mirror. Wire contract: companion_proto.h; the
+ * touch paths are untouched (this reuses their extracted bodies, never
+ * duplicates them). */
+
+/* Roll a shared settings roller by delta (clamped, no animation — the
+ * roller stays the value display; RELEASED-time saves are NOT fired:
+ * the knob sends an explicit COMMIT). */
+static void companion_roller_step(lv_obj_t *roller, int delta) {
+    if (!roller || delta == 0) {
+        return;
+    }
+    const int32_t n = (int32_t)lv_roller_get_option_count(roller);
+    if (n <= 0) {
+        return;
+    }
+    int32_t sel = lv_roller_get_selected(roller);
+    if (sel < 0) {
+        sel = 0;
+    }
+    sel += delta;
+    if (sel < 0) {
+        sel = 0;
+    }
+    if (sel >= n) {
+        sel = n - 1;
+    }
+    lv_roller_set_selected(roller, sel, LV_ANIM_OFF);
+}
+
+/* Leave the current settings sub-screen through its parent (the X exit's
+ * route). The TIME screen's X exit commits — callers mirror that. */
+static void companion_exit_subscreen(void) {
+    const enum ScreensEnum cur = ui_current_screen();
+    enum ScreensEnum parent = SCREEN_ID_SETTINGS_HUB;
+    if (cur == SCREEN_ID_SETTINGS_WIFI_PASSWORD) {
+        parent = SCREEN_ID_SETTINGS_WIFI;
+    } else if (cur == SCREEN_ID_SETTINGS_POMODORO || cur == SCREEN_ID_SETTINGS_ALARM_TIME) {
+        parent = SCREEN_ID_SETTINGS_ALARM;
+    }
+    loadScreen(parent);
+    ui_tick();
+    settings_screen_refresh_for(parent);
+}
+
+void screens_companion_handle(const companion_frame_t *f) {
+    if (!f) {
+        return;
+    }
+    const enum ScreensEnum cur = ui_current_screen();
+
+    /* Any accepted interaction keeps the clock awake (mid-entry idle
+     * drops are what the touch path resets against; HELLO is a probe and
+     * does not count). */
+    if (f->type != COMPANION_FRAME_HELLO) {
+        clock_idle_reset_timer();
+    }
+
+    if (cur == SCREEN_ID_SETTINGS_WIFI_PASSWORD) {
+        switch (f->type) {
+        case COMPANION_FRAME_KEY_HOT:
+            settings_wheel_set_hot(f->delta);
+            break;
+        case COMPANION_FRAME_KEY_ADD:
+            settings_wheel_add_slot(f->delta);
+            settings_wheel_set_hot(-1);
+            /* set_hot early-returns when the wheel is ALREADY cold (two
+             * ADDs with no HOT between them): repaint the running entry
+             * explicitly (the touch RELEASED path never hits this, its
+             * hot slot is always >= 0 at release). */
+            settings_wheel_pw_label();
+            break;
+        case COMPANION_FRAME_KEY_MODE:
+            if (f->delta >= 0 && f->delta <= 3) {
+                settings_wheel_set_mode(f->delta);
+            }
+            break;
+        case COMPANION_FRAME_FOCUS_NEXT:
+            settings_wheel_set_mode(((s_wheel_mode < 0 ? 0 : s_wheel_mode) + 1) & 3);
+            break;
+        case COMPANION_FRAME_KEY_BACK:
+            if (s_wheel_pw_len > 0) {
+                s_wheel_pw[--s_wheel_pw_len] = 0;
+                settings_wheel_pw_label();
+                ESP_LOGW("settings_wheel", "companion backspace (pw %d chars)", s_wheel_pw_len);
+            }
+            break;
+        case COMPANION_FRAME_KEY_COMMIT:
+            settings_wheel_commit_password();
+            break;
+        case COMPANION_FRAME_ABORT:
+            if (s_wheel_pw_len == 0) {
+                settings_wheel_exit_to_list();
+            } else {
+                s_wheel_pw_len = 0;
+                s_wheel_pw[0] = 0;
+                settings_wheel_pw_label();
+                ESP_LOGW("settings_wheel", "companion discard (pw cleared)");
+            }
+            break;
+        default:
+            break; /* STEP/COMMIT are roller kinds: wrong screen, drop */
+        }
+        return;
+    }
+
+    switch (cur) {
+    case SCREEN_ID_SETTINGS_TIME:
+        switch (f->type) {
+        case COMPANION_FRAME_STEP:
+            switch (f->field) {
+            case COMPANION_FIELD_HOUR:
+                companion_roller_step(objects.settings_time_roller_h, f->delta);
+                break;
+            case COMPANION_FIELD_MINUTE:
+                companion_roller_step(objects.settings_time_roller_mi, f->delta);
+                break;
+            case COMPANION_FIELD_DAY:
+                companion_roller_step(objects.settings_time_roller_d, f->delta);
+                break;
+            case COMPANION_FIELD_MONTH:
+                companion_roller_step(objects.settings_time_roller_m, f->delta);
+                break;
+            case COMPANION_FIELD_YEAR:
+                companion_roller_step(objects.settings_time_roller_y, f->delta);
+                break;
+            default:
+                break;
+            }
+            break;
+        case COMPANION_FRAME_COMMIT:
+            settings_time_commit_value();
+            break;
+        case COMPANION_FRAME_ABORT:
+            /* The X exit commits — the knob's exit gesture mirrors it. */
+            settings_time_commit_value();
+            companion_exit_subscreen();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case SCREEN_ID_SETTINGS_ALARM_TIME:
+        switch (f->type) {
+        case COMPANION_FRAME_STEP:
+            if (f->field == COMPANION_FIELD_ALARM_HOUR) {
+                companion_roller_step(objects.settings_alarm_time_roller_h, f->delta);
+            } else if (f->field == COMPANION_FIELD_ALARM_MINUTE) {
+                companion_roller_step(objects.settings_alarm_time_roller_m, f->delta);
+            } else if (f->field == COMPANION_FIELD_ALARM_DAYS) {
+                int s = s_alarm_range_start + f->delta;
+                int e = s_alarm_range_end + f->delta;
+                s_alarm_range_start = s < 0 ? 0 : (s > 6 ? 6 : s);
+                s_alarm_range_end = e < 0 ? 0 : (e > 6 ? 6 : e);
+                settings_alarm_time_apply_range();
+            }
+            break;
+        case COMPANION_FRAME_COMMIT:
+            settings_alarm_time_save_value();
+            break;
+        case COMPANION_FRAME_ABORT:
+            companion_exit_subscreen();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case SCREEN_ID_SETTINGS_POMODORO:
+        switch (f->type) {
+        case COMPANION_FRAME_STEP:
+            if (f->field == COMPANION_FIELD_POM_HOUR) {
+                companion_roller_step(objects.settings_pomodoro_roller_h, f->delta);
+            } else if (f->field == COMPANION_FIELD_POM_MINUTE) {
+                companion_roller_step(objects.settings_pomodoro_roller_m, f->delta);
+            }
+            break;
+        case COMPANION_FRAME_COMMIT:
+            settings_pomodoro_save_value();
+            break;
+        case COMPANION_FRAME_ABORT:
+            companion_exit_subscreen();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case SCREEN_ID_SETTINGS_TZ:
+        switch (f->type) {
+        case COMPANION_FRAME_STEP:
+            if (f->field == COMPANION_FIELD_TZ) {
+                companion_roller_step(objects.settings_tz_roller, f->delta);
+            }
+            break;
+        case COMPANION_FRAME_COMMIT:
+            settings_tz_commit_value();
+            break;
+        case COMPANION_FRAME_ABORT:
+            companion_exit_subscreen();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    default:
+        break; /* home / airplane / wifi list / ...: the knob is inert */
+    }
 }

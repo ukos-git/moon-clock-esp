@@ -3,6 +3,8 @@
 
 #include <lvgl.h>
 
+#include "companion_proto.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -304,6 +306,12 @@ void create_screens();
  * handlers call it after loadScreen + ui_tick). Exposed for the
  * TEST_WIFI_SCAN_SEC test hook. */
 void settings_screen_refresh_for(enum ScreensEnum target);
+
+/* Companion knob injection (task #16): apply one accepted frame to the
+ * CURRENT screen (wheel / roller screens; anything else is dropped).
+ * Call ONLY from the LVGL task — ui_tick_timer_cb drains the companion
+ * queue into this. Wire contract: companion_proto.h. */
+void screens_companion_handle(const companion_frame_t *f);
 
 #ifdef __cplusplus
 }

@@ -367,6 +367,50 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
     return rc;
 }
 
+/* ---- --companion probe helpers (task #16) --------------------------
+ * Build one wire frame the way the knob would (transport validation is
+ * companion_proto_test's job; this drives the device-side screen gate +
+ * injection API screens_companion_handle directly). */
+static companion_frame_t comp_frame(uint8_t type, uint8_t field, int8_t delta) {
+    companion_frame_t f;
+    memset(&f, 0, sizeof(f));
+    f.magic = COMPANION_MAGIC;
+    f.version = COMPANION_VERSION;
+    f.type = type;
+    f.field = field;
+    f.delta = delta;
+    return f;
+}
+
+/* The wheel's CENTRE label (running entry / DTMF preview) carries `want`:
+ * a visible lv_label whose text matches AND whose centre sits within
+ * 40 px of the panel centre. The ring letters share the 32 px font but
+ * live on the ring, so the distance filter separates the two. */
+static bool wheel_center_label_is(lv_obj_t *scr, const char *want) {
+    const uint32_t n = lv_obj_get_child_count(scr);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        if (lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) {
+            continue;
+        }
+        if (lv_obj_check_type(c, &lv_label_class)) {
+            const char *t = lv_label_get_text(c);
+            if (t && !strcmp(t, want)) {
+                lv_area_t a;
+                lv_obj_get_coords(c, &a);
+                const int32_t cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2;
+                if (abs(cx - W / 2) <= 40 && abs(cy - H / 2) <= 40) {
+                    return true;
+                }
+            }
+        }
+        if (wheel_center_label_is(c, want)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int main(int argc, char **argv) {
     mkdir("out", 0755);
 
@@ -385,6 +429,106 @@ int main(int argc, char **argv) {
 
     create_screens(); /* real device code: theme + all 12 screens */
     pump(disp, 200);
+
+    /* --companion: exercise the knob injection door (screens_companion_
+     * handle) without hardware — the plan's screen-gate cases: frames are
+     * dropped off-screen, drive the wheel and the rollers when their
+     * screen is up, and the gesture keys (back/discard/exit) behave.
+     * Print COMPANION_UISIM: PASS/FAIL; exit code is the verdict. */
+    if (argc > 1 && !strcmp(argv[1], "--companion")) {
+        int fails = 0;
+#define CK(cond)                                                                                                       \
+    do {                                                                                                               \
+        if (!(cond)) {                                                                                                 \
+            printf("FAIL line %d: %s\n", __LINE__, #cond);                                                             \
+            fails++;                                                                                                   \
+        }                                                                                                              \
+    } while (0)
+        companion_frame_t f;
+
+        /* 1) wrong-screen drop: STEP + KEY_ADD on the home screen do
+         * nothing at all (no roller there, and the wheel stays shut). */
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        pump(disp, 30);
+        f = comp_frame(COMPANION_FRAME_STEP, COMPANION_FIELD_HOUR, 3);
+        screens_companion_handle(&f);
+        f = comp_frame(COMPANION_FRAME_KEY_ADD, COMPANION_FIELD_NONE, 2);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(ui_current_screen() == SCREEN_ID_MODEM_SLEEP);
+
+        /* 2) the wheel: hot -> add commits the lit slot; centre label
+         * shows the entry (mode 0 = lowercase: slot 2 -> 'c'). */
+        loadScreen(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
+        ui_tick();
+        pump(disp, 30);
+        lv_obj_t *wheel_scr = ((lv_obj_t **)&objects)[SCREEN_ID_SETTINGS_WIFI_PASSWORD - 1];
+        CK(wheel_center_label_is(wheel_scr, "....")); /* empty entry */
+        f = comp_frame(COMPANION_FRAME_KEY_HOT, COMPANION_FIELD_NONE, 2);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        f = comp_frame(COMPANION_FRAME_KEY_ADD, COMPANION_FIELD_NONE, 2);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_center_label_is(wheel_scr, "c"));
+        f = comp_frame(COMPANION_FRAME_KEY_BACK, COMPANION_FIELD_NONE, 0);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_center_label_is(wheel_scr, "....")); /* backspace empties */
+        f = comp_frame(COMPANION_FRAME_KEY_ADD, COMPANION_FIELD_NONE, 4);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_center_label_is(wheel_scr, "e"));
+        /* discard clears the entry; a second discard (empty) exits */
+        f = comp_frame(COMPANION_FRAME_ABORT, COMPANION_FIELD_NONE, 0);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_center_label_is(wheel_scr, "...."));
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(ui_current_screen() == SCREEN_ID_SETTINGS_WIFI);
+
+        /* 3) TIME rollers: STEP hour steps the hour roller (clamped, not
+         * wrapped), a big negative delta pins at 0. */
+        loadScreen(SCREEN_ID_SETTINGS_TIME);
+        ui_tick();
+        pump(disp, 30);
+        CK(objects.settings_time_roller_h != NULL);
+        if (objects.settings_time_roller_h) {
+            const int32_t hn = lv_roller_get_option_count(objects.settings_time_roller_h);
+            int32_t h0 = lv_roller_get_selected(objects.settings_time_roller_h);
+            f = comp_frame(COMPANION_FRAME_STEP, COMPANION_FIELD_HOUR, 2);
+            screens_companion_handle(&f);
+            pump(disp, 30);
+            int32_t want = h0 + 2;
+            if (want > hn - 1) {
+                want = hn - 1;
+            }
+            CK(lv_roller_get_selected(objects.settings_time_roller_h) == want);
+            f.delta = -30;
+            screens_companion_handle(&f);
+            pump(disp, 30);
+            CK(lv_roller_get_selected(objects.settings_time_roller_h) == 0);
+        }
+
+        /* 4) TZ roller: STEP tz advances one option. */
+        loadScreen(SCREEN_ID_SETTINGS_TZ);
+        ui_tick();
+        pump(disp, 30);
+        CK(objects.settings_tz_roller != NULL);
+        if (objects.settings_tz_roller) {
+            const int32_t zn = lv_roller_get_option_count(objects.settings_tz_roller);
+            int32_t z0 = lv_roller_get_selected(objects.settings_tz_roller);
+            f = comp_frame(COMPANION_FRAME_STEP, COMPANION_FIELD_TZ, 1);
+            screens_companion_handle(&f);
+            pump(disp, 30);
+            CK(lv_roller_get_selected(objects.settings_tz_roller) == (z0 + 1 < zn ? z0 + 1 : zn - 1));
+        }
+
+        printf(fails ? "\nCOMPANION_UISIM: FAIL (%d)\n" : "\nCOMPANION_UISIM: PASS\n", fails);
+        return fails ? 1 : 0;
+    }
 
     /* --rottest: prove whether lv_snapshot_take honors the root's LVGL
      * transform (the concentric reveal assumes the +90 deg base rotation

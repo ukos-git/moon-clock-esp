@@ -78,6 +78,7 @@ INCLUDES=(
     "-I$LV/include"
     "-I$UI"
     "-I$ROOT/components/clock/include"
+    "-I$ROOT/components/companion/include"
     "-I$ROOT/components/wifi/include"
     "-I$MOON/include"
     "-I$MOON/generated/$MOON_ASSET_TARGET"

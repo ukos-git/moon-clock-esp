@@ -112,3 +112,11 @@ CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
+
+# Companion knob input (task #16): UDP listener + mDNS advertisement
+# (_moonclock._udp.local) feeding screens_companion_handle() from the UI
+# tick. Production default ON on both boards; token 0 = LAN-trusted
+# (components/companion/Kconfig carries the security statement).
+CONFIG_COMPANION_ENABLE=y
+CONFIG_COMPANION_TOKEN=0
+CONFIG_COMPANION_PORT=50188
