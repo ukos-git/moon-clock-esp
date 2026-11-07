@@ -40,6 +40,15 @@ fails, flip the Type-C plug", and the S3 side has a manual download
 mode as well: *"press and hold the button, power on again to enter
 download mode"*.
 
+The user-accessible controls (per the wiki's back-side callout
+list): a **power button** (item 5) and an **ESP32-S3R8 BOOT button**
+(item 7) — both on the *back* of the board, which is where the
+download-mode entry ("press and hold the button, power on again")
+happens. There is **no exposed front button**: the top carries only
+the dial. The encoders are **dual — one per MCU** ("acting on
+ESP32S3 and ESP32 respectively"), so each chip reads its own encoder
+and neither knob is a push-button.
+
 Its intended role in this project is a **companion input device**:
 rotary-encoder letter selection for the Wi-Fi keyboard
 (:doc:`../keyboard`) and date/time/timer adjustment on the clock —
@@ -82,9 +91,10 @@ expectation: with the plug in the **S3 orientation** the bench saw
 orientation is by design the S3's download channel, the two
 suspects are the cable (a charge-only USB-C cable reproduces the
 same total-silence signature in both orientations) and the S3
-needing its manual download-mode sequence (hold the button,
-re-power). Re-test with a known data cable in both orientations,
-then the button sequence, before concluding anything about the
+needing its manual download-mode sequence — hold the **back-side
+BOOT button** while power-cycling (the knob is a dial, not a
+button). Re-test with a known data cable in both orientations,
+then the BOOT sequence, before concluding anything about the
 silicon.
 
 One trap this surfaced, in the other direction: a ``1a86:55d3``
