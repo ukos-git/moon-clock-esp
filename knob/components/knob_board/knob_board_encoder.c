@@ -51,12 +51,23 @@ static void enc_task(void *arg) {
             a_cand = -1;
             a_run = 0;
         } else if (la == a_cand && ++a_run >= ENC_SETTLE) {
+            const int was = a;
             a = la;
             a_cand = -1;
             a_run = 0;
-            portENTER_CRITICAL(&s_count_mux);
-            s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
-            portEXIT_CRITICAL(&s_count_mux);
+            /* Count the RISING A edge only. A detent is a full
+             * quadrature cycle: A edges TWICE (up and down) and B edges
+             * twice too - counting both A edges signs them opposite
+             * (B has flipped in between) and every detent cancels to
+             * zero, the "nothing moves" bench symptom. One polarity
+             * sampled once = one step per detent, B (stable) the sign. */
+            if (was == 0 && la == 1) {
+                portENTER_CRITICAL(&s_count_mux);
+                s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
+                const int32_t c = s_count;
+                portEXIT_CRITICAL(&s_count_mux);
+                ESP_LOGI(TAG, "A rise (B=%d) count %d", b, (int)c);
+            }
         } else {
             a_cand = la;
             a_run = 1;
@@ -85,8 +96,9 @@ esp_err_t knob_board_encoder_init(void) {
     };
     ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "gpio cfg");
     if (s_task == NULL) {
-        /* Small stack: pure GPIO polling + a critical section. */
-        xTaskCreate(enc_task, "knob_enc", 2048, NULL, 5, &s_task);
+        /* Small stack: GPIO polling + a critical section (+ the trace
+         * log while the settle filter is being tuned). */
+        xTaskCreate(enc_task, "knob_enc", 3072, NULL, 5, &s_task);
         if (s_task == NULL) {
             return ESP_ERR_NO_MEM;
         }
