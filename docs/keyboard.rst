@@ -39,7 +39,7 @@ palette), operable in the browser: press a sector, sweep, release.
 .. raw:: html
 
    <iframe src="_static/keyboard/sweep-wheel-v2.html"
-           style="width:100%; min-height:640px; border:0; border-radius:12px;"
+           style="width:100%; min-height:730px; border:0; border-radius:12px;"
            loading="lazy" title="Sweep wheel v2 — the shipped 12-sector hybrid, operable at 1:1"></iframe>
 
 Try it: press one of the 12 outer sectors — only that sector's letters
