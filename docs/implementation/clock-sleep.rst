@@ -408,7 +408,7 @@ The state machine, in full
    <pre class="mermaid">
    stateDiagram-v2
      [*] --> BOOT
-     BOOT --> WIFI: NTP ok — boot sweep (336 f, ~2.8 min)
+     BOOT --> WIFI: NTP ok — boot sweep (1344 f, ~11 min)
      BOOT --> AIRPLANE: NTP fail
      WIFI --> AIRPLANE: sync complete
      AIRPLANE --> HUB: tap — the sub-screens (exit returns via the on-demand sync)

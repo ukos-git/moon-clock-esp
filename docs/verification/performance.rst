@@ -291,7 +291,7 @@ The budget's shape is the architecture's shape: the *bake* is on a
 dedicated core (core 1, the spin/bake task) and the *UI* is on
 core 0 (LVGL + touch + clock) — a bake that starves the UI is a
 design bug, not a timing accident. The two-core split is what lets
-the sweep run for 2.8 min without the touch pipeline ever seeing a
+the sweep run for ~11 min without the touch pipeline ever seeing a
 bake. The hub idle sits at 7–9 % because the LVGL adapter's
 ``task_min_delay_ms`` floor parks the loop at ~93 Hz — the pre-fix
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
@@ -316,9 +316,11 @@ the order they matter:
    1.6 s map build against the per-frame 1.3 s bake; the dusk's
    43 s runs off ~50 ms re-projects.
 4. **The reduced-res sweep** (:doc:`the animation pipelines <../implementation/animations>`) — the 240 px intermediate
-   (0.28 s) against the 400 px (0.72 s): the sweep's 335
+   (0.28 s) against the 400 px (0.72 s): the sweep's 1343
    intermediate frames are ~56 % cheaper, and the final full-res
-   frame carries the pixel-exact end.
+   frame carries the pixel-exact end. Without the reduced bake, the
+   1344-frame default (4x the old 336, to kill a visible per-frame
+   jump) boot in ~21 min instead of ~11.
 5. **The 25-row strips / 23,300 B cap** (:doc:`the display pipeline <../implementation/display>`) — not a
    *speed* decision (it is the NO_MEM fix) but a *throughput* one:
    the single 400×400 window write at 30–40 ms is the spin's panel
@@ -326,7 +328,9 @@ the order they matter:
    ~31 KiB blocks that fit the internal heap.
 
 The honest limit: the S3's bake is ~0.7–1.3 s, and the product
-*accepts* it — the sweep is a 2.8 min boot story, the spin is
+*accepts* it — the sweep is a ~11 min boot story (frame count
+quadrupled on 2026-11-07: users watched the old 2.8 min sweep stutter,
+so the boot grew longer and smooth), the spin is
 once-baked, the dusk is map-re-projected. The alternative (a
 faster silicon, a smaller disk, a coarser relief) would buy
 speed and lose *physical correctness at this resolution* — the

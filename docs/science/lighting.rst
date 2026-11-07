@@ -182,7 +182,7 @@ and cutting the frame time to ~1.3 s on the S3. The quantization step
 The slopes are a *pure function of the DEM cell* — the four-neighbor
 height differences — so the cache is phase-independent: it is built once
 at boot and reused for every frame. That is what makes the boot sweep
-(336 frames) and the spin (continuous) affordable.
+(1344 frames) and the spin (continuous) affordable.
 
 The tangent basis
 -----------------

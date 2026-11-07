@@ -31,7 +31,9 @@ The boot sweep
 At boot the moon starts on a black screen and replays the **current
 synodic cycle** — from the last new moon (a dark disk) to *now*, at
 most 29.53 days — in ``UI_MOON_ANIM_FRAMES`` frames (default and
-production: **336**). The span is found by
+production: **1344**; the count was 336 until 2026-11-07, when the
+per-frame illumination jump read as a visible stutter and the density
+was quadrupled). The span is found by
 ``new_moon_epoch()``, a two-pass backward scan of ``moon_geometry``'s
 illumination (6 h coarse grid over at most one synodic month, then a
 20-min fine pass around the coarse minimum):
@@ -79,8 +81,9 @@ sets ``s_sweep_abort``, which the loop polls too).
 ``s_sweep_small`` buffer) and are upscased NN to the full 400×400 for
 display; the **final frame** (the current phase the spin resumes
 from) always bakes at full ``MOON_PX``. The bake cost scales with
-:math:`(S/400)^2`; the measured per-frame table on the 336-frame
-sweep (on the S3 board — the Waveshare ESP32-S3-Touch-AMOLED-1.75 —
+:math:`(S/400)^2`; the measured per-frame table from the accepted
+336-frame capture (per-frame costs carry over to the 1344-frame
+default; on the S3 board — the Waveshare ESP32-S3-Touch-AMOLED-1.75 —
 from the pipeline's own header) is:
 
 .. list-table::
@@ -89,23 +92,24 @@ from the pipeline's own header) is:
 
    * - Bake size
      - Bake per frame
-     - Sweep wall (336 f)
+     - Sweep wall (1344 f)
      - Note
    * - 200 px
      - ~0.21 s
-     - ~2.4 min
+     - ~10 min
      - coarsest
    * - 240 px (default)
      - ~0.28 s
-     - ~2.8 min
-     - chosen to stay under ~3 min
+     - ~11 min
+     - frame count quadrupled 2026-11-07
+       (visible jump fix)
    * - 320 px
      - ~0.48 s
-     - —
+     - ~16 min
      - —
    * - 400 px
      - ~0.72 s
-     - ~5.3 min
+     - ~21 min
      - full res; montage pixel-identical
        to the static/spin bakes
 
@@ -384,9 +388,10 @@ benchmark context in :doc:`performance <../verification/performance>`):
    * - Pipeline
      - S3 (466 px, 400 disk)
      - P4 (720 px, 650 disk)
-   * - Boot sweep (336 f @ 240 px)
-     - ~2.8 min (wall)
-     - 336/336 frames, 0 WDT
+   * - Boot sweep (1344 f @ 240 px, 2026-11-07 era)
+     - ~11 min (wall; arithmetic on the accepted per-frame captures —
+       the bench S3 re-capture is pending)
+     - 1344/1344 frames, 0 WDT
    * - Sweep final frame (full res)
      - ~1.3 s
      - 599 ms @ 618 px / 959 ms @ 650 px

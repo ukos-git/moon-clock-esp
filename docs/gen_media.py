@@ -3,8 +3,9 @@
 moon_sim) -> MP4 movies, plus the fade-to-black screen switch.
 
 Outputs (committed):
-  docs/img/boot_sweep.mp4   the boot synodic sweep (336 frames @240 px,
-                            new moon -> now, the device's own sweep)
+  docs/img/boot_sweep.mp4   the boot synodic sweep (1344 frames @240 px,
+                            new moon -> now, the device's own sweep,
+                            20 fps -> ~67 s film)
   docs/img/free_spin.mp4    the settled free spin (36 frames @466 px, 10 deg)
   docs/img/dusk.mp4         the pole-axis sleep spin (0 -> phi* @240 px)
   docs/img/fade.mp4         the fade-to-black screen switch (airplane ->
@@ -83,14 +84,17 @@ def main():
     nm = last_new_moon(NOW)
     print(f"NOW={iso(NOW)}  last new moon={iso(nm)}")
 
-    # 1. boot sweep: the device's own sweep (336 frames @240 px).
-    print("== boot sweep (336 frames @240 px) ==")
+    # 1. boot sweep: the device's own sweep (1344 frames @240 px, the
+    #    UI_MOON_ANIM_FRAMES default). Encoded at 20 fps so the film is a
+    #    watchable ~67 s while showing the 4x frame density that fixed the
+    #    visible per-frame jump.
+    print("== boot sweep (1344 frames @240 px) ==")
     lines = []
-    for i in range(336):
-        t = nm + datetime.timedelta(seconds=(NOW - nm).total_seconds() * i / 335.0)
+    for i in range(1344):
+        t = nm + datetime.timedelta(seconds=(NOW - nm).total_seconds() * i / 1343.0)
         lines.append(f"{iso(t)} 0 0")
     render_list("boot", lines, 240)
-    encode("boot", 5, FR / "boot" / "sim.%04d.png", OUT / "boot_sweep.mp4", size=240)
+    encode("boot", 20, FR / "boot" / "sim.%04d.png", OUT / "boot_sweep.mp4", size=240)
 
     # 2. free spin: 36 frames @466 px, 10 deg steps.
     print("== free spin (36 frames @466 px) ==")

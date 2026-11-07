@@ -68,10 +68,12 @@ The moon animation pipeline
        exact on-screen pose. BOOT only — wakes show the current phase
        static.
    * - ``UI_MOON_ANIM_FRAMES``
-     - ``336``
-     - Sweep frame count, 5–400. Evenly spaced from the last new moon
+     - ``1344``
+     - Sweep frame count, 5–4096. Evenly spaced from the last new moon
        to the current phase; the step shrinks as the cycle is younger
-       (up to ~0.088 d/frame at an old moon at the default).
+       (up to ~0.022 d/frame ≈ 32 min at an old moon at the default).
+       4x the pre-2026-11-07 count (336) — at the old density the
+       per-frame illumination jump read as a visible stutter.
    * - ``UI_MOON_ANIM_BAKE_PX``
      - ``400`` (S3) / ``650`` (P4)
      - Intermediate-frame bake resolution, 100–650 px, upscased

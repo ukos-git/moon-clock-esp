@@ -107,17 +107,21 @@ menu "UI Component Configuration"
 
     config UI_MOON_ANIM_FRAMES
         int "Synodic boot sweep frame count"
-        default 336
-        range 5 400
+        default 1344
+        range 5 4096
         help
             How many phase frames make up the boot sweep, evenly spaced
             from the last NEW MOON to the current phase (the span is the
             moon's current age this cycle, at most 29.53 days). The
             frame count is fixed, so the sweep wall time is fixed
             (~frames x per-frame bake+display) while the PHASE STEP
-            shrinks as the cycle is younger: at 336 (the default) the
-            step is up to ~0.088 d/frame (~2.1 h) at an old moon and
-            down to a few hours near first quarter. The intermediate
+            shrinks as the cycle is younger: at 1344 (the default) the
+            step is up to ~0.022 d/frame (~32 min) at an old moon. The
+            count was 336 until 2026-11-07 -- at that density the
+            per-frame illumination jump was visible as a stutter, so it
+            was quadrupled; the wall time grew with it (~11 min S3,
+            ~40 min P4 @650 px -- the display stays live and the sweep
+            hands over to the spin when done). The intermediate
             frames are baked at UI_MOON_ANIM_BAKE_PX (see there); the
             final frame is always full MOON_PX. Lower = faster but
             coarser sweep; the display stays live either way.

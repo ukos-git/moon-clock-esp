@@ -85,7 +85,7 @@ The device pipeline
   the Q15.15 gather at 8 fps, written *directly* to the panel under
   ``s_panel_mtx`` (LVGL bypassed for that frame), time-based theta
   with active (300 s/turn) / settled (600 s/turn) rates (:doc:`rotation and the LUT <implementation/rotate-lut>` and :doc:`the animation pipelines <implementation/animations>`).
-- **Sweep** — the boot animation: the last synodic month as 336
+- **Sweep** — the boot animation: the last synodic month as 1344
   frames (240 px intermediate + a full-res final), boot-only
   (wakes are static) (:doc:`the animation pipelines <implementation/animations>`).
 - **Dusk** — the light-sleep entry: the constant-projection pole

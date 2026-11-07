@@ -30,11 +30,11 @@ sleep → wake), read for three classes of line:
      - The lines
      - What a presence means
    * - **Progress**
-     - the ``sweep span: N d``, ``sweep f/336 shown in Mms``,
+     - the ``sweep span: N d``, ``sweep f/1344 shown in Mms``,
        ``dusk k/N shown in Mms``, ``spin started`` (300/600 s/turn,
        8 fps) and ``panel-io watchdog armed (3000 ms)`` lines
      - the pipelines ran to their endpoints (a sweep that never logs
-       its 336th frame is a sweep that stalled)
+       its final frame is a sweep that stalled)
    * - **Timing**
      - the per-frame ``shown in Mms`` deltas, the bake-vs-display
        split, the final full-res bake's wall time
@@ -59,11 +59,14 @@ the *timing* column, quoted from accepted captures.
 The boot sweep
 --------------
 
-The boot acceptance (the full 336-frame flow, ~2.8 min wall on the
-S3):
+The boot acceptance (the full 1344-frame flow, ~11 min wall on the
+S3 — the bench S3's re-capture at the new count is pending, it is a
+peer's board):
 
 .. code-block:: text
-   :caption: Boot sweep acceptance (S3, representative capture)
+   :caption: Boot sweep acceptance (S3, representative capture from the
+             336-frame era before the 2026-11-07 quadrupling; same flow,
+             same checks, the lines now log ``/1344``)
 
    I (xxx) moon_ui: panel draw_bitmap wrapper installed (spin direct write)
    I (xxx) moon_ui: panel-io watchdog armed (3000 ms stuck limit)

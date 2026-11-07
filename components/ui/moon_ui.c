@@ -1490,15 +1490,15 @@ static void moon_orbit_interrupt(void) {
  * (default 240, a scratch s_sweep_small frame) and upscase to the full
  * 400x400 for display; the FINAL frame (the current phase the spin
  * resumes from) always bakes at full MOON_PX. The bake cost scales
- * with the on-disk pixel count, (S/400)^2 -- measured on the 336-frame
- * sweep: 200 -> ~0.21 s/frame, 240 -> ~0.28 s, 320 -> ~0.48 s, 400 ->
- * ~0.72 s, plus a fixed ~0.23 s of display+tick per frame
- * (resolution-independent), so the sweep wall is 200 -> ~2.4 min, 240
- * -> ~2.8 min (the default, chosen to stay under ~3 min), 400 ->
- * ~5.3 min (full res, montage pixel-identical to the static/spin
- * bakes). A reduced bake size makes the montage coarser (400/S x 400/S
- * NN blocks) but physically correct (the lighting/relief model is
- * resolution-independent).
+ * with the on-disk pixel count, (S/400)^2 -- measured on the accepted
+ * 336-frame capture (per-frame costs carry over): 200 -> ~0.21 s/frame,
+ * 240 -> ~0.28 s, 320 -> ~0.48 s, 400 -> ~0.72 s, plus a fixed ~0.23 s
+ * of display+tick per frame (resolution-independent), so at the current
+ * 1344-frame default the sweep wall is 200 -> ~10 min, 240 -> ~11 min,
+ * 400 -> ~21 min (full res, montage pixel-identical to the static/spin
+ * bakes). The frame count was 336 until 2026-11-07; at that density
+ * the per-frame illumination jump read as a stutter, hence the 4x. A reduced bake size makes the montage coarser (400/S
+ * x 400/S NN blocks) but physically correct (the lighting/relief model is resolution-independent).
  *
  * The frames are evenly spaced from the last NEW MOON (f=0, a dark
  * disk) to the CURRENT phase (f=frames-1, epoch = now); the tick
@@ -1754,7 +1754,8 @@ static void moon_sweep_interrupt(void) {
              * exit at its next poll -- leaving s_sweep_abort SET means
              * it cannot resume the animation in the meantime. Resetting
              * the abort here (the old code) let a zombie task keep
-             * baking 336 frames into the buffers after the caller had
+             * baking the full sweep (1344 frames at the default) into
+             * the buffers after the caller had
              * moved on to the sleep screens. */
             ESP_LOGW(TAG, "sweep task did not exit within 400 ms; abort stays armed until it exits");
             s_frame_stale = true; /* it may still be mid-row in the buffers */
@@ -2412,8 +2413,8 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * spin's display) -- never left for LVGL's async 25-row drain. The
      * task paces itself on s_sweep_shown (backpressure), so the cycle
      * unfolds at the bake rate (~0.51 s/frame at the default 240 px:
-     * ~0.28 s bake + ~0.23 s display+tick, ~2.8 min for the default
-     * 336 frames). */
+     * ~0.28 s bake + ~0.23 s display+tick, ~11 min for the default
+     * 1344 frames). */
     if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
         moon_invalidate_all();
         int64_t r0 = esp_timer_get_time();
@@ -2749,8 +2750,8 @@ void moon_ui_replay_animation(void) {
      * wakes from sleep show the current phase STATIC, no animation.
      * No-op before moon_ui_start and while the orbit / sweep pipeline
      * owns the buffers. The spin is held for the sweep; the idle timer
-     * is held too (the user is present for the sweep's ~2.8 min at the
-     * default 240 px). */
+     * is held too (the user is present for the sweep's ~11 min at the
+     * default 240 px / 1344 frames). */
     if (!boot_anim_enabled() || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
         return;
     int64_t now;
