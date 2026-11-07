@@ -29,8 +29,10 @@ extern "C" {
  * the dial has rested this long; the clock MIRRORS the same constant as a
  * draining countdown ring around the wheel's centre preview (screens.c)
  * so the user sees the honest left-over time. Both sides read it HERE —
- * a drift between the two would make the ring lie. */
-#define COMPANION_DWELL_MS 500
+ * a drift between the two would make the ring lie. 3 s per the bench
+ * (2026-11-08, user): the dial crossing must never feel like a hair
+ * trigger. */
+#define COMPANION_DWELL_MS 3000
 
 /* The clock's four keyboard-wheel registers (abc / ABC / 123 / #!), in
  * KEY_MODE delta order. The knob mirrors these verbatim so a dial slot

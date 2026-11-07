@@ -8,7 +8,7 @@
  * MIRROR, the clock's screen gate decides what lands.
  *
  * KEYBOARD: dial moves the lit slot (KEY_HOT carries the absolute slot),
- * 500 ms dwell on a settled slot commits it (KEY_ADD) — the plan's
+ * a COMPANION_DWELL_MS dwell on a settled slot commits it (KEY_ADD) — the plan's
  * "nothing commits on a detent crossing": a new detent restarts the
  * dwell. Zones: SW view / DEL backspace / ENT commit password / X
  * discard-exit / ab cycle register (KEY_MODE).
