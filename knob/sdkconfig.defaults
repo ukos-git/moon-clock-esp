@@ -1,0 +1,33 @@
+# Companion-knob defaults (ESP32-S3R8). Hand-curated like the clock's —
+# never idf.py save-defconfig.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# The S3-side flash is 16 MB quad (esptool-confirmed 2026-11-07, schematic
+# U3 W25Q128JVPIQ).
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Octal PSRAM at 80 MHz: the R8's in-package 8 MB. Not used by the K1
+# skeleton yet (LVGL buffers stay internal DMA RAM), declared so PSRAM
+# surprises surface at boot instead of at first malloc.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# 1 kHz systick: the LVGL task delays 5 ms and the dial poller 2 ms; with
+# the 100 Hz default pdMS_TO_TICKS floors to 0 ticks and a task spins the
+# core (the clock's CONFIG_FREERTOS_HZ=100 lesson, cpu-stats probe).
+CONFIG_FREERTOS_HZ=1000
+
+# LVGL 9 (lvgl/lvgl ^9 from the manifest, same family as the clock's 9.6):
+# 16-bit panel, clib malloc, dark theme like the clock.
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_MEM_SIZE_KILOBYTES=64
+CONFIG_LV_FONT_MONTSERRAT_48=y
+CONFIG_LV_FONT_DEFAULT_MONTSERRAT_28=y
+CONFIG_LV_THEME_DEFAULT_DARK=y

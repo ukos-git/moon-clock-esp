@@ -1,0 +1,7 @@
+# Companion-knob partition table (16 MB flash, schematic U3 W25Q128JVPIQ).
+# storage carries knob_credentials.txt (K2), mirroring the clock's SPIFFS
+# credentials pattern.
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 0x400000,
+storage,  data, spiffs,  0x410000, 0x80000,

@@ -7,6 +7,7 @@ sdkconfig.p4
 # Per-board component-manager lock (the P4 build resolves a different
 # dependency set than the S3; the tracked dependencies.lock is the S3 one).
 dependencies.lock.p4
+dependencies.lock.knob
 assets
 warnings.txt
 spiffs/*
