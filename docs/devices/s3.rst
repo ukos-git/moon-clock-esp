@@ -4,8 +4,9 @@ The S3 board
 The primary target is the **Waveshare ESP32-S3-Touch-AMOLED-1.75**: a
 1.75-inch round capacitive-touch AMOLED development board. It is the
 whole product — the panel, the touch, the motion sensor, and the real-time
-clock are all on the same small board, and the clock body (a 3D-printed
-stand, see the photograph in :doc:`the overview <../overview>`) is mostly the board plus a
+clock are all on the same small board, and the clock body (a 3-D-printed
+stand holding the board and a battery, the panel render on the
+:doc:`start page <../index>`) is mostly the board plus a
 battery.
 
 The whole product is one small board: the panel, the touch, the motion
@@ -25,6 +26,58 @@ TCA9554 expander's pin 3, which a running CPU polls at 1.3 s — it is
 never be woken by a timer or alarm on this board. (The product's "deep
 sleep" is app-level — the backlight off, the CPU still running — so the
 alarm still fires via that poll. :doc:`The clock and sleep machine <../implementation/clock-sleep>`.)
+
+Pin map (Waveshare datasheet)
+-----------------------------
+
+The full GPIO assignment from the Waveshare datasheet — the schematic
+above traces the buses the project actually uses; this table is the
+complete reference, including the un-used GPS / SD / expander (``EXIO``)
+lines.
+
+.. code-block:: text
+   :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)
+
+   GPIO    LCD        USB    RTC      SD      ES8311     QMI8658C   SYS       GPS         OUT
+   ------  ---------  -----  -------  ------  ---------  ---------  --------  ----------  --------
+   GPIO01  -          -      -        MOSI    -          -          -         -           -
+   GPIO02  -          -      -        SCK     -          -          -         -           -
+   GPIO03  -          -      -        MISO    -          -          -         -           -
+   GPIO04  QSPI SIO0  -      -        -       -          -          -         -           -
+   GPIO05  QSPI SI1   -      -        -       -          -          -         -           -
+   GPIO06  QSPI SI2   -      -        -       -          -          -         -           -
+   GPIO07  QSPI SI3   -      -        -       -          -          -         -           -
+   GPIO08  -          -      -        -       I2S DSDIN  -          -         -           -
+   GPIO09  -          -      -        -       I2S SCLK   -          -         -           -
+   GPIO10  -          -      -        -       I2S ASDOUT -          -         -           -
+   GPIO11  TP INT     -      -        -       -          -          -         -           -
+   GPIO12  LCD CS     -      -        -       -          -          -         -           -
+   GPIO13  LCD TE     -      -        -       -          -          -         -           -
+   GPIO14  TP SCL     -      RTC SCL  -       -          ESP32 SCL -         -           -
+   GPIO15  TP SDA     -      RTC SDA  -       -          ESP32 SDA -         -           -
+   GPIO16  -          -      -        -       -          -          -         -           GPIO16
+   GPIO17  -          -      -        -       -          -          -         NC/GPS RXD  GPIO17
+   GPIO18  -          -      -        -       -          -          -         NC/GPS TXD  GPIO18
+   GPIO19  -          USB N  -        -       -          -          -         -           -
+   GPIO20  -          USB P  -        -       -          -          -         -           -
+   GPIO21  -          -      -        -       -          QMI INT2  -         -           -
+   GPIO38  QSPI SCL   -      -        -       -          -          -         -           -
+   GPIO39  LCD RESET  -      -        -       -          -          -         -           -
+   GPIO40  TP RESET   -      -        -       -          -          -         -           -
+   GPIO41  -          -      -        SDCS    -          -          -         -           -
+   GPIO42  -          -      -        -       I2S MCLK   -          -         -           -
+   GPIO43  -          -      -        -       -          -          -         U0TXD       -
+   GPIO44  -          -      -        -       -          -          -         U0RXD       -
+   GPIO45  -          -      -        -       I2S LRCK   -          -         -           -
+   GPIO46  -          -      -        -       -          PA CTRL   -         -           -
+   EXIO0   -          -      -        -       -          -          -         -           -
+   EXIO1   -          -      -        -       -          -          -         -           -
+   EXIO2   -          -      -        -       -          -          -         -           -
+   EXIO3   -          -      RTC INT  -       -          -          -         -           -
+   EXIO4   -          -      -        -       -          -          SYS OUT   -           -
+   EXIO5   -          -      -        -       -          -          AXP IRQ   -           -
+   EXIO6   -          -      -        -       -          QMI INT1  -         -           -
+   EXIO7   -          -      -        -       -          -          GPS RST   -           -
 
 SoC and memory
 --------------
