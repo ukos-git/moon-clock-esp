@@ -44,8 +44,14 @@ static void enc_task(void *arg) {
     int a = gpio_get_level(ENC_PIN_A);
     int b = gpio_get_level(ENC_PIN_B);
     int a_cand = -1, a_run = 0, b_cand = -1, b_run = 0;
+    int hb = 0; /* heartbeat tick (bench probe: raw levels vs count) */
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(ENC_POLL_MS));
+        if (++hb >= 2000) {
+            hb = 0;
+            ESP_LOGI(TAG, "hb A=%d B=%d stable(%d,%d) count %d", gpio_get_level(ENC_PIN_A), gpio_get_level(ENC_PIN_B),
+                     a, b, (int)s_count);
+        }
         const int la = gpio_get_level(ENC_PIN_A);
         if (la == a) {
             a_cand = -1;
