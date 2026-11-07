@@ -24,12 +24,13 @@ system, build steps) **update the site** — do not let it drift:
 2. If the change adds/reworks a screen or UI geometry, regenerate the
    screenshots BOTH panels — `docs/.venv/bin/sphinx-build -b media` (the
    `moonmedia` builder: `host_sim/uisim/build.sh run` + `--panel 720` + the
-   `--wheel` capture, `docs/tools/annotate.py` over every
-   `docs/ui/labels/*.json` spec, the device composites) or by hand
-   (`build.sh run` → `docs/img/screens/`, `build.sh run --panel 720` →
-   `docs/img/screens/p4/`, then re-run `annotate.py` for the affected label
-   specs). If the change only touches the moon bake path, the host image gate
-   must pass before the doc's numbers are trustworthy — BOTH board textures:
+   `--wheel` capture, `docs/tools/enclose.py` (numbered callouts inside the
+   round product housing, alpha outside) over every `docs/ui/labels/*.json`
+   spec, the device composites) or by hand (`build.sh run` →
+   `docs/img/screens/`, `build.sh run --panel 720` → `docs/img/screens/p4/`,
+   then re-run `enclose.py` for the affected label specs). If the change only
+   touches the moon bake path, the host image gate must pass before the doc's
+   numbers are trustworthy — BOTH board textures:
    `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` and
    `--target p4` (the gate exits 2 on a stale sim binary built against the
    other target's texture).

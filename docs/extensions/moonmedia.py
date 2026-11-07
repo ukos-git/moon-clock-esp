@@ -5,9 +5,12 @@ Two jobs:
 * a ``media`` Sphinx builder — ``sphinx-build -b media`` regenerates the
   uisim screenshots for BOTH panels (``host_sim/uisim/build.sh run`` +
   ``--panel 720``, and the ``--wheel`` capture flow for the password
-  keyboard), runs ``docs/tools/annotate.py`` over every
-  ``ui/labels/*.json`` spec for both panels, rebuilds the device
-  composites (``docs/tools/composite_dark.py``), and — with ``--videos``
+  keyboard), runs ``docs/tools/enclose.py`` over every
+  ``ui/labels/*.json`` spec for both panels (the annotated callouts
+  rendered inside the round product housing, alpha outside —
+  ``annotate.py`` still holds the badge/leader drawing primitives it
+  imports), rebuilds the device composites
+  (``docs/tools/composite_dark.py``), and — with ``--videos``
   — the mp4 set (``docs/gen_media.py``). The builder performs ONLY these
   side effects; it reads no doctree and writes no HTML, so a media run
   is fast even on a cold tree.
@@ -145,12 +148,20 @@ def _stale_check(app):
         for png in sorted(base.glob("*.png")) if base.is_dir() else []:
             jobs.append((png, inputs))
     # annotated callouts: inputs + the matching label spec (the callout
-    # positions are authored data, a distinct input from the raw shot)
+    # positions are authored data, a distinct input from the raw shot) +
+    # the enclosure pipeline (the tool, the shared drawing/glass code,
+    # the hero photo + fit it composites into)
+    tools = _DOCS / "tools"
+    enclose_deps = [
+        tools / "enclose.py", tools / "annotate.py", tools / "composite_panel.py",
+        tools / "waveshare-hero.webp", tools / "fit.json",
+        tools / "waveshare-p4-hero.webp", tools / "fit_p4.json",
+    ]
     if annot_dir.is_dir():
         for png in sorted(annot_dir.glob("*.png")):
             spec = labels_dir / (png.name.rsplit("_", 1)[0] + ".json")
-            extra = [spec] if spec.exists() else []
-            jobs.append((png, inputs + extra))
+            spec_deps = [spec] if spec.exists() else []
+            jobs.append((png, inputs + spec_deps + enclose_deps))
     # device composites (the uisim-in-photo frames)
     if photos_dir.is_dir():
         for png in sorted(photos_dir.glob("sim_*.png")):
@@ -218,9 +229,9 @@ def _annotate_all() -> None:
         for panel, tag in (("466", "s3"), ("720", "p4")):
             base = _DOCS / "img" / "screens" / ("" if tag == "s3" else "p4") / f"{shot}.png"
             out = annot / f"{screen}_{tag}.png"
-            _run([PY, "docs/tools/annotate.py", base,
+            _run([PY, "docs/tools/enclose.py", base,
                   "--spec", str(spec), "--panel", panel, "-o", out],
-                 f"annotate {out.relative_to(ROOT)}")
+                 f"enclose {out.relative_to(ROOT)}")
 
 
 def _media_pipeline(app) -> None:
