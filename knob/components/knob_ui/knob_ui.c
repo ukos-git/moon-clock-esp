@@ -44,7 +44,9 @@ static const char *TAG = "knob_ui";
         * index order) */
 #define ZONE_Y 300
 #define ZONE_H 46
-#define DWELL_MS 500
+#define DWELL_MS                                                                                                       \
+    COMPANION_DWELL_MS /* proto constant: the clock mirrors it as the wheel's                                          \
+                        * dwell countdown ring (they must agree) */
 #define FB_MS 400
 
 typedef enum { VIEW_KEYBOARD, VIEW_STEPPER } knob_view_t;

@@ -45,8 +45,9 @@ palette), operable in the browser: press a sector, sweep, release.
 Try it: press one of the 12 outer sectors — only that sector's letters
 reveal. Slide within the sector to pick a letter (the centre previews
 it live with "release commits"), release to commit. The top arc
-switches registers (abc / ABC / 123 / #$); the bottom band is ⊗
-commit and 🗑 discard; a tap in the centre backspaces.
+switches registers (abc / ABC / 123 / #$); the bottom band is ✔
+circle-check to accept and ⊗ circle-xmark to discard; a tap in the
+centre backspaces.
 
 The screen itself
 -----------------
@@ -127,17 +128,22 @@ upper) because it matters for passwords.
 Bottom band — commit / discard
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The bottom 120° splits into the house circle-xmark **COMMIT** key
-(LVGL 31.5°–88.5°, icon at LVGL 60° r 114) and the trash **DISCARD**
-key (LVGL 91.5°–148.5°, icon at LVGL 120° r 114). Commit (with a
+The bottom 120° splits into the house circle-**check** COMMIT key
+(LVGL 31.5°–88.5°, icon at LVGL 60° r 114) and the house
+circle-**xmark** DISCARD key (LVGL 91.5°–148.5°, icon at LVGL 120°
+r 114) — the 2026-11-08 pairing: X means discard, the check means
+accept. Both icons are built from rotated ``lv_obj`` bars (the same
+house idiom as every other wheel mark; the FontAwesome subset has no
+circle-check code point, so the glyph is drawn, not typed — and the
+earlier bar-built trash can read badly on the panel and is gone).
+Commit (with a
 non-empty password) writes ``wifi_credentials_write(ssid, pw)`` (two
 lines to ``/spiffs/wifi_credentials.txt``, the password never logged)
 → ``action_start_wifi_sync()`` (the 6144 B background task) and the
 screen swaps to the transient WiFi screen; on success the app leaves
 airplane mode. An empty password is not written. Discard clears the
-entry without writing. The circle-xmark is the house exit glyph
-**repurposed as the commit key** (a deliberate v2 deviation from v1,
-where it was the exit).
+entry without writing (and with an empty entry it exits, doubling as
+the zero-input exit).
 
 Centre gestures
 ^^^^^^^^^^^^^^^
@@ -145,12 +151,41 @@ Centre gestures
 A plain tap on the centre (the 110 px tap box) **backspaces**; a
 **400 ms long press on the centre returns to the WiFi list** (no
 write, no sync) — v2 has no in-ring exit (the xmark glyph is the
-commit key), and the centre box (r ≈ 55) never overlaps the sweep band
+discard key), and the centre box (r ≈ 55) never overlaps the sweep band
 (r 140–233), so the hold cannot start a letter. The screen's angular
 picking uses the inverse-transform idiom (``lv_obj_transform_point``,
 ``LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE``, the
 ``alarm_time_point_to_day`` pattern), so it stays correct under the
 90° orientation roll.
+
+Knob-assisted input (companion dial)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Waveshare ESP32-S3-Knob-Touch-LCD-1.8 companion
+(:doc:`the device page <devices/knob>`) can drive this wheel without
+touch: the dial moves the lit slot (each detent sends the absolute
+slot as a ``KEY_HOT`` preview frame), and because the dial has no
+push-button, **holding a settled slot for 500 ms commits it** — the
+knob sends ``KEY_ADD`` when its dwell expires; a new detent restarts
+the dwell, so nothing ever commits on a crossing. The zones of the
+knob's own screen cover backspace, register switch, commit and exit
+with the same semantics as the keys above.
+
+While a knob device holds a slot hot, the wheel shows a **dwell
+countdown**: a thin white ring (r 66, in the empty gap between the
+centre box and the register track) drains 360°→0° over the dwell
+window around the centre preview, and the hint line reads "hold to
+add". The ring is the honest left-over time because both ends read
+one constant — ``COMPANION_DWELL_MS`` in
+``components/companion/include/companion_proto.h`` — the knob commits
+on it and the clock mirrors it; a drift between the two would make
+the ring lie. It is a purely **additive** companion affordance:
+only the companion handler (``screens_companion_handle``) arms it,
+the touch path never sees it, the resting wheel is pixel-identical
+to a touch-only build, and any hot change — a touch grab included —
+drops a running countdown. Frames from the knob arrive through the
+same door as every other companion effect and are gated against the
+current screen (see the wire contract in ``companion_proto.h``).
 
 Known interaction (stated, not suppressed)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -222,7 +257,8 @@ true panel geometry) — then the flat captures:
 
    The **v2 wheel at rest** — the 12-sector grouped letters, the
    register/shift arc (abc / ABC / 123 / #$$), the SSID caption, the
-   backspace and commit keys in the bottom band.
+   centre backspace, and the check-commit / X-discard keys in the
+   bottom band.
 
 .. figure:: img/screens/settings_wifi_password_touched.png
    :alt: The v2 keyboard mid-press with the sector reveal

@@ -411,6 +411,34 @@ static bool wheel_center_label_is(lv_obj_t *scr, const char *want) {
     return false;
 }
 
+/* Is the companion DWELL ring (screens.c) up, its indicator arc spanning
+ * more than min_span degrees? The register arc's lit 60-degree key is the
+ * only other arc with a non-empty indicator at rest, so callers pass a
+ * threshold above 60 to name the dwell ring uniquely. */
+static bool wheel_dwell_ring_visible(lv_obj_t *scr, float min_span) {
+    const uint32_t n = lv_obj_get_child_count(scr);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        if (lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) {
+            continue;
+        }
+        if (lv_obj_check_type(c, &lv_arc_class)) {
+            float span = (float)lv_arc_get_angle_end(c) - (float)lv_arc_get_angle_start(c);
+            if (span < 0.0f) {
+                span += 360.0f; /* the getter normalises to 0..360: a 270->248
+                                 * wrap is a 338-degree span, not -22 */
+            }
+            if (span > min_span) {
+                return true;
+            }
+        }
+        if (wheel_dwell_ring_visible(c, min_span)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int main(int argc, char **argv) {
     mkdir("out", 0755);
 
@@ -480,6 +508,23 @@ int main(int argc, char **argv) {
         screens_companion_handle(&f);
         pump(disp, 30);
         CK(wheel_center_label_is(wheel_scr, "e"));
+        /* companion dwell ring (K4): HOT arms a COMPANION_DWELL_MS
+         * draining countdown around the centre preview; KEY_ADD drops it
+         * immediately; on timeout (no ADD) it hides itself quietly. */
+        f = comp_frame(COMPANION_FRAME_KEY_HOT, COMPANION_FIELD_NONE, 6);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_dwell_ring_visible(wheel_scr, 61.0f));
+        f = comp_frame(COMPANION_FRAME_KEY_ADD, COMPANION_FIELD_NONE, 6);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(!wheel_dwell_ring_visible(wheel_scr, 61.0f));
+        f = comp_frame(COMPANION_FRAME_KEY_HOT, COMPANION_FIELD_NONE, 8);
+        screens_companion_handle(&f);
+        pump(disp, 30);
+        CK(wheel_dwell_ring_visible(wheel_scr, 61.0f));
+        pump(disp, COMPANION_DWELL_MS + 50);
+        CK(!wheel_dwell_ring_visible(wheel_scr, 61.0f));
         /* discard clears the entry; a second discard (empty) exits */
         f = comp_frame(COMPANION_FRAME_ABORT, COMPANION_FIELD_NONE, 0);
         screens_companion_handle(&f);

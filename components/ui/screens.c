@@ -1658,12 +1658,16 @@ void tick_screen_settings_wifi() {
  *  - REGISTER ARC: four 60-degree keys (abc / ABC / 123 / #\$) on the top
  *    240-degree arc (LVGL 150..390), r 84..144; a press is resolved by
  *    exact 60-degree sector, not nearest key.
- *  - COMMIT / DISCARD: the bottom 120-degree arc is the house circle-xmark
- *    COMMIT key (LVGL ~31.5..88.5) and the trash DISCARD key
- *    (LVGL ~91.5..148.5), both at r 114. A plain tap on the centre
+ *  - COMMIT / DISCARD: the bottom 120-degree arc is the house circle-
+ *    CHECK COMMIT key (LVGL ~31.5..88.5) and the house circle-xmark
+ *    DISCARD key (LVGL ~91.5..148.5), both at r 114 (icons are built
+ *    from rotated bars -- 2026-11-08: X means DISCARD, check means
+ *    accept; the earlier xmark-on-commit / trash-on-discard pairing is
+ *    gone). A plain tap on the centre
  *    BACKSPACES; a 400 ms LONG PRESS on the centre is the ONLY way back
  *    to the WiFi list (v2 has no in-ring exit -- the xmark glyph is the
- *    commit key, so settings_sub_screen_prepare is deliberately skipped).
+ *    discard key now, so settings_sub_screen_prepare is deliberately
+ *    skipped).
  *    The centre box (r ~55) never overlaps the sweep band (r 140..233).
  *
  * All presses commit on RELEASE only (the reveal + preview show exactly
@@ -1752,11 +1756,13 @@ static lv_obj_t *s_wheel_box_dividers[12][2]; /* the in-sector box hairlines */
 static lv_obj_t *s_wheel_mode_arc;            /* the 240-degree register track + lit key */
 static lv_obj_t *s_wheel_mode_keys[4];
 static lv_obj_t *s_wheel_commit;    /* the house circle-xmark commit key */
-static lv_obj_t *s_wheel_discard;   /* the trash discard key */
+static lv_obj_t *s_wheel_discard;   /* the circle-xmark discard key */
 static lv_obj_t *s_wheel_center;    /* the centre tap box */
 static lv_obj_t *s_wheel_pw_label;  /* the running entry / centre preview */
-static lv_obj_t *s_wheel_sub_label; /* "release commits" */
+static lv_obj_t *s_wheel_sub_label; /* "release commits" / "hold to add" */
 static lv_obj_t *s_wheel_ssid_label;
+static lv_obj_t *s_wheel_dwell_arc; /* companion dwell countdown ring (hidden unless a
+                                     * knob device holds a slot hot -- K4, task #16) */
 
 /* Map the indev point (display coords) to a letter slot: inverse the
  * screen root's transform (the orientation roll) first -- the same idiom
@@ -1881,10 +1887,55 @@ static void settings_wheel_apply_lit(void) {
     }
 }
 
+/* ---- companion dwell countdown (K4, task #16) ------------------------
+ * While a knob device holds a slot hot, a thin ring drains around the
+ * centre preview: 360 -> 0 deg over COMPANION_DWELL_MS -- the SAME
+ * constant the knob dwells on before it sends KEY_ADD (single-sourced in
+ * companion_proto.h), so the ring shows the honest left-over time. Pure
+ * additive companion affordance: companion_dwell_start() is called ONLY
+ * from the companion handler, the touch path never shows it, and the
+ * resting wheel is pixel-identical to a pre-knob build. */
+static void wheel_dwell_exec(void *obj, int32_t v) {
+    /* v = left-over percent; the sweep starts at 12 o'clock (LVGL 270)
+     * and its end drains back toward the start as the dwell runs out. */
+    lv_arc_set_angles((lv_obj_t *)obj, 270.0f, (lv_value_precise_t)(270.0f + 3.6f * (float)v));
+}
+
+static void wheel_dwell_done(lv_anim_t *a) {
+    (void)a;
+    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
+    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void companion_dwell_stop(void) {
+    if (s_wheel_dwell_arc == NULL) {
+        return;
+    }
+    lv_anim_delete(s_wheel_dwell_arc, wheel_dwell_exec);
+    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
+    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void companion_dwell_start(void) {
+    if (s_wheel_dwell_arc == NULL) {
+        return;
+    }
+    lv_obj_clear_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, s_wheel_dwell_arc);
+    lv_anim_set_values(&anim, 100, 0);
+    lv_anim_set_duration(&anim, COMPANION_DWELL_MS);
+    lv_anim_set_exec_cb(&anim, wheel_dwell_exec);
+    lv_anim_set_completed_cb(&anim, wheel_dwell_done);
+    lv_anim_start(&anim); /* a re-HOT replaces the in-flight one (same var + exec_cb) */
+}
+
 static void settings_wheel_set_hot(int s) {
     if (s == s_wheel_hot) {
         return;
     }
+    companion_dwell_stop(); /* any hot change (a touch grab included) drops a running countdown */
     s_wheel_hot = s;
     if (s < 0 || s >= s_wheel_n) {
         /* No preview: the centre shows the running entry (DTMF-style
@@ -1948,6 +1999,7 @@ static void settings_wheel_set_revealed(bool on, int sector) {
     }
     if (!on) {
         s_wheel_hot = -1;
+        companion_dwell_stop();
         settings_wheel_pw_label();
     }
     settings_wheel_recolor_letters();
@@ -2159,7 +2211,7 @@ static void settings_wheel_commit_password(void) {
     action_start_wifi_sync();
 }
 
-/* The house circle-xmark COMMIT key (LVGL ~31.5..88.5). */
+/* The house circle-CHECK commit key (LVGL ~31.5..88.5). */
 static void event_handler_cb_wheel_commit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
         return;
@@ -2167,26 +2219,26 @@ static void event_handler_cb_wheel_commit(lv_event_t *e) {
     settings_wheel_commit_password();
 }
 
-/* The exit to the WiFi list (the centre long-press; the trash key with
- * an EMPTY entry -- the keyboard has no other in-ring exit, the commit
- * key is the circle-xmark). The refresh re-draws the SSID caption and
- * resets the keyboard to lowercase. */
+/* The exit to the WiFi list (the centre long-press; the circle-xmark
+ * discard key with an EMPTY entry -- the keyboard has no other in-ring
+ * exit, the commit key is the circle-check). The refresh re-draws the
+ * SSID caption and resets the keyboard to lowercase. */
 static void settings_wheel_exit_to_list(void) {
     loadScreen(SCREEN_ID_SETTINGS_WIFI);
     ui_tick();
     settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
 }
 
-/* The trash DISCARD key (LVGL ~91.5..148.5). With a non-empty entry it
- * CLEARS it; with an empty entry it EXITS the menu (the user's "trash
- * with nothing entered should leave the screen" -- backspace on an empty
- * entry is a no-op, so the trash doubles as the zero-input exit). */
+/* The circle-xmark DISCARD key (LVGL ~91.5..148.5). With a non-empty
+ * entry it CLEARS it; with an empty entry it EXITS the menu (the user's
+ * "X with nothing entered should leave the screen" -- backspace on an
+ * empty entry is a no-op, so the X doubles as the zero-input exit). */
 static void event_handler_cb_wheel_discard(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
         return;
     }
     if (s_wheel_pw_len == 0) {
-        ESP_LOGW("settings_wheel", "trash with empty entry -> back to the WiFi list");
+        ESP_LOGW("settings_wheel", "discard X with empty entry -> back to the WiFi list");
         settings_wheel_exit_to_list();
         return;
     }
@@ -2440,8 +2492,9 @@ void create_screen_settings_wifi_password() {
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* The bottom 120-degree band: the house circle-xmark COMMIT key
-     * (LVGL ~31.5..88.5) and the trash DISCARD key (LVGL ~91.5..148.5).
+    /* The bottom 120-degree band: the house circle-CHECK commit key
+     * (LVGL ~31.5..88.5) and the house circle-xmark discard key
+     * (LVGL ~91.5..148.5).
      * Both are 60-degree arcs (the hit annulus r 84..144); the icons sit
      * at r 114. */
     s_wheel_commit = lv_arc_create(obj);
@@ -2475,11 +2528,50 @@ void create_screen_settings_wifi_password() {
     lv_obj_add_flag(s_wheel_discard, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_add_event_cb(s_wheel_discard, event_handler_cb_wheel_discard, LV_EVENT_PRESSED, 0);
 
-    /* The commit icon: the house circle-xmark (the v1 in-ring exit glyph,
-     * the documented deviation from the house 90 px bottom exit) at the
-     * COMMIT key's centre (LVGL 60, r 114). */
+    /* The commit icon: the house CIRCLE-CHECK at the COMMIT key's centre
+     * (LVGL 60, r 114) — same bar idiom as the circle-xmark it replaced
+     * (2026-11-08): X now means DISCARD and sits on the discard key, the
+     * check means accept. The FontAwesome subset carries no circle-check
+     * code point (the fonts are probed-glyph subsets), so the glyph is
+     * built, not typed. */
     {
         float a = 60.0f * 3.14159265f / 180.0f;
+        int32_t cx = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a));
+        int32_t cy = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a));
+        lv_obj_t *ring = lv_obj_create(obj);
+        lv_obj_set_size(ring, UI_PX(26), UI_PX(26));
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_color(ring, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_pos(ring, cx - UI_PX(13), cy - UI_PX(13));
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+        /* The check: a short +45-degree stroke into a long -45-degree
+         * one, the vertex at bottom-left (LVGL y-down; lengths ~7 and
+         * ~14 px, offsets from the ring centre). Centre pivot on both
+         * bars (LVGL's default top-left pivot would swing them off). */
+        const int32_t chk[2][4] = {{7, 450, -5, 2}, {14, -450, 3, 0}}; /* w, rot10, dx, dy */
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *bar = lv_obj_create(ring);
+            lv_obj_set_size(bar, UI_PX(chk[i][0]), UI_PX(2));
+            lv_obj_set_style_bg_color(bar, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_transform_pivot_x(bar, LV_PCT(50), 0);
+            lv_obj_set_style_transform_pivot_y(bar, LV_PCT(50), 0);
+            lv_obj_align(bar, LV_ALIGN_CENTER, UI_PX(chk[i][2]), UI_PX(chk[i][3]));
+            lv_obj_set_style_transform_rotation(bar, chk[i][1], 0); /* 0.1-deg units */
+            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+    /* The discard icon: the house circle-xmark (the v1 in-ring exit
+     * glyph, the documented deviation from the house 90 px bottom exit)
+     * at the DISCARD key's centre (LVGL 120, r 114). It moved here from
+     * the commit key when X became "discard" (2026-11-08); the bar-built
+     * trash can it replaces did not render readably on the panel. */
+    {
+        float a = 120.0f * 3.14159265f / 180.0f;
         int32_t cx = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a));
         int32_t cy = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a));
         lv_obj_t *exit = lv_obj_create(obj);
@@ -2506,27 +2598,6 @@ void create_screen_settings_wifi_password() {
             lv_obj_set_style_transform_rotation(bar, i == 0 ? 450 : 1350, 0); /* 0.1-deg units */
             lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
         }
-    }
-    /* The discard icon: a small trash can at the DISCARD key's centre
-     * (LVGL 120, r 114). Bars only (lv_line is off): lid + body. */
-    {
-        float a = 120.0f * 3.14159265f / 180.0f;
-        int32_t cx = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * cosf(a));
-        int32_t cy = WHEEL_C + (int32_t)(WHEEL_MODE_R_MID * sinf(a));
-        lv_obj_t *lid = lv_obj_create(obj);
-        lv_obj_set_size(lid, UI_PX(18), UI_PX(2));
-        lv_obj_set_style_bg_color(lid, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(lid, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(lid, cx - UI_PX(9), cy - UI_PX(9));
-        lv_obj_clear_flag(lid, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_t *body = lv_obj_create(obj);
-        lv_obj_set_size(body, UI_PX(14), UI_PX(11));
-        lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(body, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_color(body, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_pos(body, cx - UI_PX(7), cy - UI_PX(2));
-        lv_obj_clear_flag(body, LV_OBJ_FLAG_CLICKABLE);
     }
 
     /* The centre: a 110 px tap box (a plain tap BACKSPACES) with the
@@ -2569,6 +2640,33 @@ void create_screen_settings_wifi_password() {
     lv_obj_set_size(s_wheel_sub_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_align(s_wheel_sub_label, LV_ALIGN_CENTER, 0, UI_PX(16));
     lv_obj_set_style_text_color(s_wheel_sub_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    /* The companion dwell countdown ring (K4, task #16): a thin draining
+     * ring around the 110 px centre box, shown only while a knob device
+     * holds a slot hot (companion_dwell_start). r 66 sits in the empty
+     * gap between the centre box (r 55) and the register track (r 84).
+     * The INDICATOR pad MUST stay 0 (the item-5a rule: the indicator's
+     * radius is arc_r minus its OWN pad -- a copied MAIN pad clamps the
+     * width into a pie wedge from the centre). Hidden by default: the
+     * touch wheel never sees it. */
+    s_wheel_dwell_arc = lv_arc_create(obj);
+    lv_obj_set_pos(s_wheel_dwell_arc, 0, 0);
+    lv_obj_set_size(s_wheel_dwell_arc, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_all(s_wheel_dwell_arc, WHEEL_C - UI_PX(66), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_wheel_dwell_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(s_wheel_dwell_arc, 0, 360);
+    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
+    lv_obj_set_style_arc_width(s_wheel_dwell_arc, UI_PX(4), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(s_wheel_dwell_arc, UI_PX(4), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_dwell_arc, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(s_wheel_dwell_arc, WHEEL_BOX_LIT, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(s_wheel_dwell_arc, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(s_wheel_dwell_arc, true, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    /* The theme gives EVERY arc a blue circular KNOB -- kill it (it would
+     * land at the centre otherwise). */
+    lv_obj_set_style_bg_opa(s_wheel_dwell_arc, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
 
     lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
     settings_wheel_pw_label();
@@ -3719,8 +3817,17 @@ void screens_companion_handle(const companion_frame_t *f) {
         switch (f->type) {
         case COMPANION_FRAME_KEY_HOT:
             settings_wheel_set_hot(f->delta);
+            if (f->delta >= 0 && f->delta < s_wheel_n) {
+                /* Mirror the knob's hold-to-commit dwell: drain the ring
+                 * around the centre preview over COMPANION_DWELL_MS and
+                 * let the hint line speak the knob's verb (set_hot wrote
+                 * the touch verb "release commits"). */
+                lv_label_set_text(s_wheel_sub_label, "hold to add");
+                companion_dwell_start();
+            }
             break;
         case COMPANION_FRAME_KEY_ADD:
+            companion_dwell_stop();
             settings_wheel_add_slot(f->delta);
             settings_wheel_set_hot(-1);
             /* set_hot early-returns when the wheel is ALREADY cold (two
@@ -3730,14 +3837,17 @@ void screens_companion_handle(const companion_frame_t *f) {
             settings_wheel_pw_label();
             break;
         case COMPANION_FRAME_KEY_MODE:
+            companion_dwell_stop(); /* the knob never dwells across a register switch */
             if (f->delta >= 0 && f->delta <= 3) {
                 settings_wheel_set_mode(f->delta);
             }
             break;
         case COMPANION_FRAME_FOCUS_NEXT:
+            companion_dwell_stop();
             settings_wheel_set_mode(((s_wheel_mode < 0 ? 0 : s_wheel_mode) + 1) & 3);
             break;
         case COMPANION_FRAME_KEY_BACK:
+            companion_dwell_stop();
             if (s_wheel_pw_len > 0) {
                 s_wheel_pw[--s_wheel_pw_len] = 0;
                 settings_wheel_pw_label();

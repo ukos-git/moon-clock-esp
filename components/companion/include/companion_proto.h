@@ -25,6 +25,13 @@ extern "C" {
 #define COMPANION_VERSION 1u
 #define COMPANION_FRAME_LEN 10
 
+/* Hold-to-commit dwell: the knob commits the dialled slot (KEY_ADD) after
+ * the dial has rested this long; the clock MIRRORS the same constant as a
+ * draining countdown ring around the wheel's centre preview (screens.c)
+ * so the user sees the honest left-over time. Both sides read it HERE —
+ * a drift between the two would make the ring lie. */
+#define COMPANION_DWELL_MS 500
+
 /* The clock's four keyboard-wheel registers (abc / ABC / 123 / #!), in
  * KEY_MODE delta order. The knob mirrors these verbatim so a dial slot
  * and the clock's s_wheel_chars index the SAME character - the K4 digit
