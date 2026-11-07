@@ -20,6 +20,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "knob_board.h"
+#include "knob_link.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
 
@@ -169,6 +170,13 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
+
+    /* K2: join the clock's AP from the baked spiffs file. Non-fatal — the
+     * dial keeps working offline; the link retries in the background. */
+    esp_err_t wifi_err = knob_link_wifi_init();
+    if (wifi_err != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi join incomplete (%s) — retrying in background", esp_err_to_name(wifi_err));
+    }
 
     ui_create();
 

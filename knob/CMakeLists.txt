@@ -17,3 +17,8 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.knob")
 
 project(knob)
+
+# Bake knob/spiffs/ into the `storage` partition; FLASH_IN_PROJECT makes
+# `idf.py flash` carry it (the clock's root CMakeLists pattern). The real
+# knob_credentials.txt is gitignored; only the .example.txt is tracked.
+spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
