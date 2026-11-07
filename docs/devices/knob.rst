@@ -73,29 +73,39 @@ What the bench captured, in order:
    MAC ``<mac-u4wdh>``, 4 MB flash (stub upload + run clean,
    ``flash_id`` reads the chip) — a normal ESP32-class flashing
    target, factory firmware still present.
-2. **The S3R8 side has not enumerated.** With the plug rotated 180°
-   in the same socket the board went **completely off the bus** —
-   no ``ttyUSB*``, no new ``ttyACM*``, no kernel claim at all; and
-   the ESP32-S3's native USB has not appeared in the orientations
-   tested so far. Until it does, the display MCU is unreachable and
-   the black screen is unexplained-but-expected (Waveshare ships
-   these with the app side unflashed — the health signals are the
-   power LED and the serial node, never the panel).
+2. **The S3R8 side has not enumerated — but the board was unpowered
+   for most of those tests.** With the plug rotated 180° in the same
+   socket the board went **completely off the bus** — no ``ttyUSB*``,
+   no new ``ttyACM*``, no kernel claim. A later bench step explains
+   it: the board carries a **built-in battery** (it runs with no
+   cable attached at all, so the USB-C doubles as the charge path)
+   and the lone exposed control is the back-side power button — most
+   of the "silent orientation" captures predate any deliberate
+   power-on. Opening the case made the board boot by itself and the
+   **factory demo came up on the panel**, then died mid-boot — the
+   classic deep-discharge LiPo brown-out. That also corrects an
+   earlier note here: the app side is *not* shipped unflashed (the
+   demo is pre-installed), and a black panel on this board usually
+   means "powered off / flat battery", not "dead".
 3. One **transient** in the first session: the U4 node dropped ~25 s
    after enumeration (a clean USB disconnect, no driver error) and
-   came back healthy on re-plug; not reproduced since.
+   came back healthy on re-plug; not reproduced since — and the
+   battery now offers a mundane suspect (rail sag) for it too.
+   Charge before trusting any enumeration result.
 
 The open question is therefore not a defect but an unmet
 expectation: with the plug in the **S3 orientation** the bench saw
-*nothing* enumerate — no ``ttyUSB*``, no ``ttyACM*``. Since that
-orientation is by design the S3's download channel, the two
-suspects are the cable (a charge-only USB-C cable reproduces the
-same total-silence signature in both orientations) and the S3
-needing its manual download-mode sequence — hold the **back-side
-BOOT button** while power-cycling (the knob is a dial, not a
-button). Re-test with a known data cable in both orientations,
-then the BOOT sequence, before concluding anything about the
-silicon.
+*nothing* enumerate — no ``ttyUSB*``, no ``ttyACM*``. Given the
+battery discovery, the checklist in order: **charge the board**
+(a flat LiPo browns out boot, and nothing enumerates below the
+supervisor threshold), **power it on** with the back power button,
+then a **known-good data cable** (a charge-only cable reproduces
+the same total silence), and only then the manual download-mode
+sequence — hold the **back-side BOOT button** while power-cycling
+(the knob is a dial, not a button). If the factory demo runs, it
+may also enumerate on its own (its "PC secondary screen" feature
+implies native-USB CDC use) — check the plain bus first, the
+button trick second.
 
 One trap this surfaced, in the other direction: a ``1a86:55d3``
 "USB Single Serial" (CH9102) ``ttyACM`` node appeared alongside and
