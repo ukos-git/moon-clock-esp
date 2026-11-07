@@ -295,6 +295,9 @@ The on-device acceptance (M3+M4, the 650 px disk): the boot sweep ran
 was **599 ms @ 618 px / 959 ms @ 650 px**; the dusk ran ~43 s; the
 binary was 1,575,152 B at the TZ-land time (the full binary
 chronology in :doc:`the binary-size chronology <../verification/binary>`).
+Re-verified 2026-11-07 with the quadrupled sweep: **1344/1344**
+frames, 0 WDT/panic, ~40.5 min wall, bake median 1543 ms @ 650 px
+(the 2048-albedo era's 1138–2083 ms spread).
 
 What the port did *not* touch
 ------------------------------

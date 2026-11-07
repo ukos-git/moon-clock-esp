@@ -392,6 +392,8 @@ benchmark context in :doc:`performance <../verification/performance>`):
      - ~11 min (wall; arithmetic on the accepted per-frame captures —
        the bench S3 re-capture is pending)
      - 1344/1344 frames, 0 WDT
+       (~40 min wall @ 650 px,
+       2026-11-07 capture)
    * - Sweep final frame (full res)
      - ~1.3 s
      - 599 ms @ 618 px / 959 ms @ 650 px

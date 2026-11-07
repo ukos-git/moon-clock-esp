@@ -82,10 +82,16 @@ logged a plausible day count — a degenerate ephemeris logs a full
 (display-paced, not the ~1.3 s bake); and the hand-off to the spin
 happens (the re-anchor + ``spin started``). The P4 board's
 (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) acceptance is the same flow
-on the 650 px disk: **336/336 frames, 0 WDT/panic**, with
-the final full-res bake at **599 ms @ 618 px / 959 ms @ 650 px**
-(the P4 bake is ~15× faster than the S3's per pixel — the RISC-V
-vector unit and the X16 PSRAM bandwidth, :doc:`performance <performance>`).
+on the 650 px disk. The 1344-frame-era capture (2026-11-07, 28 d
+old-moon span, 0 WDT/panic): **1344/1344 frames** in **~40.5 min**
+wall — bake median **1543 ms** (1138 ms bright → 2083 ms dark, the
+2048-albedo PSRAM-load spread), ``shown`` median 187 ms, the spin
+hand-off logged at t = 2462 s. In the 618-albedo era the final
+full-res bake measured **599 ms @ 618 px / 959 ms @ 650 px** — the
+RISC-V vector unit and the X16 PSRAM bandwidth put the P4 ~2–3×
+ahead of the S3 per pixel before the 2048 albedo brought the bake
+back to the PSRAM-load-latency floor
+(:doc:`performance <performance>`).
 
 The spin
 --------
