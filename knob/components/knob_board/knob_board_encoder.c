@@ -58,43 +58,56 @@ static void enc_task(void *arg) {
             ESP_LOGI(TAG, "hb A=%d B=%d stable(%d,%d) count %d", gpio_get_level(ENC_PIN_A), gpio_get_level(ENC_PIN_B),
                      a, b, (int)s_count);
         }
+        /* Settle filter (bench 2026-11-08, second root cause): the run
+         * counter must SURVIVE iterations while the candidate holds. The
+         * first shape of this — `else if (la == a_cand && ++run >= N)`
+         * with a trailing else — was dead by construction: a failing
+         * threshold test fell into the else and reset the run to 1, so
+         * no edge was ever accepted (raw waveform probe caught it: A
+         * LOW for 100+ ms with the filter still reading stable A=1).
+         * The else now only RE-ARMS on a new candidate; a holding
+         * candidate counts up undisturbed. */
         const int la = gpio_get_level(ENC_PIN_A);
         if (la == a) {
             a_cand = -1;
             a_run = 0;
-        } else if (la == a_cand && ++a_run >= ENC_SETTLE) {
-            const int was = a;
-            a = la;
-            a_cand = -1;
-            a_run = 0;
-            /* Count the RISING A edge only. A detent is a full
-             * quadrature cycle: A edges TWICE (up and down) and B edges
-             * twice too - counting both A edges signs them opposite
-             * (B has flipped in between) and every detent cancels to
-             * zero, the "nothing moves" bench symptom. One polarity
-             * sampled once = one step per detent, B (stable) the sign. */
-            if (was == 0 && la == 1) {
-                portENTER_CRITICAL(&s_count_mux);
-                s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
-                const int32_t c = s_count;
-                portEXIT_CRITICAL(&s_count_mux);
-                ESP_LOGI(TAG, "A rise (B=%d) count %d", b, (int)c);
-            }
         } else {
-            a_cand = la;
-            a_run = 1;
+            if (la != a_cand) {
+                a_cand = la;
+                a_run = 1;
+            } else if (++a_run >= ENC_SETTLE) {
+                const int was = a;
+                a = la;
+                a_cand = -1;
+                a_run = 0;
+                /* Count the RISING A edge only. A detent is a full
+                 * quadrature cycle: A edges TWICE (up and down) and B
+                 * edges twice too - counting both A edges signs them
+                 * opposite (B has flipped in between) and every detent
+                 * cancels to zero. One polarity sampled once = one
+                 * step per detent, B (stable) the sign. */
+                if (was == 0 && la == 1) {
+                    portENTER_CRITICAL(&s_count_mux);
+                    s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
+                    const int32_t c = s_count;
+                    portEXIT_CRITICAL(&s_count_mux);
+                    ESP_LOGI(TAG, "A rise (B=%d) count %d", b, (int)c);
+                }
+            }
         }
         const int lb = gpio_get_level(ENC_PIN_B);
         if (lb == b) {
             b_cand = -1;
             b_run = 0;
-        } else if (lb == b_cand && ++b_run >= ENC_SETTLE) {
-            b = lb;
-            b_cand = -1;
-            b_run = 0;
         } else {
-            b_cand = lb;
-            b_run = 1;
+            if (lb != b_cand) {
+                b_cand = lb;
+                b_run = 1;
+            } else if (++b_run >= ENC_SETTLE) {
+                b = lb;
+                b_cand = -1;
+                b_run = 0;
+            }
         }
     }
 }
