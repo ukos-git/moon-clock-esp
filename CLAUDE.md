@@ -84,6 +84,11 @@ idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
 # width/manifest/partition mismatch — regenerate after touching the
 # pipeline or MOON_ALBEDO_W:
 cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4
+# knob companion (sibling project, own build dir + own gitignored
+# dependencies.lock.knob + knob/sdkconfig; flash the board chip_id-verified
+# as the bench's ESP32-S3; app-flash preserves its spiffs credentials):
+idf.py -C knob -B ../build/knob build
+idf.py -C knob -B ../build/knob app-flash -p <port>
 host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate (NASA refs)
 host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # both board textures must pass
 host_sim/uisim/build.sh run                    # real screens -> PNG snapshots (466)

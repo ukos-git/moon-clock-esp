@@ -1,9 +1,12 @@
-The Knob board (bring-up pending)
-=================================
+The Knob board
+==============
 
-**Status: hardware on the bench, firmware port not started.** This
-page records what the board has been observed to do on the host USB
-bus, so the port work starts from facts instead of a re-derivation.
+**Status: companion-input firmware on the bench** — the ``knob/``
+sibling project boots its QSPI panel, joins Wi-Fi, and drives the
+clock's screens over the LAN (:doc:`implementation
+<../implementation/companion-knob>`, milestones K0–K4). The board's
+own **moon-display** firmware is the next milestone. This page
+records the bench-observed facts the port started from.
 
 What it is
 ----------
@@ -48,11 +51,13 @@ the dial. The encoders are **dual — one per MCU** ("acting on
 ESP32S3 and ESP32 respectively"), so each chip reads its own encoder
 and neither knob is a push-button.
 
-Its intended role in this project is a **companion input device**:
-rotary-encoder letter selection for the Wi-Fi keyboard
-(:doc:`../keyboard`) and date/time/timer adjustment on the clock —
-turning instead of tapping the wheel. The port is tracked as its own
-work item.
+Its intended role in this project is a **fully-working moon display
+on its own** (the next milestone). What ships on it today is the
+plan's stepping stone: a **companion input device** — rotary-encoder
+letter selection for the Wi-Fi keyboard (:doc:`../keyboard`) and
+date/time/timer adjustment on the clock, turning instead of tapping
+the wheel, with the knob's own screen as a mirror
+(:doc:`companion knob input <../implementation/companion-knob>`).
 
 Hardware map (vendor schematic + demo, extracted 2026-11-07)
 -------------------------------------------------------------
@@ -202,3 +207,36 @@ cannot tell them apart. The identifying check stays
 ``esptool.py --port <port> chip_id`` (``ESP32S3`` for this board's
 U4 path — and the same single check that already catches a stale
 port guess on the clock boards).
+
+Firmware (``knob/`` sibling project)
+-------------------------------------
+
+The shipping firmware is the companion-input device: LVGL 9.6 mirror
+views (KEYBOARD ring / STEPPER field list), the dial decoder, and the
+UDP sender. Layout and commands:
+
+* ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
+  {knob_board, knob_ui, knob_link}`` (panel/touch/dial shim, the two
+  mirror views, framing + UDP + mDNS query). It compiles the clock's
+  wire contract verbatim from
+  ``components/companion/include/companion_proto.h`` — frame layout
+  and the ``COMPANION_DWELL_MS`` hold-to-commit window have a single
+  source.
+* Own build dir, lock and config (like the P4): ``idf.py -C knob -B
+  ../build/knob build`` from the repo root; ``dependencies.lock.knob``
+  and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``
+  (spiffs-preserving) after ``esptool.py --port <port> chip_id``
+  identifies the board (it is the bench's only ESP32-S3 while the
+  AMOLED is unplugged).
+* Wi-Fi credentials come from ``knob/spiffs/knob_credentials.txt``
+  (gitignored, clock pattern; the example file is committed).
+* The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
+  pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
+  pulsed channel IS the direction. The decoder mirrors the vendor's
+  ``bidi_switch_knob`` 1:1 (3 ms poll, two-tick debounce, A rise =
+  +1, B rise = −1) — every quadrature-shaped attempt discarded half
+  the detents (bench, 2026-11-08). Details:
+  :doc:`companion knob input <../implementation/companion-knob>`.
+
+The U4WDH coprocessor still runs factory firmware; its encoder and
+the battery ADC pin are unexposed by the current build.

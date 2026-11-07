@@ -162,8 +162,9 @@ Knob-assisted input (companion dial)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Waveshare ESP32-S3-Knob-Touch-LCD-1.8 companion
-(:doc:`the device page <devices/knob>`) can drive this wheel without
-touch: the dial moves the lit slot (each detent sends the absolute
+(:doc:`the device page <devices/knob>`, wire contract and decoder in
+:doc:`companion knob input <implementation/companion-knob>`) can
+drive this wheel without touch: the dial moves the lit slot (each detent sends the absolute
 slot as a ``KEY_HOT`` preview frame), and because the dial has no
 push-button, **holding a settled slot for 3 s commits it** — the
 knob sends ``KEY_ADD`` when its dwell expires; a new detent restarts

@@ -9,6 +9,7 @@ The build system and the full compile-time reference: Kconfig, the moon constant
    build-system
    kconfig-board
    kconfig-clock
+   kconfig-companion
    kconfig-ui
    moon-consts
    partitions
