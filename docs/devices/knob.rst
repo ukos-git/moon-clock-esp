@@ -29,6 +29,17 @@ touch display. It is a **dual-MCU** board —
        description puts the rotary encoder on this chip (verify
        against the schematic at bring-up)
 
+The board has **one** USB-C receptacle, and it is
+**orientation-switchable between the two MCUs** (Waveshare wiki,
+read 2026-11-07): *"Bidirectional Switchable for ESP32-S3/ESP32"* —
+*"the two insertion orientations of the Type-C plug connect to
+different download channels"*. One plug rotation is therefore *meant*
+to reach the U4WDH (the channel the bench confirmed) and the other
+the ESP32-S3; the wiki's own recovery advice is "if programming
+fails, flip the Type-C plug", and the S3 side has a manual download
+mode as well: *"press and hold the button, power on again to enter
+download mode"*.
+
 Its intended role in this project is a **companion input device**:
 rotary-encoder letter selection for the Wi-Fi keyboard
 (:doc:`../keyboard`) and date/time/timer adjustment on the clock —
@@ -65,13 +76,16 @@ What the bench captured, in order:
    after enumeration (a clean USB disconnect, no driver error) and
    came back healthy on re-plug; not reproduced since.
 
-Interpretation, **unconfirmed** (re-test during bring-up): USB-C
-receptacles on boards of this class often wire only one orientation's
-CC/ID pins, so one plug rotation is "the port" and the other is
-electrically dead — and a charge-only cable reproduces the same
-total-silence signature. Both fit the capture; the discriminator is
-trying the other orientation with a known data cable, then a second
-cable in the other receptacle if the board has one.
+The open question is therefore not a defect but an unmet
+expectation: with the plug in the **S3 orientation** the bench saw
+*nothing* enumerate — no ``ttyUSB*``, no ``ttyACM*``. Since that
+orientation is by design the S3's download channel, the two
+suspects are the cable (a charge-only USB-C cable reproduces the
+same total-silence signature in both orientations) and the S3
+needing its manual download-mode sequence (hold the button,
+re-power). Re-test with a known data cable in both orientations,
+then the button sequence, before concluding anything about the
+silicon.
 
 One trap this surfaced, in the other direction: a ``1a86:55d3``
 "USB Single Serial" (CH9102) ``ttyACM`` node appeared alongside and
