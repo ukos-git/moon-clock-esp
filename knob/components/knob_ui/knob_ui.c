@@ -37,7 +37,11 @@ static const char *TAG = "knob_ui";
 #define KNOB_CX 180
 #define KNOB_CY 172
 #define RING_R 125
-#define RING_N 26
+#define RING_SLOTS                                                                                                     \
+    26 /* ring geometry: always 26 slots, the 123/#! sets                                                              \
+        * are 25 chars so one slot stands blank (the                                                                   \
+        * clock's wheel fills its sectors in the same                                                                  \
+        * index order) */
 #define ZONE_Y 300
 #define ZONE_H 46
 #define DWELL_MS 500
@@ -49,12 +53,19 @@ static knob_view_t s_view = VIEW_KEYBOARD;
 static int32_t s_last_enc;
 static uint32_t s_ui_tick; /* lv_tick_get() of the last timer run */
 
-/* keyboard state */
-static int s_hot;         /* 0..RING_N-1 (lit slot) */
+/* keyboard state — the register mirror. s_set/s_n index the shared
+ * COMPANION_WHEEL_SETS, so dial slot i means the clock's
+ * s_wheel_chars[i] in the same register. The clock resets its wheel to
+ * abc whenever the screen opens; the knob's s_mode is sticky, so after
+ * re-opening the screen tap ab until the labels agree (a HELLO carries
+ * no mode back - the knob is a mirror, not a master). */
+static int s_hot;         /* 0..s_n-1 (lit slot) */
 static uint32_t s_hot_ms; /* last dial settle */
 static bool s_dwell_sent; /* one shot per settle */
 static uint32_t s_fb_ms;  /* feedback window start (0 = none) */
 static int s_mode;        /* register mirror 0..3 */
+static const char *s_set = COMPANION_WHEEL_SETS[0];
+static int s_n = 26; /* strlen(s_set) */
 static const char *const s_mode_name[4] = {"abc", "ABC", "123", "#!"};
 
 /* stepper state */
@@ -80,7 +91,7 @@ static const struct {
 static lv_obj_t *s_status;
 static lv_obj_t *s_kb_view;
 static lv_obj_t *s_st_view;
-static lv_obj_t *s_ring[RING_N];
+static lv_obj_t *s_ring[RING_SLOTS];
 static lv_obj_t *s_center;
 static lv_obj_t *s_sub;
 static lv_obj_t *s_field_label;
@@ -106,9 +117,14 @@ static void zone_create(lv_obj_t *parent, int x, int w, const char *text, lv_eve
     lv_obj_set_clickable(l, false);
 }
 
+/* Paint the ring from the current register (slots past the set's end
+ * stand blank - the 123/#! sets are 25 chars) and preview the hot char
+ * in the centre. Cheap enough to run on every dial tick. */
 static void apply_hot(void) {
-    for (int i = 0; i < RING_N; i++) {
+    for (int i = 0; i < RING_SLOTS; i++) {
         const bool lit = (i == s_hot);
+        char one[2] = {i < s_n ? s_set[i] : ' ', 0};
+        lv_label_set_text(s_ring[i], one);
         lv_obj_set_style_text_color(s_ring[i], lit ? lv_color_hex(0x101014) : lv_color_hex(0xC9CCD3), 0);
         lv_obj_set_style_bg_color(s_ring[i], lit ? lv_color_hex(0xF2F3F5) : lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_ring[i], lit ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
@@ -116,14 +132,25 @@ static void apply_hot(void) {
         lv_obj_set_style_border_color(s_ring[i], lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_radius(s_ring[i], 8, 0);
     }
-    char one[2] = {(char)('a' + s_hot), 0};
+    char one[2] = {s_set[s_hot], 0};
     lv_label_set_text(s_center, one);
+}
+
+/* Adopt a register (0..3): re-skin the ring and park the highlight. */
+static void kb_set_register(int m) {
+    s_mode = m & 3;
+    s_set = COMPANION_WHEEL_SETS[s_mode];
+    s_n = (int)strlen(s_set);
+    s_hot = 0;
+    s_dwell_sent = true; /* no phantom commit from the repaint */
+    lv_label_set_text(s_sub, s_mode_name[s_mode]);
+    apply_hot();
 }
 
 /* ---- keyboard input ---------------------------------------------------- */
 
 static void kb_dial(int32_t d) {
-    s_hot = (int)(((s_hot + d) % RING_N + RING_N) % RING_N);
+    s_hot = (int)(((s_hot + d) % s_n + s_n) % s_n);
     s_hot_ms = lv_tick_get();
     s_dwell_sent = false;
     s_fb_ms = 0;
@@ -149,8 +176,8 @@ static void kb_zone_cb(lv_event_t *e) {
     case 3:
         knob_link_send(COMPANION_FRAME_ABORT, COMPANION_FIELD_NONE, 0);
         break;
-    default: /* ab: cycle the clock's register */
-        s_mode = (s_mode + 1) & 3;
+    default: /* ab: cycle the clock's register (and our mirror of it) */
+        kb_set_register(s_mode + 1);
         knob_link_send(COMPANION_FRAME_KEY_MODE, COMPANION_FIELD_NONE, (int8_t)s_mode);
         break;
     }
@@ -209,7 +236,7 @@ static void ui_timer_cb(lv_timer_t *timer) {
             knob_link_send(COMPANION_FRAME_KEY_ADD, COMPANION_FIELD_NONE, (int8_t)s_hot);
             s_fb_ms = now;
             char buf[24];
-            snprintf(buf, sizeof(buf), "%s  ·  sent '%c'", s_mode_name[s_mode], (char)('a' + s_hot));
+            snprintf(buf, sizeof(buf), "%s  ·  sent '%c'", s_mode_name[s_mode], s_set[s_hot]);
             lv_label_set_text(s_sub, buf);
         } else if (s_fb_ms && lv_tick_elaps(s_fb_ms) >= FB_MS) {
             s_fb_ms = 0;
@@ -253,11 +280,10 @@ void knob_ui_create(void) {
     lv_obj_set_style_pad_all(s_kb_view, 0, 0);
     lv_obj_set_scrollable(s_kb_view, false);
 
-    for (int i = 0; i < RING_N; i++) {
-        const double th = (2.0 * M_PI * i) / RING_N; /* 0 = top, CW */
+    for (int i = 0; i < RING_SLOTS; i++) {
+        const double th = (2.0 * M_PI * i) / RING_SLOTS; /* 0 = top, CW */
         lv_obj_t *cell = lv_label_create(s_kb_view);
-        char one[2] = {(char)('a' + i), 0};
-        lv_label_set_text(cell, one);
+        lv_label_set_text(cell, " ");
         lv_obj_set_size(cell, 30, 38);
         lv_obj_set_style_text_align(cell, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(cell, KNOB_CX + (int)(RING_R * sin(th)) - 15, KNOB_CY - (int)(RING_R * cos(th)) - 19);

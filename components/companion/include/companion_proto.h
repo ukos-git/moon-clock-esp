@@ -25,6 +25,18 @@ extern "C" {
 #define COMPANION_VERSION 1u
 #define COMPANION_FRAME_LEN 10
 
+/* The clock's four keyboard-wheel registers (abc / ABC / 123 / #!), in
+ * KEY_MODE delta order. The knob mirrors these verbatim so a dial slot
+ * and the clock's s_wheel_chars index the SAME character - the K4 digit
+ * fix: the knob's ring used to hardcode lowercase and could never spell
+ * a digit. Single source: screens.c draws the wheel from these strings. */
+static const char *const COMPANION_WHEEL_SETS[4] = {
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "0123456789#@._-+*?!/&%:;,",
+    "#$%&@!_=<>[]{}~^:,/?*+-.'",
+};
+
 /* Frame kinds. KEY_* are keyboard-wheel effects (valid only on the
  * WiFi-password screen); STEP/FOCUS/COMMIT/ABORT are roller effects (valid
  * on the time/alarm/pomodoro/TZ screens). The clock validates kind against

@@ -1716,13 +1716,10 @@ void tick_screen_settings_wifi() {
 
 /* The four register modes (all printable ASCII -- the 32 px font now
  * covers 32-126). The digit/symbol registers are shorter than 26, so
- * their groups fill in order (the last group takes the remainder). */
-static const char *const s_wheel_sets[4] = {
-    "abcdefghijklmnopqrstuvwxyz",
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    "0123456789#@._-+*?!/&%:;,",
-    "#$%&@!_=<>[]{}~^:,/?*+-.'",
-};
+ * their groups fill in order (the last group takes the remainder).
+ * The strings live in companion_proto.h (COMPANION_WHEEL_SETS): the
+ * knob mirrors them verbatim, so its dial slots and s_wheel_chars stay
+ * the same characters. */
 
 /* The 12 frequency-grouped sectors (FIXED across all four registers).
  * Group 5 = the rare j/k/q cluster, group 10 = v/x/z. */
@@ -1964,9 +1961,9 @@ static void settings_wheel_set_mode(int m) {
         return;
     }
     s_wheel_mode = m;
-    s_wheel_n = (int)strlen(s_wheel_sets[m]);
+    s_wheel_n = (int)strlen(COMPANION_WHEEL_SETS[m]);
     for (int j = 0; j < 26; j++) {
-        s_wheel_chars[j] = j < s_wheel_n ? s_wheel_sets[m][j] : 0;
+        s_wheel_chars[j] = j < s_wheel_n ? COMPANION_WHEEL_SETS[m][j] : 0;
     }
     /* Per-sector counts + the global letter index of each sector start:
      * fill each group in order (the digit/symbol registers are shorter
