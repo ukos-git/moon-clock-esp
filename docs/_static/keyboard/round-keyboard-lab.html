@@ -95,7 +95,24 @@ footer ol { margin: 8px 0 14px; padding-left: 18px; }
 .pdisk text { font-family: Montserrat, sans-serif; user-select: none; }
 .pdisk:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 50%; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+/* ---------- embed mode (?only=N) ----------
+   The docs page embeds ONE method's operable widget per section
+   (keyboard-lab.rst) — no page chrome, no card prose (the docs page
+   carries the what/pros/cons/verdict text), transparent surround so
+   the host theme shows through. The full grid stays the standalone
+   page. */
+html.embed, html.embed body { background: transparent; }
+html.embed { color-scheme: light dark; }
+html.embed body { padding: 0; }
+html.embed .wrap { max-width: 520px; }
+html.embed header, html.embed h2.sec, html.embed footer, html.embed .offgrid { display: none; }
+html.embed #gallery { display: block; }
+html.embed .try { text-align: center; max-width: 466px; margin: 8px auto 0; padding: 0 16px; }
 </style>
+<script>
+/* set the embed class before first paint (no flash of the full page) */
+if (/[?&]only=[0-9]+/.test(location.search)) document.documentElement.classList.add("embed");
+</script>
 <div class="wrap">
   <header>
     <p class="eyebrow">Moon Phase Clock · 466×466 CO5300 · text entry study</p>
@@ -1010,8 +1027,24 @@ function buildT9Mini() {
   return svg;
 }
 
-/* ---------- build DOM ---------- */
+/* ---------- build DOM ----------
+   ?only=N (set by the docs page) renders that ONE method's operable
+   widget + its try-line — the what/pros/cons/verdict prose lives on the
+   embedding docs page, so the card chrome and evidence rows are skipped. */
 const gallery = document.getElementById("gallery");
+const ONLY = (() => { const m = /[?&]only=([0-9]+)/.exec(location.search); return m ? +m[1] : 0; })();
+if (ONLY) {
+  const cd = CARDS.find(c => +c.rank === ONLY);
+  if (cd) {
+    const slot = document.createElement("div");
+    gallery.appendChild(slot);
+    const tryP = document.createElement("p");
+    tryP.className = "try";
+    tryP.innerHTML = cd.try;
+    gallery.appendChild(tryP);
+    cd.build(slot);
+  }
+} else {
 for (const cd of CARDS) {
   const card = document.createElement("article");
   card.className = "card";
@@ -1049,6 +1082,7 @@ t9.innerHTML =
   '<div class="t9wrap"><div class="t9slot"></div><p>The T9 speed win comes from 1‑press‑per‑character against a <b>word database</b>. Passwords are arbitrary: a 200–500 KB word list buys almost nothing here. The mechanics T9 provides are exactly what the multi‑tap ring (panel #2) generalizes without the database.</p></div>';
 offgrid.appendChild(t9);
 t9.querySelector(".t9slot").appendChild(buildT9Mini());
+}
 
 /* ---------- one shared rAF loop drives all timers ---------- */
 function loop(t) {

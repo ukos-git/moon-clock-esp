@@ -107,9 +107,9 @@ The operable lab — every panel in its own widget
 ------------------------------------------------
 
 A research document that ranks alternatives by citation is one thing;
-feeling them is another. The lab at
-``docs/_static/keyboard/round-keyboard-lab.html`` (a single
-self-contained page — vanilla HTML/SVG/JS, no build, no server,
+feeling them is another. The lab
+(``docs/_static/keyboard/round-keyboard-lab.html`` — a single
+self-contained page, vanilla HTML/SVG/JS, no build, no server,
 committed to the repo so the documented choices and the operable
 reference cannot drift apart) renders **all 13 text-entry methods**
 at **true 1:1 scale** — every on-hardware mock is a 466×466 SVG, the
@@ -117,19 +117,23 @@ device's own panel geometry, the device's own black-on-black AMOLED
 palette — and the feasible ones are **actually operable in the
 browser** (pointer events, the device's timing constants: multi-tap
 700 ms, dwell 400 ms, auto-scan 1 s), so the feel can be compared
-before any C is written. **Every panel is its own widget**: one card
-per method carrying the operable disk, the "try it" instructions, and
-the research report's evidence rows (speed / accuracy / cost /
-verdict) directly under it — the pros and cons live on the widget,
-next to the thing you are comparing. The four off-hardware methods
-have no operable disk (no sensor to drive one) and are text cards in
-the lab's lower grid.
+before any C is written.
+
+This page does not embed the lab page as one big iframe. Each
+method's operable disk is embedded **individually, in its own section
+below** — the lab's ``?only=N`` embed mode, one widget per panel with
+its "try it" line, no duplicate prose (the what / pros / cons /
+verdict text on this page is the record). The four off-hardware
+methods have no operable disk (no sensor to drive one) and stay text
+cards, here and in the lab's lower grid. For the side-by-side view of
+the whole thirteen at once — the verdict strip, the evidence rows, the
+off-hardware cards:
 
 .. raw:: html
 
-   <iframe src="_static/keyboard/round-keyboard-lab.html"
-           style="width:100%; min-height:1080px; border:0; border-radius:12px;"
-           loading="lazy" title="Round keyboard lab — the 13 text-entry methods at 1:1 scale"></iframe>
+   <p style="margin:0 0 18px;"><a href="_static/keyboard/round-keyboard-lab.html"
+   target="_blank" rel="noopener"><strong>Open the full lab in a new tab
+   ↗</strong></a></p>
 
 The panels, one by one
 ----------------------
@@ -167,6 +171,14 @@ appears on release).
 design's record and operable widget are on :doc:`the round keyboard
 <keyboard>`.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=1"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Sweep wheel v2 — the operable 1:1 panel"></iframe>
+   </div>
+
 2 · 12-sector DTMF multi-tap
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -187,6 +199,14 @@ configuration-table choice, not a familiar one.
 **Verdict.** **SHIP** as an addition — best cost/benefit; take the
 123/#$ registers first.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=2"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="12-sector DTMF multi-tap — the operable 1:1 panel"></iframe>
+   </div>
+
 3 · Hold-to-commit dwell
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -205,6 +225,14 @@ password.
 
 **Verdict.** **SHIP** as the default fallback.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=3"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Hold-to-commit dwell — the operable 1:1 panel"></iframe>
+   </div>
+
 4 · Auto-scan, Crownboard-style
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -222,6 +250,14 @@ must land in the lit sector's window; it is an accessibility aid, not
 a primary method.
 
 **Verdict.** **SHIP** as an accessibility setting, not the primary.
+
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=4"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Auto-scan, Crownboard-style — the operable 1:1 panel"></iframe>
+   </div>
 
 5 · 9×4 swipe sectors
 ^^^^^^^^^^^^^^^^^^^^^
@@ -242,6 +278,14 @@ cover.
 **Verdict.** **HOLD** — revisit only if multi-tap proves
 unlearnable.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=5"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="9×4 swipe sectors — the operable 1:1 panel"></iframe>
+   </div>
+
 6 · Fitted QWERTY 6×6
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -260,6 +304,14 @@ rejected outcome.
 **Verdict.** **REJECTED** — keys well below a fingertip on a 35 mm
 disk.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=6"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Fitted QWERTY 6×6 — the operable 1:1 panel"></iframe>
+   </div>
+
 7 · Ring glide / one-stroke
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -276,6 +328,14 @@ the double-entry failure mode cannot be made structurally impossible.
 That is exactly the property release-only commit buys.
 
 **Verdict.** **REJECTED** as a primary for arbitrary strings.
+
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=7"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Ring glide / one-stroke — the operable 1:1 panel"></iframe>
+   </div>
 
 8 · IMU twist
 ^^^^^^^^^^^^^
@@ -294,6 +354,14 @@ that exact signal.
 
 **Verdict.** **EXPERIMENTAL** at best; disqualifying today.
 
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=8"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="IMU twist — the operable 1:1 panel"></iframe>
+   </div>
+
 9 · Physical encoder + haptic detents
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -309,6 +377,14 @@ distraction win; crown-class rotate+press speed.
 one; out of scope for the current product.
 
 **Verdict.** the **right v2-board upgrade**; out of scope today.
+
+.. raw:: html
+
+   <div style="max-width:520px; margin:4px auto 20px;">
+   <iframe src="_static/keyboard/round-keyboard-lab.html?only=9"
+           style="width:100%; min-height:560px; border:0; background:transparent;"
+           loading="lazy" title="Physical encoder + haptic detents — the operable 1:1 panel"></iframe>
+   </div>
 
 Off-hardware — the silicon is not there
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -330,22 +406,6 @@ panel to operate — no sensor to drive one):
   Passwords are arbitrary: a 200–500 KB word list buys almost nothing
   here. The mechanics T9 provides are exactly what the multi-tap ring
   (panel #2) generalizes without the database.
-
-.. figure:: _static/figs/kbd_panels.png
-   :alt: The nine on-hardware keyboard panels at true 1:1 scale
-   :figclass: align-center
-
-   The lab's nine **on-hardware** methods at true 1:1 scale (466×466,
-   the device's own panel geometry, the device's own AMOLED palette),
-   in verdict-strip order, rendered from the lab page itself
-   (``docs/tools/gen_kbd_panels.py``): #1 the sweep wheel v2 that
-   shipped, #2 the DTMF multi-tap its coarse-press model inherits, #3
-   the dwell fallback, #4 the auto-scan accessibility setting, #5 the
-   swipe sectors held for now, and the rejections (#6 the
-   sub-fingertip QWERTY, #7 the one-stroke ring) plus the experiments
-   (#8 the IMU twist, #9 the encoder upgrade for a future board). The
-   four off-hardware methods are text cards in the lab — there is no
-   panel to render.
 
 The decisions, recorded
 -----------------------
