@@ -2,21 +2,24 @@
  * @file knob_board_encoder.c
  * @brief EC1 rotary dial (A = GPIO 8, B = GPIO 7, 10K pull-ups to 3V3).
  *
- * The vendor's driver is a software-polling debouncer (no PCNT, no ISR) —
- * we keep that shape but NOT its sampling: a raw 2 ms poll of the 4-state
- * Gray wheel double-counted a detent and unwound it with the contact
- * bounce (bench, K4: one turn read +1 then -1, the ring only ever reached
- * z/a/b). Each channel now must read stable for ENC_SETTLE consecutive
- * 1 ms samples before it counts, and a detent is ONE step taken on the
- * stable A edge with stable B deciding the sign — B-only transitions (the
- * bounce half of a detent) move nothing. CONFIG_FREERTOS_HZ=1000 so 1 ms
- * really is 1 tick (the clock's 100 Hz spin lesson).
+ * Bench history (K4, 2026-11-08): a 1 ms polling decoder saw CW detents as
+ * clean A pulses but NOTHING AT ALL on the opposing turn (no A, no B, raw
+ * probe silent) and only rare B samples - the working hypothesis is
+ * sub-millisecond flicker edges in one direction that a polling loop can
+ * miss between samples. This revision therefore captures BOTH channels on
+ * BOTH edges from a GPIO ISR into a timestamped ring (edges can no longer
+ * hide), and the drain task (a) logs every edge for waveform analysis and
+ * (b) runs the decoder on the captured stream: detent = stable A rise with
+ * instantaneous B for the sign (the vendor iot_knob scheme, see
+ * knob.rst), plus a plain quadrature-table sum logged alongside so the
+ * bench can tell which metric the hardware actually supports.
  */
 #include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "knob_board.h"
@@ -25,99 +28,91 @@ static const char *TAG = "knob_enc";
 
 #define ENC_PIN_A 8
 #define ENC_PIN_B 7
-#define ENC_POLL_MS 1
-/* Consecutive identical 1 ms samples before a channel edge is accepted.
- * EC1 detent contact bounce runs a few ms; 5 ms sits above it and well
- * below a fast hand's detent period (~80 ms at 12 detents/s). */
-#define ENC_SETTLE 5
+#define ENC_DRAIN_MS 10 /* ring service period (logging only, not sampling) */
+#define ENC_RING 256    /* edges buffered between ISR and drain task */
+
+typedef struct {
+    uint32_t ts; /* esp_timer microseconds at the edge */
+    uint8_t a;
+    uint8_t b;
+} edge_rec_t;
+
+static volatile edge_rec_t s_ring[ENC_RING];
+static volatile uint32_t s_produced; /* ISR writes */
+static volatile uint32_t s_consumed; /* drain task writes */
 
 static volatile int32_t s_count;
+static volatile int32_t s_quad;
 static portMUX_TYPE s_count_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_task;
 
-/* Per-channel settle filter + A-edge counting. A detent is ONE step: the
- * stable A transition, signed by stable B (quadrature). A-only or A-then-
- * B order is what the mechanical detent guarantees; a B bounce while A
- * holds just re-filters B without touching the count. */
+static void IRAM_ATTR enc_isr(void *arg) {
+    (void)arg;
+    const uint32_t ts = (uint32_t)esp_timer_get_time(); /* us */
+    const uint8_t a = (uint8_t)gpio_get_level(ENC_PIN_A);
+    const uint8_t b = (uint8_t)gpio_get_level(ENC_PIN_B);
+    const uint32_t h = s_produced;
+    if (h - s_consumed < ENC_RING) {
+        s_ring[h % ENC_RING] = (edge_rec_t){.ts = ts, .a = a, .b = b};
+        s_produced = h + 1;
+    }
+}
+
+/* 4x quadrature table, state = a*2+b, index = old*4+new. Legal single-
+ * channel steps get +1/-1; double-channel jumps (bounce/missed edge) get 0. */
+static const int8_t QTAB[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+
 static void enc_task(void *arg) {
     (void)arg;
-    int a = gpio_get_level(ENC_PIN_A);
-    int b = gpio_get_level(ENC_PIN_B);
-    int a_cand = -1, a_run = 0, b_cand = -1, b_run = 0;
-    int hb = 0;               /* heartbeat tick (bench probe: raw levels vs count) */
-    int raw_a = a, raw_b = b; /* last RAW levels logged (waveform probe) */
+    /* Decoder state walks the captured edge stream. la_* = last settled
+     * level used for the A-rise rule; a_cand/a_run keep the vendor-style
+     * settle on the SAMPLED value at the edge (bounce bursts arrive as
+     * many fast edges - a rise only counts when the level stays for
+     * SETTLE edges within ~settle window ms, approximated by wall time
+     * since the first candidate edge). */
+    int a = (int)gpio_get_level(ENC_PIN_A);
+    int b = (int)gpio_get_level(ENC_PIN_B);
+    int quad_state = a * 2 + b;
+    uint32_t hb = 0;
+    uint32_t edges_seen = 0;
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(ENC_POLL_MS));
-        if (gpio_get_level(ENC_PIN_A) != raw_a || gpio_get_level(ENC_PIN_B) != raw_b) {
-            raw_a = gpio_get_level(ENC_PIN_A);
-            raw_b = gpio_get_level(ENC_PIN_B);
-            ESP_LOGI(TAG, "raw A=%d B=%d", raw_a, raw_b);
-        }
-        if (++hb >= 2000) {
-            hb = 0;
-            ESP_LOGI(TAG, "hb A=%d B=%d stable(%d,%d) count %d", gpio_get_level(ENC_PIN_A), gpio_get_level(ENC_PIN_B),
-                     a, b, (int)s_count);
-        }
-        /* Settle filter (bench 2026-11-08, second root cause): the run
-         * counter must SURVIVE iterations while the candidate holds. The
-         * first shape of this — `else if (la == a_cand && ++run >= N)`
-         * with a trailing else — was dead by construction: a failing
-         * threshold test fell into the else and reset the run to 1, so
-         * no edge was ever accepted (raw waveform probe caught it: A
-         * LOW for 100+ ms with the filter still reading stable A=1).
-         * The else now only RE-ARMS on a new candidate; a holding
-         * candidate counts up undisturbed. */
-        const int la = gpio_get_level(ENC_PIN_A);
-        if (la == a) {
-            a_cand = -1;
-            a_run = 0;
-        } else {
-            if (la != a_cand) {
-                a_cand = la;
-                a_run = 1;
-            } else if (++a_run >= ENC_SETTLE) {
+        vTaskDelay(pdMS_TO_TICKS(ENC_DRAIN_MS));
+        while (s_consumed != s_produced) {
+            const edge_rec_t e = s_ring[s_consumed % ENC_RING];
+            s_consumed++;
+            edges_seen++;
+            ESP_LOGI(TAG, "e %u A=%d B=%d", (unsigned)e.ts, e.a, e.b);
+            /* quadrature accumulate */
+            const int st = e.a * 2 + e.b;
+            if (st != quad_state) {
+                portENTER_CRITICAL(&s_count_mux);
+                s_quad += QTAB[quad_state * 4 + st];
+                portEXIT_CRITICAL(&s_count_mux);
+                quad_state = st;
+            }
+            /* vendor-scheme detent: accepted A RISE, instantaneous B sign */
+            if (e.a != a) {
                 const int was = a;
-                a = la;
-                a_cand = -1;
-                a_run = 0;
-                /* Count the RISING A edge only. A detent is a full
-                 * quadrature cycle: A edges TWICE (up and down) and B
-                 * edges twice too - counting both A edges signs them
-                 * opposite (B has flipped in between) and every detent
-                 * cancels to zero. One polarity sampled once = one
-                 * step per detent, B (stable) the sign. */
-                if (was == 0 && la == 1) {
-                    /* Sign from INSTANTANEOUS B at the edge (bench
-                     * 2026-11-08): B's low window is SHORTER than the
-                     * settle filter's accept time, so the filtered b is
-                     * always stale at the A rise - every detent read one
-                     * sign and the ring only ever advanced one way.
-                     * Raw B at the edge carries the truth (the early
-                     * double-count build saw +-1 pairs from it), and
-                     * this mirrors the vendor's proven iot_knob: settle
-                     * A, sample B at the moment A edges. */
-                    const int bsign = gpio_get_level(ENC_PIN_B);
+                a = e.a;
+                if (was == 0 && e.a == 1) {
                     portENTER_CRITICAL(&s_count_mux);
-                    s_count += bsign ? -1 : +1; /* bench-flip if reversed */
+                    s_count += e.b ? -1 : +1; /* bench-flip if reversed */
                     const int32_t c = s_count;
                     portEXIT_CRITICAL(&s_count_mux);
-                    ESP_LOGI(TAG, "A rise (Braw=%d bset=%d) count %d", bsign, b, (int)c);
+                    ESP_LOGI(TAG, "A rise (Braw=%d) count %d", e.b, (int)c);
                 }
             }
-        }
-        const int lb = gpio_get_level(ENC_PIN_B);
-        if (lb == b) {
-            b_cand = -1;
-            b_run = 0;
-        } else {
-            if (lb != b_cand) {
-                b_cand = lb;
-                b_run = 1;
-            } else if (++b_run >= ENC_SETTLE) {
-                b = lb;
-                b_cand = -1;
-                b_run = 0;
+            if (e.b != b) {
+                b = e.b;
             }
+        }
+        if (++hb >= 500) { /* 5 s */
+            hb = 0;
+            portENTER_CRITICAL(&s_count_mux);
+            const int32_t c = s_count, q = s_quad;
+            portEXIT_CRITICAL(&s_count_mux);
+            ESP_LOGI(TAG, "hb A=%d B=%d count %d quad %d edges %u", gpio_get_level(ENC_PIN_A),
+                     gpio_get_level(ENC_PIN_B), (int)c, (int)q, (unsigned)edges_seen);
         }
     }
 }
@@ -127,18 +122,19 @@ esp_err_t knob_board_encoder_init(void) {
         .pin_bit_mask = (1ULL << ENC_PIN_A) | (1ULL << ENC_PIN_B),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "gpio cfg");
+    ESP_RETURN_ON_ERROR(gpio_install_isr_service(0), TAG, "isr svc");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ENC_PIN_A, enc_isr, NULL), TAG, "isr a");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ENC_PIN_B, enc_isr, NULL), TAG, "isr b");
     if (s_task == NULL) {
-        /* Small stack: GPIO polling + a critical section (+ the trace
-         * log while the settle filter is being tuned). */
         xTaskCreate(enc_task, "knob_enc", 3072, NULL, 5, &s_task);
         if (s_task == NULL) {
             return ESP_ERR_NO_MEM;
         }
     }
-    ESP_LOGI(TAG, "dial up: A=%d B=%d (1 ms poll, %d-sample settle)", ENC_PIN_A, ENC_PIN_B, ENC_SETTLE);
+    ESP_LOGI(TAG, "dial up: A=%d B=%d (edge ISR + ring, %d deep)", ENC_PIN_A, ENC_PIN_B, ENC_RING);
     return ESP_OK;
 }
 
@@ -152,5 +148,6 @@ int32_t knob_board_encoder_count(void) {
 void knob_board_encoder_reset(void) {
     portENTER_CRITICAL(&s_count_mux);
     s_count = 0;
+    s_quad = 0;
     portEXIT_CRITICAL(&s_count_mux);
 }
