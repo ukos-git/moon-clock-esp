@@ -3,9 +3,14 @@
  * @brief EC1 rotary dial (A = GPIO 8, B = GPIO 7, 10K pull-ups to 3V3).
  *
  * The vendor's driver is a software-polling debouncer (no PCNT, no ISR) —
- * we keep that shape: a 2 ms task walks the 4-state Gray-code wheel and
- * counts signed detents. CONFIG_FREERTOS_HZ=1000 so 2 ms really is 2 ticks
- * (the clock's 100 Hz spin lesson).
+ * we keep that shape but NOT its sampling: a raw 2 ms poll of the 4-state
+ * Gray wheel double-counted a detent and unwound it with the contact
+ * bounce (bench, K4: one turn read +1 then -1, the ring only ever reached
+ * z/a/b). Each channel now must read stable for ENC_SETTLE consecutive
+ * 1 ms samples before it counts, and a detent is ONE step taken on the
+ * stable A edge with stable B deciding the sign — B-only transitions (the
+ * bounce half of a detent) move nothing. CONFIG_FREERTOS_HZ=1000 so 1 ms
+ * really is 1 tick (the clock's 100 Hz spin lesson).
  */
 #include <stdlib.h>
 
@@ -20,31 +25,53 @@ static const char *TAG = "knob_enc";
 
 #define ENC_PIN_A 8
 #define ENC_PIN_B 7
-#define ENC_POLL_MS 2
+#define ENC_POLL_MS 1
+/* Consecutive identical 1 ms samples before a channel edge is accepted.
+ * EC1 detent contact bounce runs a few ms; 5 ms sits above it and well
+ * below a fast hand's detent period (~80 ms at 12 detents/s). */
+#define ENC_SETTLE 5
 
 static volatile int32_t s_count;
 static portMUX_TYPE s_count_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_task;
 
-/* 4-state Gray wheel: index = (A<<1)|B of the PREVIOUS sample << 2 |
- * current sample; +1/-1 valid detents, anything else a bounce. */
-static const int8_t s_steps[16] = {0, -1, +1, 0, +1, 0, 0, -1, -1, 0, 0, +1, 0, +1, -1, 0};
-
-static uint8_t enc_read_state(void) { return (uint8_t)((gpio_get_level(ENC_PIN_A) << 1) | gpio_get_level(ENC_PIN_B)); }
-
+/* Per-channel settle filter + A-edge counting. A detent is ONE step: the
+ * stable A transition, signed by stable B (quadrature). A-only or A-then-
+ * B order is what the mechanical detent guarantees; a B bounce while A
+ * holds just re-filters B without touching the count. */
 static void enc_task(void *arg) {
-    uint8_t prev = enc_read_state();
+    (void)arg;
+    int a = gpio_get_level(ENC_PIN_A);
+    int b = gpio_get_level(ENC_PIN_B);
+    int a_cand = -1, a_run = 0, b_cand = -1, b_run = 0;
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(ENC_POLL_MS));
-        const uint8_t now = enc_read_state();
-        if (now != prev) {
-            const int8_t step = s_steps[(prev << 2) | now];
-            if (step != 0) {
-                portENTER_CRITICAL(&s_count_mux);
-                s_count += step;
-                portEXIT_CRITICAL(&s_count_mux);
-            }
-            prev = now;
+        const int la = gpio_get_level(ENC_PIN_A);
+        if (la == a) {
+            a_cand = -1;
+            a_run = 0;
+        } else if (la == a_cand && ++a_run >= ENC_SETTLE) {
+            a = la;
+            a_cand = -1;
+            a_run = 0;
+            portENTER_CRITICAL(&s_count_mux);
+            s_count += b ? -1 : +1; /* stable B picks the sign (bench-flip if reversed) */
+            portEXIT_CRITICAL(&s_count_mux);
+        } else {
+            a_cand = la;
+            a_run = 1;
+        }
+        const int lb = gpio_get_level(ENC_PIN_B);
+        if (lb == b) {
+            b_cand = -1;
+            b_run = 0;
+        } else if (lb == b_cand && ++b_run >= ENC_SETTLE) {
+            b = lb;
+            b_cand = -1;
+            b_run = 0;
+        } else {
+            b_cand = lb;
+            b_run = 1;
         }
     }
 }
@@ -64,7 +91,7 @@ esp_err_t knob_board_encoder_init(void) {
             return ESP_ERR_NO_MEM;
         }
     }
-    ESP_LOGI(TAG, "dial up: A=%d B=%d (2 ms poll)", ENC_PIN_A, ENC_PIN_B);
+    ESP_LOGI(TAG, "dial up: A=%d B=%d (1 ms poll, %d-sample settle)", ENC_PIN_A, ENC_PIN_B, ENC_SETTLE);
     return ESP_OK;
 }
 

@@ -97,6 +97,11 @@ void app_main(void) {
 
     lv_init();
     s_disp = lv_display_create(KNOB_LCD_H_RES, KNOB_LCD_V_RES);
+    /* SH8601 QSPI RAM takes big-endian RGB565; LVGL renders little-endian,
+     * so ask for the pre-swapped buffer or every pixel lands byte-swapped
+     * (the K4 purple-wash symptom — invisible on K1's black/white screen).
+     * Must be set before the buffers are allocated. */
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
     const size_t buf_bytes = KNOB_LCD_H_RES * KNOB_LCD_ROWS_PER_BUF * sizeof(uint16_t);
     uint8_t *buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     uint8_t *buf2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
