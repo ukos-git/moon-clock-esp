@@ -1007,6 +1007,72 @@ static void spin_step_rotate(const uint16_t *m, uint16_t *o, int n, int step) {
 #define SPIN_MASK_RING_RMIN 204
 #define SPIN_MASK_RING_RMAX 231
 #endif
+/* Compressed form of the UI keep-mask: horizontal runs of masked pixels.
+ * moon_spin_write_panel()'s composite copies just these spans from the
+ * front mirror instead of scanning all MOON_PX^2 mask bits per frame
+ * (the ring band + UI glyphs are a minority of the window -- on the
+ * replay path the scan was ~20-25 ms of the ~53-103 ms wr time).
+ * Rebuilt WITH the mask (spin_mask_rebuild_once) and swapped under
+ * s_panel_mtx, so a spin/replay composite in flight never sees a
+ * half-built list. s_mask_runs_n < 0 = not built (first frames, or the
+ * run array could not be allocated) -> the composite falls back to the
+ * full scan. */
+typedef struct {
+    uint16_t y, x0, x1; /* x inclusive */
+} ui_mask_run_t;
+static ui_mask_run_t *s_mask_runs;
+static int s_mask_runs_n = -1;
+
+/* Rebuild s_mask_runs from s_ui_mask: count pass, fill pass, swap under
+ * the panel mutex; the old list is freed last, by which point no reader
+ * can hold it (composites deref it under that same mutex). */
+static void spin_mask_runs_rebuild(void) {
+    if (!s_ui_mask)
+        return;
+    int n = 0;
+    for (int y = 0; y < MOON_PX; y++) {
+        const uint8_t *m = s_ui_mask + (size_t)y * MOON_PX;
+        for (int x = 0; x < MOON_PX;) {
+            while (x < MOON_PX && !m[x])
+                x++;
+            if (x >= MOON_PX)
+                break;
+            n++;
+            while (x < MOON_PX && m[x])
+                x++;
+        }
+    }
+    ui_mask_run_t *runs = NULL;
+    if (n > 0) {
+        runs = heap_caps_malloc(sizeof(*runs) * (size_t)n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!runs)
+            n = -1; /* composite falls back to the full scan */
+        else {
+            int r = 0;
+            for (int y = 0; y < MOON_PX; y++) {
+                const uint8_t *m = s_ui_mask + (size_t)y * MOON_PX;
+                for (int x = 0; x < MOON_PX;) {
+                    while (x < MOON_PX && !m[x])
+                        x++;
+                    if (x >= MOON_PX)
+                        break;
+                    runs[r].y = (uint16_t)y;
+                    runs[r].x0 = (uint16_t)x;
+                    while (x < MOON_PX && m[x])
+                        x++;
+                    runs[r++].x1 = (uint16_t)(x - 1);
+                }
+            }
+        }
+    }
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+    ui_mask_run_t *old = s_mask_runs;
+    s_mask_runs = runs;
+    s_mask_runs_n = n;
+    xSemaphoreGive(s_panel_mtx);
+    free(old);
+}
+
 static void spin_mask_band(void) {
     memset(s_ui_mask, 0, (size_t)MOON_PX * MOON_PX);
     for (int y = 0; y < MOON_PX; y++) {
@@ -1120,6 +1186,7 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
         }
         lv_draw_buf_destroy(shot);
     }
+    spin_mask_runs_rebuild(); /* the run list always matches the mask */
 }
 
 /* Write the current s_rgb (screen frame) to the panel as the spin's
@@ -1200,13 +1267,25 @@ static void moon_spin_write_panel(void) {
     }
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
     if (CONFIG_TEST_SPIN_BANDS == 0) {
-        for (int y = 0; y < MOON_PX; y++) {
-            uint16_t *row = s_disp + (size_t)y * MOON_PX;
-            const uint16_t *frow = s_front + (size_t)y * MOON_PX;
-            const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
-            for (int x = 0; x < MOON_PX; x++)
-                if (mrow[x])
-                    row[x] = frow[x];
+        if (s_mask_runs_n >= 0) {
+            /* Run-list path: copy only the masked spans (ring band + UI
+             * glyphs) from the front mirror -- no full-window scan. The
+             * list is stable for the loop: the swap in
+             * spin_mask_runs_rebuild takes this same mutex. */
+            for (int r = 0; r < s_mask_runs_n; r++) {
+                const ui_mask_run_t *ru = &s_mask_runs[r];
+                memcpy(s_disp + (size_t)ru->y * MOON_PX + ru->x0, s_front + (size_t)ru->y * MOON_PX + ru->x0,
+                       (size_t)(ru->x1 - ru->x0 + 1) * sizeof(uint16_t));
+            }
+        } else {
+            for (int y = 0; y < MOON_PX; y++) {
+                uint16_t *row = s_disp + (size_t)y * MOON_PX;
+                const uint16_t *frow = s_front + (size_t)y * MOON_PX;
+                const uint8_t *mrow = s_ui_mask + (size_t)y * MOON_PX;
+                for (int x = 0; x < MOON_PX; x++)
+                    if (mrow[x])
+                        row[x] = frow[x];
+            }
         }
     }
 #if defined(CONFIG_BOARD_P4) || CONFIG_TEST_SPIN_BANDS > 0
@@ -1567,9 +1646,16 @@ static int64_t new_moon_epoch(int64_t utc_epoch) {
  * the free PSRAM (user spec): free / (S*S*1.15 + 4 KiB), capped at 12,
  * floored by UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, logged per boot. Every
  * failure mode (no slots, no card, dead cache) just means the sweep task
- * bakes the frame itself -- the original path. Same creation recipe as
- * the sweep task (core 1, PSRAM stack); lower priority so the consumer
- * never starves on it. */
+ * bakes the frame itself -- the original path. PINNED TO CORE 0 (the
+ * LVGL core, idle ~7-9 % while the sweep owns the display): the producer
+ * is a 45-80 ms read+decode burst per slot, and on core 1 it shared the
+ * core with its own consumer -- the sweep task (priority MAX-3) preempted
+ * it (MAX-4) whenever runnable, so the producer only ran in the
+ * consumer's pacing pauses and the queue chronically starved (warm
+ * replay measured 4.6 fps S3 / 3.6 fps P4, most of the frame cost
+ * landing OUTSIDE the read/dec sections -- pure time-slice waiting). On
+ * core 0 the two cores pipeline: producer bursts while the consumer
+ * converts and writes. PSRAM stack as before. */
 /* Replay pacing target (see moon_sweep_task's direct-write branch).
  * A target, not a promise -- the achieved rate is pop + convert +
  * write-bound; the sweep summary logs the measured fps + worst gap. */
@@ -1654,7 +1740,7 @@ static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
     ESP_LOGI(TAG, "tf prefetch: %d slots x %uKB (free PSRAM %d KB) for %d hourly frames", got,
              (unsigned)(slot_sz / 1024), free_ps / 1024, hours);
     if (xTaskCreatePinnedToCoreWithCaps(moon_tf_prefetch_task, "moon_tfprefetch", 8192, (void *)(intptr_t)hours,
-                                        configMAX_PRIORITIES - 4, &s_tf_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+                                        configMAX_PRIORITIES - 4, &s_tf_task, 0, MALLOC_CAP_SPIRAM) != pdPASS) {
         s_tf_task = NULL;
         moon_tf_prefetch_stop();
         ESP_LOGW(TAG, "tf prefetch task create failed -- card-less path");
