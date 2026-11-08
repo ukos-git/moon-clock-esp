@@ -42,21 +42,24 @@
      - The texture's 180° longitude offset (the LROC albedo's prime
        meridian is opposite the ICRF one)
    * - ``MOON_ALB_W`` / ``MOON_ALB_H``
-     - S3: ``864`` / ``432`` · P4: ``2048`` / ``1024``
+     - S3/knob: ``864`` / ``432`` · P4: ``2048`` / ``1024``
      - Equirect albedo asset dimensions (row 0 = north, col 0 =
-       longitude 0). **The only per-board value.**
+       longitude 0). **Per-board.**
    * - ``MOON_DEM_W`` / ``MOON_DEM_H``
-     - ``2048`` / ``1024``
-     - Relief DEM dimensions (int8, same equirect convention)
+     - S3/P4: ``2048`` / ``1024`` · knob: ``1024`` / ``512``
+     - Relief DEM dimensions (int8, same equirect convention).
+       **Per-board** — the knob's halved DEM is a 1 MiB relief cache
+       instead of 4 MiB, and its gate passes (mean MAE 6.45)
    * - ``MOON_DEM_STEPS``
      - ``254``
      - DEM quantization steps (int8 over the height range)
    * - ``MOON_DEM_MIN_M``
-     - ``-8518.19921875``
-     - DEM minimum height (m, LOLA)
+     - S3/P4: ``-8518.19921875`` · knob: ``-8338.822265625``
+     - DEM minimum height (m, LOLA) — per-board with the DEM size
+       (quantization range of the baked grid)
    * - ``MOON_DEM_MAX_M``
-     - ``10416.568359375``
-     - DEM maximum height (m, LOLA)
+     - S3/P4: ``10416.568359375`` · knob: ``9722.35546875``
+     - DEM maximum height (m, LOLA) — per-board with the DEM size
    * - ``MOON_ES_A``
      - ``30.455``
      - Earthshine cubic fit, linear term (8-bit units)

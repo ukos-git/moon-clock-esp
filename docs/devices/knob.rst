@@ -226,7 +226,10 @@ the clock's wake policy), the sky-event tint with a 1 Hz day tick
 that re-bakes once on a UTC-date or event-signature change, SNTP
 time over its own Wi-Fi join (K7d, ``knob_time`` — the board
 has no RTC), and an idle ladder — backlight dim, then deep sleep
-woken by a dial detent (K7e, ``knob_power``). Layout and commands:
+woken by a dial detent (K7e, ``knob_power``). How the pieces run —
+frame path, opening act, ladder — is
+:doc:`the knob as a standalone display <../implementation/knob-display>`.
+Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial

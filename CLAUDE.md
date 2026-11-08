@@ -7,7 +7,12 @@ ESP32-P4-WIFI6-Touch-LCD-XC "4C" (720x720 round IPS, JD9365 MIPI-DSI, GT911
 touch, remote C6 Wi-Fi over SDIO, 32 MB flash + PSRAM — the full sibling port;
 `docs/devices/p4`). ESP-IDF 5.5.1, LVGL 9.6. The portable moon core
 (`components/moon/core`) is shared verbatim with the host simulator
-(`host_sim/`).
+(`host_sim/`) and with the third Waveshare board — the
+ESP32-S3-Knob-Touch-LCD-1.8 "knob", a standalone moon display as the `knob/`
+sibling project (its own ESP-IDF project, build dir, `dependencies.lock.knob`
+and gitignored `knob/sdkconfig`, its third asset target `--target knob`;
+`docs/devices/knob` and `docs/implementation/knob-display`; it shares the moon
+core and asset pipeline with the clock and nothing else).
 
 ## Standing rule: keep the documentation current
 
@@ -30,10 +35,10 @@ system, build steps) **update the site** — do not let it drift:
    `docs/img/screens/`, `build.sh run --panel 720` → `docs/img/screens/p4/`,
    then re-run `enclose.py` for the affected label specs). If the change only
    touches the moon bake path, the host image gate must pass before the doc's
-   numbers are trustworthy — BOTH board textures:
-   `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` and
-   `--target p4` (the gate exits 2 on a stale sim binary built against the
-   other target's texture).
+   numbers are trustworthy — ALL THREE board textures (the knob sibling
+   included): `host_sim/.venv/bin/python host_sim/check_gate.py --target s3`
+   and `--target p4` and `--target knob` (the gate exits 2 on a stale sim
+   binary built against the other target's texture).
 3. If the change alters an animation, regenerate the videos:
    `python3 docs/gen_media.py` (needs `host_sim/.venv`, PIL, ffmpeg).
 4. Verify clean: `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`
@@ -80,17 +85,18 @@ idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
 idf.py flash -p <port>
 idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
 # moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
-# assets/images/moon/out/{s3,p4}/); the root CMakeLists FATAL_ERRORs on a
-# width/manifest/partition mismatch — regenerate after touching the
-# pipeline or MOON_ALBEDO_W:
-cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4
+# assets/images/moon/out/{s3,p4,knob}/); the root CMakeLists FATAL_ERRORs on a
+# width/manifest/partition mismatch (knob/CMakeLists.txt replicates the
+# guards) — regenerate after touching the pipeline or MOON_ALBEDO_W:
+cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob
 # knob moon display (sibling project, own build dir + own gitignored
 # dependencies.lock.knob + knob/sdkconfig; flash the board chip_id-verified
 # as the bench's ESP32-S3; app-flash preserves its spiffs credentials):
 idf.py -C knob -B ../build/knob build
 idf.py -C knob -B ../build/knob app-flash -p <port>
 host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate (NASA refs)
-host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # both board textures must pass
+host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # all three board
+host_sim/.venv/bin/python host_sim/check_gate.py --target knob # textures must pass
 host_sim/uisim/build.sh run                    # real screens -> PNG snapshots (466)
 host_sim/uisim/build.sh run --panel 720        # the P4 set (720, the 2048 texture)
 python3 docs/gen_media.py                      # docs videos (moon_sim frames)

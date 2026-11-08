@@ -1,0 +1,19 @@
+// knob (16 MB flash) partition layout — knob/partitions.csv
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph partitions_knob {
+    rankdir=LR;
+    label="knob/partitions.csv — knob, 16 MB flash (total 7232 K)";
+    labelloc=t;
+    fontsize=14;
+    fontname=sans;
+    node [fontname=sans, shape=box, style="rounded,filled", height=0.55, margin=0.22, fontsize=11];
+    edge [fontname=sans, fontsize=9, arrowhead=none];
+
+    boot    [label="bootloader +\npartition table\n(nvs 24 K + phy 4 K)", fillcolor="#e8e8e8", fillstyle=solid];
+    factory [label="factory (app)\n4096 K", fillcolor="#cfe0c8", fillstyle=solid];
+    storage [label="storage (SPIFFS)\n512 K", fillcolor="#f5e6b8", fillstyle=solid];
+    assets  [label="moon_assets\n2560 K\n(864x432 albedo +\n1024x512 DEM = 876 K)", fillcolor="#d9d2ea", fillstyle=solid];
+    free    [label="unused\n~8.9 MB", fillcolor="#f4f4f4", fillstyle=solid];
+
+    boot -> factory -> storage -> assets -> free;
+}

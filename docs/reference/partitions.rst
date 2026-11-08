@@ -2,8 +2,9 @@ Partition tables
 ================
 
 Each board has its own flash partition table — the S3's
-``partitions.csv`` (16 MB chip) and the P4's
-``partitions_p4.csv`` (32 MB chip). The selection lives in the
+``partitions.csv`` (16 MB chip), the P4's
+``partitions_p4.csv`` (32 MB chip), and the ``knob/`` sibling
+project's ``knob/partitions.csv`` (16 MB chip). The selection lives in the
 per-target defaults files, not in CMake: the shared
 ``sdkconfig.defaults`` enables ``CONFIG_PARTITION_TABLE_CUSTOM=y``;
 the P4 file sets
@@ -18,6 +19,8 @@ free to differ in size.
 .. include:: _fragments/partitions-s3.inc
 
 .. include:: _fragments/partitions-p4.inc
+
+.. include:: _fragments/partitions-knob.inc
 
 The two data partitions in the build
 ------------------------------------
@@ -34,3 +37,10 @@ the ``factory`` app (:doc:`the build system <build-system>`):
   The build *warns* (does not fail) when it is missing — the app
   boots without the moon, which is the failure mode a reader should
   recognize.
+
+The ``knob/`` sibling project mirrors both — ``storage`` baked from
+``knob/spiffs/`` (``knob_credentials.txt``) and the ``moon_assets``
+blob flashed to its partition — but guards the blob the other way:
+existence and fit are configure-time ``FATAL_ERROR``\\ s in
+``knob/CMakeLists.txt``, because a knob booting without the moon is
+a bench mistake, not a shipping failure mode.

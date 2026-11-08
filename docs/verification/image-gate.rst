@@ -86,8 +86,11 @@ The run
    # 1. The C frames (the device path, on the host)
    host_sim/build/moon_sim --list gate_frames.txt --size 400 --neutral
 
-   # 2. The gate (C vs NASA + C vs Python, the 32-frame set)
-   host_sim/.venv/bin/python host_sim/check_gate.py
+   # 2. The gate (C vs NASA + C vs Python, the 32-frame set), per
+   #    board texture — every committed board must pass its own:
+   host_sim/.venv/bin/python host_sim/check_gate.py --target s3
+   host_sim/.venv/bin/python host_sim/check_gate.py --target p4
+   host_sim/.venv/bin/python host_sim/check_gate.py --target knob
 
 ``check_gate.py`` renders the C frames (``moon_sim``), loads the NASA
 crops and the Python prototype's frames, computes the per-frame MAE

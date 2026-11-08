@@ -10,6 +10,7 @@ The build system and the full compile-time reference: Kconfig, the moon constant
    kconfig-board
    kconfig-clock
    kconfig-ui
+   kconfig-knob
    moon-consts
    partitions
    spiffs-store
