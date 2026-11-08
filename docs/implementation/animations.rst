@@ -169,11 +169,13 @@ front of it:
   blocking in the flat dark and bright areas; q 32 *still* showed it
   on the panel during the warm replay (2026-11-08) even though the
   flats measured clean; 90 is the visually-transparent class for gray
-  DCT encoding. The files are a few times q 32's ~7.5 KB (400 px) /
-  ~18 KB (650 px) — tens of MB for a whole cached cycle — and
-  encode/decode cost is resolution-bound, not quality-bound, so the
-  replay path pays almost nothing for it. ``meta.txt`` pins it, so a
-  change wipes and re-bakes the folder).
+  DCT encoding. Measured q90 files are 29 KB per hour at 400 px and
+  73 KB at 650 px — a whole cached cycle is ~20 MB (S3) / ~51 MB
+  (P4), comfortably inside any card — and encode/decode cost is
+  resolution-bound, not quality-bound (S3 encode 48 ms, decode
+  37 ms/frame at 400 px), so the replay path pays almost nothing for
+  it. ``meta.txt`` pins it, so a change wipes and re-bakes the
+  folder).
   The official decoder
   input is RGB, not gray, so the module **self-probes** at init
   (encode a 16×16 gradient, decode it back, keep the format whose
@@ -284,48 +286,58 @@ bake):
      - 1344-frame classic list, cache untouched
    * - cold card (write-through pass)
      - S3
-     - 1137 s
-     - bake + encode 37 ms + write 100 ms ≈ 1.66 s (SPI 1-bit)
-     - put 683/0, evict 1711 ms; prefetch 3 slots × 156 KB
+     - 1164 s
+     - bake 1.33 s + put 264 ms (encode 48, card write 216) ≈ 1.77 s
+       (SPI 1-bit)
+     - put 703/0, evict 1158 ms; prefetch 2 slots × 156 KB
+       (332 KB PSRAM head)
    * - cold card
      - P4
-     - 1240 s
+     - 1240 s (q10-era build; q90 re-measure in progress)
      - bake + encode 78 ms + write 47 ms ≈ 1.81 s (SDMMC 4-bit)
      - put 683/0, evict 549 ms; prefetch 12 slots × 412 KB
    * - warm card (replay)
      - S3
-     - 292 s
-     - read 8.6 ms + decode 31 ms ⇒ 424 ms/frame
-     - hits 691, 2484 KB / 5960 ms read (≈0.4 MB/s, 1-bit SPI)
+     - 118 s (~5.97 fps, worst gap 1416 ms)
+     - read 56 ms + decode 37 ms ⇒ 177 ms/frame; direct panel write
+       49 ms
+     - hits 703 miss 0 put 0, 20437 KB / 39660 ms read (≈0.5 MB/s,
+       1-bit SPI), 29 KB per file
    * - warm card
      - P4
-     - 229 s
-     - read 5.8 ms + decode 59 ms ⇒ 332 ms/frame
-     - hits 683, misses 8 **put back 8** (write-through filled the
-       hours aged in since the cold pass), 5889 KB / 3995 ms
-       (≈1.5 MB/s, 4-bit SDMMC)
+     - 132 s (~5.35 fps, worst gap 1996 ms)
+     - read 55 ms + decode 79 ms ⇒ 184 ms/frame; direct panel write
+       87 ms
+     - hits 703 miss 0 put 0, 51247 KB / 38803 ms (≈1.3 MB/s, 4-bit
+       SDMMC), 73 KB per file
 
 Three readings. The **cold pass is already the cheaper bake**:
-hourly granularity bakes 683 intermediates instead of the card-less
+hourly granularity bakes 703 intermediates instead of the card-less
 path's 1344, so even a full write-through pass runs in ~19 min
 (S3) / ~21 min (P4). The **warm replay is read+decode-bound**, never
-display-bound — 332/424 ms against the ~150 ms flush cadence, the
-prefetch queue keeping the panel fed — and lands the whole synodic
-story in ~4–5 min. The **hourly JPEGs are tiny**: ~3.6 KB per frame
-at 400 px, ~8.5 KB at 650 px, ~6 MB for the whole cycle at q10.
+display-bound — the 49/87 ms panel writes sit far inside the
+177/184 ms frame, the prefetch queue keeping the panel fed — and
+lands the whole synodic story in **~2 min** on both boards at the
+shipped q90. The **hourly JPEGs stay small**: 29 KB per frame at
+400 px, 73 KB at 650 px — ~20 MB (S3) / ~51 MB (P4) for the whole
+cycle.
 
-Two honest caveats. The S3 warm line reads hits 691 against the 683
-files the cold pass wrote: the hour list ages in as wall clock
-advances (the list is built at sweep start), and the boots in
-between write the aged tail hours through — the accounting is
-*per-boot*, the card is *cumulative* (the P4 warm line shows the
-mechanism directly: 8 aged hours in, 8 misses, 8 puts back). And
+Two honest caveats. The accounting is *per-boot*, the card is
+*cumulative*: the hour list ages in as wall clock advances (it is
+built at sweep start), so a boot right after the cold pass can still
+miss a few tail hours and put them back — one measured P4 boot read
+hits 680, miss 23, **put 23/0**; its next boot read 703/0/0. And
 most S3 boots (3 of the 5 bench captures; a repeat warm replay ran
 clean) carry the *pre-existing* boot classify burst — up to four
 ``IDLE0`` watchdog prints around a ~20 s cold day-cache scan on the
 LVGL task at boot — identical card-less, intermittent, root-caused
 to the sky-events day cache and tracked apart from this feature;
-the P4 runs are clean (0 watchdog prints).
+the P4 runs are clean (0 watchdog prints). That burst can also
+swallow the replay's bounded 2 s mask re-seed wait (one S3 warm
+boot, sweep start t≈45 s inside a t≈36–56 s burst, printed
+``mask rebuild did not run within 2 s``) — by design the replay
+then serves the existing mask+mirror pair, built post-wrapper by
+the init rebuild and kept fresh by the flush wrapper.
 
 Detach mid-sweep: a read fault on the producer or the consumer
 disables the cache silently and the remaining frames fall back to
