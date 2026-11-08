@@ -244,19 +244,21 @@ menu "UI Component Configuration"
     config UI_MOON_TFCACHE_JPEG_Q
         int "TF cache JPEG quality (1-100)"
         depends on UI_MOON_TFCACHE
-        default 32
+        default 90
         range 1 100
         help
-            Quality of the gray JPEGs the sweep cache stores. The bench
-            verdict on q 10 (the knob-demo recipe class): the flat dark
-            and bright areas showed visible blocking/mosquito noise on
-            the panel -- too aggressive for a clock you stare at. 32
-            reads clean on the bench dark/bright flats at roughly 2-3x
-            the file size (~10 KB at 400 px, ~25 KB at 650 px, still
-            ~20 MB per cached cycle); encode/decode cost is resolution-
-            bound, not quality-bound, so the sweep path pays almost
-            nothing for it. The folder's meta.txt pins the value: a
-            change wipes and re-bakes the cache.
+            Quality of the gray JPEGs the sweep cache stores. The
+            panel verdicts, in order: q 10 (the knob-demo recipe
+            class) showed visible blocking/mosquito noise in the flat
+            dark and bright areas; q 32 STILL showed it on the panel
+            during the warm replay (2026-11-08) even though the flats
+            measured clean. 90 is the visually-transparent class for
+            gray DCT encoding; the files are a few times larger than
+            q 32's ~7.5 KB (400 px) / ~18 KB (650 px), still tens of
+            MB for a whole cached cycle, and encode/decode cost is
+            resolution-bound, not quality-bound, so the sweep path
+            pays almost nothing for it. The folder's meta.txt pins
+            the value: a change wipes and re-bakes the cache.
 
     config UI_MOON_TFCACHE_FPS
         int "TF replay frame rate (fps)"
