@@ -70,9 +70,16 @@ static const char *TAG = "DEMO";
 #endif
 
 #define DEMO_MS_PER_S 1000u
-#define TAP_PRESS_MS 90u   /* < 400 ms long-press gate -> SHORT_CLICKED */
-#define TAP_TOTAL_MS 150u  /* press 90 + release 60 (indev reads every 30 ms) */
-#define TAP_SETTLE_MS 350u /* after a release: let the CLICKED handler land */
+#define TAP_PRESS_MS 90u  /* < 400 ms long-press gate -> SHORT_CLICKED */
+#define TAP_TOTAL_MS 150u /* press 90 + release 60 (indev reads every 30 ms) */
+#define TAP_SETTLE_MS                                                                                                  \
+    900u /* after a release: let the CLICKED handler land                                                              \
+          * AND the fade-to-black switch complete                                                                      \
+          * (2 x UI_SCREEN_SWITCH_FADE + one hidden                                                                    \
+          * flush ~= 600 ms) -- verifying earlier read                                                                 \
+          * the PREVIOUS screen and fired a spurious                                                                   \
+          * loadScreen fallback per step (observed on                                                                  \
+          * the P4 hub walk, 2026-11-08 take). */
 
 /* ---------------- virtual pointer (the second POINTER indev) ---------
  *
