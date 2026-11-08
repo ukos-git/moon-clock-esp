@@ -113,7 +113,8 @@ loadScreen shortcut.
 The alarm runs **last** in the cycle on purpose. The 2026-11-08 bench
 take showed the S3's QSPI completion-loss race (lost DMA completion ->
 ``PANEL IO STUCK`` -> panel watchdog controlled reboot) firing ~29 s
-into this phase in 2 of 2 cycles — the alarm's wake/dismiss window,
+into this phase in all four cycles the board ran — the alarm's
+wake/dismiss window,
 where the 0x51 hardware brightness ramp, the fade-to-black switch and
 the spin resume overlap (the same family as the #96 settings-freeze
 stall). Placing the phase at the cycle end keeps dusk, roll and sync
@@ -236,19 +237,23 @@ alarm-last order) produced:
 * Both boards swept 693/693 frames from the warm TF cache (S3 295 s,
   P4 217 s) and armed 78 s apart. The tour walked the script
   identically on both panels: hub walk 16 tap steps on the S3 and 18
-  on the P4 (the CLOCK icon), the WiFi scan found 2 APs and the tour
-  tapped row 0, the wheel typed ``demo``/``A``/``1`` plus backspaces
-  and ran the discard ladder. The P4 completed every cycle with no
+  on the P4 (the CLOCK icon), the WiFi scan returned 2 APs on the S3
+  and 3 on the P4 (radio visibility) with row 0 tapped on each, the
+  wheel typed ``demo``/``A``/``1`` plus backspaces and ran the
+  discard ladder. The P4 completed six full cycles without a single
   reboot.
 * Two tour bugs surfaced from the take's own logs: the 350 ms tap
   settle verified *through* the fade-to-black switch (the 36/66
   ``loadScreen`` fallback lines in those logs are the pre-fix binary;
   the settle is now 900 ms) and a stale wheel end-check that expected
   the pre-discard entry length.
-* **Reproduced in the field** on the S3: ``PANEL IO STUCK`` fired
-  every cycle at +29.1 s / +28.9 s after ``phase=alarm`` — each time
-  the panel watchdog rebooted the board (``rst:0xc`` RTC_SW_CPU_RST,
-  no panic), back up in ~13 s plus the warm re-sweep. That is why the
+* **Reproduced in the field** on the S3: ``PANEL IO STUCK`` fired in
+  all four cycles the board ran, each time ~29 s after ``phase=alarm``
+  (device ticks 668.7-673.8 s against alarm entries at 642.7-644.8 s
+  — the tour is scripted from boot, so this is a fixed post-boot
+  window); each time the panel watchdog rebooted the board
+  (``rst:0xc`` RTC_SW_CPU_RST, no panic), back up in ~13 s plus the
+  warm re-sweep. That is why the
   alarm phase runs last now; the race itself (the wake/dismiss
   window: 0x51 brightness ramp + fade-to-black + spin resume, the
   same family as the #96 settings-freeze stall) is an open follow-up.
