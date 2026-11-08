@@ -27,6 +27,18 @@ the clock's Kconfig tree is never involved):
      - Intermediate sweep bake edge (cost ~px²); the final frame
        always bakes crisp at 360. Floor 96 = the clock's measured
        sharpness floor
+   * - ``KNOB_DEMO_MODE``
+     - ``n``
+     - Bench demo tour (the knob half of
+       :doc:`demo mode <../verification/demo-mode>`): after the boot
+       presentation the producer walks 8 canonical phases of the
+       current synodic month + a live-now step, holding each
+       ``KNOB_DEMO_PHASE_SEC``; the power ladder stays held (no dim,
+       no deep sleep), the caption names the phase, and every step
+       logs a ``phase=`` marker
+   * - ``KNOB_DEMO_PHASE_SEC``
+     - ``15`` (5..600)
+     - Seconds per demo phase step (``KNOB_DEMO_MODE`` only)
    * - ``KNOB_NTP_SERVER``
      - ``pool.ntp.org``
      - The single lwIP POLL server (the clock's same choice); the

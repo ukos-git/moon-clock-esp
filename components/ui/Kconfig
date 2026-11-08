@@ -62,29 +62,71 @@ menu "UI Component Configuration"
             every moon-background clock display.
 
     config UI_DEMO_MODE
-        bool "Demo mode: MM:SS clock + the moon screens on a rotation"
+        bool "Demo mode: full on-device tour of every screen and function"
         default n
         help
-            A showcase mode for the clock's motion: the shared clock
-            widget shows MM:SS (the seconds roll through the per-digit
-            odometer every second) instead of HH:MM, and the five moon
-            screens (airplane, wifi, light sleep, deep sleep, alarm)
-            auto-rotate every UI_DEMO_SCREEN_SEC seconds. The demo runs
-            until the next reset: it holds the idle timer (every demo
-            second counts as activity), skips the hourly on-demand WiFi
-            sync, and ignores the sync-complete hand-off, so a recording
-            run is never cut by a sleep transition or a radio wake. Off
-            (default) in production builds.
+            A scripted showcase that exercises the whole device, built
+            for side-by-side camera recordings of the three boards (the
+            bench harness: bench/record_demo.py, docs/verification/
+            demo-mode). After the boot sweep it plays a looping tour:
+            the five moon screens on a rotation with the MM:SS odometer
+            clock (the seconds roll through the per-digit odometer every
+            second), then -- with UI_DEMO_FULL_TOUR -- the real settings
+            walk (every hub icon and sub-screen exit tapped through the
+            touch path with a virtual pointer, the WiFi screen opened
+            for a real AP scan), the wheel keyboard (mode keys, letter
+            taps through the real sector reveal + commit-on-release,
+            backspace, discard), the alarm ring script, the light-sleep
+            dusk spin, the headless clock-roll script and one bounded
+            on-demand WiFi sync. Every phase start logs a machine-
+            readable marker on its own serial tag:
+                I (12345) DEMO: phase=<name> cycle=<n> screen=<id>
+            which the recording harness uses to align the video with the
+            serial logs and extract per-phase comparison frames.
+            The demo runs until the next reset: it holds the idle timer
+            (every demo second counts as activity), skips the hourly
+            on-demand WiFi sync, ignores the sync-complete hand-off,
+            suppresses the deep-sleep transition and a scheduled alarm
+            fire (the demo's own alarm phase re-enables it), so a
+            recording run is never cut by a sleep transition, a radio
+            wake or an alarm hijacking the display. Touch during the
+            demo still works (the real indev is untouched; the demo's
+            taps come from a second virtual pointer). Off (default) in
+            production builds.
 
     config UI_DEMO_SCREEN_SEC
         int "Demo mode: seconds per screen in the rotation"
         default 15
         range 5 600
         help
-            How long the demo mode (UI_DEMO_MODE) shows each of the five
-            moon screens before rotating to the next. 15 s is the default
-            (75 s per full cycle); lower it for a faster rotation when
-            recording.
+            How long the demo mode (UI_DEMO_MODE) shows each screen of
+            the moon rotation before advancing, and how long each
+            settings sub-screen of the full-tour walk stays up. 15 s is
+            the default; lower it for a faster cycle when recording.
+
+    config UI_DEMO_FULL_TOUR
+        bool "Demo mode: run the full tour (settings, wheel, alarm, dusk, roll, sync)"
+        depends on UI_DEMO_MODE
+        default y
+        help
+            With y (the default) the demo runs the whole scripted tour
+            described under UI_DEMO_MODE. With n it stays the quick
+            moon-screen rotation only (the pre-2026-11 behaviour: MM:SS
+            odometer + the five moon screens on a loop).
+
+    config UI_DEMO_DUSK_WAIT_S
+        int "Demo mode: seconds to wait for the dusk spin to complete"
+        depends on UI_DEMO_FULL_TOUR
+        default 180
+        range 30 600
+        help
+            Upper bound for the dusk showcase phase: the light-sleep
+            entry starts the real dusk (the pole spin to the dark side,
+            14-95 s at the display pace); the demo polls the dusk's
+            completion and holds the dark side 10 s before waking, but
+            gives up and wakes after this timeout when the dusk could
+            not start (the dark side was already on screen) so a slow
+            board can never stall the tour.
 
     config UI_MOON_ANIM_ENABLE
         bool "Play the synodic boot sweep (new moon -> now) at boot"

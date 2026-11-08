@@ -315,6 +315,59 @@ static void sweep_body(void) {
     ESP_LOGI(TAG, "sweep done: %d/%d frames in %lld ms", f, frames, (long long)((esp_timer_get_time() - t0) / 1000));
 }
 
+#ifdef CONFIG_KNOB_DEMO_MODE
+/**
+ * Bench demo tour (KNOB_DEMO_MODE) -- the knob half of the scripted
+ * on-device comparison (docs/verification/demo-mode, mirrors the
+ * clocks' UI_DEMO_MODE tour). Runs INSTEAD of the day-tick loop after
+ * the boot presentation: eight canonical phases of the current synodic
+ * month (epochs pinned at k/8 of the month, so the two clocks' and the
+ * knob's "same phase" frames are comparable frame for frame), plus a
+ * ninth step on the LIVE current phase (re-baked every cycle, events
+ * on -- the same now-frame the clocks show at home). The power ladder
+ * stays held (the caller never releases it): no 15 s dim, no deep
+ * sleep, the recording never goes dark. Each step logs
+ * `phase=<name> cycle=<n>` under tag DEMO for the harness.
+ */
+static void demo_tour(void) {
+    static const char *const names[8] = {"new-moon",  "waxing-crescent", "first-quarter", "waxing-gibbous",
+                                         "full-moon", "waning-gibbous",  "last-quarter",  "waning-crescent"};
+    const int64_t SYNODIC_S = (int64_t)(29.53 * 86400);
+    const uint32_t step_ms = (uint32_t)CONFIG_KNOB_DEMO_PHASE_SEC * 1000u;
+    unsigned cycle = 0;
+    ESP_LOGI("DEMO", "knob tour armed: 8 canonical phases + live now, %d s each", CONFIG_KNOB_DEMO_PHASE_SEC);
+    for (;;) {
+        const int64_t now = ui_now_epoch();
+        const int64_t nm = knob_moon_new_moon_epoch(now, NULL);
+        for (int k = 0; k < 8; k++) {
+            const int64_t epoch = nm + (int64_t)((double)k / 8.0 * (double)SYNODIC_S);
+            wait_ack();
+            knob_moon_display_begin(epoch);
+            char cap[48];
+            snprintf(cap, sizeof(cap), "demo %d/8 %s", k + 1, names[k]);
+            if (!bake_publish(epoch, 0, true, NULL, cap)) {
+                ESP_LOGE("DEMO", "phase %s bake failed", names[k]);
+                caption_unavailable();
+            }
+            ESP_LOGI("DEMO", "phase=%s cycle=%u screen=moon epoch=%lld", names[k], cycle, (long long)epoch);
+            vTaskDelay(pdMS_TO_TICKS(step_ms));
+        }
+        /* The live now-frame (events on) -- re-baked every cycle. */
+        wait_ack();
+        knob_moon_display_begin(now);
+        char cap[48];
+        utc_caption(cap, sizeof(cap), now);
+        if (!bake_publish(now, 0, true, NULL, cap)) {
+            ESP_LOGE("DEMO", "now bake failed");
+            caption_unavailable();
+        }
+        ESP_LOGI("DEMO", "phase=now cycle=%u screen=moon", cycle);
+        vTaskDelay(pdMS_TO_TICKS(step_ms));
+        cycle++;
+    }
+}
+#endif /* CONFIG_KNOB_DEMO_MODE */
+
 /** The clock's day tick, minus the IMU/alarm coupling: 1 Hz UTC check;
  *  one re-bake when the UTC day OR the event signature changes (an
  *  eclipse starts at the hour it happens, not at UTC midnight). */
@@ -330,6 +383,9 @@ static void moon_task(void *arg) {
     } else if (s_mode == MODE_STATIC) {
         static_once_body();
     }
+#ifdef CONFIG_KNOB_DEMO_MODE
+    demo_tour(); /* never returns; the power ladder stays held */
+#endif
     knob_power_set_hold(false);
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));

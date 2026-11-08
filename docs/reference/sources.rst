@@ -75,6 +75,10 @@ The tools the numbers came from
   animation films, :doc:`the build system <build-system>`).
 - The serial console (115200) + the ROM reset reason — the device
   verification surface (:doc:`on-device verification <../verification/device-verify>`).
+- ``bench/record_demo.py`` — the bench recording harness: C920
+  camera + one passive serial log per board, cut into per-phase
+  comparison frames by the demo tour's ``phase=`` markers
+  (:doc:`demo mode <../verification/demo-mode>`).
 
 A note on the site's own numbers
 --------------------------------

@@ -49,18 +49,29 @@ extern void action_switch_to_light_sleep_screen(lv_event_t *e);
  * (LVGL task context). */
 void action_roll_test_cb(lv_timer_t *timer);
 
-/* Demo mode (UI_DEMO_MODE): MM:SS clock + the five moon screens on a fixed
- * rotation, until the next reset. True while the demo owns the display
- * (guards the clock label's HH:MM writes, the hourly sync, and the
- * sync-complete hand-off). action_clock_widget_label writes the widget's
- * label from the wall-clock digits in the mode's format (HH:MM, or MM:SS
- * in the demo) so no write point fights the demo. ui_demo_second_cb is the
- * 1 s LVGL timer callback (created in main.cpp only when the mode is on). */
-bool action_demo_active(void);
+/* Demo mode (UI_DEMO_MODE): the scripted full tour (moon screens,
+ * settings walk, wheel keyboard, alarm ring, dusk, roll, sync) lives in
+ * demo.c; docs/verification/demo-mode. These are the action-layer
+ * hooks it drives. */
+bool action_demo_active(void); /* true while the demo owns the display */
 void action_clock_widget_label(int hour, int minute, int second);
-#if CONFIG_UI_DEMO_MODE
-void ui_demo_second_cb(lv_timer_t *timer);
+/* demo.c (always compiled; a no-op when the mode is off): create the
+ * phase engine + virtual pointer (LVGL task context, post ui_init). */
+void ui_demo_init(void);
+#ifdef CONFIG_UI_DEMO_MODE
+/* Claim the finished on-demand sync the UI tick leaves unclaimed while
+ * the demo runs (the SYNC phase + the post-wake airplane hand-off). */
+bool action_sync_demo_done(bool *ok);
+/* Pass one alarm fire through the demo's scheduled-alarm suppression
+ * (the demo's own ALARM phase arms this; every other fire is dropped
+ * while the tour runs). */
+void action_demo_allow_alarm(bool allow);
 #endif
+/* Arm / poll one run of the synthetic roll script (the demo's ROLL
+ * phase; compiles with the roll test hook OR the demo). begin() from
+ * the LVGL task, then poll busy() once a second (~27 s run). */
+void action_roll_test_begin(void);
+bool action_roll_test_busy(void);
 
 #ifdef __cplusplus
 }

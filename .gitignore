@@ -33,3 +33,6 @@ docs/code/gen/
 # composite_dark.py intermediate frames (vendored output is
 # _static/photos/sim_*.png; the scratch dir is a byproduct)
 docs/tools/scratch/
+# bench recording takes (video.mp4 + serial logs + frames + montages;
+# the harness itself in bench/record_demo.py IS tracked)
+bench/recordings/

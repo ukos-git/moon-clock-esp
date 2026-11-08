@@ -2592,6 +2592,12 @@ bool moon_ui_tilt_settled(void) { return s_tilt_settled; }
  * sync flow waits for it before switching the WiFi screen to airplane). */
 bool moon_ui_sweeping(void) { return s_sweep_baking; }
 
+/* True while the dark side is the on-screen state (the dusk spin's last
+ * frame has displayed and the deep-sleep countdown was armed from it).
+ * Reset by the wake (moon_ui_pause(false)) and by any fresh bake, so a
+ * demo cycle can poll the dusk to completion after re-arming it. */
+bool moon_ui_dusk_complete(void) { return s_dusk_done; }
+
 /* ---------------- tick ---------------- */
 
 static void moon_tick_cb(lv_timer_t *timer) {

@@ -638,8 +638,12 @@ extern "C" void app_main(void) {
     // Test hook: the headless clock-roll tilt script (TEST_ROLL_TILT_SEC;
     // 0 = off). Feeds the real roll pipeline synthetic gravity -- the
     // transform layer (PSRAM alloc) + centre pivot run without a tilt.
-    if (CONFIG_TEST_ROLL_TILT_SEC > 0)
-        lv_timer_create(action_roll_test_cb, 1000, NULL);
+    // The timer ALSO runs under the demo mode (the tour's ROLL phase
+    // re-arms one scripted run per cycle via action_roll_test_begin();
+    // a demo-only build never self-arms).
+#if CONFIG_TEST_ROLL_TILT_SEC > 0 || CONFIG_UI_DEMO_MODE
+    lv_timer_create(action_roll_test_cb, 1000, NULL);
+#endif
 
     // Test hook: the headless WiFi scan (TEST_WIFI_SCAN_SEC; 0 = off).
     if (CONFIG_TEST_WIFI_SCAN_SEC > 0)
@@ -650,14 +654,13 @@ extern "C" void app_main(void) {
     if (CONFIG_TEST_ALARM_RING_SEC > 0)
         lv_timer_create(alarm_ring_test_cb, 1000, NULL);
 
-    // Demo mode (CONFIG_UI_DEMO_MODE; off by default): MM:SS clock + the
-    // five moon screens on a rotation until the next reset. The 1 s
-    // callback waits out the boot sweep before it touches the display
-    // (the same guard as the test hooks) and runs in the LVGL task, so
-    // loadScreen / ui_tick are safe.
-#if CONFIG_UI_DEMO_MODE
-    lv_timer_create(ui_demo_second_cb, 1000, NULL);
-#endif
+    // Demo mode (CONFIG_UI_DEMO_MODE; off by default): the full scripted
+    // tour of every screen and function (moon rotation with the MM:SS
+    // odometer, the settings walk through the hub via a second virtual
+    // pointer, the wheel keyboard, the alarm ring, the dusk spin, the
+    // roll script, a bounded WiFi sync; serial `phase=` markers).
+    // ui_demo_init is a no-op when the mode is off (components/ui/demo.c).
+    ui_demo_init();
 
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the

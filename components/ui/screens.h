@@ -305,6 +305,39 @@ void create_screens();
  * TEST_WIFI_SCAN_SEC test hook. */
 void settings_screen_refresh_for(enum ScreensEnum target);
 
+/* ---- demo mode (UI_DEMO_MODE) touch-target surface --------------------
+ * The scripted tour (components/ui/demo.c) taps the REAL widgets with a
+ * second virtual LVGL pointer, so it needs the objects and the wheel's
+ * geometry, not loadScreen shortcuts. The registries are always built
+ * (they cost 8+12 pointers); the point API compiles with the demo. */
+
+/* The hub ring's created icons in ring order (target = the screen the
+ * icon opens). Returns the count, fills up to max entries. */
+int screens_hub_icons(const lv_obj_t **objs, enum ScreensEnum *targets, int max);
+
+/* The bottom-centre exit button of the sub-screen whose ROOT is `root`
+ * (objects.settings_*), or NULL if it has none. */
+lv_obj_t *screens_sub_exit_get(lv_obj_t *root);
+
+/* The WiFi screen's AP row object (rows exist for the whole boot; the
+ * scan only fills their text). NULL for an out-of-range index. */
+lv_obj_t *screens_wifi_row_get(int i);
+
+#ifdef CONFIG_UI_DEMO_MODE
+/* Points in the wheel's LOCAL screen space (the space the wheel
+ * handlers' inverse transform maps the raw indev point into); the demo
+ * rotates them by the screen root's base orientation into display
+ * coords. All false when the wheel cannot answer (wrong state). */
+bool settings_wheel_demo_mode_point(int mode, lv_point_t *out);
+bool settings_wheel_demo_letter_point(char ch, lv_point_t *out); /* active register */
+bool settings_wheel_demo_commit_point(lv_point_t *out);
+bool settings_wheel_demo_discard_point(lv_point_t *out);
+bool settings_wheel_demo_center_point(lv_point_t *out);
+int settings_wheel_demo_pw_len(void);
+/* Open the keyboard prefilled (the no-AP walk fallback). */
+void settings_wheel_demo_open(const char *ssid);
+#endif /* CONFIG_UI_DEMO_MODE */
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,5 +8,6 @@ The evidence: the image gate against NASA's rendered moon, on-device verificatio
 
    image-gate
    device-verify
+   demo-mode
    performance
    binary

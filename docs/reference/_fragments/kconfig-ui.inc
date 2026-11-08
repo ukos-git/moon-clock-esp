@@ -249,15 +249,27 @@ Demo mode
      - Meaning
    * - ``UI_DEMO_MODE``
      - ``n``
-     - Showcase mode: the clock widget shows MM:SS (the seconds roll
-       through the per-digit odometer) and the five moon screens
-       auto-rotate every ``UI_DEMO_SCREEN_SEC`` seconds until the next
-       reset. Holds the idle timer, skips the hourly WiFi sync — a
-       recording run is never cut by a sleep transition.
+     - Full scripted tour (:doc:`demo mode <../verification/demo-mode>`):
+       the clock widget shows MM:SS (per-digit odometer) and the tour
+       walks every screen and function — moon rotation, the settings
+       hub walk via a second virtual pointer, the wheel keyboard
+       (discard only, never commit), the alarm ring, the dusk spin,
+       the roll script, one bounded sync. Suppresses the deep-sleep
+       transition, scheduled alarms, the hourly sync and the sync
+       hand-off; logs ``phase=`` markers for the recording harness.
+   * - ``UI_DEMO_FULL_TOUR``
+     - ``y``
+     - Run the full tour. ``n`` keeps the MM:SS odometer + the five
+       moon screens on the plain ``UI_DEMO_SCREEN_SEC`` rotation
+       (the pre-2026-11-08 showcase).
    * - ``UI_DEMO_SCREEN_SEC``
      - ``15``
-     - Seconds per screen in the demo rotation, 5–600 (75 s per full
-       cycle at the default).
+     - Seconds per moon screen / settings sub-screen dwell, 5–600
+       (75 s per full moon rotation at the default).
+   * - ``UI_DEMO_DUSK_WAIT_S``
+     - ``180``
+     - Seconds the dusk phase waits for the pole spin to complete,
+       30–600 (``UI_DEMO_FULL_TOUR`` only).
 
 Test hooks
 -----------

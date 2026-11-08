@@ -230,7 +230,18 @@ static int8_t ori_clamp(int v, int limit) {
 #ifndef CONFIG_TEST_ROLL_TILT_SEC
 #define CONFIG_TEST_ROLL_TILT_SEC 0
 #endif
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
+#ifndef CONFIG_UI_DEMO_MODE
+#define CONFIG_UI_DEMO_MODE 0
+#endif
+/* The synthetic-gravity path compiles for the headless test hook AND
+ * for the demo tour's roll phase (action_roll_test_begin/busy arm it
+ * there instead of the boot-time wait). */
+#if CONFIG_TEST_ROLL_TILT_SEC > 0 || CONFIG_UI_DEMO_MODE
+#define ROLL_SCRIPT 1
+#else
+#define ROLL_SCRIPT 0
+#endif
+#if ROLL_SCRIPT
 /* The script: the synthetic screen-plane gravity (quantized unit
  * vectors: |g| = 1 g, well above the flat gate), by second: the
  * resting pose (seeds the reference) -> 90 deg CW tilt -> 180 ->
@@ -250,10 +261,14 @@ static const struct ori_script_step s_ori_script[] = {
 
 static bool s_ori_test_on;   /* the synthetic gravity is feeding the pipeline */
 static bool s_ori_test_done; /* the script runs once, not on every wait elapse */
-static uint32_t s_ori_test_wait_s = CONFIG_TEST_ROLL_TILT_SEC;
+/* The test hook self-arms CONFIG_TEST_ROLL_TILT_SEC after boot; a
+ * demo-only build (TEST=0) must NEVER self-arm -- the demo re-arms one
+ * run per cycle through action_roll_test_begin(), so park the counter
+ * out of reach until then. */
+static uint32_t s_ori_test_wait_s = (CONFIG_TEST_ROLL_TILT_SEC > 0) ? CONFIG_TEST_ROLL_TILT_SEC : UINT32_MAX;
 static uint32_t s_ori_test_elapsed_s;
 static int8_t s_ori_test_gx, s_ori_test_gy;
-#endif /* CONFIG_TEST_ROLL_TILT_SEC > 0 */
+#endif /* ROLL_SCRIPT */
 
 /* Push one orientation to all 12 screen roots (LVGL transform units:
  * 1/10 deg, positive = clockwise). The pivot is the panel centre (LVGL's
@@ -391,7 +406,7 @@ static void screen_orientation_apply(void) {
 
     int8_t gx_q = 0, gy_q = 0;
     bool have = false;
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
+#if ROLL_SCRIPT
     if (s_ori_test_on) {
         /* The script feeds quantized unit vectors directly (|g| = 1 g). */
         gx_q = s_ori_test_gx;
@@ -468,7 +483,7 @@ static void screen_orientation_apply(void) {
      * and push the base orientation immediately. */
     if (s_ori_resync_req) {
         s_ori_resync_req = false;
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
+#if ROLL_SCRIPT
         if (s_ori_test_on) {
             ESP_LOGW(TAG, "orientation resync ignored (test script active)");
             return;
@@ -565,7 +580,7 @@ static void screen_orientation_apply(void) {
     else
         step = cross > 0 ? 90 : 270;
 
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
+#if ROLL_SCRIPT
     bool settled = moon_ui_tilt_settled() && !s_ori_test_on;
 #else
     bool settled = moon_ui_tilt_settled();
@@ -612,7 +627,7 @@ static void screen_orientation_apply(void) {
              CONFIG_UI_CLOCK_ROLL_SIGN, fx, fy, s_ref_qx, s_ref_qy);
 }
 
-#if CONFIG_TEST_ROLL_TILT_SEC > 0
+#if ROLL_SCRIPT
 /* Headless tilt script (1 s LVGL timer, LVGL task). After
  * TEST_ROLL_TILT_SEC of boot it runs s_ori_script through the REAL
  * screen_orientation_apply pipeline -- the int4 quantization, the 1 s
@@ -655,8 +670,12 @@ void action_roll_test_cb(lv_timer_t *timer) {
         ESP_LOGW(TAG, "TEST roll tilt: done (back at 0? check the 'screen orientation' lines)");
         s_ori_test_on = false;
         s_ori_test_done = true;
-        clock_idle_set_enabled(true);
-        clock_idle_reset_timer();
+        /* The demo owns the idle lifecycle (its per-second tick holds
+         * the timer); only the stand-alone hook re-arms monitoring. */
+        if (!action_demo_active()) {
+            clock_idle_set_enabled(true);
+            clock_idle_reset_timer();
+        }
         return;
     }
     for (const struct ori_script_step *row = s_ori_script; row->t_s <= ORI_SCRIPT_END_S; row++) {
@@ -667,7 +686,20 @@ void action_roll_test_cb(lv_timer_t *timer) {
     }
     ESP_LOGW(TAG, "TEST roll tilt: t+%us g (%d, %d) / 8", s_ori_test_elapsed_s, s_ori_test_gx, s_ori_test_gy);
 }
-#endif
+
+/* Arm one script run (the demo tour's roll phase: a demo-only build
+ * never self-arms, so this is the only starter there; in a test-hook
+ * build it can re-run the script after the boot one). Call from the
+ * LVGL task, then poll action_roll_test_busy() until false (~27 s). */
+void action_roll_test_begin(void) {
+    s_ori_test_done = false;
+    s_ori_test_on = false;
+    s_ori_test_wait_s = 1;
+}
+
+/* True from begin() until the script's last step has run. */
+bool action_roll_test_busy(void) { return !s_ori_test_done; }
+#endif /* ROLL_SCRIPT */
 
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) {
@@ -751,6 +783,20 @@ void action_start_wifi_sync(void) {
     wifi_sync_kickoff();
 }
 
+/* Claim the finished sync (the demo's SYNC phase). The UI tick hands
+ * the finished sync off to the airplane screen only while the demo is
+ * NOT running (it leaves the flag unclaimed under the demo), so this
+ * consumes what the tick would have taken; returns true once per
+ * completion. */
+bool action_sync_demo_done(bool *ok) {
+    if (!s_wifi_sync_done)
+        return false;
+    s_wifi_sync_done = false;
+    if (ok)
+        *ok = s_wifi_sync_ok;
+    return true;
+}
+
 // Global reference to UI tick timer for dynamic adjustment
 static lv_timer_t *g_ui_tick_timer = NULL;
 
@@ -781,48 +827,16 @@ static lv_timer_t *g_seconds_timer = NULL;
  * clock display: called from the minute tick too). */
 static void refresh_alarm_display(const clock_time_t *now);
 
-/* ---- demo mode (UI_DEMO_MODE): MM:SS clock + the moon screens on a
- * fixed rotation ---------------------------------------------
+/* ---- demo mode (UI_DEMO_MODE) --------------------------------------
  *
- * A showcase mode for the clock's motion: the shared clock widget shows
- * MM:SS (the seconds roll through the per-digit odometer every second)
- * instead of HH:MM, and the five moon screens rotate every
- * UI_DEMO_SCREEN_SEC seconds. The demo runs until the next reset: it
- * holds the idle timer (every demo second is activity), skips the hourly
- * on-demand WiFi sync, and ignores the sync-complete hand-off, so a
- * recording run is never cut by a sleep transition or a radio wake.
- * One 1000 ms lv_timer (LVGL task, wired in main.cpp next to the test
- * hooks) drives it; the callback arms itself the moment the boot sweep
- * is done (a screen switch mid-sweep is guarded off, the same gate as
- * the test hooks). Off by default (production builds).
+ * The scripted tour lives in demo.c (the phase engine, the MM:SS
+ * odometer second, the virtual-pointer touch injection and the serial
+ * phase markers; docs/verification/demo-mode). actions.c keeps only
+ * the hooks the demo needs from the action layer: the clock label's
+ * MM:SS/HH:MM choice, the sleep/alarm suppression guards below, the
+ * roll-script entry points and the sync-done poll. action_demo_active
+ * is DEFINED in demo.c (both the on and the off build).
  */
-#ifndef CONFIG_UI_DEMO_MODE
-#define CONFIG_UI_DEMO_MODE 0
-#endif
-#ifndef CONFIG_UI_DEMO_SCREEN_SEC
-#define CONFIG_UI_DEMO_SCREEN_SEC 15
-#endif
-
-#if CONFIG_UI_DEMO_MODE
-/* The rotation order: the five moon screens (the settings screens show
- * no moon, and the demo is the moon's showcase). */
-static const enum ScreensEnum s_demo_order[] = {SCREEN_ID_MODEM_SLEEP, SCREEN_ID_WIFI, SCREEN_ID_LIGHT_SLEEP,
-                                                SCREEN_ID_DEEP_SLEEP, SCREEN_ID_ALARM};
-static bool s_demo_armed = false;
-static size_t s_demo_index = 0;
-static uint32_t s_demo_seconds = 0;
-#endif
-
-/* True while the demo is running (the clock label's MM:SS/HH:MM guard:
- * the minute tick and the screen-switch attach write through
- * action_clock_widget_label, which follows this at every write point). */
-bool action_demo_active(void) {
-#if CONFIG_UI_DEMO_MODE
-    return s_demo_armed;
-#else
-    return false;
-#endif
-}
 
 /* Refresh the shared clock widget's label from the wall-clock digits:
  * HH:MM normally, MM:SS in the demo mode. The minute tick, the
@@ -837,43 +851,6 @@ void action_clock_widget_label(int hour, int minute, int second) {
         snprintf(s, sizeof(s), "%02d:%02d", hour, minute);
     set_var_clock_label(s);
 }
-
-#if CONFIG_UI_DEMO_MODE
-/* One demo second (LVGL task; created as a 1000 ms lv_timer in
- * main.cpp). */
-void ui_demo_second_cb(lv_timer_t *timer) {
-    (void)timer;
-    if (!s_demo_armed) {
-        if (moon_ui_sweeping())
-            return; /* hold until the boot sweep is done */
-        s_demo_armed = true;
-        s_demo_index = 0;
-        s_demo_seconds = 0;
-        /* The demo runs until the next reset: keep the sleep transitions
-         * out of the recording (the per-second clock_idle_reset_timer
-         * below is belt and braces -- the orientation-step re-enable
-         * cannot expire a timer that is reset every second). */
-        clock_idle_set_enabled(false);
-        ESP_LOGI(TAG, "Demo mode: MM:SS clock + the %u moon screens rotate every %d s",
-                 (unsigned)(sizeof(s_demo_order) / sizeof(s_demo_order[0])), CONFIG_UI_DEMO_SCREEN_SEC);
-    }
-    /* MM:SS (the minute tick and the attach are guarded, so nothing
-     * fights it) + roll the changed slot(s) through the odometer. */
-    clock_time_t now;
-    if (clock_get_time(&now) == ESP_OK)
-        action_clock_widget_label(now.hour, now.minute, now.second);
-    tick_user_widget_clock(17);
-    /* Rotate the moon screens. */
-    if (++s_demo_seconds >= (uint32_t)CONFIG_UI_DEMO_SCREEN_SEC) {
-        s_demo_seconds = 0;
-        s_demo_index = (s_demo_index + 1) % (sizeof(s_demo_order) / sizeof(s_demo_order[0]));
-        loadScreen(s_demo_order[s_demo_index]);
-        ui_tick();
-    }
-    /* The demo is activity: hold the idle timer. */
-    clock_idle_reset_timer();
-}
-#endif
 
 /**
  * @brief Update the clock display with current time from RTC
@@ -1023,8 +1000,25 @@ void action_increment_clock_seconds(lv_event_t *e) {
  *
  * Called when RTC alarm goes off.
  */
+#ifdef CONFIG_UI_DEMO_MODE
+/* The demo's ALARM phase deliberately rings the alarm (screen + audio)
+ * for the camera; every OTHER fire (a scheduled RTC/one-shot alarm at
+ * the wall-clock time) belongs to real use, not the tour, and would
+ * hijack the recording. action_alarm_triggered only runs while this
+ * flag is set when the demo itself fires it. */
+static bool s_demo_alarm_allow = false;
+void action_demo_allow_alarm(bool allow) { s_demo_alarm_allow = allow; }
+#endif
+
 void action_alarm_triggered(lv_event_t *e) {
     ESP_LOGI(TAG, "Alarm triggered!");
+
+#ifdef CONFIG_UI_DEMO_MODE
+    if (action_demo_active() && !s_demo_alarm_allow) {
+        ESP_LOGI(TAG, "Scheduled alarm suppressed (demo mode owns the alarm screen)");
+        return;
+    }
+#endif
 
     // An alarm can fire from DEEP SLEEP (the panel backlight is off
     // there): light the panel before the alarm screen is shown.
@@ -1121,6 +1115,18 @@ esp_err_t action_register_alarm_touch(void) {
  */
 void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Switching to deep sleep screen");
+
+    /* Demo mode: no sleep transitions during the tour. The idle
+     * monitor is switched off at the demo's arm, but a countdown armed
+     * BEFORE the demo took over (or re-armed by the dusk phase's own
+     * light-sleep entry) can still expire -- a dead-black panel
+     * mid-recording would ruin the take, so refuse the transition and
+     * disarm the source. */
+    if (action_demo_active()) {
+        ESP_LOGI(TAG, "Deep-sleep transition suppressed (demo mode)");
+        clock_timer_disable();
+        return;
+    }
 
 #if !CONFIG_CLOCK_USE_PCF85063A
     // P4: no RTC ALM wake. The device's "deep sleep" is app-level (no

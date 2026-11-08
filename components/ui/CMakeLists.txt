@@ -18,6 +18,7 @@ idf_component_register(
     "images.c"
     "styles.c"
     "actions.c"
+    "demo.c"
     "vars.c"
     "moon_ui.c"
     "moon_tfcache.c"

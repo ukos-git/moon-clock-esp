@@ -531,6 +531,37 @@ void tick_screen_alarm() {} /* no clock tick: the shared widget is
  * back to the CALLING level (the hub, or the alarm screen for its two
  * sub-screens) plus their own working widgets. */
 
+/* Demo-mode walk registries (the tour taps the real touch targets;
+ * docs/verification/demo-mode). All screens are created once at boot,
+ * so these fill exactly once and the walk reads pointers, never coords.
+ * The sub-screen exit map is keyed by the screen ROOT (the pair the
+ * sub-screen shell registered); the hub's own central exit is the
+ * named objects.settings_hub_exit. */
+static lv_obj_t *s_hub_icons[8];
+static enum ScreensEnum s_hub_icon_targets[8];
+static int s_hub_icons_n = 0;
+
+struct sub_exit {
+    lv_obj_t *root;
+    lv_obj_t *exit;
+};
+static struct sub_exit s_sub_exits[12];
+static int s_sub_exits_n = 0;
+
+/* The bottom-centre exit of the sub-screen whose ROOT is `root`
+ * (NULL when the screen did not build a sub-screen shell). */
+lv_obj_t *screens_sub_exit_get(lv_obj_t *root) {
+    if (!root) {
+        return NULL;
+    }
+    for (int i = 0; i < s_sub_exits_n; i++) {
+        if (s_sub_exits[i].root == root) {
+            return s_sub_exits[i].exit;
+        }
+    }
+    return NULL;
+}
+
 void create_screen_settings_hub() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_hub = obj;
@@ -597,8 +628,36 @@ void create_screen_settings_hub() {
         const float th = ((180.0f + step * ((float)i - deep)) * PI) / 180.0f;
         const int32_t dx = (int32_t)(R * sinf(th));
         const int32_t dy = (int32_t)(-R * cosf(th));
-        settings_hub_icon(obj, ring[i].glyph, ring[i].font, dx, dy, ring[i].target);
+        lv_obj_t *icon = settings_hub_icon(obj, ring[i].glyph, ring[i].font, dx, dy, ring[i].target);
+        /* Demo-mode walk registry (screens_hub_icons): the tour taps
+         * the REAL icons (hit test + CLICKED handler) instead of
+         * loadScreen, so it verifies the touch entry path on camera.
+         * The hub is created once at boot; 8 covers the 7-icon P4 ring
+         * and the 6-icon S3 ring with headroom. */
+        if (s_hub_icons_n < (int)(sizeof(s_hub_icons) / sizeof(s_hub_icons[0]))) {
+            s_hub_icons[s_hub_icons_n] = icon;
+            s_hub_icon_targets[s_hub_icons_n] = ring[i].target;
+            s_hub_icons_n++;
+        }
     }
+}
+
+/* The hub ring's created icons (demo-mode walk; see create_screen_
+ * settings_hub). Returns the count, fills up to max entries. */
+int screens_hub_icons(const lv_obj_t **objs, enum ScreensEnum *targets, int max) {
+    int n = s_hub_icons_n;
+    if (n > max) {
+        n = max;
+    }
+    for (int i = 0; i < n; i++) {
+        if (objs) {
+            objs[i] = s_hub_icons[i];
+        }
+        if (targets) {
+            targets[i] = s_hub_icon_targets[i];
+        }
+    }
+    return n;
 }
 
 void tick_screen_settings_hub() {}
@@ -619,6 +678,12 @@ static lv_obj_t *settings_sub_screen_prepare(lv_obj_t *obj, enum ScreensEnum exi
     lv_obj_t *exit = settings_create_exit_button(obj, UI_PX(90));
     lv_obj_align(exit, LV_ALIGN_BOTTOM_MID, 0, -UI_PX(34));
     lv_obj_add_event_cb(exit, event_handler_cb_settings_exit, LV_EVENT_CLICKED, (void *)(intptr_t)exit_target);
+    /* Demo-mode walk registry (screens_sub_exit_get). */
+    if (s_sub_exits_n < (int)(sizeof(s_sub_exits) / sizeof(s_sub_exits[0]))) {
+        s_sub_exits[s_sub_exits_n].root = obj;
+        s_sub_exits[s_sub_exits_n].exit = exit;
+        s_sub_exits_n++;
+    }
     return exit;
 }
 
@@ -1555,6 +1620,17 @@ static void settings_wifi_screen_refresh(void) {
     wifi_scan_begin();
 }
 
+/* The AP row object for the demo-mode walk (the tour taps the real row:
+ * hit test -> CLICKED -> wheel keyboard with the SSID prefilled).
+ * Rows exist for the whole boot (created once); only their TEXT follows
+ * the scan, so a valid index always returns a tappable object. */
+lv_obj_t *screens_wifi_row_get(int i) {
+    if (i < 0 || i >= WIFI_SETTINGS_ROWS) {
+        return NULL;
+    }
+    return s_wifi_rows[i];
+}
+
 void create_screen_settings_wifi() {
     lv_obj_t *obj = lv_obj_create(0);
     objects.settings_wifi = obj;
@@ -2227,6 +2303,83 @@ static void settings_wheel_prefill_ssid(const char *ssid) {
     memcpy(s_wheel_ssid, ssid, n);
     s_wheel_ssid[n] = 0;
 }
+
+#ifdef CONFIG_UI_DEMO_MODE
+/* ---- demo-mode wheel drive (docs/verification/demo-mode) -------------
+ *
+ * The tour taps the wheel through the REAL touch path (a second
+ * virtual LVGL pointer injected by demo.c: hit test, sticky sector
+ * reveal, commit-on-release, the works). These expose the wheel's own
+ * geometry so the virtual taps land in the right annuli/sectors
+ * instead of duplicating the layout. The points returned are in the
+ * wheel's LOCAL screen space (the same space the handlers' inverse
+ * transform maps the raw indev point into); demo.c applies the screen
+ * root's base orientation rotation to turn them into display coords.
+ * All return false when the wheel is not in a state to answer (wrong
+ * register, letter not in the active set). */
+
+/* Polar point at the wheel centre, LVGL degrees (0 = right, 90 = down). */
+static void wheel_demo_point(float theta_deg, int32_t r, lv_point_t *out) {
+    const float PI = 3.14159265f;
+    float a = theta_deg * PI / 180.0f;
+    out->x = (lv_coord_t)(WHEEL_C + r * cosf(a));
+    out->y = (lv_coord_t)(WHEEL_C + r * sinf(a));
+}
+
+bool settings_wheel_demo_mode_point(int mode, lv_point_t *out) {
+    if (mode < 0 || mode > 3) {
+        return false;
+    }
+    /* The mode arc's annulus r 84..144 (the icon row sits at r 114);
+     * key k spans LVGL 150+60k .. 210+60k, centre 180+60k. */
+    wheel_demo_point(180.0f + 60.0f * (float)mode, UI_PX(114), out);
+    return true;
+}
+
+bool settings_wheel_demo_letter_point(char ch, lv_point_t *out) {
+    if (s_wheel_n <= 0) {
+        return false; /* the active register was never drawn */
+    }
+    for (int i = 0; i < s_wheel_n; i++) {
+        if (s_wheel_chars[i] == ch) {
+            /* The press band 140..233; the at-rest letter row sits at
+             * r 168, the reveal row at 209 -- aim between them. */
+            wheel_demo_point(s_wheel_slot_angle[i], (UI_PX(140) + WHEEL_C) / 2, out);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool settings_wheel_demo_commit_point(lv_point_t *out) {
+    /* circle-CHECK key: LVGL ~31.5..88.5, annulus 84..144. */
+    wheel_demo_point(60.0f, UI_PX(114), out);
+    return true;
+}
+
+bool settings_wheel_demo_discard_point(lv_point_t *out) {
+    /* circle-xmark DISCARD key: LVGL ~91.5..148.5, annulus 84..144. */
+    wheel_demo_point(120.0f, UI_PX(114), out);
+    return true;
+}
+
+bool settings_wheel_demo_center_point(lv_point_t *out) {
+    out->x = WHEEL_C;
+    out->y = WHEEL_C;
+    return true;
+}
+
+int settings_wheel_demo_pw_len(void) { return s_wheel_pw_len; }
+
+/* Open the keyboard with a fixed SSID (the tour's no-AP fallback: with
+ * APs in range the walk taps a real row instead, which prefills). */
+void settings_wheel_demo_open(const char *ssid) {
+    settings_wheel_prefill_ssid(ssid);
+    loadScreen(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
+    ui_tick();
+    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
+}
+#endif /* CONFIG_UI_DEMO_MODE */
 
 /* Entry reset (settings_screen_refresh_for): empty password, lowercase
  * mode, nothing revealed. The prefilled SSID (set by the row tap BEFORE

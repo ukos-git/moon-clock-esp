@@ -124,6 +124,13 @@ bool moon_ui_tilt_settled(void);
 bool moon_ui_sweeping(void);
 
 /**
+ * True once the dusk spin's dark-side frame is on screen (see
+ * moon_ui_dusk_start). Reset by the wake and by any fresh bake. The
+ * demo tour polls it to know its dusk spin completed (UI_DEMO_MODE).
+ */
+bool moon_ui_dusk_complete(void);
+
+/**
  * Display the new screen's contents (moon image included) as ONE
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
  * LVGL task context. No-op while a pipeline owns the buffer (the spin

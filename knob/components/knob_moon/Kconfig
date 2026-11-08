@@ -37,4 +37,27 @@ config KNOB_MOON_SWEEP_BAKE_PX
         bakes crisp at the panel's 360. Never below 96 -- the clock's
         measured sharpness floor (the terminator goes soft).
 
+config KNOB_DEMO_MODE
+    bool "Knob demo mode: scripted phase tour (bench comparison)"
+    default n
+    help
+        The knob side of the on-device demo tour (docs/
+        verification/demo-mode, mirrors the clocks' UI_DEMO_MODE).
+        After the boot presentation (sweep/static) the producer task
+        walks EIGHT canonical phases of the current synodic month
+        (new moon -> waning crescent, epochs pinned at k/8 of the
+        month) plus a ninth step on the LIVE current phase (re-baked
+        every cycle, events on), holding each for
+        KNOB_DEMO_PHASE_SEC. The power ladder stays held (no dim, no
+        deep sleep) so a recording never goes dark; the caption shows
+        the phase name. Every step logs `phase=<name> cycle=<n>`
+        (tag DEMO) for the recording harness. Production builds keep
+        this off.
+
+config KNOB_DEMO_PHASE_SEC
+    int "Knob demo mode: seconds per phase step"
+    depends on KNOB_DEMO_MODE
+    default 15
+    range 5 600
+
 endmenu
