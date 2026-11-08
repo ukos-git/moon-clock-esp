@@ -138,7 +138,7 @@ of the synodic cycle, streamed through the same convert block (the
 like baked ones). It never *replaces* the bake path — it sits in
 front of it:
 
-- **Layout** — ``/moon_cache/<calcver>_<target>_<bake_px>/<epoch_hour>.jpg``
+- **Layout** — ``/sdcard/moon_cache/<calcver>_<target>_<bake_px>/<epoch_hour>.jpg``
   with ``epoch_hour = floor(epoch/3600)``. One entry per hour, at
   most 29.53 d × 24 ≈ **709 files** of a few KB each; every store
   evicts hours older than the current synodic cycle, so the cache

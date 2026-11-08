@@ -58,7 +58,10 @@ static const char *TAG = "tfcache";
 #define CONFIG_UI_MOON_TFCACHE_JPEG_Q 10
 #endif
 
-#define CACHE_ROOT "/moon_cache"
+/* The cache lives ON the FATFS volume: the BSP mounts the card at
+ * BSP_SD_MOUNT_POINT, so the root must be under it (an unprefixed
+ * "/moon_cache" is outside the VFS mount -- every path ENOENTs). */
+#define CACHE_ROOT BSP_SD_MOUNT_POINT "/moon_cache"
 #define SYNODIC_S ((int64_t)(29.53 * 86400)) /* same constant as the sweep */
 #define TF_MAX_HOURS 709                     /* ceil(29.53 d / 1 h) + slack */
 #define PROBE_TOL 24                         /* gray round-trip max |diff|  */
@@ -99,9 +102,12 @@ static void free16(void *p) {
 
 /* ---- small FATFS helpers ---------------------------------------------- */
 
-static void mkdir_p(const char *path) {
-    if (mkdir(path, 0755) != 0 && errno != EEXIST)
-        ESP_LOGD(TAG, "mkdir %s: %d", path, errno);
+static int mkdir_p(const char *path) {
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        ESP_LOGW(TAG, "mkdir %s failed: %d", path, errno);
+        return -1;
+    }
+    return 0;
 }
 
 static void hour_path(int64_t hour, char *out, size_t n) { snprintf(out, n, "%s/%lld.jpg", s_dir, (long long)hour); }
@@ -331,8 +337,16 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
         exists = false;
     }
     if (!exists) {
-        mkdir_p(s_dir);
+        if (mkdir_p(s_dir) != 0 || mkdir_p(CACHE_ROOT) != 0) {
+            tfcache_disable("mkdir fail");
+            return ESP_FAIL;
+        }
         meta_write(s_dir, S, albedo_w, relief);
+        struct stat st2;
+        if (stat(s_dir, &st2) != 0) { /* never claim ready on a folder that is not there */
+            tfcache_disable("no cache dir");
+            return ESP_FAIL;
+        }
         ESP_LOGI(TAG, "created cache folder %s (calcver %s)", s_dir, MOON_CALC_VER);
     }
     wipe_sibling_folders();

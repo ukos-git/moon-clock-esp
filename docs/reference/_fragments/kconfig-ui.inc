@@ -96,7 +96,7 @@ The moon animation pipeline
      - TF sweep cache: persist the sweep's intermediate bakes on the
        TF card as small gray JPEGs — **one per hour** of the cycle,
        ≤ ~709 files ~10 MB — under
-       ``/moon_cache/<calcver>_<target>_<px>/``, so a warm replay runs
+       ``/sdcard/moon_cache/<calcver>_<target>_<px>/``, so a warm replay runs
        at display cadence (~150 ms/frame) instead of bake cadence.
        Versioned by the calculation (``MOON_CALC_VER`` =
        ``git describe`` — bump the repo with commitizen ``cz bump`` to

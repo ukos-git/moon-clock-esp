@@ -175,7 +175,7 @@ menu "UI Component Configuration"
         help
             Persist the sweep's intermediate bakes on the TF card (one
             small gray JPEG per HOUR of the cycle, e.g. 709 files ~10 MB
-            for a full month) under /moon_cache/<calcver>_<target>_<px>/,
+            for a full month) under /sdcard/moon_cache/<calcver>_<target>_<px>/,
             so a warm replay reads frames instead of computing them:
             the sweep wall time drops from minutes to the display
             cadence itself (~150 ms/frame). The folder is versioned by
