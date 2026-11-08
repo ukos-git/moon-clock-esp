@@ -385,6 +385,19 @@ static void swap_task(void *arg) {
             if (s_caption_dirty) {
                 s_caption_dirty = false;
                 lv_label_set_text(s_caption, s_caption_text);
+                /* #31 probe: caption geometry after relayout, 1 s throttle
+                 * (the sweep re-labels every frame). */
+                static char last_cap[48];
+                static int64_t last_cap_us;
+                int64_t cap_us = esp_timer_get_time();
+                if (strcmp(last_cap, s_caption_text) != 0 && cap_us - last_cap_us > 1000000) {
+                    last_cap_us = cap_us;
+                    strlcpy(last_cap, s_caption_text, sizeof(last_cap));
+                    ESP_LOGI(TAG, "caption '%s' x=%d y=%d w=%d h=%d scr=%dx%d", s_caption_text, lv_obj_get_x(s_caption),
+                             lv_obj_get_y(s_caption), (int)lv_obj_get_width(s_caption),
+                             (int)lv_obj_get_height(s_caption), (int)lv_obj_get_width(lv_screen_active()),
+                             (int)lv_obj_get_height(lv_screen_active()));
+                }
             }
             lv_refr_now(NULL);
             s_front = back;
@@ -499,12 +512,17 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * it names the instant being baked while the disk is still hidden
      * (it flips to "moon unavailable" if the bake fails). */
     utc_caption(s_caption_text, sizeof(s_caption_text), utc_epoch);
+    /* The boot core mutating LVGL while lvgl_task renders is the bug
+     * #31's photo caught (caption clipped/shifted): every object touch
+     * here rides the lock, like the swap task and show_no_time do. */
+    lvgl_lock();
     lv_label_set_text(s_caption, s_caption_text);
+    lv_obj_set_hidden(s_moon_img, true);
+    lvgl_unlock();
     s_front = 0;
     s_pub = 0;
     s_applied = 0;
     s_shown = false;
-    lv_obj_set_hidden(s_moon_img, true);
     start_tasks(MODE_STATIC);
     return true;
 }
@@ -524,12 +542,14 @@ void knob_ui_start_sweep(int64_t now_epoch) {
     s_now_base_epoch = now_epoch;
     s_now_base_us = esp_timer_get_time();
     snprintf(s_caption_text, sizeof(s_caption_text), "sweeping 0/%d", sweep_frames_get());
+    lvgl_lock();
     lv_label_set_text(s_caption, s_caption_text);
+    lv_obj_set_hidden(s_moon_img, true);
+    lvgl_unlock();
     s_caption_dirty = false;
     s_front = 0;
     s_pub = 0;
     s_applied = 0;
     s_shown = false;
-    lv_obj_set_hidden(s_moon_img, true);
     start_tasks(MODE_SWEEP);
 }

@@ -51,13 +51,49 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
     bool pressed = false;
-    if (knob_board_touch_read(&x, &y, &pressed) == ESP_OK && pressed) {
+    /* #31 probe: a dead CST816S (all err), a silent panel (all ok, no
+     * press ever) and a working one are three different log shapes. */
+    static uint32_t s_ok, s_err, s_press_logged;
+    static int64_t s_hb_us;
+    esp_err_t rd = knob_board_touch_read(&x, &y, &pressed);
+    if (rd == ESP_OK) {
+        s_ok++;
+    } else {
+        s_err++;
+    }
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - s_hb_us > 5000000) {
+        s_hb_us = now_us;
+        ESP_LOGI(TAG, "touch heartbeat ok=%u err=%u last=(%u,%u) pressed=%d", (unsigned)s_ok, (unsigned)s_err, x, y,
+                 (int)pressed);
+    }
+    if (rd == ESP_OK && pressed) {
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PRESSED;
         knob_power_notify_activity(); /* K7e: touch is activity */
+        if (s_press_logged < 20) {
+            s_press_logged++;
+            ESP_LOGI(TAG, "touch press (%u,%u) [%u/20]", x, y, (unsigned)s_press_logged);
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
+    }
+}
+
+/* #31 probe: the dial is a jobless input until the (deferred) settings
+ * editor — log the pulse-pair deltas so the bench separates "never
+ * sampled" from "sampled, nothing wired to it". */
+static void dial_watch_task(void *arg) {
+    (void)arg;
+    int32_t last = knob_board_encoder_count();
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        int32_t c = knob_board_encoder_count();
+        if (c != last) {
+            ESP_LOGI(TAG, "dial %d -> %d", (int)last, (int)c);
+            last = c;
+        }
     }
 }
 
@@ -225,6 +261,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick_timer, 2 * 1000));
 
     xTaskCreate(lvgl_task, "knob_lvgl", 8192, NULL, 10, NULL);
+    xTaskCreate(dial_watch_task, "dial_watch", 3072, NULL, 3, NULL);
     /* K7c+K7d: the display arms on a TRUSTED instant only. The wait +
      * the sweep-vs-static decision live on this task (registered, it
      * only delays), so app_main returns at once and neither the ~20 s
