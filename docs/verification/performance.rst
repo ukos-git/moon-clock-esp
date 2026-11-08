@@ -167,7 +167,8 @@ The plot's story, in four facts:
    gradient cache, no per-pixel allocation), and it runs the model
    faster on a 2025 desktop than the vectorized reference does.
 2. **The device cost is memory, not math.** The S3's 400 px bake is
-   ~0.72 s against the host's 2.34 ms — ~300×. The FPU work is
+   ~1.2–1.35 s (measured 2026-11-08, 864 albedo; an earlier capture
+   read ~0.72 s) against the host's 2.34 ms — ~500×. The FPU work is
    identical (the host C bake *is* the FPU work, at 2.34 ms); the
    300× is the PSRAM: each pixel issues an albedo byte + a 2-byte
    gradient load from octal PSRAM at ~100s of ns of random-access
@@ -291,8 +292,9 @@ The budget's shape is the architecture's shape: the *bake* is on a
 dedicated core (core 1, the spin/bake task) and the *UI* is on
 core 0 (LVGL + touch + clock) — a bake that starves the UI is a
 design bug, not a timing accident. The two-core split is what lets
-the sweep run for ~11 min without the touch pipeline ever seeing a
-bake. The hub idle sits at 7–9 % because the LVGL adapter's
+the sweep run for ~37 min (S3, native 400 px intermediate bake,
+2026-11-08 capture; ~11 min if ``UI_MOON_ANIM_BAKE_PX`` is dropped to
+240) without the touch pipeline ever seeing a bake. The hub idle sits at 7–9 % because the LVGL adapter's
 ``task_min_delay_ms`` floor parks the loop at ~93 Hz — the pre-fix
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
 :doc:`the architecture <../implementation/architecture>`.
@@ -315,12 +317,17 @@ the order they matter:
 3. **The constant-projection dusk** (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`) — the one-time
    1.6 s map build against the per-frame 1.3 s bake; the dusk's
    43 s runs off ~50 ms re-projects.
-4. **The reduced-res sweep** (:doc:`the animation pipelines <../implementation/animations>`) — the 240 px intermediate
-   (0.28 s) against the 400 px (0.72 s): the sweep's 1343
-   intermediate frames are ~56 % cheaper, and the final full-res
-   frame carries the pixel-exact end. Without the reduced bake, the
-   1344-frame default (4x the old 336, to kill a visible per-frame
-   jump) boot in ~21 min instead of ~11.
+4. **The reduced-res sweep lever** (:doc:`the animation pipelines <../implementation/animations>`) — the 240 px intermediate
+   (~0.28 s) against the native bake: the sweep's 1343
+   intermediate frames are ~56 % cheaper on the per-frame math.
+   The shipped default since 8954e88 is the NATIVE bake (S3 400 px,
+   P4 650 px — every intermediate frame pixel-identical to the
+   static/spin bakes), a quality decision that costs boot time:
+   measured ~36.5 min wall on the bench S3 (2026-11-08; per-frame
+   bake 1211–1354 ms @ 400 px against the earlier ~0.72 s note —
+   the 864-albedo PSRAM-load floor). ``UI_MOON_ANIM_BAKE_PX`` is
+   the single Kconfig value to drop it (240 px → arithmetically
+   ~11 min).
 5. **The 25-row strips / 23,300 B cap** (:doc:`the display pipeline <../implementation/display>`) — not a
    *speed* decision (it is the NO_MEM fix) but a *throughput* one:
    the single 400×400 window write at 30–40 ms is the spin's panel
@@ -328,7 +335,8 @@ the order they matter:
    ~31 KiB blocks that fit the internal heap.
 
 The honest limit: the S3's bake is ~0.7–1.3 s, and the product
-*accepts* it — the sweep is a ~11 min boot story (frame count
+*accepts* it — the sweep is a ~37 min boot story at the native
+default (frame count
 quadrupled on 2026-11-07: users watched the old 2.8 min sweep stutter,
 so the boot grew longer and smooth), the spin is
 once-baked, the dusk is map-re-projected. The alternative (a

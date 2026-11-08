@@ -59,28 +59,41 @@ the *timing* column, quoted from accepted captures.
 The boot sweep
 --------------
 
-The boot acceptance (the full 1344-frame flow, ~11 min wall on the
-S3 — the bench S3's re-capture at the new count is pending, it is a
-peer's board):
+The boot acceptance (the full 1344-frame flow; the bench S3 re-captured
+2026-11-08 at the new count — **~36.5 min wall** at the native 400 px
+intermediate bake. The bench S3 is the project's own board; the old
+"peer's board" label was wrong — see the MAC-based port map in
+:doc:`the devices reference <../devices/index>`):
 
 .. code-block:: text
-   :caption: Boot sweep acceptance (S3, representative capture from the
-             336-frame era before the 2026-11-07 quadrupling; same flow,
-             same checks, the lines now log ``/1344``)
+   :caption: Boot sweep acceptance (S3, 2026-11-08 bench capture,
+             1344-frame default at the native 400 px bake; the capture
+             also shows the full sleep chain after the sweep)
 
-   I (xxx) moon_ui: panel draw_bitmap wrapper installed (spin direct write)
-   I (xxx) moon_ui: panel-io watchdog armed (3000 ms stuck limit)
-   I (xxx) moon_ui: sweep span: 29 d (new moon 2536000 s before now)
-   I (xxx) moon_ui: sweep 1/336 shown in 148ms
-   I (xxx) moon_ui: sweep 168/336 shown in 151ms
-   I (xxx) moon_ui: sweep 336/336 shown in 147ms
-   I (xxx) moon_ui: spin started (active 300 s/turn, settled 600 s/turn, 8 fps)
+   I (11987) moon_ui: panel-io watchdog armed (3000 ms stuck limit)
+   I (15127) moon_ui: synodic boot sweep started: 1344 frames (new moon -> now)
+   I (837267) moon_ui: sweep 472/1344 baked in 1210ms @400px (illum 68.2%)
+   I (837547) moon_ui: sweep 472/1344 shown in 272ms
+   ...
+   I (2236617) moon_ui: sweep 1344/1344 baked in 1354ms @400px (illum 1.8%)
+   I (2236927) moon_ui: sweep 1344/1344 shown in 281ms
+   I (2236927) moon_ui: sweep bake done in 2193384ms
+   I (2236927) moon_ui: spin started (active 300 s/turn, settled 600 s/turn, 8 fps)
+   I (2236927) clock_idle: Idle monitoring enabled
+   I (2297827) clock_idle: Idle timeout reached after 60888 ms
+   I (2297827) ui_actions: Switching to light sleep screen
+   I (2310517) moon_ui: dusk done; RTC countdown 60 s to deep sleep armed
 
 Three properties are checked: the span is found (the new-moon scan
 logged a plausible day count — a degenerate ephemeris logs a full
-29.53 d fallback); the per-frame ``shown`` deltas are ~150 ms
-(display-paced, not the ~1.3 s bake); and the hand-off to the spin
-happens (the re-anchor + ``spin started``). The P4 board's
+29.53 d fallback); the per-frame ``shown`` deltas are display-paced,
+not the bake (~270–280 ms on the S3's 25-row-strip flush path,
+~190 ms on the P4 — never the ~1.2–2 s bake); and the hand-off to the
+spin happens (the re-anchor + ``spin started``). The 2026-11-08 S3
+capture ran the whole sleep chain on the heels of the sweep: idle
+re-arm, ``Idle timeout reached after 60888 ms``, the light-sleep
+switch, the 15-frame dusk (shade map 990 ms), the 60 s RTC countdown
+and the deep-sleep backlight-off line. The P4 board's
 (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) acceptance is the same flow
 on the 650 px disk. The 1344-frame-era capture (2026-11-07, 28 d
 old-moon span, 0 WDT/panic): **1344/1344 frames** in **~40.5 min**

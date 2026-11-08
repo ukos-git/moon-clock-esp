@@ -98,22 +98,33 @@ from the pipeline's own header) is:
      - ~0.21 s
      - ~10 min
      - coarsest
-   * - 240 px (default)
+   * - 240 px
      - ~0.28 s
      - ~11 min
-     - frame count quadrupled 2026-11-07
-       (visible jump fix)
+     - the pre-8954e88 default (frame count
+       quadrupled 2026-11-07, visible
+       jump fix)
    * - 320 px
      - ~0.48 s
      - ~16 min
      - —
-   * - 400 px
-     - ~0.72 s
-     - ~21 min
+   * - 400 px (the default: native MOON_PX,
+       since 8954e88)
+     - 1.21–1.35 s
+       (measured 2026-11-08, 864 albedo)
+     - **2193 s ≈ 36.5 min** (measured
+       2026-11-08, bench S3)
      - full res; montage pixel-identical
        to the static/spin bakes
 
-plus a fixed ~0.23 s of display + tick per frame (resolution
+The 200/240/320 rows are 336-frame-era per-frame captures scaled
+arithmetically to 1344 frames; only the 400 px row (the shipped
+default) is a 1344-frame measurement. The per-frame bake grew
+~0.72 → ~1.2–1.35 s against the earlier note — the 864-albedo PSRAM
+load-latency floor (the P4 sees the same effect at 2048: bake median
+1543 ms @ 650 px).
+
+plus a measured 271–281 ms of display + tick per frame (resolution
 independent). A reduced bake size makes the on-screen montage coarser
 (400/S × 400/S NN blocks) but **physically correct** — the lighting
 and relief model is resolution-independent.
@@ -388,9 +399,13 @@ benchmark context in :doc:`performance <../verification/performance>`):
    * - Pipeline
      - S3 (466 px, 400 disk)
      - P4 (720 px, 650 disk)
-   * - Boot sweep (1344 f @ 240 px, 2026-11-07 era)
-     - ~11 min (wall; arithmetic on the accepted per-frame captures —
-       the bench S3 re-capture is pending)
+   * - Boot sweep (1344 f, native bake — S3
+       400 px / P4 650 px)
+     - 1344/1344 frames, wall 2193 s ≈ 36.5 min
+       (2026-11-08 bench capture; bake median
+       1211–1354 ms @ 400 px, shown 271–281 ms;
+       0 QSPI errors, no panic — IDLE0 WDT
+       starvation noise during the sweep only)
      - 1344/1344 frames, 0 WDT
        (~40 min wall @ 650 px,
        2026-11-07 capture)

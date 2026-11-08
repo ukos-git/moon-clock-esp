@@ -119,7 +119,8 @@ menu "UI Component Configuration"
             step is up to ~0.022 d/frame (~32 min) at an old moon. The
             count was 336 until 2026-11-07 -- at that density the
             per-frame illumination jump was visible as a stutter, so it
-            was quadrupled; the wall time grew with it (~11 min S3,
+            was quadrupled; the wall time grew with it (~37 min S3
+            measured 2026-11-08 at the native 400 px default bake,
             ~40 min P4 @650 px -- the display stays live and the sweep
             hands over to the spin when done). The intermediate
             frames are baked at UI_MOON_ANIM_BAKE_PX (see there); the
