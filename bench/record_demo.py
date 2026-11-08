@@ -211,7 +211,10 @@ def main():
             [
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
                 "-f", "v4l2", "-input_format", "yuyv422",
-                "-video_size", "1920x1080", "-framerate", "15",
+                # 5 fps = the C920's raw-YUYV USB2 bandwidth ceiling at
+                # 1080p (measured: 30 frames in 6 s at any requested
+                # rate). Resolution wins over rate for panel comparison.
+                "-video_size", "1920x1080", "-framerate", "5",
                 "-i", args.camera,
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-pix_fmt", "yuv420p", "-y", video_path,
@@ -219,7 +222,7 @@ def main():
             stderr=subprocess.DEVNULL,
         )
         video_t0 = time.time()
-        print("camera recording (1080p15 yuyv422)")
+        print("camera recording (1080p5 yuyv422 -- C920 USB2 raw floor)")
 
     try:
         deadline = t0 + args.minutes * 60

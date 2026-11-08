@@ -182,8 +182,12 @@ The recording harness
   a naive open of an Espressif USB-JTAG node cold-boots the board.
   ``--boot-pulse`` pulses RTS deliberately (the EN reset), so the
   boards boot in the camera's first second.
-* **Camera**: raw ``yuyv422`` 1080p15 straight through x264 — the
-  C920's own MJPEG encoder is the artifact source.
+* **Camera**: raw ``yuyv422`` 1080p straight through x264 — the
+  C920's own MJPEG encoder is the artifact source. At 1080p the raw
+  YUYV stream tops out at 5 fps over USB 2 (measured: exactly 30
+  frames in 6 s whatever rate is requested); resolution wins over
+  frame rate for panel comparison, and every demo dwell is seconds
+  long, so 200 ms granularity loses nothing.
 * **Post-processing**: per phase event, one PNG per board extracted
   from the video at the marker + ``--lead`` seconds, then an
   ``hstack`` montage per ``(cycle, phase)`` under ``compare/`` — the
@@ -196,10 +200,11 @@ The recording harness
 Reading a take
 --------------
 
-* The **sweep** plays 1344 frames from the last new moon on every
-  device (S3 from the warm TF cache in ~2 min, otherwise baked at
-  ~1.3 s/frame; P4 bakes natively at 650 px in ~10 min): identical
-  frame pacing and identical illumination curves are the first look-test.
+* The **sweep** plays the 1344-frame spec (693 frames at the current
+  cycle age) from the last new moon on every device (S3 from the warm
+  TF cache in ~2 min, otherwise baked at ~1.5 s/frame ≈ 17 min; P4
+  bakes natively at 650 px in ~1120 s ≈ 19 min): identical frame
+  pacing and identical illumination curves are the first look-test.
 * ``moons`` and the knob's ``full-moon``/``now`` steps compare the
   SAME epoch's rendering across the three panels (the clocks' home
   phase vs the knob's live now step).
