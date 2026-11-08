@@ -30,6 +30,7 @@ CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_MEM_SIZE_KILOBYTES=64
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_THEME_DEFAULT_DARK=y
 
 # The moon producer task's classify/new-moon scans (core moon_event, no
@@ -44,3 +45,8 @@ CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 # POLL mode with the hourly UPDATE_DELAY keeps the drift down while
 # awake; the boot arm takes one fix and only bakes on trusted time.
 CONFIG_LWIP_SNTP=y
+
+# The caption clock spells local time like the clocks' home row (the
+# bench boards are Central European; Kconfig default UTC0 stays honest
+# for a device with no location).
+CONFIG_KNOB_TZ="CET-1CEST,M3.5.0/2,M10.5.0/3"

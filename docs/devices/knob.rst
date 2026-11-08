@@ -220,13 +220,16 @@ Firmware (``knob/`` sibling project)
 
 The shipping firmware is the **standalone moon display**: LVGL 9.6,
 one full-panel disk baked by the clock's portable moon core, a
-caption row naming the baked instant, a cold-boot synodic sweep
+caption row carrying a **local-time glass clock** ("Nov 8 17:29"
+through ``KNOB_TZ``, rolled by the day tick without a re-bake, sized
+for the round window), a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
 that re-bakes once on a UTC-date or event-signature change, SNTP
-time over its own Wi-Fi join (K7d, ``knob_time`` — the board
-has no RTC), and an idle ladder — backlight dim, then deep sleep
-woken by a dial detent (K7e, ``knob_power``). How the pieces run —
+time over its own Wi-Fi join with an NVS last-known-instant snapshot
+(K7d, ``knob_time`` — the board has no RTC), and an idle ladder —
+backlight dim, then deep sleep woken by a dial detent **or a screen
+tap** (K7e, ``knob_power``). How the pieces run —
 frame path, opening act, ladder — is
 :doc:`the knob as a standalone display <../implementation/knob-display>`.
 Layout and commands:
@@ -271,12 +274,21 @@ Layout and commands:
   the Wi-Fi join (lwIP's SNTP client, ``CONFIG_LWIP_SNTP``); the
   answer counts only with a plausible epoch (> 2021-01-01) — the
   clock's never-a-phantom-alarm discipline applied to the moon: with
-  no fix (dead AP, no uplink, implausible answer) the glass honestly
-  reads ``no time`` and **no phase is ever baked from a guess**. A
+  no fix and no snapshot (dead AP, no uplink, implausible answer, a
+  never-synced board) the glass honestly reads ``no time`` and
+  **no phase is ever baked from a guess**. Every plausible answer is
+  snapshotted to NVS (plus an explicit save before every deep sleep):
+  a wake whose join + NTP window runs long arms the static phase
+  immediately from the snapshot + uptime (log
+  ``arming static phase on NVS snapshot``) instead of sitting dark on
+  an instant the board already had, and the late fix re-bakes — the
+  clock's ``clock_sntp`` snapshot discipline, with the plausibility
+  floor still enforced on the read. A
   small boot-arm task owns the sequence (wait for the background join
   → start SNTP → fix within ``KNOB_TIME_BOOT_SYNC_MS`` = the cold-boot
-  sweep; late fix = static current phase; no fix = keep polling, the
-  moon appears the moment time lands). While awake, the hourly
+  sweep; late fix = static current phase; no fix = arm on the snapshot
+  if one exists, keep polling either way — the moon appears the moment
+  time lands). While awake, the hourly
   ``CONFIG_LWIP_SNTP_UPDATE_DELAY`` POLL keeps the drift down (and
   the day tick reads the system clock directly, so a re-sync
   correction applies without re-arming). ``KNOB_NTP_SERVER`` is
@@ -287,19 +299,30 @@ Layout and commands:
   ≈4–11 s, the synced epoch agreeing with the host UTC clock within
   ~2 s; the full 1344-frame sweep still landed in ~315 s on the real
   now (illum 1.7 % — three hours past that week's new moon), 0 TWDT.
-  With a dead server (``ntp.invalid.example``) the boot logged
-  ``no NTP fix in window`` and the glass stayed ``no time`` with zero
-  bake lines — the refusal never guesses a phase.
+  With a dead server (``ntp.invalid.example``) on a board with an
+  empty NVS the boot logged ``no NTP fix in window`` and the glass
+  stayed ``no time`` with zero bake lines — the refusal never guesses
+  a phase (with a snapshot stored it arms on the last known instant,
+  logged as such).
 * K7e power (``knob/components/knob_power``): an idle-ladder supervisor
   (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
   default 40) after ``KNOB_DIM_AFTER_S`` (15) and enters
   ``esp_deep_sleep_start`` after ``KNOB_SLEEP_TIMEOUT_S`` (60) of
   touch/dial silence; any activity un-dims and restarts the ladder.
   Activity = touch contacts (pushed from the indev read) and dial
-  detents (the encoder count polled); the cold-boot sweep (and the
-  static first frame) **hold** the ladder — a presentation is never
-  interrupted, the clock's idle-hold posture. Deep sleep is armed with
-  **EXT0 on dial-A GPIO 8** (active-LOW): the S3 RTCIO verdict the
+  detents (the encoder count polled); the **boot arm** and the
+  cold-boot sweep (and the static first frame) **hold** the ladder —
+  a presentation is never interrupted and a never-yet-presented board
+  is never slept over (the hold starts with ``boot_arm_task``, so a
+  slow join + NTP window can no longer dim at 15 s and sleep at 60 s
+  over a black panel; only a board that will never present leaves the
+  ladder free). Deep sleep first saves the ``knob_time`` snapshot,
+  then arms **EXT0 on dial-A GPIO 8** (active-LOW) plus — under
+  ``KNOB_TOUCH_WAKE`` (default ``y``) — **EXT1 ANY_LOW on the CST816S
+  INT (GPIO 9)**, so a screen tap wakes like a detent (one touch
+  status read before sleeping clears a pending INT pulse — the
+  boot-loop guard; a rejected pad logs and stays dial-only). The S3
+  RTCIO verdict the
   plan asked for came back **accepted**, device-verified 2026-11-08
   on the production build — the 314 s cold-boot sweep held the ladder
   whole (no dim/sleep lines while sweeping), dim fired at idle 15.1 s,

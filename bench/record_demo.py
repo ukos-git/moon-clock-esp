@@ -46,6 +46,15 @@ except ImportError:
 
 PHASE_RE = re.compile(r"phase=(\S+)\s+cycle=(\d+)(?:\s+screen=(\S+))?")
 
+# Montage grouping aliases: the knob's live-now step and the clocks'
+# HOME step render the same content (the current phase, events on), so
+# they group as one -- otherwise the knob appears in zero montages
+# (its phase names never collide with the clocks'). cycle is a
+# board-local counter (different pacing per board); each frame is
+# extracted at its own board's marker time, so the pair stays honest
+# even when the two tours are mid-different-step.
+PHASE_ALIASES = {("knob", "now"): "home"}
+
 # udev (vendor:model[:serial-short]) -> board. Both ESP32-S3 boards are
 # 303a:1001; the serial number carries the MAC (bench map 2026-11-08).
 USB_MAP = [
@@ -247,7 +256,8 @@ def main():
         # group by (cycle, phase): one frame per board, then hstack
         groups = {}
         for e in events:
-            groups.setdefault((e["cycle"], e["phase"]), {})[e["board"]] = e["t"]
+            phase = PHASE_ALIASES.get((e["board"], e["phase"]), e["phase"])
+            groups.setdefault((e["cycle"], phase), {})[e["board"]] = e["t"]
         for (cycle, phase), per_board in sorted(groups.items()):
             pngs = []
             for board, t in sorted(per_board.items()):

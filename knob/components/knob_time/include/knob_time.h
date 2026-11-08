@@ -45,6 +45,20 @@ int64_t knob_time_now_epoch(void);
  *         Safe before start_sync (just polls the flag until the timeout). */
 bool knob_time_wait_synced(uint32_t timeout_ms);
 
+/**
+ * @brief Persist the current trusted instant to NVS (no-op without one).
+ *
+ * The SNTP callback stores every plausible answer itself; the power
+ * supervisor calls this right before esp_deep_sleep_start so the next
+ * boot can arm the static moon without waiting for Wi-Fi + NTP.
+ */
+void knob_time_snapshot_save(void);
+
+/** @brief The last snapshotted plausible epoch (> 2021-01-01), or 0.
+ *         Its age is unverifiable offline -- callers arm on it only as a
+ *         "last known" fallback and must let a late SNTP fix re-bake. */
+int64_t knob_time_snapshot_epoch(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,9 +1,14 @@
 /**
  * @file knob_time.c
  * @brief K7d time truth: the legacy esp_sntp POLL client (same API the
- *        clock's clock_sntp.c drives) with the clock's trust discipline
- *        and nothing else -- no RTC, no NVS snapshot, no timezone. The
- *        moon view reads UTC only.
+ *        clock's clock_sntp.c drives) with the clock's trust discipline.
+ *        The board has no RTC, so every deep-sleep wake reboots without
+ *        a clock: an NVS snapshot of the last plausible SNTP answer
+ *        (the clock's clock_sntp.c snapshot discipline) lets the boot
+ *        arm show the current phase at once instead of waiting out the
+ *        Wi-Fi join + NTP window dark -- the fix for the dial-wake that
+ *        showed nothing but "no time" for half a minute. The moon view
+ *        still reads UTC only; the caption formats local time itself.
  */
 #include <sys/time.h>
 #include <time.h>
@@ -14,6 +19,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "knob_time.h"
+#include "nvs.h"
 
 static const char *TAG = "knob_time";
 
@@ -36,6 +42,60 @@ static EventGroupHandle_t s_sync_evt;
 static bool s_started;
 static volatile bool s_valid;
 
+/* ---- NVS snapshot (the clock's wake-without-RTC discipline) ---------- */
+
+#define NVS_NAMESPACE "knob_time"
+#define NVS_KEY_EPOCH "epoch"
+
+static nvs_handle_t s_nvs;
+static bool s_nvs_opened;
+
+/* Always READWRITE: the boot read (snapshot_epoch) happens before the
+ * SNTP callback's store on every wake, and a handle opened READONLY
+ * there would make the first store fail silently. */
+static bool snapshot_open(void) {
+    if (s_nvs_opened) {
+        return true;
+    }
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &s_nvs) != ESP_OK) {
+        ESP_LOGW(TAG, "NVS snapshot unavailable (open failed)");
+        return false;
+    }
+    s_nvs_opened = true;
+    return true;
+}
+
+static void snapshot_store(int64_t epoch) {
+    if (!snapshot_open()) {
+        return;
+    }
+    if (nvs_set_i64(s_nvs, NVS_KEY_EPOCH, epoch) == ESP_OK) {
+        nvs_commit(s_nvs);
+    }
+}
+
+void knob_time_snapshot_save(void) {
+    if (s_valid) {
+        snapshot_store(knob_time_now_epoch());
+    }
+}
+
+int64_t knob_time_snapshot_epoch(void) {
+    if (!snapshot_open()) {
+        return 0;
+    }
+    int64_t epoch = 0;
+    if (nvs_get_i64(s_nvs, NVS_KEY_EPOCH, &epoch) != ESP_OK) {
+        return 0;
+    }
+    /* Same plausibility floor as a live SNTP answer: a stale snapshot
+     * from a reflashed board must never arm a silently-wrong moon. Its
+     * AGE is unverifiable without a clock (chicken-and-egg), so the arm
+     * log says "last known" out loud and the POLL client's next fix
+     * re-bakes via the show_moon force-rebake path. */
+    return epoch >= PLAUSIBLE_EPOCH ? epoch : 0;
+}
+
 /* Runs on the lwIP SNTP task right after it settimeofday()'d. Setting a
  * flag + event bit is all it may do -- esp_sntp_stop() from in here
  * would wait for this very task to die. */
@@ -48,7 +108,11 @@ static void sntp_sync_cb(struct timeval *tv) {
     if (s_sync_evt) {
         xEventGroupSetBits(s_sync_evt, SYNCED_BIT);
     }
-    ESP_LOGI(TAG, "SNTP synced: epoch %lld", (long long)tv->tv_sec);
+    /* Persist immediately (small write, rare: first boot + hourly POLL):
+     * the deep-sleep window is exactly when the power supervisor has no
+     * time to spare, and an answer this fresh is what a wake arms on. */
+    snapshot_store((int64_t)tv->tv_sec);
+    ESP_LOGI(TAG, "SNTP synced: epoch %lld (snapshot saved)", (long long)tv->tv_sec);
 }
 
 void knob_time_start_sync(void) {

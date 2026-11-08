@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_power.h"
+#include "knob_time.h"
 
 static const char *TAG = "knob_power";
 
@@ -68,7 +69,30 @@ static void enter_deep_sleep(int64_t idle) {
         knob_power_notify_activity();
         return;
     }
-    ESP_LOGI(TAG, "idle %lld s -- EXT0 GPIO %d accepted, deep sleep%s", (long long)idle, (int)WAKE_GPIO,
+#if CONFIG_KNOB_TOUCH_WAKE
+    /* A tap wakes like a detent: EXT1 ANY_LOW on the CST816S INT line
+     * (GPIO 9, an RTC IO). One status read first clears a pending INT
+     * pulse -- a stale low would re-wake the boot instantly (the
+     * boot-loop guard; the INT line idles high on a touched-free chip). */
+    uint16_t tx = 0, ty = 0;
+    bool tp = false;
+    (void)knob_board_touch_read(&tx, &ty, &tp);
+    const esp_err_t ext1_err = esp_sleep_enable_ext1_wakeup(1ULL << GPIO_NUM_9, ESP_EXT1_WAKEUP_ANY_LOW);
+    if (ext1_err != ESP_OK) {
+        ESP_LOGW(TAG, "EXT1 GPIO 9 rejected (%s) -- dial-only wake", esp_err_to_name(ext1_err));
+    }
+#endif
+    /* No RTC on this board: persist the last trusted instant NOW so the
+     * wake shows the moon at once instead of a dark panel through the
+     * Wi-Fi join + NTP window. */
+    knob_time_snapshot_save();
+    ESP_LOGI(TAG, "idle %lld s -- EXT0 GPIO %d accepted%s, deep sleep%s", (long long)idle, (int)WAKE_GPIO,
+#if CONFIG_KNOB_TOUCH_WAKE
+             " (+EXT1 tap wake)"
+#else
+             ""
+#endif
+             ,
 #if CONFIG_KNOB_SLEEP_ALLOW
              " now"
 #else

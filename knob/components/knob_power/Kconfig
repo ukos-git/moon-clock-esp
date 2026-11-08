@@ -26,6 +26,18 @@ config KNOB_SLEEP_TIMEOUT_S
         presentation is never interrupted); the clock's wake policy
         then shows the current phase statically on every wake.
 
+config KNOB_TOUCH_WAKE
+    bool "Wake from deep sleep on a screen tap (EXT1 CST816S INT)"
+    default y
+    help
+        Arms EXT1 ANY_LOW on the CST816S INT line (GPIO 9, RTC IO) next
+        to the dial-A EXT0, so a tap wakes the knob like a dial detent
+        does. Before sleeping, one touch status read clears a pending
+        INT pulse (a stale low would re-wake instantly -- the boot-loop
+        guard). If the pad rejects EXT1 the supervisor logs it and
+        stays dial-only, like KNOB_SLEEP_ALLOW=n does for the sleep
+        itself. Bench-verify: tap, then dial, from a dark panel.
+
 config KNOB_SLEEP_ALLOW
     bool "Actually enter deep sleep (n = log-only)"
     default y

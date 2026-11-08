@@ -143,14 +143,22 @@ static void lvgl_task(void *arg) {
  */
 static void boot_arm_task(void *arg) {
     /* K7e: the wake path must be readable from the log (0 = power-on,
-     * 1 = EXT0 dial detent after the K7e deep sleep). */
-    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial)", (int)esp_sleep_get_wakeup_cause());
+     * 1 = EXT0 dial detent, 4 = EXT1 screen tap after the deep sleep). */
+    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial, 4=EXT1 tap)", (int)esp_sleep_get_wakeup_cause());
+    /* The power ladder must not run while the first frame is still
+     * ahead of the user: app_main armed it at t=0, the ladder released
+     * only when moon_task exists -- so a slow join + NTP window let the
+     * 15 s dim and the 60 s deep sleep fire over a glass that had never
+     * shown anything. Hold it here until a presentation owns the hold. */
+    knob_power_set_hold(true);
     if (arg == NULL) {
         ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
+        knob_power_set_hold(false); /* nothing will ever present: ladder free */
         vTaskDelete(NULL);
     }
     int64_t now = 0;
     bool have_time = false;
+    bool armed = false;
 #if CONFIG_KNOB_TIME_USE_TEST_EPOCH
     now = (int64_t)CONFIG_KNOB_MOON_TEST_EPOCH;
     have_time = true;
@@ -166,7 +174,19 @@ static void boot_arm_task(void *arg) {
         ESP_LOGW(TAG, "Wi-Fi never came up — no NTP attempt");
     }
     if (!have_time) {
-        ESP_LOGW(TAG, "no NTP fix in window — 'no time' stays on glass");
+        /* No RTC: the NVS snapshot (last plausible SNTP answer, stored
+         * on every fix and before every deep sleep) arms the static
+         * moon immediately instead of a dark panel through the join +
+         * NTP window. Honest log: it is the LAST KNOWN instant, and the
+         * late fix below re-bakes through the show_moon force-rebake. */
+        const int64_t snap = knob_time_snapshot_epoch();
+        if (snap != 0) {
+            ESP_LOGW(TAG, "no NTP fix in window — arming static phase on NVS snapshot %lld (last known)",
+                     (long long)snap);
+            armed = knob_ui_show_moon(snap);
+        } else {
+            ESP_LOGW(TAG, "no NTP fix and no snapshot — 'no time' stays on glass");
+        }
         for (;;) {
             if (knob_link_wifi_is_connected()) {
                 knob_time_start_sync(); /* idempotent: takes when the join lands */
@@ -174,10 +194,16 @@ static void boot_arm_task(void *arg) {
             if (knob_time_wait_synced(1000)) {
                 break;
             }
+            if (!armed) {
+                /* Nothing will present until a fix lands: the ladder
+                 * stays free so an untouched board still sleeps (the
+                 * dial/tap wake re-runs this arm). */
+                knob_power_set_hold(false);
+            }
         }
         now = knob_time_now_epoch();
         ESP_LOGI(TAG, "late NTP fix — static current phase armed");
-        (void)knob_ui_show_moon(now);
+        (void)knob_ui_show_moon(now); /* s_started -> force-rebake path */
         vTaskDelete(NULL);
     }
 #endif

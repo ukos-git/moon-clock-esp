@@ -160,10 +160,20 @@ The knob tour
 With ``KNOB_DEMO_MODE`` the producer task (``knob/components/knob_ui``)
 replaces the day-tick loop after the boot presentation: eight
 canonical phases of the current synodic month (epochs pinned at k/8
-of the month — the same phase the clocks show, frame-comparable),
-then a ninth step on the LIVE current phase (re-baked every cycle,
-events on). The caption carries the phase name; the power ladder stays
-held, so the knob never dims or deep-sleeps during a take.
+of the month), then a ninth step on the LIVE current phase (re-baked
+every cycle — and re-reading *now* at the step itself, events on).
+The canonical eight are **knob-only coverage**: the clocks have no
+canonical-epoch display, so those steps have no same-name partner
+step to be montaged against — what they verify is that the knob's
+bake path renders every phase correctly (and the core is
+view-independent, so all three boards *would* agree). The honest
+cross-device pair is the **knob's live-now step vs the clocks' home
+step**: both show the current phase baked from the live instant by
+the shared core, and the harness folds the knob's ``phase=now``
+marker into the ``home`` montage group (``PHASE_ALIASES``). The
+caption carries the phase name (the now step shows the glass clock);
+the power ladder stays held, so the knob never dims or deep-sleeps
+during a take.
 
 The serial contract
 -------------------
@@ -217,9 +227,10 @@ Reading a take
   P4 217 s at 650 px, ~3.2 fps); cold it bakes (~1.5 s/frame:
   ≈ 17 min on the S3, ≈ 1120 s ≈ 19 min on the P4): identical frame
   pacing and identical illumination curves are the first look-test.
-* ``moons`` and the knob's ``full-moon``/``now`` steps compare the
-  SAME epoch's rendering across the three panels (the clocks' home
-  phase vs the knob's live now step).
+* ``home`` (with the knob's ``now`` step aliased into it) compares
+  the current-phase rendering across the three panels — same core,
+  same live instant; the knob's canonical phase steps are its own
+  bake-path coverage (the clocks cannot display a canonical epoch).
 * ``dusk`` compares the shade map + terminator smoothness; ``alarm``
   is audible in the video's audio track (both clocks carry the ES8311).
 * The logs beside each take are read like any

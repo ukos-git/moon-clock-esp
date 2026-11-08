@@ -80,15 +80,39 @@ Time: SNTP truth or nothing
 The board has **no RTC**, so ``knob/components/knob_time`` arms the
 display only on SNTP truth (one-shot lwIP POLL over the board's own
 Wi-Fi join, which exists for nothing else). An answer counts only
-with a plausible epoch (> 2021-01-01); with no fix the glass reads
-``no time`` and **no phase is ever baked from a guess** — the
-clock's never-a-phantom-alarm discipline applied to the moon.
+with a plausible epoch (> 2021-01-01); with no fix and no snapshot
+the glass reads ``no time`` and **no phase is ever baked from a
+guess** — the clock's never-a-phantom-alarm discipline applied to the
+moon. Every plausible answer is also **snapshotted to NVS** (the
+clock's ``clock_sntp`` snapshot discipline, plus an explicit save
+from the power supervisor before every deep sleep): a wake whose
+join + NTP window runs long still arms the static current phase
+immediately from the snapshot + uptime — the log says
+``arming static phase on NVS snapshot`` so the glass never sits dark
+for half a minute on an answer the board already had — and the late
+fix re-bakes through the ``show_moon`` force-rebake path. The age of
+a snapshot is unverifiable offline, which is why it is a *fallback
+arm* (plausibility floor enforced) and never a trusted instant.
 Measured: join → fix in ~4–11 s, agreeing with the host UTC clock
 within ~2 s; hourly resync rides ``CONFIG_LWIP_SNTP_UPDATE_DELAY``
 and applies without re-arming because the UI reads the system clock
 once it is valid. Bench builds freeze a test epoch
 (``KNOB_TIME_USE_TEST_EPOCH``) to keep the acceptance epochs
 reproducible.
+
+The caption is a **local wall clock** ("Nov 8 17:29") formatted
+through the POSIX zone in ``KNOB_TZ`` — the same reading the clocks'
+home screen gives, so one bench moment shows one time on all three
+boards (the photo showed the clock at 17:29 local beside a caption
+spelling the same moment "16:27 UTC") — and the 1 Hz day tick rolls
+it with the minute **without a re-bake** (the text previously moved
+only when a day/event re-bake happened, so between bakes the glass
+clock sat on the bake instant). At the round panel's bottom edge the
+window is only ~205 px wide, so the label is a fixed 240 px box with
+center align and DOT long mode: an over-long caption becomes an
+ellipsis, never a clipped date (the 2026-11-08 bench photo clipped
+both ends of "2026-11-08 16:27 UTC" at the old auto-width, bottom-6
+px position).
 
 The power ladder
 ----------------
@@ -98,19 +122,33 @@ active → backlight dim (``KNOB_DIM_AFTER_S`` 15 → LEDC duty
 ``KNOB_DIM_DUTY`` 40) → ``esp_deep_sleep_start`` after
 ``KNOB_SLEEP_TIMEOUT_S`` (60) of touch/dial silence. Activity is
 touch contacts (pushed from the input read) and dial detents (the
-encoder count polled); the opening act **holds** the ladder, so a
-presentation is never interrupted — device-verified: the 314 s sweep
-froze both thresholds, then dim fired at idle 15.1 s and the sleep at
-idle 60.1 s, with the USB-JTAG node vanishing host-side (a real deep
-sleep, not a hang).
+encoder count polled); **the boot arm and the opening act both hold**
+the ladder, so a presentation is never interrupted — and never
+pre-empted: the hold starts when ``boot_arm_task`` begins, not when
+the producer task exists, which is what keeps a slow join + NTP
+window from dimming at 15 s and sleeping at 60 s over a glass that
+has not shown a single frame yet (only a board that will never
+present — no assets, or no fix and no snapshot — leaves the ladder
+free to sleep it). Device-verified: the 314 s sweep froze both
+thresholds, then dim fired at idle 15.1 s and the sleep at idle
+60.1 s, with the USB-JTAG node vanishing host-side (a real deep
+sleep, not a hang). Before ``esp_deep_sleep_start`` the supervisor
+saves the ``knob_time`` NVS snapshot, so the wake comes up on the
+last known instant.
 
 Wake is **EXT0 on dial-A GPIO 8**, active-LOW against the board's own
 10K pull-up — the S3 RTCIO accept the plan asked for came back yes.
 The EC1 pulses **one channel per detent**, so a detent that happens
 to pulse only B (GPIO 7) does *not* wake; the next detent in either
-direction pulses A and does (documented, never a dead device). The
-back-side power button is a hardware rail switch, not a firmware
-input. ``KNOB_SLEEP_ALLOW=n`` is the sanctioned log-only bench mode.
+direction pulses A and does (documented, never a dead device).
+``KNOB_TOUCH_WAKE`` (default ``y``) additionally arms **EXT1 ANY_LOW
+on the CST816S INT line (GPIO 9)** so a screen tap wakes the panel
+like a detent does; one touch status read before sleeping clears a
+pending INT pulse (a stale low would re-wake the boot — the
+boot-loop guard), and a rejected EXT1 pad degrades to dial-only with
+a warning. The back-side power button is a hardware rail switch, not
+a firmware input. ``KNOB_SLEEP_ALLOW=n`` is the sanctioned log-only
+bench mode.
 
 Not shipped (on purpose)
 ------------------------

@@ -19,6 +19,18 @@ config KNOB_TIME_BOOT_SYNC_MS
         request). After the window the glass stays "no time" and a
         late fix arms the STATIC current phase instead of a sweep.
 
+config KNOB_TZ
+    string "POSIX TZ string for the glass caption (e.g. CET-1CEST,M3.5.0/2,M10.5.0/3)"
+    default "UTC0"
+    help
+        The caption clock formats the SNTP instant through this TZ so
+        the knob and the clocks agree on glass ("Nov 8 17:29", not a
+        UTC date that reads as an hour off). Default UTC0 stays honest
+        for a device with no location; the bench's Central-European
+        boards set CET-1CEST,M3.5.0/2,M10.5.0/3 (the clock's TZ screen
+        has no counterpart until the deferred settings editor lands).
+        An invalid POSIX string makes newlib fall back to UTC.
+
 config KNOB_TIME_USE_TEST_EPOCH
     bool "Bench: frozen KNOB_MOON_TEST_EPOCH as now (no SNTP)"
     default n

@@ -35,6 +35,7 @@
 #include "knob_ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -90,6 +91,14 @@ static volatile bool s_caption_dirty;
 static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
 static SemaphoreHandle_t s_lvgl_mux;
+
+/* #ifndef-seeded KNOB_TZ (repo invariant): the caption clock's POSIX TZ
+ * (knob_time/Kconfig). UTC0 default; the caption then reads like the
+ * clocks' home screen (local wall time), which is what makes the bench
+ * show one time on three boards. */
+#ifndef CONFIG_KNOB_TZ
+#define CONFIG_KNOB_TZ "UTC0"
+#endif
 
 /* Time source (K7d): the knob has no RTC, so "now" is knob_time (SNTP
  * truth) whenever it holds it -- reading the system clock directly means
@@ -159,13 +168,35 @@ static uint32_t day_key(int64_t epoch) {
     return (uint32_t)(tm_utc.tm_year + 1900) * 512u + (uint32_t)(tm_utc.tm_mon + 1) * 32u + (uint32_t)tm_utc.tm_mday;
 }
 
-static void utc_caption(char *dst, size_t dst_sz, int64_t epoch) {
+/**
+ * @brief The glass clock: local wall time "Nov 8 17:29" through the
+ * KNOB_TZ POSIX zone -- deliberately short. The caption sits 28 px off
+ * the bottom of the ROUND 360 panel, where the round window leaves a
+ * band only ~205 px wide: the old "2026-11-08 16:27 UTC" (~170 px)
+ * clipped BOTH ends on the bench photo, and the clocks' home row is
+ * plain local time, so a UTC-only caption made one bench moment show
+ * two different times on glass.
+ */
+static void time_caption(char *dst, size_t dst_sz, int64_t epoch) {
+    static bool tz_applied;
+    if (!tz_applied) {
+        setenv("TZ", CONFIG_KNOB_TZ, 1);
+        tzset();
+        tz_applied = true;
+    }
+    static const char *const MON[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     time_t t = (time_t)epoch;
-    struct tm tm_utc;
-    gmtime_r(&t, &tm_utc);
-    snprintf(dst, dst_sz, "%04d-%02d-%02d %02d:%02d UTC", tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
-             tm_utc.tm_hour, tm_utc.tm_min);
+    struct tm lt;
+    localtime_r(&t, &lt);
+    snprintf(dst, dst_sz, "%s %d %02d:%02d", MON[lt.tm_mon], lt.tm_mday, lt.tm_hour, lt.tm_min);
 }
+
+/* Minute key of the clock caption currently on the double buffer -- the
+ * day tick uses it to roll the glass clock WITHOUT a re-bake (the frame
+ * stays; only the label text moves). Producer-task-owned like the
+ * caption staging itself. */
+static int64_t s_caption_min;
 
 /**
  * @brief The previous frame must be on screen before the back buffer is
@@ -225,12 +256,13 @@ static void land_current_phase(void) {
     const int64_t now = ui_now_epoch();
     wait_ack();
     char cap[40];
-    utc_caption(cap, sizeof(cap), now);
+    time_caption(cap, sizeof(cap), now);
     if (!bake_publish(now, 0, true, NULL, cap)) {
         ESP_LOGE(TAG, "landing bake failed (bake_px=crisp)");
         caption_unavailable();
         return;
     }
+    s_caption_min = now / 60;
     s_baked_day = day_key(now);
     s_baked_sig = knob_moon_classify_signature(now);
 }
@@ -244,10 +276,12 @@ static void static_once_body(void) {
     const int64_t now = ui_now_epoch();
     knob_moon_display_begin(now);
     char cap[40];
-    utc_caption(cap, sizeof(cap), now);
+    time_caption(cap, sizeof(cap), now);
     if (!bake_publish(now, 0, true, NULL, cap)) {
         ESP_LOGE(TAG, "static bake failed");
         caption_unavailable();
+    } else {
+        s_caption_min = now / 60;
     }
     s_baked_day = day_key(now);
     s_baked_sig = knob_moon_classify_signature(now);
@@ -352,15 +386,20 @@ static void demo_tour(void) {
             ESP_LOGI("DEMO", "phase=%s cycle=%u screen=moon epoch=%lld", names[k], cycle, (long long)epoch);
             vTaskDelay(pdMS_TO_TICKS(step_ms));
         }
-        /* The live now-frame (events on) -- re-baked every cycle. */
+        /* The live now-frame (events on) -- re-baked every cycle. Read
+         * "now" HERE, not at cycle top: the canonical walk already ran
+         * 8 * KNOB_DEMO_PHASE_SEC of dwell, so the cycle-top instant
+         * was minutes stale -- the step called "live now" must be live. */
+        const int64_t live = ui_now_epoch();
         wait_ack();
-        knob_moon_display_begin(now);
+        knob_moon_display_begin(live);
         char cap[48];
-        utc_caption(cap, sizeof(cap), now);
-        if (!bake_publish(now, 0, true, NULL, cap)) {
+        time_caption(cap, sizeof(cap), live);
+        if (!bake_publish(live, 0, true, NULL, cap)) {
             ESP_LOGE("DEMO", "now bake failed");
             caption_unavailable();
         }
+        s_caption_min = live / 60;
         ESP_LOGI("DEMO", "phase=now cycle=%u screen=moon", cycle);
         vTaskDelay(pdMS_TO_TICKS(step_ms));
         cycle++;
@@ -402,14 +441,28 @@ static void moon_task(void *arg) {
             wait_ack();
             knob_moon_display_begin(now); /* re-arm the tint LUT + occlusion */
             char cap[40];
-            utc_caption(cap, sizeof(cap), now);
+            time_caption(cap, sizeof(cap), now);
             if (!bake_publish(now, 0, true, NULL, cap)) {
                 ESP_LOGE(TAG, "day-tick bake failed");
                 caption_unavailable();
                 continue;
             }
+            s_caption_min = now / 60;
             s_baked_day = day_key(now);
             s_baked_sig = sig;
+        } else if (s_shown && now / 60 != s_caption_min && strcmp(s_caption_text, "moon unavailable") != 0) {
+            /* The glass clock rolls with the minute: only the label
+             * text moves (no bake, no publish). Without this the
+             * caption is frozen at the last bake instant (the bench
+             * caught it: the clock read 17:29 local while the caption
+             * still spelled the 16:27-UTC bake instant -- a frozen
+             * minute compounded by a UTC spelling). The s_shown gate
+             * never stamps a clock over "no time"/"moon unavailable". */
+            char cap[40];
+            time_caption(cap, sizeof(cap), now);
+            snprintf(s_caption_text, sizeof(s_caption_text), "%s", cap);
+            s_caption_dirty = true;
+            s_caption_min = now / 60;
         }
     }
 }
@@ -508,9 +561,21 @@ void knob_ui_create(void) {
      * never-black rule is carried by the caption instead. */
     lv_obj_set_hidden(s_moon_img, true);
 
+    /* The round window clips hard: at 6 px off the bottom edge only a
+     * ~139 px band survives, and the old auto-width label clipped both
+     * ends of "2026-11-08 16:27 UTC" (bench photo, 2026-11-08). 28 px
+     * up the band is ~205 px; the fixed 240 px box + DOT long mode
+     * makes clipping impossible to miss -- it becomes an ellipsis. */
     s_caption = lv_label_create(scr);
     lv_label_set_text(s_caption, "moon unavailable");
-    lv_obj_align(s_caption, LV_ALIGN_BOTTOM_MID, 0, -6);
+    /* 16 px, not the 28 px default: at 28 the phase names ("demo 3/8
+     * waxing-gibbous") and even "sweeping 1234/1344" would dot-truncate
+     * inside the 240 px box the round window allows. */
+    lv_obj_set_style_text_font(s_caption, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_caption, 240);
+    lv_label_set_long_mode(s_caption, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_caption, LV_ALIGN_BOTTOM_MID, 0, -28);
     lv_obj_set_clickable(s_caption, false);
 
     /* Screen press = sweep abort (the screen is clickable by default). */
@@ -567,7 +632,8 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * app_main returns at once -- never-black is the caption's job, and
      * it names the instant being baked while the disk is still hidden
      * (it flips to "moon unavailable" if the bake fails). */
-    utc_caption(s_caption_text, sizeof(s_caption_text), utc_epoch);
+    time_caption(s_caption_text, sizeof(s_caption_text), utc_epoch);
+    s_caption_min = utc_epoch / 60;
     /* The boot core mutating LVGL while lvgl_task renders is the bug
      * #31's photo caught (caption clipped/shifted): every object touch
      * here rides the lock, like the swap task and show_no_time do. */

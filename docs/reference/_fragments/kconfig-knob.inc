@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Ten keys across three menus (the sibling project's own components —
+Twelve keys across three menus (the sibling project's own components —
 the clock's Kconfig tree is never involved):
 
 .. list-table::
@@ -46,8 +46,15 @@ the clock's Kconfig tree is never involved):
    * - ``KNOB_TIME_BOOT_SYNC_MS``
      - ``20000`` (5000..120000)
      - How long the boot arm waits for the first plausible SNTP
-       answer; after the window the glass stays ``no time`` and a
-       late fix arms the static phase instead of a sweep
+       answer; after the window an NVS-snapshotted last-known instant
+       arms the static phase immediately (a late fix re-bakes), with
+       no snapshot the glass stays ``no time`` until one lands
+   * - ``KNOB_TZ``
+     - ``"UTC0"``
+     - POSIX TZ for the glass caption (``Nov 8 17:29`` local, the
+       reading the clocks' home row gives); the bench's Central-
+       European boards use ``CET-1CEST,M3.5.0/2,M10.5.0/3``. Until
+       the deferred settings editor lands this is the knob's TZ knob
    * - ``KNOB_TIME_USE_TEST_EPOCH``
      - ``n``
      - Bench only: treat ``KNOB_MOON_TEST_EPOCH`` as trusted "now"
@@ -62,8 +69,15 @@ the clock's Kconfig tree is never involved):
    * - ``KNOB_SLEEP_TIMEOUT_S``
      - ``60`` (0..36000)
      - Idle seconds before ``esp_deep_sleep_start`` with EXT0 on
-       dial-A GPIO 8 (0 = never sleep); the opening act HOLDS the
-       ladder
+       dial-A GPIO 8 (0 = never sleep); the boot arm and the opening
+       act HOLD the ladder, and the ``knob_time`` snapshot is saved
+       first
+   * - ``KNOB_TOUCH_WAKE``
+     - ``y``
+     - Also arm EXT1 ANY_LOW on the CST816S INT (GPIO 9): a screen
+       tap wakes like a dial detent; a pending INT pulse is cleared
+       by a status read before sleeping, a rejected pad degrades to
+       dial-only
    * - ``KNOB_SLEEP_ALLOW``
      - ``y``
      - ``n`` = the sanctioned log-only bench mode: the would-be sleep
