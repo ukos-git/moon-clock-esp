@@ -5,7 +5,8 @@ The Knob board
 ``knob/`` sibling project boots its QSPI panel, loads the pre-baked
 moon assets into PSRAM and renders the physical moon (K7 milestones:
 K7a asset target + gate green, K7b static frame, K7c cold-boot
-synodic sweep + sky-event tint + day tick). The earlier
+synodic sweep + sky-event tint + day tick, K7d SNTP time with the
+honest ``no time`` posture). The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
 direction — no companion code remains anywhere in the repo, and the
@@ -219,8 +220,9 @@ one full-panel disk baked by the clock's portable moon core, a
 caption row naming the baked instant, a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
-that re-bakes once on a UTC-date or event-signature change, and a
-Wi-Fi STA join kept for SNTP (K7d). Layout and commands:
+that re-bakes once on a UTC-date or event-signature change, and
+SNTP time over its own Wi-Fi join (K7d, ``knob_time`` — the board
+has no RTC). Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial
@@ -257,6 +259,31 @@ Wi-Fi STA join kept for SNTP (K7d). Layout and commands:
   tint LUT — a frozen 2025-03-14 total-lunar-eclipse epoch showed
   the blood tint on glass, and a pinned 23:59:30Z epoch produced
   exactly one day-tick re-bake after midnight.
+* K7d time (``knob/components/knob_time``): the board has **no RTC**, so
+  the display arms only on SNTP truth. One-shot ``esp_sntp`` POLL over
+  the Wi-Fi join (lwIP's SNTP client, ``CONFIG_LWIP_SNTP``); the
+  answer counts only with a plausible epoch (> 2021-01-01) — the
+  clock's never-a-phantom-alarm discipline applied to the moon: with
+  no fix (dead AP, no uplink, implausible answer) the glass honestly
+  reads ``no time`` and **no phase is ever baked from a guess**. A
+  small boot-arm task owns the sequence (wait for the background join
+  → start SNTP → fix within ``KNOB_TIME_BOOT_SYNC_MS`` = the cold-boot
+  sweep; late fix = static current phase; no fix = keep polling, the
+  moon appears the moment time lands). While awake, the hourly
+  ``CONFIG_LWIP_SNTP_UPDATE_DELAY`` POLL keeps the drift down (and
+  the day tick reads the system clock directly, so a re-sync
+  correction applies without re-arming). ``KNOB_NTP_SERVER`` is
+  Kconfig (default ``pool.ntp.org``, the clock's choice). Bench builds
+  set ``KNOB_TIME_USE_TEST_EPOCH`` to freeze ``KNOB_MOON_TEST_EPOCH``
+  as "now" without SNTP — what keeps the K7b/K7c acceptance epochs
+  reproducible. Measured on the bench (2026-11-08): join → fix in
+  ≈4–11 s, the synced epoch agreeing with the host UTC clock within
+  ~2 s; the full 1344-frame sweep still landed in ~315 s on the real
+  now (illum 1.7 % — three hours past that week's new moon), 0 TWDT.
+  With a dead server (``ntp.invalid.example``) the boot logged
+  ``no NTP fix in window`` and the glass stayed ``no time`` with zero
+  bake lines — the refusal never guesses a phase. (The deep-sleep
+  wake re-sync acceptance waits for K7e: no ``esp_deep_sleep`` yet.)
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``

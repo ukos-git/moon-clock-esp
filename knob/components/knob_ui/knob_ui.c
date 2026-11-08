@@ -46,6 +46,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_moon.h"
+#include "knob_time.h"
 #include "lvgl.h"
 
 static const char *TAG = "knob_ui";
@@ -89,9 +90,14 @@ static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
 static SemaphoreHandle_t s_lvgl_mux;
 
-/* Time source until K7d's knob_time (esp_sntp): the boot epoch plus
- * uptime. A frozen KNOB_MOON_TEST_EPOCH pinned near midnight makes the
- * day tick fire its ONE re-bake on the bench (the K7c acceptance). */
+/* Time source (K7d): the knob has no RTC, so "now" is knob_time (SNTP
+ * truth) whenever it holds it -- reading the system clock directly means
+ * the hourly POLL re-sync's correction takes effect without re-arming.
+ * Without a trusted time ui_now_epoch() falls back to the boot epoch
+ * plus uptime: the bench frozen-KNOB_MOON_TEST_EPOCH path (pinned near
+ * midnight makes the day tick fire its ONE re-bake, the K7c
+ * acceptance), and production never reaches it for a BAKE -- main only
+ * arms with a valid instant and the day tick never sees invalid time. */
 static int64_t s_now_base_epoch;
 static int64_t s_now_base_us;
 static uint32_t s_baked_day;         /* UTC day key of the frame on screen */
@@ -137,7 +143,13 @@ static int sweep_bake_px_get(void) {
 
 bool knob_ui_sweep_enabled(void) { return sweep_frames_get() >= 2; /* 0/1 frames = static only (bench builds) */ }
 
-static int64_t ui_now_epoch(void) { return s_now_base_epoch + (esp_timer_get_time() - s_now_base_us) / 1000000; }
+static int64_t ui_now_epoch(void) {
+    const int64_t sntp = knob_time_now_epoch(); /* 0 until an SNTP fix */
+    if (sntp != 0) {
+        return sntp;
+    }
+    return s_now_base_epoch + (esp_timer_get_time() - s_now_base_us) / 1000000;
+}
 
 static uint32_t day_key(int64_t epoch) {
     time_t t = (time_t)epoch;
@@ -448,6 +460,16 @@ void knob_ui_create(void) {
 
     ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, sweep %s, PSRAM free %d KB)", MOON_SIZE, (double)MOON_R,
              knob_ui_sweep_enabled() ? "armed" : "off", (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
+void knob_ui_show_no_time(void) {
+    if (s_started || s_nomem) {
+        return; /* a frame path owns the caption, or it names a real failure */
+    }
+    lvgl_lock();
+    lv_label_set_text(s_caption, "no time");
+    lv_obj_set_hidden(s_moon_img, true);
+    lvgl_unlock();
 }
 
 bool knob_ui_show_moon(int64_t utc_epoch) {

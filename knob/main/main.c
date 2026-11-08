@@ -20,9 +20,16 @@
 #include "knob_board.h"
 #include "knob_link.h"
 #include "knob_moon.h"
+#include "knob_time.h"
 #include "knob_ui.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
+
+/* #ifndef-seeded (repo invariant: Kconfig 'n'/absent leaves it
+ * UNDEFINED; this seeds the Kconfig default, never redefines it). */
+#ifndef CONFIG_KNOB_TIME_BOOT_SYNC_MS
+#define CONFIG_KNOB_TIME_BOOT_SYNC_MS 20000
+#endif
 
 static const char *TAG = "knob_main";
 
@@ -82,6 +89,66 @@ static void lvgl_task(void *arg) {
     }
 }
 
+/* ---- K7d: boot arm after time truth ----------------------------------- */
+
+/**
+ * The knob has no RTC: the display arms ONLY on a trusted instant
+ * (never a guessed phase — the clock's never-a-phantom-alarm
+ * discipline). Waits for the background join (K2 retries in place),
+ * starts SNTP once an IP is held, takes the fix within
+ * KNOB_TIME_BOOT_SYNC_MS: fix in window + cold boot plays the synodic
+ * sweep (K7c's policy), a late fix arms the STATIC current phase, no
+ * fix at all leaves "no time" on glass while the task keeps polling
+ * cheaply (a late join + uplink still brings the moon up). Bench
+ * builds freeze KNOB_MOON_TEST_EPOCH instead and never start SNTP —
+ * what keeps the K7b/K7c acceptance epochs reproducible.
+ */
+static void boot_arm_task(void *arg) {
+    if (arg == NULL) {
+        ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
+        vTaskDelete(NULL);
+    }
+    int64_t now = 0;
+    bool have_time = false;
+#if CONFIG_KNOB_TIME_USE_TEST_EPOCH
+    now = (int64_t)CONFIG_KNOB_MOON_TEST_EPOCH;
+    have_time = true;
+    ESP_LOGW(TAG, "bench build: frozen test epoch, SNTP not started");
+#else
+    for (int waited = 0; waited < 15000 && !knob_link_wifi_is_connected(); waited += 100) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (knob_link_wifi_is_connected()) {
+        knob_time_start_sync();
+        have_time = knob_time_wait_synced(CONFIG_KNOB_TIME_BOOT_SYNC_MS);
+    } else {
+        ESP_LOGW(TAG, "Wi-Fi never came up — no NTP attempt");
+    }
+    if (!have_time) {
+        ESP_LOGW(TAG, "no NTP fix in window — 'no time' stays on glass");
+        for (;;) {
+            if (knob_link_wifi_is_connected()) {
+                knob_time_start_sync(); /* idempotent: takes when the join lands */
+            }
+            if (knob_time_wait_synced(1000)) {
+                break;
+            }
+        }
+        now = knob_time_now_epoch();
+        ESP_LOGI(TAG, "late NTP fix — static current phase armed");
+        (void)knob_ui_show_moon(now);
+        vTaskDelete(NULL);
+    }
+#endif
+    const bool cold = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;
+    if (cold && knob_ui_sweep_enabled()) {
+        knob_ui_start_sweep(now);
+    } else {
+        (void)knob_ui_show_moon(now);
+    }
+    vTaskDelete(NULL);
+}
+
 /* ---- entry point ------------------------------------------------------- */
 
 void app_main(void) {
@@ -133,20 +200,10 @@ void app_main(void) {
 
     knob_ui_set_lvgl_lock(s_lvgl_mux);
     knob_ui_create();
-    /* Cold boot plays the synodic sweep (K7c, the clock's boot model);
-     * any wake shows the current phase statically (the clock's wake
-     * policy: no montage on every knob turn). The instant is
-     * KNOB_MOON_TEST_EPOCH until knob_time gives a real "now" (K7d).
-     * Both paths only ARM here: the classify/bake work runs on the
-     * producer task (the ~20 s core classify scan must never run on the
-     * registered boot task), so app_main returns at once. */
-    const int64_t now_epoch = (int64_t)CONFIG_KNOB_MOON_TEST_EPOCH;
-    if (!assets_ready) {
-        ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
-    } else if (knob_ui_sweep_enabled() && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        knob_ui_start_sweep(now_epoch);
-    } else if (!knob_ui_show_moon(now_epoch)) {
-        ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
+    if (assets_ready) {
+        /* K7d: the honest pre-frame state while boot_arm_task chases an
+         * NTP fix ("moon unavailable" stays if the buffers failed). */
+        knob_ui_show_no_time();
     }
 
     const esp_timer_create_args_t tick_args = {
@@ -158,6 +215,11 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick_timer, 2 * 1000));
 
     xTaskCreate(lvgl_task, "knob_lvgl", 8192, NULL, 10, NULL);
+    /* K7c+K7d: the display arms on a TRUSTED instant only. The wait +
+     * the sweep-vs-static decision live on this task (registered, it
+     * only delays), so app_main returns at once and neither the ~20 s
+     * classify scan nor the NTP window ever touches the boot core. */
+    xTaskCreate(boot_arm_task, "knob_boot", 4096, (void *)(intptr_t)(assets_ready ? 1 : 0), 6, NULL);
     ESP_LOGI(TAG, "knob K1 up (heap internal %u DMA-suitable bytes)",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
 }

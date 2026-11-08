@@ -1,9 +1,10 @@
 /**
  * @file knob_ui.h
- * @brief The knob's single view (K7b static + K7c sweep/day tick): the
- *        physical moon disk + a caption row. Glue only — the bake path
- *        lives in knob_moon (the verbatim ported core); the dial stays
- *        idle until K7e (settings/power) gives it a job.
+ * @brief The knob's single view (K7b static + K7c sweep/day tick + K7d
+ *        real time): the physical moon disk + a caption row. Glue only —
+ *        the bake path lives in knob_moon (the verbatim ported core), the
+ *        wall clock in knob_time; the dial stays idle until K7e
+ *        (settings/power) gives it a job.
  *
  * Threading (K7c): a producer task bakes into the back PSRAM buffer and
  * publishes a frame counter; a swap task (holding the LVGL mutex handed
@@ -34,6 +35,12 @@ void knob_ui_set_lvgl_lock(SemaphoreHandle_t mux);
  *         the first frame lands. */
 void knob_ui_create(void);
 
+/** @brief The honest pre-frame state (K7d): assets loaded, no trusted
+ *         time yet — caption "no time", disk stays hidden. A no-op once
+ *         a frame path is armed or the buffers failed (the caption then
+ *         already names the real failure). */
+void knob_ui_show_no_time(void);
+
 /** @brief Cold-boot sweep capability (Kconfig KNOB_MOON_SWEEP_FRAMES > 0). */
 bool knob_ui_sweep_enabled(void);
 
@@ -43,9 +50,11 @@ bool knob_ui_sweep_enabled(void);
  *        change, K7c). Also the deep-sleep-wake posture: current phase,
  *        no sweep (the clock's wake policy).
  *
- * The first bake runs in the CALLER's task — main.c calls this once on
- * the boot core before the LVGL task is created, so a multi-second bake
- * never blocks rendering. The producer + swap tasks start here.
+ * Arms only: the classify + crisp bake run on the producer task (the
+ * ~20 s core scan must never touch a TWDT-registered task), so the
+ * caller returns at once and the producer + swap tasks are up. Calling
+ * it again while armed (the K7d SNTP hook: a real time landing after
+ * the sweep window) re-bakes the current phase within a second.
  *
  * @return false if PSRAM or the assets failed (caption stays honest)
  */

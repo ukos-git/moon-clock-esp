@@ -9,7 +9,9 @@ config KNOB_MOON_TEST_EPOCH
         can be compared against the published phase of the day).
         K7d's knob_time (esp_sntp over the existing Wi-Fi join)
         replaces this with the real instant; until then the moon view
-        never claims a "now" it does not have.
+        never claims a "now" it does not have. This value is USED
+        again only under KNOB_TIME_USE_TEST_EPOCH (bench builds):
+        production arms exclusively on an SNTP fix, never here.
 
 config KNOB_MOON_SWEEP_FRAMES
     int "Cold-boot synodic sweep frame count (0 = static only)"

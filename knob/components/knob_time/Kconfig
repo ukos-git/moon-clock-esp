@@ -1,0 +1,32 @@
+menu "Knob time (K7d SNTP)"
+
+config KNOB_NTP_SERVER
+    string "NTP server hostname"
+    default "pool.ntp.org"
+    help
+        The single POLL server (same default the clock's
+        CLOCK_NTP_SERVER uses). The credentials WLAN must have an
+        uplink; without one the display honestly reads "no time".
+
+config KNOB_TIME_BOOT_SYNC_MS
+    int "Boot NTP fix window (ms)"
+    default 20000
+    range 5000 120000
+    help
+        How long the boot arm task waits for the first plausible SNTP
+        answer before giving up on the sweep window (lwIP adds up to
+        CONFIG_LWIP_SNTP_MAXIMUM_STARTUP_DELAY before its first
+        request). After the window the glass stays "no time" and a
+        late fix arms the STATIC current phase instead of a sweep.
+
+config KNOB_TIME_USE_TEST_EPOCH
+    bool "Bench: frozen KNOB_MOON_TEST_EPOCH as now (no SNTP)"
+    default n
+    help
+        Bench builds only: the boot arm treats KNOB_MOON_TEST_EPOCH as
+        a trusted instant and never starts SNTP -- this is what keeps
+        the K7b/K7c frozen-epoch verifications (blood tint at the
+        2025-03-14 eclipse, the single midnight re-bake) reproducible.
+        Production leaves this n: SNTP truth or "no time".
+
+endmenu
