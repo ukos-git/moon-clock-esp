@@ -22,10 +22,10 @@ static bool s_idle_monitoring_enabled = true;
 static uint64_t s_idle_timeout_ms = (uint64_t)CONFIG_CLOCK_IDLE_TIMEOUT_SEC * 1000ULL;
 
 void clock_idle_set_timeout_ms(uint64_t timeout_ms) {
-    if (timeout_ms < 10ULL * 1000ULL)
-        timeout_ms = 10ULL * 1000ULL; /* match the Kconfig range floor */
-    if (timeout_ms > 300ULL * 1000ULL)
-        timeout_ms = 300ULL * 1000ULL;
+    if (timeout_ms < 60ULL * 1000ULL)
+        timeout_ms = 60ULL * 1000ULL; /* match the Kconfig/settings range 60..1800 s */
+    if (timeout_ms > 1800ULL * 1000ULL)
+        timeout_ms = 1800ULL * 1000ULL;
     s_idle_timeout_ms = timeout_ms;
     ESP_LOGI(TAG, "Idle timeout set to %llu ms", (unsigned long long)timeout_ms);
 }

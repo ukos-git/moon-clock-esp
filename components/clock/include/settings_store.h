@@ -40,12 +40,12 @@ esp_err_t settings_store_load(void);
 esp_err_t settings_store_save(void);
 
 /* Idle timeout (main operation -> light sleep), seconds. Kconfig
- * CLOCK_IDLE_TIMEOUT_SEC, range 10-300. */
+ * CLOCK_IDLE_TIMEOUT_SEC, range 60-1800. */
 uint32_t settings_idle_timeout_sec(void);
 void settings_set_idle_timeout_sec(uint32_t sec);
 
 /* Deep-sleep countdown (light sleep -> deep sleep), seconds. Kconfig
- * UI_DEEP_SLEEP_COUNTDOWN_SEC, range 10-300. */
+ * UI_DEEP_SLEEP_COUNTDOWN_SEC, range 60-1800. */
 uint32_t settings_deep_sleep_countdown_sec(void);
 void settings_set_deep_sleep_countdown_sec(uint32_t sec);
 
