@@ -188,7 +188,14 @@ front of it:
   ~7–9 % during the sweep) walks the hour list ahead of the display;
   the queue depth is derived from free PSRAM,
   ``clamp(free / (S²·1.15 + 4 KiB), UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, 12)``,
-  so 1-bit SD read jitter never sits on the frame path.
+  so 1-bit SD read jitter never sits on the frame path. The fetch
+  path **allocates nothing**: one persistent input buffer (the size a
+  valid cached file can reach) is allocated *before* the slot queue —
+  on the 8 MB S3 only ~568 KB of PSRAM is free at prefetch start (the
+  relief cache + assets + bake scratch own the rest), and a per-call
+  file buffer racing a full queue for that head died at q90 file
+  sizes (frame 39: ``cache off for this boot: no psram (fetch)``,
+  2026-11-08).
 - **Direct-write replay** (``UI_MOON_TFCACHE_FPS``, default 25) —
   replayed *intermediate* frames are displayed by the sweep task
   itself through ``moon_spin_write_panel()``: the spin's own sanctioned
@@ -207,6 +214,10 @@ front of it:
   LVGL flushes, and the boot's early label flushes can precede the
   flush-wrapper install, so a flush-history-only mirror composites
   black over the clock for the whole replay (observed 2026-11-08).
+  If the snapshot allocation fails (a full prefetch queue squeezes
+  the S3 pool to a ~100 KB head), the rebuild **keeps the existing
+  pair** rather than falling back to band-only — which would destroy
+  a good glyph mask and desync the mirror from it.
   The tick's whole-panel flush
   (304 ms S3 / 207 ms P4) would cap a tick-displayed replay at ~3
   fps; the direct write runs at the spin's frame cost instead.

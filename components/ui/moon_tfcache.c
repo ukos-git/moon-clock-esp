@@ -82,7 +82,16 @@ static uint8_t *s_dec_rgb; /* 3*S*S RGB888 decode out (16-aligned)  */
 static uint8_t *s_enc_in;  /* encode in, fmt-sized (16-aligned)     */
 static uint8_t *s_enc_out; /* encode out (16-aligned)               */
 static size_t s_enc_out_cap;
-static int s_enc_fmt; /* 1 GRAY, 2 RGB565_LE dup, 3 RGB888 dup */
+static uint8_t *s_fetch_in; /* persistent fetch input (PREFETCH TASK
+                             * only, sized s_enc_out_cap = the max a
+                             * valid cached file can be); allocated on
+                             * demand by the prefetch owner BEFORE the
+                             * slot queue, so fetch never races the
+                             * queue for the last of the PSRAM pool
+                             * (a per-call file buffer OOM'd there at
+                             * q90 file sizes -- "cache off for this
+                             * boot: no psram (fetch)", 2026-11-08) */
+static int s_enc_fmt;       /* 1 GRAY, 2 RGB565_LE dup, 3 RGB888 dup */
 
 static tfcache_stats_t s_st;
 static int64_t s_max_hour;        /* newest key stored this boot           */
@@ -441,6 +450,14 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
 
 bool tfcache_ready(void) { return s_ready; }
 
+bool tfcache_fetch_buf_alloc(void) {
+    if (!s_ready)
+        return false;
+    if (!s_fetch_in)
+        s_fetch_in = alloc16(s_enc_out_cap);
+    return s_fetch_in != NULL;
+}
+
 void tfcache_disable(const char *reason) {
     if (!s_ready)
         return; /* already off; the first reason is the truth */
@@ -464,11 +481,13 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
         s_st.misses++;
         return false;
     }
-    uint8_t *in = alloc16((size_t)st.st_size + 64);
-    if (!in) {
-        tfcache_disable("no psram (fetch)");
+    if (!s_fetch_in) { /* the prefetch owner never got its buffer */
+        tfcache_disable("no psram (fetch buf)");
         return false;
     }
+    uint8_t *in = s_fetch_in; /* persistent (prefetch-task only), sized
+                               * s_enc_out_cap -- the corrupt-file size
+                               * check above bounds st.st_size to that */
     bool ok = false;
     FILE *f = fopen(path, "rb");
     int64_t t0 = esp_timer_get_time();
@@ -478,7 +497,6 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
     }
     s_st.read_us += esp_timer_get_time() - t0;
     if (!ok) {
-        free16(in);
         s_st.misses++;
         return false;
     }
@@ -504,7 +522,6 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
         unlink(path); /* undecodable (foreign/damaged) -- heal + recompute */
         s_st.misses++;
     }
-    free16(in);
     return ok;
 }
 

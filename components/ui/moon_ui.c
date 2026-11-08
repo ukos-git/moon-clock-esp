@@ -1135,84 +1135,102 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
             img = s_images[i];
     if (img)
         lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
-    spin_mask_band();
     lv_draw_buf_t *shot = lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565);
     if (img)
         lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
     int kept = -1; /* UI px kept by the snapshot pass (-1 = no snapshot) */
+    bool shot_ok = false;
+    int32_t w = 0, h = 0;
+    uint32_t stride = 0;
     if (shot) {
-        const int32_t w = (int32_t)shot->header.w, h = (int32_t)shot->header.h;
-        const uint32_t stride = shot->header.stride;
+        w = (int32_t)shot->header.w;
+        h = (int32_t)shot->header.h;
+        stride = shot->header.stride;
         /* Full-screen 16bpp, screen == the panel-sized root at (0,0):
          * snapshot pixel (sx,sy) IS screen coord (sx,sy). Anything
-         * else (a non-full-screen root, a padded stride) keeps the
-         * band-only mask (the text goes unkept for one rebuild --
-         * the next switch fixes it). */
-        if (w == (int32_t)BSP_LCD_H_RES && h == (int32_t)BSP_LCD_V_RES && stride == (uint32_t)BSP_LCD_H_RES * 2 &&
-            shot->data) {
-            /* The mirror is seeded FROM THE SAME SNAPSHOT as the mask:
-             * every kept pixel's front-mirror value is written together
-             * with its mask bit, under the panel mutex (the composite
-             * reads both under that mutex). Without this the mirror
-             * would only hold whatever the flush wrapper happened to
-             * copy, and at boot that can be NOTHING: the early label
-             * flushes can precede the wrapper install, a same-text
-             * re-set never re-flushes, and the warm replay does zero
-             * LVGL flushes -- a zero mirror then composites BLACK over
-             * the clock for the whole replay (observed on the panel,
-             * 2026-11-08). The band pixels (the arc crossing the moon
-             * window) get their snapshot value too, black included --
-             * the snapshot IS what LVGL would have shown there. */
-            kept = 0;
-            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-            for (int sy = 0; sy < h; sy++) {
-                const uint16_t *srow = (const uint16_t *)(shot->data + (size_t)sy * stride);
-                for (int sx = 0; sx < w; sx++) {
-                    const int mx = sx - MOON_IMG_POS, my = sy - MOON_IMG_POS;
-                    if (mx < 0 || my < 0 || mx >= MOON_PX || my >= MOON_PX)
-                        continue; /* outside the moon area the spin never writes */
-                    /* Rotate (mx,my) -> (ox,oy) by the orientation step
-                     * (the inverse mapping of spin_step_rotate: 90 CW
-                     * output row = source column, column = n-1-row). */
-                    int ox, oy;
-                    switch (step) {
-                    case 1:
-                        ox = MOON_PX - 1 - my;
-                        oy = mx;
-                        break;
-                    case 2:
-                        ox = MOON_PX - 1 - mx;
-                        oy = MOON_PX - 1 - my;
-                        break;
-                    case 3:
-                        ox = my;
-                        oy = MOON_PX - 1 - mx;
-                        break;
-                    default:
-                        ox = mx;
-                        oy = my;
-                        break;
-                    }
-                    const bool px_ui = srow[sx] != 0; /* non-black = UI (the
-                                                       * black root snapshots to 0) */
-                    if (!px_ui) {
-                        const int cx = ox - MOON_PX / 2, cy = oy - MOON_PX / 2;
-                        const int d2 = cx * cx + cy * cy;
-                        if (d2 < SPIN_MASK_RING_RMIN * SPIN_MASK_RING_RMIN ||
-                            d2 > SPIN_MASK_RING_RMAX * SPIN_MASK_RING_RMAX)
-                            continue; /* the black root, outside the band: not kept */
-                    }
-                    s_ui_mask[(size_t)oy * MOON_PX + ox] = 1;
-                    if (s_front)
-                        s_front[(size_t)oy * MOON_PX + ox] = srow[sx];
-                    if (px_ui)
-                        kept++;
-                }
-            }
-            xSemaphoreGive(s_panel_mtx);
-        }
-        lv_draw_buf_destroy(shot);
+         * else (a non-full-screen root, a padded stride) is unusable
+         * (see the keep-the-pair bail below). */
+        shot_ok = w == (int32_t)BSP_LCD_H_RES && h == (int32_t)BSP_LCD_V_RES && stride == (uint32_t)BSP_LCD_H_RES * 2 &&
+                  shot->data;
     }
+    if (!shot_ok && s_mask_runs_n >= 0) {
+        /* The snapshot is a transient LVGL-pool allocation and CAN fail
+         * when the prefetch queue has taken the PSRAM pool down to a
+         * ~100 KB head (measured on the 8 MB S3): a band-only rebuild
+         * would then DESTROY the good glyph mask and leave the mirror
+         * out of sync with the mask. Keep the existing pair intact and
+         * let the next trigger (minute label change, screen switch,
+         * queue drained) rebuild. With no pair yet (the first build)
+         * fall through to band-only. */
+        if (shot)
+            lv_draw_buf_destroy(shot);
+        return;
+    }
+    spin_mask_band();
+    if (shot_ok) {
+        /* The mirror is seeded FROM THE SAME SNAPSHOT as the mask:
+         * every kept pixel's front-mirror value is written together
+         * with its mask bit, under the panel mutex (the composite
+         * reads both under that mutex). Without this the mirror
+         * would only hold whatever the flush wrapper happened to
+         * copy, and at boot that can be NOTHING: the early label
+         * flushes can precede the wrapper install, a same-text
+         * re-set never re-flushes, and the warm replay does zero
+         * LVGL flushes -- a zero mirror then composites BLACK over
+         * the clock for the whole replay (observed on the panel,
+         * 2026-11-08). The band pixels (the arc crossing the moon
+         * window) get their snapshot value too, black included --
+         * the snapshot IS what LVGL would have shown there. */
+        kept = 0;
+        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+        for (int sy = 0; sy < h; sy++) {
+            const uint16_t *srow = (const uint16_t *)(shot->data + (size_t)sy * stride);
+            for (int sx = 0; sx < w; sx++) {
+                const int mx = sx - MOON_IMG_POS, my = sy - MOON_IMG_POS;
+                if (mx < 0 || my < 0 || mx >= MOON_PX || my >= MOON_PX)
+                    continue; /* outside the moon area the spin never writes */
+                /* Rotate (mx,my) -> (ox,oy) by the orientation step
+                 * (the inverse mapping of spin_step_rotate: 90 CW
+                 * output row = source column, column = n-1-row). */
+                int ox, oy;
+                switch (step) {
+                case 1:
+                    ox = MOON_PX - 1 - my;
+                    oy = mx;
+                    break;
+                case 2:
+                    ox = MOON_PX - 1 - mx;
+                    oy = MOON_PX - 1 - my;
+                    break;
+                case 3:
+                    ox = my;
+                    oy = MOON_PX - 1 - mx;
+                    break;
+                default:
+                    ox = mx;
+                    oy = my;
+                    break;
+                }
+                const bool px_ui = srow[sx] != 0; /* non-black = UI (the
+                                                   * black root snapshots to 0) */
+                if (!px_ui) {
+                    const int cx = ox - MOON_PX / 2, cy = oy - MOON_PX / 2;
+                    const int d2 = cx * cx + cy * cy;
+                    if (d2 < SPIN_MASK_RING_RMIN * SPIN_MASK_RING_RMIN ||
+                        d2 > SPIN_MASK_RING_RMAX * SPIN_MASK_RING_RMAX)
+                        continue; /* the black root, outside the band: not kept */
+                }
+                s_ui_mask[(size_t)oy * MOON_PX + ox] = 1;
+                if (s_front)
+                    s_front[(size_t)oy * MOON_PX + ox] = srow[sx];
+                if (px_ui)
+                    kept++;
+            }
+        }
+        xSemaphoreGive(s_panel_mtx);
+    }
+    if (shot)
+        lv_draw_buf_destroy(shot);
     spin_mask_runs_rebuild(); /* the run list always matches the mask */
     ESP_LOGI(TAG, "ui mask rebuilt: %d UI px, %d runs (step %d)", kept, s_mask_runs_n, step);
 }
@@ -1735,6 +1753,17 @@ static void moon_tf_prefetch_task(void *arg) {
 static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
     s_tf_first = first;
     s_tf_px = px;
+    /* The persistent fetch input goes FIRST (moon_tfcache.c): with the
+     * queue full the fetch path must not allocate at all -- on the 8 MB
+     * S3 only ~568 KB of PSRAM is free at this point (the relief cache
+     * + assets + bake/scratch buffers own the rest), and a per-call
+     * file buffer then raced the slots for the last of it and died at
+     * q90 file sizes (frame 39 of 702 -- "cache off for this boot: no
+     * psram (fetch)" left 665 frames baked-but-unstored). */
+    if (!tfcache_fetch_buf_alloc()) {
+        ESP_LOGW(TAG, "tf prefetch: no PSRAM for the fetch buffer -- card-less path");
+        return false;
+    }
     const int free_ps = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     const size_t slot_sz = (size_t)px * px;
     const size_t est = slot_sz + slot_sz / 7 + 4096; /* the *1.15 + slack the queue must fit */

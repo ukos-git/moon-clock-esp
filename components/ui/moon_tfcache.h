@@ -67,6 +67,14 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 /* true while the cache is usable (mounted, folder ready, scratch up). */
 bool tfcache_ready(void);
 
+/* Allocate the persistent fetch-input buffer (the size a valid cached
+ * file can reach). Call from the prefetch owner BEFORE allocating the
+ * slot queue: with a full queue the PSRAM pool is down to a ~100 KB
+ * head (8 MB S3), and a per-call fetch buffer then OOM'd at q90 file
+ * sizes -- "cache off for this boot: no psram (fetch)", 2026-11-08.
+ * false = no memory: stay on the card-less path. Idempotent. */
+bool tfcache_fetch_buf_alloc(void);
+
 /* Decode /hour.3600.jpg into gray_out (S*S gray8, S == bake_px from
  * init). false = miss (no file / corrupt file -- the caller bakes and
  * stores); a hard IO error also flips ready to false. Records read/dec
