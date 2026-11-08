@@ -46,6 +46,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_moon.h"
+#include "knob_power.h"
 #include "knob_time.h"
 #include "lvgl.h"
 
@@ -319,11 +320,17 @@ static void sweep_body(void) {
  *  eclipse starts at the hour it happens, not at UTC midnight). */
 static void moon_task(void *arg) {
     (void)arg;
+    /* K7e: the opening act is a PRESENTATION (sweep or first frame) --
+     * hold the power ladder through it (~5 min sweep, ~20 s classify +
+     * bake on the static path); afterwards the ladder runs free and
+     * the day tick bakes may dim/sleep the idle display. */
+    knob_power_set_hold(true);
     if (s_mode == MODE_SWEEP) {
         sweep_body();
     } else if (s_mode == MODE_STATIC) {
         static_once_body();
     }
+    knob_power_set_hold(false);
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (s_nomem) {
@@ -410,6 +417,7 @@ static void start_tasks(int mode) {
 
 static void scr_press_cb(lv_event_t *e) {
     (void)e;
+    knob_power_notify_activity(); /* K7e: a press is activity */
     if (s_sweeping) {
         s_abort = true; /* the row loop honors it within one row */
     }

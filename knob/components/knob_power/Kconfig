@@ -1,0 +1,38 @@
+menu "Knob power (K7e)"
+
+config KNOB_DIM_AFTER_S
+    int "Idle seconds before the backlight dims (0 = never)"
+    default 15
+    range 0 3600
+    help
+        First rung of the ladder: the backlight duty drops to
+        KNOB_DIM_DUTY after this much touch/dial silence. Any activity
+        brings it back to full.
+
+config KNOB_DIM_DUTY
+    int "Dimmed backlight duty (0..255)"
+    default 40
+    range 1 254
+    help
+        LEDC duty while dimmed (full = 255, the vendor's "on").
+
+config KNOB_SLEEP_TIMEOUT_S
+    int "Idle seconds before deep sleep (0 = never sleep)"
+    default 60
+    range 0 36000
+    help
+        Second rung: esp_deep_sleep_start with EXT0 on dial-A GPIO 8
+        (active-LOW). The cold-boot sweep HOLDS the ladder (a
+        presentation is never interrupted); the clock's wake policy
+        then shows the current phase statically on every wake.
+
+config KNOB_SLEEP_ALLOW
+    bool "Actually enter deep sleep (n = log-only)"
+    default y
+    help
+        Bench development can keep the device reachable over the
+        USB-JTAG serial with n: the supervisor logs the would-be sleep
+        (including the EXT0 RTCIO verdict) and stays awake. Production
+        ships y. The device page records which mode was benched.
+
+endmenu

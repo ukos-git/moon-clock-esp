@@ -6,7 +6,9 @@ The Knob board
 moon assets into PSRAM and renders the physical moon (K7 milestones:
 K7a asset target + gate green, K7b static frame, K7c cold-boot
 synodic sweep + sky-event tint + day tick, K7d SNTP time with the
-honest ``no time`` posture). The earlier
+honest ``no time`` posture, K7e idle ladder + EXT0 dial wake — the
+battery gauge still waits for its user-present multimeter ritual).
+The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
 direction — no companion code remains anywhere in the repo, and the
@@ -59,9 +61,10 @@ and neither knob is a push-button.
 Its role in this project is a **fully-working moon display on its
 own** (task #24, the K7 milestones). What it does **not** do is
 input for the clock: the two boards are independent products that
-share only the moon core and the asset pipeline (the dial is
-initialized and idle until the K7 settings editor gives it a job;
-touch already has one — a screen press aborts the boot sweep).
+share only the moon core and the asset pipeline. The dial already
+has its first job (K7e): a detent is activity for the idle ladder,
+and after deep sleep it is the wake input (EXT0 on its A channel);
+touch had one already — a screen press aborts the boot sweep.
 
 Hardware map (vendor schematic + demo, extracted 2026-11-07)
 -------------------------------------------------------------
@@ -220,9 +223,10 @@ one full-panel disk baked by the clock's portable moon core, a
 caption row naming the baked instant, a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
-that re-bakes once on a UTC-date or event-signature change, and
-SNTP time over its own Wi-Fi join (K7d, ``knob_time`` — the board
-has no RTC). Layout and commands:
+that re-bakes once on a UTC-date or event-signature change, SNTP
+time over its own Wi-Fi join (K7d, ``knob_time`` — the board
+has no RTC), and an idle ladder — backlight dim, then deep sleep
+woken by a dial detent (K7e, ``knob_power``). Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial
@@ -282,8 +286,38 @@ has no RTC). Layout and commands:
   now (illum 1.7 % — three hours past that week's new moon), 0 TWDT.
   With a dead server (``ntp.invalid.example``) the boot logged
   ``no NTP fix in window`` and the glass stayed ``no time`` with zero
-  bake lines — the refusal never guesses a phase. (The deep-sleep
-  wake re-sync acceptance waits for K7e: no ``esp_deep_sleep`` yet.)
+  bake lines — the refusal never guesses a phase.
+* K7e power (``knob/components/knob_power``): an idle-ladder supervisor
+  (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
+  default 40) after ``KNOB_DIM_AFTER_S`` (15) and enters
+  ``esp_deep_sleep_start`` after ``KNOB_SLEEP_TIMEOUT_S`` (60) of
+  touch/dial silence; any activity un-dims and restarts the ladder.
+  Activity = touch contacts (pushed from the indev read) and dial
+  detents (the encoder count polled); the cold-boot sweep (and the
+  static first frame) **hold** the ladder — a presentation is never
+  interrupted, the clock's idle-hold posture. Deep sleep is armed with
+  **EXT0 on dial-A GPIO 8** (active-LOW): the S3 RTCIO verdict the
+  plan asked for came back **accepted**, device-verified 2026-11-08
+  on the production build — the 314 s cold-boot sweep held the ladder
+  whole (no dim/sleep lines while sweeping), dim fired at idle 15.1 s,
+  ``EXT0 GPIO 8 accepted, deep sleep now`` at idle 60.1 s, and the
+  USB-JTAG node vanished from the host moments later: a real deep
+  sleep, not a hang. First-detent caveat, as predicted: the
+  EC1 pulses ONE channel per detent, so a detent that happens to
+  pulse only B (GPIO 7) does **not** wake — the next detent in either
+  direction pulses A and does. The back-side power button is a
+  hardware rail switch, not a firmware input (nothing to map; verify
+  its feel on the bench). ``KNOB_SLEEP_ALLOW=n`` is the sanctioned
+  **log-only** mode: the would-be sleep and the EXT0 verdict are
+  logged, the device stays awake and reachable over USB-JTAG.
+* The **battery gauge deliberately does not ship yet**: the schematic's
+  10K/10K top rail (drawn as 5V) may measure VBUS rather than the
+  cell, so the ``adc_oneshot`` GPIO 1 gauge only enters the firmware
+  after the multimeter ritual **with the user present** (gauge mV vs
+  multimeter at the divider top, USB-plugged vs battery-only; a gauge
+  not agreeing within ~50 mV does not ship, and the VBUS verdict goes
+  here). Until then the display shows no battery state — an honest
+  absence beats the factory gauge's impossible 4.6 V read.
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``

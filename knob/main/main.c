@@ -20,6 +20,7 @@
 #include "knob_board.h"
 #include "knob_link.h"
 #include "knob_moon.h"
+#include "knob_power.h"
 #include "knob_time.h"
 #include "knob_ui.h"
 #include "lvgl.h"
@@ -54,6 +55,7 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PRESSED;
+        knob_power_notify_activity(); /* K7e: touch is activity */
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
@@ -104,6 +106,9 @@ static void lvgl_task(void *arg) {
  * what keeps the K7b/K7c acceptance epochs reproducible.
  */
 static void boot_arm_task(void *arg) {
+    /* K7e: the wake path must be readable from the log (0 = power-on,
+     * 1 = EXT0 dial detent after the K7e deep sleep). */
+    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial)", (int)esp_sleep_get_wakeup_cause());
     if (arg == NULL) {
         ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
         vTaskDelete(NULL);
@@ -184,6 +189,11 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
+
+    /* K7e idle ladder: dim after KNOB_DIM_AFTER_S of touch/dial silence,
+     * deep sleep (EXT0 dial-A GPIO8) after KNOB_SLEEP_TIMEOUT_S. Boots
+     * active; the sweep holds the ladder from knob_ui. */
+    knob_power_init();
 
     /* K2: join the home AP from the baked spiffs file. Non-fatal — the
      * moon renders offline; the join retries in the background and K7d's
