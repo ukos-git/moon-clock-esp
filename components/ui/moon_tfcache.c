@@ -46,6 +46,12 @@
 #include "esp_jpeg_enc.h"
 
 #include "bsp/esp-bsp.h" /* bsp_sdcard_mount() + BSP_SD_MOUNT_POINT, per target */
+#if !defined(CONFIG_BOARD_P4)
+#include "driver/sdspi_host.h" /* the S3 socket is SPI-wired -- mount it on the SPI host */
+#include "driver/spi_master.h" /* the caller must bring up the SPI bus itself */
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#endif
 
 #include "moon_tfcache.h"
 
@@ -311,6 +317,62 @@ static int probe_encoder(void) {
     return 0;
 }
 
+/* Mount the card.
+ *
+ * P4: the BSP's own 4-bit SDMMC slot (CLK 43 / CMD 44 / D0-3 39-42) --
+ * proper SD wiring, bsp_sdcard_mount() verbatim.
+ *
+ * S3: the socket is SPI-wired (MOSI 1 / SCK 2 / MISO 3 / CS 41, the
+ * Waveshare datasheet). The vendored BSP instead maps those pins onto
+ * an SDMMC 1-bit slot -- it mounts, but the bench caught a ~19 s
+ * first-touch init plus writes dying mid-run after ~33 files (the
+ * classic CRC-retry collapse of SDMMC-on-SPI-wiring). Mount on a real
+ * SPI host, which is what the wiring was built for. sdspi only ATTACHES
+ * a device -- the bus must be initialised by the caller on the socket's
+ * lines, and it cannot be SPI2: the panel holds that host
+ * (BSP_LCD_SPI_NUM), and the bench caught a silent card_init timeout
+ * (0x107) when the SD device rode the panel's bus. GPSPI3 is free. */
+static esp_err_t card_mount(void) {
+#if defined(CONFIG_BOARD_P4)
+    return bsp_sdcard_mount();
+#else
+    static sdmmc_card_t *s_card; /* mounted earlier this boot */
+    if (s_card)
+        return ESP_OK;
+    static bool s_bus_done;
+    if (!s_bus_done) {
+        const spi_bus_config_t buscfg = {
+            .mosi_io_num = BSP_SD_CMD, /* GPIO1: the socket's CMD line drives the card's DI */
+            .miso_io_num = BSP_SD_D0,  /* GPIO3: D0 carries the card's DO */
+            .sclk_io_num = BSP_SD_CLK, /* GPIO2 */
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 4096,
+        };
+        esp_err_t be = spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO);
+        if (be != ESP_OK && be != ESP_ERR_INVALID_STATE)
+            return be;
+        s_bus_done = true;
+    }
+    const esp_vfs_fat_sdmmc_mount_config_t mcfg = {
+        .format_if_mount_failed = false, /* never format a foreign card */
+        .max_files = 5,
+        .allocation_unit_size = 16 * 1024,
+    };
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot.host_id = SPI3_HOST; /* SPI2 is the QSPI panel's (BSP_LCD_SPI_NUM) */
+    slot.gpio_cs = GPIO_NUM_41;
+    slot.gpio_cd = GPIO_NUM_NC;
+    slot.gpio_wp = GPIO_NUM_NC;
+    slot.gpio_int = GPIO_NUM_NC;
+    esp_err_t e = esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot, &mcfg, &s_card);
+    if (e != ESP_OK)
+        s_card = NULL;
+    return e;
+#endif
+}
+
 /* ---- public API -------------------------------------------------------- */
 
 esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
@@ -321,7 +383,7 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
         tfcache_disable("bad bake px");
         return ESP_FAIL;
     }
-    esp_err_t e = bsp_sdcard_mount();
+    esp_err_t e = card_mount();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
         tfcache_disable("no card");
         return e;

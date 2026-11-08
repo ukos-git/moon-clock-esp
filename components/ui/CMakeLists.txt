@@ -32,9 +32,12 @@ idf_component_register(
   # espressif__esp_new_jpeg: the gray JPEG codec of the TF sweep cache
   # (moon_tfcache.c). Declared at the same range esp_lv_decoder pulls it
   # at (1.*), so the solver keeps the single vendored 1.0.2. PRIVATE:
-  # only moon_tfcache.c includes its headers. fatfs/vfs arrive through
-  # the BSP's public REQUIRES (bsp_sdcard_mount owns the mount).
-  PRIV_REQUIRES espressif__esp_new_jpeg
+  # only moon_tfcache.c includes its headers. fatfs/esp_driver_sdspi/
+  # esp_driver_spi: the S3's SPI-host SD mount (card_mount() calls
+  # esp_vfs_fat_sdspi_mount directly -- the BSP's 1-bit SDMMC mapping of
+  # the SPI-wired socket collapses under load); the P4 still mounts via
+  # the BSP's bsp_sdcard_mount().
+  PRIV_REQUIRES espressif__esp_new_jpeg fatfs esp_driver_sdspi esp_driver_spi
   INCLUDE_DIRS "./")
 # The lv_font_conv >= 1.5 generated font files include "lvgl/lvgl.h"
 # (a path this project's include set does not carry) unless
