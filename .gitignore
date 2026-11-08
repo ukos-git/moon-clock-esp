@@ -24,6 +24,8 @@ host_sim/uisim/build-*/
 # its own build/ under build-p4/ — the pattern 'build/' alone does not
 # match)
 host_sim/build-p4/
+# ... and the knob one (K7, -DMOON_ASSETS_TARGET=knob)
+host_sim/build-knob/
 docs/.venv/
 docs/_build/
 # mooncode's generated source pages (code/gen/ is rebuilt at build time)

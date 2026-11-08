@@ -115,23 +115,32 @@ rest of ``assets/`` are gitignored; the texture width is the Kconfig
 to the best resolution each flash + PSRAM budget allows (864 on the S3,
 2048 on the P4 — the first-match-wins
 ``default 2048 if BOARD_P4`` line in
-:cfile:`components/moon/Kconfig`). Only regenerate if you change the
-pipeline or ``MOON_ALBEDO_W`` — the root ``CMakeLists`` fails the configure
-(``FATAL_ERROR``) on a width/manifest/partition mismatch:
+:cfile:`components/moon/Kconfig`). The **knob** (sibling project
+``knob/``, :doc:`the device page <devices/knob>`) is a third target
+with **no Kconfig mirror**: its sizes (albedo 864, relief DEM halved to
+1024×512 for the PSRAM budget) live only in the pipeline's
+``TARGETS["knob"]`` row, written into its generated header and guarded
+by ``knob/CMakeLists.txt`` against its own partition table. Only
+regenerate if you change the pipeline or ``MOON_ALBEDO_W`` — the root
+``CMakeLists`` fails the configure (``FATAL_ERROR``) on a
+width/manifest/partition mismatch:
 
 .. code-block:: bash
 
    cd assets/images/moon && uv venv .venv && uv pip install -e .
-   .venv/bin/python -m moon.assets --target s3 p4    # both boards
+   .venv/bin/python -m moon.assets --target s3 p4 knob   # all three boards
 
 The pipeline loads the 4096×2048 16-bit LROC albedo (16-bit via
 tifffile; the texture carries the 180° longitude offset), bakes the
 per-target blob + manifest + the tracked generated header
 (``components/moon/generated/<target>/``), and validates the
 partition fit. The moon image gate then proves the pipeline's output
-against NASA's reference renders for **both** board textures:
+against NASA's reference renders for **all three** board textures
+(one simulator build per target: ``build/``, ``build-p4/``,
+``build-knob/``, each configured with ``-DMOON_ASSETS_TARGET=<t>``):
 
 .. code-block:: bash
 
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4
+   host_sim/.venv/bin/python host_sim/check_gate.py --target knob

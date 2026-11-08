@@ -21,17 +21,17 @@ If the C port is faithful (check 2), check 1 inherits the prototype's
 NASA agreement -- the residual between the two is exactly the porting
 error. Running both keeps the fidelity claim explicit instead of implicit.
 
-The texture size is per BOARD TARGET (--target s3|p4, default s3): the
-gate bakes the albedo at constants.TARGETS[t] and runs the matching
-simulator build (build/ for s3, build-p4/ for p4, built with
--DMOON_ASSETS_TARGET=<t>). The gate renders at --size 400 (the reference
-geometry) in both cases; only the texture resolution differs. A
+The texture size is per BOARD TARGET (--target s3|p4|knob, default s3):
+the gate bakes the albedo at constants.TARGETS[t] and runs the matching
+simulator build (build/ for s3, build-p4/ for p4, build-knob/ for knob,
+built with -DMOON_ASSETS_TARGET=<t>). The gate renders at --size 400 (the
+reference geometry) in all cases; only the texture resolution differs. A
 stale-binary guard cross-checks the sim's startup line
 ("moon assets: albedo WxH, dem WxH") against the target's table and
 exits 2 on mismatch (the sim would otherwise diff quietly at the wrong
 texture size).
 
-Run:  python check_gate.py [--target s3|p4] [--sim <bin>] [--out DIR]
+Run:  python check_gate.py [--target s3|p4|knob] [--sim <bin>] [--out DIR]
 """
 from __future__ import annotations
 
@@ -63,6 +63,10 @@ REF_DIR = os.path.join(MOON_PKG, "final_400x400")
 # Porting-fidelity gate (plan: "within ~2 MAE of the Python full model").
 MAE_C_VS_PY = 2.0
 
+# Simulator build dir per board target (built with -DMOON_ASSETS_TARGET=t,
+# see host_sim/CMakeLists.txt).
+SIM_BUILD_DIRS = {"s3": "build", "p4": "build-p4", "knob": "build-knob"}
+
 
 def q565(u8: np.ndarray) -> np.ndarray:
     """Exact 1:1 gray -> 5-bit -> gray (the panel's quantization)."""
@@ -79,10 +83,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", choices=sorted(C.TARGETS), default="s3",
                     help="board target: texture sizes from constants.TARGETS, "
-                         "sim build dir build/ (s3) or build-p4/ (p4)")
+                         "sim build dir from SIM_BUILD_DIRS")
     ap.add_argument("--sim", default=None,
-                    help="simulator binary (default: build/moon_sim for s3, "
-                         "build-p4/moon_sim for p4)")
+                    help="simulator binary (default: <build dir>/moon_sim "
+                         "per SIM_BUILD_DIRS)")
     ap.add_argument("--out", default="/tmp/moon-sim-gate")
     ap.add_argument("--frames", type=int, default=32)
     ap.add_argument("--json", default="/tmp/moon-research/mooninfo_2025.json")
@@ -92,7 +96,7 @@ def main() -> int:
     alb_w, alb_h = spec["alb"]
     dem_w, dem_h = spec["dem"]
     sim = args.sim or os.path.join(
-        HERE, "build-p4" if args.target == "p4" else "build", "moon_sim")
+        HERE, SIM_BUILD_DIRS[args.target], "moon_sim")
 
     os.makedirs(args.out, exist_ok=True)
     rec = json.load(open(args.json))
@@ -126,10 +130,10 @@ def main() -> int:
                                                       dem_h):
         print("stale simulator: %s reports '%s' but target %s needs "
               "%dx%d albedo / %dx%d dem -- rebuild it "
-              "(cmake -DMOON_ASSETS_TARGET=%s -B build%s)"
+              "(cmake -DMOON_ASSETS_TARGET=%s -B %s)"
               % (sim, m.group(0) if m else "(no asset line in stderr)",
                  args.target, alb_w, alb_h, dem_w, dem_h, args.target,
-                 "-p4" if args.target == "p4" else ""))
+                 SIM_BUILD_DIRS[args.target]))
         return 2
 
     # --- Python model: 5-bit render_from_assets per frame ------------------

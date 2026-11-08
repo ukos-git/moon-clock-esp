@@ -7,17 +7,18 @@
 # The asset blobs (moon_assets_gen.c) are GENERATED and stay gitignored
 # under assets/images/moon/out/<target>/ (see the moon.assets pipeline).
 # One simulator per board target: -DMOON_ASSETS_TARGET=s3 (default; build
-# dir build/) or p4 (build dir build-p4/) -- the sim links the target's
-# texture and reads its per-board moon_consts.h, so the gate can diff the
-# C core at each board's asset size:
-#   assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4
+# dir build/), p4 (build dir build-p4/) or knob (build dir build-knob/ --
+# the K7 standalone-display sibling project knob/) -- the sim links the
+# target's texture and reads its per-board moon_consts.h, so the gate can
+# diff the C core at each board's asset size:
+#   assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4 knob
 #   cmake -DMOON_ASSETS_TARGET=p4 -B build-p4 && cmake --build build-p4
 cmake_minimum_required(VERSION 3.16)
 project(moon_sim C)
 
-set(MOON_ASSETS_TARGET "s3" CACHE STRING "Board target for the host assets: s3 | p4")
-if(NOT MOON_ASSETS_TARGET MATCHES "^(s3|p4)$")
-    message(FATAL_ERROR "MOON_ASSETS_TARGET must be s3 or p4 (got '${MOON_ASSETS_TARGET}')")
+set(MOON_ASSETS_TARGET "s3" CACHE STRING "Board target for the host assets: s3 | p4 | knob")
+if(NOT MOON_ASSETS_TARGET MATCHES "^(s3|p4|knob)$")
+    message(FATAL_ERROR "MOON_ASSETS_TARGET must be s3, p4 or knob (got '${MOON_ASSETS_TARGET}')")
 endif()
 set(MOON_ASSETS_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../assets/images/moon/out/${MOON_ASSETS_TARGET}/moon_assets_gen.c)
 set(MOON_CONSTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../components/moon/generated/${MOON_ASSETS_TARGET})
