@@ -9,7 +9,6 @@
 #include "clock_idle.h"
 #include "clock_sntp.h"
 #include "clock_tz.h"
-#include "companion.h"
 #include "esp_log.h"
 #include "fonts.h"
 #include "images.h"
@@ -1113,7 +1112,7 @@ static void settings_alarm_time_save_value(void) {
 }
 
 /* Persist on a roller RELEASED (the SPIFFS write + RTC reschedule stay
- * off the drag path). Shared with the companion knob's COMMIT frame. */
+ * off the drag path). */
 static void event_handler_cb_settings_alarm_time_save(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
@@ -1720,10 +1719,13 @@ void tick_screen_settings_wifi() {
 
 /* The four register modes (all printable ASCII -- the 32 px font now
  * covers 32-126). The digit/symbol registers are shorter than 26, so
- * their groups fill in order (the last group takes the remainder).
- * The strings live in companion_proto.h (COMPANION_WHEEL_SETS): the
- * knob mirrors them verbatim, so its dial slots and s_wheel_chars stay
- * the same characters. */
+ * their groups fill in order (the last group takes the remainder). */
+static const char *const s_wheel_sets[4] = {
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "0123456789#@._-+*?!/&%:;,",
+    "#$%&@!_=<>[]{}~^:,/?*+-.'",
+};
 
 /* The 12 frequency-grouped sectors (FIXED across all four registers).
  * Group 5 = the rare j/k/q cluster, group 10 = v/x/z. */
@@ -1759,10 +1761,8 @@ static lv_obj_t *s_wheel_commit;    /* the house circle-xmark commit key */
 static lv_obj_t *s_wheel_discard;   /* the circle-xmark discard key */
 static lv_obj_t *s_wheel_center;    /* the centre tap box */
 static lv_obj_t *s_wheel_pw_label;  /* the running entry / centre preview */
-static lv_obj_t *s_wheel_sub_label; /* "release commits" / "hold to add" */
+static lv_obj_t *s_wheel_sub_label; /* "release commits" */
 static lv_obj_t *s_wheel_ssid_label;
-static lv_obj_t *s_wheel_dwell_arc; /* companion dwell countdown ring (hidden unless a
-                                     * knob device holds a slot hot -- K4, task #16) */
 
 /* Map the indev point (display coords) to a letter slot: inverse the
  * screen root's transform (the orientation roll) first -- the same idiom
@@ -1887,55 +1887,10 @@ static void settings_wheel_apply_lit(void) {
     }
 }
 
-/* ---- companion dwell countdown (K4, task #16) ------------------------
- * While a knob device holds a slot hot, a thin ring drains around the
- * centre preview: 360 -> 0 deg over COMPANION_DWELL_MS -- the SAME
- * constant the knob dwells on before it sends KEY_ADD (single-sourced in
- * companion_proto.h), so the ring shows the honest left-over time. Pure
- * additive companion affordance: companion_dwell_start() is called ONLY
- * from the companion handler, the touch path never shows it, and the
- * resting wheel is pixel-identical to a pre-knob build. */
-static void wheel_dwell_exec(void *obj, int32_t v) {
-    /* v = left-over percent; the sweep starts at 12 o'clock (LVGL 270)
-     * and its end drains back toward the start as the dwell runs out. */
-    lv_arc_set_angles((lv_obj_t *)obj, 270.0f, (lv_value_precise_t)(270.0f + 3.6f * (float)v));
-}
-
-static void wheel_dwell_done(lv_anim_t *a) {
-    (void)a;
-    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
-    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
-}
-
-static void companion_dwell_stop(void) {
-    if (s_wheel_dwell_arc == NULL) {
-        return;
-    }
-    lv_anim_delete(s_wheel_dwell_arc, wheel_dwell_exec);
-    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
-    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
-}
-
-static void companion_dwell_start(void) {
-    if (s_wheel_dwell_arc == NULL) {
-        return;
-    }
-    lv_obj_clear_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, s_wheel_dwell_arc);
-    lv_anim_set_values(&anim, 100, 0);
-    lv_anim_set_duration(&anim, COMPANION_DWELL_MS);
-    lv_anim_set_exec_cb(&anim, wheel_dwell_exec);
-    lv_anim_set_completed_cb(&anim, wheel_dwell_done);
-    lv_anim_start(&anim); /* a re-HOT replaces the in-flight one (same var + exec_cb) */
-}
-
 static void settings_wheel_set_hot(int s) {
     if (s == s_wheel_hot) {
         return;
     }
-    companion_dwell_stop(); /* any hot change (a touch grab included) drops a running countdown */
     s_wheel_hot = s;
     if (s < 0 || s >= s_wheel_n) {
         /* No preview: the centre shows the running entry (DTMF-style
@@ -1999,7 +1954,6 @@ static void settings_wheel_set_revealed(bool on, int sector) {
     }
     if (!on) {
         s_wheel_hot = -1;
-        companion_dwell_stop();
         settings_wheel_pw_label();
     }
     settings_wheel_recolor_letters();
@@ -2013,9 +1967,9 @@ static void settings_wheel_set_mode(int m) {
         return;
     }
     s_wheel_mode = m;
-    s_wheel_n = (int)strlen(COMPANION_WHEEL_SETS[m]);
+    s_wheel_n = (int)strlen(s_wheel_sets[m]);
     for (int j = 0; j < 26; j++) {
-        s_wheel_chars[j] = j < s_wheel_n ? COMPANION_WHEEL_SETS[m][j] : 0;
+        s_wheel_chars[j] = j < s_wheel_n ? s_wheel_sets[m][j] : 0;
     }
     /* Per-sector counts + the global letter index of each sector start:
      * fill each group in order (the digit/symbol registers are shorter
@@ -2111,8 +2065,7 @@ static void settings_wheel_set_mode(int m) {
  * boxes (the exact box under the finger lights + previews); PRESSING
  * tracks the finger (the sticky sector's box under the finger); RELEASED
  * commits the highlighted letter when the finger is still in the band. */
-/* Append slot s's character to the entry (bounds-checked). Shared by the
- * touch release path and the companion knob's KEY_ADD frame. */
+/* Append slot s's character to the entry (bounds-checked). */
 static void settings_wheel_add_slot(int s) {
     if (s >= 0 && s < s_wheel_n && s_wheel_pw_len < WHEEL_PW_MAX) {
         s_wheel_pw[s_wheel_pw_len++] = s_wheel_chars[s];
@@ -2194,8 +2147,7 @@ static void event_handler_cb_wheel_mode(lv_event_t *e) {
     }
 }
 
-/* Persist the entry and start the sync. Shared by the house circle-xmark
- * COMMIT key and the companion knob's KEY_COMMIT frame. */
+/* Persist the entry and start the sync (the house circle-xmark COMMIT key). */
 static void settings_wheel_commit_password(void) {
     if (s_wheel_pw_len == 0) {
         ESP_LOGW("settings_wheel", "commit: empty password ignored");
@@ -2641,33 +2593,6 @@ void create_screen_settings_wifi_password() {
     lv_obj_align(s_wheel_sub_label, LV_ALIGN_CENTER, 0, UI_PX(16));
     lv_obj_set_style_text_color(s_wheel_sub_label, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    /* The companion dwell countdown ring (K4, task #16): a thin draining
-     * ring around the 110 px centre box, shown only while a knob device
-     * holds a slot hot (companion_dwell_start). r 66 sits in the empty
-     * gap between the centre box (r 55) and the register track (r 84).
-     * The INDICATOR pad MUST stay 0 (the item-5a rule: the indicator's
-     * radius is arc_r minus its OWN pad -- a copied MAIN pad clamps the
-     * width into a pie wedge from the centre). Hidden by default: the
-     * touch wheel never sees it. */
-    s_wheel_dwell_arc = lv_arc_create(obj);
-    lv_obj_set_pos(s_wheel_dwell_arc, 0, 0);
-    lv_obj_set_size(s_wheel_dwell_arc, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_all(s_wheel_dwell_arc, WHEEL_C - UI_PX(66), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(s_wheel_dwell_arc, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_arc_set_bg_angles(s_wheel_dwell_arc, 0, 360);
-    lv_arc_set_angles(s_wheel_dwell_arc, 0, 0);
-    lv_obj_set_style_arc_width(s_wheel_dwell_arc, UI_PX(4), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(s_wheel_dwell_arc, UI_PX(4), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(s_wheel_dwell_arc, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(s_wheel_dwell_arc, WHEEL_BOX_LIT, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(s_wheel_dwell_arc, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_rounded(s_wheel_dwell_arc, true, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    /* The theme gives EVERY arc a blue circular KNOB -- kill it (it would
-     * land at the centre otherwise). */
-    lv_obj_set_style_bg_opa(s_wheel_dwell_arc, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_wheel_dwell_arc, LV_OBJ_FLAG_HIDDEN);
-
     lv_label_set_text(s_wheel_ssid_label, s_wheel_ssid[0] ? s_wheel_ssid : "SELECT A NETWORK");
     settings_wheel_pw_label();
     settings_wheel_set_mode(0);
@@ -2906,7 +2831,7 @@ static void settings_tz_commit_value(void) {
     }
 }
 
-/* Commit on RELEASED (shared with the companion knob's COMMIT frame). */
+/* Commit on RELEASED. */
 static void event_handler_cb_settings_tz_commit(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
         return;
@@ -3747,234 +3672,4 @@ void create_screens() {
     create_screen_settings_time();
     create_screen_settings_tz();
     create_screen_settings_alarm_sound();
-}
-
-/* ==================== companion knob injection API (task #16) =========
- *
- * screens_companion_handle() is the single door the companion component's
- * queued frames walk through — called ONLY from ui_tick_timer_cb (the
- * LVGL task), so every effect here is a same-context UI call like a touch
- * event. The clock is authoritative: each frame kind is gated against the
- * CURRENT screen and dropped otherwise; the knob is a dumb remote whose
- * own screen is only a mirror. Wire contract: companion_proto.h; the
- * touch paths are untouched (this reuses their extracted bodies, never
- * duplicates them). */
-
-/* Roll a shared settings roller by delta (clamped, no animation — the
- * roller stays the value display; RELEASED-time saves are NOT fired:
- * the knob sends an explicit COMMIT). */
-static void companion_roller_step(lv_obj_t *roller, int delta) {
-    if (!roller || delta == 0) {
-        return;
-    }
-    const int32_t n = (int32_t)lv_roller_get_option_count(roller);
-    if (n <= 0) {
-        return;
-    }
-    int32_t sel = lv_roller_get_selected(roller);
-    if (sel < 0) {
-        sel = 0;
-    }
-    sel += delta;
-    if (sel < 0) {
-        sel = 0;
-    }
-    if (sel >= n) {
-        sel = n - 1;
-    }
-    lv_roller_set_selected(roller, sel, LV_ANIM_OFF);
-}
-
-/* Leave the current settings sub-screen through its parent (the X exit's
- * route). The TIME screen's X exit commits — callers mirror that. */
-static void companion_exit_subscreen(void) {
-    const enum ScreensEnum cur = ui_current_screen();
-    enum ScreensEnum parent = SCREEN_ID_SETTINGS_HUB;
-    if (cur == SCREEN_ID_SETTINGS_WIFI_PASSWORD) {
-        parent = SCREEN_ID_SETTINGS_WIFI;
-    } else if (cur == SCREEN_ID_SETTINGS_POMODORO || cur == SCREEN_ID_SETTINGS_ALARM_TIME) {
-        parent = SCREEN_ID_SETTINGS_ALARM;
-    }
-    loadScreen(parent);
-    ui_tick();
-    settings_screen_refresh_for(parent);
-}
-
-void screens_companion_handle(const companion_frame_t *f) {
-    if (!f) {
-        return;
-    }
-    const enum ScreensEnum cur = ui_current_screen();
-
-    /* Any accepted interaction keeps the clock awake (mid-entry idle
-     * drops are what the touch path resets against; HELLO is a probe and
-     * does not count). */
-    if (f->type != COMPANION_FRAME_HELLO) {
-        clock_idle_reset_timer();
-    }
-
-    if (cur == SCREEN_ID_SETTINGS_WIFI_PASSWORD) {
-        switch (f->type) {
-        case COMPANION_FRAME_KEY_HOT:
-            settings_wheel_set_hot(f->delta);
-            if (f->delta >= 0 && f->delta < s_wheel_n) {
-                /* Mirror the knob's hold-to-commit dwell: drain the ring
-                 * around the centre preview over COMPANION_DWELL_MS and
-                 * let the hint line speak the knob's verb (set_hot wrote
-                 * the touch verb "release commits"). */
-                lv_label_set_text(s_wheel_sub_label, "hold to add");
-                companion_dwell_start();
-            }
-            break;
-        case COMPANION_FRAME_KEY_ADD:
-            companion_dwell_stop();
-            settings_wheel_add_slot(f->delta);
-            settings_wheel_set_hot(-1);
-            /* set_hot early-returns when the wheel is ALREADY cold (two
-             * ADDs with no HOT between them): repaint the running entry
-             * explicitly (the touch RELEASED path never hits this, its
-             * hot slot is always >= 0 at release). */
-            settings_wheel_pw_label();
-            break;
-        case COMPANION_FRAME_KEY_MODE:
-            companion_dwell_stop(); /* the knob never dwells across a register switch */
-            if (f->delta >= 0 && f->delta <= 3) {
-                settings_wheel_set_mode(f->delta);
-            }
-            break;
-        case COMPANION_FRAME_FOCUS_NEXT:
-            companion_dwell_stop();
-            settings_wheel_set_mode(((s_wheel_mode < 0 ? 0 : s_wheel_mode) + 1) & 3);
-            break;
-        case COMPANION_FRAME_KEY_BACK:
-            companion_dwell_stop();
-            if (s_wheel_pw_len > 0) {
-                s_wheel_pw[--s_wheel_pw_len] = 0;
-                settings_wheel_pw_label();
-                ESP_LOGW("settings_wheel", "companion backspace (pw %d chars)", s_wheel_pw_len);
-            }
-            break;
-        case COMPANION_FRAME_KEY_COMMIT:
-            settings_wheel_commit_password();
-            break;
-        case COMPANION_FRAME_ABORT:
-            if (s_wheel_pw_len == 0) {
-                settings_wheel_exit_to_list();
-            } else {
-                s_wheel_pw_len = 0;
-                s_wheel_pw[0] = 0;
-                settings_wheel_pw_label();
-                ESP_LOGW("settings_wheel", "companion discard (pw cleared)");
-            }
-            break;
-        default:
-            break; /* STEP/COMMIT are roller kinds: wrong screen, drop */
-        }
-        return;
-    }
-
-    switch (cur) {
-    case SCREEN_ID_SETTINGS_TIME:
-        switch (f->type) {
-        case COMPANION_FRAME_STEP:
-            switch (f->field) {
-            case COMPANION_FIELD_HOUR:
-                companion_roller_step(objects.settings_time_roller_h, f->delta);
-                break;
-            case COMPANION_FIELD_MINUTE:
-                companion_roller_step(objects.settings_time_roller_mi, f->delta);
-                break;
-            case COMPANION_FIELD_DAY:
-                companion_roller_step(objects.settings_time_roller_d, f->delta);
-                break;
-            case COMPANION_FIELD_MONTH:
-                companion_roller_step(objects.settings_time_roller_m, f->delta);
-                break;
-            case COMPANION_FIELD_YEAR:
-                companion_roller_step(objects.settings_time_roller_y, f->delta);
-                break;
-            default:
-                break;
-            }
-            break;
-        case COMPANION_FRAME_COMMIT:
-            settings_time_commit_value();
-            break;
-        case COMPANION_FRAME_ABORT:
-            /* The X exit commits — the knob's exit gesture mirrors it. */
-            settings_time_commit_value();
-            companion_exit_subscreen();
-            break;
-        default:
-            break;
-        }
-        break;
-
-    case SCREEN_ID_SETTINGS_ALARM_TIME:
-        switch (f->type) {
-        case COMPANION_FRAME_STEP:
-            if (f->field == COMPANION_FIELD_ALARM_HOUR) {
-                companion_roller_step(objects.settings_alarm_time_roller_h, f->delta);
-            } else if (f->field == COMPANION_FIELD_ALARM_MINUTE) {
-                companion_roller_step(objects.settings_alarm_time_roller_m, f->delta);
-            } else if (f->field == COMPANION_FIELD_ALARM_DAYS) {
-                int s = s_alarm_range_start + f->delta;
-                int e = s_alarm_range_end + f->delta;
-                s_alarm_range_start = s < 0 ? 0 : (s > 6 ? 6 : s);
-                s_alarm_range_end = e < 0 ? 0 : (e > 6 ? 6 : e);
-                settings_alarm_time_apply_range();
-            }
-            break;
-        case COMPANION_FRAME_COMMIT:
-            settings_alarm_time_save_value();
-            break;
-        case COMPANION_FRAME_ABORT:
-            companion_exit_subscreen();
-            break;
-        default:
-            break;
-        }
-        break;
-
-    case SCREEN_ID_SETTINGS_POMODORO:
-        switch (f->type) {
-        case COMPANION_FRAME_STEP:
-            if (f->field == COMPANION_FIELD_POM_HOUR) {
-                companion_roller_step(objects.settings_pomodoro_roller_h, f->delta);
-            } else if (f->field == COMPANION_FIELD_POM_MINUTE) {
-                companion_roller_step(objects.settings_pomodoro_roller_m, f->delta);
-            }
-            break;
-        case COMPANION_FRAME_COMMIT:
-            settings_pomodoro_save_value();
-            break;
-        case COMPANION_FRAME_ABORT:
-            companion_exit_subscreen();
-            break;
-        default:
-            break;
-        }
-        break;
-
-    case SCREEN_ID_SETTINGS_TZ:
-        switch (f->type) {
-        case COMPANION_FRAME_STEP:
-            if (f->field == COMPANION_FIELD_TZ) {
-                companion_roller_step(objects.settings_tz_roller, f->delta);
-            }
-            break;
-        case COMPANION_FRAME_COMMIT:
-            settings_tz_commit_value();
-            break;
-        case COMPANION_FRAME_ABORT:
-            companion_exit_subscreen();
-            break;
-        default:
-            break;
-        }
-        break;
-
-    default:
-        break; /* home / airplane / wifi list / ...: the knob is inert */
-    }
 }

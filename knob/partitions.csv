@@ -1,7 +1,13 @@
-# Companion-knob partition table (16 MB flash, schematic U3 W25Q128JVPIQ).
-# storage carries knob_credentials.txt (K2), mirroring the clock's SPIFFS
-# credentials pattern.
+# Knob moon-display partition table (16 MB flash, schematic U3
+# W25Q128JVPIQ). storage carries knob_credentials.txt (K2), mirroring the
+# clock's SPIFFS credentials pattern. moon_assets (K7) carries the
+# pre-baked blob
+# (assets/images/moon/out/knob/moon_assets.bin: albedo 864x432 u8 then
+# relief DEM 1024x512 i8 = 897,536 B); 2560K is sized for the proven
+# 2048x1024-DEM bake too, so the table never has to change (a partition
+# change means a full flash on the bench unit). ~8.9 MB free after it.
 nvs,      data, nvs,     0x9000,  0x6000,
 phy_init, data, phy,     0xf000,  0x1000,
 factory,  app,  factory, 0x10000, 0x400000,
 storage,  data, spiffs,  0x410000, 0x80000,
+moon_assets, data, undefined, , 2560K,

@@ -1,5 +1,5 @@
-# Companion-knob defaults (ESP32-S3R8). Hand-curated like the clock's —
-# never idf.py save-defconfig.
+# Knob moon-display defaults (ESP32-S3R8). Hand-curated like the clock's
+# — never idf.py save-defconfig.
 
 CONFIG_IDF_TARGET="esp32s3"
 

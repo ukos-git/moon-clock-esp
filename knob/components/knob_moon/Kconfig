@@ -1,0 +1,14 @@
+menu "Knob moon display"
+
+config KNOB_MOON_TEST_EPOCH
+    int "UTC epoch for the static frame (until knob_time lands, K7d)"
+    default 1794175200
+    help
+        The K7b static moon renders this UTC instant (default
+        2026-11-08T22:00Z -- the milestone's bench date, so the disk
+        can be compared against the published phase of the day).
+        K7d's knob_time (esp_sntp over the existing Wi-Fi join)
+        replaces this with the real instant; until then the moon view
+        never claims a "now" it does not have.
+
+endmenu

@@ -1,9 +1,9 @@
 /**
  * @file main.c
- * @brief Companion-knob firmware for the Waveshare ESP32-S3-Knob-Touch-
- *        LCD-1.8 (task #16): panel + CST816S + EC1 dial, Wi-Fi STA from
- *        the baked spiffs file, and the KEYBOARD/STEPPER mirror modes
- *        (knob_ui) that drive the clock over UDP (knob_link).
+ * @brief Moon-display firmware for the Waveshare ESP32-S3-Knob-Touch-
+ *        LCD-1.8 (task #24): panel + CST816S + EC1 dial, Wi-Fi STA from
+ *        the baked spiffs file (connectivity for K7d's SNTP), and the
+ *        standalone moon view (knob_ui over the ported core, knob_moon).
  */
 #include <stdio.h>
 
@@ -18,6 +18,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_link.h"
+#include "knob_moon.h"
 #include "knob_ui.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
@@ -116,19 +117,27 @@ void app_main(void) {
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
 
-    /* K2: join the clock's AP from the baked spiffs file. Non-fatal — the
-     * dial keeps working offline; the link retries in the background. */
+    /* K2: join the home AP from the baked spiffs file. Non-fatal — the
+     * moon renders offline; the join retries in the background and K7d's
+     * SNTP rides it. */
     esp_err_t wifi_err = knob_link_wifi_init();
     if (wifi_err != ESP_OK) {
         ESP_LOGW(TAG, "WiFi join incomplete (%s) — retrying in background", esp_err_to_name(wifi_err));
     }
-    /* K4: TX socket + mDNS discoverer (background task; the UI status
-     * line reports "wifi ... / clock? / clock <ip>"). */
-    if (knob_link_start() != ESP_OK) {
-        ESP_LOGW(TAG, "companion TX not started — dial frames disabled");
-    }
+
+    /* K7: eager asset load (albedo -> PSRAM, relief gradient cache) runs
+     * on the boot core BEFORE the LVGL task exists — the proven
+     * moon_esp_assets.c posture: one build, no concurrent-build race. */
+    const bool assets_ready = knob_moon_init();
 
     knob_ui_create();
+    /* The static test frame (K7b): baked here on the boot core so a
+     * multi-second bake never blocks the render loop; the caption shows
+     * the instant, the disk appears with the task's first refresh.
+     * KNOB_MOON_TEST_EPOCH until knob_time gives a real "now" (K7d). */
+    if (!assets_ready || !knob_ui_show_moon((int64_t)CONFIG_KNOB_MOON_TEST_EPOCH)) {
+        ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
+    }
 
     const esp_timer_create_args_t tick_args = {
         .callback = tick_timer_cb,

@@ -1,14 +1,13 @@
-## IDF Component Manager Manifest File — companion-knob firmware
+## IDF Component Manager Manifest File — knob moon-display firmware
 ##
 ## The LVGL 9.6 family matches the clock project (lvgl/lvgl ^9). The panel
 ## driver is the registry component the vendor demo itself uses; the LVGL
 ## port is hand-rolled in knob_board (no esp_lvgl_port dependency — the
 ## flush path stays under project control, the clock's house style).
+## (The companion era's espressif/mdns went with the companion approach,
+## 2026-11-08.)
 dependencies:
   idf:
     version: '>=5.4'
   lvgl/lvgl: ^9
   espressif/esp_lcd_sh8601: ^2
-  # mDNS discovery of the clock (_moonclock._udp.local). Same registry
-  # component the clock advertises with (components/companion).
-  espressif/mdns: ^1

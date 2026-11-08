@@ -81,11 +81,3 @@ target_link_libraries(moon_sim PRIVATE m)
 add_executable(moon_bench bench.c ${MOON_CORE_SRCS})
 target_include_directories(moon_bench PRIVATE ${MOON_CORE_INCS})
 target_link_libraries(moon_bench PRIVATE m)
-
-# Companion wire-contract test (task #16): host-side check of the
-# transport half of components/companion/include/companion_proto.h
-# (magic/version/token/dup-seq/length/type guards). The screen gate is
-# the device's job (screens_companion_handle).
-add_executable(companion_proto_test companion_proto_test.c)
-target_include_directories(companion_proto_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../components/companion/include)

@@ -17,7 +17,6 @@
 
 #include "actions.h"
 #include "alarm_audio.h"
-#include "companion.h"
 #include "imu.h"
 #include "moon_ui.h"
 #include "ui.h"
@@ -532,14 +531,6 @@ extern "C" void app_main(void) {
 
     ui_init();
     ESP_LOGI(TAG, "UI initialized");
-
-    // Companion knob input (task #16): UDP listener + mDNS
-    // (_moonclock._udp.local). The listener only queues; ui_tick_timer_cb
-    // drains it into screens_companion_handle(). Soft-fails: no companion,
-    // no effect on anything else.
-    if (companion_start() != ESP_OK) {
-        ESP_LOGW(TAG, "companion input NOT started");
-    }
 
     // Alarm audio (both boards: ES8311 speaker + amp on the shared I2C
     // bus — both BSPs expose the same bsp_audio_codec_speaker_init).

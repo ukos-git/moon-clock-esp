@@ -11,9 +11,6 @@ dependencies:
   idf:
     version: '>=4.1.0'
   lvgl/lvgl: ^9
-  # mDNS responder for the companion knob advertisement (_moonclock._udp
-  # .local, components/companion). A registry component, not built-in.
-  espressif/mdns: ^1
   # Waveshare ESP32-P4-WIFI6-Touch-LCD-XC BSP (720x720 / 800x800): P4-only,
   # gated on the build target (the vendored S3 BSP registers only on
   # esp32s3, so the two never co-resolve — both export bsp/display.h).

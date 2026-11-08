@@ -1,12 +1,15 @@
 The Knob board
 ==============
 
-**Status: companion-input firmware on the bench** — the ``knob/``
-sibling project boots its QSPI panel, joins Wi-Fi, and drives the
-clock's screens over the LAN (:doc:`implementation
-<../implementation/companion-knob>`, milestones K0–K4). The board's
-own **moon-display** firmware is the next milestone. This page
-records the bench-observed facts the port started from.
+**Status: standalone moon-display firmware on the bench** — the
+``knob/`` sibling project boots its QSPI panel, loads the pre-baked
+moon assets into PSRAM and renders the physical moon (K7 milestones:
+K7a asset target + gate green, K7b static frame). The earlier
+**companion-input** role (milestones K0–K6, UDP frames driving the
+clock's screens) was **discarded 2026-11-08** at the owner's
+direction — no companion code remains anywhere in the repo, and the
+clock lost its listener in the same change. This page records the
+bench-observed facts the port started from.
 
 What it is
 ----------
@@ -51,13 +54,11 @@ the dial. The encoders are **dual — one per MCU** ("acting on
 ESP32S3 and ESP32 respectively"), so each chip reads its own encoder
 and neither knob is a push-button.
 
-Its intended role in this project is a **fully-working moon display
-on its own** (the next milestone). What ships on it today is the
-plan's stepping stone: a **companion input device** — rotary-encoder
-letter selection for the Wi-Fi keyboard (:doc:`../keyboard`) and
-date/time/timer adjustment on the clock, turning instead of tapping
-the wheel, with the knob's own screen as a mirror
-(:doc:`companion knob input <../implementation/companion-knob>`).
+Its role in this project is a **fully-working moon display on its
+own** (task #24, the K7 milestones). What it does **not** do is
+input for the clock: the two boards are independent products that
+share only the moon core and the asset pipeline (the dial is
+initialized and idle until the K7 settings editor gives it a job).
 
 Hardware map (vendor schematic + demo, extracted 2026-11-07)
 -------------------------------------------------------------
@@ -111,8 +112,8 @@ U4 like any normal ESP32 board.
 A dedicated **inter-MCU UART** exists on the board: S3 TX GPIO 38 /
 RX GPIO 48 ↔ U4 GPIO 23 / 18. None of the vendor's per-function
 demos uses it — it is how the two *factory* demo firmwares talk to
-each other. The companion port ignores it: the knob talks to the
-clock over Wi-Fi, not over the board's internal link.
+each other. The firmware ignores it: the knob is a standalone
+device, and its Wi-Fi join exists only for SNTP.
 
 The remaining peripherals, for the record: haptics are a **DRV2605**
 on the same I2C bus (SDA 11 / SCL 12) with EN/TRIG lines and an LRA
@@ -211,17 +212,26 @@ port guess on the clock boards).
 Firmware (``knob/`` sibling project)
 -------------------------------------
 
-The shipping firmware is the companion-input device: LVGL 9.6 mirror
-views (KEYBOARD ring / STEPPER field list), the dial decoder, and the
-UDP sender. Layout and commands:
+The shipping firmware is the **standalone moon display**: LVGL 9.6,
+one full-panel disk baked by the clock's portable moon core, a
+caption row naming the baked instant, and a Wi-Fi STA join kept for
+SNTP (K7d). Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
-  {knob_board, knob_ui, knob_link}`` (panel/touch/dial shim, the two
-  mirror views, framing + UDP + mDNS query). It compiles the clock's
-  wire contract verbatim from
-  ``components/companion/include/companion_proto.h`` — frame layout
-  and the ``COMPANION_DWELL_MS`` hold-to-commit window have a single
-  source.
+  {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial
+  shim; the moon-view glue — one ``lv_image`` over a PSRAM RGB565
+  square through the partial flush; the Wi-Fi join; and
+  ``knob_moon``, which compiles the clock's ``components/moon/core``
+  TUs plus the ESP asset backend **verbatim** through relative
+  source paths — the same mechanism host_sim uses, so
+  ``check_gate.py --target knob`` describes exactly the physics the
+  panel shows).
+* Moon assets: the pipeline's third target —
+  ``--target s3 p4 knob`` bakes albedo 864×432 + DEM 1024×512 into
+  the 2560 KiB ``moon_assets`` partition of ``knob/partitions.csv``
+  (blob existence and fit are configure-time ``FATAL_ERROR``\\ s in
+  ``knob/CMakeLists.txt``; the generated
+  ``components/moon/generated/knob/moon_consts.h`` is tracked).
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``
@@ -229,14 +239,15 @@ UDP sender. Layout and commands:
   identifies the board (it is the bench's only ESP32-S3 while the
   AMOLED is unplugged).
 * Wi-Fi credentials come from ``knob/spiffs/knob_credentials.txt``
-  (gitignored, clock pattern; the example file is committed).
+  (gitignored, clock pattern; the example file is committed). The
+  join is connectivity only — there is no peer protocol any more.
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
   pulsed channel IS the direction. The decoder mirrors the vendor's
   ``bidi_switch_knob`` 1:1 (3 ms poll, two-tick debounce, A rise =
   +1, B rise = −1) — every quadrature-shaped attempt discarded half
-  the detents (bench, 2026-11-08). Details:
-  :doc:`companion knob input <../implementation/companion-knob>`.
+  the detents (bench, 2026-11-08). The K7 settings editor is its
+  first real job; it is idle today.
 
 The U4WDH coprocessor still runs factory firmware; its encoder and
 the battery ADC pin are unexposed by the current build.

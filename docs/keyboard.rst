@@ -158,36 +158,6 @@ picking uses the inverse-transform idiom (``lv_obj_transform_point``,
 ``alarm_time_point_to_day`` pattern), so it stays correct under the
 90° orientation roll.
 
-Knob-assisted input (companion dial)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The Waveshare ESP32-S3-Knob-Touch-LCD-1.8 companion
-(:doc:`the device page <devices/knob>`, wire contract and decoder in
-:doc:`companion knob input <implementation/companion-knob>`) can
-drive this wheel without touch: the dial moves the lit slot (each detent sends the absolute
-slot as a ``KEY_HOT`` preview frame), and because the dial has no
-push-button, **holding a settled slot for 3 s commits it** — the
-knob sends ``KEY_ADD`` when its dwell expires; a new detent restarts
-the dwell, so nothing ever commits on a crossing. The zones of the
-knob's own screen cover backspace, register switch, commit and exit
-with the same semantics as the keys above.
-
-While a knob device holds a slot hot, the wheel shows a **dwell
-countdown**: a thin white ring (r 66, in the empty gap between the
-centre box and the register track) drains 360°→0° over the dwell
-window around the centre preview, and the hint line reads "hold to
-add". The ring is the honest left-over time because both ends read
-one constant — ``COMPANION_DWELL_MS`` in
-``components/companion/include/companion_proto.h`` — the knob commits
-on it and the clock mirrors it; a drift between the two would make
-the ring lie. It is a purely **additive** companion affordance:
-only the companion handler (``screens_companion_handle``) arms it,
-the touch path never sees it, the resting wheel is pixel-identical
-to a touch-only build, and any hot change — a touch grab included —
-drops a running countdown. Frames from the knob arrive through the
-same door as every other companion effect and are gated against the
-current screen (see the wire contract in ``companion_proto.h``).
-
 Known interaction (stated, not suppressed)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

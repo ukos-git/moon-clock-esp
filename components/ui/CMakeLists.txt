@@ -27,7 +27,7 @@ idf_component_register(
   # publicly, so it resolves on either target). esp_driver_i2s: the I2S
   # std headers the codec's sample-info types lean on (BSP public
   # REQUIRES, taken directly for the alarm_audio.c include surface).
-  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi board esp_codec_dev esp_driver_i2s companion
+  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi board esp_codec_dev esp_driver_i2s
   INCLUDE_DIRS "./")
 # The lv_font_conv >= 1.5 generated font files include "lvgl/lvgl.h"
 # (a path this project's include set does not carry) unless
