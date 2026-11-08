@@ -191,7 +191,7 @@ The idle/sleep state machine
 The state machine lives in ``clock_idle.c`` (the activity timer) and
 ``actions.c`` (the transitions). Activity = a touch or a tilt
 departure (below); the timer's timeout (``settings_idle_timeout_sec``,
-default 60 s, user-tunable 10–300 in settings) is the light-sleep
+default 60 s, user-tunable 60–1800 in settings) is the light-sleep
 trigger.
 
 .. figure:: ../img/screens/settings_light_sleep.png
