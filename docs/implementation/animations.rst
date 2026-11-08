@@ -164,20 +164,29 @@ front of it:
   recreates the folder before baking, so switching resolutions can
   never serve wrong-resolution frames even inside one calc version.
 - **Codec** — ``esp_new_jpeg`` **gray** JPEG at quality
-  ``UI_MOON_TFCACHE_JPEG_Q`` (default **32** — the bench verdict on
-  q 10, the knob-demo recipe class, was visible blocking in the flat
-  dark and bright areas on the panel; 32 reads clean there at ~2–3×
-  the file size, and the cost is resolution-bound, not quality-bound.
-  ``meta.txt`` pins it, so a change wipes and re-bakes the folder).
+  ``UI_MOON_TFCACHE_JPEG_Q`` (default **90** — the panel verdict
+  chain, in order: q 10, the knob-demo recipe class, showed visible
+  blocking in the flat dark and bright areas; q 32 *still* showed it
+  on the panel during the warm replay (2026-11-08) even though the
+  flats measured clean; 90 is the visually-transparent class for gray
+  DCT encoding. The files are a few times q 32's ~7.5 KB (400 px) /
+  ~18 KB (650 px) — tens of MB for a whole cached cycle — and
+  encode/decode cost is resolution-bound, not quality-bound, so the
+  replay path pays almost nothing for it. ``meta.txt`` pins it, so a
+  change wipes and re-bakes the folder).
   The official decoder
   input is RGB, not gray, so the module **self-probes** at init
   (encode a 16×16 gradient, decode it back, keep the format whose
   max ``|diff|`` ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
   gray-duplicate. Decode output is always RGB888 and the R channel
   *is* the gray.
-- **Prefetch** — a producer task (``moon_tfprefetch``, core 1, PSRAM
-  stack) walks the hour list ahead of the display; the queue depth
-  is derived from free PSRAM,
+- **Prefetch** — a producer task (``moon_tfprefetch``, pinned to
+  **core 0**, PSRAM stack — with the sweep consumer on core 1 an
+  equal-or-higher producer was preempted except during the
+  consumer's pacing pauses and the queue starved, capping the warm
+  replay at 4.6/3.6 fps; core 0 holds only the mostly-idle LVGL task,
+  ~7–9 % during the sweep) walks the hour list ahead of the display;
+  the queue depth is derived from free PSRAM,
   ``clamp(free / (S²·1.15 + 4 KiB), UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, 12)``,
   so 1-bit SD read jitter never sits on the frame path.
 - **Direct-write replay** (``UI_MOON_TFCACHE_FPS``, default 25) —
@@ -186,7 +195,19 @@ front of it:
   write — step-rotated by the current panel step, the live UI
   keep-mask composited over the moon window from the LVGL mirror, one
   continuous window write (S3) / 65-row strips (P4) under
-  ``s_panel_mtx``, no LVGL refresh. The tick's whole-panel flush
+  ``s_panel_mtx``, no LVGL refresh. The composite copies the keep
+  runs (the ``(y, x0, x1)`` list built with the mask,
+  ``spin_mask_runs_rebuild``) instead of scanning all
+  ``MOON_PX²`` mask bits per frame. **Mask and mirror are one
+  atomic pair:** ``spin_mask_rebuild_once`` writes each kept
+  pixel's mirror value together with its mask bit, under
+  ``s_panel_mtx``, from the *same* full-screen snapshot — and the
+  replay seeds both (``s_mask_dirty`` + a bounded wait on the tilt
+  monitor) before frame 0. It has to: the replay itself does zero
+  LVGL flushes, and the boot's early label flushes can precede the
+  flush-wrapper install, so a flush-history-only mirror composites
+  black over the clock for the whole replay (observed 2026-11-08).
+  The tick's whole-panel flush
   (304 ms S3 / 207 ms P4) would cap a tick-displayed replay at ~3
   fps; the direct write runs at the spin's frame cost instead.
   Constant-cadence pacing like the spin task — a slow frame is never

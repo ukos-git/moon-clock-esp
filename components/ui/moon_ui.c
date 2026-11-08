@@ -1139,6 +1139,7 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
     lv_draw_buf_t *shot = lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB565);
     if (img)
         lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
+    int kept = -1; /* UI px kept by the snapshot pass (-1 = no snapshot) */
     if (shot) {
         const int32_t w = (int32_t)shot->header.w, h = (int32_t)shot->header.h;
         const uint32_t stride = shot->header.stride;
@@ -1149,12 +1150,24 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
          * the next switch fixes it). */
         if (w == (int32_t)BSP_LCD_H_RES && h == (int32_t)BSP_LCD_V_RES && stride == (uint32_t)BSP_LCD_H_RES * 2 &&
             shot->data) {
+            /* The mirror is seeded FROM THE SAME SNAPSHOT as the mask:
+             * every kept pixel's front-mirror value is written together
+             * with its mask bit, under the panel mutex (the composite
+             * reads both under that mutex). Without this the mirror
+             * would only hold whatever the flush wrapper happened to
+             * copy, and at boot that can be NOTHING: the early label
+             * flushes can precede the wrapper install, a same-text
+             * re-set never re-flushes, and the warm replay does zero
+             * LVGL flushes -- a zero mirror then composites BLACK over
+             * the clock for the whole replay (observed on the panel,
+             * 2026-11-08). The band pixels (the arc crossing the moon
+             * window) get their snapshot value too, black included --
+             * the snapshot IS what LVGL would have shown there. */
+            kept = 0;
+            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
             for (int sy = 0; sy < h; sy++) {
                 const uint16_t *srow = (const uint16_t *)(shot->data + (size_t)sy * stride);
                 for (int sx = 0; sx < w; sx++) {
-                    if (srow[sx] == 0)
-                        continue; /* the black root (the labels' transparent
-                                   * background snapshots to black too) */
                     const int mx = sx - MOON_IMG_POS, my = sy - MOON_IMG_POS;
                     if (mx < 0 || my < 0 || mx >= MOON_PX || my >= MOON_PX)
                         continue; /* outside the moon area the spin never writes */
@@ -1180,13 +1193,28 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
                         oy = my;
                         break;
                     }
+                    const bool px_ui = srow[sx] != 0; /* non-black = UI (the
+                                                       * black root snapshots to 0) */
+                    if (!px_ui) {
+                        const int cx = ox - MOON_PX / 2, cy = oy - MOON_PX / 2;
+                        const int d2 = cx * cx + cy * cy;
+                        if (d2 < SPIN_MASK_RING_RMIN * SPIN_MASK_RING_RMIN ||
+                            d2 > SPIN_MASK_RING_RMAX * SPIN_MASK_RING_RMAX)
+                            continue; /* the black root, outside the band: not kept */
+                    }
                     s_ui_mask[(size_t)oy * MOON_PX + ox] = 1;
+                    if (s_front)
+                        s_front[(size_t)oy * MOON_PX + ox] = srow[sx];
+                    if (px_ui)
+                        kept++;
                 }
             }
+            xSemaphoreGive(s_panel_mtx);
         }
         lv_draw_buf_destroy(shot);
     }
     spin_mask_runs_rebuild(); /* the run list always matches the mask */
+    ESP_LOGI(TAG, "ui mask rebuilt: %d UI px, %d runs (step %d)", kept, s_mask_runs_n, step);
 }
 
 /* Write the current s_rgb (screen frame) to the panel as the spin's
@@ -1888,6 +1916,24 @@ static void moon_sweep_task(void *arg) {
             tf_direct = s_panel && s_disp && s_front && s_ui_mask;
             ESP_LOGI(TAG, "tf replay: %s, target %d fps",
                      tf_direct ? "direct panel write" : "tick LVGL refresh (buffers missing)", moon_tf_fps());
+            if (tf_direct) {
+                /* Seed mask + mirror before the first direct write: the
+                 * replay does zero LVGL flushes, so both keep whatever
+                 * the last rebuild produced -- and a same-text label
+                 * change or a screen repaint since then would otherwise
+                 * never reach the panel. The tilt monitor (1 s tick,
+                 * LVGL task) picks the flag up; wait for it so frame 0
+                 * is already composited (bounded -- if the monitor
+                 * never runs, the init-built pair still serves). */
+                s_mask_dirty = true;
+                int waited = 0;
+                while (s_mask_dirty && waited < 2000) {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                    waited += 50;
+                }
+                if (s_mask_dirty)
+                    ESP_LOGW(TAG, "tf replay: mask rebuild did not run within 2 s");
+            }
         }
     }
     int64_t tf_prev_pub = esp_timer_get_time(), tf_worst_gap = 0; /* perf: worst display-to-display gap */

@@ -118,11 +118,14 @@ The moon animation pipeline
        replay and compute are indistinguishable. The final frame is
        always the live full-``MOON_PX`` bake.
    * - ``UI_MOON_TFCACHE_JPEG_Q``
-     - ``32``
-     - Gray JPEG quality, 1–100. The bench verdict on q 10 (the
-       knob-demo recipe class): visible blocking in the flat dark and
-       bright areas on the panel. 32 reads clean there at ~2–3× the
-       file size (~10 KB at 400 px, ~25 KB at 650 px); cost is
+     - ``90``
+     - Gray JPEG quality, 1–100. The panel verdict chain: q 10 (the
+       knob-demo recipe class) showed visible blocking in the flat
+       dark and bright areas; q 32 *still* showed it during the warm
+       replay (2026-11-08) even though the flats measured clean; 90
+       is the visually-transparent class for gray DCT encoding. A
+       few times q 32's ~7.5 KB (400 px) / ~18 KB (650 px) per frame
+       — tens of MB per cached cycle — and encode/decode cost is
        resolution-bound, not quality-bound. ``meta.txt`` pins it — a
        change wipes and re-bakes the cache folder.
    * - ``UI_MOON_TFCACHE_FPS``
