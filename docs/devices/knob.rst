@@ -4,7 +4,8 @@ The Knob board
 **Status: standalone moon-display firmware on the bench** — the
 ``knob/`` sibling project boots its QSPI panel, loads the pre-baked
 moon assets into PSRAM and renders the physical moon (K7 milestones:
-K7a asset target + gate green, K7b static frame). The earlier
+K7a asset target + gate green, K7b static frame, K7c cold-boot
+synodic sweep + sky-event tint + day tick). The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
 direction — no companion code remains anywhere in the repo, and the
@@ -58,7 +59,8 @@ Its role in this project is a **fully-working moon display on its
 own** (task #24, the K7 milestones). What it does **not** do is
 input for the clock: the two boards are independent products that
 share only the moon core and the asset pipeline (the dial is
-initialized and idle until the K7 settings editor gives it a job).
+initialized and idle until the K7 settings editor gives it a job;
+touch already has one — a screen press aborts the boot sweep).
 
 Hardware map (vendor schematic + demo, extracted 2026-11-07)
 -------------------------------------------------------------
@@ -214,8 +216,11 @@ Firmware (``knob/`` sibling project)
 
 The shipping firmware is the **standalone moon display**: LVGL 9.6,
 one full-panel disk baked by the clock's portable moon core, a
-caption row naming the baked instant, and a Wi-Fi STA join kept for
-SNTP (K7d). Layout and commands:
+caption row naming the baked instant, a cold-boot synodic sweep
+(new moon → now on cold boots only; wakes show the current phase,
+the clock's wake policy), the sky-event tint with a 1 Hz day tick
+that re-bakes once on a UTC-date or event-signature change, and a
+Wi-Fi STA join kept for SNTP (K7d). Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial
@@ -232,6 +237,26 @@ SNTP (K7d). Layout and commands:
   (blob existence and fit are configure-time ``FATAL_ERROR``\\ s in
   ``knob/CMakeLists.txt``; the generated
   ``components/moon/generated/knob/moon_consts.h`` is tracked).
+* K7c threading mirrors the clock's moon pipeline minus the AMOLED
+  machinery: a producer task bakes into a PSRAM double buffer, a swap
+  task applies each frame as one atomic ``lv_refr_now`` under the
+  LVGL mutex, and the producer only reuses a buffer after the swap's
+  ack. The producer is CPU1-pinned and TWDT-unregistered
+  (``xTaskCreatePinnedToCoreWithCaps``, the clock's sweep-task
+  posture) because the core's classify/new-moon scans run ~30 s
+  without yields — ``knob/sdkconfig.defaults`` therefore drops
+  ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` like the clock's S3
+  defaults do. Sweep shape is Kconfig: ``KNOB_MOON_SWEEP_FRAMES``
+  (default 1344 = the clock's task #17 no-jump count; 0 = static
+  only) and ``KNOB_MOON_SWEEP_BAKE_PX`` (default 128, floor 96; the
+  final frame always bakes crisp at 360, so the sweep lands
+  byte-identically on the sweep-off static frame). Measured on the
+  S3R8 (bench, 2026-11-08): full 1344-frame sweep ≈ 5.2 min
+  (~115–130 ms per 128-px frame, final crisp frame ~0.8 s), 0 TWDT.
+  The current-phase frame carries the sky event through the shared
+  tint LUT — a frozen 2025-03-14 total-lunar-eclipse epoch showed
+  the blood tint on glass, and a pinned 23:59:30Z epoch produced
+  exactly one day-tick re-bake after midnight.
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``

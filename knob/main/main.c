@@ -12,6 +12,7 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -130,12 +131,21 @@ void app_main(void) {
      * moon_esp_assets.c posture: one build, no concurrent-build race. */
     const bool assets_ready = knob_moon_init();
 
+    knob_ui_set_lvgl_lock(s_lvgl_mux);
     knob_ui_create();
-    /* The static test frame (K7b): baked here on the boot core so a
-     * multi-second bake never blocks the render loop; the caption shows
-     * the instant, the disk appears with the task's first refresh.
-     * KNOB_MOON_TEST_EPOCH until knob_time gives a real "now" (K7d). */
-    if (!assets_ready || !knob_ui_show_moon((int64_t)CONFIG_KNOB_MOON_TEST_EPOCH)) {
+    /* Cold boot plays the synodic sweep (K7c, the clock's boot model);
+     * any wake shows the current phase statically (the clock's wake
+     * policy: no montage on every knob turn). The instant is
+     * KNOB_MOON_TEST_EPOCH until knob_time gives a real "now" (K7d).
+     * Both paths only ARM here: the classify/bake work runs on the
+     * producer task (the ~20 s core classify scan must never run on the
+     * registered boot task), so app_main returns at once. */
+    const int64_t now_epoch = (int64_t)CONFIG_KNOB_MOON_TEST_EPOCH;
+    if (!assets_ready) {
+        ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
+    } else if (knob_ui_sweep_enabled() && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        knob_ui_start_sweep(now_epoch);
+    } else if (!knob_ui_show_moon(now_epoch)) {
         ESP_LOGW(TAG, "moon frame not shown — caption stays honest on glass");
     }
 

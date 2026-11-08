@@ -31,3 +31,10 @@ CONFIG_LV_MEM_SIZE_KILOBYTES=64
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_28=y
 CONFIG_LV_THEME_DEFAULT_DARK=y
+
+# The moon producer task's classify/new-moon scans (core moon_event, no
+# yields) starve CPU1's idle for ~30 s on a cold boot -- the clock's
+# sanctioned posture (sdkconfig.defaults.esp32s3:16): keep CPU0's idle
+# check, drop CPU1's (TWDT_PANIC is off anyway; the bake loop itself
+# yields every 16 rows).
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
