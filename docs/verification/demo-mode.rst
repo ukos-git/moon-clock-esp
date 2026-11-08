@@ -242,11 +242,17 @@ alarm-last order) produced:
   wheel typed ``demo``/``A``/``1`` plus backspaces and ran the
   discard ladder. The P4 completed six full cycles without a single
   reboot.
-* Two tour bugs surfaced from the take's own logs: the 350 ms tap
-  settle verified *through* the fade-to-black switch (the 36/66
-  ``loadScreen`` fallback lines in those logs are the pre-fix binary;
-  the settle is now 900 ms) and a stale wheel end-check that expected
-  the pre-discard entry length.
+* Two tour bugs surfaced from the take's own logs. A stale wheel
+  end-check (expected the pre-discard entry length) is fixed in the
+  tree. The tap settle went from 350 to 900 ms, which stopped
+  mid-fade verify on the plain screens but not on the settings
+  screens: the re-take still logs ~18 (S3) / ~22 (P4) ``loadScreen``
+  fallbacks per cycle, all in the hub walk and all the "one screen
+  behind" signature — the 720² fade and the roller re-seeds outlast
+  even 900 ms. Every one recovers (the fallback loads the expected
+  screen before the next tap; no mistap observed), so this is log
+  noise plus one redundant atomic flush per step; poll-until-settled
+  verify is the agreed fix, kept as a tuning item.
 * **Reproduced in the field** on the S3: ``PANEL IO STUCK`` fired in
   all four cycles the board ran, each time ~29 s after ``phase=alarm``
   (device ticks 668.7-673.8 s against alarm entries at 642.7-644.8 s
@@ -257,6 +263,17 @@ alarm-last order) produced:
   alarm phase runs last now; the race itself (the wake/dismiss
   window: 0x51 brightness ramp + fade-to-black + spin resume, the
   same family as the #96 settings-freeze stall) is an open follow-up.
+* The alarm-last re-take (14:16, 28 min, warm caches) confirmed the
+  containment **and** moved the stall: P4 ran three full cycles
+  ending ``sync`` -> ``alarm`` with no reboot, and S3 completed
+  ``dusk`` and ``dark`` every cycle — while the stall fired 29.7 s /
+  30.6 s after ``dusk`` entry instead of ~29 s after ``alarm`` entry.
+  Six for six it lands ~30 s into a panel-ramp window; the shared
+  ingredient of the alarm-ring and dusk windows is the 0x51 hardware
+  brightness ramp concurrent with panel flushes (dusk dims
+  100 -> 25 %, the alarm wake ramps back up) — the #96 family, and
+  the concrete lead for the follow-up. Cycle-0 montages cover moons,
+  hub_walk, wifi, wheel, back, dusk, dark and home.
 * Known noise, non-fatal: intermittent ``task_wdt`` IDLE0-starvation
   bursts on the S3 during the boot sweep. Zero ``ESP_ERR_NO_MEM``
   anywhere, zero WDT lines on the P4.
