@@ -34,11 +34,16 @@ The full GPIO assignment from the Waveshare datasheet — the schematic
 above traces the buses the project actually uses; this table is the
 complete reference, including the un-used GPS / expander (``EXIO``)
 lines. The SD socket is **SPI 1-bit** (MOSI GPIO01 / SCK GPIO02 /
-MISO GPIO03 / CS GPIO41, D1–D7 not wired); the vendored BSP's
-``bsp_sdcard_mount()`` brings it up on the SDMMC host in 1-bit mode
-for the TF sweep cache (``UI_MOON_TFCACHE``,
-:doc:`the boot sweep <../implementation/animations>`) — a missing card
-is a silent no-op there.
+MISO GPIO03 / CS GPIO41, D1–D7 not wired); there is no SDMMC wiring on
+this board. The TF sweep cache (``UI_MOON_TFCACHE``,
+:doc:`the boot sweep <../implementation/animations>`) mounts it with
+``esp_vfs_fat_sdspi_mount`` on **SPI3_HOST** — not through the vendored
+BSP's ``bsp_sdcard_mount()``, which attaches to SPI2_HOST, and SPI2 is
+already the QSPI **panel's** bus (``BSP_LCD_SPI_NUM``), so sharing it
+starves the card to a 0x107 timeout. ``moon_tfcache`` therefore
+initializes the SPI3 bus itself (the caller owns ``spi_bus_initialize``
+under the SDSPI contract) and attaches the card there — a missing card
+is a silent no-op, the sweep just runs bake-paced.
 
 .. code-block:: text
    :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)

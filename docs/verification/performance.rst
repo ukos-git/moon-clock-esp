@@ -294,7 +294,10 @@ core 0 (LVGL + touch + clock) — a bake that starves the UI is a
 design bug, not a timing accident. The two-core split is what lets
 the sweep run for ~37 min (S3, native 400 px intermediate bake,
 2026-11-08 capture; ~11 min if ``UI_MOON_ANIM_BAKE_PX`` is dropped to
-240) without the touch pipeline ever seeing a bake. The hub idle sits at 7–9 % because the LVGL adapter's
+240) — that is the *card-less* path; with the TF cache mounted the
+same sweep replays from the card in ~5 min warm (:doc:`the
+animation pipelines <../implementation/animations>`). Either way
+the touch pipeline never sees a bake. The hub idle sits at 7–9 % because the LVGL adapter's
 ``task_min_delay_ms`` floor parks the loop at ~93 Hz — the pre-fix
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
 :doc:`the architecture <../implementation/architecture>`.
@@ -325,7 +328,11 @@ the order they matter:
    static/spin bakes), a quality decision that costs boot time:
    measured ~36.5 min wall on the bench S3 (2026-11-08; per-frame
    bake 1211–1354 ms @ 400 px against the earlier ~0.72 s note —
-   the 864-albedo PSRAM-load floor). ``UI_MOON_ANIM_BAKE_PX`` is
+   the 864-albedo PSRAM-load floor). The TF cache pays this cost
+   once: the cold card still bakes every intermediate (at hourly
+   granularity, ~19 min S3), the warm card replays it in ~5 min —
+   but on a *card-less* boot the native lever applies at full
+   price, which is why it still matters. ``UI_MOON_ANIM_BAKE_PX`` is
    the single Kconfig value to drop it (240 px → arithmetically
    ~11 min).
 5. **The 25-row strips / 23,300 B cap** (:doc:`the display pipeline <../implementation/display>`) — not a
@@ -335,10 +342,12 @@ the order they matter:
    ~31 KiB blocks that fit the internal heap.
 
 The honest limit: the S3's bake is ~0.7–1.3 s, and the product
-*accepts* it — the sweep is a ~37 min boot story at the native
-default (frame count
+*accepts* it — the sweep is a ~37 min card-less boot story at the
+native default, ~19 min on a cold TF card and ~5 min on a warm
+one (frame count
 quadrupled on 2026-11-07: users watched the old 2.8 min sweep stutter,
-so the boot grew longer and smooth), the spin is
+so the boot grew longer and smooth; the TF cache, 2026-11-08, made
+the length a once-per-calculation cost), the spin is
 once-baked, the dusk is map-re-projected. The alternative (a
 faster silicon, a smaller disk, a coarser relief) would buy
 speed and lose *physical correctness at this resolution* — the

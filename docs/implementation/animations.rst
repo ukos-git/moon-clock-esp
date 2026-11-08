@@ -161,7 +161,7 @@ front of it:
   ``UI_MOON_TFCACHE_JPEG_Q`` (default 10). The official decoder
   input is RGB, not gray, so the module **self-probes** at init
   (encode a 16×16 gradient, decode it back, keep the format whose
-  max |diff| ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
+  max ``|diff|`` ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
   gray-duplicate. Decode output is always RGB888 and the R channel
   *is* the gray.
 - **Prefetch** — a producer task (``moon_tfprefetch``, core 1, PSRAM
@@ -186,18 +186,89 @@ front of it:
   bake-paced. The same tint LUT and the same atomic publish path
   serve both sources, so a replayed frame and a baked frame are
   indistinguishable.
-- **Mount** — each BSP's ``bsp_sdcard_mount()`` through the board
-  shim: the S3 socket is **SPI 1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS
-  41, ``docs/devices/s3``) and the P4 has a real **4-bit SDMMC** TF
-  slot (CLK 43 / CMD 44 / D0–D3 39–42, its own host, disjoint from
-  the C6 Wi-Fi SDIO link, ``docs/devices/p4``). FATFS long filenames
-  (``CONFIG_FATFS_LFN_HEAP``) are **required** — the hour keys and
-  the version folder exceed 8.3.
+- **Mount** — per-board, in ``card_mount()``: the S3 socket is **SPI
+  1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS 41) and mounts on
+  ``esp_vfs_fat_sdspi_mount`` over **SPI3_HOST** — SPI2 is the QSPI
+  panel's bus, so the module initializes SPI3 itself (the SDSPI
+  contract makes the caller own ``spi_bus_initialize``) rather than
+  using the BSP helper that would ride SPI2 (``docs/devices/s3``).
+  The P4 has a real **4-bit SDMMC** TF slot (CLK 43 / CMD 44 / D0–D3
+  39–42, its own host, disjoint from the C6 Wi-Fi SDIO link —
+  ``docs/devices/p4``) and uses the BSP's ``bsp_sdcard_mount()``.
+  FATFS long filenames (``CONFIG_FATFS_LFN_HEAP``) are **required** —
+  the hour keys and the version folder exceed 8.3.
 
-Warm-card timing (hits, KB, effective fps, worst inter-frame gap —
-logged per boot by ``tfcache_stats_log``): bench-pending, recorded
-below when the matrix runs (:doc:`on-device verification
-<../verification/device-verify>`).
+**Measured 2026-11-08** on the two bench boards (the ``tfcache:
+stats:`` line at sweep end, per-boot; final frame always the live
+bake):
+
+.. list-table:: Boot sweep wall, TF-cache state × board (bench 2026-11-08)
+   :header-rows: 1
+   :widths: 22 10 14 26 28
+
+   * - Cache state
+     - Board
+     - Sweep wall
+     - Per intermediate frame
+     - Cache accounting
+   * - card-less (fallback)
+     - S3
+     - 2193 s
+     - bake 1.36–1.63 s
+     - 1344-frame classic list, cache untouched
+   * - card-less
+     - P4
+     - ~2430 s
+     - bake ~1.81 s
+     - 1344-frame classic list, cache untouched
+   * - cold card (write-through pass)
+     - S3
+     - 1137 s
+     - bake + encode 37 ms + write 100 ms ≈ 1.66 s (SPI 1-bit)
+     - put 683/0, evict 1711 ms; prefetch 3 slots × 156 KB
+   * - cold card
+     - P4
+     - 1240 s
+     - bake + encode 78 ms + write 47 ms ≈ 1.81 s (SDMMC 4-bit)
+     - put 683/0, evict 549 ms; prefetch 12 slots × 412 KB
+   * - warm card (replay)
+     - S3
+     - 292 s
+     - read 8.6 ms + decode 31 ms ⇒ 424 ms/frame
+     - hits 691, 2484 KB / 5960 ms read (≈0.4 MB/s, 1-bit SPI)
+   * - warm card
+     - P4
+     - 229 s
+     - read 5.8 ms + decode 59 ms ⇒ 332 ms/frame
+     - hits 683, misses 8 **put back 8** (write-through filled the
+       hours aged in since the cold pass), 5889 KB / 3995 ms
+       (≈1.5 MB/s, 4-bit SDMMC)
+
+Three readings. The **cold pass is already the cheaper bake**:
+hourly granularity bakes 683 intermediates instead of the card-less
+path's 1344, so even a full write-through pass runs in ~19 min
+(S3) / ~21 min (P4). The **warm replay is read+decode-bound**, never
+display-bound — 332/424 ms against the ~150 ms flush cadence, the
+prefetch queue keeping the panel fed — and lands the whole synodic
+story in ~4–5 min. The **hourly JPEGs are tiny**: ~3.6 KB per frame
+at 400 px, ~8.5 KB at 650 px, ~6 MB for the whole cycle at q10.
+
+Two honest caveats. The S3 warm line reads hits 691 against the 683
+files the cold pass wrote: the hour list ages in as wall clock
+advances (the list is built at sweep start), and the boots in
+between write the aged tail hours through — the accounting is
+*per-boot*, the card is *cumulative*. And all four S3 runs (card
+or no card) carry the pre-existing boot classify burst — four
+``IDLE0`` watchdog prints from a ~20 s cold day-cache scan on the
+LVGL task at boot, identical card-less, root-caused to the
+sky-events day cache and tracked apart from this feature; the P4
+runs are clean (0 watchdog prints).
+
+Detach mid-sweep: a read fault on the producer or the consumer
+disables the cache silently and the remaining frames fall back to
+bake pacing — the card-less boot (above) is that path end to end;
+the physical mid-sweep pull completes the matrix (:doc:`on-device
+verification <../verification/device-verify>`).
 
 While the sweep runs: the spin render is paused (the flag poll), the
 idle timer is held (the user is present for the sweep), and a sleep

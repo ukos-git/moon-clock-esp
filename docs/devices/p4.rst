@@ -45,8 +45,10 @@ socket — so the TF sweep cache (``UI_MOON_TFCACHE``,
 :doc:`the boot sweep <../implementation/animations>`) runs
 symmetrically on both boards. The pins are disjoint from the C6's
 SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
-SDMMC hosts, and the perf bench includes a **Wi-Fi-connected + card
-mounted** run to confirm the two coexist without SDIO errors.
+SDMMC hosts, and the bench confirmed it: **Wi-Fi-connected + card
+mounted** runs (2026-11-08) brought the card up at t≈40 s with the C6
+link already at 4-bit/40 MHz — zero SDIO / esp_hosted / sdmmc errors
+across full cold and warm sweeps.
 
 Why a second board
 ------------------
