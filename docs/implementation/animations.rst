@@ -293,9 +293,10 @@ bake):
        (332 KB PSRAM head)
    * - cold card
      - P4
-     - 1240 s (q10-era build; q90 re-measure in progress)
-     - bake + encode 78 ms + write 47 ms ≈ 1.81 s (SDMMC 4-bit)
-     - put 683/0, evict 549 ms; prefetch 12 slots × 412 KB
+     - 1415 s
+     - bake 1.89 s + put 313 ms (encode 92, card write 221) ≈ 2.2 s
+       (SDMMC 4-bit)
+     - put 703/0, evict 541 ms; prefetch 12 slots × 412 KB
    * - warm card (replay)
      - S3
      - 118 s (~5.97 fps, worst gap 1416 ms)
@@ -314,7 +315,7 @@ bake):
 Three readings. The **cold pass is already the cheaper bake**:
 hourly granularity bakes 703 intermediates instead of the card-less
 path's 1344, so even a full write-through pass runs in ~19 min
-(S3) / ~21 min (P4). The **warm replay is read+decode-bound**, never
+(S3) / ~24 min (P4). The **warm replay is read+decode-bound**, never
 display-bound — the 49/87 ms panel writes sit far inside the
 177/184 ms frame, the prefetch queue keeping the panel fed — and
 lands the whole synodic story in **~2 min** on both boards at the
