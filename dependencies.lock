@@ -215,7 +215,7 @@ dependencies:
     component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32
@@ -355,10 +355,11 @@ direct_dependencies:
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
 - espressif/esp_lvgl_adapter
+- espressif/esp_new_jpeg
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: 61fdf624f28fd25fab5756458b5b80b6af66ceb0235d355f7121283f5bfd3f86
+manifest_hash: 0b777d75063ddf3623a2a64355077099306e9cdc07fbfa9b1123804d6bf08700
 target: esp32s3
 version: 2.0.0

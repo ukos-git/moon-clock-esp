@@ -20,6 +20,7 @@ idf_component_register(
     "actions.c"
     "vars.c"
     "moon_ui.c"
+    "moon_tfcache.c"
     ${IMAGE_SOURCES}
     ${FONT_SOURCES}
   # esp_codec_dev: the alarm ring + sound selection (both boards — each
@@ -28,6 +29,12 @@ idf_component_register(
   # std headers the codec's sample-info types lean on (BSP public
   # REQUIRES, taken directly for the alarm_audio.c include surface).
   REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi board esp_codec_dev esp_driver_i2s
+  # espressif__esp_new_jpeg: the gray JPEG codec of the TF sweep cache
+  # (moon_tfcache.c). Declared at the same range esp_lv_decoder pulls it
+  # at (1.*), so the solver keeps the single vendored 1.0.2. PRIVATE:
+  # only moon_tfcache.c includes its headers. fatfs/vfs arrive through
+  # the BSP's public REQUIRES (bsp_sdcard_mount owns the mount).
+  PRIV_REQUIRES espressif__esp_new_jpeg
   INCLUDE_DIRS "./")
 # The lv_font_conv >= 1.5 generated font files include "lvgl/lvgl.h"
 # (a path this project's include set does not carry) unless

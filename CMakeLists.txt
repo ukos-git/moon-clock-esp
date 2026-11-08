@@ -30,6 +30,34 @@ endif()
 
 project(moon-phase)
 
+# Calculation version for the TF sweep cache (components/ui/moon_tfcache.c):
+# the cache folder is /moon_cache/<calcver>_<target>_<bakepx>/, so a new
+# bake-code build (new commit => new describe string) bakes into a FRESH
+# empty folder and the sweep module deletes the stale siblings. The repo
+# is versioned with commitizen (`.cz.toml`); `cz bump` creates the vMAJOR.
+# MINOR.PATCH tags describe then picks up (until the first bump it is the
+# short hash -- equally valid as a cache key). Re-configure is triggered
+# on commit/tag movement (.git/HEAD, packed-refs); a working-tree `-dirty`
+# suffix only refreshes on those events -- acceptable for a cache key
+# (bake code changes are committed changes by convention).
+find_package(Git QUIET)
+set(MOON_CALC_VER "unknown")
+if(GIT_FOUND)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/.git/HEAD
+        ${CMAKE_SOURCE_DIR}/.git/packed-refs)
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE MOON_CALC_VER_RAW
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(MOON_CALC_VER_RAW)
+        set(MOON_CALC_VER ${MOON_CALC_VER_RAW})
+    endif()
+endif()
+idf_build_set_property(COMPILE_OPTIONS "-DMOON_CALC_VER=\"${MOON_CALC_VER}\"" APPEND)
+message(STATUS "moon calc version (TF sweep-cache folder prefix): ${MOON_CALC_VER}")
+
 # Target/board mismatch guard (risk: a stray CONFIG_BOARD_P4=y in an S3
 # build, or vice versa, would resolve two BSPs / the wrong partition
 # table and fail obscurely deep in the build).

@@ -152,6 +152,10 @@
 #include "moon_consts.h"
 #include "moon_ui.h"
 #include "settings_store.h"
+#if CONFIG_UI_MOON_TFCACHE
+#include "freertos/queue.h"
+#include "moon_tfcache.h"
+#endif
 
 static const char *TAG = "moon_ui";
 
@@ -1554,6 +1558,144 @@ static int64_t new_moon_epoch(int64_t utc_epoch) {
     return fine_best;
 }
 
+#if CONFIG_UI_MOON_TFCACHE
+/* ---- TF prefetch producer (components/ui/moon_tfcache.c) --------------
+ * Decodes the coming intermediate frames AHEAD of the display: card read
+ * + JPEG decode into gray8 PSRAM slots, handed to the sweep task through
+ * a ready-queue. The IO never sits on the frame path (the knob lesson:
+ * precompute, pre-cache, constant cadence). Queue depth is DERIVED from
+ * the free PSRAM (user spec): free / (S*S*1.15 + 4 KiB), capped at 12,
+ * floored by UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, logged per boot. Every
+ * failure mode (no slots, no card, dead cache) just means the sweep task
+ * bakes the frame itself -- the original path. Same creation recipe as
+ * the sweep task (core 1, PSRAM stack); lower priority so the consumer
+ * never starves on it. */
+#define TF_Q_MAX 12
+static uint8_t *s_tf_slot[TF_Q_MAX];
+static uint8_t s_tf_slot_hit[TF_Q_MAX];
+static int32_t s_tf_slot_ms[TF_Q_MAX]; /* card read + decode, for the perf line */
+static QueueHandle_t s_tf_ready_q, s_tf_free_q;
+static TaskHandle_t s_tf_task;
+static volatile bool s_tf_quit;
+static int s_tf_px;
+static int64_t s_tf_first;
+
+static void moon_tf_prefetch_stop(void);
+
+static void moon_tf_prefetch_task(void *arg) {
+    const int n = (int)(intptr_t)arg;
+    for (int i = 0; i < n && !s_sweep_abort && !s_tf_quit; i++) {
+        int slot = -1;
+        while (!s_sweep_abort && !s_tf_quit && xQueueReceive(s_tf_free_q, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
+            ;
+        if (slot < 0 || s_sweep_abort || s_tf_quit)
+            break;
+        int64_t t0 = esp_timer_get_time();
+        bool hit = tfcache_fetch(s_tf_first + i, s_tf_slot[slot], s_tf_px);
+        s_tf_slot_ms[slot] = (int32_t)((esp_timer_get_time() - t0) / 1000);
+        s_tf_slot_hit[slot] = hit ? 1 : 0;
+        while (!s_sweep_abort && !s_tf_quit && xQueueSend(s_tf_ready_q, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
+            ;
+    }
+    s_tf_task = NULL; /* exit handshake with moon_tf_prefetch_stop() */
+    vTaskDelete(NULL);
+}
+
+/* Allocates the slot queue and starts the producer. false = no card path
+ * (the sweep keeps CONFIG_UI_MOON_ANIM_FRAMES and bakes every frame). */
+static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
+    s_tf_first = first;
+    s_tf_px = px;
+    const int free_ps = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const size_t slot_sz = (size_t)px * px;
+    const size_t est = slot_sz + slot_sz / 7 + 4096; /* the *1.15 + slack the queue must fit */
+    int want = (int)(free_ps / est);
+    const int floor_n = CONFIG_UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS;
+    if (want > TF_Q_MAX)
+        want = TF_Q_MAX;
+    if (want < floor_n)
+        want = floor_n;
+    int got = 0;
+    while (got < want) {
+        s_tf_slot[got] = heap_caps_malloc(slot_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_tf_slot[got])
+            break;
+        got++;
+    }
+    if (got < floor_n) {
+        moon_tf_prefetch_stop();
+        ESP_LOGW(TAG, "tf slots: only %d/%d x %uKB -- card-less path", got, want, (unsigned)(slot_sz / 1024));
+        return false;
+    }
+    s_tf_ready_q = xQueueCreate(got, sizeof(int));
+    s_tf_free_q = xQueueCreate(got, sizeof(int));
+    if (!s_tf_ready_q || !s_tf_free_q) {
+        moon_tf_prefetch_stop();
+        return false;
+    }
+    for (int i = 0; i < got; i++)
+        xQueueSend(s_tf_free_q, &i, 0);
+    s_tf_quit = false;
+    ESP_LOGI(TAG, "tf prefetch: %d slots x %uKB (free PSRAM %d KB) for %d hourly frames", got,
+             (unsigned)(slot_sz / 1024), free_ps / 1024, hours);
+    if (xTaskCreatePinnedToCoreWithCaps(moon_tf_prefetch_task, "moon_tfprefetch", 8192, (void *)(intptr_t)hours,
+                                        configMAX_PRIORITIES - 4, &s_tf_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+        s_tf_task = NULL;
+        moon_tf_prefetch_stop();
+        ESP_LOGW(TAG, "tf prefetch task create failed -- card-less path");
+        return false;
+    }
+    return true;
+}
+
+/* Stops the producer and frees everything (sweep task, at its exit only).
+ * The producer polls quit/abort at every blocking point (50 ms cadence),
+ * so it is gone before the teardown touches its queues. */
+static void moon_tf_prefetch_stop(void) {
+    s_tf_quit = true;
+    int waited = 0;
+    while (s_tf_task && waited < 1000) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        waited += 10;
+    }
+    if (s_tf_task) { /* must not happen -- leak rather than rip queues out */
+        ESP_LOGE(TAG, "tf prefetch task would not quit -- leaking its state");
+        return;
+    }
+    if (s_tf_ready_q) {
+        vQueueDelete(s_tf_ready_q);
+        s_tf_ready_q = NULL;
+    }
+    if (s_tf_free_q) {
+        vQueueDelete(s_tf_free_q);
+        s_tf_free_q = NULL;
+    }
+    for (int i = 0; i < TF_Q_MAX; i++) {
+        free(s_tf_slot[i]);
+        s_tf_slot[i] = NULL;
+    }
+}
+
+/* Next ready slot, or -1 = bake this frame (timeout / cache died / abort). */
+static int moon_tf_pop(void) {
+    if (!s_tf_ready_q || !tfcache_ready())
+        return -1;
+    int slot;
+    int waited = 0;
+    while (!s_sweep_abort && waited < 2000) {
+        if (xQueueReceive(s_tf_ready_q, &slot, pdMS_TO_TICKS(50)) == pdTRUE)
+            return slot;
+        waited += 50;
+    }
+    return -1;
+}
+
+static void moon_tf_release(int slot) {
+    if (s_tf_free_q && slot >= 0)
+        xQueueSend(s_tf_free_q, &slot, 0);
+}
+#endif /* CONFIG_UI_MOON_TFCACHE */
+
 static void moon_sweep_task(void *arg) {
     (void)arg;
     int32_t frames = s_sweep_frames;
@@ -1595,6 +1737,44 @@ static void moon_sweep_task(void *arg) {
     moon_event_classify(now, &sweep_ev);
     moon_gray565_set_event(&sweep_ev);
     const moon_bake_ev_t *sweep_bev = moon_event_any(&sweep_ev) ? &sweep_ev : NULL;
+#if CONFIG_UI_MOON_TFCACHE
+    /* ---- TF replay branch (moon_tfcache.c / UI_MOON_TFCACHE) -----------
+     * With a usable card the intermediate frames are HOURLY: one per hour
+     * center in (new moon, now], fetched from the cache, plus the live
+     * final frame at full MOON_PX. CONFIG_UI_MOON_ANIM_FRAMES then paces
+     * only the card-less path. The hour key <-> epoch map is
+     * deterministic (frame == hour*3600 + 1800), so a frame written
+     * through by a miss regenerates identically on every later boot.
+     * tfcache_init mounts + probes + sizes its scratch HERE (after the
+     * clock fix, at sweep time -- a card-less boot pays nothing on the
+     * fast path); the producer decodes ahead in a PSRAM slot queue.
+     * NOTHING below this block is skipped on failure: whatever the card
+     * cannot serve is baked and stored exactly as before (write-through),
+     * and a dead card simply makes every frame a miss. */
+    bool use_tf = false;
+    int64_t tf_first_hour = 0, tf_hours = 0;
+    {
+        int tfpx = sweep_bake_px > MOON_PX ? MOON_PX : sweep_bake_px;
+        int64_t first = (now - span) / 3600 + 1; /* first hour center after the new moon */
+        int64_t last = (now - 1800) / 3600;      /* hour centers never ahead of now */
+        if (last >= first) {
+            tf_first_hour = first;
+            tf_hours = last - first + 1;
+        }
+        /* tf_hours >= 1: with a fresh-moon boot younger than an hour the
+         * classic path stays (the t-formula needs frames >= 2). */
+        if (tf_hours >= 1 && tfcache_init(tfpx, MOON_PX, MOON_ALB_W, !CONFIG_TEST_BAKE_NO_RELIEF) == ESP_OK &&
+            tfcache_ready() && moon_tf_prefetch_start(tf_first_hour, (int)tf_hours, tfpx)) {
+            use_tf = true;
+            frames = (int32_t)tf_hours + 1; /* hourly frames + live final frame */
+            s_sweep_frames = frames;        /* the tick + completion wait follow it */
+            ESP_LOGI(TAG, "sweep from TF: %d hourly frames (%lld..%lld) + live final @%dpx (card-less would be %d)",
+                     (int)tf_hours, (long long)tf_first_hour, (long long)(tf_first_hour + tf_hours - 1), tfpx,
+                     (int)CONFIG_UI_MOON_ANIM_FRAMES);
+        }
+    }
+    int64_t tf_prev_pub = esp_timer_get_time(), tf_worst_gap = 0; /* perf: worst display-to-display gap */
+#endif
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
         /* Backpressure (see the section above): the previous frame must
@@ -1636,6 +1816,10 @@ static void moon_sweep_task(void *arg) {
          * oversampling, not supersampled bakes. */
         double t = (double)(frames - 1 - f) / (double)(frames - 1);
         int64_t epoch = now - (int64_t)(t * span);
+#if CONFIG_UI_MOON_TFCACHE
+        if (use_tf) /* deterministic hour key <-> epoch map (see the branch block) */
+            epoch = (f == frames - 1) ? now : (tf_first_hour + f) * 3600 + 1800;
+#endif
         moon_geom_t g;
         moon_geometry(epoch, &g);
         int S = (f == frames - 1) ? MOON_PX : sweep_bake_px; /* this frame's bake size */
@@ -1655,8 +1839,32 @@ static void moon_sweep_task(void *arg) {
         /* Only the final frame (the current phase) can carry a sky event;
          * the intermediate past phases bake as NULL (byte-identical). */
         const moon_bake_ev_t *bev = (f == frames - 1) ? sweep_bev : NULL;
+#if CONFIG_UI_MOON_TFCACHE
+        int tf_slot = -1;
+        bool tf_skip_bake = false;
+        int32_t tf_rd_ms = 0;
+        if (use_tf && f != frames - 1) {
+            tf_slot = moon_tf_pop();
+            if (tf_slot >= 0 && s_tf_slot_hit[tf_slot]) {
+                tf_rd_ms = s_tf_slot_ms[tf_slot];
+                /* Land in the SAME buffer a bake would have written (dst is
+                 * s_frame at S == MOON_PX -- the boards' default bake is
+                 * native -- or s_sweep_small), so the convert block below
+                 * stays the single tinted+upscaled path: the fetched frame
+                 * goes through the same moon_gray565 LUT as a computed one. */
+                memcpy(dst, s_tf_slot[tf_slot], (size_t)S * S);
+                tf_skip_bake = true;
+            }
+            moon_tf_release(tf_slot); /* consumed (hit copy done / miss unused) */
+        }
+#endif
         int64_t b0 = esp_timer_get_time();
-        for (int y = 0; y < S && !s_sweep_abort; y++) {
+        for (int y = 0; y < S && !s_sweep_abort
+#if CONFIG_UI_MOON_TFCACHE
+                        && !tf_skip_bake
+#endif
+             ;
+             y++) {
             /* Bake into the (scratch, sweep-only) small frame unlocked:
              * nothing else reads s_sweep_small, the spin is paused for
              * the whole sweep, and the display only ever touches s_rgb
@@ -1671,6 +1879,9 @@ static void moon_sweep_task(void *arg) {
         }
         if (s_sweep_abort)
             break;
+#if CONFIG_UI_MOON_TFCACHE
+        int64_t bake_us = esp_timer_get_time() - b0; /* the bake loop only (0 on tf hit) */
+#endif
         /* Convert + (if reduced) upscase into s_rgb as ONE locked block:
          * the display's atomic flush (under the same mutex) can never
          * mix two frames, and the small buffer is only read here. */
@@ -1702,9 +1913,37 @@ static void moon_sweep_task(void *arg) {
         }
         xSemaphoreGive(s_rgb_mtx);
         s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
-        ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
-                 (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
+#if CONFIG_UI_MOON_TFCACHE
+        if (use_tf) {
+            long long put_ms = 0;
+            if (f != frames - 1 && !tf_skip_bake) {
+                int64_t p0 = esp_timer_get_time();
+                tfcache_store(tf_first_hour + f, dst, S); /* write-through: wasn't on the card */
+                put_ms = (esp_timer_get_time() - p0) / 1000;
+            }
+            int64_t tn = esp_timer_get_time();
+            if (f > 0 && tn - tf_prev_pub > tf_worst_gap)
+                tf_worst_gap = tn - tf_prev_pub;
+            tf_prev_pub = tn;
+            ESP_LOGI(TAG, "sweep %d/%d src=%s rd=%lldms bake=%lldms put=%lldms @%dpx (illum %.1f%%)", f + 1, frames,
+                     tf_skip_bake ? "tf" : "bake", (long long)tf_rd_ms, (long long)(bake_us / 1000), put_ms, S,
+                     g.illum * 100.0f);
+        } else
+#endif
+            ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
+                     (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
     }
+#if CONFIG_UI_MOON_TFCACHE
+    if (use_tf) {
+        moon_tf_prefetch_stop();
+        tfcache_evict(tf_first_hour + tf_hours - 1); /* bound the window to one cycle */
+        tfcache_stats_log();
+        int64_t wall = esp_timer_get_time() - t0;
+        ESP_LOGI(TAG, "TF sweep: %u frames in %lld ms (~%.2f fps), worst gap %lld ms", (unsigned)s_sweep_pub,
+                 (long long)(wall / 1000), wall > 0 ? (double)s_sweep_pub * 1000000.0 / (double)wall : 0.0,
+                 (long long)(tf_worst_gap / 1000));
+    }
+#endif
     if (!s_sweep_abort) {
         /* Wait for the LAST frame to be on screen before exiting: the
          * tick re-anchors the spin in the same advance of s_sweep_shown,

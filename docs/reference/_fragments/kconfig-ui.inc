@@ -73,7 +73,10 @@ The moon animation pipeline
        to the current phase; the step shrinks as the cycle is younger
        (up to ~0.022 d/frame ≈ 32 min at an old moon at the default).
        4x the pre-2026-11-07 count (336) — at the old density the
-       per-frame illumination jump read as a visible stutter.
+       per-frame illumination jump read as a visible stutter. With the
+       TF sweep cache serving (``UI_MOON_TFCACHE``), the intermediate
+       frames are instead the hour list of the current cycle (at most
+       ~709) and this count applies only to the card-less path.
    * - ``UI_MOON_ANIM_BAKE_PX``
      - ``400`` (S3) / ``650`` (P4)
      - Intermediate-frame bake resolution, 100–650 px, upscased
@@ -85,7 +88,41 @@ The moon animation pipeline
        bakes); measured S3: 200 → ~0.21 s/frame, 240 → ~0.28, 320 →
        ~0.48, 400 → ~0.72. Values above the board's ``MOON_PX`` clamp
        to it. The final frame and the static/spin phase are always full
-       resolution.
+       resolution. The TF sweep cache keys its entries on the **same**
+       bake size (folder name + ``meta.txt``); switching this value
+       wipes the cache folder rather than resampling stale frames.
+   * - ``UI_MOON_TFCACHE``
+     - ``y``
+     - TF sweep cache: persist the sweep's intermediate bakes on the
+       TF card as small gray JPEGs — **one per hour** of the cycle,
+       ≤ ~709 files ~10 MB — under
+       ``/moon_cache/<calcver>_<target>_<px>/``, so a warm replay runs
+       at display cadence (~150 ms/frame) instead of bake cadence.
+       Versioned by the calculation (``MOON_CALC_VER`` =
+       ``git describe`` — bump the repo with commitizen ``cz bump`` to
+       invalidate) and **self-describing**: a ``meta.txt`` pins the
+       bake resolution (plus albedo width, relief, JPEG quality), any
+       mismatch wipes and recreates the folder; old version folders
+       are deleted on sight and entries evicted past one synodic
+       cycle. Write-through: every frame the device computed is
+       stored. Missing card, failed mount, undecodable file, foreign
+       filesystem or a mid-run detach all fall back **silently** to
+       computing every frame on-device (the original path); replayed
+       frames go through the same ``moon_gray565`` tint LUT, so
+       replay and compute are indistinguishable. The final frame is
+       always the live full-``MOON_PX`` bake.
+   * - ``UI_MOON_TFCACHE_JPEG_Q``
+     - ``10``
+     - Gray JPEG quality, 1–100. 10 is the knob-demo recipe class
+       (~8–15 KB at 400 px, tiny files, banding invisible at the
+       sweep's ~150 ms cadence); raise to 30–60 for product review.
+   * - ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``
+     - ``2``
+     - Floor for the PSRAM prefetch queue, 1–12. The real depth is
+       derived from free PSRAM at sweep start
+       (free / (bake_px²·1.15 + 4 KiB), capped at 12, logged per
+       boot); if even the floor cannot be allocated the sweep runs
+       card-less.
    * - ``UI_MOON_ANIM_ON_WAKE``
      - ``y``
      - **Obsolete.** The sweep plays at boot only; wakes show the

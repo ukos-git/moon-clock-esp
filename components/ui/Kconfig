@@ -125,7 +125,12 @@ menu "UI Component Configuration"
             hands over to the spin when done). The intermediate
             frames are baked at UI_MOON_ANIM_BAKE_PX (see there); the
             final frame is always full MOON_PX. Lower = faster but
-            coarser sweep; the display stays live either way.
+            coarser sweep; the display stays live either way. When the
+            TF sweep cache (UI_MOON_TFCACHE) can serve the card, the
+            intermediate frames are instead the whole hour list of the
+            current cycle (one frame per cached hour, at most ~709) and
+            this count applies only to the card-less path (no card /
+            cache off / cache disabled this boot).
 
     config UI_MOON_ANIM_BAKE_PX
         int "Synodic boot sweep intermediate-frame bake resolution (px)"
@@ -158,7 +163,70 @@ menu "UI Component Configuration"
             full resolution regardless of this setting. (The light-sleep
             dusk does not bake intermediate frames at all: its constant-
             projection re-renders at full resolution, and its final
-            dark-side frame is a full-resolution bake.)
+            dark-side frame is a full-resolution bake.) The TF sweep
+            cache (UI_MOON_TFCACHE) keys its entries on the SAME bake
+            size: the folder name and the self-describing meta.txt state
+            it, and switching this value wipes the folder rather than
+            resampling stale frames.
+
+    config UI_MOON_TFCACHE
+        bool "Cache boot-sweep frames on the TF card"
+        default y
+        help
+            Persist the sweep's intermediate bakes on the TF card (one
+            small gray JPEG per HOUR of the cycle, e.g. 709 files ~10 MB
+            for a full month) under /moon_cache/<calcver>_<target>_<px>/,
+            so a warm replay reads frames instead of computing them:
+            the sweep wall time drops from minutes to the display
+            cadence itself (~150 ms/frame). The folder is versioned by
+            the calculation (MOON_CALC_VER from git describe; bump the
+            repo with commitizen `cz bump` to invalidate), and a
+            self-describing meta.txt inside it pins the effective BAKE
+            RESOLUTION (plus albedo width / relief / JPEG quality): any
+            mismatch -- above all switching UI_MOON_ANIM_BAKE_PX --
+            wipes and recreates the folder, so frames are never served
+            at the wrong resolution. Old version folders are deleted on
+            sight; entries older than one synodic cycle are evicted when
+            new ones are written (the cache never grows past ~29.5 days).
+            Write-through: every frame the device had to compute is
+            stored, so the next boot within the cycle replays it.
+            The device works WITHOUT a card: missing card, failed mount,
+            undecodable file, foreign filesystem or a mid-run detach all
+            fall back silently to computing every frame on-device (the
+            original path, unchanged). Frames fetched from the card go
+            through the same moon_gray565 tint LUT as computed ones --
+            replay and compute are pixel-identical by construction.
+            The final frame is ALWAYS the live full-MOON_PX bake of the
+            current phase (with its sky-event occlusion), cached or not.
+
+    config UI_MOON_TFCACHE_JPEG_Q
+        int "TF cache JPEG quality (1-100)"
+        depends on UI_MOON_TFCACHE
+        default 10
+        range 1 100
+        help
+            Quality of the gray JPEGs the sweep cache stores. 10 is the
+            knob-demo recipe class (their 240x240 Earth frames sat at q
+            ~10 / ~6 KB and looked great on a small round panel): tiny
+            files (~8-15 KB at 400 px), fast encode, banding only under
+            close inspection of the mare -- invisible at the sweep's
+            ~150 ms cadence. Raise it for product review (30-60 doubles
+            file size); the sweep display path decodes either.
+
+    config UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS
+        int "TF cache prefetch queue floor (slots)"
+        depends on UI_MOON_TFCACHE
+        default 2
+        range 1 12
+        help
+            The prefetch task decodes card frames into a PSRAM slot queue
+            ahead of the display; the depth is DERIVED from the free
+            PSRAM at sweep start (free / (bake_px^2 * 1.15 + 4 KiB),
+            capped at 12, logged per boot). This is the floor: even a
+            tight-memory boot tries this many slots (and falls back to
+            full on-device baking if even the floor cannot be allocated,
+            or if 12 slots leave no headroom -- the queue only ever
+            covers the INTERMEDIATE frames at bake_px).
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"

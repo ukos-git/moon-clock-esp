@@ -32,6 +32,22 @@ while an alarm is pending the device deliberately stays in **light
 sleep** (dim panel) instead of dropping to the deep state (backlight
 off) — a deep-sleep wake does not exist on this board (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
 
+TF card slot (sweep cache)
+--------------------------
+
+The 4C also carries an onboard **microSD slot on its own 4-bit SDMMC
+host** — separate from the Wi-Fi link: **CLK GPIO43, CMD GPIO44, D0–D3
+GPIO39–42** (the official Waveshare ``08_SD_Card`` / ``05_sdmmc``
+examples; callout #18 of the board's docs page). The registry BSP
+exposes it as ``bsp_sdcard_mount()`` with exactly those pins
+(``BSP_SD_*``, ``width = 4``) — the same call shape as the S3's 1-bit
+socket — so the TF sweep cache (``UI_MOON_TFCACHE``,
+:doc:`the boot sweep <../implementation/animations>`) runs
+symmetrically on both boards. The pins are disjoint from the C6's
+SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
+SDMMC hosts, and the perf bench includes a **Wi-Fi-connected + card
+mounted** run to confirm the two coexist without SDIO errors.
+
 Why a second board
 ------------------
 
@@ -280,6 +296,9 @@ header even though the P4's chip is 32 MB),
 ``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the P4 file then selects
 ``partitions_p4.csv`` through
 ``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``), ``CONFIG_SPIRAM=y``,
+``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF sweep cache
+hour keys exceed 8.3; a historic ``LFN_NONE`` pin was stripped from
+the live configs),
 the LVGL 9.6 setup (notably
 ``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y`` — which the P4 file
 **flips to ``n``** above, because on the RISC-V P4 ``IRAM_ATTR``

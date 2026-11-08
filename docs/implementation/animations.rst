@@ -129,6 +129,76 @@ independent). A reduced bake size makes the on-screen montage coarser
 (400/S × 400/S NN blocks) but **physically correct** — the lighting
 and relief model is resolution-independent.
 
+**TF card cache** (``UI_MOON_TFCACHE``, default on —
+``components/ui/moon_tfcache.c``). The table above is the
+*card-less* path. With a TF card in the socket the sweep instead
+**replays bake results** at display cadence: one gray JPEG per hour
+of the synodic cycle, streamed through the same convert block (the
+``moon_gray565`` warm/event tint LUT colors replay frames exactly
+like baked ones). It never *replaces* the bake path — it sits in
+front of it:
+
+- **Layout** — ``/moon_cache/<calcver>_<target>_<bake_px>/<epoch_hour>.jpg``
+  with ``epoch_hour = floor(epoch/3600)``. One entry per hour, at
+  most 29.53 d × 24 ≈ **709 files** of a few KB each; every store
+  evicts hours older than the current synodic cycle, so the cache
+  never outgrows one cycle.
+- **Versioned folder** — ``<calcver>`` is ``git describe --tags
+  --always --dirty`` embedded at build time (``MOON_CALC_VER``, set
+  by the root ``CMakeLists.txt``; commitizen's ``cz bump`` produces
+  the ``v*`` tags — until then the folder carries the short hash).
+  When the sweep first needs the cache and the current version
+  folder is missing (new calc, wiped card), it is created and **all
+  sibling version folders are deleted** — frames of an old
+  calculation are stale by definition and never mix.
+- **Self-describing** — each folder carries a ``meta.txt``
+  (``calcver``, ``target``, ``bake_px``, ``moon_albedo_w``,
+  ``relief``, ``jpeg_q``); any missing key or mismatch — above all
+  ``bake_px`` when ``UI_MOON_ANIM_BAKE_PX`` changes — wipes and
+  recreates the folder before baking, so switching resolutions can
+  never serve wrong-resolution frames even inside one calc version.
+- **Codec** — ``esp_new_jpeg`` **gray** JPEG at quality
+  ``UI_MOON_TFCACHE_JPEG_Q`` (default 10). The official decoder
+  input is RGB, not gray, so the module **self-probes** at init
+  (encode a 16×16 gradient, decode it back, keep the format whose
+  max |diff| ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
+  gray-duplicate. Decode output is always RGB888 and the R channel
+  *is* the gray.
+- **Prefetch** — a producer task (``moon_tfprefetch``, core 1, PSRAM
+  stack) walks the hour list ahead of the display; the queue depth
+  is derived from free PSRAM,
+  ``clamp(free / (S²·1.15 + 4 KiB), UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, 12)``,
+  so 1-bit SD read jitter never sits on the frame path.
+- **Write-through** — any frame the device computes that is not yet
+  on the card is encoded and stored after it publishes, so the next
+  boot finds it.
+- **Hourly frames** — with the cache serving, the intermediate
+  frames are the hour entries (epoch = ``hour·3600 + 1800``, the
+  hour *center*, never ahead of *now*) plus the **final frame,
+  always the live full-``MOON_PX`` bake**;
+  ``UI_MOON_ANIM_FRAMES`` applies only to the card-less path. With
+  fewer than one whole cached hour the sweep keeps the classic
+  count-based list.
+- **The card-less path is the code above, byte for byte** — missing
+  card, mount failure, foreign card (never formatted), meta
+  mismatch, decode error, a mid-sweep pull or a failed store all
+  disable the cache silently for the boot and the sweep continues
+  bake-paced. The same tint LUT and the same atomic publish path
+  serve both sources, so a replayed frame and a baked frame are
+  indistinguishable.
+- **Mount** — each BSP's ``bsp_sdcard_mount()`` through the board
+  shim: the S3 socket is **SPI 1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS
+  41, ``docs/devices/s3``) and the P4 has a real **4-bit SDMMC** TF
+  slot (CLK 43 / CMD 44 / D0–D3 39–42, its own host, disjoint from
+  the C6 Wi-Fi SDIO link, ``docs/devices/p4``). FATFS long filenames
+  (``CONFIG_FATFS_LFN_HEAP``) are **required** — the hour keys and
+  the version folder exceed 8.3.
+
+Warm-card timing (hits, KB, effective fps, worst inter-frame gap —
+logged per boot by ``tfcache_stats_log``): bench-pending, recorded
+below when the matrix runs (:doc:`on-device verification
+<../verification/device-verify>`).
+
 While the sweep runs: the spin render is paused (the flag poll), the
 idle timer is held (the user is present for the sweep), and a sleep
 transition aborts the sweep (``moon_sweep_interrupt``). On completion
