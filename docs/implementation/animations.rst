@@ -257,12 +257,14 @@ Two honest caveats. The S3 warm line reads hits 691 against the 683
 files the cold pass wrote: the hour list ages in as wall clock
 advances (the list is built at sweep start), and the boots in
 between write the aged tail hours through — the accounting is
-*per-boot*, the card is *cumulative*. And all four S3 runs (card
-or no card) carry the pre-existing boot classify burst — four
-``IDLE0`` watchdog prints from a ~20 s cold day-cache scan on the
-LVGL task at boot, identical card-less, root-caused to the
-sky-events day cache and tracked apart from this feature; the P4
-runs are clean (0 watchdog prints).
+*per-boot*, the card is *cumulative* (the P4 warm line shows the
+mechanism directly: 8 aged hours in, 8 misses, 8 puts back). And
+most S3 boots (3 of the 5 bench captures; a repeat warm replay ran
+clean) carry the *pre-existing* boot classify burst — up to four
+``IDLE0`` watchdog prints around a ~20 s cold day-cache scan on the
+LVGL task at boot — identical card-less, intermittent, root-caused
+to the sky-events day cache and tracked apart from this feature;
+the P4 runs are clean (0 watchdog prints).
 
 Detach mid-sweep: a read fault on the producer or the consumer
 disables the cache silently and the remaining frames fall back to
