@@ -143,8 +143,11 @@ static void lvgl_task(void *arg) {
  */
 static void boot_arm_task(void *arg) {
     /* K7e: the wake path must be readable from the log (0 = power-on,
-     * 1 = EXT0 dial detent, 4 = EXT1 screen tap after the deep sleep). */
-    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial, 4=EXT1 tap)", (int)esp_sleep_get_wakeup_cause());
+     * 1 = EXT0 dial detent, 2 = EXT1 screen tap -- the S3 has no EXT1
+     * wake source, the API emulates it through GPIO wake, so a tap
+     * measures as ESP_SLEEP_WAKEUP_GPIO, verified on the bench
+     * 2026-11-08). */
+    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial, 2=EXT1 tap/GPIO)", (int)esp_sleep_get_wakeup_cause());
     /* The power ladder must not run while the first frame is still
      * ahead of the user: app_main armed it at t=0, the ladder released
      * only when moon_task exists -- so a slow join + NTP window let the
