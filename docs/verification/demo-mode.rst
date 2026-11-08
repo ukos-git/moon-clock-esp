@@ -88,12 +88,6 @@ loadScreen shortcut.
    * - ``back``
      - the WiFi screen's exit → the hub's central exit → home
      - the two exit handler levels
-   * - ``alarm``
-     - the real ring script: fire, stop after the volume ramp,
-       re-fire (the codec RE-OPEN), real dismiss through the wake
-       path; then the wake's on-demand sync is drained to home
-     - the alarm screen, the ES8311 open/ramp/fade/close/re-open
-       cycle (audible on both boards), the wake flow
    * - ``dusk``
      - the real light-sleep entry (pause + dusk + dim), wait the
        ``moon_ui_dusk_complete()`` flag, hold the dark side, wake
@@ -109,6 +103,22 @@ loadScreen shortcut.
        ``action_sync_demo_done`` (45 s budget), land on home
      - the transient WiFi screen, the background handshake, the
        airplane hand-off
+   * - ``alarm``
+     - the real ring script: fire, stop after the volume ramp,
+       re-fire (the codec RE-OPEN), real dismiss through the wake
+       path; then the wake's on-demand sync is drained to home
+     - the alarm screen, the ES8311 open/ramp/fade/close/re-open
+       cycle (audible on both boards), the wake flow
+
+The alarm runs **last** in the cycle on purpose. The 2026-11-08 bench
+take showed the S3's QSPI completion-loss race (lost DMA completion ->
+``PANEL IO STUCK`` -> panel watchdog controlled reboot) firing ~29 s
+into this phase in 2 of 2 cycles — the alarm's wake/dismiss window,
+where the 0x51 hardware brightness ramp, the fade-to-black switch and
+the spin resume overlap (the same family as the #96 settings-freeze
+stall). Placing the phase at the cycle end keeps dusk, roll and sync
+comparable on every cycle even while that watchdog recovery runs; the
+race itself is a documented follow-up.
 
 Tap-point geometry: the screen roots carry the base orientation
 (``UI_ORI_BASE_V10`` — 180° on the S3, 90° on the P4) and the roll
@@ -201,9 +211,10 @@ Reading a take
 --------------
 
 * The **sweep** plays the 1344-frame spec (693 frames at the current
-  cycle age) from the last new moon on every device (S3 from the warm
-  TF cache in ~2 min, otherwise baked at ~1.5 s/frame ≈ 17 min; P4
-  bakes natively at 650 px in ~1120 s ≈ 19 min): identical frame
+  cycle age) from the last new moon on every device. With a warm TF
+  cache it replays (measured 2026-11-08: S3 295 s at 400 px, ~2.3 fps;
+  P4 217 s at 650 px, ~3.2 fps); cold it bakes (~1.5 s/frame:
+  ≈ 17 min on the S3, ≈ 1120 s ≈ 19 min on the P4): identical frame
   pacing and identical illumination curves are the first look-test.
 * ``moons`` and the knob's ``full-moon``/``now`` steps compare the
   SAME epoch's rendering across the three panels (the clocks' home
@@ -214,3 +225,36 @@ Reading a take
   :doc:`device-verification capture <device-verify>`: progress lines
   present, timing sane, zero failure-class lines (no WDT fires that
   change behaviour, no ``PANEL IO STUCK``, no ``ESP_ERR_NO_MEM``).
+
+Bench status (2026-11-08)
+-------------------------
+
+The first formal take (45 min, both clocks, ``--boot-pulse``, 1080p5;
+the boards ran a binary predating the 900 ms tap settle and the
+alarm-last order) produced:
+
+* Both boards swept 693/693 frames from the warm TF cache (S3 295 s,
+  P4 217 s) and armed 78 s apart. The tour walked the script
+  identically on both panels: hub walk 16 tap steps on the S3 and 18
+  on the P4 (the CLOCK icon), the WiFi scan found 2 APs and the tour
+  tapped row 0, the wheel typed ``demo``/``A``/``1`` plus backspaces
+  and ran the discard ladder. The P4 completed every cycle with no
+  reboot.
+* Two tour bugs surfaced from the take's own logs: the 350 ms tap
+  settle verified *through* the fade-to-black switch (the 36/66
+  ``loadScreen`` fallback lines in those logs are the pre-fix binary;
+  the settle is now 900 ms) and a stale wheel end-check that expected
+  the pre-discard entry length.
+* **Reproduced in the field** on the S3: ``PANEL IO STUCK`` fired
+  every cycle at +29.1 s / +28.9 s after ``phase=alarm`` — each time
+  the panel watchdog rebooted the board (``rst:0xc`` RTC_SW_CPU_RST,
+  no panic), back up in ~13 s plus the warm re-sweep. That is why the
+  alarm phase runs last now; the race itself (the wake/dismiss
+  window: 0x51 brightness ramp + fade-to-black + spin resume, the
+  same family as the #96 settings-freeze stall) is an open follow-up.
+* Known noise, non-fatal: intermittent ``task_wdt`` IDLE0-starvation
+  bursts on the S3 during the boot sweep. Zero ``ESP_ERR_NO_MEM``
+  anywhere, zero WDT lines on the P4.
+* The knob was not on the bench for this take (a sleeping knob has no
+  serial node until the dial is turned); it is build-gated with the
+  clocks.

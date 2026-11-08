@@ -20,11 +20,16 @@
  *              x2 (clear, then exit) -- the COMMIT key is NEVER tapped
  *              (it would write wifi_credentials.txt and start a connect)
  *   BACK       wifi exit -> hub exit -> home
- *   ALARM      the real ring script (fire, stop, re-fire = codec
- *              re-open, dismiss); scheduled alarms stay suppressed
  *   DUSK       light sleep + the pole spin to the dark side, wake
  *   ROLL       the synthetic tilt script through the real roll pipeline
  *   SYNC       one bounded on-demand WiFi + NTP sync
+ *   ALARM      LAST in the cycle: the real ring script (fire, stop,
+ *              re-fire = codec re-open, dismiss); scheduled alarms stay
+ *              suppressed. Last on purpose: the 2026-11-08 take showed
+ *              the S3 QSPI completion-loss race firing reliably ~29 s
+ *              into this phase (panel watchdog -> controlled reboot);
+ *              running it at the cycle end keeps dusk/roll/sync
+ *              comparable on every cycle even when that recovery runs.
  *
  * Suppressed while the tour runs (actions.c guards): the deep-sleep
  * transition, scheduled alarm fires, the hourly sync and the sync
@@ -640,17 +645,17 @@ static void step_back(void) {
         if (!due(s_sub_t0, TAP_SETTLE_MS))
             break;
         ensure_screen(SCREEN_ID_MODEM_SLEEP);
-        phase_enter(PH_ALARM);
+        phase_enter(PH_DUSK);
         break;
     default:
-        phase_enter(PH_ALARM);
+        phase_enter(PH_DUSK);
         break;
     }
     if (due(s_phase_t0, 20000)) {
         phase_timeout("back", 20000);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
-        phase_enter(PH_ALARM);
+        phase_enter(PH_DUSK);
     }
 }
 
@@ -687,13 +692,19 @@ static void step_alarm(void) {
         s_sub = 4;
         s_sub_t0 = now_ms();
         break;
-    case 4: /* the dismiss ran the on-demand wake sync -- drain it */
-        if (home_drain_sync(45000, "alarm dismiss"))
-            phase_enter(PH_DUSK);
+    case 4: /* the dismiss ran the on-demand wake sync -- drain it, end
+             * of cycle (the alarm runs LAST: see step_sync) */
+        if (home_drain_sync(45000, "alarm dismiss")) {
+            s_cycle++;
+            s_moon_i = 0;
+            phase_enter(PH_MOONS);
+        }
         break;
     default:
         action_demo_allow_alarm(false);
-        phase_enter(PH_DUSK);
+        s_cycle++;
+        s_moon_i = 0;
+        phase_enter(PH_MOONS);
         break;
     }
 }
@@ -765,15 +776,11 @@ static void step_sync(void) {
         s_sub_t0 = now_ms();
         break;
     case 1:
-        if (home_drain_sync(45000, "tour sync")) {
-            s_cycle++;
-            s_moon_i = 0;
-            phase_enter(PH_MOONS);
-        }
+        if (home_drain_sync(45000, "tour sync"))
+            phase_enter(PH_ALARM); /* last phase: see step_alarm's tail */
         break;
     default:
-        s_cycle++;
-        phase_enter(PH_MOONS);
+        phase_enter(PH_ALARM);
         break;
     }
 }
