@@ -30,17 +30,23 @@ sleep → wake), read for three classes of line:
      - The lines
      - What a presence means
    * - **Progress**
-     - the ``sweep span: N d``, ``sweep f/1344 shown in Mms``,
-       ``dusk k/N shown in Mms``, ``spin started`` (300/600 s/turn,
-       8 fps) and ``panel-io watchdog armed (3000 ms)`` lines
+     - the ``sweep span: N d``, ``sweep f/1344 shown in Mms`` (or,
+       warm TF replay, the per-frame ``sweep f/N src=tf … wr=…ms``
+       lines plus the ``TF sweep: N frames … (~F fps, target T,
+       direct write)`` summary), ``dusk k/N shown in Mms``,
+       ``spin started`` (300/600 s/turn, 8 fps) and
+       ``panel-io watchdog armed (3000 ms)`` lines
      - the pipelines ran to their endpoints (a sweep that never logs
        its final frame is a sweep that stalled)
    * - **Timing**
-     - the per-frame ``shown in Mms`` deltas, the bake-vs-display
+     - the per-frame ``shown in Mms`` deltas (or the TF replay's
+       ``wr=`` column and measured fps), the bake-vs-display
        split, the final full-res bake's wall time
      - the pipeline is *display-paced, not bake-paced* (:doc:`the animation pipelines <../implementation/animations>`);
        a ``shown`` delta that tracks the bake (~1.3 s) instead of the
-       display (~150 ms) is the backpressure failing
+       display (304 ms measured) is the backpressure failing; a warm
+       replay far below its ``UI_MOON_TFCACHE_FPS`` target with a
+       large worst-gap is the card or decode path starving the sweep
    * - **Failure**
      - ``WDT reset``, ``panicked``, ``PANEL IO STUCK``,
        ``panel draw not accepted``, ``spin task did not exit``,

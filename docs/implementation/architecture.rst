@@ -10,8 +10,8 @@ them:
 
 1. **One image buffer, one atomic flush.** Every moon-pipeline frame
    reaches the panel as a single whole-panel display under one
-   critical section. There are exactly two sanctioned exceptions, and
-   both are documented here.
+   critical section. There are exactly three sanctioned exceptions,
+   and all are documented here.
 2. **The physics is portable.** The moon core — ephemeris, bake,
    relief, rotation, the LUT — is a dependency-free C library that
    compiles unchanged into the device *and* the host simulator.
@@ -202,7 +202,7 @@ screen top-to-bottom over about a second — the "wake artifact" the
 original design fought. The atomic rule is what makes a screen switch
 look like a screen switch.
 
-There are exactly **two sanctioned exceptions**, and both are
+There are exactly **three sanctioned exceptions**, and all are
 properties of the panel, not of LVGL:
 
 1. **The fade-to-black screen switch** (``UI_SCREEN_SWITCH_FADE``):
@@ -218,10 +218,23 @@ properties of the panel, not of LVGL:
    LVGL entirely. It is still atomic — one whole 400×400 window per
    frame, held under the mutex for the entire write — and it is the
    only non-LVGL writer the panel has.
+3. **The TF sweep cache's direct-write replay**
+   (``UI_MOON_TFCACHE`` / ``UI_MOON_TFCACHE_FPS``,
+   :doc:`the animation pipelines <animations>`): warm-replayed
+   *intermediate* sweep frames are displayed by the sweep task itself
+   with the spin's very write (``moon_spin_write_panel`` — step
+   rotated, UI keep-mask composited, under ``s_panel_mtx``), paced to
+   ``UI_MOON_TFCACHE_FPS``. The tick's whole-panel refresh measures
+   304 ms (S3) / 207 ms (P4) and would cap a tick-displayed replay at
+   ~3 fps; the direct write keeps the same step-rotated, keep-masked
+   whole-window atomicity as the spin. The sweep's **final** frame
+   still rides the tick's atomic ``lv_refr_now`` — it reconciles LVGL
+   with the panel and re-anchors the spin.
 
 Everything else that shows moon content obeys the rule: the boot
-sweep's frames (one atomic flush per published frame, reduced-res
-bake upscased), the dusk's re-projected frames (same), the wake (a
+sweep's frames (one atomic flush per published frame on the
+card-less path, reduced-res bake upscased; the warm TF replay is
+exception 3), the dusk's re-projected frames (same), the wake (a
 static frame), the orbit sweep (one atomic flush of the whole
 converted frame).
 

@@ -75,8 +75,9 @@ The device pipeline
 
 - **Atomic frame** — the invariant: every moon-pipeline frame hits
   the panel as ONE whole-panel ``lv_refr_now`` under ``s_rgb_mtx``;
-  the two sanctioned exceptions (the fade-to-black, the spin's direct
-  write) (:doc:`the architecture <implementation/architecture>`).
+  the three sanctioned exceptions (the fade-to-black, the spin's
+  direct write, the TF replay's direct write)
+  (:doc:`the architecture <implementation/architecture>`).
 - **s_rgb_mtx / s_panel_mtx** — the two locks: the *image* lock
   (bake/rotate/display of the moon buffer) and the *panel-io* lock
   (LVGL flushes, the spin's strip writes, the 0x51 brightness)
@@ -85,9 +86,12 @@ The device pipeline
   the Q15.15 gather at 8 fps, written *directly* to the panel under
   ``s_panel_mtx`` (LVGL bypassed for that frame), time-based theta
   with active (300 s/turn) / settled (600 s/turn) rates (:doc:`rotation and the LUT <implementation/rotate-lut>` and :doc:`the animation pipelines <implementation/animations>`).
-- **Sweep** — the boot animation: the last synodic month as 1344
-  frames (240 px intermediate + a full-res final), boot-only
-  (wakes are static) (:doc:`the animation pipelines <implementation/animations>`).
+- **Sweep** — the boot animation: the last synodic month — card-less,
+  1344 tick-displayed frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF
+  sweep cache, the cycle's hour list replayed via the spin's direct
+  write at ``UI_MOON_TFCACHE_FPS`` — always ending on the live
+  full-resolution final bake; boot-only (wakes are static)
+  (:doc:`the animation pipelines <implementation/animations>`).
 - **Dusk** — the light-sleep entry: the constant-projection pole
   spin to the dark side (the shade map + the re-projects), the
   backlight dim to 25 %, the RTC countdown armed on the last frame

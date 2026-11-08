@@ -306,10 +306,12 @@ What the port did *not* touch
   ``components/moon``. The port is entirely in ``moon_ui.c`` (the
   display path), ``board_display.c`` (the seam), and the build files.
 - **The atomic invariant** — the P4 obeys the same rule (one atomic
-  whole-panel display; the same two sanctioned exceptions, the fade
-  and the spin's direct write). The P4's direct write is per-strip
-  (65 rows) rather than a single window, but it is still one
-  ``s_panel_mtx``-held, per-frame atomic unit.
+  whole-panel display; the same three sanctioned exceptions — the
+  fade, the spin's direct write, and the TF replay's direct write,
+  which on the P4 goes through the same per-strip path as the spin).
+  The P4's direct write is per-strip (65 rows) rather than a single
+  window, but it is still one ``s_panel_mtx``-held, per-frame atomic
+  unit.
 - **The panel-io watchdog** — the same ``s_panel_mtx``-based restart
   guard runs on the P4 (its DSI bus has its own stall modes; the
   bounded-hold + watchdog discipline is board-blind).

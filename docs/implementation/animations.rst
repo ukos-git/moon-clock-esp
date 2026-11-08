@@ -54,8 +54,9 @@ drifting the fine pass to a neighboring cycle's minimum.
 
 The bake task (core 1, pinned, PSRAM stack) bakes the frames **off
 screen** and publishes them one at a time; the tick displays each
-published frame as one atomic whole frame (the same ~150 ms
-``lv_refr_now`` the spin's display used). The **backpressure** rule —
+published frame as one atomic whole frame — the whole-panel
+``lv_refr_now``, measured 304 ms median on the S3 / 207 ms on the P4.
+The **backpressure** rule —
 the bake does not start frame *f*+1 until the tick has displayed
 frame *f* — is what keeps a mixed frame (new top rows over old bottom
 rows) off screen:
@@ -71,10 +72,15 @@ rows) off screen:
        }
    }
 
-Because the display (~150 ms) is faster than the bake (~1.3 s at full
+Because the display (304 ms) is faster than the bake (~1.3 s at full
 resolution), the bake paces the sweep and the wait is usually ~0; the
 5 s cap is a safety bail (the only tick-paused case — sleep entry —
-sets ``s_sweep_abort``, which the loop polls too).
+sets ``s_sweep_abort``, which the loop polls too). When the TF sweep
+cache serves (below), the sweep task instead *displays replayed
+intermediate frames itself* — the spin's direct panel write paced to
+``UI_MOON_TFCACHE_FPS``, the third sanctioned exception — and
+pre-sets the shown counter for those frames, so this rule holds
+trivially and the tick never sees an intermediate.
 
 **Resolution** — the intermediate frames bake at
 ``UI_MOON_ANIM_BAKE_PX`` (production: **240**, into the scratch
@@ -158,7 +164,12 @@ front of it:
   recreates the folder before baking, so switching resolutions can
   never serve wrong-resolution frames even inside one calc version.
 - **Codec** — ``esp_new_jpeg`` **gray** JPEG at quality
-  ``UI_MOON_TFCACHE_JPEG_Q`` (default 10). The official decoder
+  ``UI_MOON_TFCACHE_JPEG_Q`` (default **32** — the bench verdict on
+  q 10, the knob-demo recipe class, was visible blocking in the flat
+  dark and bright areas on the panel; 32 reads clean there at ~2–3×
+  the file size, and the cost is resolution-bound, not quality-bound.
+  ``meta.txt`` pins it, so a change wipes and re-bakes the folder).
+  The official decoder
   input is RGB, not gray, so the module **self-probes** at init
   (encode a 16×16 gradient, decode it back, keep the format whose
   max ``|diff|`` ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
@@ -169,6 +180,22 @@ front of it:
   is derived from free PSRAM,
   ``clamp(free / (S²·1.15 + 4 KiB), UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, 12)``,
   so 1-bit SD read jitter never sits on the frame path.
+- **Direct-write replay** (``UI_MOON_TFCACHE_FPS``, default 25) —
+  replayed *intermediate* frames are displayed by the sweep task
+  itself through ``moon_spin_write_panel()``: the spin's own sanctioned
+  write — step-rotated by the current panel step, the live UI
+  keep-mask composited over the moon window from the LVGL mirror, one
+  continuous window write (S3) / 65-row strips (P4) under
+  ``s_panel_mtx``, no LVGL refresh. The tick's whole-panel flush
+  (304 ms S3 / 207 ms P4) would cap a tick-displayed replay at ~3
+  fps; the direct write runs at the spin's frame cost instead.
+  Constant-cadence pacing like the spin task — a slow frame is never
+  repeated or skipped — and the sweep summary logs the **measured**
+  fps and worst inter-frame gap. The **final** frame still rides the
+  tick's atomic ``lv_refr_now`` (it reconciles LVGL with the panel
+  and re-anchors the spin), card-less sweeps are tick-displayed and
+  bake-paced as above, and if the spin's panel buffers are missing
+  the replay falls back to tick display.
 - **Write-through** — any frame the device computes that is not yet
   on the card is encoded and stored after it publishes, so the next
   boot finds it.
@@ -183,9 +210,11 @@ front of it:
   card, mount failure, foreign card (never formatted), meta
   mismatch, decode error, a mid-sweep pull or a failed store all
   disable the cache silently for the boot and the sweep continues
-  bake-paced. The same tint LUT and the same atomic publish path
-  serve both sources, so a replayed frame and a baked frame are
-  indistinguishable.
+  bake-paced. The same tint LUT colors both sources identically;
+  they differ only in *how* the converted frame reaches the panel
+  (the tick's atomic flush card-less, the spin's direct write on
+  warm replay), so a replayed frame and a baked frame are
+  indistinguishable on screen.
 - **Mount** — per-board, in ``card_mount()``: the S3 socket is **SPI
   1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS 41) and mounts on
   ``esp_vfs_fat_sdspi_mount`` over **SPI3_HOST** — SPI2 is the QSPI
@@ -519,7 +548,7 @@ of QSPI strip traffic each — and the panel's left-to-right strip fill
 showed as a slow **crawl** on every switch. The 0x51 fade writes no
 pixels at all; the panel scales everything on screen at once (the
 moon, the labels, the spin's direct writes) with no overlay to
-composite. That is why the fade is one of the two sanctioned
+composite. That is why the fade is one of the three sanctioned
 exceptions to the atomic rule: the rule is preserved *off the visible
 path*, not violated.
 
