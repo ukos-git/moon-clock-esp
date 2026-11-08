@@ -244,16 +244,42 @@ menu "UI Component Configuration"
     config UI_MOON_TFCACHE_JPEG_Q
         int "TF cache JPEG quality (1-100)"
         depends on UI_MOON_TFCACHE
-        default 10
+        default 32
         range 1 100
         help
-            Quality of the gray JPEGs the sweep cache stores. 10 is the
-            knob-demo recipe class (their 240x240 Earth frames sat at q
-            ~10 / ~6 KB and looked great on a small round panel): tiny
-            files (~8-15 KB at 400 px), fast encode, banding only under
-            close inspection of the mare -- invisible at the sweep's
-            ~150 ms cadence. Raise it for product review (30-60 doubles
-            file size); the sweep display path decodes either.
+            Quality of the gray JPEGs the sweep cache stores. The bench
+            verdict on q 10 (the knob-demo recipe class): the flat dark
+            and bright areas showed visible blocking/mosquito noise on
+            the panel -- too aggressive for a clock you stare at. 32
+            reads clean on the bench dark/bright flats at roughly 2-3x
+            the file size (~10 KB at 400 px, ~25 KB at 650 px, still
+            ~20 MB per cached cycle); encode/decode cost is resolution-
+            bound, not quality-bound, so the sweep path pays almost
+            nothing for it. The folder's meta.txt pins the value: a
+            change wipes and re-bakes the cache.
+
+    config UI_MOON_TFCACHE_FPS
+        int "TF replay frame rate (fps)"
+        depends on UI_MOON_TFCACHE
+        default 25
+        range 2 30
+        help
+            Pacing target for warm card replay. Replayed intermediate
+            frames are written STRAIGHT TO THE PANEL by the sweep task
+            in the burn-in spin's model (step-rotated, UI keep-mask
+            composited, one window write under the panel mutex -- the
+            third sanctioned exception to the atomic whole-panel-flush
+            invariant): LVGL's whole-panel refresh measures 304 ms
+            (S3) / 207 ms (P4) and caps a tick-displayed replay at
+            ~3 fps, so without the direct write this value could not
+            be reached. The frame budget is pop + tint convert + the
+            window write; a frame that runs long is never repeated or
+            skipped, just slower -- the sweep task's summary logs the
+            MEASURED fps and the worst inter-frame gap. The final
+            frame (the current phase, full MOON_PX) stays on the
+            tick's atomic lv_refr_now path: it reconciles LVGL with
+            the panel and re-anchors the spin. Card-less sweeps are
+            unaffected (bake-paced, tick-displayed, as before).
 
     config UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS
         int "TF cache prefetch queue floor (slots)"

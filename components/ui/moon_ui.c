@@ -1570,6 +1570,21 @@ static int64_t new_moon_epoch(int64_t utc_epoch) {
  * bakes the frame itself -- the original path. Same creation recipe as
  * the sweep task (core 1, PSRAM stack); lower priority so the consumer
  * never starves on it. */
+/* Replay pacing target (see moon_sweep_task's direct-write branch).
+ * A target, not a promise -- the achieved rate is pop + convert +
+ * write-bound; the sweep summary logs the measured fps + worst gap. */
+#ifndef CONFIG_UI_MOON_TFCACHE_FPS
+#define CONFIG_UI_MOON_TFCACHE_FPS 25
+#endif
+static inline int moon_tf_fps(void) {
+    int f = CONFIG_UI_MOON_TFCACHE_FPS;
+    if (f < 2)
+        f = 2;
+    if (f > 30)
+        f = 30;
+    return f;
+}
+
 #define TF_Q_MAX 12
 static uint8_t *s_tf_slot[TF_Q_MAX];
 static uint8_t s_tf_slot_hit[TF_Q_MAX];
@@ -1751,7 +1766,7 @@ static void moon_sweep_task(void *arg) {
      * NOTHING below this block is skipped on failure: whatever the card
      * cannot serve is baked and stored exactly as before (write-through),
      * and a dead card simply makes every frame a miss. */
-    bool use_tf = false;
+    bool use_tf = false, tf_direct = false;
     int64_t tf_first_hour = 0, tf_hours = 0;
     {
         int tfpx = sweep_bake_px > MOON_PX ? MOON_PX : sweep_bake_px;
@@ -1771,12 +1786,31 @@ static void moon_sweep_task(void *arg) {
             ESP_LOGI(TAG, "sweep from TF: %d hourly frames (%lld..%lld) + live final @%dpx (card-less would be %d)",
                      (int)tf_hours, (long long)tf_first_hour, (long long)(tf_first_hour + tf_hours - 1), tfpx,
                      (int)CONFIG_UI_MOON_ANIM_FRAMES);
+            /* Direct-write replay (the spin's model -- the third
+             * sanctioned exception to the atomic whole-panel-flush
+             * invariant): the sweep task displays each INTERMEDIATE
+             * frame itself through moon_spin_write_panel() -- step-
+             * rotate of s_rgb by s_panel_step, UI keep-mask composite
+             * from the front mirror, one moon-window write under the
+             * panel mutex, no LVGL refresh (the tick's whole-panel
+             * lv_refr_now measures 304 ms S3 / 207 ms P4 and would
+             * cap the replay at ~3 fps). The FINAL frame still goes
+             * through the tick's atomic lv_refr_now: that flush
+             * reconciles LVGL with the panel and re-anchors the spin.
+             * Missing spin scratch buffers (no PSRAM) degrade the
+             * replay silently to the old tick cadence. */
+            tf_direct = s_panel && s_disp && s_front && s_ui_mask;
+            ESP_LOGI(TAG, "tf replay: %s, target %d fps",
+                     tf_direct ? "direct panel write" : "tick LVGL refresh (buffers missing)", moon_tf_fps());
         }
     }
     int64_t tf_prev_pub = esp_timer_get_time(), tf_worst_gap = 0; /* perf: worst display-to-display gap */
 #endif
     int64_t t0 = esp_timer_get_time();
     for (int f = 0; f < frames && !s_sweep_abort; f++) {
+#if CONFIG_UI_MOON_TFCACHE
+        const int64_t f_t0 = esp_timer_get_time(); /* direct-replay cadence anchor */
+#endif
         /* Backpressure (see the section above): the previous frame must
          * be on screen before s_rgb may be overwritten with the next.
          * The tick displays each published frame one tick later (one
@@ -1912,9 +1946,28 @@ static void moon_sweep_task(void *arg) {
             }
         }
         xSemaphoreGive(s_rgb_mtx);
-        s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
 #if CONFIG_UI_MOON_TFCACHE
         if (use_tf) {
+            int64_t wr_ms = 0;
+            if (tf_direct && f != frames - 1) {
+                /* The task displays the intermediate frame ITSELF,
+                 * spin-style (see the direct-write block above): one
+                 * keep-mask-composited window write under the panel
+                 * mutex, LVGL never sees it. While a screen-switch
+                 * fade is ramping 0x51 (s_fade_busy) or on a moon-less
+                 * screen the write is skipped -- exactly the spin's
+                 * own rule -- and the screen-switch's atomic flush
+                 * owns the panel. shown BEFORE pub: the tick consumer
+                 * (pub > shown) can never grab an intermediate frame
+                 * for a second, whole-panel refresh. */
+                int64_t w0 = esp_timer_get_time();
+                if (!s_fade_busy && s_moon_screen)
+                    moon_spin_write_panel();
+                wr_ms = (esp_timer_get_time() - w0) / 1000;
+                s_sweep_shown = (uint32_t)f + 1;
+            }
+            s_sweep_pub = (uint32_t)f + 1; /* displayed up to here (task
+                                            * direct / tick for the final) */
             long long put_ms = 0;
             if (f != frames - 1 && !tf_skip_bake) {
                 int64_t p0 = esp_timer_get_time();
@@ -1925,13 +1978,27 @@ static void moon_sweep_task(void *arg) {
             if (f > 0 && tn - tf_prev_pub > tf_worst_gap)
                 tf_worst_gap = tn - tf_prev_pub;
             tf_prev_pub = tn;
-            ESP_LOGI(TAG, "sweep %d/%d src=%s rd=%lldms bake=%lldms put=%lldms @%dpx (illum %.1f%%)", f + 1, frames,
-                     tf_skip_bake ? "tf" : "bake", (long long)tf_rd_ms, (long long)(bake_us / 1000), put_ms, S,
-                     g.illum * 100.0f);
+            ESP_LOGI(TAG, "sweep %d/%d src=%s rd=%lldms bake=%lldms put=%lldms wr=%lldms @%dpx (illum %.1f%%)", f + 1,
+                     frames, tf_skip_bake ? "tf" : "bake", (long long)tf_rd_ms, (long long)(bake_us / 1000), put_ms,
+                     (long long)wr_ms, S, g.illum * 100.0f);
+            if (tf_direct && f != frames - 1) {
+                /* Constant-cadence pacing to UI_MOON_TFCACHE_FPS (the
+                 * spin task's recipe), measured from the frame's top
+                 * (pop + convert + write + write-through included).
+                 * A slow frame never repeats or skips -- the leftover
+                 * is simply not waited, the next frame starts at
+                 * once. */
+                int64_t remain_us = f_t0 + 1000000 / moon_tf_fps() - tn;
+                if (remain_us > 0)
+                    vTaskDelay(pdMS_TO_TICKS((int)(remain_us / 1000)));
+            }
         } else
 #endif
+        {
+            s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
             ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
                      (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
+        }
     }
 #if CONFIG_UI_MOON_TFCACHE
     if (use_tf) {
@@ -1939,9 +2006,10 @@ static void moon_sweep_task(void *arg) {
         tfcache_evict(tf_first_hour + tf_hours - 1); /* bound the window to one cycle */
         tfcache_stats_log();
         int64_t wall = esp_timer_get_time() - t0;
-        ESP_LOGI(TAG, "TF sweep: %u frames in %lld ms (~%.2f fps), worst gap %lld ms", (unsigned)s_sweep_pub,
-                 (long long)(wall / 1000), wall > 0 ? (double)s_sweep_pub * 1000000.0 / (double)wall : 0.0,
-                 (long long)(tf_worst_gap / 1000));
+        ESP_LOGI(TAG, "TF sweep: %u frames in %lld ms (~%.2f fps, target %d, %s), worst gap %lld ms",
+                 (unsigned)s_sweep_pub, (long long)(wall / 1000),
+                 wall > 0 ? (double)s_sweep_pub * 1000000.0 / (double)wall : 0.0, moon_tf_fps(),
+                 tf_direct ? "direct write" : "tick refresh", (long long)(tf_worst_gap / 1000));
     }
 #endif
     if (!s_sweep_abort) {

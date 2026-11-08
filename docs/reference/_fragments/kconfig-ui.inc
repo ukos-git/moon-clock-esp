@@ -46,9 +46,10 @@ Sleep and screen switching
        ramps back — the transition writes no pixels. Total cost is
        roughly 2× this time plus one hidden flush. The exception: the
        both-moon switch (airplane / wifi / the sleep screens share one
-       moon image) stays atomic. The sanctioned second exception to the
-       whole-panel-atomic invariant, next to the burn-in spin's direct
-       write (:doc:`the display pipeline <../implementation/display>`).
+       moon image) stays atomic. One of the three sanctioned
+       exceptions to the whole-panel-atomic invariant, next to the
+       burn-in spin's and the TF replay's direct writes
+       (:doc:`the display pipeline <../implementation/display>`).
 
 The moon animation pipeline
 ----------------------------
@@ -97,7 +98,12 @@ The moon animation pipeline
        TF card as small gray JPEGs — **one per hour** of the cycle,
        ≤ ~709 files ~10 MB — under
        ``/sdcard/moon_cache/<calcver>_<target>_<px>/``, so a warm replay runs
-       at display cadence (~150 ms/frame) instead of bake cadence.
+       at panel-write cadence instead of bake cadence — replayed
+       intermediate frames go straight to the panel in the spin's
+       direct-write model (``UI_MOON_TFCACHE_FPS``, the third
+       sanctioned exception to the atomic-flush invariant; the tick's
+       whole-panel refresh measures 304 ms S3 / 207 ms P4 and would
+       cap a tick-displayed replay at ~3 fps).
        Versioned by the calculation (``MOON_CALC_VER`` =
        ``git describe`` — bump the repo with commitizen ``cz bump`` to
        invalidate) and **self-describing**: a ``meta.txt`` pins the
@@ -112,10 +118,24 @@ The moon animation pipeline
        replay and compute are indistinguishable. The final frame is
        always the live full-``MOON_PX`` bake.
    * - ``UI_MOON_TFCACHE_JPEG_Q``
-     - ``10``
-     - Gray JPEG quality, 1–100. 10 is the knob-demo recipe class
-       (~8–15 KB at 400 px, tiny files, banding invisible at the
-       sweep's ~150 ms cadence); raise to 30–60 for product review.
+     - ``32``
+     - Gray JPEG quality, 1–100. The bench verdict on q 10 (the
+       knob-demo recipe class): visible blocking in the flat dark and
+       bright areas on the panel. 32 reads clean there at ~2–3× the
+       file size (~10 KB at 400 px, ~25 KB at 650 px); cost is
+       resolution-bound, not quality-bound. ``meta.txt`` pins it — a
+       change wipes and re-bakes the cache folder.
+   * - ``UI_MOON_TFCACHE_FPS``
+     - ``25``
+     - Warm-replay pacing target, 2–30. The sweep task displays each
+       replayed intermediate frame itself via the spin's direct panel
+       write (step-rotated, UI keep-mask composited, one window write
+       under ``s_panel_mtx`` — no LVGL refresh), paced
+       constant-cadence like the spin; a slow frame is never repeated
+       or skipped. The sweep summary logs the **measured** fps and
+       worst inter-frame gap. The final frame stays on the tick's
+       atomic ``lv_refr_now`` (it reconciles LVGL with the panel and
+       re-anchors the spin); card-less sweeps are unaffected.
    * - ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``
      - ``2``
      - Floor for the PSRAM prefetch queue, 1–12. The real depth is
@@ -144,8 +164,9 @@ The moon animation pipeline
        in-plane (nearest-neighbor gather, ~8 ms/frame) at a rate that
        eases from the active period to the settled period. Each frame
        is written straight to the panel from the render task (core 1)
-       via a wrapped ``esp_lcd_panel_draw_bitmap`` (the sanctioned
-       second exception to the atomic-flush invariant), with a UI
+       via a wrapped ``esp_lcd_panel_draw_bitmap`` (one of the three
+       sanctioned exceptions to the atomic-flush invariant, next to
+       the fade and the TF replay's direct write), with a UI
        keep-mask protecting every non-black UI pixel.
    * - ``UI_MOON_SPIN_PERIOD_S``
      - ``300``

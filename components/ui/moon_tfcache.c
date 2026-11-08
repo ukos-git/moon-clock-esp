@@ -61,7 +61,7 @@ static const char *TAG = "tfcache";
 #define MOON_CALC_VER "unknown" /* no git at configure time (tarball build) */
 #endif
 #ifndef CONFIG_UI_MOON_TFCACHE_JPEG_Q
-#define CONFIG_UI_MOON_TFCACHE_JPEG_Q 10
+#define CONFIG_UI_MOON_TFCACHE_JPEG_Q 32
 #endif
 
 /* The cache lives ON the FATFS volume: the BSP mounts the card at
