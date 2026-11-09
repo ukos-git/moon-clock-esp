@@ -33,7 +33,9 @@ The knob (16 MB, sibling project)
      - data/spiffs
      - 512 K
      - SPIFFS: ``wifi_credentials.txt`` (gitignored — the clock's
-       filename, read by the shared ``components/wifi``)
+       filename, read by the shared ``components/wifi``) + the
+       tracked ``alarm.txt`` rules file the shared alarm scheduler
+       mounts
        — :doc:`the SPIFFS store <../reference/spiffs-store>`
    * - ``moon_assets``
      - data/undefined

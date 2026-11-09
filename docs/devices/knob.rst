@@ -387,6 +387,13 @@ Layout and commands:
   rename like this into ``storage``). The join is connectivity only
   — no peer protocol; it exists for the SNTP fixes (and the
   settings Wi-Fi screen with the parity phases).
+* ``knob/spiffs/alarm.txt`` is the **clock's tracked rules file**,
+  same contents — it is what the shared alarm scheduler mounts at
+  ``/spiffs/alarm.txt`` (without it boot logged ``ESP_ERR_NOT_FOUND``
+  and the "Loaded N alarm rules from SPIFFS" path never ran; boot
+  stayed healthy either way). The scheduler is loaded and its rules
+  parsed on the knob already; alarm *presentation* arrives with the
+  parity phases.
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
   pulsed channel IS the direction. The decoder mirrors the vendor's
