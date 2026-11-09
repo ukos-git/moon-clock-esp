@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Eighteen keys across four menus (the sibling project's own
+Twenty-four keys across five menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
 the page above):
 
@@ -117,3 +117,26 @@ the page above):
      - ``n`` = the sanctioned log-only bench mode: the would-be sleep
        and the EXT0 RTCIO verdict are logged and the device stays
        reachable over USB-JTAG. Production ships ``y``
+   * - ``KNOB_BATTERY_GAUGE``
+     - ``y``
+     - The P4 gauge: an ``adc_oneshot`` read on GPIO 1 rendered as
+       ``NN %`` at the foot of the shared home (knob-side overlay,
+       minute refresh). ``n`` leaves every entry point inert — no
+       ADC init, no label
+       (:doc:`the knob display <../implementation/knob-display>`)
+   * - ``KNOB_BATTERY_ADC_CHANNEL``
+     - ``0`` (0..7)
+     - ADC_UNIT_1 channel for the sense line — GPIO 1 is ADC1_CH0;
+       ADC1 only, ADC2 is unusable while the radio runs
+   * - ``KNOB_BATTERY_DIV_NUM`` / ``_DEN``
+     - ``2`` / ``1``
+     - Cell = sense × NUM / DEN across the 10K/10K divider — the
+       **placeholder** pair: half-rail maths until the multimeter
+       settles cell vs VBUS on the top rail
+   * - ``KNOB_BATTERY_MV_EMPTY``
+     - ``3300`` (2500..3800)
+     - Cell mV at 0 % — LiPo **placeholder**, linear scale
+   * - ``KNOB_BATTERY_MV_FULL``
+     - ``4200`` (3600..4500)
+     - Cell mV at 100 % — LiPo **placeholder**; the percentage is
+       clamped between the pair

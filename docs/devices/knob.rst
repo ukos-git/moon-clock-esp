@@ -7,8 +7,7 @@ loads the pre-baked moon assets into PSRAM and renders the physical
 moon (K7 milestones: K7a asset target + gate green, K7b static
 frame, K7c cold-boot synodic sweep + sky-event tint + day tick, K7d
 SNTP time with the honest ``no time`` posture, K7e idle ladder +
-EXT0 dial wake — the battery gauge still waits for its user-present
-multimeter ritual). The **P0 family seam** (2026-11-09) made it the
+EXT0 dial wake). The **P0 family seam** (2026-11-09) made it the
 third board of the moon-clock family: the project now links the
 clock's shared ``components/{clock, ui, wifi, moon}`` behind a
 knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
@@ -22,8 +21,14 @@ step** (same day) made the settings surface operable without touch:
 hub ring, alarm screen, rollers, WiFi list and the wheel keyboard
 each carry one dial-stepped edit cursor, and a background tap
 commits it through the native handlers
-(:ref:`dial-semantics-knob`). Alarm *editing* completion (P3) and
-the battery gauge build on the same seam.
+(:ref:`dial-semantics-knob`). The **P3 alarm-editing step** (same
+day) put the weekday-arc range handles under the dial as well, so a
+full rule — hour, minute, start/end day — is set with dial + tap and
+saved through the native handler into ``/spiffs/alarm.txt``. The
+**P4 battery gauge** (same day) added the ``NN %`` home-screen
+overlay reading GPIO 1 behind the divider on the **placeholder**
+LiPo calibration — the gauge ships, the multimeter ritual still
+owes it honest numbers.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
@@ -75,8 +80,8 @@ ESP32S3 and ESP32 respectively"), so each chip reads its own encoder
 and neither knob is a push-button.
 
 Its role in this project is a **family board running the full app**
-(K7 milestones → P0–P2): the shared home screen, settings hub and
-sleep/timezone/WiFi screens compile in verbatim; touch works
+(K7 milestones → P0–P4): the shared home screen, settings hub and
+sleep/timezone/WiFi/alarm screens compile in verbatim; touch works
 everywhere natively, and the dial adds a one-cursor edit path
 (a detent steps the screen's cursor, a tap commits —
 :ref:`dial-semantics-knob <dial-semantics-knob>`). The dial's other
@@ -120,7 +125,10 @@ The ESP32-S3 side (vendor-demo-confirmed, schematic cross-checked):
        the schematic draws as **5V** — the *hypothesis* that the
        factory gauge measures VBUS rather than the cell would
        explain the impossible 4.6 V read on the bench while
-       charging; multimeter-verify before ever trusting the gauge
+       charging; multimeter-verify before ever trusting the gauge.
+       The P4 firmware gauge rides this channel behind
+       ``KNOB_BATTERY_GAUGE`` (fuse-calibrated ``adc_oneshot``,
+       placeholder divider + LiPo pair until the verdict lands)
    * - I2S to the DAC mux
      - BCK 39, DIN 41, WS 40 — the U4WDH has its own set (BCK 25,
        DIN 26, WS 27); a CH445P analog mux picks one source for

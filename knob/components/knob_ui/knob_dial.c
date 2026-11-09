@@ -35,6 +35,8 @@ static const char *TAG = "knob_dial";
  * LVGL-task context: the mutex is held by lv_timer_handler around us. */
 static void dial_tap_commit_cb(lv_event_t *e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        ESP_LOGI(TAG, "root CLICKED -> dial commit"); /* bench forensics: the
+                                                       * background tap reached the root */
         screens_dial_commit();
     }
 }
@@ -71,6 +73,17 @@ void knob_dial_start(void) {
                                objects.settings_tz,         objects.settings_alarm_sound};
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
         if (roots[i]) {
+            /* The settings creators deliberately clear the root's
+             * CLICKABLE (only the explicit widgets take touches) — but
+             * LVGL 9 hit-testing requires CLICKABLE to make a press
+             * TARGET at all, so a background press would resolve to no
+             * object and no CLICKED would ever reach this listener
+             * (the home screens keep a clickable root, which is why
+             * the home-tap gesture works). Restore it knob-side only:
+             * clicks that hit no clickable child now land on the root
+             * — the same target policy the moon screens use. No
+             * scroll side effect: the screens are exactly panel-sized. */
+            lv_obj_add_flag(roots[i], LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(roots[i], dial_tap_commit_cb, LV_EVENT_CLICKED, NULL);
         }
     }

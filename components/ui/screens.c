@@ -3844,6 +3844,10 @@ void create_screens() {
  *                single tap (one tap IS the toggle's whole operation)
  *   rollers      dial steps the FOCUSED roller; pressing another roller
  *                focuses it (twin-roller screens); tap = RELEASED
+ *   day arc      (P3, alarm time) the two day handles join the focus
+ *                set — pressing a handle focuses it; dial steps the
+ *                focused endpoint day by day; tap = the handle's own
+ *                RELEASED save (same as lifting a finger off a drag)
  *   wifi list    step the selection (reuses the row colour + sel bar;
  *                the native row CLICKED handler owns the cursor too)
  *   wheel        step the hot slot (reveals its sector -- the sticky-
@@ -3935,11 +3939,34 @@ static void dial_roller_pair(enum ScreensEnum id, lv_obj_t **a, lv_obj_t **b) {
     }
 }
 
+/* The day handle object of focus slot 2/3 (NULL elsewhere). */
+static lv_obj_t *dial_handle_obj(enum ScreensEnum id, int focus) {
+    if (id != SCREEN_ID_SETTINGS_ALARM_TIME || focus < 2) {
+        return NULL;
+    }
+    return focus == 2 ? objects.settings_alarm_time_handle_start : objects.settings_alarm_time_handle_end;
+}
+
 static void dial_roller_apply(enum ScreensEnum id) {
     lv_obj_t *a = NULL, *b = NULL;
     dial_roller_pair(id, &a, &b);
     dial_ring(a, s_dial_roller_focus == 0);
     dial_ring(b, b != NULL && s_dial_roller_focus == 1);
+    /* P3: the alarm-time screen's two extra focus slots (day handles). */
+    lv_obj_t *h2 = dial_handle_obj(id, 2);
+    dial_ring(h2, h2 != NULL && s_dial_roller_focus == 2);
+    lv_obj_t *h3 = dial_handle_obj(id, 3);
+    dial_ring(h3, h3 != NULL && s_dial_roller_focus == 3);
+}
+
+/* P3: press focus for the alarm-time day handles (drag path untouched:
+ * this rides ALONGSIDE the drag's own PRESSED handler, user_data = the
+ * handle index; focus 2 = start, 3 = end). */
+static void event_handler_cb_dial_handle_press(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    s_dial_roller_focus = 2 + (int)(intptr_t)lv_event_get_user_data(e);
 }
 
 /* Focus defaults on entry (the dial task notices the switch itself via
@@ -3981,6 +4008,12 @@ void screens_dial_init(void) {
                         (void *)(intptr_t)0);
     lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_dial_roller_press, LV_EVENT_PRESSED,
                         (void *)(intptr_t)1);
+    /* P3: the day handles join the focus set (alongside their drag
+     * handlers — pressing a handle focuses it for the dial). */
+    lv_obj_add_event_cb(objects.settings_alarm_time_handle_start, event_handler_cb_dial_handle_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)0);
+    lv_obj_add_event_cb(objects.settings_alarm_time_handle_end, event_handler_cb_dial_handle_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)1);
     dial_screen_reset(ui_current_screen());
 }
 
@@ -4021,10 +4054,25 @@ void screens_dial_step(int dir) {
         dial_alarm_apply();
         s_dial_dirty = true;
         break;
+    case SCREEN_ID_SETTINGS_ALARM_TIME: {
+        /* P3: four focus slots — hour, minute, day-range start, day-range
+         * end (touch press picks the slot; the dial steps its VALUE). */
+        if (s_dial_roller_focus < 2) {
+            lv_obj_t *a = NULL, *b = NULL;
+            dial_roller_pair(id, &a, &b);
+            dial_roller_step(s_dial_roller_focus == 1 ? b : a, dir);
+        } else {
+            int *day = (s_dial_roller_focus == 2) ? &s_alarm_range_start : &s_alarm_range_end;
+            *day = (int)(((int64_t)*day + dir + 7 * 4) % 7); /* wrap Mon..Sun */
+            settings_alarm_time_apply_range();
+        }
+        dial_roller_apply(id);
+        s_dial_dirty = true;
+        break;
+    }
     case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
     case SCREEN_ID_SETTINGS_DEEP_SLEEP:
     case SCREEN_ID_SETTINGS_POMODORO:
-    case SCREEN_ID_SETTINGS_ALARM_TIME:
     case SCREEN_ID_SETTINGS_TZ:
     case SCREEN_ID_SETTINGS_ALARM_SOUND: {
         lv_obj_t *a = NULL, *b = NULL;
@@ -4075,9 +4123,11 @@ void screens_dial_commit(void) {
         dial_screen_reset(id);
     }
     if (!s_dial_dirty) {
+        ESP_LOGD("screens_dial", "tap commit skipped (cursor clean) @%d", (int)id);
         return; /* no cursor moved since entry: a stray background tap
                  * must not save/commit anything */
     }
+    ESP_LOGI("screens_dial", "tap commit @%d (focus %d)", (int)id, s_dial_roller_focus);
     switch (id) {
     case SCREEN_ID_SETTINGS_HUB: {
         const lv_obj_t *icons[8];
@@ -4097,10 +4147,23 @@ void screens_dial_commit(void) {
         }
         break;
     }
+    case SCREEN_ID_SETTINGS_ALARM_TIME: {
+        /* P3: rollers commit with RELEASED as before; a day handle
+         * commits through ITS RELEASED save cb (the same lift-a-finger
+         * path the drag uses — persists time + range, re-arms). */
+        lv_obj_t *h = dial_handle_obj(id, s_dial_roller_focus);
+        if (h != NULL) {
+            lv_obj_send_event(h, LV_EVENT_RELEASED, NULL);
+        } else {
+            lv_obj_t *a = NULL, *b = NULL;
+            dial_roller_pair(id, &a, &b);
+            lv_obj_send_event((s_dial_roller_focus == 1) ? b : a, LV_EVENT_RELEASED, NULL);
+        }
+        break;
+    }
     case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
     case SCREEN_ID_SETTINGS_DEEP_SLEEP:
     case SCREEN_ID_SETTINGS_POMODORO:
-    case SCREEN_ID_SETTINGS_ALARM_TIME:
     case SCREEN_ID_SETTINGS_TZ:
     case SCREEN_ID_SETTINGS_ALARM_SOUND: {
         lv_obj_t *a = NULL, *b = NULL;

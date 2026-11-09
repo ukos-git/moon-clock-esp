@@ -15,6 +15,8 @@
 #if CONFIG_KNOB_UI_ENABLE
 #include "actions.h"
 #include "clock_cb.h"
+#include "knob_battery.h"
+#include "knob_battery_ui.h"
 #include "moon_ui.h"
 #include "ui.h"
 #endif
@@ -421,6 +423,12 @@ void app_main(void) {
      * activity). Runs in the single-threaded UI-creation phase, like
      * ui_init itself. */
     knob_dial_start();
+    /* P4 battery gauge: ADC1 ch0 (GPIO1 sense behind the divider,
+     * placeholder LiPo calibration) + the "NN %" label at the foot of
+     * the shared home, refreshed once a minute. Inert with
+     * KNOB_BATTERY_GAUGE=n or a failed ADC init. */
+    knob_battery_init();
+    knob_battery_ui_attach();
 #else
     knob_ui_create();
     if (assets_ready) {

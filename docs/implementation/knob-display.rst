@@ -3,7 +3,8 @@ The knob display
 
 The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** is the **third board
 of the moon-clock family** (P0 family seam + P1 home parity + P2
-dial-driven settings, 2026-11-09): the ``knob/`` sibling project links
+dial-driven settings + P3 alarm editing + P4 battery gauge,
+2026-11-09): the ``knob/`` sibling project links
 the clock's shared
 ``components/{clock, ui, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
 and answers the board-specific symbol surface with its own
@@ -283,10 +284,16 @@ Two files carry it. ``knob/components/knob_ui/knob_dial.c`` runs the
 input side: a 20 ms task consumes the debounced encoder count
 (vendor pulse-pair scheme, A-rise +1 / B-rise −1) **one detent at a
 time** under the LVGL mutex, and every rotation is ladder activity.
-Tap-to-commit exploits the same fallback the home tap → hub gesture
-already rides: LVGL delivers a CLICKED of a press that hit no
-clickable object to the **screen root**, so a commit listener lives on
-each settings root and runs inside the LVGL task's lock. The screen
+Tap-to-commit rides the home tap → hub gesture's own delivery path: a
+background CLICKED lands on the **screen root**, where a commit
+listener runs inside the LVGL task's lock. One knob-side detail: the
+settings creators deliberately clear the root's CLICKABLE — in LVGL 9
+a press with no clickable object under the finger has **no target at
+all**, so no CLICKED fires anywhere (the home keeps its root
+clickable, which is why its tap works out of the box).
+``knob_dial_start`` therefore re-adds CLICKABLE to every settings
+root, knob-side only — harmless, the screens are exactly panel-sized,
+so nothing can scroll, and the clocks never see the line. The screen
 side lives in ``components/ui/screens.c`` behind
 ``#ifdef CONFIG_BOARD_KNOB`` (the trio ``screens_dial_init`` /
 ``screens_dial_step`` / ``screens_dial_commit``) — a symbol only the
@@ -297,9 +304,10 @@ untouched.
 The **commit never duplicates handler logic**: it re-sends the very
 event the touch path already handles. Icons, the alarm glyphs, exit
 buttons and WiFi rows receive a synthetic ``LV_EVENT_CLICKED`` (the
-same the finger produces), rollers receive ``LV_EVENT_RELEASED`` —
-which *is* their commit (store save / reschedule), identical to
-lifting a finger off a drag — and the wheel letter goes through
+same the finger produces), rollers and the weekday-arc range handles
+receive ``LV_EVENT_RELEASED`` — which *is* their commit (store save /
+reschedule / alarm-rule save), identical to lifting a finger off a
+drag — and the wheel letter goes through
 ``settings_wheel_add_slot``, the ring's own commit choke point. A
 guard makes a stray background tap inert: nothing commits unless a
 cursor moved since the screen was entered.
@@ -327,6 +335,12 @@ cursor moved since the screen was entered.
      - step the **focused** roller (wraps, animated); pressing the
        other roller of a twin screen re-focuses it
      - ``RELEASED`` = commit (store save / reschedule)
+   * - Weekday arc (alarm-time screen, P3)
+     - step the **focused** range handle across the seven day cells;
+       touch-pressing the other handle re-focuses it (touch-dragging
+       the arc stays fully working alongside)
+     - ``RELEASED`` on the focused handle = save (the native handler
+       writes the rule + re-arms the scheduler)
    * - WiFi list
      - step the selection — the same cursor the row tap shares, so
        row colouring + sel bar are the native ones
@@ -339,24 +353,49 @@ cursor moved since the screen was entered.
      - activity (the ladder holds; a turn never interrupts the act)
      - abort (native)
 
+Battery gauge (P4)
+------------------
+
+The gauge is the knob's only addition to the home screen, and it is a
+**knob-side overlay** by design: ``knob_battery_ui.c`` adds a small
+``NN %`` label to the shared home root after everything else
+(bottom-centre below the alarm row, range font, click-transparent so
+the home tap → hub gesture keeps owning every tap), refreshed by a
+one-minute ``lv_timer`` with coarse traffic-light tinting — the cell
+moves on the minute scale, not the second. The reading lives in
+``knob/components/knob_battery``: ``adc_oneshot`` on **ADC1** ch
+``KNOB_BATTERY_ADC_CHANNEL`` (GPIO 1; ADC2 is unusable with the radio
+on), 12 dB attenuation, the eFuse curve-fitting calibration with a
+linear raw approximation as fallback, scaled by
+``KNOB_BATTERY_DIV_NUM``/``_DEN`` across the 10K/10K divider, then
+linear between ``KNOB_BATTERY_MV_EMPTY`` and ``KNOB_BATTERY_MV_FULL``
+(clamped). ``knob_battery_init`` + ``knob_battery_ui_attach`` run in
+``main.c`` inside the P1 umbrella; with ``CONFIG_KNOB_BATTERY_GAUGE=n``
+or a failed ADC init every entry point is inert, the label never
+appears, and the log says ``gauge off``. The first read logs
+``raw -> mV sense -> mV cell`` — the bench line the multimeter ritual
+will check against.
+
 Not shipped (on purpose)
 ------------------------
 
-- **The battery gauge.** ``adc_oneshot`` on GPIO 1 behind the
-  10K/10K divider only enters the firmware after the multimeter
+- **The battery *calibration*.** The code shipped with P4; the honest
+  numbers did not. The divider pair and the 3300..4200 mV LiPo pair
+  are the plan's sanctioned **placeholder** until the multimeter
   ritual **with the user present** settles whether the divider's top
   rail is the cell or VBUS — the schematic draws it as 5V and the
-  factory gauge reads an impossible 4.6 V, so the honest read is
-  *none* until the measurement agrees within ~50 mV. The verdict,
-  either way, belongs on the device page.
-- **Full alarm *editing*** (P3) — the alarm **shows** since P1 (the
-  shared alarm screen, fired awake or across deep sleep by the
-  TIMER wake above) and is always silent (no audio codec to ring
-  with). Since P2 the hour/minute rollers, the master toggle and the
-  pomodoro entry are reachable by dial + tap; what remains on the
-  glass is the weekday-arc range handles (touch-drag only today) and
-  the deep-sleep alarm round-trip bench pass that writes
-  ``/spiffs/alarm.txt`` end to end.
+  factory gauge reads an impossible 4.6 V, so until the measurement
+  agrees within ~50 mV the gauge reads *plausible, not verified*. The
+  verdict, either way, belongs on the device page.
+- **The deep-sleep alarm round-trip bench pass.** Editing is complete
+  since P3: the alarm **shows** since P1 (always silent — no codec to
+  ring with), and since P2 + P3 the hour/minute rollers, the
+  weekday-arc range handles, the master toggle and the pomodoro entry
+  are all dial + tap, saved through the native handlers into
+  ``/spiffs/alarm.txt`` with the scheduler re-armed. What remains is
+  the *sleep-ON* session: the short-countdown TIMER fire on a
+  genuinely deep-slept board (the ladder runs log-only for now per
+  the bench rule).
 - dusk/orbit ambient tasks, sub-hour TZ granularity, charge detection
   (no known VBUS sense). Credentials are entered on the glass since
   P2 (WiFi list → wheel keyboard, COMMIT = save + connect through

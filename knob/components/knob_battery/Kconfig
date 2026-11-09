@@ -1,0 +1,48 @@
+menu "Knob battery gauge (P4)"
+
+config KNOB_BATTERY_GAUGE
+    bool "Show the battery gauge on the home screen (ADC GPIO1)"
+    default y
+    help
+        The P4 parity item built ahead of the multimeter ritual: an
+        adc_oneshot read on GPIO 1 (ADC1_CH0, behind the board's 10K/10K
+        divider) rendered as a percentage at the foot of the shared home
+        screen. The calibration below is the PLACEHOLDER LiPo pair --
+        honest numbers land when the user-present multimeter session
+        settles whether the divider's top rail is the cell or VBUS
+        (the schematic draws 5V; the factory gauge read an impossible
+        4.6 V). Until then the gauge reads plausible, not verified.
+
+config KNOB_BATTERY_ADC_CHANNEL
+    int "ADC1 channel for the battery sense (GPIO1 = 0)"
+    default 0
+    range 0 7
+    help
+        ADC_UNIT_1 channel. GPIO 1 is ADC1_CH0 on the S3 (ADC1 only --
+        ADC2 is unusable while the radio runs).
+
+config KNOB_BATTERY_DIV_NUM
+    int "Divider numerator (cell = sense * NUM / DEN)"
+    default 2
+    range 1 100
+    help
+        The 10K/10K divider reads half the cell -> NUM 2, DEN 1. A
+        multimeter check may show the top rail is VBUS (5V through the
+        divider), not the cell -- the verdict changes these numbers.
+
+config KNOB_BATTERY_DIV_DEN
+    int "Divider denominator"
+    default 1
+    range 1 100
+
+config KNOB_BATTERY_MV_EMPTY
+    int "Cell mV at 0 % (LiPo placeholder)"
+    default 3300
+    range 2500 3800
+
+config KNOB_BATTERY_MV_FULL
+    int "Cell mV at 100 % (LiPo placeholder)"
+    default 4200
+    range 3600 4500
+
+endmenu
