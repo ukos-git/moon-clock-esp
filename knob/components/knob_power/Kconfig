@@ -7,7 +7,10 @@ config KNOB_DIM_AFTER_S
     help
         First rung of the ladder: the backlight duty drops to
         KNOB_DIM_DUTY after this much touch/dial silence. Any activity
-        brings it back to full.
+        brings it back to full. P2 made the store authoritative: the
+        light-sleep screen's roller (settings.txt idle_timeout_sec)
+        drives this rung live, and this value is only the seed the
+        supervisor falls back to while the store holds 0.
 
 config KNOB_DIM_DUTY
     int "Dimmed backlight duty (0..255)"
@@ -67,7 +70,13 @@ config KNOB_SLEEP_TIMEOUT_S
     range 0 36000
     help
         Second rung: esp_deep_sleep_start with EXT0 on dial-A GPIO 8
-        (active-LOW). The cold-boot sweep HOLDS the ladder (a
+        (active-LOW), one countdown AFTER the dim rung -- the clock's
+        additive posture (sleep at idle_timeout + this countdown, both
+        from the last activity). P2 made the store authoritative: the
+        deep-sleep screen's roller (settings.txt
+        deep_sleep_countdown_sec) drives the countdown live, and this
+        value is only the seed the supervisor falls back to while the
+        store holds 0. The cold-boot sweep HOLDS the ladder (a
         presentation is never interrupted); the clock's wake policy
         then shows the current phase statically on every wake.
 

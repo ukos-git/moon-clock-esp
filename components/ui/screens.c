@@ -3826,3 +3826,313 @@ void create_screens() {
     create_screen_settings_tz();
     create_screen_settings_alarm_sound();
 }
+
+#ifdef CONFIG_BOARD_KNOB
+/* ===== P2 dial surface (knob-only) ====================================
+ * The EC1 dial steps one per-screen edit cursor; a tap commits it. Every
+ * commit re-sends the event the TOUCH path already handles (CLICKED on
+ * icons/toggles/rows, RELEASED on rollers -- every screen's save path
+ * rides exactly those two codes), so the dial duplicates no handler
+ * logic and the clocks' behaviour is structurally untouched: the whole
+ * block compiles only when CONFIG_BOARD_KNOB is set, which only the
+ * knob's board-shim choice defines.
+ *
+ * Cursor rules (docs/implementation/knob-display.rst "Dial semantics"):
+ *   hub          step the ring (icons + central exit), white = focused
+ *   alarm list   step the three glyphs (focus ring), tap toggles/opens
+ *   sleep        dial steps the minutes roller; the dusk toggle is a
+ *                single tap (one tap IS the toggle's whole operation)
+ *   rollers      dial steps the FOCUSED roller; pressing another roller
+ *                focuses it (twin-roller screens); tap = RELEASED
+ *   wifi list    step the selection (reuses the row colour + sel bar;
+ *                the native row CLICKED handler owns the cursor too)
+ *   wheel        step the hot slot (reveals its sector -- the sticky-
+ *                reveal the touch press does); tap commits the hot letter
+ * The moon screens (home family) have no cursor: a dial turn there is
+ * pure activity (knob-side un-dims via the ladder).
+ *
+ * LOCKING: screens_dial_step/commit touch LVGL objects. The dial task
+ * takes the LVGL mutex around them (knob_dial.c); the background-tap
+ * commit lands from the indev callback -- already inside the mutex --
+ * and must call the commit WITHOUT re-locking (the mutex is recursive,
+ * but the callers own the contract). */
+
+static enum ScreensEnum s_dial_screen = SCREEN_ID_MODEM_SLEEP;
+static bool s_dial_dirty;       /* a step happened since entry/commit */
+static int s_dial_hub_focus;    /* 0..n-1 ring icons, n = central exit */
+static int s_dial_alarm_focus;  /* 0 master, 1 pomodoro, 2 alarm-clock */
+static int s_dial_roller_focus; /* 0/1 on the twin-roller screens */
+
+static void dial_ring(lv_obj_t *o, bool on) {
+    if (!o) {
+        return;
+    }
+    lv_obj_set_style_border_width(o, on ? UI_PX(3) : 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(o, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(o, on ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+/* The hub's white-glyph focus (grey = unfocused, like the alarm
+ * screen's state colouring). */
+static void dial_hub_apply(void) {
+    const lv_obj_t *icons[8];
+    enum ScreensEnum targets[8];
+    int n = screens_hub_icons(icons, targets, 8);
+    for (int i = 0; i < n; i++) {
+        lv_obj_set_style_text_color((lv_obj_t *)icons[i], i == s_dial_hub_focus ? SETTINGS_WHITE : SETTINGS_GREY,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+    if (objects.settings_hub_exit) {
+        dial_ring(objects.settings_hub_exit, s_dial_hub_focus == n);
+    }
+}
+
+static lv_obj_t *dial_alarm_obj(int idx) {
+    switch (idx) {
+    case 0:
+        return objects.settings_alarm_master;
+    case 1:
+        return objects.settings_alarm_pomodoro;
+    default:
+        return objects.settings_alarm_clock;
+    }
+}
+
+static void dial_alarm_apply(void) {
+    for (int i = 0; i < 3; i++) {
+        dial_ring(dial_alarm_obj(i), i == s_dial_alarm_focus);
+    }
+}
+
+/* The roller pair of the current twin-roller screen (NULL pair
+ * elsewhere). */
+static void dial_roller_pair(enum ScreensEnum id, lv_obj_t **a, lv_obj_t **b) {
+    *a = *b = NULL;
+    switch (id) {
+    case SCREEN_ID_SETTINGS_POMODORO:
+        *a = objects.settings_pomodoro_roller_h;
+        *b = objects.settings_pomodoro_roller_m;
+        break;
+    case SCREEN_ID_SETTINGS_ALARM_TIME:
+        *a = objects.settings_alarm_time_roller_h;
+        *b = objects.settings_alarm_time_roller_m;
+        break;
+    case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
+        *a = s_sleep_roller[0];
+        break;
+    case SCREEN_ID_SETTINGS_DEEP_SLEEP:
+        *a = s_sleep_roller[1];
+        break;
+    case SCREEN_ID_SETTINGS_TZ:
+        *a = objects.settings_tz_roller;
+        break;
+    case SCREEN_ID_SETTINGS_ALARM_SOUND:
+        *a = objects.settings_alarm_sound_roller;
+        break;
+    default:
+        break;
+    }
+}
+
+static void dial_roller_apply(enum ScreensEnum id) {
+    lv_obj_t *a = NULL, *b = NULL;
+    dial_roller_pair(id, &a, &b);
+    dial_ring(a, s_dial_roller_focus == 0);
+    dial_ring(b, b != NULL && s_dial_roller_focus == 1);
+}
+
+/* Focus defaults on entry (the dial task notices the switch itself via
+ * ui_current_screen()). */
+static void dial_screen_reset(enum ScreensEnum id) {
+    s_dial_screen = id;
+    s_dial_dirty = false;
+    s_dial_roller_focus = 0;
+    if (id == SCREEN_ID_SETTINGS_HUB) {
+        s_dial_hub_focus = 0;
+        dial_hub_apply();
+    } else if (id == SCREEN_ID_SETTINGS_ALARM) {
+        s_dial_alarm_focus = 0;
+        dial_alarm_apply();
+    } else if (id == SCREEN_ID_SETTINGS_WIFI) {
+        /* Cursor = the screen's own s_wifi_selected (reset by the
+         * entry refresh); the first step takes row 0. */
+    } else if (id == SCREEN_ID_SETTINGS_WIFI_PASSWORD) {
+        settings_wheel_set_revealed(false, -1); /* full at-rest ring */
+    } else {
+        dial_roller_apply(id);
+    }
+}
+
+/* Press focus for the twin-roller screens (user_data = slot). */
+static void event_handler_cb_dial_roller_press(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    s_dial_roller_focus = (int)(intptr_t)lv_event_get_user_data(e);
+}
+
+void screens_dial_init(void) {
+    lv_obj_add_event_cb(objects.settings_pomodoro_roller_h, event_handler_cb_dial_roller_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)0);
+    lv_obj_add_event_cb(objects.settings_pomodoro_roller_m, event_handler_cb_dial_roller_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)1);
+    lv_obj_add_event_cb(objects.settings_alarm_time_roller_h, event_handler_cb_dial_roller_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)0);
+    lv_obj_add_event_cb(objects.settings_alarm_time_roller_m, event_handler_cb_dial_roller_press, LV_EVENT_PRESSED,
+                        (void *)(intptr_t)1);
+    dial_screen_reset(ui_current_screen());
+}
+
+static void dial_roller_step(lv_obj_t *r, int dir) {
+    if (!r) {
+        return;
+    }
+    uint32_t cnt = lv_roller_get_option_cnt(r);
+    if (cnt == 0) {
+        return;
+    }
+    int32_t sel = lv_roller_get_selected(r);
+    if (sel < 0) {
+        sel = 0;
+    }
+    int32_t next = (int32_t)(((int64_t)sel + dir + (int64_t)cnt * 4) % (int64_t)cnt); /* wrap, like an encoder */
+    lv_roller_set_selected(r, (uint32_t)next, LV_ANIM_ON);
+}
+
+void screens_dial_step(int dir) {
+    enum ScreensEnum id = ui_current_screen();
+    if (id != s_dial_screen) {
+        dial_screen_reset(id);
+    }
+    switch (id) {
+    case SCREEN_ID_SETTINGS_HUB: {
+        const lv_obj_t *icons[8];
+        enum ScreensEnum targets[8];
+        int n = screens_hub_icons(icons, targets, 8);
+        const int n1 = n + 1; /* + the central exit */
+        s_dial_hub_focus = (int)(((int64_t)s_dial_hub_focus + dir + (int64_t)n1 * 4) % n1);
+        dial_hub_apply();
+        s_dial_dirty = true;
+        break;
+    }
+    case SCREEN_ID_SETTINGS_ALARM:
+        s_dial_alarm_focus = (s_dial_alarm_focus + dir + 3) % 3;
+        dial_alarm_apply();
+        s_dial_dirty = true;
+        break;
+    case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
+    case SCREEN_ID_SETTINGS_DEEP_SLEEP:
+    case SCREEN_ID_SETTINGS_POMODORO:
+    case SCREEN_ID_SETTINGS_ALARM_TIME:
+    case SCREEN_ID_SETTINGS_TZ:
+    case SCREEN_ID_SETTINGS_ALARM_SOUND: {
+        lv_obj_t *a = NULL, *b = NULL;
+        dial_roller_pair(id, &a, &b);
+        dial_roller_step(s_dial_roller_focus == 1 ? b : a, dir);
+        dial_roller_apply(id);
+        s_dial_dirty = true;
+        break;
+    }
+    case SCREEN_ID_SETTINGS_WIFI: {
+        wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
+        const int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
+        if (n <= 0) {
+            break;
+        }
+        int sel = s_wifi_selected;
+        sel = (sel < 0) ? 0 : ((sel + dir + n * 4) % n);
+        s_wifi_selected = sel; /* the native cursor the row tap shares */
+        settings_wifi_render_rows();
+        settings_wifi_place_sel_bar(sel);
+        s_dial_dirty = true;
+        break;
+    }
+    case SCREEN_ID_SETTINGS_WIFI_PASSWORD: {
+        const int n = s_wheel_n;
+        if (n <= 0) {
+            break;
+        }
+        int hot = s_wheel_hot;
+        hot = (hot < 0) ? (dir > 0 ? 0 : n - 1) : ((hot + dir + n * 4) % n);
+        int sec = 0;
+        while (sec < WHEEL_N_SECTORS - 1 && hot >= s_wheel_sector_start[sec + 1]) {
+            sec++;
+        }
+        settings_wheel_set_revealed(true, sec);
+        settings_wheel_set_hot(hot);
+        s_dial_dirty = true;
+        break;
+    }
+    default:
+        break; /* moon screens / manual time entry: no dial cursor */
+    }
+}
+
+void screens_dial_commit(void) {
+    enum ScreensEnum id = ui_current_screen();
+    if (id != s_dial_screen) {
+        dial_screen_reset(id);
+    }
+    if (!s_dial_dirty) {
+        return; /* no cursor moved since entry: a stray background tap
+                 * must not save/commit anything */
+    }
+    switch (id) {
+    case SCREEN_ID_SETTINGS_HUB: {
+        const lv_obj_t *icons[8];
+        enum ScreensEnum targets[8];
+        int n = screens_hub_icons(icons, targets, 8);
+        if (s_dial_hub_focus < n) {
+            lv_obj_send_event((lv_obj_t *)icons[s_dial_hub_focus], LV_EVENT_CLICKED, NULL);
+        } else if (objects.settings_hub_exit) {
+            lv_obj_send_event(objects.settings_hub_exit, LV_EVENT_CLICKED, NULL);
+        }
+        break;
+    }
+    case SCREEN_ID_SETTINGS_ALARM: {
+        lv_obj_t *o = dial_alarm_obj(s_dial_alarm_focus);
+        if (o) {
+            lv_obj_send_event(o, LV_EVENT_CLICKED, NULL);
+        }
+        break;
+    }
+    case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
+    case SCREEN_ID_SETTINGS_DEEP_SLEEP:
+    case SCREEN_ID_SETTINGS_POMODORO:
+    case SCREEN_ID_SETTINGS_ALARM_TIME:
+    case SCREEN_ID_SETTINGS_TZ:
+    case SCREEN_ID_SETTINGS_ALARM_SOUND: {
+        lv_obj_t *a = NULL, *b = NULL;
+        dial_roller_pair(id, &a, &b);
+        lv_obj_t *r = (s_dial_roller_focus == 1) ? b : a;
+        if (r) {
+            /* The roller's RELEASED handler IS the commit (store save /
+             * reschedule) -- same as lifting a finger off a drag. */
+            lv_obj_send_event(r, LV_EVENT_RELEASED, NULL);
+        }
+        break;
+    }
+    case SCREEN_ID_SETTINGS_WIFI: {
+        lv_obj_t *row = screens_wifi_row_get(s_wifi_selected);
+        if (row) {
+            lv_obj_send_event(row, LV_EVENT_CLICKED, NULL);
+        }
+        break;
+    }
+    case SCREEN_ID_SETTINGS_WIFI_PASSWORD: {
+        const int hot = s_wheel_hot;
+        if (hot >= 0 && hot < s_wheel_n) {
+            settings_wheel_add_slot(hot);
+            settings_wheel_set_hot(-1);  /* refresh the centre to the
+                                          * running entry... */
+            settings_wheel_set_hot(hot); /* ...and keep the lit box */
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    s_dial_dirty = false;
+}
+#endif /* CONFIG_BOARD_KNOB */

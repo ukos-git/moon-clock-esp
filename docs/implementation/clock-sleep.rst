@@ -303,6 +303,11 @@ the clocks' 25 % panel rung) plus the shared clock widget at
 rungs down from the clocks' ladder — and then calls the real
 ``esp_deep_sleep_start`` (the clocks' app-layer "deep sleep" never
 powers down; the knob's does, battery honesty for a portable knob).
+Since P2 the two rungs read the **same** ``settings.txt`` store pair
+the clocks' sleep screens own (``idle_timeout_sec`` for the dim, one
+``deep_sleep_countdown_sec`` later for the sleep — the clocks'
+additive posture), so the shared sleep-screen rollers edit all three
+boards' idle behaviour.
 The alarm question the asymmetry above answers with *staying in light
 sleep*, the knob answers with the **S3 internal RTC timer**: before
 sleeping it arms ``esp_sleep_enable_timer_wakeup`` for the next fixed

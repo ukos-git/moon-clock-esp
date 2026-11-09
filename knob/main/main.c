@@ -31,6 +31,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "knob_board.h"
+#include "knob_dial.h"
 #include "knob_moon.h"
 #include "knob_power.h"
 #include "knob_time.h"
@@ -105,21 +106,9 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     }
 }
 
-/* #31 probe: the dial is a jobless input until the (deferred) settings
- * editor — log the pulse-pair deltas so the bench separates "never
- * sampled" from "sampled, nothing wired to it". */
-static void dial_watch_task(void *arg) {
-    (void)arg;
-    int32_t last = knob_board_encoder_count();
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        int32_t c = knob_board_encoder_count();
-        if (c != last) {
-            ESP_LOGI(TAG, "dial %d -> %d", (int)last, (int)c);
-            last = c;
-        }
-    }
-}
+/* The dial is an INPUT since P2 (knob_dial.c: cursor step + ladder
+ * activity; screens.c's knob branch owns the per-screen semantics). The
+ * #31 probe line shape survives inside that task. */
 
 static void panel_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     esp_lcd_panel_draw_bitmap(s_panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
@@ -369,11 +358,6 @@ void app_main(void) {
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
 
-    /* K7e idle ladder: dim after KNOB_DIM_AFTER_S of touch/dial silence,
-     * deep sleep (EXT0 dial-A GPIO8) after KNOB_SLEEP_TIMEOUT_S. Boots
-     * active; the sweep holds the ladder from knob_ui. */
-    knob_power_init();
-
     /* Family seam (P0): the clock's shared Wi-Fi manager — mounts SPIFFS,
      * reads /spiffs/wifi_credentials.txt and joins the home AP.
      * Non-fatal: the moon renders offline; the manager's join retry is
@@ -390,6 +374,14 @@ void app_main(void) {
     if (settings_err != ESP_OK && settings_err != ESP_ERR_NOT_FOUND) {
         ESP_LOGW(TAG, "settings.txt load (%s) — keeping Kconfig defaults", esp_err_to_name(settings_err));
     }
+
+    /* K7e/P2 idle ladder: dim after idle_timeout_sec (the light-sleep
+     * roller, seeded by KNOB_DIM_AFTER_S), deep sleep (EXT0 dial-A
+     * GPIO8) one deep-sleep countdown after that (KNOB_SLEEP_TIMEOUT_S
+     * seed). AFTER settings_store_load so the banner quotes the real
+     * store pair; boots active, the sweep holds the ladder from
+     * knob_ui, every dial detent / tap is activity. */
+    knob_power_init();
 
     /* Software time base (CLOCK_USE_PCF85063A=n, the P4's posture):
      * esp_timer countdown/alarm arming, SNTP + NVS epoch snapshot
@@ -424,6 +416,11 @@ void app_main(void) {
      * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
      * dusk posture; knob_power.c calls it from the supervisor task). */
     knob_power_set_dim_cb(knob_render_set_home_dim);
+    /* P2 dial input: tap-to-commit listeners on the settings roots +
+     * dial task (encoder deltas -> cursor steps, every turn is
+     * activity). Runs in the single-threaded UI-creation phase, like
+     * ui_init itself. */
+    knob_dial_start();
 #else
     knob_ui_create();
     if (assets_ready) {
@@ -442,7 +439,6 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick_timer, 2 * 1000));
 
     xTaskCreate(lvgl_task, "knob_lvgl", 8192, NULL, 10, NULL);
-    xTaskCreate(dial_watch_task, "dial_watch", 3072, NULL, 3, NULL);
 #if CONFIG_KNOB_UI_ENABLE
     /* The family clock tick (clock_cb.c): the software-synthesized RTC
      * interrupts -- minute tick (labels + day probe), alarm expiry

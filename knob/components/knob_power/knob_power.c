@@ -28,6 +28,7 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_power.h"
+#include "settings_store.h"
 
 static const char *TAG = "knob_power";
 
@@ -225,8 +226,23 @@ static void supervisor_task(void *arg) {
             knob_power_notify_activity();
         }
 
+        /* P2: the SLEEP screens own the ladder (the settings.txt
+         * round-trip the P2 acceptance asks for). Both rungs read the
+         * store every pass — the shared getters, live after a roller
+         * commit on the settings screens: dim after idle_timeout_sec
+         * (the light-sleep roller), deep sleep one countdown after THAT
+         * (the deep-sleep roller), both measured from the last
+         * activity — the clock's additive posture (idle -> light-sleep
+         * dim -> countdown -> deep), the store's 0 falls back to the
+         * Kconfig seeds. */
+        const uint32_t idle_to = settings_idle_timeout_sec();
+        const uint32_t cnt_down = settings_deep_sleep_countdown_sec();
+        const int64_t dim_s = idle_to ? (int64_t)idle_to : CONFIG_KNOB_DIM_AFTER_S;
+        const int64_t countdown = cnt_down ? (int64_t)cnt_down : CONFIG_KNOB_SLEEP_TIMEOUT_S;
+        const int64_t sleep_s = dim_s + countdown;
+
         const int64_t idle = idle_seconds();
-        if (s_dimmed && idle < CONFIG_KNOB_DIM_AFTER_S) {
+        if (s_dimmed && idle < dim_s) {
             s_dimmed = false;
             knob_board_backlight_set(255);
             if (s_dim_cb != NULL) {
@@ -235,7 +251,7 @@ static void supervisor_task(void *arg) {
             ESP_LOGI(TAG, "activity -- backlight back to full");
             continue;
         }
-        if (!s_dimmed && CONFIG_KNOB_DIM_AFTER_S > 0 && idle >= CONFIG_KNOB_DIM_AFTER_S) {
+        if (!s_dimmed && dim_s > 0 && idle >= dim_s) {
             s_dimmed = true;
             knob_board_backlight_set(CONFIG_KNOB_DIM_DUTY);
             if (s_dim_cb != NULL) {
@@ -243,7 +259,7 @@ static void supervisor_task(void *arg) {
             }
             ESP_LOGI(TAG, "idle %lld s -- backlight dimmed to %d", (long long)idle, (int)CONFIG_KNOB_DIM_DUTY);
         }
-        if (CONFIG_KNOB_SLEEP_TIMEOUT_S > 0 && idle >= CONFIG_KNOB_SLEEP_TIMEOUT_S) {
+        if (countdown > 0 && idle >= sleep_s) {
             enter_deep_sleep(idle);
         }
     }
@@ -257,6 +273,15 @@ void knob_power_init(void) {
 #else
     const char *sleep_mode = " [log-only]";
 #endif
-    ESP_LOGI(TAG, "power supervisor up (dim %d s, sleep %d s%s, EXT0 dial-A wake)", (int)CONFIG_KNOB_DIM_AFTER_S,
+    /* P2: the rungs follow the settings store (the sleep screens'
+     * rollers), live per pass; the banner quotes the store pair the
+     * supervisor starts on (falling back to the Kconfig seeds when a
+     * value is unset — app_main must call this AFTER
+     * settings_store_load so the pair is real). */
+    const uint32_t idle_to = settings_idle_timeout_sec();
+    const uint32_t cnt_down = settings_deep_sleep_countdown_sec();
+    ESP_LOGI(TAG, "power supervisor up (dim %u s, sleep +%u s [seeds %d/%d s]%s, EXT0 dial-A wake)",
+             (unsigned)(idle_to ? idle_to : (uint32_t)CONFIG_KNOB_DIM_AFTER_S),
+             (unsigned)(cnt_down ? cnt_down : (uint32_t)CONFIG_KNOB_SLEEP_TIMEOUT_S), (int)CONFIG_KNOB_DIM_AFTER_S,
              (int)CONFIG_KNOB_SLEEP_TIMEOUT_S, sleep_mode);
 }

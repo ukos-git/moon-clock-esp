@@ -323,6 +323,18 @@ lv_obj_t *screens_sub_exit_get(lv_obj_t *root);
  * scan only fills their text). NULL for an out-of-range index. */
 lv_obj_t *screens_wifi_row_get(int i);
 
+#ifdef CONFIG_BOARD_KNOB
+/* ---- P2 dial surface (knob-only; see screens.c "P2 dial surface") ----
+ * The dial steps one per-screen edit cursor; a tap commits it through
+ * the native CLICKED/RELEASED handlers. LOCK CONTRACT: they touch LVGL
+ * objects but never lock -- call them with the LVGL mutex held (dial
+ * task) or from indev-callback context, where the mutex is already
+ * held (background-tap commit). */
+void screens_dial_init(void);    /* post ui_init: press-focus + entry state */
+void screens_dial_step(int dir); /* +1 = dial clockwise detent */
+void screens_dial_commit(void);  /* tap: commit the focused widget */
+#endif                           /* CONFIG_BOARD_KNOB */
+
 #ifdef CONFIG_UI_DEMO_MODE
 /* Points in the wheel's LOCAL screen space (the space the wheel
  * handlers' inverse transform maps the raw indev point into); the demo

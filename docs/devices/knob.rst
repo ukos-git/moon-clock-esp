@@ -10,16 +10,20 @@ SNTP time with the honest ``no time`` posture, K7e idle ladder +
 EXT0 dial wake — the battery gauge still waits for its user-present
 multimeter ritual). The **P0 family seam** (2026-11-09) made it the
 third board of the moon-clock family: the project now links the
-clock's shared ``components/{clock, wifi, moon}`` behind a
+clock's shared ``components/{clock, ui, wifi, moon}`` behind a
 knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
-put the family's own app on the glass: ``components/ui`` compiles
-unchanged (generated ``fonts_knob/`` tier), the shared home screen —
+put the family's own app on the glass: the shared home screen —
 moon image, split-flap HH:MM, alarm row, seconds arc — runs over the
-``knob_moon_render.c`` seam, the idle ladder dims to the clocks'
-dusk look (LEDC 25 % + clock widget 20 %), and a fixed alarm rule
-**shows** across real deep sleep via the internal RTC **TIMER** wake
-(silent — no codec; editable with P3). Settings screens + alarm
-editing (P2/P3) and the battery gauge build on the same seam.
+``knob_moon_render.c`` seam (generated ``fonts_knob/`` tier), the
+idle ladder dims to the clocks' dusk look (LEDC 25 % + clock widget
+20 %), and a fixed alarm rule **shows** across real deep sleep via
+the internal RTC **TIMER** wake (silent — no codec). The **P2 dial
+step** (same day) made the settings surface operable without touch:
+hub ring, alarm screen, rollers, WiFi list and the wheel keyboard
+each carry one dial-stepped edit cursor, and a background tap
+commits it through the native handlers
+(:ref:`dial-semantics-knob`). Alarm *editing* completion (P3) and
+the battery gauge build on the same seam.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
@@ -70,13 +74,17 @@ the dial. The encoders are **dual — one per MCU** ("acting on
 ESP32S3 and ESP32 respectively"), so each chip reads its own encoder
 and neither knob is a push-button.
 
-Its role in this project is a **fully-working moon display on its
-own** (task #24, the K7 milestones). What it does **not** do is
-input for the clock: the two boards are independent products that
-share only the moon core and the asset pipeline. The dial already
-has its first job (K7e): a detent is activity for the idle ladder,
+Its role in this project is a **family board running the full app**
+(K7 milestones → P0–P2): the shared home screen, settings hub and
+sleep/timezone/WiFi screens compile in verbatim; touch works
+everywhere natively, and the dial adds a one-cursor edit path
+(a detent steps the screen's cursor, a tap commits —
+:ref:`dial-semantics-knob <dial-semantics-knob>`). The dial's other
+two jobs stay from K7e: a detent is activity for the idle ladder,
 and after deep sleep it is the wake input (EXT0 on its A channel);
-touch had one already — a screen press aborts the boot sweep.
+a screen press aborts the boot sweep. The two clock boards and this
+one remain independent products — no cross-board traffic; what they
+share is the code.
 
 Hardware map (vendor schematic + demo, extracted 2026-11-07)
 -------------------------------------------------------------
@@ -238,8 +246,9 @@ alarm row and seconds arc from ``screens.c``'s
 with the generated ``fonts_knob/`` tier (74/37/25 px = the S3's
 96/48/32 baselines scaled by 360/466). The earlier K7 caption row
 ("Nov 8 17:29" through ``KNOB_TZ``) still carries the display in the
-legacy own-screen build (``KNOB_UI_ENABLE=n``); it retires when the
-shared TZ screen lands with P2. Around that, a cold-boot synodic sweep
+legacy own-screen build (``KNOB_UI_ENABLE=n``) — with P2 shipped the
+shared TZ screen owns the zone on the family app and ``KNOB_TZ``
+survives only in that legacy caption. Around that, a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
 that re-bakes once on a UTC-date or event-signature change, SNTP
@@ -247,15 +256,20 @@ time over the shared ``components/wifi`` join with the clock's NVS
 last-known-instant snapshot (K7d on the shared ``clock_sntp`` path —
 the board has no RTC), and an idle ladder —
 backlight dim, then deep sleep woken by a dial detent **or a screen
-tap** (K7e, ``knob_power``). How the pieces run —
-frame path, opening act, ladder — is
+tap** (K7e, ``knob_power``; since P2 the two rungs read the
+``settings.txt`` store, so the sleep screens' rollers are the real
+editors). The settings hub and its screens are operable by dial +
+tap alone (:ref:`dial-semantics-knob <dial-semantics-knob>`). How the pieces run —
+frame path, opening act, ladder, dial — is
 :doc:`the knob display <../implementation/knob-display>`.
 Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {board, imu, knob_board, knob_ui, knob_moon, knob_power,
-  knob_time}`` and the shared ``../components/{clock, wifi, moon}``
-  brought in through ``EXTRA_COMPONENT_DIRS``. The seam's
+  knob_time}`` and the shared ``../components/{clock, ui, wifi,
+  moon}`` brought in through ``EXTRA_COMPONENT_DIRS`` (individual
+  dirs, never the parent — the shims own the ``board``/``imu``
+  names). The seam's
   ``board``/``imu`` shims answer the board-specific symbol surface
   the way the P4's BSP does (panel handle + ``bsp/esp-bsp.h``
   provider + IO-expander-to-NULL; a fixed-upright IMU — there is no
@@ -349,15 +363,20 @@ Layout and commands:
   default **64** = 25 %, the P1 dim-parity value matching the clocks'
   light-sleep panel; a registered dim observer drops the shared clock
   widget to ``UI_CLOCK_ALPHA_PCT`` alongside) after
-  ``KNOB_DIM_AFTER_S`` (15) and enters
-  ``esp_deep_sleep_start`` after ``KNOB_SLEEP_TIMEOUT_S`` (60) of
-  touch/dial silence; any activity un-dims and restarts the ladder.
+  ``settings_idle_timeout_sec`` (``settings.txt`` ``idle_timeout_sec``,
+  default 60, clamped 60..1800 — since P2 the **store owns both
+  rungs**, live from the sleep screens' rollers; the Kconfig
+  ``KNOB_DIM_AFTER_S`` (15)/``KNOB_SLEEP_TIMEOUT_S`` (60) are seed
+  fallbacks) and enters ``esp_deep_sleep_start`` one
+  ``deep_sleep_countdown_sec`` (default 60) after THAT — the clocks'
+  additive posture, both measured from the last touch/dial activity;
+  any activity un-dims and restarts the ladder.
   Activity = touch contacts (pushed from the indev read) and dial
   detents (the encoder count polled); the **boot arm** and the
   cold-boot sweep (and the static first frame) **hold** the ladder —
   a presentation is never interrupted and a never-yet-presented board
   is never slept over (the hold starts with ``boot_arm_task``, so a
-  slow join + NTP window can no longer dim at 15 s and sleep at 60 s
+  slow join + NTP window can no longer dim at 60 s and sleep at 120 s
   over a black panel; only a board that will never present leaves the
   ladder free). Deep sleep first saves the shared ``clock``/``epoch``
   snapshot (``clock_nvs_save_epoch``), then arms **EXT0 on dial-A
@@ -379,7 +398,9 @@ Layout and commands:
   dial turn. The S3
   RTCIO verdict the
   plan asked for came back **accepted**, device-verified 2026-11-08
-  on the production build — the 314 s cold-boot sweep held the ladder
+  on the production build (P1-era, ladder still on the Kconfig pair —
+  the store-driven rungs re-measure with the P2 bench pass) — the
+  314 s cold-boot sweep held the ladder
   whole (no dim/sleep lines while sweeping), dim fired at idle 15.1 s,
   ``EXT0 GPIO 8 accepted, deep sleep now`` at idle 60.1 s, and the
   USB-JTAG node vanished from the host moments later: a real deep

@@ -68,7 +68,10 @@ the page above):
        or ``no time``
    * - ``KNOB_DIM_AFTER_S``
      - ``15`` (0..3600)
-     - Idle seconds before the backlight dims (0 = never)
+     - Seed for the dim rung (0 = never): since P2 the light-sleep
+       screen's roller (``settings.txt`` ``idle_timeout_sec``) drives
+       the rung live and this value only applies while the store
+       holds 0
    * - ``KNOB_DIM_DUTY``
      - ``64`` (1..254)
      - LEDC duty while dimmed (full = 255). 64 = the P1 dim-parity
@@ -95,10 +98,13 @@ the page above):
        **defers** the sleep for the awake esp_timer instead
    * - ``KNOB_SLEEP_TIMEOUT_S``
      - ``60`` (0..36000)
-     - Idle seconds before ``esp_deep_sleep_start`` with EXT0 on
-       dial-A GPIO 8 (0 = never sleep); the boot arm and the opening
-       act HOLD the ladder, and the shared ``clock``/``epoch``
-       snapshot is saved first
+     - Seed for the deep-sleep countdown (0 = never sleep): since P2
+       the deep-sleep screen's roller (``settings.txt``
+       ``deep_sleep_countdown_sec``) drives it live and this value
+       only applies while the store holds 0. Sleep is additive —
+       one countdown AFTER the dim rung, both from the last
+       activity; the boot arm and the opening act HOLD the ladder,
+       and the shared ``clock``/``epoch`` snapshot is saved first
    * - ``KNOB_TOUCH_WAKE``
      - ``y``
      - Also arm EXT1 ANY_LOW on the CST816S INT (GPIO 9): a screen

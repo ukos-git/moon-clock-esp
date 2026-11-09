@@ -70,7 +70,10 @@ Cron-like, five fields:
 The default is the weekday alarm (``0 7 * * 1-5`` — 7:00 Mon–Fri); the
 ``*/5`` debug rule was burned into the alarm screen historically. The
 scheduler arms the PCF85063A hardware alarm from this rule on the S3
-and the software ``esp_timer`` one-shot on the P4; a **zero-rule**
+and the software ``esp_timer`` one-shot on the P4 (and on the knob,
+which extends the same rule across real deep sleep with the internal
+RTC **TIMER** wake
+(:doc:`the knob display <../implementation/knob-display>`); a **zero-rule**
 boot must disarm any stale armed ALM or a stale time fires a phantom
 alarm (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
 
@@ -112,7 +115,12 @@ a bad/missing value falling back to the Kconfig-seeded default
 
 The two timeouts are user-facing in **minutes** on the settings
 screens (a 1–30 minute picker) and stored internally in seconds
-(60–1800). ``timezone_idx`` indexes the runtime timezone option list:
+(60–1800). On the **knob** they are the power ladder: since P2 the
+idle-ladder supervisor reads this pair live — dim after
+``idle_timeout_sec``, ``esp_deep_sleep_start`` one
+``deep_sleep_countdown_sec`` later — so the knob's sleep-screen
+rollers (dial-step + tap-commit) are the real editors of its idle
+behaviour. ``timezone_idx`` indexes the runtime timezone option list:
 indices 0–52 are the fixed 30-minute UTC offsets (UTC−12:00 …
 UTC+14:00) and index 53 is Europe/Berlin (DST-aware, the Kconfig
 default) — :cfile:`components/clock/clock_tz.c` rewrites the POSIX TZ

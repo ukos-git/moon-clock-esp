@@ -2,8 +2,9 @@ The knob display
 ================
 
 The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** is the **third board
-of the moon-clock family** (P0 family seam + P1 home parity,
-2026-11-09): the ``knob/`` sibling project links the clock's shared
+of the moon-clock family** (P0 family seam + P1 home parity + P2
+dial-driven settings, 2026-11-09): the ``knob/`` sibling project links
+the clock's shared
 ``components/{clock, ui, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
 and answers the board-specific symbol surface with its own
 ``board``/``imu`` shim — the way the P4 port answered it with its
@@ -200,12 +201,18 @@ The power ladder
 ----------------
 
 ``knob/components/knob_power`` runs a 500 ms supervisor task:
-active → backlight dim (``KNOB_DIM_AFTER_S`` 15 → LEDC duty
-``KNOB_DIM_DUTY`` **64 = 25 %**, the P1 dim-parity value matching the
-clocks' light-sleep panel) → ``esp_deep_sleep_start`` after
-``KNOB_SLEEP_TIMEOUT_S`` (60) of touch/dial silence. The dim rung is
+active → backlight dim → ``esp_deep_sleep_start``, on the **same
+store pair the clocks' sleep screens own** (P2): the dim rung fires
+after ``settings_idle_timeout_sec`` (the light-sleep screen's roller,
+``settings.txt`` ``idle_timeout_sec``, default 60) and the sleep one
+countdown after THAT (``settings_deep_sleep_countdown_sec``, default
+60) — the clocks' additive posture, both measured from the last
+touch/dial activity. The store is clamped to 60..1800 so it always
+answers; ``KNOB_DIM_AFTER_S`` (15) and ``KNOB_SLEEP_TIMEOUT_S`` (60)
+are the seed fallbacks behind it. The dim rung is
 **two-part** like the clocks' dusk: the supervisor drops the LEDC
-duty, and a registered dim observer (``knob_power_set_dim_cb`` —
+duty to ``KNOB_DIM_DUTY`` **64 = 25 %** (the P1 dim-parity value
+matching the clocks' light-sleep panel), and a registered dim observer (``knob_power_set_dim_cb`` —
 main.c wires it to the seam's ``knob_render_set_home_dim``) drops
 the shared clock widget to ``UI_CLOCK_ALPHA_PCT`` (20 %) opacity
 alongside it, restoring both on activity. Activity is
@@ -214,13 +221,14 @@ encoder count polled); **the boot arm and the opening act both hold**
 the ladder, so a presentation is never interrupted — and never
 pre-empted: the hold starts when ``boot_arm_task`` begins, not when
 the producer task exists, which is what keeps a slow join + NTP
-window from dimming at 15 s and sleeping at 60 s over a glass that
+window from dimming at 60 s and sleeping at 120 s over a glass that
 has not shown a single frame yet (only a board that will never
 present — no assets, or no fix and no snapshot — leaves the ladder
-free to sleep it). Device-verified: the 314 s sweep froze both
-thresholds, then dim fired at idle 15.1 s and the sleep at idle
-60.1 s, with the USB-JTAG node vanishing host-side (a real deep
-sleep, not a hang). Before ``esp_deep_sleep_start`` the supervisor
+free to sleep it). Device-verified (P1-era, ladder still on the
+Kconfig pair): the 314 s sweep froze both thresholds, then dim fired
+at idle 15.1 s and the sleep at idle 60.1 s, with the USB-JTAG node
+vanishing host-side (a real deep sleep, not a hang) — the
+store-driven rungs re-measure with the P2 bench pass. Before ``esp_deep_sleep_start`` the supervisor
 saves the shared ``clock``/``epoch`` NVS snapshot
 (``clock_nvs_save_epoch``), so the wake comes up on the last known
 instant — and, under ``KNOB_ALARM_TIMER_WAKE`` (default ``y``, the
@@ -261,6 +269,76 @@ a warning. The back-side power button is a hardware rail switch, not
 a firmware input. ``KNOB_SLEEP_ALLOW=n`` is the sanctioned log-only
 bench mode.
 
+.. _dial-semantics-knob:
+
+Dial semantics (P2)
+-------------------
+
+The dial is an **input device, not a second UI**: it steps one
+per-screen edit cursor and a tap commits it. Touch stays fully
+native everywhere — the dial is additive, and because there is no
+push-button on the EC1, the tap is the *only* commit gesture.
+
+Two files carry it. ``knob/components/knob_ui/knob_dial.c`` runs the
+input side: a 20 ms task consumes the debounced encoder count
+(vendor pulse-pair scheme, A-rise +1 / B-rise −1) **one detent at a
+time** under the LVGL mutex, and every rotation is ladder activity.
+Tap-to-commit exploits the same fallback the home tap → hub gesture
+already rides: LVGL delivers a CLICKED of a press that hit no
+clickable object to the **screen root**, so a commit listener lives on
+each settings root and runs inside the LVGL task's lock. The screen
+side lives in ``components/ui/screens.c`` behind
+``#ifdef CONFIG_BOARD_KNOB`` (the trio ``screens_dial_init`` /
+``screens_dial_step`` / ``screens_dial_commit``) — a symbol only the
+knob's board-shim ``choice BOARD`` defines, so in the clocks' builds
+the block is not preprocessed at all and their UI is structurally
+untouched.
+
+The **commit never duplicates handler logic**: it re-sends the very
+event the touch path already handles. Icons, the alarm glyphs, exit
+buttons and WiFi rows receive a synthetic ``LV_EVENT_CLICKED`` (the
+same the finger produces), rollers receive ``LV_EVENT_RELEASED`` —
+which *is* their commit (store save / reschedule), identical to
+lifting a finger off a drag — and the wheel letter goes through
+``settings_wheel_add_slot``, the ring's own commit choke point. A
+guard makes a stray background tap inert: nothing commits unless a
+cursor moved since the screen was entered.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 42 32
+
+   * - Screen
+     - Dial turn
+     - Tap (background)
+   * - Home / moon screens
+     - activity, un-dims the ladder (no cursor)
+     - open the hub (the native home-tap handler)
+   * - Hub ring
+     - step focus over the icons + the central exit (white glyph =
+       focused, ring on the exit)
+     - open the focused icon / exit to home
+   * - Alarm screen
+     - step the three glyphs (master toggle, pomodoro, alarm clock)
+       with a focus ring
+     - toggle / open through the native handlers
+   * - Roller screens (pomodoro h/m, alarm time h/m, both sleep
+       screens, timezone, alarm sound)
+     - step the **focused** roller (wraps, animated); pressing the
+       other roller of a twin screen re-focuses it
+     - ``RELEASED`` = commit (store save / reschedule)
+   * - WiFi list
+     - step the selection — the same cursor the row tap shares, so
+       row colouring + sel bar are the native ones
+     - open the keyboard / connect
+   * - Wheel keyboard
+     - step the hot slot; the sector reveal follows (the sticky
+       reveal a touch press does)
+     - commit the hot letter into the running entry
+   * - Sweep / boot arm
+     - activity (the ladder holds; a turn never interrupts the act)
+     - abort (native)
+
 Not shipped (on purpose)
 ------------------------
 
@@ -271,18 +349,16 @@ Not shipped (on purpose)
   factory gauge reads an impossible 4.6 V, so the honest read is
   *none* until the measurement agrees within ~50 mV. The verdict,
   either way, belongs on the device page.
-- **The settings editor** — superseded by the family seam: the
-  shared screens + ``settings_store`` (the clock's
-  ``/spiffs/settings.txt``) arrive with the parity phases as the
-  dial's real job, not the earlier ``knob_settings.txt`` + dial
-  stepper idea.
-- **Alarm *editing*** (P3) — the alarm **shows** since P1 (the
+- **Full alarm *editing*** (P3) — the alarm **shows** since P1 (the
   shared alarm screen, fired awake or across deep sleep by the
-  TIMER wake above) but is always silent and not yet editable on
-  the glass: no audio codec to ring with, and the rollers +
-  weekday arc + wheel keyboard that write ``/spiffs/alarm.txt``
-  ride in with the settings phases.
-- On-device credential entry (the gitignored credentials file plus
-  host-side editing is today's input tool; the wheel keyboard comes
-  with the parity phases), dusk/orbit ambient tasks, sub-hour TZ
-  granularity, charge detection (no known VBUS sense).
+  TIMER wake above) and is always silent (no audio codec to ring
+  with). Since P2 the hour/minute rollers, the master toggle and the
+  pomodoro entry are reachable by dial + tap; what remains on the
+  glass is the weekday-arc range handles (touch-drag only today) and
+  the deep-sleep alarm round-trip bench pass that writes
+  ``/spiffs/alarm.txt`` end to end.
+- dusk/orbit ambient tasks, sub-hour TZ granularity, charge detection
+  (no known VBUS sense). Credentials are entered on the glass since
+  P2 (WiFi list → wheel keyboard, COMMIT = save + connect through
+  the native handler writing the gitignored credentials file);
+  host-side editing of that file stays available.

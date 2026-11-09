@@ -13,7 +13,7 @@
 # decides whether moon_ui_init/ui_init run at all. With the switch off the
 # seam objects link but nothing ever calls them (legacy own-screen view);
 # the shared UI's static lib is never pulled either, exactly as before.
-set(KNOB_UI_SRCS "knob_ui.c" "knob_moon_render.c" "knob_alarm_audio_stub.c")
+set(KNOB_UI_SRCS "knob_ui.c" "knob_moon_render.c" "knob_alarm_audio_stub.c" "knob_dial.c")
 set(KNOB_UI_DEPS lvgl knob_board knob_moon clock knob_power ui)
 idf_component_register(SRCS ${KNOB_UI_SRCS}
                        INCLUDE_DIRS "include"
