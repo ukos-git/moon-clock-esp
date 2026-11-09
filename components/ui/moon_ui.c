@@ -564,6 +564,69 @@ static TaskHandle_t s_dusk_task;
 static TaskHandle_t s_lvgl_task;
 static bool moon_on_lvgl(void) { return s_lvgl_task && s_lvgl_task == xTaskGetCurrentTaskHandle(); }
 
+/* Sky-event classification, day-scan-guarded (2026-11-09). The once-a-
+ * calendar-day full_moments scan inside moon_event_classify (~350-600
+ * ephemeris evaluations, measured 15-20 s on the S3) must never run on
+ * the LVGL task: it hijacks the task mid-frame, freezing the minute
+ * roll animation between the two pairs (observed on the panel: stuck
+ * half-way 18:34 -> 18:35) and starving IDLE0 into a 5 s task-WDT
+ * storm (no panic -- CONFIG_ESP_TASK_WDT_PANIC is off, so the device
+ * looked like it was "crash looping" on the console). The CPU-1
+ * pipeline tasks (sweep / dusk / orbit -- all pinned to core 1, where
+ * IDLE1 is unwatched, and all 12 KB-stacked for this scan) classify
+ * their own epochs directly; every other caller asks the worker below
+ * to warm the day cache and gets a plain (all-false) event until that
+ * day's scan completed -- the one untinted bake self-heals, because
+ * the next day-tick probe sees the signature change and re-bakes. */
+static volatile int64_t s_ev_warm_day = -1; /* day whose full_moments scan completed */
+static volatile int64_t s_ev_want_day = -1; /* day the worker was asked to scan */
+static TaskHandle_t s_event_task;
+
+/* The tasks that may run the day scan in place: the core-1 pipeline
+ * tasks and the event worker itself. Everything else (the LVGL task,
+ * the boot task) is guarded by moon_event_classify_here. */
+static bool moon_ev_scan_allowed(void) {
+    const TaskHandle_t me = xTaskGetCurrentTaskHandle();
+    return me == s_sweep_task || me == s_dusk_task || me == s_orbit_task || me == s_event_task;
+}
+
+static void moon_event_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        int64_t now;
+        if (clock_get_utc_epoch(&now) != ESP_OK)
+            continue;
+        const int64_t want = s_ev_want_day;
+        moon_event_t ev;
+        moon_event_classify(now, &ev); /* the day's scan, on core 1 */
+        if (now / 86400 == want)
+            s_ev_warm_day = want;
+    }
+}
+
+/* moon_event_classify, but never on the LVGL task with a cold day
+ * cache (see above). Returns false when the epoch's day has not been
+ * scanned yet: ev is zeroed (a plain event -- byte-identical to an
+ * all-false classify) and the worker was asked to warm that day. */
+static bool moon_event_classify_here(int64_t epoch, moon_event_t *ev) {
+    const int64_t day = epoch / 86400;
+    if (moon_ev_scan_allowed()) {
+        moon_event_classify(epoch, ev); /* core-1 pipeline context: the scan is its own */
+        s_ev_warm_day = day;
+        return true;
+    }
+    if (day != s_ev_warm_day) {
+        s_ev_want_day = day;
+        if (s_event_task)
+            xTaskNotifyGive(s_event_task);
+        memset(ev, 0, sizeof *ev);
+        return false;
+    }
+    moon_event_classify(epoch, ev); /* warm day: the cheap path (the geometry evals only) */
+    return true;
+}
+
 static void moon_invalidate_all(void) {
     for (int i = 0; i < s_n_images; i++)
         lv_obj_invalidate(s_images[i]);
@@ -715,7 +778,7 @@ static void moon_bake_epoch(int64_t epoch) {
      * blood occlusion (the eclipse "bite") is passed per-pixel into the
      * bake; an all-false event bakes as NULL (byte-identical). */
     moon_event_t ev;
-    moon_event_classify(epoch, &ev);
+    moon_event_classify_here(epoch, &ev); /* never the day scan on the LVGL task */
     moon_gray565_set_event(&ev);
     const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
     s_baked_event = moon_event_signature(&ev); /* the day-tick change detector */
@@ -1473,7 +1536,7 @@ static void moon_orbit_task(void *arg) {
      * the blood occlusion (the tint LUT was already set by
      * moon_bake_epoch at that epoch). */
     moon_event_t ev;
-    moon_event_classify(epoch, &ev);
+    moon_event_classify_here(epoch, &ev); /* orbit task (core 1): scans in place */
     const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
     int64_t t0 = esp_timer_get_time();
     for (int y = 0; y < MOON_PX && !s_orbit_cancel; y++) {
@@ -1892,7 +1955,7 @@ static void moon_sweep_task(void *arg) {
      * spin hands over to the same LUT (the day_tick's moon_bake_epoch
      * re-selects it at most once a day -- same event, no rebuild). */
     moon_event_t sweep_ev;
-    moon_event_classify(now, &sweep_ev);
+    moon_event_classify_here(now, &sweep_ev); /* sweep task (core 1): scans in place */
     moon_gray565_set_event(&sweep_ev);
     const moon_bake_ev_t *sweep_bev = moon_event_any(&sweep_ev) ? &sweep_ev : NULL;
 #if CONFIG_UI_MOON_TFCACHE
@@ -2405,7 +2468,7 @@ static void moon_dusk_task(void *arg) {
      * the same day's event; set here so the dusk never depends on the
      * cross-task ordering, and the write-out stays ahead of frame 1). */
     moon_event_t dusk_ev;
-    moon_event_classify(s_dusk_epoch, &dusk_ev);
+    moon_event_classify_here(s_dusk_epoch, &dusk_ev); /* dusk task (core 1): scans in place */
     moon_gray565_set_event(&dusk_ev);
     const moon_bake_ev_t *bev = moon_event_any(&dusk_ev) ? &dusk_ev : NULL;
     int64_t t0 = esp_timer_get_time();
@@ -3123,6 +3186,15 @@ void moon_ui_init(void) {
             ESP_LOGI(TAG, "panel-io watchdog armed (%lu ms stuck limit)", (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
         }
     }
+    /* The sky-event day-scan worker (see moon_event_classify_here):
+     * core 1 (IDLE1 is not WDT-watched, so its 15-20 s scan can never
+     * trip the watchdog), below the bake tasks in priority, and 12 KB
+     * of stack like the sweep -- the era chain needs the headroom
+     * (2026-11-04 lesson). */
+    if (xTaskCreatePinnedToCoreWithCaps(moon_event_task, "moon_event", 12288, NULL, configMAX_PRIORITIES - 4,
+                                        &s_event_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+        ESP_LOGW(TAG, "event worker task failed to start; day scans stay on the pipeline tasks");
+    }
     s_ready = true;
     ESP_LOGI(TAG, "moon UI ready (frame=%p rgb=%p)", (void *)s_frame, (void *)s_rgb);
 }
@@ -3342,13 +3414,8 @@ void moon_ui_day_tick(void) {
      * the bite's drift across the face. The probe is two moon_geometry
      * calls plus the blue-moon back-step, which is cached per calendar
      * day in moon_event.c (one ~350-step scan per day, not per
-     * minute). */
-    moon_event_t ev;
-    moon_event_classify(now, &ev);
-    const bool ev_change = moon_event_signature(&ev) != s_baked_event;
-    const bool blood_hour = ev.blood && now / 3600 != s_baked_hour;
-    if (!new_day && !ev_change && !blood_hour)
-        return;
+     * minute -- and taken on the event worker / a pipeline task, never
+     * on the LVGL task; see moon_event_classify_here). */
     if (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_dusk_done) {
         /* The orbit or wake-sweep pipeline owns s_frame/s_rgb until
          * it finishes; defer (do NOT advance s_baked_day) so the
@@ -3356,9 +3423,21 @@ void moon_ui_day_tick(void) {
          * buffers. s_dusk_done: the dark side is on screen (light
          * or deep sleep, countdown running) -- a re-bake here would
          * replace it with the lit phase. The wake path
-         * (moon_ui_pause(false)) bakes the rolled-over day. */
+         * (moon_ui_pause(false)) bakes the rolled-over day. The
+         * guard sits BEFORE the classify probe on purpose: while a
+         * pipeline task runs, that task classifies its own epoch and
+         * warms the day cache -- the LVGL task never pays for the
+         * scan here (moon_event_classify_here). */
         return;
     }
+    moon_event_t ev;
+    if (!moon_event_classify_here(now, &ev))
+        return; /* cold day: the event worker (core 1) takes the scan;
+                 * the probe continues on a later tick, once warm */
+    const bool ev_change = moon_event_signature(&ev) != s_baked_event;
+    const bool blood_hour = ev.blood && now / 3600 != s_baked_hour;
+    if (!new_day && !ev_change && !blood_hour)
+        return;
     ESP_LOGI(TAG, "re-baking moon phase (new day=%d event sig=%d->%d blood-hour=%d)", new_day, s_baked_event,
              moon_event_signature(&ev), blood_hour);
     s_baked_day = day;

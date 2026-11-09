@@ -329,16 +329,27 @@ built at sweep start), so a boot right after the cold pass can still
 miss a few tail hours and put them back — one measured P4 boot read
 hits 680, miss 23, **put 23/0**; its next boot read 703/0/0. And
 most S3 boots (3 of the 5 bench captures; a repeat warm replay ran
-clean) carry the *pre-existing* boot classify burst — up to four
+clean) carried the *then-existing* boot classify burst — up to four
 ``IDLE0`` watchdog prints around a ~20 s cold day-cache scan on the
-LVGL task at boot — identical card-less, intermittent, root-caused
-to the sky-events day cache and tracked apart from this feature;
-the P4 runs are clean (0 watchdog prints). That burst can also
-swallow the replay's bounded 2 s mask re-seed wait (one S3 warm
-boot, sweep start t≈45 s inside a t≈36–56 s burst, printed
-``mask rebuild did not run within 2 s``) — by design the replay
-then serves the existing mask+mirror pair, built post-wrapper by
-the init rebuild and kept fresh by the flush wrapper.
+LVGL task at boot, identical card-less, intermittent (the P4 runs
+were clean, 0 prints — its faster core keeps the scan under the
+5 s limit). One warm boot also saw the burst swallow the replay's
+bounded 2 s mask re-seed wait (sweep start t≈45 s inside a
+t≈36–56 s burst printed ``mask rebuild did not run within 2 s`` —
+by design the replay then serves the existing mask+mirror pair,
+built post-wrapper by the init rebuild and kept fresh by the flush
+wrapper). The burst was root-caused to the sky-events day cache and
+**eliminated 2026-11-09**: the once-a-day ``full_moments`` scan
+(~350–600 ephemeris evaluations, 15–20 s on the S3 — it had also
+been freezing the minute roll mid-animation, the clock half-way
+between two minutes on glass) never runs on the LVGL task anymore.
+``moon_event_classify_here`` hands the scan to a core-1 sky-events
+worker (or lets a running sweep/dusk/orbit task take it with its
+own epoch — those already classify, and IDLE1 is unwatched), and
+until the day is warm the guarded caller gets a plain all-false
+event: one untinted bake that self-heals, because the next
+day-tick probe sees the signature change and re-bakes with the
+tint.
 
 Detach mid-sweep: a read fault on the producer or the consumer
 disables the cache silently and the remaining frames fall back to
