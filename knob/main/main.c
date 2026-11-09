@@ -108,6 +108,40 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     }
 }
 
+#if CONFIG_KNOB_UI_ENABLE
+/* #tap-forensics (temporary): see the registration in app_main. */
+static void indev_forensics_cb(lv_event_t *e) {
+    const lv_event_code_t c = lv_event_get_code(e);
+    const char *name;
+    switch (c) {
+    case LV_EVENT_PRESSED:
+        name = "PRESSED";
+        break;
+    case LV_EVENT_PRESS_LOST:
+        name = "PRESS_LOST";
+        break;
+    case LV_EVENT_RELEASED:
+        name = "RELEASED";
+        break;
+    case LV_EVENT_CLICKED:
+        name = "CLICKED";
+        break;
+    case LV_EVENT_SHORT_CLICKED:
+        name = "SHORT_CLICKED";
+        break;
+    default:
+        return; /* PRESSING spam (every read) and everything else */
+    }
+    lv_indev_t *ind = lv_indev_get_act();
+    lv_point_t p = {.x = -1, .y = -1};
+    if (ind != NULL) {
+        lv_indev_get_point(ind, &p);
+    }
+    ESP_LOGI(TAG, "indev %s target=%p at (%d,%d) screen=%d", name, lv_event_get_param(e), (int)p.x, (int)p.y,
+             (int)ui_current_screen());
+}
+#endif /* CONFIG_KNOB_UI_ENABLE */
+
 /* The dial is an INPUT since P2 (knob_dial.c: cursor step + ladder
  * activity; screens.c's knob branch owns the per-screen semantics). The
  * #31 probe line shape survives inside that task. */
@@ -356,6 +390,17 @@ void app_main(void) {
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
+#if CONFIG_KNOB_UI_ENABLE
+    /* #tap-forensics (temporary, user: "tap does not work" x2): ONE
+     * observer for the whole pointer chain. LVGL sends the indev every
+     * interaction event with the resolved target as param, so these
+     * lines separate the three suspects: the CST816S never reporting a
+     * press (no lines at all), the press resolving to a clickable child
+     * instead of the root (target != root pointer), or CLICKED
+     * reaching the root fine (then the bug is downstream, in the
+     * commit). Remove once the verdict lands. */
+    lv_indev_add_event_cb(indev, indev_forensics_cb, LV_EVENT_ALL, NULL);
+#endif
 
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
