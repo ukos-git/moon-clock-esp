@@ -2,34 +2,58 @@ file(GLOB_RECURSE IMAGE_SOURCES "images/*.c")
 # The font bitmaps are per-panel: fonts/ is the S3's 466 px set (96/48/32),
 # fonts_p4/ the P4's 720 px set (148/74/50) regenerated at the panel ratio
 # from the SAME source Opts — the lv_font_t symbol names are identical, so
-# fonts.h and every consumer are unchanged.
-if(CONFIG_BOARD_P4)
+# fonts.h and every consumer are unchanged. fonts_knob/ is the knob's 360 px
+# tier (74/37/25, same Opts scaled by 360/466).
+# The branch keys are PROJECT variables (KNOB_BOARD is set in
+# knob/CMakeLists.txt before project()), deliberately NOT CONFIG_ symbols:
+# the component manager's early requirements pass (build.cmake's
+# __component_get_requirements -> cmake -P component_get_requirements.cmake)
+# evaluates this file with NEITHER project variables NOR CONFIG_ symbols,
+# and CONFIG_BOARD_P4 reads false in that pass (harmless: SRCS are only
+# consumed by the second, target-owning pass, which sees the full scope).
+if(KNOB_BOARD)
+  set(FONT_DIR "fonts_knob")
+elseif(CONFIG_BOARD_P4)
   set(FONT_DIR "fonts_p4")
 else()
   set(FONT_DIR "fonts")
 endif()
 file(GLOB_RECURSE FONT_SOURCES "${FONT_DIR}/*.c")
 
+# The knob (third board of the family, P1): the shared screens/vars/actions
+# compile UNCHANGED; the four AMOLED/board-coupled TUs drop out and the knob
+# answers their public headers from its own components (knob_moon_render.c
+# implements moon_ui.h over the knob_ui producer core; a stub implements
+# alarm_audio.h -- the knob is a codec-less silent board). demo.c and
+# moon_tfcache.c have no knob consumers (their call sites are Kconfig-guarded
+# or live in the excluded TUs).
+set(UI_CORE_SRCS "ui.c" "screens.c" "images.c" "styles.c" "actions.c" "vars.c")
+set(UI_BOARD_SRCS "alarm_audio.c" "demo.c" "moon_ui.c" "moon_tfcache.c")
+if(KNOB_BOARD)
+  set(UI_BOARD_SRCS "")
+endif()
+
+# REQUIRES/PRIV_REQUIRES are spelled out UNCONDITIONALLY on purpose (the
+# same early-pass rule as above): every name they carry must resolve in all
+# three projects. esp_codec_dev is satisfied on the knob by a silent,
+# no-header same-name shim component (knob/components/esp_codec_dev -- the
+# board/imu naming trick), on the clocks by the vendored real component;
+# the other names are IDF core components or the manager-vendored
+# esp_new_jpeg (declared in idf_component.yml, so the knob lock file carries
+# it too).
 idf_component_register(
   SRCS
-    "ui.c"
-    "alarm_audio.c"
-    "screens.c"
-    "images.c"
-    "styles.c"
-    "actions.c"
-    "demo.c"
-    "vars.c"
-    "moon_ui.c"
-    "moon_tfcache.c"
+    ${UI_CORE_SRCS}
+    ${UI_BOARD_SRCS}
     ${IMAGE_SOURCES}
     ${FONT_SOURCES}
-  # esp_codec_dev: the alarm ring + sound selection (both boards — each
-  # carries the ES8311 speaker, and both BSPs expose the component
+  # esp_codec_dev: the alarm ring + sound selection (both clock boards --
+  # each carries the ES8311 speaker, and both BSPs expose the component
   # publicly, so it resolves on either target). esp_driver_i2s: the I2S
   # std headers the codec's sample-info types lean on (BSP public
   # REQUIRES, taken directly for the alarm_audio.c include surface).
-  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition moon imu wifi board esp_codec_dev esp_driver_i2s
+  REQUIRES driver esp_lcd lvgl clock heap log freertos esp_timer esp_partition
+           moon imu wifi board esp_codec_dev esp_driver_i2s
   # espressif__esp_new_jpeg: the gray JPEG codec of the TF sweep cache
   # (moon_tfcache.c). Declared at the same range esp_lv_decoder pulls it
   # at (1.*), so the solver keeps the single vendored 1.0.2. PRIVATE:
@@ -37,7 +61,8 @@ idf_component_register(
   # esp_driver_spi: the S3's SPI-host SD mount (card_mount() calls
   # esp_vfs_fat_sdspi_mount directly -- the BSP's 1-bit SDMMC mapping of
   # the SPI-wired socket collapses under load); the P4 still mounts via
-  # the BSP's bsp_sdcard_mount().
+  # the BSP's bsp_sdcard_mount(). All knob-unused (the TUs that use them
+  # are excluded there; the include paths are harmless).
   PRIV_REQUIRES espressif__esp_new_jpeg fatfs esp_driver_sdspi esp_driver_spi
   INCLUDE_DIRS "./")
 # The lv_font_conv >= 1.5 generated font files include "lvgl/lvgl.h"

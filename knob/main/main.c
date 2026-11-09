@@ -7,10 +7,17 @@
  *        (SNTP + NVS epoch snapshot + alarm scheduler + settings store),
  *        and the moon view (knob_ui over components/moon via knob_moon).
  */
+#include <stdint.h>
 #include <stdio.h>
 
 #include "board_display.h"
 #include "clock.h"
+#if CONFIG_KNOB_UI_ENABLE
+#include "actions.h"
+#include "clock_cb.h"
+#include "moon_ui.h"
+#include "ui.h"
+#endif
 #include "clock_sntp.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -38,6 +45,16 @@
 #ifndef CONFIG_KNOB_TIME_BOOT_SYNC_MS
 #define CONFIG_KNOB_TIME_BOOT_SYNC_MS 20000
 #endif
+#ifndef CONFIG_KNOB_ALARM_GRACE_S
+#define CONFIG_KNOB_ALARM_GRACE_S 300
+#endif
+#ifndef CONFIG_KNOB_ALARM_LATE_MAX_S
+#define CONFIG_KNOB_ALARM_LATE_MAX_S 900
+#endif
+
+/* Same plausibility floor as knob_power's TIMER arm (a factory-default
+ * 1970 clock must never arbitrate an alarm). */
+#define EPOCH_PLAUSIBLE_MIN 1600000000LL
 
 static const char *TAG = "knob_main";
 
@@ -149,12 +166,13 @@ static void lvgl_task(void *arg) {
  * what keeps the K7b/K7c acceptance epochs reproducible.
  */
 static void boot_arm_task(void *arg) {
-    /* K7e: the wake path must be readable from the log (0 = power-on,
-     * 1 = EXT0 dial detent, 2 = EXT1 screen tap -- the S3 has no EXT1
-     * wake source, the API emulates it through GPIO wake, so a tap
-     * measures as ESP_SLEEP_WAKEUP_GPIO, verified on the bench
-     * 2026-11-08). */
-    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 1=EXT0 dial, 2=EXT1 tap/GPIO)", (int)esp_sleep_get_wakeup_cause());
+    /* K7e: the wake path must be readable from the log. ESP-IDF's
+     * esp_sleep_wakeup_cause_t reserves ESP_SLEEP_WAKEUP_ALL at 1, so
+     * the S3 values are EXT0 = 2 (dial detent on GPIO 8) and EXT1 = 3
+     * (tap pulling the CST816S INT low) -- the bench captured 3 on a
+     * tap 2026-11-09; the old legend off-by-one'd both causes. */
+    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 2=EXT0 dial, 3=EXT1 tap, 4=TIMER alarm)",
+             (int)esp_sleep_get_wakeup_cause());
     /* The power ladder must not run while the first frame is still
      * ahead of the user: app_main armed it at t=0, the ladder released
      * only when moon_task exists -- so a slow join + NTP window let the
@@ -234,6 +252,54 @@ static void boot_arm_task(void *arg) {
         ESP_LOGI(TAG, "late NTP fix — static current phase armed");
         (void)knob_ui_show_moon(now); /* s_started -> force-rebake path */
         vTaskDelete(NULL);
+    }
+#endif
+#if CONFIG_KNOB_ALARM_TIMER_WAKE && CONFIG_KNOB_UI_ENABLE
+    /* Alarm across real deep sleep (the user's choice, P1): a TIMER wake
+     * is a CANDIDATE rule fire, decided here against the fixed rule
+     * around the now-epoch. The NVS snapshot is untrusted by design, but
+     * the drift over one sleep is bounded by the RC tolerance the plan
+     * accepted -- GRACE absorbs it, and a hold re-reads the clock every
+     * second so a landing SNTP fix re-anchors the wait. NEVER ring
+     * early; implausible/absent time falls through to a normal wake. */
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && now >= EPOCH_PLAUSIBLE_MIN) {
+        int64_t rule_prev = 0, rule_next = 0;
+        if (knob_power_rule_epochs_around(now, &rule_prev, &rule_next)) {
+            const int64_t late = (rule_prev != 0) ? (now - rule_prev) : INT64_MAX;
+            const int64_t early = (rule_next != 0) ? (rule_next - now) : INT64_MAX;
+            bool alarm_fire = false;
+            if (late <= CONFIG_KNOB_ALARM_GRACE_S) {
+                ESP_LOGI(TAG, "TIMER wake %lld s after the rule -- alarm visual now", (long long)late);
+                alarm_fire = true;
+            } else if (early <= CONFIG_KNOB_ALARM_LATE_MAX_S) {
+                ESP_LOGI(TAG, "TIMER wake %lld s EARLY -- holding dark at 1 Hz (never rings early)", (long long)early);
+                int64_t remaining = early;
+                while (remaining > 0) {
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    int64_t cur = 0, p2 = 0, n2 = 0;
+                    if (clock_get_utc_epoch(&cur) != ESP_OK || !knob_power_rule_epochs_around(cur, &p2, &n2) ||
+                        n2 == 0) {
+                        break; /* lost the clock mid-hold: fall through */
+                    }
+                    remaining = n2 - cur; /* a landing SNTP fix re-anchors */
+                }
+                ESP_LOGI(TAG, "rule time reached after early TIMER wake -- alarm visual");
+                alarm_fire = true;
+            } else {
+                ESP_LOGW(TAG, "TIMER wake %.0lld s off the rule -- stale fire, normal wake",
+                         (late != INT64_MAX) ? (long long)late : -(long long)early);
+            }
+            if (alarm_fire) {
+                /* Off the LVGL task: the function touches the tick timer
+                 * and loads the alarm screen, so take the lock around
+                 * it (the seam's own refresh nests recursively). */
+                knob_ui_lvgl_lock();
+                action_alarm_triggered(NULL); /* silent alarm visual (codec-less board) */
+                knob_ui_lvgl_unlock();
+                knob_power_set_hold(false); /* ladder free: it naps again in time */
+                vTaskDelete(NULL);
+            }
+        }
     }
 #endif
     const bool cold = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED;
@@ -320,12 +386,31 @@ void app_main(void) {
     const bool assets_ready = knob_moon_init();
 
     knob_ui_set_lvgl_lock(s_lvgl_mux);
+#if CONFIG_KNOB_UI_ENABLE
+    /* P1 home parity: the SHARED home screen (moon image attached
+     * through the render seam + split-flap HH:MM + alarm row + seconds
+     * arc). moon_ui_init before ui_init (the clocks' order: buffers and
+     * the descriptor exist before create_screens asks for images). */
+    moon_ui_init();
+    ui_init();
+    /* The family per-second chain (the clocks' registrations, minus the
+     * idle pair -- knob_power owns the knob's ladder): minute labels,
+     * alarm display + expiry -> silent alarm visual. */
+    clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);
+    clock_register_alarm_update_callback((clock_update_cb_t)action_update_alarm_display);
+    clock_register_alarm_trigger_callback((clock_update_cb_t)action_alarm_triggered);
+    /* P1 dim parity: the ladder's dim rung drops the clock widget to
+     * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
+     * dusk posture; knob_power.c calls it from the supervisor task). */
+    knob_power_set_dim_cb(knob_render_set_home_dim);
+#else
     knob_ui_create();
     if (assets_ready) {
         /* K7d: the honest pre-frame state while boot_arm_task chases an
          * NTP fix ("moon unavailable" stays if the buffers failed). */
         knob_ui_show_no_time();
     }
+#endif
 
     const esp_timer_create_args_t tick_args = {
         .callback = tick_timer_cb,
@@ -337,6 +422,13 @@ void app_main(void) {
 
     xTaskCreate(lvgl_task, "knob_lvgl", 8192, NULL, 10, NULL);
     xTaskCreate(dial_watch_task, "dial_watch", 3072, NULL, 3, NULL);
+#if CONFIG_KNOB_UI_ENABLE
+    /* The family clock tick (clock_cb.c): the software-synthesized RTC
+     * interrupts -- minute tick (labels + day probe), alarm expiry
+     * (silent alarm visual through action_alarm_triggered), countdown.
+     * RTC_POLL_INTERVAL_MS on the clocks is 1300. */
+    lv_timer_create(clock_rtc_interrupt_handler_cb, 1300, NULL);
+#endif
     /* K7c+K7d: the display arms on a TRUSTED instant only. The wait +
      * the sweep-vs-static decision live on this task (registered, it
      * only delays), so app_main returns at once and neither the ~20 s

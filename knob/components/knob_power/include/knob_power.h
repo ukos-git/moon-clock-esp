@@ -37,6 +37,24 @@ void knob_power_notify_activity(void);
  *         restarts from now. */
 void knob_power_set_hold(bool hold);
 
+/** @brief Ladder dim/undim observer (P1 dim parity): called with true
+ *         when the backlight drops to KNOB_DIM_DUTY and with false when
+ *         activity brings it back up (supervisor task context). main.c
+ *         registers knob_render_set_home_dim so the shared clock widget
+ *         dims its opacity alongside the backlight, matching the clocks'
+ *         dusk. NULL (default) = backlight dim only. */
+typedef void (*knob_power_dim_cb_t)(bool dimmed);
+void knob_power_set_dim_cb(knob_power_dim_cb_t cb);
+
+/** @brief Epoch arithmetic for the fixed-time alarm rule (the TIMER
+ *         deep-sleep arm and the wake arbitration share this one truth).
+ *         Fills prev (last rule occurrence at or before now_epoch) and/or
+ *         next (first occurrence after it) with LOCAL-time-correct
+ *         epochs (mktime, tm_isdst=-1 — the scheduler's own mirror).
+ *         @return false when no fixed rule is loaded (interval/pomodoro
+ *         only) or the weekday mask is empty; outputs stay 0. */
+bool knob_power_rule_epochs_around(int64_t now_epoch, int64_t *prev, int64_t *next);
+
 #ifdef __cplusplus
 }
 #endif

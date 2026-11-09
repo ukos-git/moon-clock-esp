@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Thirteen keys across three menus (the sibling project's own
+Eighteen keys across four menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
 the page above):
 
@@ -12,6 +12,13 @@ the page above):
    * - Key
      - Default
      - Meaning
+   * - ``KNOB_UI_ENABLE``
+     - ``y``
+     - The P1 umbrella: ``y`` boots the **shared** home screen
+       (``components/ui`` over the render seam); ``n`` keeps the K7
+       own-screen moon view (disk + caption) and keeps ``ui`` out of
+       the runtime start — the plan's staged bring-up
+       (:doc:`the knob display <../implementation/knob-display>`)
    * - ``KNOB_MOON_TEST_EPOCH``
      - ``1794175200``
      - Frozen UTC instant for bench builds (used **only** under
@@ -35,8 +42,9 @@ the page above):
        presentation the producer walks 8 canonical phases of the
        current synodic month + a live-now step, holding each
        ``KNOB_DEMO_PHASE_SEC``; the power ladder stays held (no dim,
-       no deep sleep), the caption names the phase, and every step
-       logs a ``phase=`` marker
+       no deep sleep), every step logs a ``phase=`` marker, and the
+       caption names the phase in the legacy view (under the shared
+       home the log marker carries it)
    * - ``KNOB_DEMO_PHASE_SEC``
      - ``15`` (5..600)
      - Seconds per demo phase step (``KNOB_DEMO_MODE`` only)
@@ -62,8 +70,29 @@ the page above):
      - ``15`` (0..3600)
      - Idle seconds before the backlight dims (0 = never)
    * - ``KNOB_DIM_DUTY``
-     - ``40`` (1..254)
-     - LEDC duty while dimmed (full = 255)
+     - ``64`` (1..254)
+     - LEDC duty while dimmed (full = 255). 64 = the P1 dim-parity
+       value: 25 %, the clocks' light-sleep panel; the shared clock
+       widget drops to ``UI_CLOCK_ALPHA_PCT`` alongside it
+   * - ``KNOB_ALARM_TIMER_WAKE``
+     - ``y``
+     - Deep sleep arms the S3 internal RTC timer for the next fixed
+       alarm rule next to EXT0/EXT1 (the user's alarm-across-deep-sleep
+       choice). ``n`` = GPIO-only sleep, alarms fire only while awake
+   * - ``KNOB_ALARM_GRACE_S``
+     - ``300`` (30..900)
+     - A TIMER wake within ± this of the recomputed rule **is** the
+       alarm (silent alarm visual); the RC-drift window
+   * - ``KNOB_ALARM_LATE_MAX_S``
+     - ``900`` (300..7200)
+     - Early wakes within this hold at 1 Hz until the rule (never an
+       early ring); anything further off (either way) is a stale
+       fire → normal dial wake
+   * - ``KNOB_ALARM_MAX_SLEEP_GAP_S``
+     - ``82800`` (3600..172800)
+     - Beyond this distance to the next rule (weekday-mask holes like
+       Friday→Monday) the sleep is GPIO-only; a rule inside 60 s
+       **defers** the sleep for the awake esp_timer instead
    * - ``KNOB_SLEEP_TIMEOUT_S``
      - ``60`` (0..36000)
      - Idle seconds before ``esp_deep_sleep_start`` with EXT0 on

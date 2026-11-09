@@ -18,11 +18,10 @@
 extern "C" {
 #endif
 
-/* The knob's round SH8601 panel (360x360, KNOB_LCD_H_RES/V_RES in
- * knob_board.h — spelled out here because the BSP-header consumers must
- * not depend on the knob driver headers). */
-#define BSP_LCD_H_RES 360
-#define BSP_LCD_V_RES 360
+/* The knob's round SH8601 panel geometry lives in the sibling shim header
+ * (ui_px.h includes "bsp/display.h" directly, the real BSP's layout; the
+ * BSP-header consumers must not depend on the knob driver headers). */
+#include "bsp/display.h"
 
 #ifdef __cplusplus
 }

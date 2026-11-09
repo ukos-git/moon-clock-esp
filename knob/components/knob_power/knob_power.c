@@ -16,7 +16,10 @@
  * log-only bench mode).
  */
 #include <stdint.h>
+#include <time.h>
 
+#include "clock.h"
+#include "clock_alarm_scheduler.h"
 #include "clock_sntp.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -41,13 +44,76 @@ static const char *TAG = "knob_power";
 #define CONFIG_KNOB_SLEEP_TIMEOUT_S 60
 #endif
 #ifndef CONFIG_KNOB_DIM_DUTY
-#define CONFIG_KNOB_DIM_DUTY 40
+#define CONFIG_KNOB_DIM_DUTY 64 /* P1 dim parity: 25 %, the clocks' dusk */
 #endif
+#ifndef CONFIG_KNOB_ALARM_MAX_SLEEP_GAP_S
+#define CONFIG_KNOB_ALARM_MAX_SLEEP_GAP_S 82800
+#endif
+
+/* Below this an epoch is not a wall clock (factory default 1970, or a
+ * corrupted snapshot): the TIMER arm must not chase it. 2020-09-13. */
+#define EPOCH_PLAUSIBLE_MIN 1600000000LL
 
 static volatile int64_t s_last_activity_us; /* written by any task, read by the supervisor */
 static volatile bool s_hold;                /* sweep presenting (knob_ui) */
 static int32_t s_last_dial_count;           /* supervisor-private */
 static bool s_dimmed;                       /* supervisor-private */
+static knob_power_dim_cb_t s_dim_cb;        /* P1 dim parity observer */
+
+void knob_power_set_dim_cb(knob_power_dim_cb_t cb) { s_dim_cb = cb; }
+
+bool knob_power_rule_epochs_around(int64_t now_epoch, int64_t *prev, int64_t *next) {
+    int hour = 0, minute = 0;
+    uint8_t mask = 0;
+    if (clock_alarm_get_fixed_rule(&hour, &minute, &mask) != ESP_OK || mask == 0) {
+        return false; /* interval/pomodoro rules only: nothing to arm */
+    }
+    const time_t nowt = (time_t)now_epoch;
+    struct tm base;
+    localtime_r(&nowt, &base);
+    bool found = false;
+    if (next != NULL) {
+        *next = 0;
+        for (int off = 0; off < 8; off++) {
+            struct tm t = base;
+            t.tm_hour = hour;
+            t.tm_min = minute;
+            t.tm_sec = 0;
+            t.tm_isdst = -1; /* TZ rules via mktime, like the scheduler */
+            t.tm_mday += off;
+            const time_t cand = mktime(&t); /* normalizes, fills tm_wday */
+            if (cand <= nowt) {
+                continue;
+            }
+            if ((mask & (1u << t.tm_wday)) != 0) {
+                *next = (int64_t)cand;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (prev != NULL) {
+        *prev = 0;
+        for (int off = 0; off < 8; off++) {
+            struct tm t = base;
+            t.tm_hour = hour;
+            t.tm_min = minute;
+            t.tm_sec = 0;
+            t.tm_isdst = -1;
+            t.tm_mday -= off;
+            const time_t cand = mktime(&t);
+            if (cand > nowt) {
+                continue;
+            }
+            if ((mask & (1u << t.tm_wday)) != 0) {
+                *prev = (int64_t)cand;
+                found = true;
+                break;
+            }
+        }
+    }
+    return found;
+}
 
 void knob_power_notify_activity(void) { s_last_activity_us = esp_timer_get_time(); }
 
@@ -81,6 +147,40 @@ static void enter_deep_sleep(int64_t idle) {
     if (ext1_err != ESP_OK) {
         ESP_LOGW(TAG, "EXT1 GPIO 9 rejected (%s) -- dial-only wake", esp_err_to_name(ext1_err));
     }
+#endif
+    /* Alarm across real deep sleep (the user's choice): the S3's internal
+     * RTC timer wakes at the next fixed-rule time, +/- the RC drift
+     * (bench-verified tolerance <= ~0.5 %). The wake decision (fire /
+     * hold-to-rule / ignore) is main.c's arbitration; the never-ring-early
+     * rule lives there. GPIO-only cases: no fixed rule, implausible
+     * epoch, gap beyond KNOB_ALARM_MAX_SLEEP_GAP_S (weekday-mask holes),
+     * or a rejected arm. Imminent rules (< 60 s) DEFER the sleep: the
+     * board stays awake and the app-level esp_timer fires the alarm. */
+#if CONFIG_KNOB_ALARM_TIMER_WAKE
+    bool timer_armed = false;
+    int64_t now_epoch = 0;
+    if (clock_get_utc_epoch(&now_epoch) == ESP_OK && now_epoch >= EPOCH_PLAUSIBLE_MIN) {
+        int64_t rule_prev = 0, rule_next = 0;
+        if (knob_power_rule_epochs_around(now_epoch, &rule_prev, &rule_next) && rule_next != 0) {
+            const int64_t delta = rule_next - now_epoch;
+            if (delta < 60) {
+                ESP_LOGI(TAG, "alarm rule in %lld s -- staying awake for the app-level timer", (long long)delta);
+                knob_power_notify_activity();
+                return;
+            }
+            if (delta > CONFIG_KNOB_ALARM_MAX_SLEEP_GAP_S) {
+                ESP_LOGI(TAG, "next rule %lld s out (> MAX_SLEEP_GAP) -- GPIO-only sleep", (long long)delta);
+            } else if (esp_sleep_enable_timer_wakeup((uint64_t)delta * 1000000ULL) == ESP_OK) {
+                timer_armed = true;
+                ESP_LOGI(TAG, "TIMER wake armed: alarm rule in %lld s", (long long)delta);
+            } else {
+                ESP_LOGW(TAG, "timer wakeup rejected -- GPIO-only sleep");
+            }
+        }
+    } else {
+        ESP_LOGI(TAG, "no plausible epoch (or no rule) -- GPIO-only sleep, no phantom timer");
+    }
+    (void)timer_armed;
 #endif
     /* No RTC on this board: persist the last known instant NOW (the
      * clock component's "clock"/"epoch" snapshot, the P4's discipline) so
@@ -129,12 +229,18 @@ static void supervisor_task(void *arg) {
         if (s_dimmed && idle < CONFIG_KNOB_DIM_AFTER_S) {
             s_dimmed = false;
             knob_board_backlight_set(255);
+            if (s_dim_cb != NULL) {
+                s_dim_cb(false); /* P1: clock widget back to full opacity */
+            }
             ESP_LOGI(TAG, "activity -- backlight back to full");
             continue;
         }
         if (!s_dimmed && CONFIG_KNOB_DIM_AFTER_S > 0 && idle >= CONFIG_KNOB_DIM_AFTER_S) {
             s_dimmed = true;
             knob_board_backlight_set(CONFIG_KNOB_DIM_DUTY);
+            if (s_dim_cb != NULL) {
+                s_dim_cb(true); /* P1 dim parity: widget to ALPHA_PCT */
+            }
             ESP_LOGI(TAG, "idle %lld s -- backlight dimmed to %d", (long long)idle, (int)CONFIG_KNOB_DIM_DUTY);
         }
         if (CONFIG_KNOB_SLEEP_TIMEOUT_S > 0 && idle >= CONFIG_KNOB_SLEEP_TIMEOUT_S) {

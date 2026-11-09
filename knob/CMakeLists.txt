@@ -16,16 +16,28 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+# Shared-code CMake branch flag for the components/ (the ui component's
+# SRCS/REQUIRES/fonts tier). A PROJECT variable, not a CONFIG_ symbol: the
+# component manager resolves requirements BEFORE Kconfig runs, and CONFIG_
+# variables are unset in that first pass.
+set(KNOB_BOARD ON)
+
 # Shared clock-family components, added as individual component
 # directories (NOT the parent components/ — that would register
 # board/imu/esp32_s3_touch_amoled_1_75 and collide with the knob shims).
 # P0: clock (time base + scheduler + settings_store), wifi (credentials +
 # scan), moon (the single core provider; knob_moon keeps only glue).
-# components/ui lands with P1 (the shared screens).
+# P1: ui (the shared screens; the knob branch of its CMakeLists drops the
+# four AMOLED/board-coupled TUs and the fonts tier switches to
+# fonts_knob/). It is added unconditionally; the KNOB_UI_ENABLE umbrella
+# (knob_ui's Kconfig) decides whether the seam links it into the image —
+# with the switch off the shared objects sit unreferenced in the static
+# lib and never load.
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/clock"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/wifi"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../components/moon")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/moon"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

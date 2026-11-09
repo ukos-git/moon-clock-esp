@@ -70,11 +70,19 @@ static const char *TAG = "knob_ui";
 #define CONFIG_KNOB_MOON_SWEEP_BAKE_PX 128 /* bake cost ~px^2; 96 = the clock's sharpness floor */
 #endif
 
-static lv_obj_t *s_moon_img;
-static lv_obj_t *s_caption;
+/* P1: the moon image is no longer a single own-screen object — the shared
+ * home screen (and every future moon screen) attaches its own lv_image
+ * through the SAME descriptor, mirroring the clocks' moon_ui_create_image
+ * / s_images[] posture. The legacy knob_ui_create attaches one to the
+ * active screen, so the swap task only ever drives the list. */
+#define KNOB_MAX_IMGS 8
+static lv_obj_t *s_imgs[KNOB_MAX_IMGS];
+static int s_n_imgs;
+static lv_obj_t *s_caption; /* NULL in shared-UI mode (no caption row) */
 static lv_image_dsc_t s_moon_dsc;
 static uint16_t *s_buf[2]; /* PSRAM, each MOON_SIZE*MOON_SIZE RGB565 */
 static bool s_nomem;       /* the double-buffer PSRAM alloc failed */
+static bool s_alloced;     /* buffers + descriptor up (alloc_frames) */
 static bool s_started;     /* producer + swap task live */
 
 /* Producer/consumer handshake (the clock's shown/published posture).
@@ -490,24 +498,28 @@ static void swap_task(void *arg) {
             s_moon_dsc.data = (const uint8_t *)s_buf[back];
             if (!s_shown) {
                 s_shown = true;
-                lv_obj_set_hidden(s_moon_img, false);
             }
-            lv_obj_invalidate(s_moon_img);
+            for (int i = 0; i < s_n_imgs; i++) {
+                lv_obj_set_hidden(s_imgs[i], false);
+                lv_obj_invalidate(s_imgs[i]);
+            }
             if (s_caption_dirty) {
                 s_caption_dirty = false;
-                lv_label_set_text(s_caption, s_caption_text);
-                /* #31 probe: caption geometry after relayout, 1 s throttle
-                 * (the sweep re-labels every frame). */
-                static char last_cap[48];
-                static int64_t last_cap_us;
-                int64_t cap_us = esp_timer_get_time();
-                if (strcmp(last_cap, s_caption_text) != 0 && cap_us - last_cap_us > 1000000) {
-                    last_cap_us = cap_us;
-                    strlcpy(last_cap, s_caption_text, sizeof(last_cap));
-                    ESP_LOGI(TAG, "caption '%s' x=%d y=%d w=%d h=%d scr=%dx%d", s_caption_text, lv_obj_get_x(s_caption),
-                             lv_obj_get_y(s_caption), (int)lv_obj_get_width(s_caption),
-                             (int)lv_obj_get_height(s_caption), (int)lv_obj_get_width(lv_screen_active()),
-                             (int)lv_obj_get_height(lv_screen_active()));
+                if (s_caption) {
+                    lv_label_set_text(s_caption, s_caption_text);
+                    /* #31 probe: caption geometry after relayout, 1 s
+                     * throttle (the sweep re-labels every frame). */
+                    static char last_cap[48];
+                    static int64_t last_cap_us;
+                    int64_t cap_us = esp_timer_get_time();
+                    if (strcmp(last_cap, s_caption_text) != 0 && cap_us - last_cap_us > 1000000) {
+                        last_cap_us = cap_us;
+                        strlcpy(last_cap, s_caption_text, sizeof(last_cap));
+                        ESP_LOGI(TAG, "caption '%s' x=%d y=%d w=%d h=%d scr=%dx%d", s_caption_text,
+                                 lv_obj_get_x(s_caption), lv_obj_get_y(s_caption), (int)lv_obj_get_width(s_caption),
+                                 (int)lv_obj_get_height(s_caption), (int)lv_obj_get_width(lv_screen_active()),
+                                 (int)lv_obj_get_height(lv_screen_active()));
+                    }
                 }
             }
             lv_refr_now(NULL);
@@ -549,19 +561,77 @@ static void scr_press_cb(lv_event_t *e) {
 
 /* ---- public API ------------------------------------------------------- */
 
+bool knob_ui_alloc_frames(void) {
+    if (s_alloced) {
+        return !s_nomem;
+    }
+    const size_t buf_sz = (size_t)MOON_SIZE * MOON_SIZE * sizeof(uint16_t);
+    s_buf[0] = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    s_buf[1] = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    if (!s_buf[0] || !s_buf[1]) {
+        free(s_buf[0]);
+        free(s_buf[1]);
+        s_buf[0] = s_buf[1] = NULL;
+        s_nomem = true;
+        ESP_LOGE(TAG, "PSRAM double buffer (%d KB x2) failed", (int)(buf_sz / 1024));
+        return false;
+    }
+    s_moon_dsc.header.cf = LV_COLOR_FORMAT_RGB565; /* LVGL swaps into the canvas */
+    s_moon_dsc.header.w = MOON_SIZE;
+    s_moon_dsc.header.h = MOON_SIZE;
+    s_moon_dsc.header.stride = MOON_SIZE * sizeof(uint16_t);
+    s_moon_dsc.data = (const uint8_t *)s_buf[0];
+    s_moon_dsc.data_size = (uint32_t)buf_sz;
+    s_alloced = true;
+    return true;
+}
+
+lv_obj_t *knob_ui_attach_moon_image(lv_obj_t *parent) {
+    if (!s_alloced || s_n_imgs >= KNOB_MAX_IMGS) {
+        return NULL;
+    }
+    lv_obj_t *img = lv_image_create(parent);
+    lv_obj_set_pos(img, 0, 0);
+    lv_obj_set_clickable(img, false);
+    lv_image_set_src(img, &s_moon_dsc);
+    /* Hidden until the first frame lands (keeps the "is a frame up?"
+     * question answerable from the object tree); an attach AFTER frames
+     * are already flowing (a later moon screen) shows it immediately. */
+    lv_obj_set_hidden(img, !s_shown);
+    s_imgs[s_n_imgs++] = img;
+    return img;
+}
+
+void knob_ui_invalidate_all(void) {
+    lvgl_lock();
+    for (int i = 0; i < s_n_imgs; i++) {
+        lv_obj_invalidate(s_imgs[i]);
+    }
+    lvgl_unlock();
+}
+
+bool knob_ui_sweeping(void) { return s_sweeping; }
+
+bool knob_ui_shown(void) { return s_shown; }
+
+void knob_ui_lvgl_lock(void) { lvgl_lock(); }
+
+void knob_ui_lvgl_unlock(void) { lvgl_unlock(); }
+
+/* Legacy own-screen view (K7, the KNOB_UI_ENABLE=n fallback): black
+ * screen + one attached moon image + the honest caption row. The shared-
+ * UI path skips this and attaches through the seams instead. */
 void knob_ui_create(void) {
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    s_moon_img = lv_image_create(scr);
-    lv_obj_set_pos(s_moon_img, 0, 0);
-    lv_obj_set_clickable(s_moon_img, false);
-    /* Hidden until the first frame lands (the sweep arms it hidden; the
-     * static path unhides after its boot-core bake): keeps the "is a
-     * frame up?" question answerable from the object tree, and the
-     * never-black rule is carried by the caption instead. */
-    lv_obj_set_hidden(s_moon_img, true);
+    if (!knob_ui_alloc_frames()) {
+        return;
+    }
+    if (!knob_ui_attach_moon_image(scr)) {
+        return;
+    }
 
     /* The round window clips hard: at 6 px off the bottom edge only a
      * ~139 px band survives, and the old auto-width label clipped both
@@ -583,27 +653,16 @@ void knob_ui_create(void) {
     /* Screen press = sweep abort (the screen is clickable by default). */
     lv_obj_add_event_cb(scr, scr_press_cb, LV_EVENT_PRESSED, NULL);
 
-    const size_t buf_sz = (size_t)MOON_SIZE * MOON_SIZE * sizeof(uint16_t);
-    s_buf[0] = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
-    s_buf[1] = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
-    if (!s_buf[0] || !s_buf[1]) {
-        free(s_buf[0]);
-        free(s_buf[1]);
-        s_buf[0] = s_buf[1] = NULL;
-        s_nomem = true;
-        ESP_LOGE(TAG, "PSRAM double buffer (%d KB x2) failed", (int)(buf_sz / 1024));
-        return;
-    }
-    s_moon_dsc.header.cf = LV_COLOR_FORMAT_RGB565; /* LVGL swaps into the canvas */
-    s_moon_dsc.header.w = MOON_SIZE;
-    s_moon_dsc.header.h = MOON_SIZE;
-    s_moon_dsc.header.stride = MOON_SIZE * sizeof(uint16_t);
-    s_moon_dsc.data = (const uint8_t *)s_buf[0];
-    s_moon_dsc.data_size = (uint32_t)buf_sz;
-    lv_image_set_src(s_moon_img, &s_moon_dsc);
-
     ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, sweep %s, PSRAM free %d KB)", MOON_SIZE, (double)MOON_R,
              knob_ui_sweep_enabled() ? "armed" : "off", (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
+/* Arm-path hide (LVGL lock held by the caller): every attached image
+ * goes hidden until the next applied frame (the swap task re-shows all). */
+static void hide_all_images(void) {
+    for (int i = 0; i < s_n_imgs; i++) {
+        lv_obj_set_hidden(s_imgs[i], true);
+    }
 }
 
 void knob_ui_show_no_time(void) {
@@ -611,16 +670,18 @@ void knob_ui_show_no_time(void) {
         return; /* a frame path owns the caption, or it names a real failure */
     }
     lvgl_lock();
-    lv_label_set_text(s_caption, "no time");
-    lv_obj_set_hidden(s_moon_img, true);
+    if (s_caption) {
+        lv_label_set_text(s_caption, "no time");
+    }
+    hide_all_images();
     lvgl_unlock();
 }
 
 bool knob_ui_show_moon(int64_t utc_epoch) {
     s_now_base_epoch = utc_epoch;
     s_now_base_us = esp_timer_get_time();
-    if (s_nomem) {
-        return false; /* the double buffer never came up (create logged it) */
+    if (!knob_ui_alloc_frames()) {
+        return false; /* the double buffer never came up (alloc logged it) */
     }
     if (s_started) {
         /* K7d hook: called again when SNTP lands a real time -- the day
@@ -640,8 +701,10 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * #31's photo caught (caption clipped/shifted): every object touch
      * here rides the lock, like the swap task and show_no_time do. */
     lvgl_lock();
-    lv_label_set_text(s_caption, s_caption_text);
-    lv_obj_set_hidden(s_moon_img, true);
+    if (s_caption) {
+        lv_label_set_text(s_caption, s_caption_text);
+    }
+    hide_all_images();
     lvgl_unlock();
     s_front = 0;
     s_pub = 0;
@@ -660,15 +723,17 @@ void knob_ui_start_sweep(int64_t now_epoch) {
         s_force_rebake = true;
         return;
     }
-    if (s_nomem) {
+    if (!knob_ui_alloc_frames()) {
         return;
     }
     s_now_base_epoch = now_epoch;
     s_now_base_us = esp_timer_get_time();
     snprintf(s_caption_text, sizeof(s_caption_text), "sweeping 0/%d", sweep_frames_get());
     lvgl_lock();
-    lv_label_set_text(s_caption, s_caption_text);
-    lv_obj_set_hidden(s_moon_img, true);
+    if (s_caption) {
+        lv_label_set_text(s_caption, s_caption_text);
+    }
+    hide_all_images();
     lvgl_unlock();
     s_caption_dirty = false;
     s_front = 0;

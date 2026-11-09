@@ -11,12 +11,22 @@ touch, remote C6 Wi-Fi over SDIO, 32 MB flash + PSRAM — the full sibling port;
 ESP32-S3-Knob-Touch-LCD-1.8 "knob" (the `knob/` sibling project: its own
 ESP-IDF project, build dir, `dependencies.lock.knob` and gitignored
 `knob/sdkconfig`, its third asset target `--target knob`; `docs/devices/knob`
-and `docs/implementation/knob-display`). It links the clock's shared components
-(`clock`, `wifi`, `moon`) through `EXTRA_COMPONENT_DIRS` — added as
-**individual dirs, never the parent `components/`** (IDF 5.5.1 excludes
-components by name only, so the knob's own `board`/`imu` shims must own those
-names; the shim's Kconfig carries the `choice BOARD`, default `BOARD_KNOB`) —
-and adds the dial, battery gauge and real `esp_deep_sleep_start`.
+and `docs/implementation/knob-display`). Since the P1 home parity step it links
+the clock's shared components (`clock`, `wifi`, `moon`, and `ui` — the shared
+home screen over the knob's `knob_moon_render.c` seam + generated `fonts_knob/`
+tier; legacy own-screen view behind `KNOB_UI_ENABLE=n`) through
+`EXTRA_COMPONENT_DIRS` — added as **individual dirs, never the parent
+`components/`** (IDF 5.5.1 excludes components by name only, so the knob's own
+`board`/`imu` shims must own those names; the shim's Kconfig carries the
+`choice BOARD`, default `BOARD_KNOB`) — and adds the dial, battery gauge and
+real `esp_deep_sleep_start` armed with RTC **TIMER** wake for the fixed alarm
+rule (never an early ring; see the ladder + arbitration in
+`docs/implementation/knob-display`). Component `REQUIRES`/`PRIV_REQUIRES` must
+stay **literal**: the component manager's early requirements pass
+(`build.cmake` → `cmake -P component_get_requirements .cmake`) sees neither
+project variables nor `CONFIG_` symbols — branch only SRCS/INCLUDES (target
+pass), and satisfy names the knob lacks with same-named silent shim components
+(the `board`/`imu`/`esp_codec_dev` trick).
 
 ## Standing rule: keep the documentation current
 

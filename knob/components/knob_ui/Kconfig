@@ -1,0 +1,14 @@
+menu "Knob shared UI (P1)"
+
+config KNOB_UI_ENABLE
+    bool "Link the shared clock UI (screens/settings) into the knob"
+    default y
+    help
+        The P1 umbrella kill-switch. With y (the family posture) the knob
+        boots the SHARED home screen (moon image + split-flap HH:MM +
+        alarm row + seconds arc) through components/ui over the
+        knob_moon_render.c seam. With n the knob keeps its K7
+        own-screen moon view (disk + caption) and components/ui is not
+        added to the build at all -- the plan's staged bring-up.
+
+endmenu

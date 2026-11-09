@@ -11,9 +11,15 @@ EXT0 dial wake — the battery gauge still waits for its user-present
 multimeter ritual). The **P0 family seam** (2026-11-09) made it the
 third board of the moon-clock family: the project now links the
 clock's shared ``components/{clock, wifi, moon}`` behind a
-knob-owned ``board``/``imu`` shim, and the app-parity phases
-(shared screens, settings, alarm presentation, battery gauge) build
-on that seam.
+knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
+put the family's own app on the glass: ``components/ui`` compiles
+unchanged (generated ``fonts_knob/`` tier), the shared home screen —
+moon image, split-flap HH:MM, alarm row, seconds arc — runs over the
+``knob_moon_render.c`` seam, the idle ladder dims to the clocks'
+dusk look (LEDC 25 % + clock widget 20 %), and a fixed alarm rule
+**shows** across real deep sleep via the internal RTC **TIMER** wake
+(silent — no codec; editable with P3). Settings screens + alarm
+editing (P2/P3) and the battery gauge build on the same seam.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
@@ -225,10 +231,15 @@ Firmware (``knob/`` sibling project)
 -------------------------------------
 
 The shipping firmware is the **moon display**: LVGL 9.6,
-one full-panel disk baked by the clock's portable moon core, a
-caption row carrying a **local-time glass clock** ("Nov 8 17:29"
-through ``KNOB_TZ``, rolled by the day tick without a re-bake, sized
-for the round window), a cold-boot synodic sweep
+one full-panel disk baked by the clock's portable moon core under the
+family's **shared home screen** — split-flap HH:MM pair cells, colon,
+alarm row and seconds arc from ``screens.c``'s
+``create_user_widget_clock``, laid out at 360 px through ``UI_PX()``
+with the generated ``fonts_knob/`` tier (74/37/25 px = the S3's
+96/48/32 baselines scaled by 360/466). The earlier K7 caption row
+("Nov 8 17:29" through ``KNOB_TZ``) still carries the display in the
+legacy own-screen build (``KNOB_UI_ENABLE=n``); it retires when the
+shared TZ screen lands with P2. Around that, a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
 that re-bakes once on a UTC-date or event-signature change, SNTP
@@ -335,7 +346,10 @@ Layout and commands:
   it arms on the last known instant, logged as such).
 * K7e power (``knob/components/knob_power``): an idle-ladder supervisor
   (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
-  default 40) after ``KNOB_DIM_AFTER_S`` (15) and enters
+  default **64** = 25 %, the P1 dim-parity value matching the clocks'
+  light-sleep panel; a registered dim observer drops the shared clock
+  widget to ``UI_CLOCK_ALPHA_PCT`` alongside) after
+  ``KNOB_DIM_AFTER_S`` (15) and enters
   ``esp_deep_sleep_start`` after ``KNOB_SLEEP_TIMEOUT_S`` (60) of
   touch/dial silence; any activity un-dims and restarts the ladder.
   Activity = touch contacts (pushed from the indev read) and dial
@@ -351,7 +365,18 @@ Layout and commands:
   ``KNOB_TOUCH_WAKE`` (default ``y``) — **EXT1 ANY_LOW on the CST816S
   INT (GPIO 9)**, so a screen tap wakes like a detent (one touch
   status read before sleeping clears a pending INT pulse — the
-  boot-loop guard; a rejected pad logs and stays dial-only). The S3
+  boot-loop guard; a rejected pad logs and stays dial-only). Under
+  ``KNOB_ALARM_TIMER_WAKE`` (default ``y``) the sleep **also arms the
+  S3 internal RTC timer** for the next fixed alarm rule
+  (``KNOB_ALARM_MAX_SLEEP_GAP_S`` 82800 bounds the horizon; a rule
+  inside 60 s defers the sleep for the awake esp_timer; no plausible
+  epoch arms no phantom timer), and the wake logs a cause the legend
+  spells **0**=power-on, **2**=EXT0 dial, **3**=EXT1 tap,
+  **4**=TIMER alarm — a cause-4 wake within ``KNOB_ALARM_GRACE_S``
+  (300) of the recomputed rule shows the silent alarm visual; an
+  early one inside ``KNOB_ALARM_LATE_MAX_S`` (900) holds to the rule
+  at 1 Hz (never a ring early); anything further off wakes like a
+  dial turn. The S3
   RTCIO verdict the
   plan asked for came back **accepted**, device-verified 2026-11-08
   on the production build — the 314 s cold-boot sweep held the ladder
@@ -392,8 +417,10 @@ Layout and commands:
   ``/spiffs/alarm.txt`` (without it boot logged ``ESP_ERR_NOT_FOUND``
   and the "Loaded N alarm rules from SPIFFS" path never ran; boot
   stayed healthy either way). The scheduler is loaded and its rules
-  parsed on the knob already; alarm *presentation* arrives with the
-  parity phases.
+  parsed, and since P1 the alarm **presents**: awake, the shared
+  esp_timer fires the silent alarm visual; asleep, the TIMER wake
+  above shows it (codec-less, so it never rings — *editing* the rule
+  on glass comes with P3).
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
   pulsed channel IS the direction. The decoder mirrors the vendor's

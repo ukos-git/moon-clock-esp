@@ -291,6 +291,31 @@ alarm is pending** (dim panel, dark side) instead of dropping to the
 backlight-off state. The user's power decision: an alarm must be
 able to ring.
 
+The third board runs a different ladder
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The knob (:doc:`the Knob board <../devices/knob>`) shares the
+*screens* and the *scheduler* but not this state machine: no IMU to
+wake on, no RTC to arm, no light sleep. Its
+``knob_power`` supervisor dims by LEDC duty (``KNOB_DIM_DUTY`` 64 =
+the clocks' 25 % panel rung) plus the shared clock widget at
+``UI_CLOCK_ALPHA_PCT`` (20 %) — the same dimmed *look* as dusk, two
+rungs down from the clocks' ladder — and then calls the real
+``esp_deep_sleep_start`` (the clocks' app-layer "deep sleep" never
+powers down; the knob's does, battery honesty for a portable knob).
+The alarm question the asymmetry above answers with *staying in light
+sleep*, the knob answers with the **S3 internal RTC timer**: before
+sleeping it arms ``esp_sleep_enable_timer_wakeup`` for the next fixed
+rule alongside the EXT0 (dial-A) / EXT1 (tap) pads, and a cause-4
+wake is arbitrated against the rule recomputed from the NVS epoch
+snapshot — grace (300 s) → the silent alarm visual, early (≤ 900 s)
+→ hold at 1 Hz until the rule (**never ring early**), further off or
+implausible → a normal dial-style wake. RC-drift is the accepted
+cost (~0.5 % worst case) and never compounds: every wake re-corrects
+via SNTP and re-arms from the fresh instant. Full design:
+:doc:`the knob display <knob-display>` — the ladder and the
+arbitration.
+
 The RTC alarm disarm rule
 -------------------------
 

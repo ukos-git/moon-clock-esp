@@ -2,22 +2,26 @@ The knob display
 ================
 
 The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** is the **third board
-of the moon-clock family** (P0 family seam, 2026-11-09): the
-``knob/`` sibling project links the clock's shared
-``components/{clock, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
+of the moon-clock family** (P0 family seam + P1 home parity,
+2026-11-09): the ``knob/`` sibling project links the clock's shared
+``components/{clock, ui, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
 and answers the board-specific symbol surface with its own
 ``board``/``imu`` shim — the way the P4 port answered it with its
-BSP (:doc:`the Knob board <../devices/knob>`). The app on glass is
-still **one view** — one moon disk and a caption — while the parity
-phases (P1–P4) land the shared screens, the alarm presentation and
-the battery gauge on that seam. What the AMOLED clock carries and
+BSP (:doc:`the Knob board <../devices/knob>`). Since P1 the app on
+glass **is the family app**: the shared home screen (moon image +
+split-flap HH:MM + alarm row + seconds arc) compiled from
+``components/ui`` unchanged, driven through the **render seam**
+below; the legacy own-screen view (one moon disk + caption) still
+builds behind ``KNOB_UI_ENABLE=n``. What the AMOLED clock carries and
 the knob does not: the burn-in spin, the keep-mask, the 0x51
 brightness ramp, the panel watchdog (the SH8601 is a **backlit LCD**
-with no burn-in exposure and no TE line), and the IMU tilt logic (no
-chip — the shim answers fixed-upright). The alarm *scheduler* is
-already the shared one — it loads ``/spiffs/alarm.txt`` and arms its
-esp_timer on boot — but with no UI or audio surface yet, no rule
-rings.
+with no burn-in exposure and no TE line), the IMU tilt logic (no
+chip — the shim answers fixed-upright), and audio (no codec —
+``alarm_audio.h`` is answered by a silent stub, so a rule never
+*rings*; it *shows*: the alarm screen). The alarm *scheduler* is the
+shared one — it loads ``/spiffs/alarm.txt`` and arms its esp_timer
+while awake — and the deep-sleep arm extends it with the internal
+RTC **TIMER** wake (see the ladder).
 
 The same physics, verified the same way
 ---------------------------------------
@@ -71,6 +75,58 @@ Measured on the S3R8 (bench, 2026-11-08): relief build 727 ms, first
 360-px bake ~790 ms, ~115–130 ms per 128-px sweep frame, 0 TWDT,
 ~6.8 MB PSRAM free after assets + buffers.
 
+The render seam (P1)
+--------------------
+
+The shared ``components/ui`` compiles into the knob **unchanged**:
+the six core TUs (``ui.c``, ``screens.c``, ``images.c``, ``styles.c``,
+``actions.c``, ``vars.c``) plus the generated ``fonts_knob/`` tier
+(74/37/25 px = the S3's 96/48/32 baselines scaled by 360/466 — the
+six file names keep the baseline sizes exactly like ``fonts_p4/``'s,
+the baked sizes live in the files; same ``lv_font_conv`` provenance,
+identical symbol names so ``fonts.h`` never changes). The four AMOLED/board-coupled
+TUs (``moon_ui.c``, ``moon_tfcache.c``, ``alarm_audio.c``,
+``demo.c``) drop out of the knob's SRCS, and the knob answers their
+public headers from its own components:
+
+- ``knob_moon_render.c`` implements the **``moon_ui.h`` seam** — the
+  thirteen functions the shared screens/actions call. The physics
+  honest to this board: fades and dim ramps become **LEDC duty
+  ramps** (10 ms steps on GPIO 47 — there is no 0x51 QSPI brightness
+  path to wedge, and no 0x51 is ever sent); ``moon_ui_screen_switched``
+  is the **one atomic whole-panel ``lv_refr_now``** under the
+  injected LVGL mutex (the family's hard invariant — and the knob
+  keeps exactly **two ``lv_refr_now`` owners**: this seam and the
+  swap task); ``moon_ui_create_image`` attaches through the
+  producer/swap core's shared PSRAM descriptor; ``moon_ui_day_tick``
+  is a **documented no-op** (the S3's minute-freeze lesson,
+  :doc:`the animations page <animations>` — the
+  classify/event probe is the producer task's job on CPU1, never the
+  LVGL tick's); ``dusk_start`` says false, tilt says settled, the
+  panel-step/keep-mask calls are no-ops (no spin, no AMOLED burn-in).
+- ``knob_alarm_audio_stub.c`` answers ``alarm_audio.h``: ring/preview
+  are silent no-ops and every selectable sound is honestly named
+  "Silent" (codec-less board) — the shared alarm paths link and run.
+- The ``board``/``imu`` shims (P0) stay, plus a silent **name shim**
+  component ``esp_codec_dev``: the ui component's REQUIRES must be
+  unconditional because the component manager's early requirements
+  pass evaluates component CMakeLists with **neither project
+  variables nor ``CONFIG_`` symbols** (``build.cmake``'s
+  ``__component_get_requirements`` runs ``cmake -P`` on just the
+  properties files) — the same reason the knob branches there key on
+  the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``.
+
+``KNOB_UI_ENABLE`` (the ``knob_ui`` Kconfig umbrella) gates the seam
+at **runtime**, not in CMake: the seam objects always link (the early
+pass forbids conditional REQUIRES anyway), and ``main.c``'s
+``#if`` decides whether ``moon_ui_init``/``ui_init`` run — with the
+switch off the legacy own-screen view comes up instead. The family
+per-second chain rides the shared ``clock_rtc_interrupt_handler_cb``
+on an ``lv_timer`` (1300 ms, the clocks' cadence) with exactly the
+clocks' three registrations — clock labels + day probe, alarm
+display, alarm trigger — and no idle pair: the knob's ladder is
+``knob_power``'s, not the app-layer dimming.
+
 The opening act
 ---------------
 
@@ -120,27 +176,39 @@ correction applies without re-arming. Bench builds freeze a test
 epoch (``KNOB_TIME_USE_TEST_EPOCH``) to keep the acceptance epochs
 reproducible.
 
-The caption is a **local wall clock** ("Nov 8 17:29") formatted
-through the POSIX zone in ``KNOB_TZ`` — the same reading the clocks'
-home screen gives, so one bench moment shows one time on all three
-boards (the photo showed the clock at 17:29 local beside a caption
-spelling the same moment "16:27 UTC") — and the 1 Hz day tick rolls
-it with the minute **without a re-bake** (the text previously moved
-only when a day/event re-bake happened, so between bakes the glass
-clock sat on the bake instant). At the round panel's bottom edge the
-window is only ~205 px wide, so the label is a fixed 240 px box with
-center align and DOT long mode: an over-long caption becomes an
-ellipsis, never a clipped date (the 2026-11-08 bench photo clipped
-both ends of "2026-11-08 16:27 UTC" at the old auto-width, bottom-6
-px position).
+The legacy own-screen view's caption (``KNOB_UI_ENABLE=n``) is a
+**local wall clock** ("Nov 8 17:29") formatted through the POSIX zone
+in ``KNOB_TZ`` — the same reading the clocks' home screen gives, so
+one bench moment shows one time on all three boards (the photo showed
+the clock at 17:29 local beside a caption spelling the same moment
+"16:27 UTC") — and the 1 Hz day tick rolls it with the minute
+**without a re-bake** (the text previously moved only when a
+day/event re-bake happened, so between bakes the glass clock sat on
+the bake instant). At the round panel's bottom edge the window is
+only ~205 px wide, so the label is a fixed 240 px box with center
+align and DOT long mode: an over-long caption becomes an ellipsis,
+never a clipped date (the 2026-11-08 bench photo clipped both ends of
+"2026-11-08 16:27 UTC" at the old auto-width, bottom-6 px position).
+The production (P1) build shows the **shared home screen** instead —
+the split-flap HH:MM pair cells, colon, alarm row and seconds arc
+from ``screens.c``'s ``create_user_widget_clock``, laid out at 360 px
+through ``UI_PX()`` — and the caption path stays alive only in the
+legacy build (``KNOB_TZ`` retires when the shared TZ screen lands in
+P2).
 
 The power ladder
 ----------------
 
 ``knob/components/knob_power`` runs a 500 ms supervisor task:
 active → backlight dim (``KNOB_DIM_AFTER_S`` 15 → LEDC duty
-``KNOB_DIM_DUTY`` 40) → ``esp_deep_sleep_start`` after
-``KNOB_SLEEP_TIMEOUT_S`` (60) of touch/dial silence. Activity is
+``KNOB_DIM_DUTY`` **64 = 25 %**, the P1 dim-parity value matching the
+clocks' light-sleep panel) → ``esp_deep_sleep_start`` after
+``KNOB_SLEEP_TIMEOUT_S`` (60) of touch/dial silence. The dim rung is
+**two-part** like the clocks' dusk: the supervisor drops the LEDC
+duty, and a registered dim observer (``knob_power_set_dim_cb`` —
+main.c wires it to the seam's ``knob_render_set_home_dim``) drops
+the shared clock widget to ``UI_CLOCK_ALPHA_PCT`` (20 %) opacity
+alongside it, restoring both on activity. Activity is
 touch contacts (pushed from the input read) and dial detents (the
 encoder count polled); **the boot arm and the opening act both hold**
 the ladder, so a presentation is never interrupted — and never
@@ -155,7 +223,29 @@ thresholds, then dim fired at idle 15.1 s and the sleep at idle
 sleep, not a hang). Before ``esp_deep_sleep_start`` the supervisor
 saves the shared ``clock``/``epoch`` NVS snapshot
 (``clock_nvs_save_epoch``), so the wake comes up on the last known
-instant.
+instant — and, under ``KNOB_ALARM_TIMER_WAKE`` (default ``y``, the
+user's alarm-across-deep-sleep choice), it **also arms the S3
+internal RTC timer** for the next fixed rule:
+``knob_power_rule_epochs_around`` mirrors the scheduler's own
+``mktime``/``tm_isdst=-1`` math over the loaded rule's hour/minute +
+weekday mask, and the sleep carries
+``esp_sleep_enable_timer_wakeup(delta)`` next to the EXT0/EXT1 pads.
+The guards: a rule inside 60 s **defers the sleep** (the awake
+app-level esp_timer fires it — no sleeping through your own alarm);
+a gap beyond ``KNOB_ALARM_MAX_SLEEP_GAP_S`` (82800 — the Friday→Monday
+weekday hole) sleeps GPIO-only; an implausible epoch (< 2020) arms
+**no phantom timer** at all. On the other side, ``main.c``'s wake
+arbitration decides what a TIMER wake means — the wake-cause legend
+on the device page spells it **4**: within ``KNOB_ALARM_GRACE_S``
+(300) of the rule recomputed from the snapshot/SNTP it **is** the
+alarm → the silent alarm visual via ``action_alarm_triggered`` under
+the LVGL lock; an **early** wake within ``KNOB_ALARM_LATE_MAX_S``
+(900) holds dark at 1 Hz (re-reading the clock each second so a
+landing SNTP fix re-anchors the wait) and fires at the rule — **never
+a ring early**; anything further off, or an implausible epoch, is a
+stale fire → normal dial-style wake. RC-clock drift (the accepted
+cost, bench-tolerance <= ~0.5 %) is absorbed by the grace window and
+re-corrected by SNTP on every wake, so it never compounds.
 
 Wake is **EXT0 on dial-A GPIO 8**, active-LOW against the board's own
 10K pull-up — the S3 RTCIO accept the plan asked for came back yes.
@@ -186,9 +276,12 @@ Not shipped (on purpose)
   ``/spiffs/settings.txt``) arrive with the parity phases as the
   dial's real job, not the earlier ``knob_settings.txt`` + dial
   stepper idea.
-- **The alarm presentation** — the shared scheduler is linked and
-  armed, but with no audio codec and no alarm screen yet, a rule
-  does not ring; the timer-wake design lands with P1/P3.
+- **Alarm *editing*** (P3) — the alarm **shows** since P1 (the
+  shared alarm screen, fired awake or across deep sleep by the
+  TIMER wake above) but is always silent and not yet editable on
+  the glass: no audio codec to ring with, and the rollers +
+  weekday arc + wheel keyboard that write ``/spiffs/alarm.txt``
+  ride in with the settings phases.
 - On-device credential entry (the gitignored credentials file plus
   host-side editing is today's input tool; the wheel keyboard comes
   with the parity phases), dusk/orbit ambient tasks, sub-hour TZ

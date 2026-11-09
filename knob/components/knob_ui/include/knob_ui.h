@@ -19,6 +19,7 @@
 
 #include "freertos/FreeRTOS.h" /* must precede semphr.h (IDF rule) */
 #include "freertos/semphr.h"
+#include "lvgl.h" /* lv_obj_t for the P1 attach API */
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,6 +71,51 @@ bool knob_ui_show_moon(int64_t utc_epoch);
  * starting the LVGL task; the bake runs on the producer).
  */
 void knob_ui_start_sweep(int64_t now_epoch);
+
+/* ---- P1 render-seam surface (used by knob_moon_render.c) --------------
+ * The shared home screen (components/ui screens.c moon_screen_prepare)
+ * hosts the moon lv_image; the producer/swap core above drives it through
+ * the SAME descriptor path as the K7 own-screen view. All attach calls
+ * share the one PSRAM double buffer, exactly like the clocks'
+ * moon_ui_create_image across its four moon screens. */
+
+/** @brief Allocate the PSRAM double buffer + descriptor without building
+ *         any LVGL objects (shared-UI mode: the screens come from
+ *         ui_init/create_screens; knob_ui_create stays the legacy
+ *         own-screen path). @return false on PSRAM failure. */
+bool knob_ui_alloc_frames(void);
+
+/** @brief Create one moon lv_image on parent pointing at the shared
+ *         descriptor (hidden until the first frame lands, visible
+ *         immediately if a frame is already up). Returns NULL when the
+ *         buffers never came up or the attach list is full (8). */
+lv_obj_t *knob_ui_attach_moon_image(lv_obj_t *parent);
+
+/** @brief Invalidate every attached moon image (LVGL task; the clock's
+ *         moon_ui_refresh posture for external reparent/visibility
+ *         changes). */
+void knob_ui_invalidate_all(void);
+
+/** @brief True while the synodic boot sweep is playing (the shared
+ *         on-demand-sync flow gates on it, actions.c). */
+bool knob_ui_sweeping(void);
+
+/** @brief True once the first frame has been applied to the panel. */
+bool knob_ui_shown(void);
+
+/** @brief Take/give the LVGL mutex handed in via knob_ui_set_lvgl_lock
+ *         (the seam's own object writes ride the same lock; recursive
+ *         take from the LVGL task itself is fine — IDF mutexes are). */
+void knob_ui_lvgl_lock(void);
+void knob_ui_lvgl_unlock(void);
+
+/** @brief Dim parity with the clocks' dusk (P1): drop the shared clock
+ *         widget to CONFIG_UI_CLOCK_ALPHA_PCT opacity alongside the
+ *         board's 25 % LEDC backlight, restore on activity. Registered
+ *         as the knob_power ladder's dim observer; takes the LVGL lock
+ *         itself, so it is safe from the supervisor task. No-op on the
+ *         legacy own-screen view (no shared objects were ever created). */
+void knob_render_set_home_dim(bool dimmed);
 
 #ifdef __cplusplus
 }

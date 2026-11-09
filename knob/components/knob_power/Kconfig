@@ -11,10 +11,55 @@ config KNOB_DIM_AFTER_S
 
 config KNOB_DIM_DUTY
     int "Dimmed backlight duty (0..255)"
-    default 40
+    default 64
     range 1 254
     help
-        LEDC duty while dimmed (full = 255, the vendor's "on").
+        LEDC duty while dimmed (full = 255, the vendor's "on"). 64 is the
+        P1 dim parity value: 25 %, matching the clocks' light-sleep panel
+        (UI_LIGHT_SLEEP_DIM_PCT); the shared clock widget dims to
+        UI_CLOCK_ALPHA_PCT alongside it (knob_render_set_home_dim).
+
+config KNOB_ALARM_TIMER_WAKE
+    bool "Deep sleep: arm the internal RTC timer for the next alarm rule"
+    default y
+    help
+        The user's alarm-across-deep-sleep choice: the knob ALWAYS deep
+        sleeps, and the S3's internal RTC timer wakes it at the next
+        rule time (+/- the RC drift, bench-checked at <= ~0.5 %). With n
+        the knob sleeps GPIO-only (EXT0/EXT1) and alarms fire only while
+        awake. The wake decision (fire / hold-to-rule-time / ignore) is
+        main.c's arbitration; the never-early-ring rule lives there.
+
+config KNOB_ALARM_GRACE_S
+    int "TIMER wake counts as the alarm fire within +/- this many seconds"
+    default 300
+    range 30 900
+    help
+        The rule time the RTC timer was armed for, as recomputed from
+        the NVS snapshot / SNTP on wake, may differ by the accumulated
+        RC drift. Within +/- this window the wake IS the alarm (silent
+        alarm visual). Outside it, a TIMER wake is either an early wake
+        (hold to rule time, NEVER ring early) or stale (ignore).
+
+config KNOB_ALARM_LATE_MAX_S
+    int "Ignore a TIMER alarm wake this far off in either direction"
+    default 900
+    range 300 7200
+    help
+        Beyond GRACE the wake is arbitrated: early wakes within LATE_MAX
+        wait at 1 Hz for the rule; anything further off (early or late)
+        is treated as a stale/garbage timer fire -> a normal dial wake.
+
+config KNOB_ALARM_MAX_SLEEP_GAP_S
+    int "Sleep GPIO-only when the next rule is farther out than this"
+    default 82800
+    range 3600 172800
+    help
+        A weekday-mask gap (e.g. Friday night -> Monday 7:00 = ~60 h)
+        exceeds any sane timer horizon; past this distance the knob
+        sleeps on EXT0/EXT1 only and relies on a human/dial wake
+        (23 h default covers the weekday case; > MAX means the
+        scheduler's next-rule cache is the only timer source).
 
 config KNOB_SLEEP_TIMEOUT_S
     int "Idle seconds before deep sleep (0 = never sleep)"
