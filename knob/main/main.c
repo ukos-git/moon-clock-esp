@@ -109,6 +109,37 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
 }
 
 #if CONFIG_KNOB_UI_ENABLE
+/* #tap-forensics v2 (temporary): lv_obj_class_t is opaque in the public
+ * headers (the ->name deref does not compile) — name the class by
+ * identity against the known classes, and log the raw class pointer for
+ * anything unknown. */
+const lv_obj_class_t *lv_obj_get_class(const lv_obj_t *obj);
+static const char *cls_of(const lv_obj_t *o) {
+    if (o == NULL) {
+        return "-";
+    }
+    const lv_obj_class_t *c = lv_obj_get_class(o);
+    if (c == &lv_obj_class) {
+        return "obj";
+    }
+    if (c == &lv_label_class) {
+        return "label";
+    }
+    if (c == &lv_image_class) {
+        return "image";
+    }
+    if (c == &lv_arc_class) {
+        return "arc";
+    }
+    if (c == &lv_roller_class) {
+        return "roller";
+    }
+    if (c == &lv_switch_class) {
+        return "switch";
+    }
+    return "?";
+}
+
 /* #tap-forensics (temporary): see the registration in app_main. */
 static void indev_forensics_cb(lv_event_t *e) {
     const lv_event_code_t c = lv_event_get_code(e);
@@ -137,8 +168,22 @@ static void indev_forensics_cb(lv_event_t *e) {
     if (ind != NULL) {
         lv_indev_get_point(ind, &p);
     }
-    ESP_LOGI(TAG, "indev %s target=%p at (%d,%d) screen=%d", name, lv_event_get_param(e), (int)p.x, (int)p.y,
-             (int)ui_current_screen());
+    /* v2: name the press target (class identity + raw class pointer +
+     * coords + parent) — the static walk says home has no clickable
+     * child, yet the press resolved to one. This settles it. */
+    lv_obj_t *t = lv_event_get_param(e);
+    const char *cls = "?", *pcls = "-";
+    const void *cptr = NULL;
+    lv_area_t a = {0, 0, 0, 0};
+    if (t != NULL) {
+        cls = cls_of(t);
+        cptr = (const void *)lv_obj_get_class(t);
+        lv_obj_get_coords(t, &a);
+        pcls = cls_of(lv_obj_get_parent(t));
+    }
+    ESP_LOGI(TAG, "indev %s target=%p[%s cls %p parent %s (%d,%d,%d,%d)] at (%d,%d) screen=%d active=%p", name,
+             (void *)t, cls, cptr, pcls, (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2, (int)p.x, (int)p.y,
+             (int)ui_current_screen(), (void *)lv_screen_active());
 }
 #endif /* CONFIG_KNOB_UI_ENABLE */
 
