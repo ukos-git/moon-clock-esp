@@ -47,6 +47,17 @@ CONFIG_LV_THEME_DEFAULT_DARK=y
 # yields every 16 rows).
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 
+# P1 home parity: app_main builds the SHARED home screen (pair cells,
+# split-flap digits, seconds arc, alarm row -- plus the whole LVGL build
+# under it) on the MAIN task. At the S3's 3584-byte default that
+# overflowed on the first boot (device-verified 2026-11-09: "***ERROR***
+# A stack overflow in task main" right after the clock/alarm labels
+# landed). The S3 never hits this because its home rides the LVGL task
+# with the moon pipeline; the P4 raised the same number to 10240 for the
+# same reason. 8192 is the knob's margin-tested value (its build is the
+# lightest of the three).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 # K7d time: pre-P0 this pinned lwIP's SNTP client (CONFIG_LWIP_SNTP=y).
 # Since the P0 seam the fix rides components/clock's clock_sntp (one-shot
 # lwIP POLL), and IDF 5.5 no longer defines the old symbol — the dead
