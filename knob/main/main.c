@@ -251,10 +251,18 @@ static void boot_arm_task(void *arg) {
         (void)clock_get_utc_epoch(&now);
         ESP_LOGI(TAG, "late NTP fix — static current phase armed");
         (void)knob_ui_show_moon(now); /* s_started -> force-rebake path */
-        vTaskDelete(NULL);
+        /* fall through: a TIMER wake whose fix landed LATE still deserves
+         * the arbitration below (and the static re-arm takes the real
+         * now instead of 0). */
     }
 #endif
 #if CONFIG_KNOB_ALARM_TIMER_WAKE && CONFIG_KNOB_UI_ENABLE
+    /* The boot-fix path never reads `now` (only the snapshot/late-fix
+     * branches did) -- the rule math runs against the wall clock, which
+     * is fresh right after a successful boot fix. */
+    if (now < EPOCH_PLAUSIBLE_MIN) {
+        (void)clock_get_utc_epoch(&now);
+    }
     /* Alarm across real deep sleep (the user's choice, P1): a TIMER wake
      * is a CANDIDATE rule fire, decided here against the fixed rule
      * around the now-epoch. The NVS snapshot is untrusted by design, but
@@ -274,17 +282,25 @@ static void boot_arm_task(void *arg) {
             } else if (early <= CONFIG_KNOB_ALARM_LATE_MAX_S) {
                 ESP_LOGI(TAG, "TIMER wake %lld s EARLY -- holding dark at 1 Hz (never rings early)", (long long)early);
                 int64_t remaining = early;
+                bool lost_clock = false;
                 while (remaining > 0) {
                     vTaskDelay(pdMS_TO_TICKS(1000));
                     int64_t cur = 0, p2 = 0, n2 = 0;
                     if (clock_get_utc_epoch(&cur) != ESP_OK || !knob_power_rule_epochs_around(cur, &p2, &n2) ||
                         n2 == 0) {
-                        break; /* lost the clock mid-hold: fall through */
+                        lost_clock = true; /* cannot judge the rule any more */
+                        break;
                     }
                     remaining = n2 - cur; /* a landing SNTP fix re-anchors */
                 }
-                ESP_LOGI(TAG, "rule time reached after early TIMER wake -- alarm visual");
-                alarm_fire = true;
+                if (lost_clock) {
+                    /* Never fire an EARLY alarm blind on a clock we lost
+                     * mid-hold -- a stale fire wakes like the dial. */
+                    ESP_LOGW(TAG, "lost the clock mid-hold -- stale fire, normal wake");
+                } else {
+                    ESP_LOGI(TAG, "rule time reached after early TIMER wake -- alarm visual");
+                    alarm_fire = true;
+                }
             } else {
                 ESP_LOGW(TAG, "TIMER wake %.0lld s off the rule -- stale fire, normal wake",
                          (late != INT64_MAX) ? (long long)late : -(long long)early);
@@ -296,7 +312,12 @@ static void boot_arm_task(void *arg) {
                 knob_ui_lvgl_lock();
                 action_alarm_triggered(NULL); /* silent alarm visual (codec-less board) */
                 knob_ui_lvgl_unlock();
-                knob_power_set_hold(false); /* ladder free: it naps again in time */
+                /* The alarm screen carries a moon image that nobody has
+                 * baked yet (this path never reached the static arm at
+                 * the tail): start the producer on the current phase --
+                 * the clock's alarm wake shows the moon under the alarm,
+                 * and the producer owns the ladder hold from here. */
+                moon_ui_replay_animation();
                 vTaskDelete(NULL);
             }
         }

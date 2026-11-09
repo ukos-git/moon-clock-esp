@@ -47,11 +47,10 @@ CONFIG_LV_THEME_DEFAULT_DARK=y
 # yields every 16 rows).
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 
-# K7d (knob_time): the legacy esp_sntp API is lwIP's SNTP client (default
-# on -- written explicitly because the whole moon pipeline depends on it).
-# POLL mode with the hourly UPDATE_DELAY keeps the drift down while
-# awake; the boot arm takes one fix and only bakes on trusted time.
-CONFIG_LWIP_SNTP=y
+# K7d time: pre-P0 this pinned lwIP's SNTP client (CONFIG_LWIP_SNTP=y).
+# Since the P0 seam the fix rides components/clock's clock_sntp (one-shot
+# lwIP POLL), and IDF 5.5 no longer defines the old symbol — the dead
+# line only warned at every build, so it is gone.
 
 # The caption clock spells local time like the clocks' home row (the
 # bench boards are Central European; Kconfig default UTC0 stays honest
