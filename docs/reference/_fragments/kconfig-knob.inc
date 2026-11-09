@@ -58,9 +58,10 @@ the page above):
      - ``"UTC0"``
      - POSIX TZ for the glass caption (``Nov 8 17:29`` local, the
        reading the clocks' home row gives); the bench's Central-
-       European boards use ``CET-1CEST,M3.5.0/2,M10.5.0/3``; the
-       shared ``clock_tz`` settings screen retires this key (parity
-       phase P2)
+       European boards use ``CET-1CEST,M3.5.0/2,M10.5.0/3``; since
+       P2 the shared ``clock_tz`` settings screen owns the zone on
+       the family app and this key survives only in the legacy
+       own-screen caption (``KNOB_UI_ENABLE=n``)
    * - ``KNOB_TIME_USE_TEST_EPOCH``
      - ``n``
      - Bench only: treat ``KNOB_MOON_TEST_EPOCH`` as trusted "now"
