@@ -1,8 +1,9 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Twelve keys across three menus (the sibling project's own components —
-the clock's Kconfig tree is never involved):
+Thirteen keys across three menus (the sibling project's own
+components; the shared clock keys the P0 seam brings in are listed on
+the page above):
 
 .. list-table::
    :header-rows: 1
@@ -39,10 +40,6 @@ the clock's Kconfig tree is never involved):
    * - ``KNOB_DEMO_PHASE_SEC``
      - ``15`` (5..600)
      - Seconds per demo phase step (``KNOB_DEMO_MODE`` only)
-   * - ``KNOB_NTP_SERVER``
-     - ``pool.ntp.org``
-     - The single lwIP POLL server (the clock's same choice); the
-       credentials WLAN needs an uplink
    * - ``KNOB_TIME_BOOT_SYNC_MS``
      - ``20000`` (5000..120000)
      - How long the boot arm waits for the first plausible SNTP
@@ -53,8 +50,9 @@ the clock's Kconfig tree is never involved):
      - ``"UTC0"``
      - POSIX TZ for the glass caption (``Nov 8 17:29`` local, the
        reading the clocks' home row gives); the bench's Central-
-       European boards use ``CET-1CEST,M3.5.0/2,M10.5.0/3``. Until
-       the deferred settings editor lands this is the knob's TZ knob
+       European boards use ``CET-1CEST,M3.5.0/2,M10.5.0/3``; the
+       shared ``clock_tz`` settings screen retires this key (parity
+       phase P2)
    * - ``KNOB_TIME_USE_TEST_EPOCH``
      - ``n``
      - Bench only: treat ``KNOB_MOON_TEST_EPOCH`` as trusted "now"
@@ -70,8 +68,8 @@ the clock's Kconfig tree is never involved):
      - ``60`` (0..36000)
      - Idle seconds before ``esp_deep_sleep_start`` with EXT0 on
        dial-A GPIO 8 (0 = never sleep); the boot arm and the opening
-       act HOLD the ladder, and the ``knob_time`` snapshot is saved
-       first
+       act HOLD the ladder, and the shared ``clock``/``epoch``
+       snapshot is saved first
    * - ``KNOB_TOUCH_WAKE``
      - ``y``
      - Also arm EXT1 ANY_LOW on the CST816S INT (GPIO 9): a screen

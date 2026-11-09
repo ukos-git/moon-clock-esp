@@ -3,4 +3,4 @@
 # with the companion approach (2026-11-08).
 idf_component_register(SRCS "knob_ui.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES lvgl knob_board knob_moon knob_time knob_power)
+                       REQUIRES lvgl knob_board knob_moon clock knob_power)

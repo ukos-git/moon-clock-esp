@@ -1,25 +1,37 @@
-The knob as a standalone display
-================================
+The knob display
+================
 
-The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** carries a
-standalone moon-display firmware as the ``knob/`` sibling project
-(:doc:`the Knob board <../devices/knob>`). It is *not* a port of the
-clock app: it shares the clock's portable moon core and asset
-pipeline verbatim, and nothing else. What the AMOLED clock carries
-and the knob deliberately does not: the burn-in spin, the keep-mask,
-the 0x51 brightness ramp, the panel watchdog (the SH8601 is a
-**backlit LCD** with no burn-in exposure and no TE line), the IMU
-tilt logic, the alarm stack and the settings screens. One view: one
-moon disk and a caption.
+The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** is the **third board
+of the moon-clock family** (P0 family seam, 2026-11-09): the
+``knob/`` sibling project links the clock's shared
+``components/{clock, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
+and answers the board-specific symbol surface with its own
+``board``/``imu`` shim — the way the P4 port answered it with its
+BSP (:doc:`the Knob board <../devices/knob>`). The app on glass is
+still **one view** — one moon disk and a caption — while the parity
+phases (P1–P4) land the shared screens, the alarm presentation and
+the battery gauge on that seam. What the AMOLED clock carries and
+the knob does not: the burn-in spin, the keep-mask, the 0x51
+brightness ramp, the panel watchdog (the SH8601 is a **backlit LCD**
+with no burn-in exposure and no TE line), and the IMU tilt logic (no
+chip — the shim answers fixed-upright). The alarm *scheduler* is
+already the shared one — it loads ``/spiffs/alarm.txt`` and arms its
+esp_timer on boot — but with no UI or audio surface yet, no rule
+rings.
 
 The same physics, verified the same way
 ---------------------------------------
 
-``knob/components/knob_moon`` compiles the clock's
-``components/moon/core`` translation units **verbatim** through
-relative source paths — the identical mechanism ``host_sim`` uses
-(the file lists are the same five core + twelve vendored ERFA TUs,
-plus the ESP asset backend ``moon_esp_assets.c``). Because of that,
+The physics is the clock's, **compiled once**: the shared
+``components/moon`` is the single provider of the five core + twelve
+vendored ERFA TUs plus the ESP asset backend ``moon_esp_assets.c`` —
+its CMakeLists selects ``generated/knob`` under a
+``CONFIG_BOARD_KNOB`` branch (first-match ahead of the P4/s3
+branches; the clock projects never define the symbol, so their TUs
+compile exactly as before), and ``knob_moon`` is glue only. (Before
+the P0 seam the knob compiled those TUs itself through relative
+source paths — the identical mechanism ``host_sim`` uses; the seam
+retired the duplicate file list.) Because of that,
 ``host_sim/.venv/bin/python host_sim/check_gate.py --target knob``
 describes exactly the physics the panel shows: the knob gate reads
 **mean MAE 6.45 / SSIM 0.907** (s3 6.68/0.908, p4 6.73/0.907), and
@@ -77,27 +89,35 @@ signature changes.
 Time: SNTP truth or nothing
 ---------------------------
 
-The board has **no RTC**, so ``knob/components/knob_time`` arms the
-display only on SNTP truth (one-shot lwIP POLL over the board's own
-Wi-Fi join, which exists for nothing else). An answer counts only
-with a plausible epoch (> 2021-01-01); with no fix and no snapshot
+The board has **no RTC**, so the display arms only on SNTP truth —
+on the clock's own path since P0: ``components/clock``'s software
+time base (the P4's posture, ``CONFIG_CLOCK_USE_PCF85063A=n``) with
+``clock_sntp``'s one-shot lwIP POLL over the shared
+``components/wifi`` join, which exists for nothing else. An answer
+counts only with a plausible epoch (> 2021-01-01); with no fix and
+no snapshot
 the glass reads ``no time`` and **no phase is ever baked from a
 guess** — the clock's never-a-phantom-alarm discipline applied to the
-moon. Every plausible answer is also **snapshotted to NVS** (the
-clock's ``clock_sntp`` snapshot discipline, plus an explicit save
-from the power supervisor before every deep sleep): a wake whose
+moon. Every trusted answer is also **snapshotted to NVS** — the
+P4's pair, namespace ``clock``/key ``epoch``, saved by
+``clock_sntp`` and by an explicit ``clock_nvs_save_epoch`` from the
+power supervisor before every deep sleep: a wake whose
 join + NTP window runs long still arms the static current phase
 immediately from the snapshot + uptime — the log says
 ``arming static phase on NVS snapshot`` so the glass never sits dark
 for half a minute on an answer the board already had — and the late
-fix re-bakes through the ``show_moon`` force-rebake path. The age of
-a snapshot is unverifiable offline, which is why it is a *fallback
-arm* (plausibility floor enforced) and never a trusted instant.
-Measured: join → fix in ~4–11 s, agreeing with the host UTC clock
-within ~2 s; hourly resync rides ``CONFIG_LWIP_SNTP_UPDATE_DELAY``
-and applies without re-arming because the UI reads the system clock
-once it is valid. Bench builds freeze a test epoch
-(``KNOB_TIME_USE_TEST_EPOCH``) to keep the acceptance epochs
+fix re-bakes through the ``show_moon`` force-rebake path. A pre-seam
+wake finding only the legacy ``knob_time``/``epoch`` snapshot adopts
+it once as *last known, untrusted* and promotes it into the shared
+namespace. The age of a snapshot is unverifiable offline, which is
+why it is a *fallback arm* (plausibility floor enforced) and never a
+trusted instant. Measured: join → fix in ~4–11 s, agreeing with the
+host UTC clock within ~2 s. While awake, the fixes are the boot fix
++ the late fix — the clocks' hourly on-demand refresh
+(``clock_sntp_needs_sync``) is app-layer and arrives with the shared
+screens; the UI reads the system clock once it is valid, so a
+correction applies without re-arming. Bench builds freeze a test
+epoch (``KNOB_TIME_USE_TEST_EPOCH``) to keep the acceptance epochs
 reproducible.
 
 The caption is a **local wall clock** ("Nov 8 17:29") formatted
@@ -133,8 +153,9 @@ free to sleep it). Device-verified: the 314 s sweep froze both
 thresholds, then dim fired at idle 15.1 s and the sleep at idle
 60.1 s, with the USB-JTAG node vanishing host-side (a real deep
 sleep, not a hang). Before ``esp_deep_sleep_start`` the supervisor
-saves the ``knob_time`` NVS snapshot, so the wake comes up on the
-last known instant.
+saves the shared ``clock``/``epoch`` NVS snapshot
+(``clock_nvs_save_epoch``), so the wake comes up on the last known
+instant.
 
 Wake is **EXT0 on dial-A GPIO 8**, active-LOW against the board's own
 10K pull-up — the S3 RTCIO accept the plan asked for came back yes.
@@ -160,8 +181,15 @@ Not shipped (on purpose)
   factory gauge reads an impossible 4.6 V, so the honest read is
   *none* until the measurement agrees within ~50 mV. The verdict,
   either way, belongs on the device page.
-- **The settings editor** (tz offset, brightness, sleep timeout via
-  a ``knob_settings.txt`` + dial stepper) — the dial's next job.
+- **The settings editor** — superseded by the family seam: the
+  shared screens + ``settings_store`` (the clock's
+  ``/spiffs/settings.txt``) arrive with the parity phases as the
+  dial's real job, not the earlier ``knob_settings.txt`` + dial
+  stepper idea.
+- **The alarm presentation** — the shared scheduler is linked and
+  armed, but with no audio codec and no alarm screen yet, a rule
+  does not ring; the timer-wake design lands with P1/P3.
 - On-device credential entry (the gitignored credentials file plus
-  host-side editing is the input tool), dusk/orbit ambient tasks,
-  sub-hour TZ granularity, charge detection (no known VBUS sense).
+  host-side editing is today's input tool; the wheel keyboard comes
+  with the parity phases), dusk/orbit ambient tasks, sub-hour TZ
+  granularity, charge detection (no known VBUS sense).

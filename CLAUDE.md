@@ -7,12 +7,16 @@ ESP32-P4-WIFI6-Touch-LCD-XC "4C" (720x720 round IPS, JD9365 MIPI-DSI, GT911
 touch, remote C6 Wi-Fi over SDIO, 32 MB flash + PSRAM — the full sibling port;
 `docs/devices/p4`). ESP-IDF 5.5.1, LVGL 9.6. The portable moon core
 (`components/moon/core`) is shared verbatim with the host simulator
-(`host_sim/`) and with the third Waveshare board — the
-ESP32-S3-Knob-Touch-LCD-1.8 "knob", a standalone moon display as the `knob/`
-sibling project (its own ESP-IDF project, build dir, `dependencies.lock.knob`
-and gitignored `knob/sdkconfig`, its third asset target `--target knob`;
-`docs/devices/knob` and `docs/implementation/knob-display`; it shares the moon
-core and asset pipeline with the clock and nothing else).
+(`host_sim/`) and with the third board of the moon-clock family — the
+ESP32-S3-Knob-Touch-LCD-1.8 "knob" (the `knob/` sibling project: its own
+ESP-IDF project, build dir, `dependencies.lock.knob` and gitignored
+`knob/sdkconfig`, its third asset target `--target knob`; `docs/devices/knob`
+and `docs/implementation/knob-display`). It links the clock's shared components
+(`clock`, `wifi`, `moon`) through `EXTRA_COMPONENT_DIRS` — added as
+**individual dirs, never the parent `components/`** (IDF 5.5.1 excludes
+components by name only, so the knob's own `board`/`imu` shims must own those
+names; the shim's Kconfig carries the `choice BOARD`, default `BOARD_KNOB`) —
+and adds the dial, battery gauge and real `esp_deep_sleep_start`.
 
 ## Standing rule: keep the documentation current
 

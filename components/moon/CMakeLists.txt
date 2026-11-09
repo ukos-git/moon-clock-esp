@@ -9,7 +9,13 @@
 # by the asset pipeline -- see components/moon/Kconfig MOON_ALBEDO_W) is
 # selected by INCLUDE_DIRS, so every consumer's `#include "moon_consts.h"`
 # resolves to the board's own texture dims without touching the core.
-if(CONFIG_BOARD_P4)
+# First-match order (Kconfig defaults are first-match-wins too): the knob
+# sibling project adds BOARD_KNOB via its board shim and links this
+# component through EXTRA_COMPONENT_DIRS; the clock projects never define
+# the symbol, so their TUs compile exactly as before.
+if(CONFIG_BOARD_KNOB)
+    set(MOON_GEN_DIR generated/knob)
+elseif(CONFIG_BOARD_P4)
     set(MOON_GEN_DIR generated/p4)
 else()
     set(MOON_GEN_DIR generated/s3)

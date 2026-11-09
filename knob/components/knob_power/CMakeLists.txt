@@ -5,4 +5,4 @@
 # board has no RTC; wakes arm the static moon from NVS).
 idf_component_register(SRCS "knob_power.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES knob_board esp_hw_support knob_time)
+                       REQUIRES knob_board esp_hw_support clock)

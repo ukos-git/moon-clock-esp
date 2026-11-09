@@ -1,13 +1,19 @@
 The Knob board
 ==============
 
-**Status: standalone moon-display firmware on the bench** — the
-``knob/`` sibling project boots its QSPI panel, loads the pre-baked
-moon assets into PSRAM and renders the physical moon (K7 milestones:
-K7a asset target + gate green, K7b static frame, K7c cold-boot
-synodic sweep + sky-event tint + day tick, K7d SNTP time with the
-honest ``no time`` posture, K7e idle ladder + EXT0 dial wake — the
-battery gauge still waits for its user-present multimeter ritual).
+**Status: moon-display firmware on the bench, on the clock's shared
+components** — the ``knob/`` sibling project boots its QSPI panel,
+loads the pre-baked moon assets into PSRAM and renders the physical
+moon (K7 milestones: K7a asset target + gate green, K7b static
+frame, K7c cold-boot synodic sweep + sky-event tint + day tick, K7d
+SNTP time with the honest ``no time`` posture, K7e idle ladder +
+EXT0 dial wake — the battery gauge still waits for its user-present
+multimeter ritual). The **P0 family seam** (2026-11-09) made it the
+third board of the moon-clock family: the project now links the
+clock's shared ``components/{clock, wifi, moon}`` behind a
+knob-owned ``board``/``imu`` shim, and the app-parity phases
+(shared screens, settings, alarm presentation, battery gauge) build
+on that seam.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
 clock's screens) was **discarded 2026-11-08** at the owner's
@@ -118,8 +124,8 @@ U4 like any normal ESP32 board.
 A dedicated **inter-MCU UART** exists on the board: S3 TX GPIO 38 /
 RX GPIO 48 ↔ U4 GPIO 23 / 18. None of the vendor's per-function
 demos uses it — it is how the two *factory* demo firmwares talk to
-each other. The firmware ignores it: the knob is a standalone
-device, and its Wi-Fi join exists only for SNTP.
+each other. The firmware ignores it: the knob never talks to the U4,
+and its Wi-Fi join exists only for SNTP.
 
 The remaining peripherals, for the record: haptics are a **DRV2605**
 on the same I2C bus (SDA 11 / SCL 12) with EN/TRIG lines and an LRA
@@ -218,7 +224,7 @@ port guess on the clock boards).
 Firmware (``knob/`` sibling project)
 -------------------------------------
 
-The shipping firmware is the **standalone moon display**: LVGL 9.6,
+The shipping firmware is the **moon display**: LVGL 9.6,
 one full-panel disk baked by the clock's portable moon core, a
 caption row carrying a **local-time glass clock** ("Nov 8 17:29"
 through ``KNOB_TZ``, rolled by the day tick without a re-bake, sized
@@ -226,23 +232,33 @@ for the round window), a cold-boot synodic sweep
 (new moon → now on cold boots only; wakes show the current phase,
 the clock's wake policy), the sky-event tint with a 1 Hz day tick
 that re-bakes once on a UTC-date or event-signature change, SNTP
-time over its own Wi-Fi join with an NVS last-known-instant snapshot
-(K7d, ``knob_time`` — the board has no RTC), and an idle ladder —
+time over the shared ``components/wifi`` join with the clock's NVS
+last-known-instant snapshot (K7d on the shared ``clock_sntp`` path —
+the board has no RTC), and an idle ladder —
 backlight dim, then deep sleep woken by a dial detent **or a screen
 tap** (K7e, ``knob_power``). How the pieces run —
 frame path, opening act, ladder — is
-:doc:`the knob as a standalone display <../implementation/knob-display>`.
+:doc:`the knob display <../implementation/knob-display>`.
 Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
-  {knob_board, knob_ui, knob_link, knob_moon}`` (panel/touch/dial
-  shim; the moon-view glue — one ``lv_image`` over a PSRAM RGB565
-  square through the partial flush; the Wi-Fi join; and
-  ``knob_moon``, which compiles the clock's ``components/moon/core``
-  TUs plus the ESP asset backend **verbatim** through relative
-  source paths — the same mechanism host_sim uses, so
-  ``check_gate.py --target knob`` describes exactly the physics the
-  panel shows).
+  {board, imu, knob_board, knob_ui, knob_moon, knob_power,
+  knob_time}`` and the shared ``../components/{clock, wifi, moon}``
+  brought in through ``EXTRA_COMPONENT_DIRS``. The seam's
+  ``board``/``imu`` shims answer the board-specific symbol surface
+  the way the P4's BSP does (panel handle + ``bsp/esp-bsp.h``
+  provider + IO-expander-to-NULL; a fixed-upright IMU — there is no
+  chip), and the shim's Kconfig carries the ``choice BOARD``
+  (``BOARD_KNOB`` default; ``BOARD_S3``/``BOARD_P4`` stay
+  selectable-but-unused so the shared Kconfig's ``if BOARD_P4``
+  clauses parse — ESP-IDF 5.5 errors on undefined symbols there).
+  The shared dirs are added **individually, never the parent
+  ``components/``**: IDF 5.5.1 excludes components by name only, so
+  the shims must own the names ``board``/``imu``. ``knob_moon`` is
+  glue only — the shared ``components/moon`` compiles the core TUs
+  once and picks ``generated/knob`` through a ``CONFIG_BOARD_KNOB``
+  branch, so ``check_gate.py --target knob`` still describes exactly
+  the physics the panel shows.
 * Moon assets: the pipeline's third target —
   ``--target s3 p4 knob`` bakes albedo 864×432 + DEM 1024×512 into
   the 2560 KiB ``moon_assets`` partition of ``knob/partitions.csv``
@@ -269,41 +285,54 @@ Layout and commands:
   tint LUT — a frozen 2025-03-14 total-lunar-eclipse epoch showed
   the blood tint on glass, and a pinned 23:59:30Z epoch produced
   exactly one day-tick re-bake after midnight.
-* K7d time (``knob/components/knob_time``): the board has **no RTC**, so
-  the display arms only on SNTP truth. One-shot ``esp_sntp`` POLL over
-  the Wi-Fi join (lwIP's SNTP client, ``CONFIG_LWIP_SNTP``); the
-  answer counts only with a plausible epoch (> 2021-01-01) — the
+* K7d time — on the clock's shared time path (P0 family seam): the
+  board has **no RTC**, so the display arms only on SNTP truth.
+  ``components/clock`` runs its software path (the P4's posture:
+  ``CONFIG_CLOCK_USE_PCF85063A=n`` in ``knob/sdkconfig.defaults``,
+  boot log ``No external RTC IC``); its ``clock_sntp`` is the
+  one-shot lwIP POLL over the shared ``components/wifi`` join, and
+  the answer counts only with a plausible epoch (> 2021-01-01) — the
   clock's never-a-phantom-alarm discipline applied to the moon: with
   no fix and no snapshot (dead AP, no uplink, implausible answer, a
   never-synced board) the glass honestly reads ``no time`` and
-  **no phase is ever baked from a guess**. Every plausible answer is
-  snapshotted to NVS (plus an explicit save before every deep sleep):
-  a wake whose join + NTP window runs long arms the static phase
-  immediately from the snapshot + uptime (log
+  **no phase is ever baked from a guess**. Every trusted answer is
+  snapshotted to the P4's NVS pair — namespace ``clock``/key
+  ``epoch`` (plus an explicit ``clock_nvs_save_epoch`` before every
+  deep sleep): a wake whose join + NTP window runs long arms the
+  static phase immediately from the snapshot + uptime (log
   ``arming static phase on NVS snapshot``) instead of sitting dark on
   an instant the board already had, and the late fix re-bakes — the
   clock's ``clock_sntp`` snapshot discipline, with the plausibility
-  floor still enforced on the read. A
-  small boot-arm task owns the sequence (wait for the background join
-  → start SNTP → fix within ``KNOB_TIME_BOOT_SYNC_MS`` = the cold-boot
-  sweep; late fix = static current phase; no fix = arm on the snapshot
-  if one exists, keep polling either way — the moon appears the moment
-  time lands). While awake, the hourly
-  ``CONFIG_LWIP_SNTP_UPDATE_DELAY`` POLL keeps the drift down (and
-  the day tick reads the system clock directly, so a re-sync
-  correction applies without re-arming). ``KNOB_NTP_SERVER`` is
-  Kconfig (default ``pool.ntp.org``, the clock's choice). Bench builds
-  set ``KNOB_TIME_USE_TEST_EPOCH`` to freeze ``KNOB_MOON_TEST_EPOCH``
-  as "now" without SNTP — what keeps the K7b/K7c acceptance epochs
-  reproducible. Measured on the bench (2026-11-08): join → fix in
+  floor still enforced on the read. A wake that finds the shared
+  namespace empty but a **legacy** ``knob_time``/``epoch`` snapshot
+  (pre-seam firmware) plausible adopts it once, logged as *last
+  known, untrusted*, and promotes it into the shared namespace. A
+  small boot-arm task owns the sequence (restore the snapshot → wait
+  up to 15 s for the bounded join → one fix within
+  ``KNOB_TIME_BOOT_SYNC_MS`` = the cold-boot sweep window; late fix =
+  static current phase; no fix = arm on the snapshot only if one
+  exists, keep polling either way — the moon appears the moment time
+  lands — and the late loop re-kicks ``esp_wifi_connect()``: the
+  shared join's retries are bounded, so it carries the retired
+  ``knob_link``'s background rejoin). While awake, the knob's fixes
+  are the boot fix + the late fix; the clocks' hourly on-demand
+  refresh (``clock_sntp_needs_sync``) is app-layer and lands with
+  the shared screens — a bench board parked awake with
+  ``KNOB_SLEEP_ALLOW=n`` runs on its last fix. The server is the
+  clock's ``CLOCK_NTP_SERVER`` (default ``pool.ntp.org``; the
+  ``KNOB_NTP_SERVER`` key went with ``knob_time``'s SNTP code).
+  Bench builds set ``KNOB_TIME_USE_TEST_EPOCH`` to freeze
+  ``KNOB_MOON_TEST_EPOCH`` as "now" without SNTP — what keeps the
+  K7b/K7c acceptance epochs reproducible. Measured on the bench
+  (2026-11-08, the posture the seam preserves): join → fix in
   ≈4–11 s, the synced epoch agreeing with the host UTC clock within
   ~2 s; the full 1344-frame sweep still landed in ~315 s on the real
   now (illum 1.7 % — three hours past that week's new moon), 0 TWDT.
   With a dead server (``ntp.invalid.example``) on a board with an
-  empty NVS the boot logged ``no NTP fix in window`` and the glass
-  stayed ``no time`` with zero bake lines — the refusal never guesses
-  a phase (with a snapshot stored it arms on the last known instant,
-  logged as such).
+  empty NVS the boot logged ``no NTP fix and no snapshot — 'no time'
+  stays on glass`` and the glass stayed ``no time`` with zero bake
+  lines — the refusal never guesses a phase (with a snapshot stored
+  it arms on the last known instant, logged as such).
 * K7e power (``knob/components/knob_power``): an idle-ladder supervisor
   (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
   default 40) after ``KNOB_DIM_AFTER_S`` (15) and enters
@@ -316,8 +345,9 @@ Layout and commands:
   is never slept over (the hold starts with ``boot_arm_task``, so a
   slow join + NTP window can no longer dim at 15 s and sleep at 60 s
   over a black panel; only a board that will never present leaves the
-  ladder free). Deep sleep first saves the ``knob_time`` snapshot,
-  then arms **EXT0 on dial-A GPIO 8** (active-LOW) plus — under
+  ladder free). Deep sleep first saves the shared ``clock``/``epoch``
+  snapshot (``clock_nvs_save_epoch``), then arms **EXT0 on dial-A
+  GPIO 8** (active-LOW) plus — under
   ``KNOB_TOUCH_WAKE`` (default ``y``) — **EXT1 ANY_LOW on the CST816S
   INT (GPIO 9)**, so a screen tap wakes like a detent (one touch
   status read before sleeping clears a pending INT pulse — the
@@ -350,9 +380,13 @@ Layout and commands:
   (spiffs-preserving) after ``esptool.py --port <port> chip_id``
   identifies the board (it is the bench's only ESP32-S3 while the
   AMOLED is unplugged).
-* Wi-Fi credentials come from ``knob/spiffs/knob_credentials.txt``
-  (gitignored, clock pattern; the example file is committed). The
-  join is connectivity only — there is no peer protocol any more.
+* Wi-Fi credentials come from ``knob/spiffs/wifi_credentials.txt``
+  (gitignored — the **clock's filename**: the shared
+  ``components/wifi`` reads it; the example file is committed, and a
+  full ``idf.py flash`` — not ``app-flash`` — is what carries a
+  rename like this into ``storage``). The join is connectivity only
+  — no peer protocol; it exists for the SNTP fixes (and the
+  settings Wi-Fi screen with the parity phases).
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
   pulsed channel IS the direction. The decoder mirrors the vendor's

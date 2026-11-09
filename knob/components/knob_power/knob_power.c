@@ -17,6 +17,7 @@
  */
 #include <stdint.h>
 
+#include "clock_sntp.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
@@ -24,7 +25,6 @@
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_power.h"
-#include "knob_time.h"
 
 static const char *TAG = "knob_power";
 
@@ -82,10 +82,11 @@ static void enter_deep_sleep(int64_t idle) {
         ESP_LOGW(TAG, "EXT1 GPIO 9 rejected (%s) -- dial-only wake", esp_err_to_name(ext1_err));
     }
 #endif
-    /* No RTC on this board: persist the last trusted instant NOW so the
-     * wake shows the moon at once instead of a dark panel through the
+    /* No RTC on this board: persist the last known instant NOW (the
+     * clock component's "clock"/"epoch" snapshot, the P4's discipline) so
+     * the wake shows the moon at once instead of a dark panel through the
      * Wi-Fi join + NTP window. */
-    knob_time_snapshot_save();
+    clock_nvs_save_epoch();
     ESP_LOGI(TAG, "idle %lld s -- EXT0 GPIO %d accepted%s, deep sleep%s", (long long)idle, (int)WAKE_GPIO,
 #if CONFIG_KNOB_TOUCH_WAKE
              " (+EXT1 tap wake)"

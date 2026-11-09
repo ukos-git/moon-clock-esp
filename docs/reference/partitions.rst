@@ -39,7 +39,8 @@ the ``factory`` app (:doc:`the build system <build-system>`):
   recognize.
 
 The ``knob/`` sibling project mirrors both — ``storage`` baked from
-``knob/spiffs/`` (``knob_credentials.txt``) and the ``moon_assets``
+``knob/spiffs/`` (``wifi_credentials.txt``, the clock's filename —
+the shared ``components/wifi`` reads it) and the ``moon_assets``
 blob flashed to its partition — but guards the blob the other way:
 existence and fit are configure-time ``FATAL_ERROR``\\ s in
 ``knob/CMakeLists.txt``, because a knob booting without the moon is

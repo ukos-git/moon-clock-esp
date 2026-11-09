@@ -1,7 +1,14 @@
-# Knob moon-display defaults (ESP32-S3R8). Hand-curated like the clock's
+# Knob firmware defaults (ESP32-S3R8). Hand-curated like the clock's
 # — never idf.py save-defconfig.
 
 CONFIG_IDF_TARGET="esp32s3"
+
+# Family seam (P0): the knob's board shim carries the BOARD choice; this
+# is the third board of the clock family. No PCF85063A on this board —
+# the time base is the clock component's software path (internal RTC
+# timer + SNTP), the P4's posture.
+CONFIG_BOARD_KNOB=y
+CONFIG_CLOCK_USE_PCF85063A=n
 
 # The S3-side flash is 16 MB quad (esptool-confirmed 2026-11-07, schematic
 # U3 W25Q128JVPIQ).

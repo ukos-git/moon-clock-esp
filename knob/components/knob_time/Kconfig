@@ -1,35 +1,24 @@
-menu "Knob time (K7d SNTP)"
-
-config KNOB_NTP_SERVER
-    string "NTP server hostname"
-    default "pool.ntp.org"
-    help
-        The single POLL server (same default the clock's
-        CLOCK_NTP_SERVER uses). The credentials WLAN must have an
-        uplink; without one the display honestly reads "no time".
+menu "Knob time bridge"
 
 config KNOB_TIME_BOOT_SYNC_MS
     int "Boot NTP fix window (ms)"
     default 20000
     range 5000 120000
     help
-        How long the boot arm task waits for the first plausible SNTP
-        answer before giving up on the sweep window (lwIP adds up to
-        CONFIG_LWIP_SNTP_MAXIMUM_STARTUP_DELAY before its first
-        request). After the window the glass stays "no time" and a
-        late fix arms the STATIC current phase instead of a sweep.
+        How long the boot arm task waits for the first SNTP fix
+        (clock_sync_time_from_ntp with CLOCK_NTP_SERVER) before giving
+        up on the sweep window. After the window the glass arms on the
+        NVS snapshot as "last known" (or stays "no time") and a late fix
+        re-bakes the STATIC current phase.
 
 config KNOB_TZ
     string "POSIX TZ string for the glass caption (e.g. CET-1CEST,M3.5.0/2,M10.5.0/3)"
     default "UTC0"
     help
-        The caption clock formats the SNTP instant through this TZ so
-        the knob and the clocks agree on glass ("Nov 8 17:29", not a
-        UTC date that reads as an hour off). Default UTC0 stays honest
-        for a device with no location; the bench's Central-European
-        boards set CET-1CEST,M3.5.0/2,M10.5.0/3 (the clock's TZ screen
-        has no counterpart until the deferred settings editor lands).
-        An invalid POSIX string makes newlib fall back to UTC.
+        The caption clock formats the instant through this TZ so the
+        knob and the clocks agree on glass. Interim home until the
+        shared clock_tz settings screen lands (P2 retires this key);
+        an invalid POSIX string makes newlib fall back to UTC.
 
 config KNOB_TIME_USE_TEST_EPOCH
     bool "Bench: frozen KNOB_MOON_TEST_EPOCH as now (no SNTP)"

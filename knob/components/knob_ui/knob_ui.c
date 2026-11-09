@@ -39,6 +39,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "clock.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -48,7 +49,6 @@
 #include "knob_board.h"
 #include "knob_moon.h"
 #include "knob_power.h"
-#include "knob_time.h"
 #include "lvgl.h"
 
 static const char *TAG = "knob_ui";
@@ -100,10 +100,12 @@ static SemaphoreHandle_t s_lvgl_mux;
 #define CONFIG_KNOB_TZ "UTC0"
 #endif
 
-/* Time source (K7d): the knob has no RTC, so "now" is knob_time (SNTP
- * truth) whenever it holds it -- reading the system clock directly means
- * the hourly POLL re-sync's correction takes effect without re-arming.
- * Without a trusted time ui_now_epoch() falls back to the boot epoch
+/* Time source (family seam, P0): the knob has no RTC, so "now" is the
+ * clock component's UTC epoch whenever the wall clock holds one (SNTP or
+ * NVS-restored -- clock_get_utc_epoch answers ESP_ERR_INVALID_STATE on an
+ * implausible system clock) -- reading the wall clock directly means the
+ * hourly POLL re-sync's correction takes effect without re-arming.
+ * Without a plausible time ui_now_epoch() falls back to the boot epoch
  * plus uptime: the bench frozen-KNOB_MOON_TEST_EPOCH path (pinned near
  * midnight makes the day tick fire its ONE re-bake, the K7c
  * acceptance), and production never reaches it for a BAKE -- main only
@@ -154,9 +156,9 @@ static int sweep_bake_px_get(void) {
 bool knob_ui_sweep_enabled(void) { return sweep_frames_get() >= 2; /* 0/1 frames = static only (bench builds) */ }
 
 static int64_t ui_now_epoch(void) {
-    const int64_t sntp = knob_time_now_epoch(); /* 0 until an SNTP fix */
-    if (sntp != 0) {
-        return sntp;
+    int64_t wall = 0;
+    if (clock_get_utc_epoch(&wall) == ESP_OK && wall != 0) {
+        return wall;
     }
     return s_now_base_epoch + (esp_timer_get_time() - s_now_base_us) / 1000000;
 }

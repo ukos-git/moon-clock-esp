@@ -1,16 +1,31 @@
-# The knob moon-display firmware (Waveshare ESP32-S3-Knob-Touch-LCD-1.8,
-# the ESP32-S3R8 app side): a standalone moon phase display (task #24).
-# A SIBLING project of the clock: its own build dir (-B build/knob), its
-# own dependency lock, its own sdkconfig — the clock's moon core, BSPs and
-# partition guards must not bleed in (the moon core TUs are shared
-# VERBATIM through relative source paths in knob_moon, not through the
-# clock's component graph).
+# The knob firmware (Waveshare ESP32-S3-Knob-Touch-LCD-1.8, the ESP32-S3R8
+# app side): the THIRD board of the moon-clock family — the clock's app
+# behaviour with the dial, battery and real deep sleep added. A sibling
+# project of the clock: its own build dir (-B build/knob), its own
+# dependency lock, its own sdkconfig — but it links the clock's SHARED
+# components through EXTRA_COMPONENT_DIRS (below), and a knob-owned board/
+# imu shim answers the board-specific symbol surface exactly the way the
+# P4 port answered it with its BSP. The vendored AMOLED BSP, the shared
+# board shim and the IMU component are NOT added (IDF 5.5.1 excludes by
+# name only, so we simply never add the directories — the shims carry the
+# component names "board"/"imu" that the shared code REQUIRESs).
 #
 # Build (sequential with the clock builds — never parallel):
 #   idf.py -C knob -B build/knob build
 #   idf.py -C knob -B build/knob flash -p <port>   # esptool chip_id first!
 
 cmake_minimum_required(VERSION 3.16)
+
+# Shared clock-family components, added as individual component
+# directories (NOT the parent components/ — that would register
+# board/imu/esp32_s3_touch_amoled_1_75 and collide with the knob shims).
+# P0: clock (time base + scheduler + settings_store), wifi (credentials +
+# scan), moon (the single core provider; knob_moon keeps only glue).
+# components/ui lands with P1 (the shared screens).
+set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/clock"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/wifi"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/moon")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
@@ -61,7 +76,8 @@ endif()
 
 # Bake knob/spiffs/ into the `storage` partition; FLASH_IN_PROJECT makes
 # `idf.py flash` carry it (the clock's root CMakeLists pattern). The real
-# knob_credentials.txt is gitignored; only the .example.txt is tracked.
+# wifi_credentials.txt is gitignored (the clock's filename — the shared
+# components/wifi reads it); only the .example.txt is tracked.
 spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
 
 # Moon phase assets (K7): flash the combined albedo + relief DEM blob into

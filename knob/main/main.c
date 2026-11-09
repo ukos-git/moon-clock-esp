@@ -1,12 +1,17 @@
 /**
  * @file main.c
- * @brief Moon-display firmware for the Waveshare ESP32-S3-Knob-Touch-
- *        LCD-1.8 (task #24): panel + CST816S + EC1 dial, Wi-Fi STA from
- *        the baked spiffs file (connectivity for K7d's SNTP), and the
- *        standalone moon view (knob_ui over the ported core, knob_moon).
+ * @brief Firmware for the Waveshare ESP32-S3-Knob-Touch-LCD-1.8: the
+ *        third board of the moon-clock family (P0 seam) — panel + CST816S
+ *        + EC1 dial, the clock's shared Wi-Fi manager (spiffs credentials,
+ *        K7d's SNTP rides it), the clock component's software time base
+ *        (SNTP + NVS epoch snapshot + alarm scheduler + settings store),
+ *        and the moon view (knob_ui over components/moon via knob_moon).
  */
 #include <stdio.h>
 
+#include "board_display.h"
+#include "clock.h"
+#include "clock_sntp.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
@@ -14,17 +19,19 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "knob_board.h"
-#include "knob_link.h"
 #include "knob_moon.h"
 #include "knob_power.h"
 #include "knob_time.h"
 #include "knob_ui.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
+#include "settings_store.h"
+#include "wifi.h"
 
 /* #ifndef-seeded (repo invariant: Kconfig 'n'/absent leaves it
  * UNDEFINED; this seeds the Kconfig default, never redefines it). */
@@ -167,35 +174,52 @@ static void boot_arm_task(void *arg) {
     have_time = true;
     ESP_LOGW(TAG, "bench build: frozen test epoch, SNTP not started");
 #else
-    for (int waited = 0; waited < 15000 && !knob_link_wifi_is_connected(); waited += 100) {
+    /* The clock component's snapshot discipline (the P4's path, now the
+     * knob's too): restore the "clock"/"epoch" NVS backup; on a board
+     * that never booted this firmware, the pre-seam "knob_time"
+     * namespace still holds the instant (one-time adopt + promote).
+     * Either restore is UNSAFE-to-trust by design (the trust flag stays
+     * down until an SNTP fix), so the `wall` bool — not the plausibility
+     * of the raw system clock — is what may arm a phase: a factory
+     * default clock never shows a silently-wrong moon. */
+    bool wall = clock_nvs_restore_epoch();
+    if (!wall) {
+        wall = knob_time_adopt_legacy_snapshot();
+        if (wall) {
+            (void)clock_nvs_save_epoch(); /* promote into the clock namespace */
+        }
+    }
+    for (int waited = 0; waited < 15000 && !wifi_manager_is_connected(); waited += 100) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    if (knob_link_wifi_is_connected()) {
-        knob_time_start_sync();
-        have_time = knob_time_wait_synced(CONFIG_KNOB_TIME_BOOT_SYNC_MS);
+    if (wifi_manager_is_connected()) {
+        have_time = (clock_sync_time_from_ntp(CONFIG_KNOB_TIME_BOOT_SYNC_MS) == ESP_OK);
     } else {
         ESP_LOGW(TAG, "Wi-Fi never came up — no NTP attempt");
     }
     if (!have_time) {
-        /* No RTC: the NVS snapshot (last plausible SNTP answer, stored
-         * on every fix and before every deep sleep) arms the static
+        /* No RTC: the restored wall clock (last plausible instant, saved
+         * on every SNTP fix and before every deep sleep) arms the static
          * moon immediately instead of a dark panel through the join +
          * NTP window. Honest log: it is the LAST KNOWN instant, and the
          * late fix below re-bakes through the show_moon force-rebake. */
-        const int64_t snap = knob_time_snapshot_epoch();
-        if (snap != 0) {
+        if ((wall || clock_sntp_time_trusted()) && clock_get_utc_epoch(&now) == ESP_OK) {
             ESP_LOGW(TAG, "no NTP fix in window — arming static phase on NVS snapshot %lld (last known)",
-                     (long long)snap);
-            armed = knob_ui_show_moon(snap);
+                     (long long)now);
+            armed = knob_ui_show_moon(now);
         } else {
             ESP_LOGW(TAG, "no NTP fix and no snapshot — 'no time' stays on glass");
         }
         for (;;) {
-            if (knob_link_wifi_is_connected()) {
-                knob_time_start_sync(); /* idempotent: takes when the join lands */
-            }
-            if (knob_time_wait_synced(1000)) {
-                break;
+            if (wifi_manager_is_connected()) {
+                if (clock_sntp_sync(2000) == ESP_OK) {
+                    break;
+                }
+            } else {
+                /* The shared manager's join retry is bounded; carry the
+                 * old knob_link background-rejoin: kick an attempt each
+                 * round until the radio takes. */
+                (void)esp_wifi_connect();
             }
             if (!armed) {
                 /* Nothing will present until a fix lands: the ladder
@@ -203,8 +227,10 @@ static void boot_arm_task(void *arg) {
                  * dial/tap wake re-runs this arm). */
                 knob_power_set_hold(false);
             }
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
-        now = knob_time_now_epoch();
+        now = 0;
+        (void)clock_get_utc_epoch(&now);
         ESP_LOGI(TAG, "late NTP fix — static current phase armed");
         (void)knob_ui_show_moon(now); /* s_started -> force-rebake path */
         vTaskDelete(NULL);
@@ -233,6 +259,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(knob_board_backlight_set(255)); /* vendor "on" */
 
     ESP_ERROR_CHECK(knob_board_display_init(trans_done_cb, NULL, NULL, &s_panel));
+    board_panel_set(s_panel); /* the shared components' board shim reads it */
 
     lv_init();
     s_disp = lv_display_create(KNOB_LCD_H_RES, KNOB_LCD_V_RES);
@@ -260,12 +287,31 @@ void app_main(void) {
      * active; the sweep holds the ladder from knob_ui. */
     knob_power_init();
 
-    /* K2: join the home AP from the baked spiffs file. Non-fatal — the
-     * moon renders offline; the join retries in the background and K7d's
-     * SNTP rides it. */
-    esp_err_t wifi_err = knob_link_wifi_init();
+    /* Family seam (P0): the clock's shared Wi-Fi manager — mounts SPIFFS,
+     * reads /spiffs/wifi_credentials.txt and joins the home AP.
+     * Non-fatal: the moon renders offline; the manager's join retry is
+     * bounded, and boot_arm_task carries the background rejoin until a
+     * connection lands. K7d's SNTP rides the connection. */
+    esp_err_t wifi_err = wifi_manager_init();
     if (wifi_err != ESP_OK) {
-        ESP_LOGW(TAG, "WiFi join incomplete (%s) — retrying in background", esp_err_to_name(wifi_err));
+        ESP_LOGW(TAG, "WiFi join incomplete (%s) — boot arm keeps rejoining", esp_err_to_name(wifi_err));
+    }
+
+    /* settings.txt BEFORE clock_init (the clock's order): clock_sntp_init
+     * reads the timezone selection from the store. */
+    const esp_err_t settings_err = settings_store_load();
+    if (settings_err != ESP_OK && settings_err != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG, "settings.txt load (%s) — keeping Kconfig defaults", esp_err_to_name(settings_err));
+    }
+
+    /* Software time base (CLOCK_USE_PCF85063A=n, the P4's posture):
+     * esp_timer countdown/alarm arming, SNTP + NVS epoch snapshot
+     * (clock_sntp.c), alarm scheduler loaded from /spiffs/alarm.txt.
+     * NTP is boot_arm_task's job (enable_ntp_sync=false) so the display
+     * core never waits on the radio window. */
+    const clock_config_t clock_cfg = {.enable_ntp_sync = false};
+    if (clock_init(&clock_cfg) != ESP_OK) {
+        ESP_LOGW(TAG, "clock_init failed — time stays untrusted");
     }
 
     /* K7: eager asset load (albedo -> PSRAM, relief gradient cache) runs

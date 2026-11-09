@@ -26,12 +26,14 @@ The knob (16 MB, sibling project)
    * - ``factory``
      - app/factory
      - **4096 K**
-     - The application binary (moon display, ~1.3 MB — ~68 % free;
-       the ``knob/`` sibling project's own app, not the clock's)
+     - The application binary (moon display on the shared clock
+       components, ~1.3 MB — ~67 % free; the ``knob/`` sibling
+       project's own app)
    * - ``storage``
      - data/spiffs
      - 512 K
-     - SPIFFS: ``knob_credentials.txt`` (gitignored, clock pattern)
+     - SPIFFS: ``wifi_credentials.txt`` (gitignored — the clock's
+       filename, read by the shared ``components/wifi``)
        — :doc:`the SPIFFS store <../reference/spiffs-store>`
    * - ``moon_assets``
      - data/undefined
