@@ -55,7 +55,10 @@ void knob_battery_ui_attach(void) {
         return;
     }
     s_label = lv_label_create(objects.modem_sleep);
-    lv_obj_set_style_text_font(s_label, &ui_font_montserrat_regular_32_range, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* The SSID set: full printable ASCII (32..126) — the _range font is
+     * the weekday letters only and rendered "100%" as four tofu boxes
+     * (bench, 2026-11-10). */
+    lv_obj_set_style_text_font(s_label, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(s_label, "--%");
     lv_obj_set_style_text_color(s_label, lv_color_hex(0x787878), LV_PART_MAIN | LV_STATE_DEFAULT);
     /* Foot of the panel, under the alarm row; a detent above the rim. */
@@ -64,5 +67,6 @@ void knob_battery_ui_attach(void) {
     lv_obj_clear_flag(s_label, LV_OBJ_FLAG_CLICKABLE);
     lv_timer_create(battery_timer_cb, 60000, NULL);
     battery_timer_cb(NULL); /* the first fill (also the first ADC read) */
-    ESP_LOGI(TAG, "battery gauge attached (placeholder calibration)");
+    /* #tap-forensics: the label pointer joins the dial's home-tree line. */
+    ESP_LOGI(TAG, "battery gauge attached @%p (placeholder calibration)", (void *)s_label);
 }
