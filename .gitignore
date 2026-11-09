@@ -14,6 +14,7 @@ spiffs/*
 knob/spiffs/*
 !spiffs/wifi_credentials.example.txt
 !knob/spiffs/wifi_credentials.example.txt
+!knob/spiffs/alarm.txt
 host_sim/pole_test
 docs/img/frames/
 host_sim/uisim/out/
