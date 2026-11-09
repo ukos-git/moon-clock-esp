@@ -2,8 +2,9 @@ Knob component Kconfig
 ======================
 
 The ``knob/`` sibling project's compile-time surface: its own
-``knob_moon``, ``knob_time`` (the boot-arm bridge), ``knob_power``
-and ``board`` (shim) component ``Kconfig`` files. The physics stays
+``knob_moon``, ``knob_time`` (the boot-arm bridge), ``knob_power``,
+``knob_ui`` (the ``KNOB_UI_ENABLE`` umbrella) and ``board`` (shim)
+component ``Kconfig`` files. The physics stays
 single-truth through the generated
 ``components/moon/generated/knob/moon_consts.h``
 (:doc:`the moon constants <moon-consts>`), and the board facts are
@@ -11,8 +12,9 @@ on :doc:`the Knob board <../devices/knob>`.
 
 Since the P0 family seam the knob **does** link part of the clock's
 Kconfig tree — ``components/clock`` is compiled in (its keys are
-single-sourced on :doc:`kconfig-clock`; only the ones the knob pins
-or reads are called out here):
+single-sourced on :doc:`kconfig-clock`), and since P1 so is
+``components/ui`` (single-sourced on :doc:`kconfig-ui`; only the ones
+the knob pins or reads are called out here):
 
 * ``BOARD`` choice — spelled by the knob's ``board`` **shim** (the
   shared board component is not added to the build, and a root
@@ -28,7 +30,13 @@ or reads are called out here):
   ``KNOB_NTP_SERVER``).
 * ``CLOCK_DEFAULT_TIMEZONE`` — the ``clock_sntp`` TZ fallback
   (settings-driven otherwise). The remaining clock keys compile at
-  their defaults; the UI-facing ones start mattering when the
-  shared screens land with the parity phases.
+  their defaults.
+* ``UI_SCREEN_SWITCH_FADE`` — since P1 the seam paces its **LEDC**
+  fade/dim ramps at this many ms (the clocks' 0x51 hardware-ramp
+  equivalent; 0 = instant, no ramp).
+* ``UI_CLOCK_ALPHA_PCT`` — the shared clock widget's opacity at the
+  knob's dim rung (20 %, dim parity; ``knob_render_set_home_dim``).
+  The remaining UI keys compile at their defaults — the screens they
+  drive arrive with P2/P3.
 
 .. include:: _fragments/kconfig-knob.inc

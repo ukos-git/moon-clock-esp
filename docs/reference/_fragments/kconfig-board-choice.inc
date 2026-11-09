@@ -37,3 +37,29 @@ choice, so ``sdkconfig.defaults.esp32s3`` does **not** carry
 guard (:doc:`the build system <../reference/build-system>`) is what
 makes a stray board line in the wrong file a build-time error rather
 than a silent runtime mix-up.
+
+The knob project carries a **mirror of this choice in its ``board``
+shim's Kconfig** (the shared board component is not in that build, and
+ESP-IDF 5.5 does not process the root ``Kconfig.projbuild``): the same
+three symbols with ``BOARD_KNOB`` added and made the default.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 12 60
+
+   * - Symbol
+     - Default
+     - Meaning
+   * - ``BOARD_KNOB``
+     - ``y``
+     - the Waveshare ESP32-S3-Knob-Touch-LCD-1.8: 360×360 SH8601 QSPI
+       round LCD, CST816S touch, EC1 dial (no push-button), LEDC
+       backlight, battery ADC on GPIO 1, **no** IMU / RTC IC / audio
+       codec — real ``esp_deep_sleep_start``, the time base is the
+       internal RTC timer + SNTP (software path, as on the P4)
+       (:doc:`the Knob board <../devices/knob>`)
+
+``BOARD_S3``/``BOARD_P4`` stay selectable-but-unused there — the
+shared components' Kconfig lines reference the symbols (``default
+2048 if BOARD_P4`` in moon), and Kconfig errors on undefined symbols
+in ``if`` clauses, so all three must exist in every project.
