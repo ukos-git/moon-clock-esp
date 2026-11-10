@@ -134,16 +134,45 @@ static int s_mode;
 
 /* ---- small helpers ------------------------------------------------- */
 
+/* One reentrant wrapper for the APP-WIDE mutex. The LVGL task holds it
+ * across lv_timer_handler, and LVGL event handlers run inside that
+ * context while calling code that locks again — the home tap's
+ * loadScreen -> moon_ui_screen_switched -> knob_ui_invalidate_all was
+ * the first owner-recursion and froze the device at CLICKED (bench
+ * 2026-11-10; a FreeRTOS mutex is NOT recursively takable by its
+ * owner). A same-task take is therefore a depth bump; other tasks keep
+ * blocking semantics. main.c's local lvgl_lock/unlock pair delegates
+ * here — nothing else takes s_lvgl_mux directly. */
+static TaskHandle_t s_lvgl_holder;
+static int s_lvgl_depth;
+
 static void lvgl_lock(void) {
-    if (s_lvgl_mux) {
-        xSemaphoreTake(s_lvgl_mux, portMAX_DELAY);
+    if (!s_lvgl_mux) {
+        return;
     }
+    const TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    if (self == s_lvgl_holder && s_lvgl_depth > 0) {
+        s_lvgl_depth++;
+        return;
+    }
+    xSemaphoreTake(s_lvgl_mux, portMAX_DELAY);
+    s_lvgl_holder = self;
+    s_lvgl_depth = 1;
 }
 
 static void lvgl_unlock(void) {
-    if (s_lvgl_mux) {
-        xSemaphoreGive(s_lvgl_mux);
+    if (!s_lvgl_mux) {
+        return;
     }
+    if (xTaskGetCurrentTaskHandle() != s_lvgl_holder) {
+        ESP_LOGE(TAG, "lvgl_unlock from non-owner %s — ignored", pcTaskGetName(NULL));
+        return;
+    }
+    if (--s_lvgl_depth > 0) {
+        return;
+    }
+    s_lvgl_holder = NULL;
+    xSemaphoreGive(s_lvgl_mux);
 }
 
 void knob_ui_set_lvgl_lock(SemaphoreHandle_t mux) { s_lvgl_mux = mux; }

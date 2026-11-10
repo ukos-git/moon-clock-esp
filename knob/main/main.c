@@ -70,9 +70,15 @@ static SemaphoreHandle_t s_lvgl_mux;
 
 /* ---- LVGL plumbing ---------------------------------------------------- */
 
-static void lvgl_lock(void) { xSemaphoreTake(s_lvgl_mux, portMAX_DELAY); }
+/* The reentrant owner/depth bookkeeping lives in ONE place (knob_ui.c's
+ * wrapper pair around the same mutex — knob_ui_set_lvgl_lock hands it
+ * the handle). The LVGL task holds the lock across lv_timer_handler and
+ * LVGL event handlers re-lock through it (loadScreen -> seam), so the
+ * plain take here would self-deadlock on the first tap (bench
+ * 2026-11-10): delegate, so same-task takes are depth bumps. */
+static void lvgl_lock(void) { knob_ui_lvgl_lock(); }
 
-static void lvgl_unlock(void) { xSemaphoreGive(s_lvgl_mux); }
+static void lvgl_unlock(void) { knob_ui_lvgl_unlock(); }
 
 #if CONFIG_KNOB_UI_ENABLE
 /* #tap-forensics v4 (temporary): SYNTHETIC tap burst through the real
