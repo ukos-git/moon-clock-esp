@@ -118,6 +118,22 @@ public headers from its own components:
   properties files) — the same reason the knob branches there key on
   the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``.
 
+The injected mutex must be **reentrant** (bench 2026-11-10): it is
+the app-wide ``s_lvgl_mux`` that ``lvgl_task`` holds across
+``lv_timer_handler``, and LVGL event handlers run inside that
+context. The home tap's chain (``CLICKED`` → hub ``loadScreen`` →
+``moon_ui_screen_switched`` → ``knob_ui_invalidate_all``) re-took it
+from the task that already owned it — and a FreeRTOS mutex is **not
+recursively takable**, so the LVGL task froze on the first
+hub-opening tap (no WDT ever fired: the producer tasks kept the
+ack/idle path alive). ``knob_ui.c`` wraps every take/release in a
+holder-task + depth counter — a same-task take is a depth bump, an
+unlock from a non-owner logs an error and is ignored — and
+``main.c``'s ``lvgl_lock``/``lvgl_unlock`` delegate to it. The
+clocks cannot hit this: their seam locks ``s_rgb_mtx``/``s_panel_mtx``,
+never the LVGL task's own mutex, and boot/wake ``loadScreen`` runs
+lock-free on other tasks.
+
 ``KNOB_UI_ENABLE`` (the ``knob_ui`` Kconfig umbrella) gates the seam
 at **runtime**, not in CMake: the seam objects always link (the early
 pass forbids conditional REQUIRES anyway), and ``main.c``'s
@@ -289,8 +305,10 @@ background CLICKED lands on the **screen root**, where a commit
 listener runs inside the LVGL task's lock. One knob-side detail: the
 settings creators deliberately clear the root's CLICKABLE — in LVGL 9
 a press with no clickable object under the finger has **no target at
-all**, so no CLICKED fires anywhere (the home keeps its root
-clickable, which is why its tap works out of the box).
+all**, so no CLICKED fires anywhere. (The home does keep its root
+clickable — but that alone did not make its tap work: the first
+hub-opening tap deadlocked on the seam's re-take of the LVGL mutex,
+see the reentrant-lock note under the render seam.)
 ``knob_dial_start`` therefore re-adds CLICKABLE to every settings
 root, knob-side only — harmless, the screens are exactly panel-sized,
 so nothing can scroll, and the clocks never see the line. The screen

@@ -80,49 +80,6 @@ static void lvgl_lock(void) { knob_ui_lvgl_lock(); }
 
 static void lvgl_unlock(void) { knob_ui_lvgl_unlock(); }
 
-#if CONFIG_KNOB_UI_ENABLE
-/* #tap-forensics v4 (temporary): SYNTHETIC tap burst through the real
- * read_cb (the same LVGL path a finger takes): 3 taps at known points,
- * armed t+500 s (the boot sweep ends ~392 s, home is idle then). No
- * finger needed for the verdict: target lines + home-probe lines + the
- * seam's "screen switch fade-out" (proof loadScreen ran) settle hit-test
- * vs the open-hub path; a later tap line showing screen=2 means the hub
- * actually opened. Remove with the other probes. */
-#define SYNTH_N 3
-static const lv_point_t s_synth_pts[SYNTH_N] = {{180, 180}, {300, 120}, {120, 240}};
-static volatile int s_synth_seq = -1; /* -1 idle; else tap*2 + phase (0 press, 1 release) */
-static volatile uint8_t s_synth_reads;
-
-static void synth_timer_cb(void *arg) {
-    (void)arg;
-    s_synth_reads = 0;
-    s_synth_seq = 0;
-    ESP_LOGI(TAG, "synth tap burst armed (3 taps @180,180 / 300,120 / 120,240)");
-}
-
-/* Override data while the burst runs; true = synthetic sample served.
- * ~6 read-timer ticks (33 ms default) per phase = 200 ms press, safely
- * past LVGL's press bookkeeping and under the long-press threshold. */
-static bool synth_fill(lv_indev_data_t *data) {
-    const int seq = s_synth_seq;
-    if (seq < 0) {
-        return false;
-    }
-    const int tap = seq / 2;
-    const bool press_phase = (seq % 2) == 0;
-    data->point = s_synth_pts[tap < SYNTH_N ? tap : SYNTH_N - 1];
-    data->state = press_phase ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-    if (++s_synth_reads >= 6) {
-        s_synth_reads = 0;
-        s_synth_seq = (seq + 1 >= 2 * SYNTH_N) ? -1 : seq + 1;
-        if (s_synth_seq < 0) {
-            ESP_LOGI(TAG, "synth tap burst done");
-        }
-    }
-    return true;
-}
-#endif /* CONFIG_KNOB_UI_ENABLE */
-
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
@@ -155,91 +112,7 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
-#if CONFIG_KNOB_UI_ENABLE
-    if (synth_fill(data)) { /* forensics v4: synthetic sample overrides */
-        return;
-    }
-#endif
 }
-
-#if CONFIG_KNOB_UI_ENABLE
-/* #tap-forensics v2 (temporary): lv_obj_class_t is opaque in the public
- * headers (the ->name deref does not compile) — name the class by
- * identity against the known classes, and log the raw class pointer for
- * anything unknown. */
-const lv_obj_class_t *lv_obj_get_class(const lv_obj_t *obj);
-static const char *cls_of(const lv_obj_t *o) {
-    if (o == NULL) {
-        return "-";
-    }
-    const lv_obj_class_t *c = lv_obj_get_class(o);
-    if (c == &lv_obj_class) {
-        return "obj";
-    }
-    if (c == &lv_label_class) {
-        return "label";
-    }
-    if (c == &lv_image_class) {
-        return "image";
-    }
-    if (c == &lv_arc_class) {
-        return "arc";
-    }
-    if (c == &lv_roller_class) {
-        return "roller";
-    }
-    if (c == &lv_switch_class) {
-        return "switch";
-    }
-    return "?";
-}
-
-/* #tap-forensics (temporary): see the registration in app_main. */
-static void indev_forensics_cb(lv_event_t *e) {
-    const lv_event_code_t c = lv_event_get_code(e);
-    const char *name;
-    switch (c) {
-    case LV_EVENT_PRESSED:
-        name = "PRESSED";
-        break;
-    case LV_EVENT_PRESS_LOST:
-        name = "PRESS_LOST";
-        break;
-    case LV_EVENT_RELEASED:
-        name = "RELEASED";
-        break;
-    case LV_EVENT_CLICKED:
-        name = "CLICKED";
-        break;
-    case LV_EVENT_SHORT_CLICKED:
-        name = "SHORT_CLICKED";
-        break;
-    default:
-        return; /* PRESSING spam (every read) and everything else */
-    }
-    lv_indev_t *ind = lv_indev_get_act();
-    lv_point_t p = {.x = -1, .y = -1};
-    if (ind != NULL) {
-        lv_indev_get_point(ind, &p);
-    }
-    /* v2: name the press target (class identity + raw class pointer +
-     * coords + parent) — the static walk says home has no clickable
-     * child, yet the press resolved to one. This settles it. */
-    lv_obj_t *t = lv_event_get_param(e);
-    const char *cls = "?", *pcls = "-";
-    const void *cptr = NULL;
-    lv_area_t a = {0, 0, 0, 0};
-    if (t != NULL) {
-        cls = cls_of(t);
-        cptr = (const void *)lv_obj_get_class(t);
-        lv_obj_get_coords(t, &a);
-        pcls = cls_of(lv_obj_get_parent(t));
-    }
-    ESP_LOGI(TAG, "indev %s target=%p[%s cls %p parent %s (%d,%d,%d,%d)] at (%d,%d) screen=%d active=%p", name,
-             (void *)t, cls, cptr, pcls, (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2, (int)p.x, (int)p.y,
-             (int)ui_current_screen(), (void *)lv_screen_active());
-}
-#endif /* CONFIG_KNOB_UI_ENABLE */
 
 /* The dial is an INPUT since P2 (knob_dial.c: cursor step + ladder
  * activity; screens.c's knob branch owns the per-screen semantics). The
@@ -489,23 +362,6 @@ void app_main(void) {
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
-#if CONFIG_KNOB_UI_ENABLE
-    /* #tap-forensics (temporary, user: "tap does not work" x2): ONE
-     * observer for the whole pointer chain. LVGL sends the indev every
-     * interaction event with the resolved target as param, so these
-     * lines separate the three suspects: the CST816S never reporting a
-     * press (no lines at all), the press resolving to a clickable child
-     * instead of the root (target != root pointer), or CLICKED
-     * reaching the root fine (then the bug is downstream, in the
-     * commit). Remove once the verdict lands. */
-    lv_indev_add_event_cb(indev, indev_forensics_cb, LV_EVENT_ALL, NULL);
-    /* #tap-forensics v4: arm the fingerless verdict burst (see
-     * synth_fill). */
-    static esp_timer_handle_t s_synth_timer;
-    const esp_timer_create_args_t synth_args = {.callback = synth_timer_cb, .name = "synthtap"};
-    ESP_ERROR_CHECK(esp_timer_create(&synth_args, &s_synth_timer));
-    ESP_ERROR_CHECK(esp_timer_start_once(s_synth_timer, 500000000ULL));
-#endif
 
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
