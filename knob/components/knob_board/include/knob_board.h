@@ -41,6 +41,12 @@ esp_err_t knob_board_backlight_init(void);
 /** @brief Set backlight duty 0..255 (duty=255 is the vendor's "on"). */
 esp_err_t knob_board_backlight_set(uint8_t duty);
 
+/** @brief Last duty set through knob_board_backlight_set() (mirror, not
+ *         an LEDC readback — the single read truth across all writers:
+ *         the ladder rungs, the seam ramps and the home-screen dial
+ *         dimmer). */
+uint8_t knob_board_backlight_get(void);
+
 /* ---- touch (CST816S @ I2C 0x15, SDA 11 / SCL 12, INT 9, RST 10) ------ */
 
 /** @brief Init I2C, reset the CST816S and put it in normal mode. */

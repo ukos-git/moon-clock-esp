@@ -304,7 +304,13 @@ esp_err_t knob_board_backlight_init(void) {
     return ESP_OK;
 }
 
+static uint8_t s_backlight_duty; /* mirror of the last set (read truth) */
+
 esp_err_t knob_board_backlight_set(uint8_t duty) {
     ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty), TAG, "bl duty");
-    return ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+    ESP_RETURN_ON_ERROR(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1), TAG, "bl update");
+    s_backlight_duty = duty;
+    return ESP_OK;
 }
+
+uint8_t knob_board_backlight_get(void) { return s_backlight_duty; }

@@ -16,6 +16,7 @@
  * callbacks fire under lv_timer_handler) — screens_dial_commit does
  * not lock; the callers own the contract (screens.c header comment).
  */
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_log.h"
@@ -26,6 +27,7 @@
 #include "knob_power.h"
 #include "knob_ui.h"
 #include "lvgl.h"
+#include "moon_ui.h"
 #include "screens.h"
 #include "ui.h"
 
@@ -41,6 +43,41 @@ static void dial_tap_commit_cb(lv_event_t *e) {
     }
 }
 
+/* Home dial = brightness control (user 2026-11-10: "when turning the
+ * knob on the modem-sleep (home) screen, it should dim the display"):
+ * CW brightens, CCW dims, 5 % detents, floored at the ladder's dim rung
+ * (the dimmed look the family uses — never darker than the ladder's
+ * own choice). A turn on home is NOT ladder activity: the idle ladder
+ * dims and sleeps on schedule regardless of dial fiddling; only
+ * BRIGHTENING from a dark panel counts (wake intent — the supervisor's
+ * un-dim also restores the dimmed clock widget). The mirror in
+ * knob_board_backlight_get() is the read truth: every backlight writer
+ * (ladder rungs, seam ramps, this) goes through knob_board_backlight_set. */
+#ifndef CONFIG_KNOB_DIM_DUTY
+#define CONFIG_KNOB_DIM_DUTY 64
+#endif
+#define DIAL_DIM_MIN_PCT (((int)CONFIG_KNOB_DIM_DUTY * 100 + 127) / 255)
+#define DIAL_DIM_STEP_PCT 5
+
+static void dial_home_dim(int dir) {
+    const int pct = ((int)knob_board_backlight_get() * 100 + 127) / 255;
+    int next = pct + (dir >= 0 ? DIAL_DIM_STEP_PCT : -DIAL_DIM_STEP_PCT);
+    if (next > 100) {
+        next = 100;
+    }
+    if (next < DIAL_DIM_MIN_PCT) {
+        next = DIAL_DIM_MIN_PCT;
+    }
+    if (next == pct) {
+        return;
+    }
+    (void)moon_ui_panel_brightness_set(next);
+    if (dir > 0 && pct < 100) {
+        knob_power_notify_activity(); /* brightening = wake intent */
+    }
+    ESP_LOGI(TAG, "home dial %d%% -> %d%%", pct, next);
+}
+
 static void dial_task(void *arg) {
     (void)arg;
     int32_t last = knob_board_encoder_count();
@@ -51,10 +88,15 @@ static void dial_task(void *arg) {
             continue;
         }
         ESP_LOGI(TAG, "dial %d -> %d", (int)last, (int)c); /* #31 probe line kept */
+        const bool home = (ui_current_screen() == SCREEN_ID_MODEM_SLEEP);
         while (last != c) {
             const int step = (c > last) ? 1 : -1;
             last += step;
-            knob_power_notify_activity(); /* a turn is activity, always */
+            if (home) {
+                dial_home_dim(step); /* brightness, not input, not activity */
+                continue;
+            }
+            knob_power_notify_activity();
             knob_ui_lvgl_lock();
             screens_dial_step(step);
             knob_ui_lvgl_unlock();

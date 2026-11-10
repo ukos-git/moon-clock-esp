@@ -57,7 +57,6 @@ static const char *TAG = "knob_power";
 
 static volatile int64_t s_last_activity_us; /* written by any task, read by the supervisor */
 static volatile bool s_hold;                /* sweep presenting (knob_ui) */
-static int32_t s_last_dial_count;           /* supervisor-private */
 static bool s_dimmed;                       /* supervisor-private */
 static knob_power_dim_cb_t s_dim_cb;        /* P1 dim parity observer */
 
@@ -211,20 +210,17 @@ static void enter_deep_sleep(int64_t idle) {
 
 static void supervisor_task(void *arg) {
     (void)arg;
-    s_last_dial_count = knob_board_encoder_count();
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(500));
         if (s_hold) {
             continue; /* presenting: the ladder freezes */
         }
 
-        /* Dial activity is pulled (the encoder shim exposes a count, not
-         * a callback); touch is pushed via knob_power_notify_activity(). */
-        const int32_t count = knob_board_encoder_count();
-        if (count != s_last_dial_count) {
-            s_last_dial_count = count;
-            knob_power_notify_activity();
-        }
+        /* Activity is PUSHED, never pulled from here: touch via
+         * knob_power_notify_activity() (main.c's read_cb) and dial turns
+         * via knob_dial.c — which reports per screen, since on HOME the
+         * dial is the brightness control and deliberately is NOT
+         * activity (the ladder dims/sleeps through dial fiddling). */
 
         /* P2: the SLEEP screens own the ladder (the settings.txt
          * round-trip the P2 acceptance asks for). Both rungs read the

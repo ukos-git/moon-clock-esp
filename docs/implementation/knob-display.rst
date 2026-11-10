@@ -233,8 +233,12 @@ matching the clocks' light-sleep panel), and a registered dim observer (``knob_p
 main.c wires it to the seam's ``knob_render_set_home_dim``) drops
 the shared clock widget to ``UI_CLOCK_ALPHA_PCT`` (20 %) opacity
 alongside it, restoring both on activity. Activity is
-touch contacts (pushed from the input read) and dial detents (the
-encoder count polled); **the boot arm and the opening act both hold**
+touch contacts (pushed from the input read) and dial detents on
+**non-home screens only** — on home the dial is the brightness
+control (dial semantics below), so a detent there deliberately is
+*not* activity and never un-dims; only **brightening** from a dark
+panel reports wake intent (the supervisor's un-dim then also
+restores the dimmed clock widget); **the boot arm and the opening act both hold**
 the ladder, so a presentation is never interrupted — and never
 pre-empted: the hold starts when ``boot_arm_task`` begins, not when
 the producer task exists, which is what keeps a slow join + NTP
@@ -321,8 +325,9 @@ untouched.
 
 The **commit never duplicates handler logic**: it re-sends the very
 event the touch path already handles. Icons, the alarm glyphs, exit
-buttons and WiFi rows receive a synthetic ``LV_EVENT_CLICKED`` (the
-same the finger produces), rollers and the weekday-arc range handles
+buttons, WiFi rows and — since the 2026-11-10 list rework — the knob's
+WiFi roller receive a synthetic ``LV_EVENT_CLICKED`` (the same the
+finger produces), rollers and the weekday-arc range handles
 receive ``LV_EVENT_RELEASED`` — which *is* their commit (store save /
 reschedule / alarm-rule save), identical to lifting a finger off a
 drag — and the wheel letter goes through
@@ -337,7 +342,16 @@ cursor moved since the screen was entered.
    * - Screen
      - Dial turn
      - Tap (background)
-   * - Home / moon screens
+   * - Home (modem-sleep screen)
+     - **brightness control** (user 2026-11-10): CW brightens, CCW
+       dims, 5 % per detent through the seam's
+       ``moon_ui_panel_brightness_set``, floored at the ladder's own
+       dim rung (``KNOB_DIM_DUTY`` = 25 %) so the dial can never go
+       darker than the ladder's choice; a turn is *not* ladder
+       activity (the point: fiddling never un-dims), only brightening
+       from a dark panel reports wake intent
+     - open the hub (the native home-tap handler)
+   * - Other moon screens
      - activity, un-dims the ladder (no cursor)
      - open the hub (the native home-tap handler)
    * - Hub ring
@@ -359,10 +373,16 @@ cursor moved since the screen was entered.
        the arc stays fully working alongside)
      - ``RELEASED`` on the focused handle = save (the native handler
        writes the rule + re-arms the scheduler)
-   * - WiFi list
-     - step the selection — the same cursor the row tap shares, so
-       row colouring + sel bar are the native ones
-     - open the keyboard / connect
+   * - WiFi list (knob: an ``lv_roller``, user 2026-11-10 — the
+       label rows read too small at 360 px; the clocks keep the
+       native rows + sel bar verbatim)
+     - roll the list — the window's centre **is** the cursor;
+       entries in the knob tier's 37 px SSID font (``_48_ssid``
+       file), uppercased with the SSID truncated to 14 chars + ``+``
+       (the raw name still reaches the keyboard) and the ``NNDBM``
+       suffix; NORMAL mode clamps at the ends like a real roller
+     - open the keyboard / connect (the roller's own ``CLICKED`` —
+       the dial commit re-sends exactly that)
    * - Wheel keyboard
      - step the hot slot; the sector reveal follows (the sticky
        reveal a touch press does)
@@ -416,6 +436,6 @@ Not shipped (on purpose)
   the bench rule).
 - dusk/orbit ambient tasks, sub-hour TZ granularity, charge detection
   (no known VBUS sense). Credentials are entered on the glass since
-  P2 (WiFi list → wheel keyboard, COMMIT = save + connect through
+  P2 (WiFi roller → wheel keyboard, COMMIT = save + connect through
   the native handler writing the gitignored credentials file);
   host-side editing of that file stays available.

@@ -18,7 +18,9 @@ idle ladder dims to the clocks' dusk look (LEDC 25 % + clock widget
 20 %), and a fixed alarm rule **shows** across real deep sleep via
 the internal RTC **TIMER** wake (silent — no codec). The **P2 dial
 step** (same day) made the settings surface operable without touch:
-hub ring, alarm screen, rollers, WiFi list and the wheel keyboard
+hub ring, alarm screen, rollers, the WiFi list (an ``lv_roller`` in
+the 37 px SSID font since 2026-11-10 — the label rows read too small
+on the 1.8", so the dial *rolls* the list now) and the wheel keyboard
 each carry one dial-stepped edit cursor, and a background tap
 commits it through the native handlers
 (:ref:`dial-semantics-knob`). The **P3 alarm-editing step** (same
@@ -85,8 +87,10 @@ sleep/timezone/WiFi/alarm screens compile in verbatim; touch works
 everywhere natively, and the dial adds a one-cursor edit path
 (a detent steps the screen's cursor, a tap commits —
 :ref:`dial-semantics-knob <dial-semantics-knob>`). The dial's other
-two jobs stay from K7e: a detent is activity for the idle ladder,
-and after deep sleep it is the wake input (EXT0 on its A channel);
+jobs stay from K7e: a detent is activity for the idle ladder on every
+screen but home — there it is the **brightness control** (5 % per
+detent, floored at the ladder's dim rung, and deliberately not
+activity), and after deep sleep it is the wake input (EXT0 on its A channel);
 a screen press aborts the boot sweep. The two clock boards and this
 one remain independent products — no cross-board traffic; what they
 share is the code.
@@ -380,7 +384,10 @@ Layout and commands:
   additive posture, both measured from the last touch/dial activity;
   any activity un-dims and restarts the ladder.
   Activity = touch contacts (pushed from the indev read) and dial
-  detents (the encoder count polled); the **boot arm** and the
+  detents **on non-home screens only** (the encoder count polled
+  there; on home the dial is the brightness control, so a detent
+  there deliberately never un-dims — only *brightening* from a dark
+  panel counts as wake intent); the **boot arm** and the
   cold-boot sweep (and the static first frame) **hold** the ladder —
   a presentation is never interrupted and a never-yet-presented board
   is never slept over (the hold starts with ``boot_arm_task``, so a
