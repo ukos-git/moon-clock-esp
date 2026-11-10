@@ -122,6 +122,10 @@ void moon_ui_panel_dim_ramp(int to_pct) {
 }
 
 void moon_ui_fade_out(void) {
+    /* #tap-forensics v5 (temporary): the CLICKED chain goes silent after
+     * the indev observer's CLICKED line — trace every seam entry to see
+     * whether loadScreen reaches the seam at all. */
+    ESP_LOGI(TAG, "fade_out entry (ready=%d fade=%d duty=%d)", (int)s_ready, (int)CONFIG_UI_SCREEN_SWITCH_FADE, s_duty);
     if (!s_ready || CONFIG_UI_SCREEN_SWITCH_FADE == 0) {
         return;
     }
@@ -172,10 +176,14 @@ void moon_ui_screen_switched(void) {
      * family rule; on the knob LVGL's own partial drain carries it --
      * there is no direct-write path to race). Then the fade-in back,
      * while the new screen is already correct on the back buffer. */
+    ESP_LOGI(TAG, "screen_switched entry (fade_pending=%d)", (int)s_fade_pending);
     knob_ui_invalidate_all();
+    ESP_LOGI(TAG, "screen_switched: taking lvgl lock (task %s)", pcTaskGetName(xTaskGetCurrentTaskHandle()));
     knob_ui_lvgl_lock();
+    ESP_LOGI(TAG, "screen_switched: locked, lv_refr_now");
     lv_refr_now(NULL);
     knob_ui_lvgl_unlock();
+    ESP_LOGI(TAG, "screen_switched: done");
     if (s_fade_pending) {
         s_fade_pending = false;
         ramp_to(255); /* the clock ramps back after the atomic flush */
