@@ -74,6 +74,49 @@ static void lvgl_lock(void) { xSemaphoreTake(s_lvgl_mux, portMAX_DELAY); }
 
 static void lvgl_unlock(void) { xSemaphoreGive(s_lvgl_mux); }
 
+#if CONFIG_KNOB_UI_ENABLE
+/* #tap-forensics v4 (temporary): SYNTHETIC tap burst through the real
+ * read_cb (the same LVGL path a finger takes): 3 taps at known points,
+ * armed t+500 s (the boot sweep ends ~392 s, home is idle then). No
+ * finger needed for the verdict: target lines + home-probe lines + the
+ * seam's "screen switch fade-out" (proof loadScreen ran) settle hit-test
+ * vs the open-hub path; a later tap line showing screen=2 means the hub
+ * actually opened. Remove with the other probes. */
+#define SYNTH_N 3
+static const lv_point_t s_synth_pts[SYNTH_N] = {{180, 180}, {300, 120}, {120, 240}};
+static volatile int s_synth_seq = -1; /* -1 idle; else tap*2 + phase (0 press, 1 release) */
+static volatile uint8_t s_synth_reads;
+
+static void synth_timer_cb(void *arg) {
+    (void)arg;
+    s_synth_reads = 0;
+    s_synth_seq = 0;
+    ESP_LOGI(TAG, "synth tap burst armed (3 taps @180,180 / 300,120 / 120,240)");
+}
+
+/* Override data while the burst runs; true = synthetic sample served.
+ * ~6 read-timer ticks (33 ms default) per phase = 200 ms press, safely
+ * past LVGL's press bookkeeping and under the long-press threshold. */
+static bool synth_fill(lv_indev_data_t *data) {
+    const int seq = s_synth_seq;
+    if (seq < 0) {
+        return false;
+    }
+    const int tap = seq / 2;
+    const bool press_phase = (seq % 2) == 0;
+    data->point = s_synth_pts[tap < SYNTH_N ? tap : SYNTH_N - 1];
+    data->state = press_phase ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    if (++s_synth_reads >= 6) {
+        s_synth_reads = 0;
+        s_synth_seq = (seq + 1 >= 2 * SYNTH_N) ? -1 : seq + 1;
+        if (s_synth_seq < 0) {
+            ESP_LOGI(TAG, "synth tap burst done");
+        }
+    }
+    return true;
+}
+#endif /* CONFIG_KNOB_UI_ENABLE */
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
@@ -106,6 +149,11 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+#if CONFIG_KNOB_UI_ENABLE
+    if (synth_fill(data)) { /* forensics v4: synthetic sample overrides */
+        return;
+    }
+#endif
 }
 
 #if CONFIG_KNOB_UI_ENABLE
@@ -445,6 +493,12 @@ void app_main(void) {
      * reaching the root fine (then the bug is downstream, in the
      * commit). Remove once the verdict lands. */
     lv_indev_add_event_cb(indev, indev_forensics_cb, LV_EVENT_ALL, NULL);
+    /* #tap-forensics v4: arm the fingerless verdict burst (see
+     * synth_fill). */
+    static esp_timer_handle_t s_synth_timer;
+    const esp_timer_create_args_t synth_args = {.callback = synth_timer_cb, .name = "synthtap"};
+    ESP_ERROR_CHECK(esp_timer_create(&synth_args, &s_synth_timer));
+    ESP_ERROR_CHECK(esp_timer_start_once(s_synth_timer, 500000000ULL));
 #endif
 
     ESP_ERROR_CHECK(knob_board_touch_init());
