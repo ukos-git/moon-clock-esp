@@ -22,6 +22,13 @@ extern void action_switch_to_alarm_screen(lv_event_t *e);
  * task, and (from the UI tick) drops to the airplane screen when the
  * sync completes -- on both success and failure. LVGL task context. */
 extern void action_start_wifi_sync(void);
+#ifdef CONFIG_BOARD_KNOB
+/* Knob boot: create/resume the 10 ms UI-tick + 1 s seconds-increment
+ * lv_timers that the clocks receive via the wake flow the knob does not
+ * run (knob_power owns its ladder). Creation-phase call (before
+ * lvgl_task), no locking. See the comment at the definition. */
+extern void action_ensure_ui_timers(void);
+#endif
 /* Register the input-device callback that dismisses the alarm screen on
  * touch while the device is awake (the idle-wake path only covers the
  * asleep case). Call after the input device exists (post ui_init). */

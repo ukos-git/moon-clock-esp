@@ -803,6 +803,36 @@ static lv_timer_t *g_ui_tick_timer = NULL;
 // Global reference to seconds increment timer
 static lv_timer_t *g_seconds_timer = NULL;
 
+#ifdef CONFIG_BOARD_KNOB
+/* The knob's boot-time stand-in for the wake flow's timer bootstrap.
+ * On the clocks the 10 ms UI-tick timer and the 1 s seconds-increment
+ * timer arrive with action_wake_screen / action_switch_to_airplane_screen
+ * (the wake/idle pair the knob deliberately does not run -- knob_power
+ * owns its ladder); without this pair the shared home's seconds var
+ * only moved at the minute-tick write and the arc sat between minutes.
+ * This is the bare create/resume from those handlers WITHOUT their
+ * wake side work (no backlight restore, no idle re-enable, no alarm
+ * bookkeeping) -- lv_timer_handler then pumps ui_tick() and the
+ * seconds increment exactly like the clocks'. Called in the knob's
+ * single-threaded creation phase before lvgl_task starts: no locking,
+ * same posture as create_screens. Guarded knob-only: the clocks never
+ * compile it (their binaries stay identical). */
+void action_ensure_ui_timers(void) {
+    if (!g_ui_tick_timer) {
+        g_ui_tick_timer = lv_timer_create(ui_tick_timer_cb, 10, NULL);
+    } else {
+        lv_timer_resume(g_ui_tick_timer);
+        lv_timer_set_period(g_ui_tick_timer, 10);
+    }
+    if (!g_seconds_timer) {
+        g_seconds_timer = lv_timer_create(seconds_increment_timer_cb, 1000, NULL);
+    } else {
+        lv_timer_resume(g_seconds_timer);
+    }
+    ESP_LOGI(TAG, "UI + seconds lv_timers up (knob boot bootstrap)");
+}
+#endif /* CONFIG_BOARD_KNOB */
+
 // Configuration with fallback defaults if Kconfig not available
 #ifndef CONFIG_UI_LIGHT_SLEEP_TICK_MS
 #define CONFIG_UI_LIGHT_SLEEP_TICK_MS 100

@@ -420,6 +420,12 @@ void app_main(void) {
     clock_register_time_update_callback((clock_update_cb_t)action_update_clock_display);
     clock_register_alarm_update_callback((clock_update_cb_t)action_update_alarm_display);
     clock_register_alarm_trigger_callback((clock_update_cb_t)action_alarm_triggered);
+    /* The 10 ms UI-tick + 1 s seconds-increment lv_timers: on the clocks
+     * these arrive with action_wake_screen, which the knob never runs
+     * (knob_power owns the ladder) -- without them the shared home's
+     * seconds arc sat frozen between minute ticks (user 2026-11-10).
+     * Creation-phase call (lvgl_task does not exist yet), like ui_init. */
+    action_ensure_ui_timers();
     /* P1 dim parity: the ladder's dim rung drops the clock widget to
      * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
      * dusk posture; knob_power.c calls it from the supervisor task). */

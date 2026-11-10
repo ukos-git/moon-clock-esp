@@ -143,7 +143,16 @@ per-second chain rides the shared ``clock_rtc_interrupt_handler_cb``
 on an ``lv_timer`` (1300 ms, the clocks' cadence) with exactly the
 clocks' three registrations — clock labels + day probe, alarm
 display, alarm trigger — and no idle pair: the knob's ladder is
-``knob_power``'s, not the app-layer dimming.
+``knob_power``'s, not the app-layer dimming. The idle pair's *other*
+legacy is boot-time, though: on the clocks the shared 10 ms UI-tick
+and 1 s seconds-increment ``lv_timer`` timers are created by
+``action_wake_screen`` — a handler the knob never runs — so the
+shared home's seconds arc sat frozen between the minute-tick writes
+(the user's "seconds arc is not moving anymore", 2026-11-10).
+``main.c`` now calls ``action_ensure_ui_timers()`` (a knob-guarded
+bare create/resume of exactly those two timers, no wake side work)
+in the single-threaded creation phase; the log line
+``UI + seconds lv_timers up`` is the boot evidence.
 
 The opening act
 ---------------
