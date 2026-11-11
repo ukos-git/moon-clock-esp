@@ -2696,6 +2696,21 @@ void create_screen_settings_wifi_password() {
     lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_wheel_mode_arc, LV_OBJ_FLAG_ADV_HITTEST); /* its r 84..144 annulus, not the box */
     lv_obj_add_event_cb(s_wheel_mode_arc, event_handler_cb_wheel_mode, LV_EVENT_PRESSED, 0);
+#ifdef CONFIG_BOARD_KNOB
+    /* Knob press partition (bench 2026-11-11): at 360 px the mode arc's
+     * default lv_arc annulus hit-test answered presses on the INNER half
+     * of the letter band (r ~108..121 logged "mode 3"/"mode 0" instead
+     * of committing a letter, and a register rebuild ended in a
+     * task-WDT reset). Lift the character catch to sit just above the
+     * register arc: its own native annulus (arc_width WHEEL_C -
+     * WHEEL_HIT_R_IN -> r 108..180 at the knob's scale) wins the ring by
+     * z-order, and every press it rejects (r < 108) falls through to the
+     * register arc exactly as before. The keys/COMMIT/DISCARD/centre,
+     * created later, stay above the catch; the clocks never compile this
+     * (their geometry is proven at 466 px) and their TU preprocesses
+     * identically. */
+    lv_obj_move_to_index(s_wheel_catch, lv_obj_get_index(s_wheel_mode_arc) + 1);
+#endif
 
     /* The four mode keys (14 px) at the key centres (LVGL 180/240/300/360,
      * r 114) + the arc's five boundary ticks at 150/210/270/330/390. */

@@ -14,6 +14,15 @@
 
 #include <string.h>
 
+#ifdef CONFIG_BOARD_KNOB
+/* The knob classifies on its producer tasks directly (sweep start + the
+ * swap task's day probe); the clocks offload the scan to a worker
+ * (215176b). The scan needs those tasks to yield or IDLE starves past
+ * the task WDT (bench: TG1WDT reset 5 s into the boot sweep). */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
 /* TT - UTC in the 2017..2035 range (no leap second in that window) --
  * the same pair moon_astro.c uses. */
 #define TT_OFF_S 69.184
@@ -110,8 +119,22 @@ static void full_moments(int64_t t, int64_t *f, int64_t *f_prev) {
     int64_t t0 = lo - COARSE_S;
     double v1 = -2.0;
     int64_t t1 = lo - COARSE_S;
+#ifdef CONFIG_BOARD_KNOB
+    int yielded = 0;
+#endif
     for (int64_t tt = lo; tt <= hi && n < 4; tt += COARSE_S) {
         const double v = se_dot(tt);
+#ifdef CONFIG_BOARD_KNOB
+        /* ~900 ephemeris evaluations run back-to-back on the CALLER's
+         * task; at the knob's size-optimized build one costs ~8 ms, so
+         * the bare loop starves IDLE past the 5 s task WDT. Yield every
+         * 32 evaluations (worst case ~1/4 s unserved) -- the clocks
+         * never compile this (their scan runs on an unregistered
+         * worker, 215176b). */
+        if ((++yielded & 31) == 0) {
+            vTaskDelay(1);
+        }
+#endif
         if (v1 > v0 && v1 >= v) { /* a strict grid peak at t1 */
             const int64_t F = se_argmax(t1);
             /* The window's first sample, a few hours before a NEW moon

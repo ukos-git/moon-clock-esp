@@ -381,6 +381,12 @@ static void sweep_body(void) {
             ESP_LOGI(TAG, "sweeping %d/%d (bake %lld ms%s)", f + 1, frames, (long long)s_last_bake_ms,
                      final ? ", final crisp" : "");
         }
+        /* wait_ack() only blocks while the swap task is behind -- when
+         * it keeps up (the normal case) the bakes run back-to-back and
+         * IDLE never runs for the whole 314 s sweep (task-WDT reset,
+         * bench 2026-11-11). One 1 ms delay per frame makes IDLE's
+         * quantum a structural guarantee, not a timing accident. */
+        vTaskDelay(1);
     }
     land_current_phase();
     s_sweeping = false;

@@ -40,12 +40,18 @@ CONFIG_LV_FONT_DEFAULT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_THEME_DEFAULT_DARK=y
 
-# The moon producer task's classify/new-moon scans (core moon_event, no
-# yields) starve CPU1's idle for ~30 s on a cold boot -- the clock's
-# sanctioned posture (sdkconfig.defaults.esp32s3:16): keep CPU0's idle
-# check, drop CPU1's (TWDT_PANIC is off anyway; the bake loop itself
-# yields every 16 rows).
-CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# The producer task's long stretches ALL yield now, so CPU1's idle check
+# runs and a WDT expiry panics with a backtrace instead of resetting
+# silently (the bench lesson of 2026-11-11: a no-yield ~20 s classify
+# scan starved IDLE1 mid-sweep and the board died as a naked TG1WDT
+# banner -- five boots, no diagnostic). The classify scan yields every
+# 32 ephemeris evaluations (components/moon/core/moon_event.c, a
+# CONFIG_BOARD_KNOB branch the clocks' TU never preprocesses), the bake
+# rows yield every 16 rows, and the sweep loop yields once per frame.
+# The clocks keep the old posture (their scan rides an unregistered
+# core-1 worker, 215176b) -- this pair is knob-only.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+CONFIG_ESP_TASK_WDT_PANIC=y
 
 # P1 home parity: app_main builds the SHARED home screen (pair cells,
 # split-flap digits, seconds arc, alarm row -- plus the whole LVGL build
