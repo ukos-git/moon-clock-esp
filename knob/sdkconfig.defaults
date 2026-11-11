@@ -25,10 +25,21 @@ CONFIG_SPIRAM_SPEED_80M=y
 
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
-# 1 kHz systick: the LVGL task delays 5 ms and the dial poller 2 ms; with
-# the 100 Hz default pdMS_TO_TICKS floors to 0 ticks and a task spins the
-# core (the clock's CONFIG_FREERTOS_HZ=100 lesson, cpu-stats probe).
-CONFIG_FREERTOS_HZ=1000
+# 100 Hz systick — the S3 clock's value (the P4 keeps 1 kHz on its own
+# silicon). Bench 2026-11-11: the knob was the only board combining
+# ESP32-S3 with a 1 kHz systimer tick, and boots died with the tick ISR
+# stuck in systimer_hal_get_counter_value's unbounded "wait for the
+# snapshot ack" loop (CPU0: INT-WDT Guru; CPU1: silent TG1WDT — the WDT
+# ISR cannot run while its own core's tick ISR is stuck). Two cores
+# snapshot the shared OS_TICK counter 2000x/s at 1 kHz, lock-free;
+# 100 Hz is the family's crash-free posture. Every knob delay is
+# tick-safe at 100 Hz: LVGL task floor raised 5->10 ms in main.c, dial
+# 20 ms, yields are vTaskDelay(1) = one tick by definition — and the
+# encoder poller (ENC_POLL_MS 3, vendor cadence) clamps to one tick in
+# knob_board_encoder.c (the first hammer run caught pdMS_TO_TICKS(3)==0
+# busy-spinning knob_enc and starving IDLE0: task-WDT abort at t≈6.4 s,
+# ~6 s boot loop).
+CONFIG_FREERTOS_HZ=100
 
 # LVGL 9 (lvgl/lvgl ^9 from the manifest, same family as the clock's 9.6):
 # 16-bit panel, clib malloc, dark theme like the clock.

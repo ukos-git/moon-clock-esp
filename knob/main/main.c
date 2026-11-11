@@ -144,7 +144,10 @@ static void lvgl_task(void *arg) {
         lvgl_lock();
         uint32_t wait_ms = lv_timer_handler();
         lvgl_unlock();
-        vTaskDelay(pdMS_TO_TICKS(wait_ms < 5 ? 5 : (wait_ms > 20 ? 20 : wait_ms)));
+        /* Floor 10 ms = ONE tick at the knob's CONFIG_FREERTOS_HZ=100 (the
+         * clock's ff922bb lesson: a sub-tick floor floors to 0 ticks and the
+         * task spins the core). */
+        vTaskDelay(pdMS_TO_TICKS(wait_ms < 10 ? 10 : (wait_ms > 20 ? 20 : wait_ms)));
     }
 }
 

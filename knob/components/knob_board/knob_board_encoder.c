@@ -61,7 +61,16 @@ static void enc_task(void *arg) {
     int b = gpio_get_level(ENC_PIN_B);
     int deb_a = 0, deb_b = 0;
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(ENC_POLL_MS));
+        /* Tick-safe floor: pdMS_TO_TICKS(3) == 0 at the knob's 100 Hz
+         * systick, and vTaskDelay(0) does NOT yield — this priority-5
+         * poller then busy-spins, starves IDLE0, and the task WDT
+         * aborts the boot (bench 2026-11-11: hammer boot 1 died at
+         * t≈6.4 s with "CPU 0: knob_enc", ~6 s boot loop). One tick =
+         * 10 ms at 100 Hz (finger detents are >=30 ms apart and
+         * dial_task consumes one detent per 20 ms anyway); a 1 kHz
+         * build keeps the vendor's 3 ms. */
+        TickType_t poll = pdMS_TO_TICKS(ENC_POLL_MS);
+        vTaskDelay(poll < 1 ? 1 : poll);
         process_channel(gpio_get_level(ENC_PIN_A), &a, &deb_a, +1);
         process_channel(gpio_get_level(ENC_PIN_B), &b, &deb_b, -1);
     }
