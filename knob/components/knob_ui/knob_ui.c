@@ -308,8 +308,11 @@ static void land_current_phase(void) {
 
 /* The first frame of the static (wake / sweep-disabled) boot, on the
  * PRODUCER (unregistered, pinned to CPU1): the display_begin classify
- * scan alone is ~20 s of core moon_event work without yields -- the
- * clock keeps it off the boot core for the same reason. Caption + disk
+ * scan is the long CPU-bound stretch here -- the core yields on a
+ * 20 ms wall-clock budget inside its CONFIG_BOARD_KNOB branches
+ * (moon_event.c, bench 2026-11-11) so the unregistered task never
+ * starves IDLE1 (whose check is ON, with panic, in
+ * knob/sdkconfig.defaults). Caption + disk
  * appear when the frame applies; "moon unavailable" stays if it fails. */
 static void static_once_body(void) {
     const int64_t now = ui_now_epoch();
@@ -572,9 +575,13 @@ static void start_tasks(int mode) {
     s_abort = false;
     s_started = true;
     /* Producer = the clock's sweep-task posture (moon_ui.c:2776):
-     * xTaskCreatePinnedToCoreWithCaps -- unregistered from TWDT (the
-     * core classify/new-moon scans run ~30 s without yields; CPU1's
-     * idle check is off in sdkconfig.defaults for the same reason),
+     * xTaskCreatePinnedToCoreWithCaps -- unregistered from TWDT (its
+     * work never feeds the watchdog, so a spin of its own is invisible
+     * to it), yet everything long-running on it yields: the classify
+     * scan on a 20 ms budget (moon_event.c knob branches), the bake by
+     * rows, the sweep per frame -- so sdkconfig.defaults keeps CPU1's
+     * idle check ON with panic on expiry (bench 2026-11-11: the silent
+     * TG1WDT boots were an unyielding scan with the check off),
      * pinned to CPU1 so the bake never starves the render/Wi-Fi core,
      * stack in PSRAM. 12 KB, not 8: the classify scan + the upcase sm[]
      * overflowed 8 KB on the clock (stack-protection fault, 2026-11-04).

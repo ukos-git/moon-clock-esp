@@ -19,8 +19,18 @@
  * swap task's day probe); the clocks offload the scan to a worker
  * (215176b). The scan needs those tasks to yield or IDLE starves past
  * the task WDT (bench: TG1WDT reset 5 s into the boot sweep). */
+#include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+/* Bench 2026-11-11: the first fix assumed ~8 ms per ephemeris
+ * evaluation and yielded every 32 -- the coarse loop STILL starved
+ * IDLE1 past the 5 s WDT and se_argmax's 73 back-to-back fine samples
+ * never yielded at all. Both loops yield on a 20 ms wall-clock budget
+ * instead, so the cadence is right whatever the true evaluation cost,
+ * and full_moments logs its measured cost once per scan. */
+#define SCAN_YIELD_BUDGET_US 20000
+static int s_scan_evals; /* se_dot calls of the running scan */
 #endif
 
 /* TT - UTC in the 2017..2035 range (no leap second in that window) --
@@ -79,6 +89,9 @@ static void civil_from_epoch(int64_t epoch, int *y, int *m, int *d) {
 
 /* S . E at the epoch (the peak search's objective). */
 static double se_dot(int64_t utc_epoch) {
+#ifdef CONFIG_BOARD_KNOB
+    s_scan_evals++;
+#endif
     moon_geom_t g;
     moon_geometry(utc_epoch, &g);
     return (double)g.S[0] * g.E[0] + (double)g.S[1] * g.E[1] + (double)g.S[2] * g.E[2];
@@ -89,8 +102,20 @@ static double se_dot(int64_t utc_epoch) {
 static int64_t se_argmax(int64_t t0) {
     int64_t best_t = t0;
     double best = -2.0;
+#ifdef CONFIG_BOARD_KNOB
+    /* The 73 back-to-back fine samples are a WDT gap on their own
+     * (bench 2026-11-11: the panic sampled the coarse loop right after
+     * the argmax returned starved past the deadline). */
+    int64_t next_yield = esp_timer_get_time() + SCAN_YIELD_BUDGET_US;
+#endif
     for (int64_t dt = -FINE_WIN_S; dt <= FINE_WIN_S; dt += FINE_S) {
         const double v = se_dot(t0 + dt);
+#ifdef CONFIG_BOARD_KNOB
+        if (esp_timer_get_time() >= next_yield) {
+            vTaskDelay(1);
+            next_yield = esp_timer_get_time() + SCAN_YIELD_BUDGET_US;
+        }
+#endif
         if (v > best) {
             best = v;
             best_t = t0 + dt;
@@ -120,19 +145,20 @@ static void full_moments(int64_t t, int64_t *f, int64_t *f_prev) {
     double v1 = -2.0;
     int64_t t1 = lo - COARSE_S;
 #ifdef CONFIG_BOARD_KNOB
-    int yielded = 0;
+    s_scan_evals = 0;
+    const int64_t t_scan = esp_timer_get_time();
+    int64_t next_yield = t_scan + SCAN_YIELD_BUDGET_US;
 #endif
     for (int64_t tt = lo; tt <= hi && n < 4; tt += COARSE_S) {
         const double v = se_dot(tt);
 #ifdef CONFIG_BOARD_KNOB
-        /* ~900 ephemeris evaluations run back-to-back on the CALLER's
-         * task; at the knob's size-optimized build one costs ~8 ms, so
-         * the bare loop starves IDLE past the 5 s task WDT. Yield every
-         * 32 evaluations (worst case ~1/4 s unserved) -- the clocks
-         * never compile this (their scan runs on an unregistered
-         * worker, 215176b). */
-        if ((++yielded & 31) == 0) {
+        /* ~600 coarse evaluations run back-to-back on the CALLER's
+         * task -- yield on the 20 ms wall-clock budget, never a fixed
+         * count (the clocks never compile this; their scan runs on an
+         * unregistered worker, 215176b). */
+        if (esp_timer_get_time() >= next_yield) {
             vTaskDelay(1);
+            next_yield = esp_timer_get_time() + SCAN_YIELD_BUDGET_US;
         }
 #endif
         if (v1 > v0 && v1 >= v) { /* a strict grid peak at t1 */
@@ -160,6 +186,12 @@ static void full_moments(int64_t t, int64_t *f, int64_t *f_prev) {
     }
     *f = peaks[bi];
     *f_prev = (bi > 0) ? peaks[bi - 1] : -1;
+#ifdef CONFIG_BOARD_KNOB
+    /* One INFO line per calendar day (the cached wrapper re-runs the
+     * scan once a day) -- the bench's proof of the scan's true cost. */
+    ESP_LOGI("moon_event", "full_moments scan: %d evals in %u ms", s_scan_evals,
+             (unsigned)((esp_timer_get_time() - t_scan) / 1000));
+#endif
 }
 
 /* The full_moments scan (up to ~600 ephemeris evaluations) is the only
