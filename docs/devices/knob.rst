@@ -374,7 +374,8 @@ Layout and commands:
   (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
   default **64** = 25 %, the P1 dim-parity value matching the clocks'
   light-sleep panel; a registered dim observer drops the shared clock
-  widget to ``UI_CLOCK_ALPHA_PCT`` alongside) after
+  widget to ``UI_CLOCK_ALPHA_PCT`` and hides the seconds arc — it is a
+  sibling of the clock container, the opacity never cascades to it) after
   ``settings_idle_timeout_sec`` (``settings.txt`` ``idle_timeout_sec``,
   default 60, clamped 60..1800 — since P2 the **store owns both
   rungs**, live from the sleep screens' rollers; the Kconfig
@@ -426,7 +427,9 @@ Layout and commands:
   hardware rail switch, not a firmware input (nothing to map; verify
   its feel on the bench). ``KNOB_SLEEP_ALLOW=n`` is the sanctioned
   **log-only** mode: the would-be sleep and the EXT0 verdict are
-  logged, the device stays awake and reachable over USB-JTAG.
+  logged, then the board settles **stable-dark** (backlight 0, ladder
+  frozen) — it looks slept but stays reachable over USB-JTAG; a touch
+  or brightening the dial wakes it.
 * The **battery gauge deliberately does not ship yet**: the schematic's
   10K/10K top rail (drawn as 5V) may measure VBUS rather than the
   cell, so the ``adc_oneshot`` GPIO 1 gauge only enters the firmware

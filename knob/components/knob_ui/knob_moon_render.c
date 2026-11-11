@@ -244,6 +244,16 @@ void knob_render_set_home_dim(bool dimmed) {
     knob_ui_lvgl_lock();
     lv_obj_set_style_opa(objects.modem_sleep_clock,
                          dimmed ? (lv_opa_t)(LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100) : LV_OPA_COVER, 0);
+    /* The seconds arc is a SIBLING of the clock container (screens.c
+     * create_screen_modem_sleep), so the container's opa never cascades
+     * to it -- it ticked at full brightness straight through the dim
+     * phase (user 2026-11-11: "still shows the seconds tick arc in light
+     * sleep"). The clocks PAUSE the seconds timer at their light-sleep
+     * entry (actions.c); the knob has no light-sleep screen, so the dim
+     * rung hides the arc — hiding also erases the ticking itself. */
+    if (objects.arc_clock_seconds_modem) {
+        lv_obj_set_hidden(objects.arc_clock_seconds_modem, dimmed);
+    }
     knob_ui_lvgl_unlock();
 }
 

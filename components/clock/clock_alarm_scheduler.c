@@ -530,13 +530,19 @@ esp_err_t clock_alarm_scheduler_reload(void) {
     if (s_alarm_count == 0) {
         ESP_LOGI(TAG, "Alarm reload: 0 rules -- disarming the RTC alarm");
         esp_err_t clear = clock_clear_alarm();
-#if !CONFIG_CLOCK_USE_PCF85063A
-        // The software one-shot is not persistent, but the scheduler cache
-        // IS: drop it too, or the poll's backup check would see a stale
-        // scheduled alarm after the last rule was deleted. (The S3 keeps
-        // its historical stale-cache behavior -- the UI refreshes on the
-        // rule-write path.)
+        /* Drop the scheduler cache on ALL builds — with the last rule gone
+         * there is no next alarm to report. The S3 once kept it stale here
+         * on the faith that "the UI refreshes on the rule-write path"; it
+         * did not (not until b58df4e), and worse, clock_alarm_get_next_
+         * scheduled() kept ANSWERING the deactivated time from the cache,
+         * so the home row showed 07:00 through every minute tick after the
+         * master toggle, not just at that moment (measured 2026-11-11:
+         * the trigger fired, the value pushed was the stale cache). */
         s_alarm_scheduled = false;
+#if !CONFIG_CLOCK_USE_PCF85063A
+        // The software one-shot is not persistent, but disarm it so a
+        // poll already in flight cannot fire; its backup check now reads
+        // the cleared cache above.
         clock_alarm_disarm_esp_timer();
 #endif
         if (clear != ESP_OK) {

@@ -256,7 +256,14 @@ duty to ``KNOB_DIM_DUTY`` **64 = 25 %** (the P1 dim-parity value
 matching the clocks' light-sleep panel), and a registered dim observer (``knob_power_set_dim_cb`` —
 main.c wires it to the seam's ``knob_render_set_home_dim``) drops
 the shared clock widget to ``UI_CLOCK_ALPHA_PCT`` (20 %) opacity
-alongside it, restoring both on activity. Activity is
+alongside it, restoring both on activity. The observer also **hides the
+seconds arc** while dimmed: the arc is a sibling of the clock container
+in ``screens.c``, so the container's opacity never cascades to it, and it
+ticked at full brightness through the dim phase (user 2026-11-11:
+"still shows the seconds tick arc in light sleep"); the clocks simply
+pause the seconds timer at their light-sleep entry, the knob has no
+light-sleep screen, so the rung hides the arc — hiding erases the
+ticking too. Activity is
 touch contacts (pushed from the input read) and dial detents on
 **non-home screens only** — on home the dial is the brightness
 control (dial semantics below), so a detent there deliberately is
@@ -312,7 +319,14 @@ pending INT pulse (a stale low would re-wake the boot — the
 boot-loop guard), and a rejected EXT1 pad degrades to dial-only with
 a warning. The back-side power button is a hardware rail switch, not
 a firmware input. ``KNOB_SLEEP_ALLOW=n`` is the sanctioned log-only
-bench mode.
+bench mode: the ladder runs verbatim up to the sleep call, then the
+board settles into a **stable dark** state (backlight 0, ladder frozen)
+— indistinguishable from a truly slept board except that USB-JTAG stays
+up. Real activity (a touch, or brightening the home dial) wakes it; the
+dial's wake-intent is the software stand-in for the EXT0 dial wake.
+(Earlier builds faked activity after the skipped sleep, so the board
+un-dimmed to full every countdown and looked wide awake half the time —
+user 2026-11-11: "is it really transitioning to light sleep?".)
 
 .. _dial-semantics-knob:
 

@@ -58,6 +58,7 @@ static const char *TAG = "knob_power";
 static volatile int64_t s_last_activity_us; /* written by any task, read by the supervisor */
 static volatile bool s_hold;                /* sweep presenting (knob_ui) */
 static bool s_dimmed;                       /* supervisor-private */
+static volatile bool s_sleeping;            /* stable-dark log-only state (KNOB_SLEEP_ALLOW=n) */
 static knob_power_dim_cb_t s_dim_cb;        /* P1 dim parity observer */
 
 void knob_power_set_dim_cb(knob_power_dim_cb_t cb) { s_dim_cb = cb; }
@@ -115,7 +116,13 @@ bool knob_power_rule_epochs_around(int64_t now_epoch, int64_t *prev, int64_t *ne
     return found;
 }
 
-void knob_power_notify_activity(void) { s_last_activity_us = esp_timer_get_time(); }
+void knob_power_notify_activity(void) {
+    s_last_activity_us = esp_timer_get_time();
+    s_sleeping = false; /* real activity (touch, dial-up) is the ONLY exit
+                         * from the log-only dark state -- the supervisor's
+                         * un-dim branch then restores the ladder's full
+                         * look on its next pass */
+}
 
 void knob_power_set_hold(bool hold) {
     s_hold = hold;
@@ -204,7 +211,17 @@ static void enter_deep_sleep(int64_t idle) {
 #if CONFIG_KNOB_SLEEP_ALLOW
     esp_deep_sleep_start(); /* does not return */
 #else
-    knob_power_notify_activity(); /* stay up; the ladder re-arms from now */
+    /* KNOB_SLEEP_ALLOW=n (the programming-session gate, the user's call):
+     * the dark state is STABLE until real activity. The old code faked
+     * activity here, which un-dimmed the board to full every countdown --
+     * the board spent half of each cycle at full brightness with the
+     * seconds arc ticking, so "did it even enter light sleep?" could not
+     * be answered by looking at it (user 2026-11-11). Reset the activity
+     * clock directly (NOT via notify_activity -- that is the exit path),
+     * stay dark; a touch or a brightening dial turn wakes it, the
+     * software stand-in for the EXT0/EXT1 wakes of the real sleep. */
+    s_last_activity_us = esp_timer_get_time();
+    s_sleeping = true;
 #endif
 }
 
@@ -238,7 +255,7 @@ static void supervisor_task(void *arg) {
         const int64_t sleep_s = dim_s + countdown;
 
         const int64_t idle = idle_seconds();
-        if (s_dimmed && idle < dim_s) {
+        if (s_dimmed && !s_sleeping && idle < dim_s) {
             s_dimmed = false;
             knob_board_backlight_set(255);
             if (s_dim_cb != NULL) {
@@ -255,7 +272,7 @@ static void supervisor_task(void *arg) {
             }
             ESP_LOGI(TAG, "idle %lld s -- backlight dimmed to %d", (long long)idle, (int)CONFIG_KNOB_DIM_DUTY);
         }
-        if (countdown > 0 && idle >= sleep_s) {
+        if (!s_sleeping && countdown > 0 && idle >= sleep_s) {
             enter_deep_sleep(idle);
         }
     }
