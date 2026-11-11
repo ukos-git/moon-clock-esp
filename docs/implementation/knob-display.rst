@@ -57,10 +57,20 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
 - a **producer** task bakes frames into a PSRAM double buffer. It is
   CPU1-pinned and TWDT-unregistered
   (``xTaskCreatePinnedToCoreWithCaps``, the clock's sweep-task
-  posture) because the core's classify scan runs ~20 s and the
-  new-moon scan ~8 s without yielding — ``knob/sdkconfig.defaults``
-  therefore drops ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` like
-  the clock's S3 defaults do;
+  posture), but everything long on it **yields**: the core's classify
+  scan on a 20 ms wall-clock budget (``moon_event.c``'s
+  ``CONFIG_BOARD_KNOB`` branches — the coarse grid *and*
+  ``se_argmax``'s 73-sample fine window), the bake by rows, the sweep
+  per frame — so ``knob/sdkconfig.defaults`` keeps
+  ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` **on** and sets
+  ``CONFIG_ESP_TASK_WDT_PANIC``. The bench lesson of 2026-11-11: with
+  the check off, an unyielding scan reset the board as a naked
+  TG1WDT banner (five boots, no diagnostic); a count-based yield
+  (every 32 evaluations) still lost — one coarse stretch plus one
+  unyielded fine window summed past the 5 s deadline. A wall-clock
+  budget caps every stretch at ~20 ms + one evaluation;
+  ``full_moments`` then logs its cost (``N evals in M ms``, once per
+  calendar day through the cache);
 - a **swap** task (plain registered) applies each frame as ONE
   atomic ``lv_refr_now`` under the main-injected LVGL mutex, with
   publish/apply ``seq_cst`` fences and an ack-before-reuse cap (a
@@ -75,7 +85,12 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
 
 Measured on the S3R8 (bench, 2026-11-08): relief build 727 ms, first
 360-px bake ~790 ms, ~115–130 ms per 128-px sweep frame, 0 TWDT,
-~6.8 MB PSRAM free after assets + buffers.
+~6.8 MB PSRAM free after assets + buffers. Re-measured 2026-11-11
+with the WDT posture above: the classify scan is **463 ephemeris
+evaluations in 24.6 s** (~53 ms each at ``-Og`` — the ~8 ms the first
+fix assumed was off ~7×), sweep frames bake at 132–141 ms, and a boot
+that used to die at t≈11–15 s now runs the full scan and 110 s of
+sweep with 0 task-WDT, 0 resets.
 
 The render seam (P1)
 --------------------
@@ -399,6 +414,19 @@ cursor moved since the screen was entered.
    * - Sweep / boot arm
      - activity (the ladder holds; a turn never interrupts the act)
      - abort (native)
+
+The wheel keyboard's **touch press partition** at knob scale (bench
+2026-11-11): letters render at r≈130 px, and the mode register arc —
+created after the character catch, so above it in z-order — answered
+presses up to r≈121 empirically and swallowed the natural ring press
+before the catch ever saw it (zero ``entered letter`` lines, presses
+logged as ``settings_wheel: mode``). The knob's build therefore
+lifts the catch above the register arc (``lv_obj_move_to_index``, a
+``CONFIG_BOARD_KNOB`` branch in ``screens.c``): presses at
+r ∈ [108, 180] commit letters through the catch's native annulus,
+presses inside it still reach the register arc's four 60° mode keys,
+and COMMIT/DISCARD (created later) stay above both. The clocks never
+compile the lift.
 
 Battery gauge (P4)
 ------------------
