@@ -17,9 +17,9 @@
     },
     {
       "id": 3,
-      "text": "AP row — tap → the wheel",
+      "text": "Roller — window centre is the cursor, tap opens the wheel",
       "x": 300,
-      "y": 185,
+      "y": 251,
       "dir": "e"
     },
     {

@@ -1528,42 +1528,18 @@ void tick_screen_settings_deep_sleep() {}
  * approved follow-up. Row text is font-safe: the SSID font covers only
  * space, '-', ':', digits 0-9 and UPPERCASE A-Z (lowercase dBm would
  * render as missing-glyph boxes), so the strength is shown as "DBM". */
-/* 7 rows at 24 px steps: the band between the header and the bottom-
- * centre exit button (y ~165..342) is the list's budget -- the old
- * 12 rows at 30 px ran OFF the bottom of the panel (rows 9-11) and
- * the 8th row landed on the exit button. */
-#define WIFI_SETTINGS_ROWS 7
-
-static lv_obj_t *s_wifi_rows[WIFI_SETTINGS_ROWS];
-static lv_obj_t *s_wifi_sel_bar;
-static bool s_wifi_scan_rendered = true;   /* the results are on the rows */
+/* The family's Wi-Fi list is ONE lv_roller (user 2026-11-10 asked for it
+ * on the knob -- "the label rows read too small at 360 px" -- and
+ * 2026-11-11 for all three boards: one Wi-Fi selection UI family-wide).
+ * Entries use the 48-baseline SSID face per tier (48 px on the S3's
+ * 466, 74 px on the P4's 720, 37 px on the knob's 360); the cursor
+ * language is unchanged (window centre = cursor, SELECTED entry white,
+ * no highlight box). s_wifi_selected mirrors the roller's selection. */
+static lv_obj_t *s_wifi_roller;
+static bool s_wifi_scan_rendered = true;   /* the results are on the roller */
 static bool s_wifi_scanning_shown = false; /* the SCANNING placeholder is up */
 static int s_wifi_selected = -1;
-#ifdef CONFIG_BOARD_KNOB
-/* The knob's list is an lv_roller (user 2026-11-10: the label rows read
- * too small at 360 px): entries in the 48-baseline SSID font (37 px
- * baked in fonts_knob), the dial rolls it, a tap -- or the dial commit
- * -- opens the wheel keyboard for the selected SSID. s_wifi_selected
- * stays the cursor mirror; the rows/sel-bar are never created on the
- * knob (place_sel_bar null-guards, render_rows swaps branches). */
-static lv_obj_t *s_wifi_roller;
-#endif
 
-/* Move the selection bar to the row at the given index (or hide it).
- * Row i sits at absolute y 233 + (-48 + i*24) = 185 + i*24. */
-static void settings_wifi_place_sel_bar(int i) {
-    if (!s_wifi_sel_bar) {
-        return;
-    }
-    if (i < 0 || i >= WIFI_SETTINGS_ROWS) {
-        lv_obj_add_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
-    lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_pos(s_wifi_sel_bar, UI_PX(14), UI_PX(185) + i * UI_PX(24) - UI_PX(11));
-}
-
-#ifdef CONFIG_BOARD_KNOB
 /* Roller entry: the rows' shape, but the SSID is truncated to 14 chars
  * with a '+' marker -- a full 20-char uppercase name at 37 px is ~500 px
  * and the round panel only affords a ~300 px chord at the list's band.
@@ -1591,12 +1567,10 @@ static void settings_wifi_fmt_roller_entry(char *buf, size_t sz, const wifi_ap_i
     /* Uppercase "DBM": the SSID font lacks lowercase (see above). */
     snprintf(buf + pos, sz - (size_t)pos, " %dDBM", (int)ap->rssi);
 }
-#endif
 
 static void settings_wifi_render_rows(void) {
     wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
     int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
-#ifdef CONFIG_BOARD_KNOB
     if (!s_wifi_roller) {
         return;
     }
@@ -1621,67 +1595,8 @@ static void settings_wifi_render_rows(void) {
     } else {
         lv_roller_set_selected(s_wifi_roller, 0, LV_ANIM_OFF);
     }
-    return;
-#else
-    int selected_shown = -1;
-    if (n == 0) {
-        for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
-            lv_label_set_text(s_wifi_rows[i], i == 0 ? "NO APS FOUND" : "");
-        }
-    }
-    for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
-        if (n == 0 || i >= n) {
-            continue;
-        }
-        char buf[40];
-        int pos = 0;
-        for (size_t c = 0; c < sizeof(aps[i].ssid) - 1 && pos < 20; c++) {
-            char ch = aps[i].ssid[c];
-            if (ch >= 'a' && ch <= 'z') {
-                ch = (char)(ch - 'a' + 'A');
-            }
-            buf[pos++] = ch;
-        }
-        buf[pos++] = 0;
-        /* Uppercase "DBM": the SSID font lacks lowercase (see above). */
-        pos += snprintf(buf + pos, sizeof(buf) - pos, " %dDBM", (int)aps[i].rssi);
-        lv_label_set_text(s_wifi_rows[i], buf);
-        bool sel = (i == s_wifi_selected);
-        lv_obj_set_style_text_color(s_wifi_rows[i], sel ? SETTINGS_WHITE : SETTINGS_GREY,
-                                    LV_PART_MAIN | LV_STATE_DEFAULT);
-        if (sel) {
-            selected_shown = i;
-        }
-    }
-    settings_wifi_place_sel_bar(selected_shown);
-#endif
 }
 
-#ifndef CONFIG_BOARD_KNOB
-/* user_data = the row index. A tap enters the circular wheel keyboard
- * with this AP's SSID prefilled (the raw SSID -- the row display
- * uppercases for font-safety only, the credential must keep the
- * original case). */
-static void event_handler_cb_wifi_row(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-        return;
-    }
-    s_wifi_selected = (int)(intptr_t)lv_event_get_user_data(e);
-    wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
-    int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
-    if (n == 0 || s_wifi_selected < 0 || s_wifi_selected >= n) {
-        return;
-    }
-    settings_wifi_render_rows();
-    settings_wheel_prefill_ssid(aps[s_wifi_selected].ssid);
-    loadScreen(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
-    ui_tick();
-    settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
-    ESP_LOGW("settings_wifi", "AP row %d -> wheel keyboard (SSID %zu chars)", s_wifi_selected, strlen(s_wheel_ssid));
-}
-#endif /* !CONFIG_BOARD_KNOB */
-
-#ifdef CONFIG_BOARD_KNOB
 /* Roller commit: a tap on the roller -- or the dial commit, which
  * re-sends CLICKED from the dial task's wrapper -- opens the wheel
  * keyboard for the entry in the window's middle. The roller's own
@@ -1707,25 +1622,24 @@ static void event_handler_cb_wifi_roller(lv_event_t *e) {
     settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI_PASSWORD);
     ESP_LOGW("settings_wifi", "roller AP %d -> wheel keyboard (SSID %zu chars)", sel, strlen(s_wheel_ssid));
 }
-#endif
 
 static void settings_wifi_screen_refresh(void) {
     s_wifi_selected = -1;
     s_wifi_scan_rendered = false;
     s_wifi_scanning_shown = false;
-    settings_wifi_place_sel_bar(-1);
     wifi_scan_begin();
 }
 
-/* The AP row object for the demo-mode walk (the tour taps the real row:
- * hit test -> CLICKED -> wheel keyboard with the SSID prefilled).
- * Rows exist for the whole boot (created once); only their TEXT follows
- * the scan, so a valid index always returns a tappable object. */
+/* The AP list object for the demo-mode walk (the tour taps the real
+ * roller: hit test -> CLICKED -> wheel keyboard with the SSID prefilled
+ * for the window-centre entry). The roller exists for the whole boot;
+ * only its OPTIONS follow the scan, so any valid index returns the same
+ * tappable object. */
 lv_obj_t *screens_wifi_row_get(int i) {
-    if (i < 0 || i >= WIFI_SETTINGS_ROWS) {
+    if (i < 0 || i >= WIFI_SCAN_MAX_APS) {
         return NULL;
     }
-    return s_wifi_rows[i];
+    return s_wifi_roller;
 }
 
 void create_screen_settings_wifi() {
@@ -1750,22 +1664,42 @@ void create_screen_settings_wifi() {
     lv_obj_set_style_text_color(title, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
 
-#ifdef CONFIG_BOARD_KNOB
-    /* The knob list: one lv_roller (user 2026-11-10: "make the network
-     * selection choice a lv_roller ... Roll through rollers via knob
-     * spin"). NORMAL mode -- the list is finite, the window centre is
-     * the cursor; the dial steps it (screens_dial_step), a tap or the
-     * dial commit opens the keyboard. 4 visible rows at 37 px fill the
-     * band under the title; the entry font is the knob-tier 48-baseline
-     * SSID face baked at 37 px (readable at arm's length, vs the clock
-     * rows' 32-baseline 25 px that read "too small" on the 1.8"). */
+    /* The family's list: one lv_roller (user 2026-11-10: "make the
+     * network selection choice a lv_roller ... Roll through rollers via
+     * knob spin"; 2026-11-11: all three boards, one Wi-Fi UI). NORMAL
+     * mode -- the list is finite, the window centre is the cursor; the
+     * dial steps it on the knob (screens_dial_step), a tap -- or the
+     * dial commit -- opens the keyboard. The entry font is the tier's
+     * 48-baseline SSID face (37 px knob / 48 px S3 / 74 px P4). Visible
+     * rows: the knob's 37 px entries fill 4 in the band under the
+     * title; the clocks' bigger face fits 3 between title and the
+     * bottom-centre exit button. */
     s_wifi_roller = lv_roller_create(obj);
-    lv_obj_set_size(s_wifi_roller, UI_PX(300), LV_SIZE_CONTENT);
-    lv_roller_set_visible_row_count(s_wifi_roller, 4);
-    lv_roller_set_options(s_wifi_roller, "SCANNING", LV_ROLLER_MODE_NORMAL);
-    lv_obj_align(s_wifi_roller, LV_ALIGN_CENTER, 0, UI_PX(18));
+    /* Font BEFORE row count -- lv_roller_set_visible_row_count sizes the
+     * roller's height from the CURRENT MAIN font's line height
+     * (lv_roller.c:241); with the fonts set after, the height froze at
+     * the default font's and the window clipped to ~1.5 rows (uisim
+     * render 2026-11-11). All other styles ride here too for the same
+     * reason; border width feeds the row-count height. */
     lv_obj_set_style_text_font(s_wifi_roller, &ui_font_montserrat_regular_48_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(s_wifi_roller, &ui_font_montserrat_regular_48_ssid, LV_PART_SELECTED | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_wifi_roller, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+#ifdef CONFIG_BOARD_KNOB
+    lv_obj_set_size(s_wifi_roller, UI_PX(300), LV_SIZE_CONTENT);
+#else
+    /* The clocks: as wide as the round panel's chord affords at the
+     * list's band (~442 px at the S3's 466; the P4's UI_PX scales the
+     * same numbers onto 720) -- the 48-baseline face needs it, the
+     * knob's 300 (its 37 px entries) stays put. */
+    lv_obj_set_size(s_wifi_roller, UI_PX(430), LV_SIZE_CONTENT);
+#endif
+    lv_roller_set_options(s_wifi_roller, "SCANNING", LV_ROLLER_MODE_NORMAL);
+    lv_obj_align(s_wifi_roller, LV_ALIGN_CENTER, 0, UI_PX(18));
+    /* LEFT-aligned entries (inherited by the roller's textarea): a
+     * centre-aligned entry wider than the roller clips BOTH ends and
+     * cuts the SSID's HEAD off too; left-aligned, a long entry only
+     * loses its tail and the SSID always starts at the same edge. */
+    lv_obj_set_style_text_align(s_wifi_roller, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(s_wifi_roller, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     /* The family's cursor language: the SELECTED entry goes white
      * (SETTINGS_WHITE), no highlight box -- same as the clock rows +
@@ -1773,39 +1707,15 @@ void create_screen_settings_wifi() {
     lv_obj_set_style_text_color(s_wifi_roller, SETTINGS_WHITE, LV_PART_SELECTED | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wifi_roller, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(s_wifi_roller, LV_OPA_TRANSP, LV_PART_SELECTED | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(s_wifi_roller, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(s_wifi_roller, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(s_wifi_roller, 0, LV_PART_SELECTED | LV_STATE_DEFAULT);
-    lv_obj_add_event_cb(s_wifi_roller, event_handler_cb_wifi_roller, LV_EVENT_CLICKED, NULL);
+#ifdef CONFIG_BOARD_KNOB
+    const uint32_t wifi_rows_visible = 4;
 #else
-    /* The selected-row indicator: a short white bar in the left margin
-     * (created first so the rows render on top where they could
-     * overlap it). */
-    s_wifi_sel_bar = lv_obj_create(obj);
-    lv_obj_set_size(s_wifi_sel_bar, UI_PX(6), UI_PX(22));
-    lv_obj_set_style_radius(s_wifi_sel_bar, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(s_wifi_sel_bar, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(s_wifi_sel_bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(s_wifi_sel_bar, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(s_wifi_sel_bar, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_wifi_sel_bar, LV_OBJ_FLAG_HIDDEN);
-
-    for (int i = 0; i < WIFI_SETTINGS_ROWS; i++) {
-        lv_obj_t *row = lv_label_create(obj);
-        s_wifi_rows[i] = row;
-        lv_obj_set_style_text_font(row, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_label_set_text(row, "");
-        lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        /* 7 rows at 24 px steps, first at absolute y 185 (offset -48):
-         * the list sits in the band between the title (bottom edge ~y
-         * 162) and the bottom-centre exit button (band top y 342 --
-         * the last row's bottom edge is ~y 314). */
-        lv_obj_align(row, LV_ALIGN_CENTER, 0, -UI_PX(48) + i * UI_PX(24));
-        lv_obj_set_style_text_color(row, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(row, event_handler_cb_wifi_row, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-    }
+    const uint32_t wifi_rows_visible = 3;
 #endif
+    lv_roller_set_visible_row_count(s_wifi_roller, wifi_rows_visible);
+    lv_obj_add_event_cb(s_wifi_roller, event_handler_cb_wifi_roller, LV_EVENT_CLICKED, NULL);
 }
 
 void tick_screen_settings_wifi() {
@@ -1814,13 +1724,9 @@ void tick_screen_settings_wifi() {
          * a per-tick set_text would invalidate every 10 ms even though
          * the text never changes). */
         if (!s_wifi_scanning_shown) {
-#ifdef CONFIG_BOARD_KNOB
             if (s_wifi_roller) {
                 lv_roller_set_options(s_wifi_roller, "SCANNING", LV_ROLLER_MODE_NORMAL);
             }
-#else
-            lv_label_set_text(s_wifi_rows[0], "SCANNING");
-#endif
             s_wifi_scanning_shown = true;
         }
         return;
@@ -4232,7 +4138,6 @@ void screens_dial_step(int dir) {
         break;
     }
     case SCREEN_ID_SETTINGS_WIFI: {
-#ifdef CONFIG_BOARD_KNOB
         if (!s_wifi_roller) {
             break;
         }
@@ -4252,19 +4157,6 @@ void screens_dial_step(int dir) {
             s_wifi_selected = (int)lv_roller_get_selected(s_wifi_roller);
         }
         s_dial_dirty = true;
-#else
-        wifi_ap_info_t aps[WIFI_SCAN_MAX_APS];
-        const int n = wifi_scan_get_results(aps, WIFI_SCAN_MAX_APS);
-        if (n <= 0) {
-            break;
-        }
-        int sel = s_wifi_selected;
-        sel = (sel < 0) ? 0 : ((sel + dir + n * 4) % n);
-        s_wifi_selected = sel; /* the native cursor the row tap shares */
-        settings_wifi_render_rows();
-        settings_wifi_place_sel_bar(sel);
-        s_dial_dirty = true;
-#endif
         break;
     }
     case SCREEN_ID_SETTINGS_WIFI_PASSWORD: {
@@ -4348,19 +4240,12 @@ void screens_dial_commit(void) {
         break;
     }
     case SCREEN_ID_SETTINGS_WIFI: {
-#ifdef CONFIG_BOARD_KNOB
         if (s_wifi_roller) {
             /* The roller's CLICKED cb IS the commit (opens the wheel
              * keyboard for the window-centre entry) -- the dial commit
              * is exactly a tap here. */
             lv_obj_send_event(s_wifi_roller, LV_EVENT_CLICKED, NULL);
         }
-#else
-        lv_obj_t *row = screens_wifi_row_get(s_wifi_selected);
-        if (row) {
-            lv_obj_send_event(row, LV_EVENT_CLICKED, NULL);
-        }
-#endif
         break;
     }
     case SCREEN_ID_SETTINGS_WIFI_PASSWORD: {

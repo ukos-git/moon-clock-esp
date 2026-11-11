@@ -252,8 +252,9 @@ static int wheel_snapshot_rot(lv_display_t *disp, const char *name) {
 }
 
 /* Drive the real flow to the wheel: settings-hub WiFi icon (on the icon
- * ring) -> the WiFi list -> AP row 0 (y UI_PX(185)) = SSID prefill + the
- * wheel. The row handler prefills the (stub) first AP's SSID.
+ * ring) -> the WiFi list -> a tap on the roller's window centre (the
+ * SELECTED entry) = SSID prefill + the wheel. The roller's CLICKED cb
+ * prefills the (stub) first AP's SSID.
  *
  * The hub's ring (create_screen_settings_hub): n icons 360/n apart,
  * the deep-sleep icon anchored at 180 deg -- found BY TARGET on the
@@ -290,12 +291,17 @@ static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     wheel_hub_wifi_icon(&ix, &iy);
     wheel_tap(disp, ix, iy);
     pump(disp, 100);
-    /* Tick the WiFi list once so the rows render (their text is what
-     * gives the labels content size -- tapping before the render hits
-     * zero-size labels and misses). */
+    /* Tick the WiFi list once so the roller renders its options (its
+     * text is what gives the rows content size -- tapping before the
+     * render hits empty rows and misses). */
     ui_tick();
     pump(disp, 100);
-    wheel_tap(disp, UI_PANEL_PX / 2, UI_PX(185));
+    /* Tap the roller's WINDOW CENTRE (aligned CENTER + UI_PX(18), so
+     * that offset is the SELECTED entry -- family-wide since
+     * 2026-11-11). Tapping above the centre lands on the empty slot
+     * NORMAL mode draws over the clamped first row, and a disabled
+     * cell sends no CLICKED. */
+    wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2 + UI_PX(18));
     pump(disp, 100);
     (void)indev;
 }
@@ -348,6 +354,16 @@ static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {
         lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
     } else if (id == SCREEN_ID_DEEP_SLEEP) {
         lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
+    } else if (id == SCREEN_ID_SETTINGS_WIFI) {
+        /* Mirror the device's entry path (the hub tap helper calls
+         * settings_screen_refresh_for): the scan is armed, the stub's
+         * canned list is immediately complete, and this extra tick
+         * renders the roller's options -- without it the snapshot
+         * would freeze the roller on its SCANNING placeholder (the
+         * s_wifi_scan_rendered init-true skips the first tick render,
+         * exactly as on the device before its entry refresh). */
+        settings_screen_refresh_for(id);
+        ui_tick();
     }
     /* 300 ms: the HH:MM digit roll (the attach refresh rolls changed
      * digits through the 300 ms odometer slide) must have FINISHED

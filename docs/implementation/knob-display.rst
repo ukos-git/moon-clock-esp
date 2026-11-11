@@ -397,14 +397,19 @@ cursor moved since the screen was entered.
        the arc stays fully working alongside)
      - ``RELEASED`` on the focused handle = save (the native handler
        writes the rule + re-arms the scheduler)
-   * - WiFi list (knob: an ``lv_roller``, user 2026-11-10 — the
-       label rows read too small at 360 px; the clocks keep the
-       native rows + sel bar verbatim)
+   * - WiFi list (an ``lv_roller`` on all three boards — user
+       2026-11-10 asked for it on the knob ("the label rows read
+       too small at 360 px"), 2026-11-11 chose it family-wide, so
+       one Wi-Fi selection UI for the clocks too; the 7 native
+       rows + sel bar are gone)
      - roll the list — the window's centre **is** the cursor;
-       entries in the knob tier's 37 px SSID font (``_48_ssid``
-       file), uppercased with the SSID truncated to 14 chars + ``+``
+       entries in the tier's 48-baseline SSID font (the
+       ``_48_ssid`` file: 37 px knob / 48 px S3 / 74 px P4),
+       uppercased with the SSID truncated to 14 chars + ``+``
        (the raw name still reaches the keyboard) and the ``NNDBM``
-       suffix; NORMAL mode clamps at the ends like a real roller
+       suffix (the tails clip at the panel's chord — the SSID
+       head always reads); NORMAL mode clamps at the ends like a
+       real roller
      - open the keyboard / connect (the roller's own ``CLICKED`` —
        the dial commit re-sends exactly that)
    * - Wheel keyboard
