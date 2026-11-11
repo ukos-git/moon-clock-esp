@@ -542,6 +542,16 @@ esp_err_t clock_alarm_scheduler_reload(void) {
         if (clear != ESP_OK) {
             ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(clear));
         }
+        /* The OFF half of the rule-write path: clock_alarm_schedule_next
+         * fires clock_trigger_alarm_update() when a rule lands, but
+         * nothing here refreshed the home alarm row -- until the minute
+         * tick it kept showing the deactivated alarm's time (user
+         * 2026-11-11, S3: "cannot disable the alarm via settings. it
+         * still shows 07:00 at the main screen"; the deactivation
+         * itself persisted fine -- the next boot read "--:--"). The
+         * boot reload fires this too; clock_cb is NULL-guarded until
+         * the callback registers. */
+        clock_trigger_alarm_update();
         return ESP_OK;
     }
 

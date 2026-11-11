@@ -1,7 +1,7 @@
 Alarm rules
 ===========
 
-The alarm rules screen: the large central alarm-clock is the **master toggle** — white while any rule is loaded (``clock_alarm_rule_types() != 0``), moon grey when everything is off; a tap deactivates ALL rules (and disarms the RTC alarm via the scheduler reload). The left stopwatch and the right alarm-clock are the two **mutually-exclusive entries**: activating one replaces the other's rule, so exactly one kind of rule ever exists. Colours are refreshed on entry and after each save — the tick must not re-set styles every frame (style sets invalidate).
+The alarm rules screen: the large central alarm-clock is the **master toggle** — white while any rule is loaded (``clock_alarm_rule_types() != 0``), moon grey when everything is off; a tap deactivates ALL rules (and disarms the RTC alarm via the scheduler reload — which fires the same alarm-update callback a rule write does, so the home screen's alarm row goes to ``--:--`` immediately, not at the next minute tick; the 0-rule reload path was missing that trigger, user 2026-11-11). The left stopwatch and the right alarm-clock are the two **mutually-exclusive entries**: activating one replaces the other's rule, so exactly one kind of rule ever exists. Colours are refreshed on entry and after each save — the tick must not re-set styles every frame (style sets invalidate).
 
 .. figure:: ../img/screens/annot/settings-alarm_s3.png
    :alt: alarm rules — the S3 panel (466, annotated)
