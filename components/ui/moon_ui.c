@@ -552,6 +552,20 @@ static volatile bool s_dusk_on_screen; /* an interrupted dusk left one of its
                                         * atomically (the wake display clears it) */
 static TaskHandle_t s_dusk_task;
 
+/* Deferred wake re-bake (2026-11-10). The wake path and the day-tick
+ * re-bake ~1.3 s of moon_bake_epoch -- on the LVGL task that froze the
+ * just-woken UI (old panel frame + dead touch) for a second and more.
+ * The bake now runs on core 1 like the other pipelines; the spin
+ * render publishes the finished frame itself (it re-gathers s_frame
+ * the moment the bake releases the buffer mutex), so no tick display
+ * is needed. While the frame is PARTIAL (a mid-bake abort) the spin
+ * stays paused -- see the render's pause poll -- so a half-baked
+ * frame never reaches the panel. */
+static volatile bool s_rebake_baking; /* deferred bake task running */
+static volatile bool s_rebake_again;  /* a newer epoch arrived mid-bake */
+static volatile int64_t s_rebake_epoch;
+static TaskHandle_t s_rebake_task;
+
 /* The LVGL task's handle, cached on the first tilt-monitor tick (which
  * runs on the LVGL task). The synchronous atomic displays (a whole
  * 466x466 lv_refr_now) need the 8 KB LVGL task stack; the boot path
@@ -587,7 +601,7 @@ static TaskHandle_t s_event_task;
  * the boot task) is guarded by moon_event_classify_here. */
 static bool moon_ev_scan_allowed(void) {
     const TaskHandle_t me = xTaskGetCurrentTaskHandle();
-    return me == s_sweep_task || me == s_dusk_task || me == s_orbit_task || me == s_event_task;
+    return me == s_sweep_task || me == s_dusk_task || me == s_orbit_task || me == s_event_task || me == s_rebake_task;
 }
 
 static void moon_event_task(void *arg) {
@@ -811,6 +825,48 @@ static void moon_bake_epoch(int64_t epoch) {
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));
 }
 
+/* Deferred wake re-bake (see the state block by the dusk flags): the
+ * core-1 bake task. moon_bake_epoch owns the buffer mutex for the
+ * bake (the spin render parks on it and re-gathers the finished frame
+ * on release -- the spin publishes it, no tick display); a newer
+ * epoch arriving mid-bake re-runs it (latest-wins, like the orbit).
+ * 12 KB stack: the task's bake runs the geometry era chain, and
+ * moon_event_classify_here is allowed here (core-1 pipeline context,
+ * moon_ev_scan_allowed), so the day's full_moments scan may run on
+ * THIS task -- exactly where it belongs. */
+static void moon_rebake_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        moon_bake_epoch(s_rebake_epoch);
+        if (!s_rebake_again)
+            break;
+        s_rebake_again = false;
+    }
+    s_rebake_baking = false;
+    ESP_LOGI(TAG, "deferred re-bake done (spin shows it)");
+    vTaskDelete(NULL);
+}
+
+/* Ask for a current-phase re-bake OFF the LVGL task. While one is in
+ * flight the newer epoch simply replaces the pending one (the task
+ * re-runs). If the task cannot be created, bake inline -- correctness
+ * beats responsiveness, and this is the rare OOM path. */
+static void moon_rebake_request(int64_t epoch) {
+    s_rebake_epoch = epoch;
+    if (s_rebake_baking) {
+        s_rebake_again = true;
+        return;
+    }
+    s_rebake_again = false;
+    s_rebake_baking = true;
+    if (xTaskCreatePinnedToCore(moon_rebake_task, "moon_rebake", 12288, NULL, configMAX_PRIORITIES - 3, &s_rebake_task,
+                                1) != pdPASS) {
+        ESP_LOGW(TAG, "deferred re-bake task failed; baking inline");
+        s_rebake_baking = false;
+        moon_bake_epoch(epoch);
+    }
+}
+
 /* ---------------- spin (free, phase-anchored) ----------------
  *
  * The current phase is baked ONCE (moon_bake_epoch, ~1.3 s with the
@@ -909,7 +965,14 @@ static void moon_spin_task(void *arg) {
          * direct writes keep landing and the moon keeps moving while
          * the screen dims -- exactly the motion the fade-out should
          * show. */
-        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking))
+        /* The deferred wake re-bake parks the render ONLY while the
+         * frame is partial (a mid-bake abort): a completed old frame
+         * may keep spinning (it is a valid moon, just a stale phase),
+         * a half-baked one must never reach the panel. Once the
+         * deferred bake completes, the render's next gather IS the
+         * new phase -- the spin publishes it. */
+        while (!s_spin_cancel && (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking ||
+                                  (s_rebake_baking && s_frame_stale)))
             vTaskDelay(pdMS_TO_TICKS(50));
         if (s_spin_cancel)
             break;
@@ -3438,10 +3501,10 @@ void moon_ui_day_tick(void) {
     const bool blood_hour = ev.blood && now / 3600 != s_baked_hour;
     if (!new_day && !ev_change && !blood_hour)
         return;
-    ESP_LOGI(TAG, "re-baking moon phase (new day=%d event sig=%d->%d blood-hour=%d)", new_day, s_baked_event,
+    ESP_LOGI(TAG, "deferring moon re-bake (new day=%d event sig=%d->%d blood-hour=%d)", new_day, s_baked_event,
              moon_event_signature(&ev), blood_hour);
     s_baked_day = day;
-    moon_bake_epoch(now);
+    moon_rebake_request(now);
     /* Only while a moon screen is active: starting the render on a
      * moon-less screen would park it on the (withheld) display
      * handshake; the screen switch back to the moon starts/primed it
@@ -3489,10 +3552,14 @@ void moon_ui_pause(bool pause) {
              * itself when it lands. */
             int64_t now;
             if (clock_get_utc_epoch(&now) == ESP_OK) {
-                ESP_LOGI(TAG, "frame was mid-bake at sleep; re-baking before wake");
+                /* Deferred: the frame stays flagged stale (a completed
+                 * bake clears it), and the render's pause poll keeps
+                 * the spin from gathering a partial frame -- the panel
+                 * holds the sleep screen until the spin shows the
+                 * fresh one (a bounded ~1.3 s, off the LVGL task). */
+                ESP_LOGI(TAG, "frame was mid-bake at sleep; deferring the wake re-bake");
                 s_baked_day = now / 86400;
-                moon_bake_epoch(now);
-                s_frame_stale = false;
+                moon_rebake_request(now);
             }
         }
         if (s_dusk_done || s_dusk_on_screen) {
@@ -3508,10 +3575,15 @@ void moon_ui_pause(bool pause) {
             if (clock_get_utc_epoch(&now) == ESP_OK && now / 86400 != s_baked_day) {
                 /* The dusk's pre-bake is the phase at the SLEEP entry --
                  * possibly a day old for an all-night sleep (same
-                 * rule as moon_ui_day_tick): re-bake the current phase
-                 * before the pose display shows it. */
-                ESP_LOGI(TAG, "wake after dusk on a new day; re-baking before the pose display");
-                moon_bake_epoch(now);
+                 * rule as moon_ui_day_tick). The pose display below
+                 * shows it NOW (a valid moon, slightly stale phase),
+                 * and the current-phase bake is deferred to core 1 --
+                 * the spin publishes it when it lands (~1.3 s, the
+                 * UI stays live; s_baked_day advances here so the
+                 * wake's day-tick leg does not queue a second bake). */
+                ESP_LOGI(TAG, "wake after dusk on a new day; deferred re-bake behind the pose display");
+                s_baked_day = now / 86400;
+                moon_rebake_request(now);
             }
             float rad = (float)fmod(s_spin_theta, 6.283185307179586);
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);

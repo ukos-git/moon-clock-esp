@@ -365,9 +365,20 @@ showed, and the spin resumes from exactly there — the sweep hands the
 burn-in rotation back with a seamless pose.
 
 **Boot only.** Waking from sleep (touch, tilt, or an alarm dismiss)
-shows the current moon phase **static**, with no animation — the wake
-pre-bakes the static frame (:doc:`the clock and sleep machine <clock-sleep>`) so the first wake frame is the
-current phase, not the dark-side disk.
+shows the current moon phase **static**, with no animation: when the
+day has not turned, the boot's bake is still current, so the first
+wake frame is the current phase, not the dark-side disk
+(:doc:`the clock and sleep machine <clock-sleep>`). When the frame
+*is* stale — a new day, a changed sky-event signature, a dusk wake
+on a new day, or a frame that was mid-bake when the device slept —
+the wake no longer bakes on the LVGL task: the parked frame displays
+immediately and ``moon_rebake_request()`` re-bakes on a core-1 task
+(the same worker pattern as the day scan above). The spin render
+publishes the finished frame itself when the bake releases the frame
+mutex, and the spin pause poll also parks while the frame is
+*partial* (a mid-bake abort), so a half-gathered disk never reaches
+the panel. The bake's ~1.3 s thus left the wake path entirely: what
+the user touches is the wake handler returning, not a bake.
 
 The free spin
 -------------

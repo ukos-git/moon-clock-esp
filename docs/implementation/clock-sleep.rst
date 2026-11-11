@@ -412,10 +412,15 @@ task*, and the LVGL task — the task that repaints the wake screen —
 blocked for the whole reconnect. The freeze was not a crash and not a
 WDT; it was the UI's own task parked inside the radio stack.
 
-The wake shows the **current phase static** (the pre-baked static
-frame, :doc:`the animation pipelines <animations>`) — no sweep at wake, by design: the sweep is the
-boot story ("here is how the moon got to where it is"), and a wake
-is an answer, not a story.
+The wake shows the **current phase static** (:doc:`the animation
+pipelines <animations>`) — no sweep at wake, by design: the sweep is
+the boot story ("here is how the moon got to where it is"), and a
+wake is an answer, not a story. The frame the wake displays is the
+boot's bake when the day has not turned; when it *is* stale (new
+day, new event tint, mid-bake at sleep) the wake still returns
+immediately — the re-bake runs on a core-1 task and the spin render
+publishes it, exactly as the 1.7 s WiFi-freeze fix moved the radio
+off this task.
 
 The hourly sync
 ---------------
