@@ -292,15 +292,24 @@ static void caption_unavailable(void) {
 /** The crisp current-phase frame, always landed (sweep end OR abort OR
  *  bake failure): full size, event passed, caption = the UTC instant. */
 static void land_current_phase(void) {
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "land: begin (wait_ack)");
+#endif
     const int64_t now = ui_now_epoch();
     wait_ack();
     char cap[40];
     time_caption(cap, sizeof(cap), now);
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "land: crisp bake begin");
+#endif
     if (!bake_publish(now, 0, true, NULL, cap)) {
         ESP_LOGE(TAG, "landing bake failed (bake_px=crisp)");
         caption_unavailable();
         return;
     }
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "land: crisp bake published");
+#endif
     s_caption_min = now / 60;
     s_baked_day = day_key(now);
     s_baked_sig = knob_moon_classify_signature(now);
@@ -360,10 +369,16 @@ static void sweep_body(void) {
     int f = 0;
     for (; f < frames; f++) {
         if (s_abort) {
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+            ESP_LOGI(TAG, "sweep: abort pre-wait at frame %d", f);
+#endif
             break;
         }
         wait_ack();
         if (s_abort) {
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+            ESP_LOGI(TAG, "sweep: abort after wait_ack at frame %d", f);
+#endif
             break;
         }
         const bool final = (f == frames - 1);
@@ -531,6 +546,9 @@ static void swap_task(void *arg) {
             /* Pair with the producer's publish fence: read the buffer/
              * caption only after observing the new counter. */
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+            ESP_LOGI(TAG, "swap: applying pub=%u (taking lock)", (unsigned)s_pub);
+#endif
             lvgl_lock();
             const int back = 1 - s_front;
             s_moon_dsc.data = (const uint8_t *)s_buf[back];
@@ -564,6 +582,9 @@ static void swap_task(void *arg) {
             s_front = back;
             s_applied = s_pub;
             lvgl_unlock();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+            ESP_LOGI(TAG, "swap: applied pub=%u (lock released)", (unsigned)s_pub);
+#endif
         }
         vTaskDelay(pdMS_TO_TICKS(15));
     }
@@ -595,6 +616,9 @@ static void start_tasks(int mode) {
 
 static void scr_press_cb(lv_event_t *e) {
     (void)e;
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "scr_press: seen (sweeping=%d)", (int)s_sweeping);
+#endif
     knob_power_notify_activity(); /* K7e: a press is activity */
     if (s_sweeping) {
         s_abort = true; /* the row loop honors it within one row */

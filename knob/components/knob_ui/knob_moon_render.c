@@ -172,13 +172,25 @@ void moon_ui_screen_switched(void) {
      * family rule; on the knob LVGL's own partial drain carries it --
      * there is no direct-write path to race). Then the fade-in back,
      * while the new screen is already correct on the back buffer. */
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "switched: enter (invalidate)");
+#endif
     knob_ui_invalidate_all();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "switched: taking lock for atomic refr");
+#endif
     knob_ui_lvgl_lock();
     lv_refr_now(NULL);
     knob_ui_lvgl_unlock();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "switched: refr done, fade_pending=%d", (int)s_fade_pending);
+#endif
     if (s_fade_pending) {
         s_fade_pending = false;
         ramp_to(255); /* the clock ramps back after the atomic flush */
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+        ESP_LOGI(TAG, "switched: fade-in ramp complete");
+#endif
     }
 }
 
@@ -241,6 +253,9 @@ void knob_render_set_home_dim(bool dimmed) {
     if (!objects.modem_sleep_clock) {
         return;
     }
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "home_dim(%d): taking lock", (int)dimmed);
+#endif
     knob_ui_lvgl_lock();
     lv_obj_set_style_opa(objects.modem_sleep_clock,
                          dimmed ? (lv_opa_t)(LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100) : LV_OPA_COVER, 0);

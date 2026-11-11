@@ -11,4 +11,24 @@ config KNOB_UI_ENABLE
         own-screen moon view (disk + caption) and components/ui is not
         added to the build at all -- the plan's staged bring-up.
 
+config KNOB_DIAG_TOUCH_INJECT_S
+    int "Bench: inject a synthetic home tap at N seconds after boot (0 = off)"
+    default 0
+    help
+        Bench-only crash-repro hook (the 2026-11-11 sweep-phase tap
+        lockup): an esp_timer one-shot arms a ~350 ms synthetic press
+        at (207,185) -- the crash's coordinates -- that flows through
+        the real touch_read_cb exactly like a finger, so the repro is
+        hands-free and needs no sweep caption on glass (the shared
+        home screen never showed one). Production default 0 = dead.
+
+config KNOB_DIAG_FRAME_TRACE
+    bool "Bench: log flush/swap/screen-switch boundaries"
+    default n
+    help
+        Bench-only: ESP_LOGI at flush start/complete, swap-task apply
+        begin/end, sweep-abort, land_current_phase, and each leg of
+        the fade + atomic screen switch, so a frozen board's LAST log
+        line names the section that stuck.
+
 endmenu

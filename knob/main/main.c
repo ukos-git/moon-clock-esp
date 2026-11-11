@@ -80,6 +80,22 @@ static void lvgl_lock(void) { knob_ui_lvgl_lock(); }
 
 static void lvgl_unlock(void) { knob_ui_lvgl_unlock(); }
 
+#if CONFIG_KNOB_DIAG_TOUCH_INJECT_S
+/* Bench crash-repro (KNOB_DIAG_TOUCH_INJECT_S): the timer fires N s
+ * after boot and opens a ~350 ms synthetic press at (207,185), the
+ * crash-#1 coordinates. The press flows through touch_read_cb exactly
+ * like a finger (same indev data, same LVGL event sequence), so the
+ * sweep-phase tap lockup reproduces hands-free. */
+static volatile bool s_inj_armed;
+static volatile int64_t s_inj_until_us;
+static void inject_touch_cb(void *arg) {
+    (void)arg;
+    s_inj_until_us = esp_timer_get_time() + 350000;
+    s_inj_armed = true;
+    ESP_LOGI(TAG, "diag: synthetic tap armed (350 ms @207,185)");
+}
+#endif
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
@@ -89,6 +105,19 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     static uint32_t s_ok, s_err, s_press_logged;
     static int64_t s_hb_us;
     esp_err_t rd = knob_board_touch_read(&x, &y, &pressed);
+#if CONFIG_KNOB_DIAG_TOUCH_INJECT_S
+    if (s_inj_armed) {
+        if (esp_timer_get_time() < s_inj_until_us) {
+            x = 207;
+            y = 185;
+            pressed = true;
+            rd = ESP_OK;
+        } else {
+            s_inj_armed = false; /* window served: a real finger from here */
+            ESP_LOGI(TAG, "diag: synthetic tap released");
+        }
+    }
+#endif
     if (rd == ESP_OK) {
         s_ok++;
     } else {
@@ -119,6 +148,9 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
  * #31 probe line shape survives inside that task. */
 
 static void panel_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    ESP_LOGI(TAG, "flush START (%d,%d)-(%d,%d)", (int)area->x1, (int)area->y1, (int)area->x2, (int)area->y2);
+#endif
     esp_lcd_panel_draw_bitmap(s_panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
     /* flush_ready comes from the QSPI trans-done callback below. */
 }
@@ -127,6 +159,12 @@ static bool trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_d
     (void)io;
     (void)edata;
     (void)user_ctx;
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    /* EARLY, not plain: this runs in the GPSPI ISR; the newlib stdout lock
+     * aborts() when taken from ISR context (bench 2026-11-12: the plain
+     * ESP_LOGI here boot-looped the knob at the first atomic flush). */
+    ESP_EARLY_LOGI(TAG, "flush DONE");
+#endif
     if (s_disp) {
         lv_display_flush_ready(s_disp);
     }
@@ -368,6 +406,16 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(knob_board_touch_init());
     ESP_ERROR_CHECK(knob_board_encoder_init());
+
+#if CONFIG_KNOB_DIAG_TOUCH_INJECT_S
+    {
+        const esp_timer_create_args_t inj_args = {.callback = inject_touch_cb, .name = "knob_inj"};
+        esp_timer_handle_t inj_timer;
+        ESP_ERROR_CHECK(esp_timer_create(&inj_args, &inj_timer));
+        ESP_ERROR_CHECK(esp_timer_start_once(inj_timer, (int64_t)CONFIG_KNOB_DIAG_TOUCH_INJECT_S * 1000000));
+        ESP_LOGI(TAG, "diag: synthetic tap scheduled at %d s after boot", (int)CONFIG_KNOB_DIAG_TOUCH_INJECT_S);
+    }
+#endif
 
     /* Family seam (P0): the clock's shared Wi-Fi manager — mounts SPIFFS,
      * reads /spiffs/wifi_credentials.txt and joins the home AP.
