@@ -30,6 +30,9 @@ static const char *TAG = "WIFI";
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_num = 0;
 static bool wifi_connected = false;
+/* Lives above wifi_manager_init() because the manager consults it BEFORE
+ * touching the radio (an AP scan in flight owns the radio there). */
+static bool s_scan_running = false;
 #if defined(CONFIG_BOARD_P4)
 // The remote (esp_hosted) radio on the 4C board is initialized exactly once
 // and never deinit'd: the host-side LWIP netif attach is not re-runnable, so a
@@ -183,6 +186,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 }
 
 esp_err_t wifi_manager_init(void) {
+    /* An AP scan in flight brought the radio up itself (or is about to):
+     * the ESP_ERROR_CHECK(esp_wifi_start()) below abort()s on an
+     * already-started radio, and the S3's ESP_ERROR_CHECK(esp_wifi_init())
+     * abort()s on an already-inited one. The callers (boot / hourly sync /
+     * the background reconnect task) simply retry on a later pass. */
+    if (s_scan_running) {
+        ESP_LOGW(TAG, "AP scan owns the radio -- WiFi init deferred");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     // If WiFi is already initialized (e.g., reconnecting after deinit), clean up first
     if (s_wifi_event_group != NULL) {
         ESP_LOGI(TAG, "WiFi already initialized, reinitializing...");
@@ -324,11 +337,56 @@ void wifi_manager_deinit(void) {
  * lifecycle is owned by whoever brought it up: the manager (boot /
  * hourly sync, s_wifi_event_group != NULL) or this task. When we
  * bring it up we deinit it again when the scan is done (back to
- * modem sleep; the credentials file is never touched). */
-static bool s_scan_running = false;
+ * modem sleep; the credentials file is never touched).
+ * s_scan_running lives above wifi_manager_init() (the manager reads it). */
 static wifi_ap_info_t s_scan_aps[WIFI_SCAN_MAX_APS];
 static int s_scan_count = 0;
 static wifi_ap_record_t s_scan_raw[WIFI_SCAN_MAX_APS];
+
+/* Minimal radio bring-up for the scan: no credentials, no connection.
+ * Returns true when the scan now OWNS the radio (must tear it down on
+ * exit). While the manager owns the inited radio the S3's esp_wifi_init
+ * just returns ESP_ERR_INVALID_STATE — a silent false (the S3 comment at
+ * the top of the file: it deinits/reinits freely once the manager let go).
+ * The manager's still-registered event handler will attempt
+ * esp_wifi_connect() on STA_START; with no SSID configured it fails fast
+ * and its event-group writes are NULL-guarded. */
+static bool scan_bring_up_radio(esp_err_t *err_out) {
+    esp_err_t err;
+#if defined(CONFIG_BOARD_P4)
+    /* The remote radio is always inited (the manager inits it once; see
+     * s_wifi_inited) — bring it up with set_mode+start only. */
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        if (err_out) {
+            *err_out = err;
+        }
+        return false;
+    }
+    esp_wifi_start();
+    vTaskDelay(pdMS_TO_TICKS(100));
+#else
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    err = esp_wifi_init(&cfg);
+    if (err != ESP_OK) {
+        if (err_out) {
+            *err_out = err;
+        }
+        return false;
+    }
+    /* Owned from INIT on: even a failing set_mode/start leaves an inited
+     * radio that must be deinited at the exit — the old code dropped
+     * ownership there and left the radio up for the manager's next
+     * ESP_ERROR_CHECK(esp_wifi_init) to abort on. */
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
+    vTaskDelay(pdMS_TO_TICKS(100));
+#endif
+    if (err_out) {
+        *err_out = ESP_OK;
+    }
+    return true;
+}
 
 static void wifi_scan_task_fn(void *arg) {
     (void)arg;
@@ -336,36 +394,12 @@ static void wifi_scan_task_fn(void *arg) {
     bool we_own_radio = false;
 
     if (!radio_was_up) {
-        /* Minimal radio bring-up: no credentials, no connection. The
-         * manager's still-registered event handler will attempt
-         * esp_wifi_connect() on STA_START; with no SSID configured it
-         * fails fast and its event-group writes are NULL-guarded. */
-#if defined(CONFIG_BOARD_P4)
-        /* The remote radio is always inited (the manager inits it once; see
-         * s_wifi_inited) — bring it up with set_mode+start only. */
-        esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
-        if (ret == ESP_OK) {
-            we_own_radio = true;
-            esp_wifi_start();
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-#else
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        esp_err_t ret = esp_wifi_init(&cfg);
-        if (ret == ESP_OK) {
-            we_own_radio = true;
-            if (esp_wifi_set_mode(WIFI_MODE_STA) == ESP_OK) {
-                esp_wifi_start();
-                vTaskDelay(pdMS_TO_TICKS(100));
-            } else {
-                we_own_radio = false;
-            }
-        }
-#endif
+        esp_err_t bring_err = ESP_OK;
+        we_own_radio = scan_bring_up_radio(&bring_err);
         if (we_own_radio) {
             ESP_LOGI(TAG, "Scan: radio brought up");
         } else {
-            ESP_LOGE(TAG, "Scan: failed to bring up the radio: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Scan: failed to bring up the radio: %s", esp_err_to_name(bring_err));
         }
     }
 
@@ -384,6 +418,25 @@ static void wifi_scan_task_fn(void *arg) {
         .channel = 0,
     };
     for (int attempt = 1; attempt <= WIFI_SCAN_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 1 && !we_own_radio) {
+            /* The manager may have torn the radio out from under a
+             * blocking scan: the settings-entry airplane hand-off and the
+             * hourly-sync end both call wifi_manager_deinit() — which on
+             * the S3 ALSO esp_wifi_deinit's the driver, so every later
+             * attempt hit a dead radio and the screen parked on NO APS
+             * FOUND until a full close+reopen (user 2026-11-11, S3: "it
+             * shows 'No aps found' even though there are some available";
+             * the P4's remote radio survives the manager's stop-only
+             * deinit, which is why only the S3 reported it). Take
+             * ownership ourselves if the manager let go; while it still
+             * owns the radio the S3 init says ESP_ERR_INVALID_STATE and we
+             * simply retry as before. */
+            esp_err_t bring_err = ESP_OK;
+            if (scan_bring_up_radio(&bring_err)) {
+                we_own_radio = true;
+                ESP_LOGI(TAG, "Scan: radio re-acquired (manager hand-off raced the scan)");
+            }
+        }
         esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
         if (ret == ESP_OK) {
             uint16_t ap_cnt = 0;
