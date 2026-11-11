@@ -1519,15 +1519,15 @@ void tick_screen_settings_deep_sleep() {}
  *
  * "NETWORKS" header (wifi icon) + the AP scan results below. A
  * background scan (wifi_scan_begin) runs while the screen is open; the
- * rows render when the scan finishes (the 10 ms tick polls
- * wifi_scan_in_progress() and renders once). The selected row is
- * marked by a white bar in the left margin (the SSID font has no
- * bullet/arrow glyph, so the indicator is a plain object, not text)
- * plus the white-on-grey text colour. Selection is log-only for now --
- * the circular-keyboard password entry + saving the credentials is the
- * approved follow-up. Row text is font-safe: the SSID font covers only
- * space, '-', ':', digits 0-9 and UPPERCASE A-Z (lowercase dBm would
- * render as missing-glyph boxes), so the strength is shown as "DBM". */
+ * list renders when the scan finishes (the 10 ms tick polls
+ * wifi_scan_in_progress() and renders once). While the scan runs (and
+ * when it found nothing) a centred placeholder LABEL carries the line —
+ * not the roller: a one-option NORMAL-mode list clamps its scroll at 0
+ * and pins that line to the TOP of the 3/4-row window, which read as
+ * "SCANNING is not centred" (user 2026-11-11). Row text is font-safe:
+ * the SSID font covers only space, '-', ':', digits 0-9 and UPPERCASE
+ * A-Z (lowercase dBm would render as missing-glyph boxes), so the
+ * strength is shown as "DBM". */
 /* The family's Wi-Fi list is ONE lv_roller (user 2026-11-10 asked for it
  * on the knob -- "the label rows read too small at 360 px" -- and
  * 2026-11-11 for all three boards: one Wi-Fi selection UI family-wide).
@@ -1536,6 +1536,11 @@ void tick_screen_settings_deep_sleep() {}
  * language is unchanged (window centre = cursor, SELECTED entry white,
  * no highlight box). s_wifi_selected mirrors the roller's selection. */
 static lv_obj_t *s_wifi_roller;
+/* SCANNING / NO APS FOUND placeholder: a centred label, not a roller
+ * option (user 2026-11-11 on S3 + P4: "scanning is not centered" —
+ * LVGL clamps a one-option NORMAL roller at scroll 0, so the single
+ * row sits at the window top; the label centres both ways). */
+static lv_obj_t *s_wifi_placeholder;
 static bool s_wifi_scan_rendered = true;   /* the results are on the roller */
 static bool s_wifi_scanning_shown = false; /* the SCANNING placeholder is up */
 static int s_wifi_selected = -1;
@@ -1576,7 +1581,14 @@ static void settings_wifi_render_rows(void) {
     }
     static char opts[WIFI_SCAN_MAX_APS * 32];
     if (n <= 0) {
-        lv_roller_set_options(s_wifi_roller, "NO APS FOUND", LV_ROLLER_MODE_NORMAL);
+        /* "NO APS FOUND" rides the centred placeholder too (same reason
+         * as SCANNING) — the roller steps aside entirely, so it only
+         * ever holds real entries. */
+        if (s_wifi_placeholder) {
+            lv_label_set_text(s_wifi_placeholder, "NO APS FOUND");
+            lv_obj_set_hidden(s_wifi_placeholder, false);
+        }
+        lv_obj_set_hidden(s_wifi_roller, true);
         return;
     }
     size_t used = 0;
@@ -1594,6 +1606,10 @@ static void settings_wifi_render_rows(void) {
         lv_roller_set_selected(s_wifi_roller, (uint32_t)s_wifi_selected, LV_ANIM_OFF);
     } else {
         lv_roller_set_selected(s_wifi_roller, 0, LV_ANIM_OFF);
+    }
+    lv_obj_set_hidden(s_wifi_roller, false);
+    if (s_wifi_placeholder) {
+        lv_obj_set_hidden(s_wifi_placeholder, true);
     }
 }
 
@@ -1693,13 +1709,20 @@ void create_screen_settings_wifi() {
      * knob's 300 (its 37 px entries) stays put. */
     lv_obj_set_size(s_wifi_roller, UI_PX(430), LV_SIZE_CONTENT);
 #endif
-    lv_roller_set_options(s_wifi_roller, "SCANNING", LV_ROLLER_MODE_NORMAL);
+    /* The roller only ever holds real entries — while scanning (or with
+     * an empty result) it is hidden and the centred placeholder label
+     * below carries the line. */
+    lv_roller_set_options(s_wifi_roller, "", LV_ROLLER_MODE_NORMAL);
     lv_obj_align(s_wifi_roller, LV_ALIGN_CENTER, 0, UI_PX(18));
-    /* LEFT-aligned entries (inherited by the roller's textarea): a
-     * centre-aligned entry wider than the roller clips BOTH ends and
-     * cuts the SSID's HEAD off too; left-aligned, a long entry only
-     * loses its tail and the SSID always starts at the same edge. */
-    lv_obj_set_style_text_align(s_wifi_roller, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* CENTRED entries (user 2026-11-11, twice: "the selection roller is
+     * also ragged left, not centered as i want it" — the LEFT-align
+     * call of the family-wide port is reversed: a centred cursor column
+     * wins over tail-only clipping). A centre-aligned entry wider than
+     * the roller clips both ends, but entries are already truncated to
+     * 14 chars + '+' and the SSID stays recognisable; the RAW SSID
+     * still reaches the keyboard (prefill). */
+    lv_obj_set_style_text_align(s_wifi_roller, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(s_wifi_roller, LV_TEXT_ALIGN_CENTER, LV_PART_SELECTED | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(s_wifi_roller, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     /* The family's cursor language: the SELECTED entry goes white
      * (SETTINGS_WHITE), no highlight box -- same as the clock rows +
@@ -1716,6 +1739,19 @@ void create_screen_settings_wifi() {
 #endif
     lv_roller_set_visible_row_count(s_wifi_roller, wifi_rows_visible);
     lv_obj_add_event_cb(s_wifi_roller, event_handler_cb_wifi_roller, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(s_wifi_roller, LV_OBJ_FLAG_HIDDEN); /* the placeholder owns the band until a scan lands */
+
+    /* The centred placeholder (SCANNING / NO APS FOUND) — same tier
+     * face, same band as the roller, centred both ways. Hidden while
+     * real entries are up (settings_wifi_render_rows toggles the pair). */
+    s_wifi_placeholder = lv_label_create(obj);
+    lv_obj_set_style_text_font(s_wifi_placeholder, &ui_font_montserrat_regular_48_ssid,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_wifi_placeholder, "SCANNING");
+    lv_obj_set_size(s_wifi_placeholder, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(s_wifi_placeholder, LV_ALIGN_CENTER, 0, UI_PX(18));
+    lv_obj_set_style_text_color(s_wifi_placeholder, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_wifi_placeholder, LV_OBJ_FLAG_CLICKABLE);
 }
 
 void tick_screen_settings_wifi() {
@@ -1725,7 +1761,12 @@ void tick_screen_settings_wifi() {
          * the text never changes). */
         if (!s_wifi_scanning_shown) {
             if (s_wifi_roller) {
-                lv_roller_set_options(s_wifi_roller, "SCANNING", LV_ROLLER_MODE_NORMAL);
+                lv_roller_set_options(s_wifi_roller, "", LV_ROLLER_MODE_NORMAL);
+                lv_obj_set_hidden(s_wifi_roller, true);
+            }
+            if (s_wifi_placeholder) {
+                lv_label_set_text(s_wifi_placeholder, "SCANNING");
+                lv_obj_set_hidden(s_wifi_placeholder, false);
             }
             s_wifi_scanning_shown = true;
         }

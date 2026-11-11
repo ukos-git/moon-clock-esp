@@ -336,8 +336,16 @@ static const ap_stub_t s_aps[] = {
 bool wifi_manager_is_connected(void) { return true; }
 
 void wifi_scan_begin(void) { printf("[stub] wifi_scan_begin\n"); }
-bool wifi_scan_in_progress(void) { return false; }
+/* Snapshot hooks (like --clockprobe): UISIM_WIFI_SCANNING pins the scan
+ * "in progress" so the tick renders the centred SCANNING placeholder;
+ * UISIM_WIFI_NOAPS reports a COMPLETED scan with zero APs for the "NO
+ * APS FOUND" placeholder. Unset (every docs render) = the usual
+ * immediately-complete 5-AP scan. */
+bool wifi_scan_in_progress(void) { return getenv("UISIM_WIFI_SCANNING") != NULL; }
 int wifi_scan_get_results(wifi_ap_info_t *out, int max) {
+    if (getenv("UISIM_WIFI_NOAPS") != NULL) {
+        return 0;
+    }
     int n = (int)(sizeof s_aps / sizeof s_aps[0]);
     if (n > max)
         n = max;
