@@ -316,6 +316,14 @@ All default off (``0`` = off, except the two bools default ``n``).
        alarm time → light-sleep → airplane, logging every transition
        and reading the alarm/settings files back. Headless acceptance
        path for the whole settings stack.
+   * - ``TEST_SETTINGS_RETURN_SEC``
+     - 0–3600
+     - The scrambled-clock repro (task #30): N seconds after boot open
+       the WiFi settings screen (the scan storm), dwell 2 s (so the
+       exit-home switch lands MID-scan) and return home. Writes
+       NOTHING to settings or credentials; the evidence is the panel
+       traffic hold's arm/release lines and the ``co5300`` failure
+       signature (:doc:`../implementation/display`).
    * - ``TEST_SPIN_BANDS``
      - 0–100
      - Spin seam diagnostic: writes one gray level per strip instead of

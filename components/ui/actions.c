@@ -770,6 +770,12 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
         }
     }
+    /* The WiFi scan's panel traffic hold follows the SCAN, not the
+     * settings screen that started it (task #30): leaving mid-scan keeps
+     * the guard; this poll releases it when the radio session is really
+     * over. Registered BEFORE the repaint poll below so the release's
+     * stamp is seen by the same tick's expiry check. */
+    screens_wifi_scan_hold_poll();
     /* A released panel traffic hold (the wake-sync storm) dropped flushes on
      * purpose: invalidate the active screen once so LVGL re-emits the whole
      * panel and panel / mirror / spin re-anchor together. */

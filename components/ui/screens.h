@@ -322,6 +322,13 @@ lv_obj_t *screens_sub_exit_get(lv_obj_t *root);
 /* The WiFi screen's AP row object (rows exist for the whole boot; the
  * scan only fills their text). NULL for an out-of-range index. */
 lv_obj_t *screens_wifi_row_get(int i);
+/* Poll the WiFi scan's panel traffic hold (task #30): when a scan the
+ * UI started has finished, release the hold with the teardown tail --
+ * the release's whole-screen repaint then heals the storm's drops on
+ * whatever screen is active. Call from the GENERIC ui tick: the hold
+ * follows the scan, not the screen that started it (leaving mid-scan
+ * keeps the guard). Idempotent, cheap. */
+void screens_wifi_scan_hold_poll(void);
 
 #ifdef CONFIG_BOARD_KNOB
 /* ---- P2 dial surface (knob-only; see screens.c "P2 dial surface") ----

@@ -453,6 +453,22 @@ menu "UI Component Configuration"
             settings stack (state machine, persistence, scheduler
             math). 0 (default) = off.
 
+    config TEST_SETTINGS_RETURN_SEC
+        int "Test: WiFi-scan screen then return home, N seconds after boot (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: N seconds after boot (waits out the boot sweep)
+            open the settings WiFi screen -- its entry starts the
+            background AP scan, whose radio bring-up/scan/teardown
+            storm is the same class as the wake-sync storm -- dwell 2 s
+            (< the scan's ~3.9 s, so the return lands MID-scan), then
+            return HOME so the home screen's atomic switch flush
+            overlaps the scan's radio session. Writes
+            NOTHING to settings or credentials; the evidence is the
+            moon_ui "ui mask rebuilt" lines, the co5300 failure
+            signature and the panel itself. 0 (default) = off.
+
     config TEST_SPIN_BANDS
         int "Test: spin writes per-strip gray bands instead of the moon (0 = off)"
         default 0

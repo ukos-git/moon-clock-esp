@@ -494,12 +494,35 @@ static bool panel_hold_live(void) {
     return true;
 }
 
-void moon_ui_panel_traffic_hold(bool hold) {
+/* Extended arm/release: the self-heal cap and the release tail are
+ * parameters so the WiFi-scan session (screens.c) can arm with a cap
+ * that covers its 0-AP four-retry worst case (~25 s) and release TAIL-
+ * FREE: the scan task has fully stopped/deinited the radio before it
+ * completes -- no associated station is left to steal completions, so
+ * the 4 s DTIM-beacon guard the sync path needs would only delay the
+ * scan-result reveal. tail_ms = 0 releases on the next UI tick. */
+/* Sessions may overlap (a wake/hourly sync arming while the user's scan
+ * still runs): each arm takes a reference and a release drops one, so
+ * the shorter session's release cannot end the hold while the longer
+ * session still owns it. */
+static volatile int s_panel_hold_refs;
+void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
     if (hold) {
-        if (!s_panel_hold)
-            ESP_LOGI(TAG, "panel traffic hold ON (sync storm)");
+        const TickType_t want = xTaskGetTickCount() + pdMS_TO_TICKS(cap_ms);
+        const bool was_live = panel_hold_live(); /* expiry self-heals */
+        s_panel_hold_refs++;
+        if (was_live) {
+            /* Another session holds the bus frozen already: extend the
+             * deadline and undo a stamped release (a live session needs
+             * the freeze; its own release will stamp later). */
+            if ((int32_t)(want - s_panel_hold_until) > 0)
+                s_panel_hold_until = want;
+            s_panel_hold_release = false;
+            return;
+        }
+        ESP_LOGI(TAG, "panel traffic hold ON (%d ms cap)", cap_ms);
         s_panel_hold_release = false;
-        s_panel_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_HOLD_MS);
+        s_panel_hold_until = want;
         s_panel_hold = true;
         /* Arm QUIESCE (the task #29 hammer's first cycle: a lost
          * completion despite the flags being set -- the victim was a
@@ -523,17 +546,27 @@ void moon_ui_panel_traffic_hold(bool hold) {
             vTaskDelay(pdMS_TO_TICKS(20)); /* one DMA drain, bus quiet */
             xSemaphoreGive(s_panel_mtx);
         }
-    } else if (s_panel_hold && !s_panel_hold_release) {
-        /* Sync task ended: keep the freeze through the radio tail (the
-         * completion-thieving teardown/churn runs AFTER sync-complete);
-         * the UI-tick poll resumes writes at the deadline (the expiry
-         * path clears the hold and queues the repaint). */
-        s_panel_hold_release = true;
-        TickType_t tail = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_TAIL_MS);
-        if ((int32_t)(tail - s_panel_hold_until) < 0)
-            s_panel_hold_until = tail;
-        ESP_LOGI(TAG, "panel traffic hold: sync done, %d ms radio tail", PANEL_TRAFFIC_TAIL_MS);
+    } else {
+        if (s_panel_hold_refs > 0)
+            s_panel_hold_refs--;
+        if (s_panel_hold_refs > 0)
+            return; /* another session still owns the hold */
+        if (s_panel_hold && !s_panel_hold_release) {
+            /* Session ended: keep the freeze through the radio tail (the
+             * completion-thieving teardown/churn runs AFTER the last
+             * activity); the UI-tick poll resumes writes at the deadline
+             * (the expiry path clears the hold and queues the repaint). */
+            s_panel_hold_release = true;
+            TickType_t tail = xTaskGetTickCount() + pdMS_TO_TICKS(tail_ms);
+            if ((int32_t)(tail - s_panel_hold_until) < 0)
+                s_panel_hold_until = tail;
+            ESP_LOGI(TAG, "panel traffic hold: release stamped, %d ms radio tail", tail_ms);
+        }
     }
+}
+
+void moon_ui_panel_traffic_hold(bool hold) {
+    moon_ui_panel_traffic_hold_ext(hold, PANEL_TRAFFIC_HOLD_MS, PANEL_TRAFFIC_TAIL_MS);
 }
 
 bool moon_ui_panel_repaint_pending(void) {

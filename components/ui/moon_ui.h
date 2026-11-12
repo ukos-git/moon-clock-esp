@@ -212,6 +212,18 @@ void moon_ui_panel_dim_ramp(int to_pct);
  */
 void moon_ui_panel_traffic_hold(bool hold);
 
+/** Hold variant with an explicit self-heal cap and release tail (ms).
+ *  The wake-sync path uses the defaults above. The WiFi-scan session
+ *  (screens.c, task #30) arms with a cap covering the 0-AP four-retry
+ *  scan and releases with a teardown tail from the GENERIC ui tick's
+ *  poll (screens_wifi_scan_hold_poll, actions.c) once the scan task is
+ *  done -- the hold follows the radio session, not the screen that
+ *  started it, so leaving mid-scan cannot cut the guard; the tail covers
+ *  the esp_wifi_stop/deinit churn the same way the sync path's does.
+ *  Refcounted: nested arms (list re-entry while an older hold is live)
+ *  extend the cap; one release per arm, the cap self-heals a leak. */
+void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms);
+
 /** Consume the queued whole-screen repaint after a traffic-hold release
  * (LVGL task; clears the flag, true once). Call from the UI tick: on
  * true, lv_obj_invalidate(lv_screen_active()) and let the tick repaint. */

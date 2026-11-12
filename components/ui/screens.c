@@ -1639,10 +1639,56 @@ static void event_handler_cb_wifi_roller(lv_event_t *e) {
     ESP_LOGW("settings_wifi", "roller AP %d -> wheel keyboard (SSID %zu chars)", sel, strlen(s_wheel_ssid));
 }
 
+/* Panel traffic hold across the WiFi scan's radio session (task #30,
+ * the 2026-11-12 "blank-white clock row after leaving the WiFi password
+ * screen" on the S3): the scan's esp_wifi_init firmware-load + the active
+ * scan itself steal QSPI DMA completions from live panel traffic -- the
+ * bench repro logged 400 co5300 write failures and TWO silently DROPPED
+ * strips right over the clock row (y 176..214, y 214..252) in ~3 s. The
+ * drop is permanent: LVGL believes the flush landed (flush_cb answers
+ * ready even for held writes), nothing re-invalidates those strips, and
+ * the spin's direct write only ever covers the moon window -- the clock
+ * row keeps showing whatever the last full paint left there (the user's
+ * "blank white, no digits"). Same completion-thief class as the wake-sync
+ * storm (task #29) -- which is why that had a traffic hold and this never
+ * did.
+ *
+ * The hold follows the SCAN, not the screen: leaving mid-scan must NOT
+ * cut the guard (the user's path -- password -> list re-entry restarts
+ * the scan -> exit home lands the home switch's atomic flush inside the
+ * running storm). arm() runs before wifi_scan_begin on entry; the
+ * GENERIC ui tick (actions.c) polls scan-completion and releases with
+ * the sync path's proven 4 s teardown tail, so the first real flush
+ * after release lands on a quiet bus and the release's whole-screen
+ * repaint heals everything the storm ate, wherever the user went. The
+ * 45 s cap covers the 0-AP four-retry worst case (and a refcount double
+ * arm from list re-entry while an older hold is still live). */
+#define SCAN_PANEL_HOLD_CAP_MS 45000
+#define SCAN_PANEL_HOLD_TAIL_MS 4000 /* esp_wifi_stop/deinit churn (task #29 bench: 0.6-3.5 s) */
+static bool s_scan_panel_hold;
+
+static void scan_panel_hold_arm(void) {
+    if (s_scan_panel_hold)
+        return;
+    s_scan_panel_hold = true;
+    moon_ui_panel_traffic_hold_ext(true, SCAN_PANEL_HOLD_CAP_MS, 0);
+}
+
+void screens_wifi_scan_hold_poll(void) {
+    if (!s_scan_panel_hold)
+        return;
+    if (wifi_scan_in_progress())
+        return; /* the radio session still runs -- hold stays */
+    s_scan_panel_hold = false;
+    moon_ui_panel_traffic_hold_ext(false, 0, SCAN_PANEL_HOLD_TAIL_MS);
+}
+
 static void settings_wifi_screen_refresh(void) {
     s_wifi_selected = -1;
     s_wifi_scan_rendered = false;
     s_wifi_scanning_shown = false;
+    scan_panel_hold_arm(); /* BEFORE the kickoff: the storm starts when
+                            * the scan task reaches esp_wifi_init */
     wifi_scan_begin();
 }
 
@@ -1772,6 +1818,12 @@ void tick_screen_settings_wifi() {
         }
         return;
     }
+    /* Scan session done. The panel traffic hold is NOT released here --
+     * the generic ui tick's screens_wifi_scan_hold_poll owns the release
+     * (task #30: it must follow the scan, not this screen, so leaving
+     * mid-scan cannot cut the guard). The row render below may land
+     * inside the release's tail (held, dropped) -- the release's
+     * whole-screen repaint heals it. */
     if (s_wifi_scan_rendered) {
         return;
     }

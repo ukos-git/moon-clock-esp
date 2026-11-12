@@ -328,3 +328,30 @@ log-and-return instead of aborting). Final hammer proof (2026-11-12):
 **ten consecutive DEEP→wake cycles, zero** ``PANEL IO STUCK``, WDT or
 panic lines; the largest DMA block settles at a stable 15,360 B floor
 from wake 4 onward.
+
+**Follow-up closed (2026-11-12, same day) — the settings WiFi scan is
+the same class.** User report: after leaving the WiFi password screen
+the home clock row is blank white, no digits (the earlier phrasing was
+"scrambled watch display after returning from settings"). New headless
+repro hook ``TEST_SETTINGS_RETURN_SEC`` (writes nothing): open the
+WiFi settings screen N seconds after boot, dwell 2 s, exit home —
+dwell < the scan's ~3.9 s puts the home switch's atomic flush INSIDE
+the running scan (the user's path: password → list re-entry restarts
+the scan → exit home). Pre-fix capture: 400 ``co5300`` write failures
+in ~3 s plus two silently dropped strips over exactly the clock row
+(y 176..214, y 214..252) — the drops are permanent (LVGL answered
+ready, nothing re-invalidated, and the spin's direct write only covers
+the moon window). Fix: the scan session borrows the sync-storm hold
+through ``moon_ui_panel_traffic_hold_ext`` (45 s cap), the release
+owned by the GENERIC UI tick's ``screens_wifi_scan_hold_poll`` — the
+hold follows the SCAN, not the screen (leaving mid-scan must not cut
+the guard) — with the proven 4 s teardown tail; the release's
+whole-screen repaint heals the storm's drops
+(:ref:`display-lost-dma`). Post-fix captures: the natural exit (dwell
+> scan) and the hard mid-scan exit both run ON → scan done → release
+stamped 4000 ms → OFF with repaint queued — **zero** ``co5300``, zero
+dropped strips, no WDT, no hang-watch dump. Side finding: the hook's
+first "the LVGL task wedges after release" reading was its OWN bug —
+a uint32 countdown double-decrement underflowed and the return-home
+leg never fired; the heartbeat watcher (armed, 15 s threshold) stayed
+silent throughout, i.e. the LVGL task was alive the whole time.

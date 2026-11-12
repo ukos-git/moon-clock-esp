@@ -469,3 +469,13 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
 }
 void moon_ui_set_panel_step(int step) { (void)step; }
 void moon_ui_rebuild_ui_mask(void) {}
+/* Panel traffic hold (the QSPI completion-thief guard, task #29/#30):
+ * no shared bus lock on the host -- screens.c arms/releases around the
+ * WiFi scan session; accept and forget. */
+void moon_ui_panel_traffic_hold(bool hold) { (void)hold; }
+void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
+    (void)hold;
+    (void)cap_ms;
+    (void)tail_ms;
+}
+bool moon_ui_panel_repaint_pending(void) { return false; }

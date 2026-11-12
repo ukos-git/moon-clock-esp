@@ -44,6 +44,9 @@
 #ifndef CONFIG_TEST_WIFI_SCAN_SEC
 #define CONFIG_TEST_WIFI_SCAN_SEC 0
 #endif
+#ifndef CONFIG_TEST_SETTINGS_RETURN_SEC
+#define CONFIG_TEST_SETTINGS_RETURN_SEC 0
+#endif
 #ifndef CONFIG_TEST_ALARM_RING_SEC
 #define CONFIG_TEST_ALARM_RING_SEC 0
 #endif
@@ -154,6 +157,62 @@ static void wifi_scan_test_cb(lv_timer_t *timer) {
      * entry's event handler in the real flow. Mirror it here, else the
      * background scan never starts. */
     settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
+}
+
+// Test hook (CONFIG_TEST_SETTINGS_RETURN_SEC): the scrambled-after-settings
+// repro, headless. Opens the settings WiFi screen (its entry starts the
+// background AP scan -- the radio bring-up/scan/teardown storm, the same
+// class as the wake-sync storm task #29 closed) and returns HOME a fixed
+// dwell later, so the home screen's one atomic switch flush overlaps the
+// scan's radio session. Writes NOTHING (no settings, no credentials);
+// the evidence is moon_ui's "ui mask rebuilt" lines, the co5300 failure
+// signature, and the panel itself. Like the other hooks it waits out the
+// boot sweep and keeps idle monitoring off.
+static void settings_return_test_cb(lv_timer_t *timer) {
+    (void)timer;
+    if (CONFIG_TEST_SETTINGS_RETURN_SEC <= 0)
+        return;
+    static uint32_t wait_s = (uint32_t)CONFIG_TEST_SETTINGS_RETURN_SEC;
+    static int phase = 0; /* 0 = waiting, 1 = dwelling on the wifi screen, 2 = done */
+    if (phase == 2)
+        return;
+    /* One countdown per phase: the first block belongs to phase 0 ONLY --
+     * falling through into the phase-1 countdown with wait_s already 0
+     * decremented it to 0xFFFFFFFF (uint32 underflow) and the return-home
+     * leg never fired (bench 2026-11-12, which read as a hung LVGL task
+     * while the heartbeat said it was alive). */
+    if (phase == 0 && wait_s > 0) {
+        if (--wait_s > 0)
+            return;
+        clock_idle_set_enabled(false);
+    }
+    if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
+        return; /* the sweep guards off mid-sweep switches; hold */
+    if (phase == 0) {
+        phase = 1;
+        /* Dwell 2 s < the scan's ~3.9 s (bring-up 1.2 + active 2.7): the
+         * home switch lands MID-scan -- the user's path (the blank clock
+         * row) and the hard case: the switch's atomic flush must be held,
+         * the release must follow the scan to completion (generic-tick
+         * poll), and the release repaint must heal the clock row. */
+        wait_s = 2;
+        ESP_LOGW(TAG, "TEST settings-return: opening the WiFi screen (scan storm)");
+        loadScreen(SCREEN_ID_SETTINGS_WIFI);
+        ui_tick();
+        /* Mirror the entry handler (wifi_scan_begin), same as the scan hook. */
+        settings_screen_refresh_for(SCREEN_ID_SETTINGS_WIFI);
+        return;
+    }
+    if (wait_s > 0) {
+        if (--wait_s > 0)
+            return;
+    }
+    phase = 2;
+    ESP_LOGW(TAG, "TEST settings-return: -> home (exit flush vs scan storm)");
+    loadScreen(SCREEN_ID_MODEM_SLEEP); /* the hub-exit path verbatim */
+    ui_tick();
+    clock_idle_set_enabled(true);
+    clock_idle_reset_timer();
 }
 
 // Test hook (CONFIG_TEST_SETTINGS_DEMO_SEC): the scripted settings run.
@@ -659,6 +718,11 @@ extern "C" void app_main(void) {
     // Test hook: the headless WiFi scan (TEST_WIFI_SCAN_SEC; 0 = off).
     if (CONFIG_TEST_WIFI_SCAN_SEC > 0)
         lv_timer_create(wifi_scan_test_cb, 1000, NULL);
+
+    // Test hook: the headless settings->WiFi-scan->home round trip
+    // (TEST_SETTINGS_RETURN_SEC; 0 = off).
+    if (CONFIG_TEST_SETTINGS_RETURN_SEC > 0)
+        lv_timer_create(settings_return_test_cb, 1000, NULL);
 
     // Test hook: the headless alarm-ring script (TEST_ALARM_RING_SEC;
     // 0 = off).

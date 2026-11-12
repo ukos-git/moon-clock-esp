@@ -114,6 +114,11 @@ esp_err_t moon_ui_panel_brightness_set(int pct) {
  * shared bus lock to wedge, so there is nothing to protect -- accept and
  * forget (the shared actions.c arms/releases around every sync kickoff). */
 void moon_ui_panel_traffic_hold(bool hold) { (void)hold; }
+void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
+    (void)hold;
+    (void)cap_ms;
+    (void)tail_ms;
+}
 
 bool moon_ui_panel_repaint_pending(void) { return false; }
 

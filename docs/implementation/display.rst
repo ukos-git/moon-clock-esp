@@ -416,6 +416,41 @@ Same code path on the P4 (protective — its wake storm is the remote
 C6's init over SDIO); the knob's render seam stubs both APIs, since
 its LEDC backlight has no shared bus lock to wedge.
 
+The hold proved its worth the same week on a second member of the
+class: the **settings WiFi scan** (2026-11-12, task #30 — "the clock
+area is blank white, no digits, after leaving the WiFi password
+screen"). The scan task's ``esp_wifi_init`` + the active scan are the
+same completion-thief, and the bench repro (the ``TEST_SETTINGS_RETURN_SEC``
+hook) logged 400 ``co5300`` write failures with two silently DROPPED
+strips over exactly the clock row (y 176..214, y 214..252) in ~3 s.
+Dropped strips are permanent there: LVGL answered ready for the held
+writes, nothing re-invalidated them, and the spin's direct write only
+ever covers the moon window — the clock row keeps whatever the last
+full paint left in it. The password screen made it routine: leaving
+it back to the AP list *restarts the scan*, and the exit-home then
+lands the home switch's atomic flush inside the running storm.
+
+The scan therefore borrows the sync hold through
+``moon_ui_panel_traffic_hold_ext`` — but the hold **follows the scan,
+not the screen**: ``settings_wifi_screen_refresh`` arms it before
+``wifi_scan_begin`` (45 s cap, covering the 0-AP four-retry worst
+case; the call is refcounted, so a list re-entry while an older hold
+is live extends the cap instead of double-guarding), and the GENERIC
+UI tick polls ``screens_wifi_scan_hold_poll`` — release fires with the
+sync path's proven 4 s teardown tail only once the scan task is
+really done, wherever the user went in the meantime. The release's
+whole-screen repaint then heals everything the storm ate. Leaving the
+screen mid-scan deliberately does NOT cut the guard — the first cut
+of the fix released from the settings screen's own tick and from
+``loadScreen``, which re-opened the drop exactly on the user's path
+(atomic flush into the live storm, no pending repaint to heal it).
+Bench proof (same hook, 2 s dwell so the home switch lands mid-scan):
+hold ON 45000 → ``-> home`` fires held → scan completes unwatched →
+release stamped 4000 ms tail → OFF with repaint queued — zero
+``co5300``, zero dropped strips, no WDT, no hang-watch dump (the
+hook's own earlier "LVGL task wedges" reading was traced to a
+uint32 countdown underflow in the test hook, not to the panel path).
+
 The 0x51 brightness path
 ------------------------
 
