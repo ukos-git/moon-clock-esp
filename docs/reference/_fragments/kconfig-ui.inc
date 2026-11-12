@@ -337,9 +337,9 @@ All default off (``0`` = off, except the two bools default ``n``).
        scan through the remote C6, including its 5 GHz APs).
    * - ``TEST_CPU_STATS_SEC``
      - 0–3600
-     - Log per-task CPU % once per second for N seconds (enables the
-       FreeRTOS run-time stats tick); also loads the settings hub once
-       at N+1 s.
+     - N seconds after boot, log per-task CPU % once per second —
+       10 s on the home screen, then 30 s on the settings hub
+       (loading it once; enables the FreeRTOS run-time stats tick).
    * - ``TEST_ROLL_TILT_SEC``
      - 0–3600
      - Feed the real 90°-step orientation pipeline synthetic

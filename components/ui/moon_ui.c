@@ -477,6 +477,49 @@ static void hold_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 }
 static lv_display_flush_cb_t s_flush_cb_real; /* captured at moon_ui_init */
 
+/* Bounded, yielding replacement for LVGL's unbounded flush wait
+ * (task #31, the 2026-11-12 "touch is very unresponsive on the AMOLED").
+ * The hold guard covers flushes it sees, but disp->flushing can already
+ * be set when it swaps in: the sync screen's own pre-arm switch flush
+ * loses its trans-done hand to the very radio session the hold was
+ * armed for (bench: failed boot sync into a marginal AP -- the atomic
+ * switch flush completed at the DRIVER level, the adapter's LVGL hand
+ * never landed). LVGL's default wait_for_flushing then spins without
+ * yielding on whichever task enters it -- the LVGL task (its indev
+ * poll dies with it: touch goes dead) and the sweep task (lv_refr_now
+ * at frame show). No mutex is held, so the panel watchdog is blind;
+ * the task WDT only prints, it cannot free the board.
+ *
+ * The replacement gates on what actually matters: ALL panel traffic
+ * (adapter flushes, spin strips, atomics) serializes under s_panel_mtx
+ * and moon_panel_draw_wait consumes the trans-done INSIDE it -- so a
+ * free mutex means the flush physically landed, wherever the LVGL
+ * hand above the seam went. Return (LVGL clears disp->flushing itself
+ * when a wait cb is installed and returns) and the refr pass
+ * continues into flush_cb -- under a hold that is the stub, so the
+ * screen self-heals exactly like the sync-storm design intends. The
+ * 2 s cap only fires on a genuinely stuck bus, where it logs and lets
+ * LVGL proceed (the panel-io watchdog keeps owning the true-stall
+ * case: still s_panel_mtx-stuck, still 3 s). On the normal path this
+ * callback never even runs: wait_for_flushing calls it only when
+ * disp->flushing is still set, which it never is when the adapter
+ * keeps up. */
+#define FLUSH_WAIT_TIMEOUT_MS 2000
+static void moon_flush_wait_cb(lv_display_t *disp) {
+    (void)disp; /* LVGL clears disp->flushing itself once we return */
+    if (!s_panel_mtx) {
+        return; /* pre-init: nothing to gate on */
+    }
+    if (xSemaphoreTake(s_panel_mtx, pdMS_TO_TICKS(FLUSH_WAIT_TIMEOUT_MS)) == pdTRUE) {
+        xSemaphoreGive(s_panel_mtx); /* observed quiescence only */
+        return;                      /* the flush physically landed */
+    }
+    ESP_LOGE(TAG,
+             "panel flush wait: bus still busy >%d ms (lost trans-done hand, the "
+             "task #29/#30 completion-thief class); proceeding",
+             FLUSH_WAIT_TIMEOUT_MS);
+}
+
 static bool panel_hold_live(void) {
     if (!s_panel_hold)
         return false;
@@ -3408,8 +3451,12 @@ void moon_ui_init(void) {
     /* Capture the adapter's flush_cb for the sync-storm hold's guard swap
      * (bsp_display_start ran first, so the adapter has installed it). */
     lv_display_t *ldisp = lv_display_get_default();
-    if (ldisp)
+    if (ldisp) {
         s_flush_cb_real = lv_display_get_flush_cb(ldisp);
+        /* Bound the flush wait (lost trans-done hand = frozen touch;
+         * see moon_flush_wait_cb). */
+        lv_display_set_flush_wait_cb(ldisp, moon_flush_wait_cb);
+    }
     /* 1 Hz tilt activity/wake monitor; runs in every screen state
      * because the moon tick itself is paused in deep sleep. It also
      * caches the LVGL task handle (moon_on_lvgl), so the timer is

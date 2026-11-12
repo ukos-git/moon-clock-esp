@@ -451,6 +451,32 @@ release stamped 4000 ms tail → OFF with repaint queued — zero
 hook's own earlier "LVGL task wedges" reading was traced to a
 uint32 countdown underflow in the test hook, not to the panel path).
 
+The class's fifth member sits *above* the seam, where no hold can
+reach it: LVGL's own flush wait. ``wait_for_flushing`` is a
+non-yielding ``while (disp->flushing);`` spin on whichever task enters
+it — the LVGL task (its indev poll dies with the spin: touch goes
+dead — the user's "touch is very unresponsive on the AMOLED",
+task #31) or the sweep task at ``lv_refr_now``. Normally unreachable,
+the adapter keeps up — but a **lost trans-done hand** makes it
+permanent: ``disp->flushing`` was already set when the hold swaps its
+stub in (the sync screen's own pre-arm switch flush loses the hand to
+the very radio session the hold was armed for), the notify never
+lands, and no mutex is held — the task WDT only prints and the panel
+watchdog is blind. The seam's answer is ``moon_flush_wait_cb``,
+installed at ``moon_ui_init`` via ``lv_display_set_flush_wait_cb``:
+it gates on what actually matters instead of on the LVGL hand — every
+panel writer (adapter flushes, spin strips, atomics) serializes under
+``s_panel_mtx`` and ``moon_panel_draw_wait`` consumes the trans-done
+*inside* it, so a free mutex means the flush physically landed.
+Returning makes LVGL clear ``disp->flushing`` itself and the refr pass
+continues into ``flush_cb`` — under a hold that is the stub, so the
+screen self-heals exactly as the hold design intends; the 2 s cap
+only fires on a genuinely stuck bus, where it logs and lets LVGL
+proceed. The healthy path never runs the callback:
+``wait_for_flushing`` calls it only while ``flushing`` is still set.
+Shared code — S3 and P4 alike; the knob's render seam has no shared
+bus lock to wedge.
+
 The 0x51 brightness path
 ------------------------
 

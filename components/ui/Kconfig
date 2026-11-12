@@ -511,15 +511,16 @@ menu "UI Component Configuration"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot, log every task's share of
-            total CPU time (FreeRTOS run-time stats) once per second
-            for CONFIG_TEST_CPU_STATS_SEC seconds. Enables the FreeRTOS
-            run-time stats tick (the hook's only runtime cost: a two-word
-            read on every context switch). Also loads the settings hub
-            once at N+1 s (after 1 s of home-screen numbers), so one
-            capture shows the coast-spin CPU on the home screen and the
-            settings-idle CPU on the hub. Headless CPU profiling aid;
-            0 (default) = off.
+            Test hook: N seconds after boot (so the boot sweep is done
+            and the device rests), log every task's share of total CPU
+            time (FreeRTOS run-time stats) once per second — 10 s on
+            the home screen, then 30 s on the settings hub (loading it
+            once); each line holds the idle timer awake. Enables the
+            FreeRTOS run-time stats tick (the hook's only runtime cost:
+            a two-word read on every context switch). One capture
+            therefore shows the active-spin CPU on the home screen and
+            the settings-idle CPU on the hub. Headless CPU profiling
+            aid; 0 (default) = off.
 
     config TEST_ROLL_TILT_SEC
         int "Test: headless screen-orientation tilt script N seconds after boot (0 = off)"
