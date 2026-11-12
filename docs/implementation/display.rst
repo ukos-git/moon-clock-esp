@@ -318,6 +318,104 @@ the silent failure into a logged, recoverable reboot. The user sees a
 ~3 s pause and a reboot; without the watchdog they see a clock that
 stops being a clock.
 
+.. _display-lost-dma:
+
+The wake-sync storm (the fourth ingredient)
+-------------------------------------------
+
+The three layers held for every field stall until the deterministic
+repro that remained sat on the wake path: a bench hammer
+(``TEST_AUTO_WAKE_SEC`` auto-wakes 5 s after the DEEP rung) stalled on
+*every* tilt wake from deep sleep — ``PANEL IO STUCK`` 4.0–6.3 s into
+the wake, panel watchdog, ``rst:0xc`` RTC_SW_CPU_RST, no panic. The
+concurrent writer was neither the spin alone nor a 0x51 ramp: the
+wake's on-demand WiFi sync runs ``esp_wifi_init`` in the sync task —
+the full Wi-Fi firmware load into RAM plus RF calibration on the
+prio-23 driver task — while the resumed spin and the 10 ms LVGL tick
+flushes are live on the panel bus. That storm is what takes the DMA
+completion. The corollaries discriminate it: boot runs the identical
+storm *before* LVGL exists — never stalls; the alarm wake with the
+moon paused stayed clean; and the 0x51-rides-alone guard on the
+brightness API (the Layer-2 rule applied to every caller, 22c87ad)
+changed nothing — proving the flush traffic, not the 0x51, was the
+racing writer.
+
+The fix extends the Layer-2 *skip* idea from the fade to the whole
+storm: the **sync-storm panel-traffic hold**
+(``moon_ui_panel_traffic_hold``). ``action_start_wifi_sync`` arms it
+right before ``wifi_sync_kickoff`` (15 s self-healing cap; on the LVGL
+task the arm additionally QUIESCES — the stub flush callback goes in
+one tick early so the sync screen's own switch flush rides the bus
+*before* the storm, and one in-flight DMA drains under the panel
+mutex, because the hold flags cannot drop an already-queued strip);
+``wifi_sync_task_fn`` first takes the radio fully DOWN
+(``wifi_manager_deinit`` — see below) and only then releases it on both
+outcomes (and the kickoff's task-create-failure branch does); the
+release merely stamps a 4 s radio-tail drain that the UI-tick poll
+then unfreezes at. While held, every panel
+write is *dropped*: the spin's direct strip writes and the 0x51
+brightness API are gated in ``moon_panel_draw_wait`` /
+``moon_ui_panel_brightness_set``, the fade/dim ramps skip whole, and
+the LVGL flushes drop at a **stub flush callback swapped into the
+display** (``moon_ui_panel_repaint_pending``, polled on the UI tick —
+the swap happens on the task that runs the flushes). The LVGL drop
+point is the seam's one hard-learned constraint: dropping a flush
+inside the panel ``draw_bitmap`` wrapper instead wedges the board —
+the esp_lvgl_adapter's ``double_direct`` flush completes its LVGL hand
+only through the real transaction's trans-done notify, and even its
+error path blocks in the notify take, so a dropped flush leaves
+``disp->flushing`` set and the LVGL task spins in
+``wait_for_flushing`` forever (IDLE0 WDT spam, frozen screen — found
+by the same proof hammer). Writers are never *blocked*: parking a
+writer is the wake-freeze regression ``0c35dd7`` cured, and a dropped
+writer simply advances — LVGL keeps drawing into its buffers, the spin
+keeps integrating its angle. On release the UI tick restores the real
+flush callback and invalidates the active screen: one whole-panel
+repaint re-anchors panel, mirror and spin (the spin rewrites at 8 fps
+regardless). The wake's own
+brightness restore and the WiFi-screen dim ramp run *before* the hold
+arms, so the transient screen switch keeps its normal traffic.
+
+The hold alone was not the whole fix — the proof hammer caught two
+more thieves in the same window. **The associated station keeps
+stealing:** the first fixed build still stalled its very first cycle,
+4 s *after* the release, because ``wifi_manager_init`` returns with
+the STA still ASSOCIATED — a connected modem's ~300 ms DTIM beacon
+wake takes a DMA completion exactly like the init storm does. The
+airplane state therefore means modem-DOWN at the seam: the sync task
+calls ``wifi_manager_deinit`` itself before stamping the tail, and
+boot calls it right after the boot NTP path so the panel never wakes
+up to a live radio. **The cycle itself leaked:** only the re-init
+cleanup branch used to unregister ``wifi_event_handler``, so each
+init/deinit cycle leaked two handler records into the default event
+loop (duplicates firing N stray ``esp_wifi_connect`` calls per
+STA_START) and halved the largest contiguous DMA block per cycle —
+by cycle 10 ``esp_wifi_init`` NO_MEM'd and its ``ESP_ERROR_CHECK``
+aborted the board. Deinit unregisters on every call, and
+``esp_wifi_init`` failures return as logged errors instead of
+aborting. **The teardown itself raced:** the last panic (LoadProhibited
+in ``ieee80211_output_do``, EXCVADDR 0x18) was LWIP's DHCP RELEASE —
+sent by ``esp_wifi_stop``'s netif-down on the tcpip thread — TX-ing
+through a softmac the driver task was freeing underneath it. Deinit
+now stops the DHCP client while the radio is still up (the release
+goes out over a live ieee80211, the netif-down ``dhcp_stop`` has
+nothing left to send) and lets the tcpip queue drain one 100 ms beat
+before ``esp_wifi_deinit`` frees the softmac RAM.
+
+Final proof (2026-11-12, the same hammer rig — auto-wake 125 s into
+DEEP, 5-frame sweep, connected AP): **ten consecutive DEEP→wake cycles,
+zero** ``PANEL IO STUCK``, WDT or panic lines. The largest
+DMA-capable block settles from 31,744 B at boot to a stable 15,360 B
+floor by wake 4 and stays there — comfortably above what the panel's
+once-allocated strip staging needs (per-strip allocs do not hit the
+heap), while the wifi-side allocs that once starved now fail
+gracefully. Transient ~7.5 KB dips during a sync were shown to be
+driver buffers that the DEEP window hands back.
+
+Same code path on the P4 (protective — its wake storm is the remote
+C6's init over SDIO); the knob's render seam stubs both APIs, since
+its LEDC backlight has no shared bus lock to wedge.
+
 The 0x51 brightness path
 ------------------------
 

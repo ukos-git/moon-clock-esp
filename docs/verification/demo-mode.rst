@@ -119,7 +119,9 @@ where the 0x51 hardware brightness ramp, the fade-to-black switch and
 the spin resume overlap (the same family as the #96 settings-freeze
 stall). Placing the phase at the cycle end keeps dusk, roll and sync
 comparable on every cycle even while that watchdog recovery runs; the
-race itself is a documented follow-up.
+race itself was root-caused 2026-11-12 to the wake path's WiFi-init
+storm and closed with the sync-storm panel-traffic hold
+(:ref:`display-lost-dma` — see the closeout below).
 
 Tap-point geometry: the screen roots carry the base orientation
 (``UI_ORI_BASE_V10`` — 180° on the S3, 90° on the P4) and the roll
@@ -291,3 +293,38 @@ alarm-last order) produced:
 * The knob was not on the bench for this take (a sleeping knob has no
   serial node until the dial is turned); it is build-gated with the
   clocks.
+
+**Follow-up closed (2026-11-12)** — the six-for-six stall's missing
+ingredient was not the 0x51 ramp itself but the wake path's on-demand
+WiFi sync. Bench hammer (``TEST_AUTO_WAKE_SEC`` auto-wakes 5 s after
+the DEEP rung, 5-frame sweep, connected AP): every tilt wake from deep
+sleep stalled — wake at *t*, ``PANEL IO STUCK`` at wake+4.0…6.3 s,
+each time the panel watchdog's controlled restart (``rst:0xc``
+RTC_SW_CPU_RST, no panic). The racing writer: the wake's sync task
+runs ``esp_wifi_init`` — full Wi-Fi firmware load into RAM plus RF
+calibration on the prio-23 driver task (wake → "WiFi initialization
+finished" ≈ 1.2 s) — while the resumed spin's strips and the 10 ms
+LVGL tick flushes are live on the panel bus; the storm takes the
+completion of an in-flight QSPI DMA. All three corollaries held: boot
+runs the identical storm *before* LVGL exists — always clean; the
+alarm wake with the moon paused — clean; and the 0x51-rides-alone
+guard on the brightness API (22c87ad) changed nothing — the flush
+traffic, not the 0x51, was the racing writer. The fix is the
+**sync-storm panel-traffic hold** (:ref:`display-lost-dma`): armed at
+sync kickoff (quiescing the bus first), every panel write *dropped*
+(never blocked) until the sync task has taken the radio fully down,
+15 s self-healing cap, 4 s radio tail, whole-screen repaint on
+release. The hammer then caught two more thieves in the same window —
+the still-associated station's ~300 ms DTIM beacon wake stealing
+completions after the release (fixed: the sync task itself
+deinitialises the radio before releasing the hold, boot likewise
+airplanes before the panel wakes), and LWIP's DHCP RELEASE TX-ing
+through the softmac that ``esp_wifi_deinit`` was freeing (fixed: the
+DHCP client is stopped while the radio is still up, then one 100 ms
+settle before the free) — plus the per-cycle event-handler leak whose
+DMA-block fragmentation had made the 10th ``esp_wifi_init`` NO_MEM
+into an ``ESP_ERROR_CHECK`` abort (fixed: unregister on every deinit,
+log-and-return instead of aborting). Final hammer proof (2026-11-12):
+**ten consecutive DEEP→wake cycles, zero** ``PANEL IO STUCK``, WDT or
+panic lines; the largest DMA block settles at a stable 15,360 B floor
+from wake 4 onward.
