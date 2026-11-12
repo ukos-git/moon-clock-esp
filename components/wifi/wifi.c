@@ -361,8 +361,31 @@ void wifi_manager_deinit(void) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
     }
+    /* Stop the DHCP client while the RADIO IS STILL UP. Otherwise
+     * esp_wifi_stop's esp_netif_down runs dhcp_release_and_stop ON THE
+     * tcpip THREAD while the driver task tears the softmac down under
+     * it: the RELEASE packet's TX path (udp -> etharp ->
+     * esp_wifi_internal_tx -> ieee80211_output_do) dereferences freed
+     * vap state (hammer7 cycle 1: LoadProhibited, EXCVADDR 0x18, back-
+     * trace tcpip_thread -> esp_netif_down_api -> dhcp_stop). Stopping
+     * dhcpc here sends the release over a LIVE ieee80211 (or finds it
+     * already off -- INVALID_STATE is fine); the later netif-down
+     * dhcp_stop then has nothing to transmit. The next esp_wifi_start
+     * re-starts the client through the driver's own default event
+     * handler, so re-association still gets an IP (hammer cycles
+     * prove it). */
+    esp_netif_t *sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (sta_netif != NULL) {
+        esp_netif_dhcpc_stop(sta_netif);
+    }
     esp_wifi_stop();
 #if !defined(CONFIG_BOARD_P4)
+    /* Settle window: the netif-down bookkeeping and any straggler
+     * ARP/release TX run on the tcpip thread CONCURRENT with this
+     * task; esp_wifi_deinit frees the softmac RAM they TX through.
+     * One 100 ms beat drains the tcpip queue before the ground is
+     * pulled. */
+    vTaskDelay(pdMS_TO_TICKS(100));
     esp_wifi_deinit();
 #endif
     // The remote radio stays inited on the 4C (esp_wifi_deinit would break the
