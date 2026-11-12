@@ -3769,13 +3769,29 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
  * fade ramp (same file) and the spin/LVGL flushes (s_panel_mtx) are the
  * other users of the lock; this is the one for the wake / deep-sleep /
  * boot backlight paths (actions.c, main.cpp). When the moon UI is not
- * ready the BSP call runs directly (the panel is quiet at boot). */
+ * ready the BSP call runs directly (the panel is quiet at boot).
+ *
+ * The mutex keeps the 0x51 from QUEUEING behind a strip; it does not make
+ * it the only traffic IN FLIGHT -- and a 0x51 interleaved with the spin's
+ * strip DMAs is the one ingredient common to every lost-DMA-completion
+ * stall (the wake-repro hammer: PANEL IO STUCK ~6 s after a DEEP wake,
+ * while the wake's 0x51 restore raced the resumed spin). So this caller
+ * obeys the fade's rule too: hold s_fade_busy across the write so the
+ * spin keeps its panel writes parked (the LVGL flushes are already
+ * serialized by the mutex). If a real fade/dim ramp already owns the
+ * flag, the spin is parked anyway -- take/restore nothing (the held check
+ * also keeps a nested call from clearing a fade's flag early). */
 esp_err_t moon_ui_panel_brightness_set(int pct) {
     esp_err_t r;
     if (s_ready && s_panel_mtx) {
+        bool spin_off = s_fade_busy;
+        if (!spin_off)
+            s_fade_busy = true; /* the 0x51 rides alone (the fade's rule) */
         xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
         r = bsp_display_brightness_set(pct);
         xSemaphoreGive(s_panel_mtx);
+        if (!spin_off)
+            s_fade_busy = false;
     } else {
         r = bsp_display_brightness_set(pct);
     }

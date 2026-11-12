@@ -1064,9 +1064,11 @@ void action_alarm_triggered(lv_event_t *e) {
     // Mark alarm as active so wake callback knows we're dismissing alarm
     g_alarm_active = true;
 
-    // The ring (P4: the board's ES8311 speaker with the gradual volume
-    // ramp; S3: a no-op stub). The touch dismiss stops it in
-    // action_wake_screen (every dismiss path runs through there).
+    // The ring (both clocks: the board's ES8311 speaker with the gradual
+    // volume ramp -- the S3 rings too, bench-verified with the Two-Tone
+    // loop; only the knob is the codec-less silent board behind the stub).
+    // The touch dismiss stops it in action_wake_screen (every dismiss path
+    // runs through there).
     alarm_audio_ring_start();
 
     // Mark the alarm screen as a wake-worthy state (like the sleep
