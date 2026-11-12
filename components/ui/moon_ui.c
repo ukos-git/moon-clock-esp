@@ -424,6 +424,9 @@ static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
 /* Forward decl: the screen-switch fade (defined later) holds the spin's panel
  * writes while its 0x51 brightness ramp runs (the fade section). */
 static volatile bool s_fade_busy;
+/* Forward decl: the hold arm's LVGL-task check (defined in the spin
+ * section, moon_ui.h callers aside). */
+static bool moon_on_lvgl(void);
 
 /* The sync-storm panel-traffic hold (moon_ui.h). The wake path's on-demand
  * WiFi sync brings the radio up HERE: esp_wifi_init loads the full
@@ -450,11 +453,16 @@ static volatile bool s_fade_busy;
  * flush_cb is the only seam that drops pixels without breaking the
  * hand, and the adapter is managed_components (public API only). */
 #define PANEL_TRAFFIC_HOLD_MS 15000
-/* The sync task ENDING does not end the radio's activity: the driver
- * teardown / connect tail keeps taking DMA completions for seconds past
- * "sync complete" (proof hammer v2: the first post-release flush lost
- * its completion ~0.6 s after the release, stall signature exactly
- * 3+3 s later). Hold a tail past the release call before unfreezing. */
+/* Releasing at the sync task's END used to be the design -- the proof
+ * hammer showed why it cannot be: the STA stays ASSOCIATED after
+ * "sync complete" (the airplane hand-off never deinited), and the
+ * connected modem's ~300 ms DTIM beacon wake steals QSPI DMA
+ * completions just like the init storm does (cycle 1: the first
+ * post-release flush lost its completion ~4 s past sync-complete,
+ * stall signature exactly 3+3 s later). The sync task now brings the
+ * radio fully DOWN (wifi_manager_deinit) BEFORE stamping this tail,
+ * so the tail covers what its name claims: the driver teardown churn
+ * the stop/deinit kicks off (bench: ~0.6-3.5 s). */
 #define PANEL_TRAFFIC_TAIL_MS 4000
 static volatile bool s_panel_hold;
 static volatile TickType_t s_panel_hold_until;
@@ -488,11 +496,33 @@ static bool panel_hold_live(void) {
 
 void moon_ui_panel_traffic_hold(bool hold) {
     if (hold) {
-        s_panel_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_HOLD_MS);
-        s_panel_hold_release = false;
         if (!s_panel_hold)
             ESP_LOGI(TAG, "panel traffic hold ON (sync storm)");
+        s_panel_hold_release = false;
+        s_panel_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_HOLD_MS);
         s_panel_hold = true;
+        /* Arm QUIESCE (the task #29 hammer's first cycle: a lost
+         * completion despite the flags being set -- the victim was a
+         * DMA already IN FLIGHT at arm time). A spin strip queued up to
+         * 125 ms earlier completes asynchronously AFTER its wrapper left
+         * the mutex, so the hold flags cannot drop it; and the guard
+         * swap in the tick poll is one tick late, leaving the sync
+         * screen's own switch flush able to queue into the storm. On the
+         * LVGL task (every caller today) install the flush guard HERE --
+         * that switch flush completed synchronously in this tick's
+         * lv_refr_now before the arm -- then hold the panel mutex for
+         * one DMA drain so whoever queued last completes on the
+         * still-quiet bus before the kickoff's esp_wifi_init. A
+         * non-LVGL arm keeps the one-tick guard latency. */
+        if (s_ready && moon_on_lvgl()) {
+            lv_display_t *d = lv_display_get_default();
+            if (d && s_flush_cb_real && lv_display_get_flush_cb(d) != hold_flush_cb)
+                lv_display_set_flush_cb(d, hold_flush_cb);
+        }
+        if (s_panel_mtx && xSemaphoreTake(s_panel_mtx, pdMS_TO_TICKS(500)) == pdTRUE) {
+            vTaskDelay(pdMS_TO_TICKS(20)); /* one DMA drain, bus quiet */
+            xSemaphoreGive(s_panel_mtx);
+        }
     } else if (s_panel_hold && !s_panel_hold_release) {
         /* Sync task ended: keep the freeze through the radio tail (the
          * completion-thieving teardown/churn runs AFTER sync-complete);

@@ -87,8 +87,24 @@ static void wifi_sync_task_fn(void *arg) {
     s_wifi_sync_ok = ok;
     s_wifi_sync_done = true;
     s_wifi_sync_running = false;
-    /* Storm over (either outcome): panel writes resume and the whole-screen
-     * repaint rides the next tick (moon_ui_panel_repaint_pending). */
+    /* Airplane NOW, not at the next deinit call site: an ASSOCIATED
+     * station keeps waking the modem for DTIM beacons (~300 ms), and
+     * that RX churn steals QSPI DMA completions on the S3 AMOLED just
+     * like the init storm does -- the wake-sync hammer's first cycle
+     * lost the first post-release flush's completion ~4 s after
+     * "sync complete" with the STA still connected (task #29). The
+     * airplane screen means the modem is DOWN. Skip when init deferred
+     * to a scan in flight (ESP_ERR_INVALID_STATE): the scan owns the
+     * radio, and tearing it down here would resurrect the mid-scan
+     * NO-APS-FOUND race (ce26a83). The hold's tail below then covers
+     * exactly the driver teardown this deinit kicks off. */
+    if (ret != ESP_ERR_INVALID_STATE) {
+        wifi_manager_deinit();
+        g_wifi_deinited = true;
+    }
+    /* Storm over (either outcome): the tail drains, panel writes resume,
+     * and the whole-screen repaint rides the next tick
+     * (moon_ui_panel_repaint_pending). */
     moon_ui_panel_traffic_hold(false);
     vTaskDelete(NULL);
 }

@@ -478,6 +478,17 @@ extern "C" void app_main(void) {
         }
     }
 
+    /* Airplane before the panel ever wakes up: the boot sync leaves the
+     * station ASSOCIATED until the first sleep rung calls
+     * wifi_manager_deinit otherwise, and an associated modem's ~300 ms
+     * DTIM beacon wake steals QSPI DMA completions on the S3 AMOLED --
+     * the same lost-completion signature as the wake sync (task #29).
+     * The boot NTP (clock_init) is synchronous and done here; nothing
+     * needs the radio until the first on-demand sync (the hourly gate
+     * and the settings scan bring it up themselves; the wake/hourly/
+     * settings-exit syncs now deinit again in their own task). */
+    wifi_manager_deinit();
+
 #if defined(CONFIG_BOARD_P4)
     /* The P4's XC BSP default (bsp_display_start) runs the LVGL adapter in
      * TRIPLE_PARTIAL tearing mode on the panel's THREE frame buffers

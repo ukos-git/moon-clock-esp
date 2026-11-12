@@ -193,14 +193,22 @@ void moon_ui_panel_dim_ramp(int to_pct);
  * (swapped in/out by the UI-tick poll in moon_ui_panel_repaint_pending):
  * dropping a flush inside the panel draw_bitmap wrapper instead would
  * strand the adapter's flush wait forever.
- * action_start_wifi_sync arms it right before wifi_sync_kickoff;
- * wifi_sync_task_fn releases it on BOTH outcomes (and the kickoff's
- * task-create-failure branch) -- but the release only STAMPS a 4 s
- * radio-tail drain (the completion-thieving driver teardown runs AFTER
- * sync-complete), which the UI-tick poll then unfreezes at; a 15 s
- * deadline self-heals a missed release. On release a whole-screen repaint is queued -- the screen
- * self-heals, the spin rewrites at 8 fps. No-op seam on the knob (LEDC
- * backlight, no shared bus lock to wedge).
+ * action_start_wifi_sync arms it right before wifi_sync_kickoff; on the
+ * LVGL task the arm additionally QUIESCES -- it installs the flush guard
+ * immediately (a tick early, so the sync screen's own switch flush rides
+ * the bus before the storm, never into it) and drains one in-flight DMA
+ * under the panel mutex (an already-queued spin strip is the storm's
+ * victim; the hold flags cannot drop it).
+ * wifi_sync_task_fn first takes the radio fully DOWN (wifi_manager_deinit
+ * -- an ASSOCIATED station's ~300 ms DTIM beacon wake steals completions
+ * just like the init storm; the airplane screen means modem-down), then
+ * releases it on BOTH outcomes (and the kickoff's task-create-failure
+ * branch) -- but the release only STAMPS a 4 s radio-tail drain (the
+ * driver teardown churn that deinit kicks off), which the UI-tick poll
+ * then unfreezes at; a 15 s deadline self-heals a missed release. On
+ * release a whole-screen repaint is queued -- the screen self-heals, the
+ * spin rewrites at 8 fps. No-op seam on the knob (LEDC backlight, no
+ * shared bus lock to wedge).
  */
 void moon_ui_panel_traffic_hold(bool hold);
 
