@@ -355,3 +355,30 @@ first "the LVGL task wedges after release" reading was its OWN bug —
 a uint32 countdown double-decrement underflowed and the return-home
 leg never fired; the heartbeat watcher (armed, 15 s threshold) stayed
 silent throughout, i.e. the LVGL task was alive the whole time.
+
+**Follow-up closed (2026-11-12) — the frozen-touch member (task #31).**
+User report: "touch is very unresponsive on the amoled display". The
+WDT backtrace named the same class one level ABOVE the panel seam:
+``wait_for_flushing`` (lv_refr.c) ← ``lvgl_worker`` (esp_lv_adapter.c)
+— LVGL's default flush wait is a non-yielding ``while
+(disp->flushing);`` spin, and a lost trans-done hand (the sync
+screen's own pre-arm switch flush during the boot sync into a marginal
+AP) pins whichever task enters it forever: the LVGL task (its indev
+poll dies with it: touch goes dead) or the sweep task at
+``lv_refr_now``. No mutex is held, so the task WDT only prints and the
+panel watchdog is blind. Fix: ``moon_flush_wait_cb``
+(:ref:`display-lost-dma`) gates on ``s_panel_mtx`` with a 2 s cap — a
+free mutex means the flush physically landed, LVGL clears
+``disp->flushing`` itself on the callback's return, and the healthy
+path never calls it. The ~80 s task-WDT storm the previous binary
+produced on the failing-boot-sync window is gone: the same boot
+condition now completes, and THREE flash-reset cold boots (5-frame
+sweep, bench AP marginal — the sync timeout, the trigger window,
+fired 3/3) each ran hold ON → OFF, spin started, hook timers alive,
+**zero** task WDT, **zero** flush-wait timeouts (the 2 s cap never
+needed to fire), zero aborts. Steady-state CPU from the same captures
+(``TEST_CPU_STATS_SEC`` 45, one-core basis, IDLE excluded): home
+(hook-held ACTIVE spin) 54–64 % busy, moon_spin 51–57 % of that, lvgl
+1–5 %; the hub shows a one-time ~44 % load burst, then 4–5 % idle.
+Touch had headroom all along — the unresponsiveness was the wedge
+state, now bounded.
