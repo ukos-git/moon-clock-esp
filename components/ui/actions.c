@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -68,6 +70,13 @@ static volatile bool s_wifi_sync_ok = false;
 
 static void wifi_sync_task_fn(void *arg) {
     ESP_LOGI(TAG, "WiFi + NTP sync in background task...");
+    /* Leak watch (task #29): the wake-sync hammer exhausted the
+     * internal heap by the 10th init/deinit cycle. One line per cycle,
+     * before and after the radio session -- the free-internal /
+     * max-DMA-block pair must return to its pre-run values every
+     * cycle or the deltas name the leaking stage. */
+    ESP_LOGI(TAG, "heap pre-sync: free-int %u B, max-DMA %u B", (unsigned)esp_get_free_internal_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
     esp_err_t ret = wifi_manager_init();
     bool ok = (ret == ESP_OK);
     if (ok) {
@@ -102,6 +111,8 @@ static void wifi_sync_task_fn(void *arg) {
         wifi_manager_deinit();
         g_wifi_deinited = true;
     }
+    ESP_LOGI(TAG, "heap post-sync: free-int %u B, max-DMA %u B", (unsigned)esp_get_free_internal_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
     /* Storm over (either outcome): the tail drains, panel writes resume,
      * and the whole-screen repaint rides the next tick
      * (moon_ui_panel_repaint_pending). */

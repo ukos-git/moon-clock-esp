@@ -259,19 +259,36 @@ esp_err_t wifi_manager_init(void) {
     // wifi_manager_deinit), so it runs only once.
     if (!s_wifi_inited) {
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        /* NOT ESP_ERROR_CHECK: internal-heap exhaustion in the repeated
+         * wake/hourly init cycle must degrade to a failed sync (the sync
+         * task's !ok path), never a board-wide abort -- the wake-sync
+         * hammer proved it (task #29: NO_MEM here aborted the device
+         * mid-wake, the only restart the whole 10-cycle run produced). */
+        ret = esp_wifi_init(&cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
         s_wifi_inited = true;
     }
 #else
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    /* Graceful for the same reason as the P4 branch above. */
+    ret = esp_wifi_init(&cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
 #endif
 
     s_wifi_event_group = xEventGroupCreate();
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-    ESP_ERROR_CHECK(
-        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
+    if (esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL) != ESP_OK ||
+        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL) != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi event handler registration failed (heap?)");
+        wifi_manager_deinit();
+        return ESP_ERR_NO_MEM;
+    }
 
     // Configure WiFi
     char ssid[MAX_SSID_LEN] = {0};
@@ -292,9 +309,19 @@ esp_err_t wifi_manager_init(void) {
     snprintf((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), "%s", ssid);
     snprintf((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), "%s", password);
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    /* Graceful (same rule as esp_wifi_init above): a heap/queue failure
+     * here is a failed sync, not an abort -- and wifi_manager_deinit()
+     * leaves the driver exactly as the airplane screen expects. */
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret == ESP_OK)
+        ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (ret == ESP_OK)
+        ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
+        wifi_manager_deinit();
+        return ret;
+    }
 
     ESP_LOGI(TAG, "WiFi initialization finished");
 
@@ -317,6 +344,19 @@ esp_err_t wifi_manager_init(void) {
 bool wifi_manager_is_connected(void) { return wifi_connected; }
 
 void wifi_manager_deinit(void) {
+    /* The init path registers wifi_event_handler with the INSTANCE API,
+     * and only the re-init cleanup branch removed it -- every ordinary
+     * deinit (sync end, airplane, light/deep sleep) LEAKED two handler
+     * records into the default event loop per cycle, and the duplicates
+     * ran N times per event: N stray esp_wifi_connect() calls on every
+     * STA_START (the old "sta is connecting, return error" spam) and a
+     * steady internal-heap bleed across the wake/hourly sync cycles
+     * (task #29 cycle 10: the 10th esp_wifi_init hit NO_MEM and the
+     * ESP_ERROR_CHECK there aborted the board). Unregister on EVERY
+     * deinit (unregister-by-function also matches instance
+     * registrations; a repeat unregister just returns an error). */
+    esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
+    esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler);
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
