@@ -11,3 +11,8 @@ phy_init, data, phy,     0xf000,  0x1000,
 factory,  app,  factory, 0x10000, 0x400000,
 storage,  data, spiffs,  0x410000, 0x80000,
 moon_assets, data, undefined, , 2560K,
+# 64 K coredump ring (task #27 field-crash witness): ESP-32 panic dumps
+# read back on the bench via `idf.py -C knob coredump-read`; complements
+# the RTC_NOINIT gasp marker (which survives even when the dump cannot
+# be written, e.g. a WDT reset mid-logging). ~8.8 MB free after it.
+coredump, data, coredump, , 64K,

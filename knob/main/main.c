@@ -151,6 +151,10 @@ static void panel_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *p
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
     ESP_LOGI(TAG, "flush START (%d,%d)-(%d,%d)", (int)area->x1, (int)area->y1, (int)area->x2, (int)area->y2);
 #endif
+    /* Gasp witness: a LOST GPSPI completion parks draw_bitmap on
+     * portMAX_DELAY forever (the stock driver has no panel_wdg like the
+     * clocks) — FLUSH without a later FLUSH_DONE is exactly that death. */
+    knob_ui_gasp(KNOB_GASP_FLUSH);
     esp_lcd_panel_draw_bitmap(s_panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
     /* flush_ready comes from the QSPI trans-done callback below. */
 }
@@ -165,6 +169,7 @@ static bool trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_d
      * ESP_LOGI here boot-looped the knob at the first atomic flush). */
     ESP_EARLY_LOGI(TAG, "flush DONE");
 #endif
+    knob_ui_gasp(KNOB_GASP_FLUSH_DONE); /* byte store — safe in ISR context */
     if (s_disp) {
         lv_display_flush_ready(s_disp);
     }
@@ -378,6 +383,8 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+    knob_ui_gasp_boot_report(); /* where was the board when the last crash hit? */
+
     s_lvgl_mux = xSemaphoreCreateMutex();
 
     ESP_ERROR_CHECK(knob_board_backlight_init());

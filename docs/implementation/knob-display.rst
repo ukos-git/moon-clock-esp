@@ -470,6 +470,68 @@ appears, and the log says ``gauge off``. The first read logs
 ``raw -> mV sense -> mV cell`` — the bench line the multimeter ritual
 will check against.
 
+The field-crash witness (gasp + coredump)
+-----------------------------------------
+
+The 2026-11-11 field crash (a TG0WDT panic reset during the boot
+sweep, right after a screen tap) was **physically unwitnessable**: the
+panic reset drained the USB-CDC TX FIFO before any backtrace flushed,
+and three bench sessions — full sweep runs, a synthetic tap at the
+crash coordinates and timing, the alarm rule armed, warn-mode task
+WDT to catch starvation alive — reproduced nothing. The sweeps played
+1344/1344 with zero frame gaps and the warn dumps never fired, so the
+touch was a **witness, not a trigger**: a rare self-triggering event,
+not a touch-path bug. Rather than keep guessing, the knob now carries
+its own black box, armed in every production build:
+
+* **The gasp marker** — 24 bytes of ``RTC_NOINIT_ATTR`` memory
+  (``s_gasp`` in ``knob_ui.c``) stamped with single atomic word/byte
+  stores on the producer/swap/seam/flush hot paths: a stage byte
+  (BAKE / WAIT_ACK / PUBLISH / SWAP_LOCK / SWAP_REFR / SWAP_DONE /
+  SWITCH\_\* / FLUSH / FLUSH\_DONE / LAND\_BAKE), the pub/applied
+  frame counters, and the LEDC duty + fade-pending mirror. RTC slow
+  memory survives every reset but power-on, so the boot **after** a
+  crash prints one line — ``gasp: crash-reboot reason=… pub=…
+  applied=… stage=… duty=… fading=…`` — naming the section the board
+  was in. The write is magic-gated (``start_tasks`` arms, the report
+  clears) and the report is gated on crash reset reasons (panic,
+  int-WDT, task-WDT, WDT, brownout), so power-on and dial/tap
+  deep-sleep wakes stay quiet. The prime suspect the stages exist to
+  discriminate: a **lost GPSPI completion** parks
+  ``esp_lcd_panel_draw_bitmap`` on ``portMAX_DELAY`` forever — the
+  stock ``esp_driver_spi`` has no watchdog analogue of the clocks'
+  ``panel_wdg`` — and the swap would then die at SWAP\_REFR/FLUSH
+  with ``pub != applied``.
+* **The coredump ring** — a 64 K ``coredump`` partition at the tail
+  of ``knob/partitions.csv`` with ``CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH``
+  (ELF format): a panic writes an ELF core there that outlives the
+  reset. Read back on the bench:
+  ``esptool.py --port <port> read_flash 0x710000 0x10000 core.bin``,
+  strip the 24-byte flash header, then
+  ``espcoredump.py --chip esp32s3 info_corefile -t elf -c core.elf
+  knob/knob.elf`` (this IDF tree registers no ``idf.py
+  coredump-read`` action). The partition table must be flashed once
+  with the new table — the added partition sits after
+  ``moon_assets``, so nvs/SPIFFS/assets stay intact.
+* **The witness self-test** — ``KNOB_DIAG_PANIC_AT_FRAME`` aborts
+  the producer after sweep frame N; the bench proof (2026-11-12):
+  frame 320 → ``abort() was called at PC 0x4201923c on core 1``,
+  the boot after printed ``gasp: crash-reboot reason=4 pub=320
+  applied=319 stage=0 duty=255 fading=0`` (exactly the crash-time
+  state: 320 published, 319 applied, producer just past publish),
+  and the flash dump decoded cleanly — ``Found core dump 24324
+  bytes``, checksum correct, crashed task ``knob_moon``, PC in
+  ``panic_abort``, the abort PC resolving to the hook in
+  ``sweep_body``. The two other bench-only hooks
+  (``KNOB_DIAG_TOUCH_INJECT_S`` synthetic tap,
+  ``KNOB_DIAG_FRAME_TRACE`` boundary logs) stay in the Kconfig with
+  production default off.
+
+With the witness shipped, the next field occurrence is answerable
+without repro: read the gasp line from the boot log after the crash
+and, if the panic path completed, the coredump for the full backtrace
+and task list.
+
 Not shipped (on purpose)
 ------------------------
 

@@ -31,4 +31,15 @@ config KNOB_DIAG_FRAME_TRACE
         the fade + atomic screen switch, so a frozen board's LAST log
         line names the section that stuck.
 
+config KNOB_DIAG_PANIC_AT_FRAME
+    int "Bench: abort() after sweep frame N (0 = off) — black-box self-test"
+    default 0
+    help
+        Bench-only witness-chain proof (task #27): abort() the producer
+        after the N-th published sweep frame, so the boot after MUST
+        print the gasp marker (stage/pub/applied) and the flash
+        coredump must be readable with `idf.py -C knob coredump-read`.
+        Proves the crash witness end to end without waiting for the
+        unreproducible field crash. Production default 0 = dead.
+
 endmenu

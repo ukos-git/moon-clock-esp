@@ -80,16 +80,19 @@ static void ramp_to(int target_duty) {
     if (steps <= 1 || CONFIG_UI_SCREEN_SWITCH_FADE == 0) {
         (void)knob_board_backlight_set((uint8_t)target_duty);
         s_duty = target_duty;
+        knob_ui_gasp_backlight(s_duty, s_fade_pending);
         return;
     }
     for (int i = 1; i <= steps; i++) {
         const int d = from + ((target_duty - from) * i) / steps;
         (void)knob_board_backlight_set((uint8_t)d);
         s_duty = d;
+        knob_ui_gasp_backlight(s_duty, s_fade_pending);
         vTaskDelay(pdMS_TO_TICKS(FADE_RAMP_STEP_MS));
     }
     s_duty = target_duty;
     (void)knob_board_backlight_set((uint8_t)target_duty);
+    knob_ui_gasp_backlight(s_duty, s_fade_pending);
 }
 
 esp_err_t moon_ui_panel_brightness_set(int pct) {
@@ -102,6 +105,7 @@ esp_err_t moon_ui_panel_brightness_set(int pct) {
     const int duty = (pct * 255 + 50) / 100;
     (void)knob_board_backlight_set((uint8_t)duty);
     s_duty = duty;
+    knob_ui_gasp_backlight(s_duty, s_fade_pending);
     return ESP_OK;
 }
 
@@ -128,11 +132,13 @@ void moon_ui_fade_out(void) {
     const int from = s_duty;
     if (from == 0) {
         s_fade_pending = true;
+        knob_ui_gasp_backlight(s_duty, true);
         return;
     }
     ESP_LOGI(TAG, "screen switch fade-out: backlight %d -> 0 (%d ms)", from, (int)CONFIG_UI_SCREEN_SWITCH_FADE);
     ramp_to(0);
     s_fade_pending = true;
+    knob_ui_gasp_backlight(s_duty, true);
 }
 
 /* ---- screens + frames ------------------------------------------------- */
@@ -172,10 +178,12 @@ void moon_ui_screen_switched(void) {
      * family rule; on the knob LVGL's own partial drain carries it --
      * there is no direct-write path to race). Then the fade-in back,
      * while the new screen is already correct on the back buffer. */
+    knob_ui_gasp(KNOB_GASP_SWITCH_ENTER);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
     ESP_LOGI(TAG, "switched: enter (invalidate)");
 #endif
     knob_ui_invalidate_all();
+    knob_ui_gasp(KNOB_GASP_SWITCH_LOCK);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
     ESP_LOGI(TAG, "switched: taking lock for atomic refr");
 #endif
@@ -187,7 +195,10 @@ void moon_ui_screen_switched(void) {
 #endif
     if (s_fade_pending) {
         s_fade_pending = false;
+        knob_ui_gasp_backlight(s_duty, false);
+        knob_ui_gasp(KNOB_GASP_SWITCH_RAMP);
         ramp_to(255); /* the clock ramps back after the atomic flush */
+        knob_ui_gasp(KNOB_GASP_IDLE);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
         ESP_LOGI(TAG, "switched: fade-in ramp complete");
 #endif

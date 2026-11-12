@@ -117,6 +117,46 @@ void knob_ui_lvgl_unlock(void);
  *         legacy own-screen view (no shared objects were ever created). */
 void knob_render_set_home_dim(bool dimmed);
 
+/* ---- last-gasp black box (field-crash witness) -------------------------
+ * The 2026-11-11 sweep-phase TG0WDT panic reset drained the USB-CDC TX
+ * FIFO before any backtrace flushed: the crash was physically unwitness-
+ * able (three reproduced-free bench sessions confirmed the freeze cannot
+ * be provoked on demand). The gasp marker is 24 bytes of RTC_NOINIT mem-
+ * ory updated with single atomic word/byte stores on the producer/swap/
+ * seam/flush hot path, so the board reports WHERE it was when the last
+ * crash hit, on the boot after. Reported once (magic cleared) and only
+ * for crash reset reasons, so deep-sleep/dial wakes stay quiet. */
+typedef enum {
+    KNOB_GASP_IDLE = 0,
+    KNOB_GASP_BAKE = 10,         /* producer inside bake_px (moon core) */
+    KNOB_GASP_WAIT_ACK = 11,     /* producer waiting for the swap to ack */
+    KNOB_GASP_PUBLISH = 12,      /* producer between bake return and s_pub++ */
+    KNOB_GASP_SWAP_LOCK = 20,    /* swap blocked taking the LVGL lock */
+    KNOB_GASP_SWAP_REFR = 21,    /* swap inside lv_refr_now (panel drain) */
+    KNOB_GASP_SWAP_DONE = 22,    /* swap released the lock, frame visible */
+    KNOB_GASP_SWITCH_ENTER = 30, /* seam: screen_switched entry */
+    KNOB_GASP_SWITCH_LOCK = 31,  /* seam: taking lock for atomic refr */
+    KNOB_GASP_SWITCH_RAMP = 32,  /* seam: LEDC fade-in ramp */
+    KNOB_GASP_FLUSH = 40,        /* draw_bitmap call issued */
+    KNOB_GASP_FLUSH_DONE = 41,   /* GPSPI trans-done ISR (frame streamed) */
+    KNOB_GASP_LAND_BAKE = 50,    /* crisp current-phase bake after sweep */
+} knob_gasp_stage_t;
+
+/** @brief Record the executing section (hot path: one byte store). */
+void knob_ui_gasp(knob_gasp_stage_t stage);
+
+/** @brief Refresh the frame/publish mirrors (producer + swap call sites). */
+void knob_ui_gasp_frames(uint32_t pub, uint32_t applied);
+
+/** @brief Refresh the backlight mirrors (seam's LEDC paths). */
+void knob_ui_gasp_backlight(int duty, bool fade_pending);
+
+/** @brief Print the gasp marker + reset reason exactly once, on a boot
+ *         whose reset reason is a crash (WDT/panic/int-wdt); no-op for
+ *         power-on/dial/tap/deep-sleep wakes. Call from app_main once
+ *         logging is up. */
+void knob_ui_gasp_boot_report(void);
+
 #ifdef __cplusplus
 }
 #endif

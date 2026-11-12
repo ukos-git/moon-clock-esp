@@ -2,7 +2,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph partitions_knob {
     rankdir=LR;
-    label="knob/partitions.csv — knob, 16 MB flash (total 7232 K)";
+    label="knob/partitions.csv — knob, 16 MB flash (total 7296 K)";
     labelloc=t;
     fontsize=14;
     fontname=sans;
@@ -13,7 +13,8 @@ digraph partitions_knob {
     factory [label="factory (app)\n4096 K", fillcolor="#cfe0c8", fillstyle=solid];
     storage [label="storage (SPIFFS)\n512 K", fillcolor="#f5e6b8", fillstyle=solid];
     assets  [label="moon_assets\n2560 K\n(864x432 albedo +\n1024x512 DEM = 876 K)", fillcolor="#d9d2ea", fillstyle=solid];
-    free    [label="unused\n~8.9 MB", fillcolor="#f4f4f4", fillstyle=solid];
+    coredmp [label="coredump\n64 K", fillcolor="#f0d6d6", fillstyle=solid];
+    free    [label="unused\n~8.8 MB", fillcolor="#f4f4f4", fillstyle=solid];
 
-    boot -> factory -> storage -> assets -> free;
+    boot -> factory -> storage -> assets -> coredmp -> free;
 }

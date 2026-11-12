@@ -45,8 +45,15 @@ The knob (16 MB, sibling project)
        for the proven 2048×1024-DEM bake too, so the table never has
        to change — a partition change means a full flash on the bench
        unit — :doc:`the Python API <../reference/python-api>`
+   * - ``coredump``
+     - data/coredump
+     - 64 K
+     - The field-crash witness ring: a panic writes an ELF core dump
+       here, read back on the bench next to the RTC_NOINIT gasp
+       marker — :doc:`the knob display
+       <../implementation/knob-display>`
 
-Total 7232 K; the 16 MB chip leaves ~8.9 MB unused. The table is
+Total 7296 K; the 16 MB chip leaves ~8.8 MB unused. The table is
 ``knob/partitions.csv``, selected by ``knob/sdkconfig.defaults``
 (``CONFIG_PARTITION_TABLE_CUSTOM=y`` + filename, the same mechanism
 as the clock's, in the sibling project's own config).

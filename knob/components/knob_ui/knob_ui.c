@@ -40,8 +40,10 @@
 #include <time.h>
 
 #include "clock.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
@@ -99,6 +101,63 @@ static volatile bool s_caption_dirty;
 static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
 static SemaphoreHandle_t s_lvgl_mux;
+
+/* ---- last-gasp black box (field-crash witness, task #27) ---------------
+ * The 2026-11-11 TG0WDT panic reset drained the USB-CDC TX FIFO before
+ * any backtrace flushed — the crash was physically unwitnessable (three
+ * bench sessions, zero reproductions). RTC slow memory survives every
+ * reset but power-on, so a 24-byte marker stamped with single atomic
+ * word/byte stores on the producer/swap/seam/flush hot paths says WHERE
+ * the board was when the last crash hit, reported on the boot after.
+ * Hot-path writers: the producer may die mid-bake, the swap mid
+ * lv_refr_now (lost GPSPI completion wedges the stock SPI driver on
+ * portMAX_DELAY) — so every store is one aligned word/byte, lock-free,
+ * never read on the hot path. */
+#define KNOB_GASP_MAGIC 0x4B444830u /* 'KDH0' — armed by start_tasks */
+typedef struct {
+    uint32_t magic;
+    uint32_t pub;            /* frames the producer published */
+    uint32_t applied;        /* frames the swap applied */
+    volatile uint8_t stage;  /* knob_gasp_stage_t */
+    volatile uint8_t duty;   /* seam LEDC duty (0..255) */
+    volatile uint8_t fading; /* seam: fade-out ran, fade-in pending */
+    uint8_t pad[3];
+} knob_gasp_t;
+RTC_NOINIT_ATTR static knob_gasp_t s_gasp;
+
+void knob_ui_gasp(knob_gasp_stage_t stage) {
+    if (s_gasp.magic == KNOB_GASP_MAGIC) {
+        s_gasp.stage = (uint8_t)stage;
+    }
+}
+
+void knob_ui_gasp_frames(uint32_t pub, uint32_t applied) {
+    if (s_gasp.magic == KNOB_GASP_MAGIC) {
+        s_gasp.pub = pub;
+        s_gasp.applied = applied;
+    }
+}
+
+void knob_ui_gasp_backlight(int duty, bool fade_pending) {
+    if (s_gasp.magic == KNOB_GASP_MAGIC) {
+        s_gasp.duty = (uint8_t)(duty < 0 ? 0 : (duty > 255 ? 255 : duty));
+        s_gasp.fading = fade_pending ? 1 : 0;
+    }
+}
+
+void knob_ui_gasp_boot_report(void) {
+    const esp_reset_reason_t why = esp_reset_reason();
+    /* abort() reports as ESP_RST_PANIC here (there is no ESP_RST_ABORT). */
+    const bool crash = why == ESP_RST_PANIC || why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT ||
+                       why == ESP_RST_WDT || why == ESP_RST_BROWNOUT;
+    if (!crash || s_gasp.magic != KNOB_GASP_MAGIC) {
+        return;
+    }
+    ESP_LOGE(TAG, "gasp: crash-reboot reason=%d pub=%lu applied=%lu stage=%u duty=%u fading=%u", (int)why,
+             (unsigned long)s_gasp.pub, (unsigned long)s_gasp.applied, (unsigned)s_gasp.stage, (unsigned)s_gasp.duty,
+             (unsigned)s_gasp.fading);
+    s_gasp.magic = 0; /* report once — dial/tap/deep-sleep wakes stay quiet */
+}
 
 /* #ifndef-seeded KNOB_TZ (repo invariant): the caption clock's POSIX TZ
  * (knob_time/Kconfig). UTC0 default; the caption then reads like the
@@ -245,6 +304,7 @@ static int64_t s_caption_min;
  */
 static void wait_ack(void) {
     int waited = 0;
+    knob_ui_gasp(KNOB_GASP_WAIT_ACK);
     while (s_applied != s_pub && waited < 5000) {
         vTaskDelay(pdMS_TO_TICKS(10));
         waited += 10;
@@ -265,6 +325,7 @@ static bool bake_publish(int64_t epoch, int bake_px, bool pass_event, const vola
         return false;
     }
     const int back = 1 - s_front;
+    knob_ui_gasp(bake_px == 0 ? KNOB_GASP_LAND_BAKE : KNOB_GASP_BAKE);
     if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, MOON_R, MOON_CX, MOON_CY, epoch, bake_px, pass_event,
                                 abort_flag, &s_last_bake_ms)) {
         return false;
@@ -279,6 +340,8 @@ static bool bake_publish(int64_t epoch, int bake_px, bool pass_event, const vola
      * lock-free so it carries the explicit fence). */
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     s_pub++;
+    knob_ui_gasp_frames(s_pub, s_applied);
+    knob_ui_gasp(KNOB_GASP_IDLE);
     return true;
 }
 
@@ -399,6 +462,15 @@ static void sweep_body(void) {
             ESP_LOGI(TAG, "sweeping %d/%d (bake %lld ms%s)", f + 1, frames, (long long)s_last_bake_ms,
                      final ? ", final crisp" : "");
         }
+#if CONFIG_KNOB_DIAG_PANIC_AT_FRAME
+        /* Black-box self-test (bench): crash at a known frame so the
+         * gasp marker + flash coredump must show up on the boot after
+         * (task #27 — proves the witness chain end to end). */
+        if (f + 1 == CONFIG_KNOB_DIAG_PANIC_AT_FRAME) {
+            ESP_LOGE(TAG, "diag: forced panic after frame %d (gasp+coredump self-test)", f + 1);
+            abort();
+        }
+#endif
         /* wait_ack() only blocks while the swap task is behind -- when
          * it keeps up (the normal case) the bakes run back-to-back and
          * IDLE never runs for the whole 314 s sweep (task-WDT reset,
@@ -549,6 +621,7 @@ static void swap_task(void *arg) {
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
             ESP_LOGI(TAG, "swap: applying pub=%u (taking lock)", (unsigned)s_pub);
 #endif
+            knob_ui_gasp(KNOB_GASP_SWAP_LOCK);
             lvgl_lock();
             const int back = 1 - s_front;
             s_moon_dsc.data = (const uint8_t *)s_buf[back];
@@ -578,10 +651,13 @@ static void swap_task(void *arg) {
                     }
                 }
             }
+            knob_ui_gasp(KNOB_GASP_SWAP_REFR);
             lv_refr_now(NULL);
             s_front = back;
             s_applied = s_pub;
             lvgl_unlock();
+            knob_ui_gasp(KNOB_GASP_SWAP_DONE);
+            knob_ui_gasp_frames(s_pub, s_applied);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
             ESP_LOGI(TAG, "swap: applied pub=%u (lock released)", (unsigned)s_pub);
 #endif
@@ -595,6 +671,7 @@ static void start_tasks(int mode) {
     s_sweeping = (mode == MODE_SWEEP);
     s_abort = false;
     s_started = true;
+    s_gasp.magic = KNOB_GASP_MAGIC; /* arm the black box for this session */
     /* Producer = the clock's sweep-task posture (moon_ui.c:2776):
      * xTaskCreatePinnedToCoreWithCaps -- unregistered from TWDT (its
      * work never feeds the watchdog, so a spin of its own is invisible

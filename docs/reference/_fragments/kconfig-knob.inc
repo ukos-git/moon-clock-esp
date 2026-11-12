@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Twenty-four keys across five menus (the sibling project's own
+Twenty-seven keys across five menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
 the page above):
 
@@ -140,3 +140,22 @@ the page above):
      - ``4200`` (3600..4500)
      - Cell mV at 100 % — LiPo **placeholder**; the percentage is
        clamped between the pair
+   * - ``KNOB_DIAG_TOUCH_INJECT_S``
+     - ``0`` (bench)
+     - Bench-only crash-repro hook: an esp_timer one-shot arms a
+       ~350 ms synthetic home tap at the crash coordinates at N
+       seconds after boot, flowing through the real
+       ``touch_read_cb``; ``0`` = dead (production)
+       (:doc:`the knob display <../implementation/knob-display>`)
+   * - ``KNOB_DIAG_FRAME_TRACE``
+     - ``n`` (bench)
+     - Bench-only: log flush start/complete, swap apply begin/end,
+       sweep-abort, landing, and every leg of the fade + atomic
+       screen switch, so a frozen board's LAST log line names the
+       stuck section
+   * - ``KNOB_DIAG_PANIC_AT_FRAME``
+     - ``0`` (bench)
+     - Black-box self-test: ``abort()`` the producer after sweep
+       frame N; the boot after MUST print the gasp line and the
+       flash coredump must be readable — proves the crash witness
+       end to end; ``0`` = dead (production)
