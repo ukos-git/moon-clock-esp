@@ -180,6 +180,36 @@ esp_err_t moon_ui_panel_brightness_set(int pct);
 void moon_ui_panel_dim_ramp(int to_pct);
 
 /**
+ * Freeze the panel's io traffic while the wake path's on-demand WiFi sync
+ * storm runs. esp_wifi_init loads the full Wi-Fi firmware into RAM and
+ * calibrates the RF; the storm takes in-flight QSPI DMA completions
+ * (bench-verified on the S3 AMOLED: a wake sync with live tick flushes /
+ * spin traffic stalls the GPSPI bus lock ~6 s into the wake -- lost
+ * completion, panel-io watchdog restart). While held, EVERY panel write
+ * is DROPPED, not blocked (LVGL flush strips, spin strips, 0x51
+ * brightness writes; fade/dim ramps are skipped whole): writers never
+ * park, LVGL keeps drawing into its buffers, the spin keeps integrating.
+ * The LVGL flushes complete their hand through the hold's stub flush_cb
+ * (swapped in/out by the UI-tick poll in moon_ui_panel_repaint_pending):
+ * dropping a flush inside the panel draw_bitmap wrapper instead would
+ * strand the adapter's flush wait forever.
+ * action_start_wifi_sync arms it right before wifi_sync_kickoff;
+ * wifi_sync_task_fn releases it on BOTH outcomes (and the kickoff's
+ * task-create-failure branch) -- but the release only STAMPS a 4 s
+ * radio-tail drain (the completion-thieving driver teardown runs AFTER
+ * sync-complete), which the UI-tick poll then unfreezes at; a 15 s
+ * deadline self-heals a missed release. On release a whole-screen repaint is queued -- the screen
+ * self-heals, the spin rewrites at 8 fps. No-op seam on the knob (LEDC
+ * backlight, no shared bus lock to wedge).
+ */
+void moon_ui_panel_traffic_hold(bool hold);
+
+/** Consume the queued whole-screen repaint after a traffic-hold release
+ * (LVGL task; clears the flag, true once). Call from the UI tick: on
+ * true, lv_obj_invalidate(lv_screen_active()) and let the tick repaint. */
+bool moon_ui_panel_repaint_pending(void);
+
+/**
  * Publish the current 90-degree screen orientation (0..3) to the spin
  * render: its panel writes pre-rotate each frame by the step and the
  * UI keep-mask is re-rotated to match. Safe from any task (one volatile

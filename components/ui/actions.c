@@ -87,6 +87,9 @@ static void wifi_sync_task_fn(void *arg) {
     s_wifi_sync_ok = ok;
     s_wifi_sync_done = true;
     s_wifi_sync_running = false;
+    /* Storm over (either outcome): panel writes resume and the whole-screen
+     * repaint rides the next tick (moon_ui_panel_repaint_pending). */
+    moon_ui_panel_traffic_hold(false);
     vTaskDelete(NULL);
 }
 
@@ -103,6 +106,7 @@ static void wifi_sync_kickoff(void) {
         s_wifi_sync_running = false;
         s_wifi_sync_done = true;
         s_wifi_sync_ok = false;
+        moon_ui_panel_traffic_hold(false); /* no task will ever release it */
         ESP_LOGW(TAG, "WiFi sync task creation failed; dropping to airplane");
     }
 }
@@ -739,6 +743,11 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
         }
     }
+    /* A released panel traffic hold (the wake-sync storm) dropped flushes on
+     * purpose: invalidate the active screen once so LVGL re-emits the whole
+     * panel and panel / mirror / spin re-anchor together. */
+    if (moon_ui_panel_repaint_pending())
+        lv_obj_invalidate(lv_screen_active());
     ui_tick();
 }
 
@@ -780,6 +789,12 @@ void action_start_wifi_sync(void) {
     moon_ui_panel_dim_ramp(100);
 
     ESP_LOGI(TAG, "WiFi screen loaded (on-demand sync)");
+    /* Freeze panel io for the sync task's radio storm: esp_wifi_init's
+     * firmware load + RF calibration takes in-flight QSPI DMA completions
+     * (the S3 AMOLED's wake+~6.3 s panel-io watchdog restart, task #29).
+     * Arm right before the kickoff spawns that task -- the screen load and
+     * the dim ramp above ride the bus normally, BEFORE the storm. */
+    moon_ui_panel_traffic_hold(true);
     wifi_sync_kickoff();
 }
 

@@ -109,6 +109,14 @@ esp_err_t moon_ui_panel_brightness_set(int pct) {
     return ESP_OK;
 }
 
+/* The sync-storm panel-traffic hold (moon_ui.h): the QSPI lost-DMA guard the
+ * AMOLED clocks need. The knob's backlight is LEDC and its panel path has no
+ * shared bus lock to wedge, so there is nothing to protect -- accept and
+ * forget (the shared actions.c arms/releases around every sync kickoff). */
+void moon_ui_panel_traffic_hold(bool hold) { (void)hold; }
+
+bool moon_ui_panel_repaint_pending(void) { return false; }
+
 void moon_ui_panel_dim_ramp(int to_pct) {
     if (to_pct < 0) {
         to_pct = 0;

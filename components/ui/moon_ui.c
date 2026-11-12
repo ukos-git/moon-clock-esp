@@ -425,6 +425,112 @@ static volatile bool s_mask_dirty;     /* the mask must be re-rotated (step
  * writes while its 0x51 brightness ramp runs (the fade section). */
 static volatile bool s_fade_busy;
 
+/* The sync-storm panel-traffic hold (moon_ui.h). The wake path's on-demand
+ * WiFi sync brings the radio up HERE: esp_wifi_init loads the full
+ * firmware into RAM and runs RF calibration -- a ~300 ms storm on a
+ * prio-23 core-0 driver task, concurrent with live panel traffic (the
+ * 10 ms tick flushes, the resumed spin). The storm takes the completion
+ * of an in-flight QSPI DMA: a lost completion parks the GPSPI bus lock
+ * forever and the panel-io watchdog restarts the board ~6 s into the
+ * wake (bench evidence, task #29: deterministic wake+6.29 s PANEL IO
+ * STUCK on both DEEP tilt-wakes; boot -- where the storm lands before
+ * LVGL exists -- never stalls). Writers are DROPPED, never blocked:
+ * blocking a writer is the wake-freeze regression 0c35dd7 cured. LVGL
+ * keeps drawing into its buffers, the spin keeps integrating its angle,
+ * and the release queues a whole-screen repaint that heals everything
+ * the dropped writes left behind.
+ *
+ * The LVGL flushes drop at a swapped-out flush_cb (hold_flush_cb), NOT
+ * at the draw_bitmap wrapper: the esp_lvgl_adapter's double_direct
+ * flush completes its LVGL hand only through the real transaction's
+ * trans-done notify (its error path still blocks in the notify take),
+ * so dropping a flush inside the wrapper leaves disp->flushing set and
+ * wedges the LVGL task in wait_for_flushing forever -- IDLE0 WDT spam,
+ * frozen screen (found by the task #29 proof hammer). Swapping the
+ * flush_cb is the only seam that drops pixels without breaking the
+ * hand, and the adapter is managed_components (public API only). */
+#define PANEL_TRAFFIC_HOLD_MS 15000
+/* The sync task ENDING does not end the radio's activity: the driver
+ * teardown / connect tail keeps taking DMA completions for seconds past
+ * "sync complete" (proof hammer v2: the first post-release flush lost
+ * its completion ~0.6 s after the release, stall signature exactly
+ * 3+3 s later). Hold a tail past the release call before unfreezing. */
+#define PANEL_TRAFFIC_TAIL_MS 4000
+static volatile bool s_panel_hold;
+static volatile TickType_t s_panel_hold_until;
+static volatile bool s_panel_hold_release; /* sync ended, tail draining */
+static volatile bool s_panel_repaint;      /* a whole-screen repaint is queued */
+
+/* The hold's LVGL flush guard: renders complete, nothing hits the bus. */
+static void hold_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+    (void)area;
+    (void)px_map;
+    lv_display_flush_ready(disp);
+}
+static lv_display_flush_cb_t s_flush_cb_real; /* captured at moon_ui_init */
+
+static bool panel_hold_live(void) {
+    if (!s_panel_hold)
+        return false;
+    if ((int32_t)(xTaskGetTickCount() - s_panel_hold_until) >= 0) {
+        bool drained = s_panel_hold_release; /* normal tail drain vs missed release */
+        s_panel_hold = false;
+        s_panel_hold_release = false;
+        s_panel_repaint = true;
+        if (drained)
+            ESP_LOGI(TAG, "panel traffic hold OFF (radio tail drained, repaint queued)");
+        else
+            ESP_LOGW(TAG, "panel traffic hold expired (missed release); writes resume");
+        return false;
+    }
+    return true;
+}
+
+void moon_ui_panel_traffic_hold(bool hold) {
+    if (hold) {
+        s_panel_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_HOLD_MS);
+        s_panel_hold_release = false;
+        if (!s_panel_hold)
+            ESP_LOGI(TAG, "panel traffic hold ON (sync storm)");
+        s_panel_hold = true;
+    } else if (s_panel_hold && !s_panel_hold_release) {
+        /* Sync task ended: keep the freeze through the radio tail (the
+         * completion-thieving teardown/churn runs AFTER sync-complete);
+         * the UI-tick poll resumes writes at the deadline (the expiry
+         * path clears the hold and queues the repaint). */
+        s_panel_hold_release = true;
+        TickType_t tail = xTaskGetTickCount() + pdMS_TO_TICKS(PANEL_TRAFFIC_TAIL_MS);
+        if ((int32_t)(tail - s_panel_hold_until) < 0)
+            s_panel_hold_until = tail;
+        ESP_LOGI(TAG, "panel traffic hold: sync done, %d ms radio tail", PANEL_TRAFFIC_TAIL_MS);
+    }
+}
+
+bool moon_ui_panel_repaint_pending(void) {
+    /* LVGL task (the UI tick): drives the flush guard swap, then hands
+     * out the queued whole-screen repaint. Swapping only here keeps all
+     * flush_cb mutation on the task that runs the flushes; the arm
+     * latency is one tick (~10 ms) after the hold ON, comfortably ahead
+     * of the storm's first concurrent flush (the driver task starts
+     * ~100 ms after the kickoff). */
+    lv_display_t *d = lv_display_get_default();
+    if (!d || !s_flush_cb_real)
+        return false;
+    if (panel_hold_live()) {
+        if (lv_display_get_flush_cb(d) != hold_flush_cb)
+            lv_display_set_flush_cb(d, hold_flush_cb);
+        return false;
+    }
+    if (lv_display_get_flush_cb(d) == hold_flush_cb) {
+        lv_display_set_flush_cb(d, s_flush_cb_real); /* restore */
+        s_panel_repaint = true;
+    }
+    if (!s_panel_repaint)
+        return false;
+    s_panel_repaint = false;
+    return true;
+}
+
 /* The panel-io watchdog. Every QSPI panel write goes through the panel io's
  * ONE spi_device and the GPSPI bus lock: if a queued DMA transfer's
  * completion is ever lost (the CO5300 + QSPI driver has lost one on this
@@ -479,6 +585,8 @@ static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (
  * hold s_panel_mtx. */
 static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                       const void *color_data) {
+    if (panel_hold_live())
+        return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
     for (int attempt = 0; attempt < 100; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK)
@@ -492,6 +600,10 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
 static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                         const void *color_data) {
     (void)panel;
+    /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
+     * transaction's trans-done notify, so a drop at this seam breaks its
+     * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
+     * nothing reaches this wrapper at all. */
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
     if (s_front && x_end > MOON_IMG_POS && x_start < MOON_IMG_POS + MOON_PX && y_end > MOON_IMG_POS &&
         y_start < MOON_IMG_POS + MOON_PX) {
@@ -3230,6 +3342,11 @@ void moon_ui_init(void) {
     } else {
         ESP_LOGE(TAG, "panel handle unavailable; spin direct write off");
     }
+    /* Capture the adapter's flush_cb for the sync-storm hold's guard swap
+     * (bsp_display_start ran first, so the adapter has installed it). */
+    lv_display_t *ldisp = lv_display_get_default();
+    if (ldisp)
+        s_flush_cb_real = lv_display_get_flush_cb(ldisp);
     /* 1 Hz tilt activity/wake monitor; runs in every screen state
      * because the moon tick itself is paused in deep sleep. It also
      * caches the LVGL task handle (moon_on_lvgl), so the timer is
@@ -3711,6 +3828,9 @@ static volatile int s_panel_pct = 100;
  * holds its own panel writes for the ramp's duration, so in practice the
  * mutex is free when the ramp runs. */
 static void fade_ramp(int from_pct, int to_pct) {
+    if (panel_hold_live())
+        return; /* storm: no write lands, so the panel stays at its tracked
+                 * level -- s_panel_pct untouched is the truthful bookkeeping */
     for (int s = 1; s <= FADE_STEPS; s++) {
         int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
         xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
@@ -3783,6 +3903,10 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
  * also keeps a nested call from clearing a fade's flag early). */
 esp_err_t moon_ui_panel_brightness_set(int pct) {
     esp_err_t r;
+    if (s_ready && panel_hold_live())
+        return ESP_OK; /* storm: the 0x51 would ride the same bus; the wake
+                        * restored the level BEFORE the hold arms, so nothing
+                        * is owed -- and s_panel_pct stays truthful */
     if (s_ready && s_panel_mtx) {
         bool spin_off = s_fade_busy;
         if (!spin_off)
@@ -3822,6 +3946,9 @@ void moon_ui_panel_dim_ramp(int to_pct) {
         moon_ui_panel_brightness_set(to_pct);
         return;
     }
+    if (panel_hold_live())
+        return;              /* storm: skipped whole (fade_ramp drops its steps anyway;
+                              * s_panel_pct stays truthful -- the panel never moved) */
     s_fade_busy = true;      /* the spin holds its panel writes for the ramp */
     fade_ramp(from, to_pct); /* also tracks s_panel_pct */
     s_fade_busy = false;
