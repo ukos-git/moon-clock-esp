@@ -532,3 +532,21 @@ guards a stolen callback slot). If a completion were ever truly
 undelivered, that call parks in ``get_trans_result`` under the panel
 mutex and the watchdog restarts in 3 s + 3 s — the honest fallback.
 Healthy cost stays one row write and ~10 ms per site.
+
+**Verification (capture 11, heal build, 300 s under the full test
+hammer).** Boot 1 rode the alarm ring, the 10 s auto-wake hammer and
+the settings-return hook with **six** swallowed-completion catches —
+``drain verify after park/switch fade-in/screen switch/wake preflush:
+completion swallowed (counter frozen at N; slot MINE ...); healing the
+flush-queue bookkeeping`` — and every one **continued without a
+restart** (the spin parked at the same millisecond, the alarm ring
+completed, the counter advanced across heals: 651→673→675→677→700,
+i.e. the re-armed flush queue kept flowing). The predicted honest
+fallback fired exactly once: the wake-preflush heal parked on a truly
+undelivered completion and the watchdog restarted 6.5 s later naming
+the parked holder (``PANEL IO STUCK: panel mutex held 3000 ms ... by
+task lvgl``). Boot 2 stayed entirely clean to the end of the capture.
+Zero drain restarts; the ``RTC_NOINIT`` budget went unused. (The
+pre-existing ~30 s ``IDLE1``/``moon_sweep`` task-WDT bite storm during
+the boot sweep predates this work and is unaffected — it never
+aborts.)
