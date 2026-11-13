@@ -12,10 +12,11 @@ Sleep and screen switching
      - Meaning
    * - ``UI_DEEP_SLEEP_COUNTDOWN_SEC``
      - ``60``
-     - Countdown from light sleep to deep sleep, 60–1800 s. Armed by
-       the moon tick on the light-sleep dusk's *last frame* (the sleep
-       depth follows the animation, never a fixed timer at the sleep
-       entry) and triggers the deep-sleep transition on expiry.
+     - Countdown from light sleep to deep sleep, 60–1800 s. Armed on
+       the light-sleep entry itself — the sleep screen is a static dim
+       frame (the dusk pole-spin was retired 2026-11-13), so the timer
+       starts the moment the panel dims, not on an animation's last
+       frame — and triggers the deep-sleep transition on expiry.
    * - ``UI_LIGHT_SLEEP_TICK_MS``
      - ``100``
      - LVGL timer tick period in light sleep, 50–1000 ms (vs 10 ms
@@ -26,10 +27,12 @@ Sleep and screen switching
        backlight PWM) while the light-sleep screen is shown, 0–100 %.
        The entry ramps down to this level over
        ``UI_SCREEN_SWITCH_FADE`` ms; the wake / an alarm ring ramps it
-       back to 100. The dusk keeps spinning at this level. The ramp
-       follows the fade's panel-io rule (panel mutex per 0x51 step,
-       ``s_fade_busy`` holds the spin's writes), so a brightness write
-       is never queued behind a strip DMA that could stall the bus.
+       back to 100. The light-sleep screen itself is static (the dusk
+       pole-spin was retired 2026-11-13) — the dim is a held brightness
+       level, not an animation. The ramp follows the fade's panel-io
+       rule (panel mutex per 0x51 step, one 0x51 ramp at a time under
+       ``s_fade_busy``), so a brightness write is never queued behind a
+       strip DMA that could stall the bus.
    * - ``UI_CLOCK_ALPHA_PCT``
      - ``20``
      - The shared clock widget's LVGL opacity in light sleep, 0–100 %.
@@ -46,13 +49,13 @@ Sleep and screen switching
        ramps back — the transition writes no pixels. Total cost is
        roughly 2× this time plus one hidden flush. The exception: the
        both-moon switch (airplane / wifi / the sleep screens share one
-       moon image) stays atomic. One of the three sanctioned
-       exceptions to the whole-panel-atomic invariant, next to the
-       burn-in spin's and the TF replay's direct writes
-       (:doc:`the display pipeline <../implementation/display>`).
+       moon image) stays atomic. One of the two flows that ride the
+       hardware brightness ramp — the sole sanctioned exception to the
+       whole-panel-atomic invariant (the hourly refresh reuses this
+       same fade; :doc:`the display pipeline <../implementation/display>`).
 
-The moon animation pipeline
-----------------------------
+The hourly moon refresh & TF hour cache
+----------------------------------------
 .. list-table::
    :header-rows: 1
    :widths: 30 14 56
@@ -60,142 +63,74 @@ The moon animation pipeline
    * - Key
      - Default
      - Meaning
-   * - ``UI_MOON_ANIM_ENABLE``
+   * - ``UI_MOON_HOURLY_ENABLE``
      - ``y``
-     - Play the synodic boot sweep (last NEW MOON → now, at most 29.5
-       days) at boot, in ``UI_MOON_ANIM_FRAMES`` frames, baked off
-       screen and displayed as atomic whole frames. Always starts
-       dark and ends on the current phase; hands the spin back at the
-       exact on-screen pose. BOOT only — wakes show the current phase
-       static.
-   * - ``UI_MOON_ANIM_FRAMES``
-     - ``1344``
-     - Sweep frame count, 5–4096. Evenly spaced from the last new moon
-       to the current phase; the step shrinks as the cycle is younger
-       (up to ~0.022 d/frame ≈ 32 min at an old moon at the default).
-       4x the pre-2026-11-07 count (336) — at the old density the
-       per-frame illumination jump read as a visible stutter. With the
-       TF sweep cache serving (``UI_MOON_TFCACHE``), the intermediate
-       frames are instead the hour list of the current cycle (at most
-       ~709) and this count applies only to the card-less path.
-   * - ``UI_MOON_ANIM_BAKE_PX``
-     - ``400`` (S3) / ``650`` (P4)
-     - Intermediate-frame bake resolution, 100–650 px, upscased
-       nearest-neighbor to the full ``MOON_PX``. **First
-       ``default X if BOARD_P4`` pattern in the project** — the
-       conditional line must precede the unconditional fallback
-       (Kconfig defaults are first-match-wins). Both boards default to
-       their own ``MOON_PX`` (pixel-identical to the static/spin
-       bakes); measured S3: 200 → ~0.21 s/frame, 240 → ~0.28, 320 →
-       ~0.48, 400 → ~0.72. Values above the board's ``MOON_PX`` clamp
-       to it. The final frame and the static/spin phase are always full
-       resolution. The TF sweep cache keys its entries on the **same**
-       bake size (folder name + ``meta.txt``); switching this value
-       wipes the cache folder rather than resampling stale frames.
+     - Once-per-hour moon refresh: at each hour boundary the home's
+       moon fades to black on the panel's OWN hardware brightness (the
+       same CO5300 ``0x51`` command / P4 backlight PWM as the screen
+       switch), a core-1 task produces the current-phase frame at the
+       **hour centre** (a TF hour-cache fetch when the card can serve
+       it, else a full bake with write-through store), the finished
+       frame lands as ONE atomic whole-panel flush while the panel is
+       still black, then the brightness ramps back. Only the brightness
+       animates — the clock, alarm row and seconds keep running.
+       Skipped while idle, on a moon-less screen, or while the orbit /
+       re-bake pipelines or another ``0x51`` ramp own the buffers; a
+       producer that misses its 5 s budget leaves the OLD frame (never
+       a stranded black). The fade reuses the screen switch's rule —
+       the hardware brightness ramp is the sole sanctioned exception to
+       the atomic-flush invariant.
+   * - ``UI_MOON_HOURLY_FADE_MS``
+     - ``UI_SCREEN_SWITCH_FADE``
+     - Each fade leg of the hourly refresh (down to black, back up),
+       40–2000 ms, paced like the screen-switch fade with the same 12
+       steps. The produce pass runs while the panel sits black, so
+       raising this only lengthens the dark window (~1.3–2.4 s of bake
+       plus the two ramps).
+   * - ``UI_MOON_HOURLY_TFCACHE``
+     - ``y``
+     - Serve the hourly refresh frames from the TF hour cache: the
+       producer asks the card first (a hit is a decode instead of a
+       ~1.3–2.4 s bake) and write-through stores every hour it had to
+       compute. The card mounts **lazily on the first refresh** (boot
+       never touches the SD bus) and every card failure falls back
+       silently to the bake path. Depends on ``UI_MOON_HOURLY_ENABLE``
+       and ``UI_MOON_TFCACHE``.
    * - ``UI_MOON_TFCACHE``
      - ``y``
-     - TF sweep cache: persist the sweep's intermediate bakes on the
-       TF card as small gray JPEGs — **one per hour** of the cycle,
-       ≤ ~709 files ~10 MB — under
-       ``/sdcard/moon_cache/<calcver>_<target>_<px>/``, so a warm replay runs
-       at panel-write cadence instead of bake cadence — replayed
-       intermediate frames go straight to the panel in the spin's
-       direct-write model (``UI_MOON_TFCACHE_FPS``, the third
-       sanctioned exception to the atomic-flush invariant; the tick's
-       whole-panel refresh measures 304 ms S3 / 207 ms P4 and would
-       cap a tick-displayed replay at ~3 fps).
-       Versioned by the calculation (``MOON_CALC_VER`` =
-       ``git describe`` — bump the repo with commitizen ``cz bump`` to
-       invalidate) and **self-describing**: a ``meta.txt`` pins the
+     - TF hour cache: persist the hourly bakes on the TF card as small
+       gray JPEGs — **one per hour** of the cycle, ≤ ~709 files ~10 MB
+       — under ``/sdcard/moon_cache/<calcver>_<target>_<px>/``, keyed
+       on the hour **baked at the hour centre** (``hour * 3600 +
+       1800``), so a warm hour reads the frame instead of computing it
+       (the panel's dark window shrinks from bake+fade to decode+fade,
+       ~200 ms + the ramps) and a cached hour is byte-identical across
+       boots and boards. Versioned by the calculation (``MOON_CALC_VER``
+       = ``git describe`` — bump the repo with commitizen ``cz bump``
+       to invalidate) and **self-describing**: a ``meta.txt`` pins the
        bake resolution (plus albedo width, relief, JPEG quality), any
-       mismatch wipes and recreates the folder; old version folders
-       are deleted on sight and entries evicted past one synodic
-       cycle. Write-through: every frame the device computed is
-       stored. Missing card, failed mount, undecodable file, foreign
-       filesystem or a mid-run detach all fall back **silently** to
-       computing every frame on-device (the original path); replayed
-       frames go through the same ``moon_gray565`` tint LUT, so
-       replay and compute are indistinguishable. The final frame is
-       always the live full-``MOON_PX`` bake.
+       mismatch wipes and recreates the folder; old version folders are
+       deleted on sight and entries evicted past one synodic cycle.
+       Write-through: every hour the device computed is stored. Missing
+       card, failed mount, undecodable file, foreign filesystem or a
+       mid-run detach all fall back **silently** to baking on-device
+       (the card-less path); fetched frames go through the same
+       ``moon_gray565`` tint LUT, so fetch and compute are
+       pixel-identical by construction. The card mounts lazily on the
+       first refresh (boot never touches the SD bus), and the day's
+       sky-event occlusion is part of the cached bake epoch.
    * - ``UI_MOON_TFCACHE_JPEG_Q``
      - ``90``
-     - Gray JPEG quality, 1–100. The panel verdict chain: q 10 (the
-       knob-demo recipe class) showed visible blocking in the flat
-       dark and bright areas; q 32 *still* showed it during the warm
-       replay (2026-11-08) even though the flats measured clean; 90
-       is the visually-transparent class for gray DCT encoding. A
-       few times q 32's ~7.5 KB (400 px) / ~18 KB (650 px) per frame
-       — tens of MB per cached cycle — and encode/decode cost is
-       resolution-bound, not quality-bound. ``meta.txt`` pins it — a
-       change wipes and re-bakes the cache folder.
-   * - ``UI_MOON_TFCACHE_FPS``
-     - ``25``
-     - Warm-replay pacing target, 2–30. The sweep task displays each
-       replayed intermediate frame itself via the spin's direct panel
-       write (step-rotated, UI keep-mask composited, one window write
-       under ``s_panel_mtx`` — no LVGL refresh), paced
-       constant-cadence like the spin; a slow frame is never repeated
-       or skipped. The sweep summary logs the **measured** fps and
-       worst inter-frame gap. The final frame stays on the tick's
-       atomic ``lv_refr_now`` (it reconciles LVGL with the panel and
-       re-anchors the spin); card-less sweeps are unaffected.
-   * - ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``
-     - ``2``
-     - Target floor for the PSRAM prefetch queue, 1–12. The real depth
-       is derived from free PSRAM at sweep start
-       ((free − deferred-decode reservation) / (bake_px²·1.15 + 4 KiB),
-       capped at 12, logged per boot) and raised to this under normal
-       memory; a tighter boot **runs thin** (logged) down to one slot
-       rather than dropping the card path — a starved slot times out
-       to a local bake, never wedges the sweep. Only zero allocatable
-       slots run card-less. The decode reservation (3·bake_px²) is
-       budgeted only when the folder already holds hours (task #38).
-   * - ``UI_MOON_ANIM_ON_WAKE``
-     - ``y``
-     - **Obsolete.** The sweep plays at boot only; wakes show the
-       current phase static. Kept so existing sdkconfig files keep
-       validating.
-   * - ``UI_MOON_DUSK_ENABLE``
-     - ``y``
-     - Light-sleep dusk: the moon spins about its *pole* at the current
-       phase (1°/frame, the shortest arc to the fully unilluminated
-       view, at most a half turn, 14–95 s at ~0.2 s/frame) and the
-       deep-sleep countdown arms on the last frame. Constant
-       projection, not a re-bake: the fully-lit body-frame equirect map
-       is baked once for the epoch and every intermediate frame
-       re-projects it (~50 ms gather); the final dark-side frame is one
-       full-``MOON_PX`` bake.
-   * - ``UI_MOON_SPIN_ENABLE``
-     - ``y`` (S3) / ``n`` (P4)
-     - Free spin: the current phase is baked once and rotated
-       in-plane (nearest-neighbor gather, ~8 ms/frame) at a rate that
-       eases from the active period to the settled period. Each frame
-       is written straight to the panel from the render task (core 1)
-       via a wrapped ``esp_lcd_panel_draw_bitmap`` (one of the three
-       sanctioned exceptions to the atomic-flush invariant, next to
-       the fade and the TF replay's direct write), with a UI
-       keep-mask protecting every non-black UI pixel. Burn-in is an
-       AMOLED duty: the P4's IPS LCD defaults the spin OFF (user
-       2026-11-13) and the moon stays the static LVGL frame — the
-       spin task never starts and every consumer rides the never-set
-       running flag.
-   * - ``UI_MOON_SPIN_PERIOD_S``
-     - ``300``
-     - Active spin: seconds per full turn while in use, 30–7200.
-   * - ``UI_MOON_SPIN_SETTLED_PERIOD_S``
-     - ``600``
-     - Settled spin: seconds per full turn at rest, 60–7200 — the
-       visible burn-in protection.
-   * - ``UI_MOON_SPIN_FPS``
-     - ``8``
-     - Spin frame rate (rendered + panel-written), 2–30. Each frame is
-       one ~8 ms rotate of the baked phase + a direct write of the moon
-       area; the rate is time-integrated (a dropped frame is a bigger
-       step, never a repeat).
-   * - ``UI_MOON_SPIN_SETTLE_S``
-     - ``10``
-     - Seconds of idle before the rate eases from the active to the
-       settled period, 2–60 (exponential, time constant ~this/3).
+     - Gray JPEG quality, 1–100 for the hour cache. The panel verdict
+       chain: q 10 (the knob-demo recipe class) showed visible blocking
+       in the flat dark and bright areas; q 32 *still* showed it (a
+       warm card replay, 2026-11-08) even though the flats measured
+       clean;
+       90 is the visually-transparent class for gray DCT encoding. A
+       few times q 32's ~7.5 KB (400 px) / ~18 KB (650 px) per frame,
+       and encode/decode cost is resolution-bound, not quality-bound.
+       ``meta.txt`` pins it — a change wipes and re-bakes the cache
+       folder.
 
 IMU and tilt coupling
 ----------------------
@@ -208,10 +143,12 @@ IMU and tilt coupling
      - Meaning
    * - ``UI_IMU_ENABLE``
      - ``y``
-     - Drive the moon viewport from the QMI8658 IMU. The tilt changes
-       which side of the sphere the camera sees (the out-of-plane
-       orbit) and counts as user activity (holds the idle timer, wakes
-       from sleep, drives the spin's active rate).
+     - Drive the moon viewport from the QMI8658 IMU. The moon's
+       in-plane pose is fixed (the burn-in spin was removed 2026-11-13
+       — the home shows the baked phase static); tilt changes which
+       side of the sphere the camera sees (the out-of-plane orbit, plus
+       the whole-screen orientation correction) and counts as user
+       activity (holds the idle timer, wakes from sleep).
    * - ``UI_IMU_ACTIVITY_DEG``
      - ``5``
      - Tilt *activity* threshold, 1–45°: the DEPARTURE from a
@@ -230,8 +167,9 @@ IMU and tilt coupling
        sign-agnostic.
    * - ``UI_IMU_ROLL_OFFSET_DEG``
      - ``0``
-     - **Obsolete.** The free spin is time-driven, not tilt-driven; a
-       resting roll offset has no effect. Kept for config validation.
+     - **Obsolete.** The moon's in-plane pose is fixed (the burn-in
+       spin was removed 2026-11-13), so a resting roll offset has no
+       effect. Kept so existing sdkconfig files keep validating.
    * - ``UI_CLOCK_ROLL_SIGN``
      - ``1``
      - Screen-orientation correction sign (+1/−1). The screen-plane
@@ -242,9 +180,11 @@ IMU and tilt coupling
    * - ``UI_ORI_BASE_V10``
      - ``1800`` S3 / ``900`` P4
      - Base screen orientation in 1/10 deg (clockwise) at step 0: the
-       per-board panel mount offset, applied at init and on the 2 s
-       press re-sync; the spin's direct-panel pre-rotation and UI
-       keep-mask derive from the pushed value. Multiple of 900.
+       per-board panel mount offset, the single source for it — the
+       shared clock widget and every screen root carry it — applied at
+       init and on the 2 s press re-sync (the burn-in spin's
+       pre-rotation it once also fed was removed 2026-11-13). Multiple
+       of 900.
    * - ``UI_MOON_ORBIT_ENABLE``
      - ``n``
      - Sphere model: peek at the dark side via out-of-plane tilt.
@@ -286,10 +226,9 @@ Clock widget
        task #54's split-flap look). OFF by default: the roll fires
        exactly when the seconds arc completes its cycle and read as a
        spurious ARC animation (user 2026-11-13) — pairs hard-swap in
-       one frame. The path stays compiled for an opt-in build; the
-       spin keep-mask rebuild rides the shared ``label_changed`` tail
-       either way (LVGL's ``lv_arc_set_value`` itself is instant —
-       the arc never animated).
+       one frame. The path stays compiled for an opt-in build (the
+       hard-swap branch is exactly what a disabled roll takes; LVGL's
+       ``lv_arc_set_value`` itself is instant — the arc never animated).
 
 Demo mode
 ----------
@@ -306,8 +245,8 @@ Demo mode
        the clock widget shows MM:SS (per-digit odometer) and the tour
        walks every screen and function — moon rotation, the settings
        hub walk via a second virtual pointer, the wheel keyboard
-       (discard only, never commit), the alarm ring, the dusk spin,
-       the roll script, one bounded sync. Suppresses the deep-sleep
+       (discard only, never commit), the alarm ring, the light-sleep
+       entry and exit, the roll script, one bounded sync. Suppresses the deep-sleep
        transition, scheduled alarms, the hourly sync and the sync
        hand-off; logs ``phase=`` markers for the recording harness.
    * - ``UI_DEMO_FULL_TOUR``
@@ -319,10 +258,6 @@ Demo mode
      - ``15``
      - Seconds per moon screen / settings sub-screen dwell, 5–600
        (75 s per full moon rotation at the default).
-   * - ``UI_DEMO_DUSK_WAIT_S``
-     - ``180``
-     - Seconds the dusk phase waits for the pole spin to complete,
-       30–600 (``UI_DEMO_FULL_TOUR`` only).
 
 Test hooks
 -----------
@@ -353,12 +288,13 @@ All default off (``0`` = off, except the two bools default ``n``).
        NOTHING to settings or credentials; the evidence is the panel
        traffic hold's arm/release lines and the ``co5300`` failure
        signature (:doc:`../implementation/display`).
-   * - ``TEST_SPIN_BANDS``
-     - 0–100
-     - Spin seam diagnostic: writes one gray level per strip instead of
-       the moon (1 = normal 400-wide geometry, 2 = full-panel-width
-       strips — the A/B that isolates the 400-wide window as the
-       seam-line cause).
+   * - ``TEST_HOURLY_FORCE_S``
+     - 0–3600
+     - Fire the full hourly cycle (fade-out, produce, atomic show,
+       fade-in) every N seconds while the home screen is active and the
+       device is not idle — bench acceptance for the fade/refresh legs
+       (cold card = miss + bake + store, warm card = fetch); the clock,
+       alarm row and seconds keep running through every cycle.
    * - ``TEST_WIFI_SCAN_SEC``
      - 0–3600
      - Open the WiFi settings screen N seconds after boot — headless
@@ -376,7 +312,7 @@ All default off (``0`` = off, except the two bools default ``n``).
        — no physical tilt needed.
    * - ``TEST_ALARM_RING_SEC``
      - 0–3600
-     - Fire the real alarm path N seconds after the boot sweep: ring,
+     - Fire the real alarm path N seconds after the boot bake: ring,
        stop (the touch-dismiss path), re-fire, ring again, then the
        real dismiss. On the P4 proves the ES8311
        open/stream/ramp/fade/close/re-open cycle.

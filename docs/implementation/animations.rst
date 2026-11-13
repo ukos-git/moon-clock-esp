@@ -7,11 +7,18 @@ to make the waiting itself the interface: three motion pipelines, all
 built on
 the one atomic-display rule (:doc:`the architecture <architecture>`) and the one panel-write
 discipline (:doc:`the display pipeline <display>`). The user retired
-all three on 2026-11-13. What is left:
+all three on 2026-11-13. What is left on the home:
 
 1. **The orbit** — a *response*, not an animation: the tilt viewport
    re-bake, one atomic frame per sustained pose change.
-2. **The fade** — the screen-switch dim, which writes no pixels.
+2. **The hourly refresh** — the moon redraws once per hour behind the
+   hardware brightness fade: fade to black, produce the current-phase
+   frame, one atomic show, fade back. The one live motion left on the
+   home (see *The hourly refresh* below).
+3. **The fade** — the screen-switch dim, which writes no pixels. Both
+   the screen switch and the hourly refresh's two legs ride this ONE
+   hardware-brightness-ramp exception to the atomic-display rule
+   (:doc:`the architecture <architecture>`).
 
 Retired 2026-11-13, one after the other: **the free spin** (the
 ball-in-hand burn-in rotation — *"It does more things worse than
@@ -20,19 +27,92 @@ boot), and **the dusk** (the light-sleep pole spin to the dark side —
 light sleep is a **static dim frame** now: panel to 25 %, clock to
 20 % alpha, and the deep-sleep countdown armed at the entry itself;
 :doc:`the clock and sleep machine <clock-sleep>`). The home now boots
-straight to the static current phase and sleeps the same way. The
-home's moon is plain LVGL, shown static; see
-:doc:`the architecture <architecture>` for what the removals left of the
-exceptions list. The removed subsystems' measurements stay below as
-dated history; the TF card cache module outlives the sweep it served
-(dormant, its Kconfig keys lingering until the config sweep retires
-them).
+straight to the static current phase, sleeps the same way, and refreshes
+its moon once per hour (below). The home's moon is plain LVGL, shown
+static; see :doc:`the architecture <architecture>` for what the removals
+left of the exceptions list. The removed subsystems' measurements stay
+below as dated history. The TF card cache module outlived the sweep it
+was built for and now serves the hourly refresh as the **TF hour cache**
+(below); its sweep-era Kconfig keys (``UI_MOON_TFCACHE_FPS``,
+``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were retired with the config
+sweep.
 
 The remaining pipelines share one pipeline shape: a *bake task* (core 1) produces
 frames off screen into the shared PSRAM buffers; the *tick* (LVGL
 task, 50 ms) displays each published frame as **one atomic whole
 frame**; backpressure (the bake waits for the display) keeps the two
 from tearing a frame in half.
+
+The hourly refresh (``UI_MOON_HOURLY_ENABLE``)
+----------------------------------------------
+
+The one live motion left on the home: once per hour the moon redraws
+behind the hardware brightness fade. The user's brief was *"Update the
+moon hourly with a fade to black, redraw and fade-in."* Only the panel's
+brightness animates — the clock, the alarm row and the seconds keep
+running through the whole cycle; the moon simply fades out, is rebuilt,
+and fades back.
+
+It is a producer/consumer split, exactly like the deferred re-bake, so
+the LVGL task is never blocked on a bake (the three-role shape, all in
+``components/ui/moon_ui.c`` under the ``hourly`` banner):
+
+* **The probe** (``moon_hourly_probe``) runs on the minute path
+  (``moon_ui_day_tick``). It gates and *arms* — records the hour-centre
+  epoch and ``s_hourly_start`` — doing no panel work. It fires when the
+  on-screen hour (``s_baked_hour``) is no longer the current hour, and it
+  skips when the device is idle (light sleep), a moon-less screen is
+  active, the orbit / re-bake / another hourly owns the buffers, or a
+  screen-switch fade / 0x51 ramp owns the panel.
+* **The tick legs** (``moon_hourly_service``, LVGL task) do the fade to
+  black on the panel's OWN hardware brightness (``fade_ramp`` paced by
+  ``UI_MOON_HOURLY_FADE_MS``, default = ``UI_SCREEN_SWITCH_FADE``) and
+  spawn the producer; when the producer signals done, the finished frame
+  lands as **ONE atomic whole-panel flush** while the panel is still
+  black (the fade's rule), then the brightness ramps back. A producer
+  that misses its 5 s budget (``HOURLY_BUDGET_MS``) leaves the OLD frame
+  and only restores the brightness — never a stranded black (a late
+  producer still shows, with no second fade-in).
+* **The producer** (``moon_hourly_task``, core 1, 12 KB, latest-wins)
+  fills a PSRAM bounce: it asks the **TF hour cache** first (a hit is a
+  JPEG decode instead of a ~1.3 s (S3) / ~2.4 s (P4) bake), else it runs
+  a full ``moon_bake`` with write-through store + eviction. It classifies
+  the hour-centre instant once (the gray→RGB565 tint LUT + the blood-moon
+  occlusion), then publishes ``s_frame`` + ``s_rgb`` in ONE ``s_rgb_mtx``
+  block. It never touches the panel.
+
+The bake key is the **hour centre** (``hour * 3600 + 1800``): stable
+across boots and boards, so a card seeded by one boot serves the next
+the byte-identical gray, and the on-screen frame is at most 30 min stale
+at the show. ``s_baked_hour`` / ``s_baked_event`` commit *on show*, so a
+cycle that never shows leaves the next hour still due (it self-heals on
+the next minute tick).
+
+Sleep hand-off. If a sleep entry lands mid-cycle, ``moon_ui_pause(true)``
+drops the pending legs and restores the brightness before pausing the
+tick — an armed-or-black hourly must never hand the sleep screens a black
+panel (the screen-switch fade-starve lesson, this time on the sleep path).
+
+**Bench hook.** ``CONFIG_TEST_HOURLY_FORCE_S=N`` fires the full cycle
+every N seconds while the home is active and not idle — acceptance for
+the fade/produce/show legs (cold card = miss + bake + store; warm card =
+fetch), without waiting on a real hour boundary.
+
+The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
+.....................................................................
+
+The cache persists one small gray JPEG per HOUR of the synodic cycle
+(bounded to one cycle, ~709 files) under
+``/moon_cache/<calcver>_<target>_<px>/``; the folder name carries the
+calculation version, so a new bake build starts from an empty folder, and
+a self-describing ``meta.txt`` wipes/recreates the folder on any
+resolution mismatch (``moon_tfcache.c``). The producer mounts the card
+**lazily on the first refresh** — boot never touches the SD bus — and
+every card failure (missing card, failed mount, failed decode, a mid-run
+pull, a store error) flips ``tfcache_ready()`` false for the boot and the
+refresh silently bakes on-device (the card-less path). The fetched frame
+runs through the SAME ``moon_gray565()`` tint LUT as a baked frame, so
+cache and compute paths are pixel-identical by construction.
 
 The boot sweep (retired 2026-11-13)
 -----------------------------------

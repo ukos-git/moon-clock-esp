@@ -39,13 +39,13 @@ CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_BSP_LCD_TYPE_720_720_4_INCH=y
 # ONE panel frame buffer (the BSP default is 3): with 3, the XC BSP's
 # TRIPLE_PARTIAL display start flips the continuous MIPI-DPI scanout
-# between the FBs on every LVGL refresh, while the spin's direct strip
-# burst only updates the FB being scanned -- so a flip briefly shows the
-# spin pose from that FB's last visit (older theta = counter-clockwise)
-# until the next spin frame corrects it (the spin's CCW flicker). 1 FB +
-# the adapter's NONE tear mode (set in main.cpp) makes every writer --
-# LVGL strips and spin strips -- write the single scanned surface; the
-# residual tearing is at most one frame (invisible at the spin rate).
+# between the FBs on every LVGL refresh, so a partial (strip) flush can
+# land on the FB just after the scanout has moved to another -- showing a
+# half-updated surface (tearing). 1 FB + the adapter's NONE tear mode (set
+# in main.cpp) makes every LVGL strip write the single scanned surface;
+# the residual tearing is at most one frame, invisible at the LVGL refresh
+# rate. (The direct-write burn-in spin that first forced this is gone; the
+# setting stays as the panel's tear control.)
 CONFIG_BSP_LCD_DPI_BUFFER_NUMS=1
 # Remote C6 Wi-Fi over SDIO (M2): the esp_hosted / esp_wifi_remote pair
 # (component-manager deps, pinned in main/idf_component.yml). All SDIO
@@ -71,11 +71,12 @@ CONFIG_WIFI_RMT_SOFTAP_SUPPORT=n
 # "Kconfig n leaves the macro UNDEFINED" — this is a *defaults-file* value,
 # not a #define, so it is fine.)
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
-# Idle-task WDT, CPU1: the moon_sweep task (the boot sweep, then the burn-in
-# spin) can own one core for seconds at a time (first bake ~5-6 s); the idle
-# task on that core then cannot feed the 5 s WDT, so the check fires on every
-# boot sweep. Same treatment as the S3 (sdkconfig.defaults.esp32s3): disable
-# the CPU1 idle check only (CPU0 stays checked).
+# Idle-task WDT, CPU1: the core-1 moon bakes (the boot bake, the orbit /
+# deferred re-bakes and the once-per-hour producer) can own one core for
+# seconds at a time (the first bake ~5-6 s at the 720 resolution); the idle
+# task on that core then cannot feed the 5 s WDT, so the check fires on
+# those bakes. Same treatment as the S3 (sdkconfig.defaults.esp32s3):
+# disable the CPU1 idle check only (CPU0 stays checked).
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 # Clock: the 4C has no PCF85063A / IO expander — the external-RTC-IC path
 # (PCF registers for time/minute/countdown/alarm) is off. The time base is

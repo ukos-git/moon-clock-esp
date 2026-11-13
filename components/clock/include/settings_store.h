@@ -49,11 +49,12 @@ void settings_set_idle_timeout_sec(uint32_t sec);
 uint32_t settings_deep_sleep_countdown_sec(void);
 void settings_set_deep_sleep_countdown_sec(uint32_t sec);
 
-/* Boot sweep animation on/off. Kconfig UI_MOON_ANIM_ENABLE. */
+/* Legacy no-ops (the boot-sweep + dusk animation stack retired 2026-11-13,
+ * their Kconfig keys deleted). The store still round-trips their settings.txt
+ * lines so an existing card parses; nothing reads the values. */
 bool settings_boot_anim_enable(void);
 void settings_set_boot_anim_enable(bool on);
 
-/* Light-sleep "dusk" animation on/off. Kconfig UI_MOON_DUSK_ENABLE. */
 bool settings_dusk_anim_enable(void);
 void settings_set_dusk_anim_enable(bool on);
 

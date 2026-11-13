@@ -17,20 +17,13 @@ CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_SPIRAM=y
-# TF sweep cache (UI_MOON_TFCACHE, components/ui/moon_tfcache.c): the
+# TF hour cache (UI_MOON_TFCACHE, components/ui/moon_tfcache.c): the
 # hour keys are 9-10 digit ".jpg" names and the version folder embeds
 # the target name -- both exceed 8.3, so FATFS long filenames are
 # REQUIRED. This config historically pinned LFN_NONE (a save-defconfig
 # leftover); the pin was stripped from the live sdkconfigs and the
 # IDF default (LFN_HEAP, a few KB of static cost) restored here.
 CONFIG_FATFS_LFN_HEAP=y
-# Obsolete test hook (the synodic sweep now plays at BOOT only, from a
-# black screen); kept off and present so existing configs keep
-# validating.
-CONFIG_UI_MOON_ANIM_ON_WAKE=n
-# Light-sleep dusk: the pole-axis spin to the fully unilluminated side;
-# the deep-sleep countdown is armed on its last frame.
-CONFIG_UI_MOON_DUSK_ENABLE=y
 # Clock opacity in light sleep (percent, 0..100): the light-sleep entry
 # dims the ONE shared clock widget to this opacity (the panel dim carries
 # the readability now, so 100 = no extra alpha is the default).
@@ -38,15 +31,21 @@ CONFIG_UI_CLOCK_ALPHA_PCT=20
 # Screen switches (e.g. into the settings hub) fade to black with the
 # panel's OWN hardware brightness (the CO5300 0x51 command, the same
 # dimming the deep-sleep backlight off/on uses): the fade-out ramp
-# writes no pixels (the spin keeps moving, its frames just dim), the
-# new screen is flushed atomically while the panel is still black, and
-# the fade-in ramp brings it back. No strip crawl, no per-step
-# re-render. The moon screens switch atomically as always.
+# writes no pixels, the new screen is flushed atomically while the panel
+# is still black, and the fade-in ramp brings it back. No strip crawl, no
+# per-step re-render. The once-per-hour moon refresh reuses this same
+# hardware-ramp exception (see UI_MOON_HOURLY_ENABLE below).
 CONFIG_UI_SCREEN_SWITCH_FADE=240
-# Burn-in spin: settled (at rest) rate 600 s/turn (visible slow creep;
-# the old phase-true coast read as a freeze), 8 panel frames/s.
-CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S=600
-CONFIG_UI_MOON_SPIN_FPS=8
+# Once-per-hour moon refresh (UI_MOON_HOURLY_ENABLE, components/ui/moon_ui.c
+# the hourly section): at each hour boundary the home's moon fades to black
+# on the panel's OWN hardware brightness (the same 0x51 ramp as the screen
+# switch above), a core-1 task produces the current-phase frame at the hour
+# centre (the TF hour cache serves it when the card can, else a full bake),
+# the finished frame lands as ONE atomic whole-panel flush while the panel
+# is still black, and the brightness ramps back. Only the brightness
+# animates -- the clock, alarm row and seconds keep running. On by default;
+# the fade legs follow UI_SCREEN_SWITCH_FADE's length.
+CONFIG_UI_MOON_HOURLY_ENABLE=y
 CONFIG_CODEC_ES7243_SUPPORT=n
 CONFIG_CODEC_ES7243E_SUPPORT=n
 CONFIG_CODEC_ES8156_SUPPORT=n
@@ -98,7 +97,7 @@ CONFIG_LV_USE_ROLLER=y
 CONFIG_LV_USE_SCALE=n
 CONFIG_LV_USE_SLIDER=n
 CONFIG_LV_USE_SPAN=n
-CONFIG_LV_USE_SNAPSHOT=y
+CONFIG_LV_USE_SNAPSHOT=n
 CONFIG_LV_USE_SPINBOX=n
 CONFIG_LV_USE_SPINNER=n
 CONFIG_LV_USE_SWITCH=n
@@ -109,9 +108,11 @@ CONFIG_LV_USE_TILEVIEW=n
 CONFIG_LV_USE_WIN=n
 # Debug monitors: nothing in this UI ever creates a perf/sysmon widget
 # (the CPU figures came from the IDF task stats), so the monitor code is
-# pure flash weight. Snapshot is on: the burn-in spin's UI keep-mask
-# captures the active screen into a full-screen draw_buf (moon text and
-# icons are kept as pixels) on every screen switch and label change.
+# pure flash weight. Snapshot is off: its only device user was the burn-in
+# spin's UI keep-mask (lv_snapshot_take of the active screen), gone with
+# the spin 2026-11-13 -- the home is plain LVGL now, nothing captures the
+# screen. (host_sim/uisim keeps its own LVGL config for its snapshot
+# probes; it does not read this file.)
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_PERF_MONITOR=n
 CONFIG_LV_CONF_MINIMAL=y

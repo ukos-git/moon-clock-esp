@@ -29,6 +29,12 @@ static const char *TAG = "settings_store";
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 60
 #endif
+/* The boot-anim / dusk Kconfig keys were retired 2026-11-13 (the whole
+ * animation stack). The two settings fields below stay as LEGACY no-ops:
+ * the store still parses/saves their settings.txt lines (a stale card on an
+ * existing install must not break parsing) and keeps their getters' shape,
+ * but nothing reads them. The #ifndef seeds (the keys are now undefined in
+ * sdkconfig.h) only keep those fields compiling. */
 #ifndef CONFIG_UI_MOON_ANIM_ENABLE
 #define CONFIG_UI_MOON_ANIM_ENABLE 1
 #endif

@@ -6,9 +6,10 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 # The S3 core clock (the P4 runs at its own 400 MHz default).
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-# Task watchdog: core 1 runs the bounded moon bakes (a high-priority
-# ~2 s/frame full-disk-relief bake for orbit/wake-sweep) plus the spin
-# render; together they can starve the CPU1 idle task for a full bake,
+# Task watchdog: core 1 runs the bounded moon bakes (the orbit re-bake,
+# the deferred re-bake and the once-per-hour producer -- each a
+# high-priority ~1.3-2.4 s full-disk-relief bake) plus the event day
+# scan; any of them can starve the CPU1 idle task for a full bake,
 # which would trip the 5 s WDT (log-only but noisy). The bakes are
 # bounded and self-cancelling, so a permanent core-1 hang is not a
 # realistic risk; core 0's idle check (IDF default, on) stays as the

@@ -1,16 +1,16 @@
 /*
- * TF-card bake cache for the synodic boot sweep.
+ * TF-card hour cache for the once-per-hour moon refresh.
  *
- * The boot sweep (moon_ui.c, UI_MOON_ANIM_*) computes one gray8 bake per
- * frame at UI_MOON_ANIM_BAKE_PX; at the native defaults that is ~0.7 s
- * (S3 @400 px) to ~2 s (P4 @650 px) per frame, and the bake paces the
- * sweep. This module persists those bakes on the TF card as one small
- * gray JPEG per HOUR of the synodic cycle, bounded to one cycle (~709
- * files), so a warm replay reads frames instead of computing them --
- * the knob demo's "precomputed frames, constant cadence" lesson applied
- * to our pipeline (docs: sweep section, TF cache subsection).
+ * The hourly refresh (moon_ui.c, UI_MOON_HOURLY_ENABLE) computes one
+ * gray8 bake per hour at MOON_PX; at the native resolution that is ~1.3 s
+ * (S3 @400 px) to ~2.4 s (P4 @650 px), and the produce pass runs while the
+ * panel sits black. This module persists those bakes on the TF card as one
+ * small gray JPEG per HOUR of the synodic cycle, bounded to one cycle
+ * (~709 files), so a warm refresh decodes the hour instead of baking it --
+ * the knob demo's "precomputed frames, constant cadence" lesson applied to
+ * our pipeline (docs: hourly-refresh section, TF hour-cache subsection).
  *
- * Contract (user spec 2026-11-07):
+ * Contract:
  *   - Cache lives under /moon_cache/<calcver>_<target>_<bakepx>/ ; the
  *     folder name carries the calculation version (MOON_CALC_VER, from
  *     git describe; repo versioned with commitizen), so a new bake build
@@ -19,18 +19,23 @@
  *     albedo width / relief / JPEG q): ANY mismatch -- above all a
  *     resolution switch -- wipes and recreates the folder, so frames can
  *     never be served at the wrong resolution.
+ *   - The bake key is the HOUR CENTRE (hour * 3600 + 1800): stable across
+ *     boots and boards, so a card seeded by one boot serves the same byte-
+ *     identical gray to the next.
  *   - Missing card / failed mount / failed decode / detached mid-run:
- *     tfcache_ready() goes false, the sweep silently recomputes every
- *     frame on-device (the card-less path, unchanged code).
- *   - Write-through: a frame the sweep had to compute is stored, so the
- *     next boot within the cycle replays it.
+ *     tfcache_ready() goes false, the hourly refresh silently bakes every
+ *     hour on-device (the card-less path, unchanged code).
+ *   - Write-through: an hour the refresh had to compute is stored, so a
+ *     later pass within the cycle decodes it.
  *   - One image per hour; adding an item evicts entries older than one
  *     synodic cycle from the newest cached hour.
  *
- * Threading: fetch() runs on the prefetch task, store() on the sweep
- * task; mount + scratch buffers are set up once in init (sweep task,
- * after the clock fix). All errors are silent-by-design -- they flip
- * s_ready and the sweep never blocks on the card.
+ * Threading: fetch() and store() run on the hourly producer task (core 1,
+ * a single caller -- there is no prefetch task any more); mount + scratch
+ * buffers are set up once in tfcache_init, called lazily by that producer
+ * on its first refresh (boot never touches the SD bus). All errors are
+ * silent-by-design -- they flip s_ready and the refresh never blocks on the
+ * card.
  */
 #pragma once
 
@@ -48,8 +53,8 @@ typedef struct {
     int puts, put_fails;        /* store() attempts / IO+encode failures   */
     long long bytes_read;       /* JPEG bytes read from the card           */
     long long bytes_written;    /* JPEG bytes written to the card          */
-    int64_t read_us, dec_us;    /* totals (prefetch task)                  */
-    int64_t enc_us, wr_us;      /* totals (sweep task)                     */
+    int64_t read_us, dec_us;    /* totals (hourly producer, fetch)         */
+    int64_t enc_us, wr_us;      /* totals (hourly producer, store)         */
     int64_t evict_us;           /* eviction scan total                     */
     int evict_del;              /* files evicted as older-than-one-cycle   */
     int enc_fmt;                /* probe result: 1 GRAY, 2 RGB565_LE, 3 RGB888 */
@@ -60,54 +65,33 @@ typedef struct {
  * version folder (wiping siblings and any meta-mismatched folder), probe
  * the gray encoder (falling back to 565/888 duplicate), and allocate the
  * codec scratch sized for bake_px (clamped to moon_px by the caller).
- * Call ONCE, after the clock is fixed and before the sweep loop.
+ * Call ONCE from the hourly producer's first refresh (after the clock is
+ * fixed; boot never mounts the card).
  * Never formats; never fails the caller -- !tfcache_ready() is normal. */
 esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 
 /* true while the cache is usable (mounted, folder ready, scratch up). */
 bool tfcache_ready(void);
 
-/* Return ALL codec PSRAM to the heap: the two eager buffers (~392 KB at
- * 400px/q90), the persistent fetch input, and the deferred 3*px*px
- * decode buffer if a hit ever allocated it -- ~1.1 MB at 400px/q90 once
- * a warm replay ran. The sweep task calls it twice at most: on the
- * card-less verdict (after its TF decision; the prefetch task was never
- * started), and -- task #39 -- right after the sweep's last frame when
- * the TF path RAN (moon_tf_prefetch_stop() has joined the prefetch
- * task). Both cases exist so the spin's UI keep-mask rebuild can take
- * its contiguous ~434 KB lv_snapshot (lv_snapshot_take): on the 8 MB S3
- * a resident ~1.1 MB of scratch left the largest block at 160 KB, the
- * snapshot never landed, and the spin composited stale clock digits
- * from the frozen mirror at 8 fps against the tick's fresh flush --
- * hard flicker on the clock (observed 2026-11-13). fetch/store/fetch_-
- * buf_alloc then fail on the NULL buffers like any !ready state; only
- * the sweep owns them, and nothing calls them after the sweep. */
-void tfcache_scratch_free(void);
-
 /* Allocate the persistent fetch-input buffer (the size a valid cached
- * file can reach). Call from the prefetch owner BEFORE allocating the
- * slot queue: with a full queue the PSRAM pool is down to a ~100 KB
- * head (8 MB S3), and a per-call fetch buffer then OOM'd at q90 file
- * sizes -- "cache off for this boot: no psram (fetch)", 2026-11-08.
- * false = no memory: stay on the card-less path. Idempotent. */
+ * file can reach). Call from the hourly producer right after init, before
+ * the first fetch: a per-call fetch buffer OOM'd at q90 file sizes once
+ * the PSRAM pool tightened -- "cache off for this boot: no psram
+ * (fetch)", 2026-11-08. false = no memory: stay on the card-less path.
+ * Idempotent. The scratch stays resident for the boot (the spin's mask
+ * snapshot that once needed it back is gone). */
 bool tfcache_fetch_buf_alloc(void);
-
-/* true when the version folder already held cached hours at init. The
- * prefetch budget must reserve the deferred 3*px*px decode out-buffer
- * (allocated by the first real hit inside tfcache_fetch) while this is
- * true; a cold folder never decodes, so its PSRAM may go to slots. */
-bool tfcache_folder_warm(void);
 
 /* Decode /hour.3600.jpg into gray_out (S*S gray8, S == bake_px from
  * init). false = miss (no file / corrupt file -- the caller bakes and
  * stores); a hard IO error also flips ready to false. Records read/dec
- * time into the stats. Called from the prefetch task only. */
+ * time into the stats. Called from the hourly producer task only. */
 bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S);
 
 /* Encode gray (S*S, S == bake_px) as a JPEG and write it under the hour
  * key; may run the periodic eviction scan. false = the write was skipped
  * or failed (stats counted); a card-gone error flips ready to false.
- * Records enc/write time. Called from the sweep task only. */
+ * Records enc/write time. Called from the hourly producer task only. */
 bool tfcache_store(int64_t hour, const uint8_t *gray, int S);
 
 /* Evict files older than one synodic cycle relative to newest_hour

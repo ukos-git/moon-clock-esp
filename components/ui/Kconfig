@@ -6,11 +6,12 @@ menu "UI Component Configuration"
         range 60 1800
         help
             Duration in seconds for the countdown timer from light sleep
-            to deep sleep. The timer is armed by the moon tick on the
-            LIGHT-SLEEP DUSK's last frame (the fully unilluminated side
-            on screen, UI_MOON_DUSK_ENABLE) -- the sleep depth follows
-            the animation, never a fixed timer at the sleep entry -- and
-            triggers the transition to deep sleep when it expires.
+            to deep sleep. The timer is armed at the LIGHT-SLEEP ENTRY
+            (actions.c runs moon_ui_pause(true) and arms the RTC
+            countdown in one step -- the dusk pole spin that used to
+            carry it was retired 2026-11-13, the sleep depth is a fixed
+            timer at the entry now) and triggers the transition to deep
+            sleep when it expires.
 
             Recommended: 30-60 seconds for battery-powered devices.
 
@@ -32,12 +33,14 @@ menu "UI Component Configuration"
             the P4's backlight PWM) while the light-sleep screen is shown:
             the entry ramps DOWN to this level (UI_SCREEN_SWITCH_FADE ms,
             the same pacing as the screen-switch fade) and the wake / an
-            alarm ring ramps it back to 100. The dusk keeps spinning at
-            this level (the whole display glows down, the moon included).
+            alarm ring ramps it back to 100. The sleep frame is static
+            (the dusk pole spin retired 2026-11-13) -- the whole display
+            simply glows down, the moon included.
             The ramp follows the fade's panel-io rule: it takes the panel
-            mutex per 0x51 step and holds the spin's panel writes
-            (s_fade_busy), so a brightness write is never queued behind a
-            strip DMA that could stall the bus (the settings-entry freeze).
+            mutex per 0x51 step and holds the other 0x51 writers
+            (s_fade_busy -- the ramps are mutually exclusive), so a
+            brightness write is never queued behind a strip DMA that
+            could stall the bus (the settings-entry freeze).
             0 = the panel goes fully dark in light sleep (the wake fades
             it back in).
 
@@ -74,10 +77,9 @@ menu "UI Component Configuration"
             full cycle to update top-to bottom the spinner. If this
             can be switched off, that would be good") -- so it is OFF
             by default: pairs hard-swap in one frame. The roll path
-            stays compiled for a build that opts back in; the
-            keep-mask rebuild rides the shared label_changed tail
-            either way (the never-animated hard-swap branch is
-            exactly what a disabled roll takes).
+            stays compiled for a build that opts back in (the
+            never-animated hard-swap branch is exactly what a
+            disabled roll takes).
 
     config UI_DEMO_MODE
         bool "Demo mode: full on-device tour of every screen and function"
@@ -86,7 +88,7 @@ menu "UI Component Configuration"
             A scripted showcase that exercises the whole device, built
             for side-by-side camera recordings of the three boards (the
             bench harness: bench/record_demo.py, docs/verification/
-            demo-mode). After the boot sweep it plays a looping tour:
+            demo-mode). From the boot bake it plays a looping tour:
             the five moon screens on a rotation with the MM:SS odometer
             clock (the seconds roll through the per-digit odometer every
             second), then -- with UI_DEMO_FULL_TOUR -- the real settings
@@ -95,7 +97,7 @@ menu "UI Component Configuration"
             for a real AP scan), the wheel keyboard (mode keys, letter
             taps through the real sector reveal + commit-on-release,
             backspace, discard), the alarm ring script, the light-sleep
-            dusk spin, the headless clock-roll script and one bounded
+            entry and exit, the headless clock-roll script and one bounded
             on-demand WiFi sync. Every phase start logs a machine-
             readable marker on its own serial tag:
                 I (12345) DEMO: phase=<name> cycle=<n> screen=<id>
@@ -123,7 +125,7 @@ menu "UI Component Configuration"
             the default; lower it for a faster cycle when recording.
 
     config UI_DEMO_FULL_TOUR
-        bool "Demo mode: run the full tour (settings, wheel, alarm, dusk, roll, sync)"
+        bool "Demo mode: run the full tour (settings, wheel, alarm, sleep, roll, sync)"
         depends on UI_DEMO_MODE
         default y
         help
@@ -132,132 +134,96 @@ menu "UI Component Configuration"
             moon-screen rotation only (the pre-2026-11 behaviour: MM:SS
             odometer + the five moon screens on a loop).
 
-    config UI_DEMO_DUSK_WAIT_S
-        int "Demo mode: seconds to wait for the dusk spin to complete"
-        depends on UI_DEMO_FULL_TOUR
-        default 180
-        range 30 600
-        help
-            Upper bound for the dusk showcase phase: the light-sleep
-            entry starts the real dusk (the pole spin to the dark side,
-            14-95 s at the display pace); the demo polls the dusk's
-            completion and holds the dark side 10 s before waking, but
-            gives up and wakes after this timeout when the dusk could
-            not start (the dark side was already on screen) so a slow
-            board can never stall the tour.
-
-    config UI_MOON_ANIM_ENABLE
-        bool "Play the synodic boot sweep (new moon -> now) at boot"
+    config UI_MOON_HOURLY_ENABLE
+        bool "Once-per-hour moon refresh (fade to black, redraw, fade in)"
         default y
         help
-            At boot the moon starts on a BLACK screen and replays the
-            current synodic cycle -- from the last NEW MOON (a dark
-            disk) to now, at most 29.5 days -- in UI_MOON_ANIM_FRAMES
-            frames, baked off screen and displayed as atomic whole
-            frames on the same pipeline as the burn-in spin (one ~150 ms
-            frame, no top-to-bottom wipe, the display stays live
-            throughout). The sweep always starts dark (the first frames
-            are nearly black, so the transition from the blank boot
-            screen reads as the new moon waxing; no wipe)
-            and ends on the current phase, and hands the burn-in spin
-            (UI_MOON_SPIN_*) back at the exact on-screen pose. This is
-            the BOOT animation only: waking from sleep (touch, tilt or
-            an alarm dismiss) shows the current moon phase STATIC, with
-            no animation.
+            At each hour boundary the home's moon refreshes behind the
+            screen-switch fade machinery: the panel's OWN hardware
+            brightness (the CO5300 0x51 command / the P4's backlight
+            PWM) ramps to black (UI_MOON_HOURLY_FADE_MS per leg), a
+            core-1 task produces the current-phase frame at the HOUR
+            CENTRE (TF hour-cache fetch when the card can serve it,
+            otherwise a full bake with write-through store), the
+            finished frame is displayed as ONE atomic whole-panel flush
+            while the panel is still black, and the brightness ramps
+            back. Only the brightness animates -- the clock, the alarm
+            row and the seconds display keep running. The refresh is
+            skipped while the device is idle (light sleep), while a
+            moon-less screen is active, and while the orbit / re-bake
+            pipelines or another 0x51 ramp own the buffers; a producer
+            that misses its 5 s deadline leaves the OLD frame restored.
 
-    config UI_MOON_ANIM_FRAMES
-        int "Synodic boot sweep frame count"
-        default 1344
-        range 5 4096
+    config UI_MOON_HOURLY_FADE_MS
+        int "Hourly refresh: fade leg time in ms (each leg)"
+        depends on UI_MOON_HOURLY_ENABLE
+        default UI_SCREEN_SWITCH_FADE
+        range 40 2000
         help
-            How many phase frames make up the boot sweep, evenly spaced
-            from the last NEW MOON to the current phase (the span is the
-            moon's current age this cycle, at most 29.53 days). The
-            frame count is fixed, so the sweep wall time is fixed
-            (~frames x per-frame bake+display) while the PHASE STEP
-            shrinks as the cycle is younger: at 1344 (the default) the
-            step is up to ~0.022 d/frame (~32 min) at an old moon. The
-            count was 336 until 2026-11-07 -- at that density the
-            per-frame illumination jump was visible as a stutter, so it
-            was quadrupled; the wall time grew with it (~37 min S3
-            measured 2026-11-08 at the native 400 px default bake,
-            ~40 min P4 @650 px -- the display stays live and the sweep
-            hands over to the spin when done). The intermediate
-            frames are baked at UI_MOON_ANIM_BAKE_PX (see there); the
-            final frame is always full MOON_PX. Lower = faster but
-            coarser sweep; the display stays live either way. When the
-            TF sweep cache (UI_MOON_TFCACHE) can serve the card, the
-            intermediate frames are instead the whole hour list of the
-            current cycle (one frame per cached hour, at most ~709) and
-            this count applies only to the card-less path (no card /
-            cache off / cache disabled this boot).
+            The fade legs of the hourly refresh (down to black and back
+            up), paced like the screen-switch fade (UI_SCREEN_SWITCH_FADE)
+            with the same 12 steps. The produce pass runs while the
+            panel sits at black, so raising this only lengthens the
+            dark window (~1.3-2.4 s of bake plus the two ramps).
 
-    config UI_MOON_ANIM_BAKE_PX
-        int "Synodic boot sweep intermediate-frame bake resolution (px)"
-        # Kconfig evaluates multiple default lines FIRST-MATCH-WINS, so the
-        # conditional line must precede the unconditional fallback.
-        default 650 if BOARD_P4
-        default 400
-        range 100 650
+    config UI_MOON_HOURLY_TFCACHE
+        bool "Serve the hourly refresh frames from the TF card cache"
+        depends on UI_MOON_HOURLY_ENABLE && UI_MOON_TFCACHE
+        default y
         help
-            The on-screen size the boot sweep's INTERMEDIATE frames are
-            baked at before being upscased (nearest-neighbor) to the full
-            MOON_PX for display. Both boards default to their own MOON_PX
-            (S3 400, P4 650) -- every intermediate frame baked at full
-            resolution, pixel-identical to the static/spin bakes (no
-            upsample softness at the terminator), at the cost of a longer
-            sweep. Measured on the S3 336-frame sweep: 200 -> ~0.21
-            s/frame (~2.4 min), 240 -> ~0.28 s (~2.8 min), 320 -> ~0.48 s
-            (~4.0 min), 400 (= MOON_PX) -> ~0.72 s (~5.3 min). The P4
-            default 650 is an EXTRAPOLATION (~1.5-2 s/frame -> ~8-11 min
-            for 336 frames, unmeasured on the panel); if the boot sweep
-            becomes too slow, drop it (e.g. 512) -- one Kconfig value.
-            Values above the board's MOON_PX are clamped to it: a bake
-            above native adds no display quality (the screen shows
-            MOON_PX), and the sharpness comes from the MOON_ALBEDO_W
-            texture oversampling, not supersampled bakes. The reduced-res
-            frames are physically correct (the lighting/relief model is
-            resolution-independent; only the screen sampling is coarser,
-            MOON_PX/S x MOON_PX/S blocks), which is acceptable in the fast
-            montage. The last frame and the static/spin phase are ALWAYS
-            full resolution regardless of this setting. (The light-sleep
-            dusk does not bake intermediate frames at all: its constant-
-            projection re-renders at full resolution, and its final
-            dark-side frame is a full-resolution bake.) The TF sweep
-            cache (UI_MOON_TFCACHE) keys its entries on the SAME bake
-            size: the folder name and the self-describing meta.txt state
-            it, and switching this value wipes the folder rather than
-            resampling stale frames.
+            The hourly producer asks the TF hour cache first (one gray
+            JPEG per HOUR of the synodic cycle; a hit is a decode
+            instead of a ~1.3-2.4 s bake) and write-through stores every
+            hour it had to compute. The card mounts LAZILY on the first
+            refresh (boot never touches the SD bus) and every card
+            failure falls back silently to the bake path. See
+            UI_MOON_TFCACHE for the folder / versioning rules.
+
+    config TEST_HOURLY_FORCE_S
+        int "Test: fire the hourly refresh every N seconds (0 = off)"
+        default 0
+        range 0 3600
+        help
+            Test hook: ignore the hour boundary and fire the full hourly
+            cycle (fade-out, produce, atomic show, fade-in) every N
+            seconds while the home screen is active and the device is
+            not idle -- bench acceptance for the fade/refresh legs
+            (cold card = miss + bake + store, warm card = fetch). The
+            clock, alarm row and seconds keep running through every
+            cycle. 0 (default) = off.
 
     config UI_MOON_TFCACHE
-        bool "Cache boot-sweep frames on the TF card"
+        bool "Cache hourly moon frames on the TF card"
         default y
         help
-            Persist the sweep's intermediate bakes on the TF card (one
+            Persist the hourly refresh's frames on the TF card (one
             small gray JPEG per HOUR of the cycle, e.g. 709 files ~10 MB
             for a full month) under /sdcard/moon_cache/<calcver>_<target>_<px>/,
-            so a warm replay reads frames instead of computing them:
-            the sweep wall time drops from minutes to the display
-            cadence itself (~150 ms/frame). The folder is versioned by
-            the calculation (MOON_CALC_VER from git describe; bump the
-            repo with commitizen `cz bump` to invalidate), and a
-            self-describing meta.txt inside it pins the effective BAKE
-            RESOLUTION (plus albedo width / relief / JPEG quality): any
-            mismatch -- above all switching UI_MOON_ANIM_BAKE_PX --
-            wipes and recreates the folder, so frames are never served
-            at the wrong resolution. Old version folders are deleted on
-            sight; entries older than one synodic cycle are evicted when
-            new ones are written (the cache never grows past ~29.5 days).
-            Write-through: every frame the device had to compute is
-            stored, so the next boot within the cycle replays it.
-            The device works WITHOUT a card: missing card, failed mount,
-            undecodable file, foreign filesystem or a mid-run detach all
-            fall back silently to computing every frame on-device (the
-            original path, unchanged). Frames fetched from the card go
-            through the same moon_gray565 tint LUT as computed ones --
-            replay and compute are pixel-identical by construction.
-            The final frame is ALWAYS the live full-MOON_PX bake of the
-            current phase (with its sky-event occlusion), cached or not.
+            so a warm hour reads the frame instead of computing it: the
+            panel's dark window shrinks from bake+fade to decode+fade
+            (~200 ms + the ramps). Entries are keyed on the hour and
+            baked at the HOUR CENTRE (hour*3600+1800), so a cached hour
+            is byte-identical across boots and boards. The folder is
+            versioned by the calculation (MOON_CALC_VER from git
+            describe; bump the repo with commitizen `cz bump` to
+            invalidate), and a self-describing meta.txt inside it pins
+            the effective BAKE RESOLUTION (plus albedo width / relief /
+            JPEG quality): any mismatch wipes and recreates the folder,
+            so frames are never served at the wrong resolution. Old
+            version folders are deleted on sight; entries older than one
+            synodic cycle are evicted when new ones are written (the
+            cache never grows past ~29.5 days). Write-through: every
+            hour the device had to compute is stored, so the next boot
+            within the cycle fetches it. The device works WITHOUT a
+            card: missing card, failed mount, undecodable file, foreign
+            filesystem or a mid-run detach all fall back silently to
+            computing every frame on-device (the card-less path). Frames
+            fetched from the card go through the same moon_gray565 tint
+            LUT as computed ones -- fetch and compute are pixel-identical
+            by construction. The card mounts lazily on the first hourly
+            refresh (boot never touches the SD bus), and the day's
+            sky-event occlusion is part of the cached bake epoch, so a
+            cached hour carries exactly what the same epoch would bake.
 
     config UI_MOON_TFCACHE_JPEG_Q
         int "TF cache JPEG quality (1-100)"
@@ -265,197 +231,18 @@ menu "UI Component Configuration"
         default 90
         range 1 100
         help
-            Quality of the gray JPEGs the sweep cache stores. The
+            Quality of the gray JPEGs the hour cache stores. The
             panel verdicts, in order: q 10 (the knob-demo recipe
             class) showed visible blocking/mosquito noise in the flat
             dark and bright areas; q 32 STILL showed it on the panel
-            during the warm replay (2026-11-08) even though the flats
+            during a warm replay (2026-11-08) even though the flats
             measured clean. 90 is the visually-transparent class for
             gray DCT encoding; the files are a few times larger than
             q 32's ~7.5 KB (400 px) / ~18 KB (650 px), still tens of
             MB for a whole cached cycle, and encode/decode cost is
-            resolution-bound, not quality-bound, so the sweep path
+            resolution-bound, not quality-bound, so the hourly path
             pays almost nothing for it. The folder's meta.txt pins
             the value: a change wipes and re-bakes the cache.
-
-    config UI_MOON_TFCACHE_FPS
-        int "TF replay frame rate (fps)"
-        depends on UI_MOON_TFCACHE
-        default 25
-        range 2 30
-        help
-            Pacing target for warm card replay. Replayed intermediate
-            frames are written STRAIGHT TO THE PANEL by the sweep task
-            in the burn-in spin's model (step-rotated, UI keep-mask
-            composited, one window write under the panel mutex -- the
-            third sanctioned exception to the atomic whole-panel-flush
-            invariant): LVGL's whole-panel refresh measures 304 ms
-            (S3) / 207 ms (P4) and caps a tick-displayed replay at
-            ~3 fps, so without the direct write this value could not
-            be reached. The frame budget is pop + tint convert + the
-            window write; a frame that runs long is never repeated or
-            skipped, just slower -- the sweep task's summary logs the
-            MEASURED fps and the worst inter-frame gap. The final
-            frame (the current phase, full MOON_PX) stays on the
-            tick's atomic lv_refr_now path: it reconciles LVGL with
-            the panel and re-anchors the spin. Card-less sweeps are
-            unaffected (bake-paced, tick-displayed, as before).
-
-    config UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS
-        int "TF cache prefetch queue floor (slots, target)"
-        depends on UI_MOON_TFCACHE
-        default 2
-        range 1 12
-        help
-            The prefetch task decodes card frames into a PSRAM slot queue
-            ahead of the display; the depth is DERIVED from the free
-            PSRAM at sweep start ((free - deferred-decode reservation) /
-            (bake_px^2 * 1.15 + 4 KiB), capped at 12, logged per boot).
-            This is the floor the derived depth is raised to under normal
-            memory -- below it the boot runs THIN (logged) rather than
-            dropping the card path: even ONE slot replays and seeds the
-            card (a starved slot times out to a local bake, never wedges
-            the sweep). Only zero allocatable slots fall back to full
-            on-device baking. On a warm folder the budget first reserves
-            the deferred 3*bake_px^2 decode buffer (allocated by the
-            first hit); a cold folder spends it on slots (task #38).
-
-    config UI_MOON_ANIM_ON_WAKE
-        bool "Re-bake the moon on every wake from sleep (testing)"
-        default y
-        help
-            Obsolete: the synodic sweep (UI_MOON_ANIM_*) now plays at
-            BOOT only (from a black screen); wakes show the current
-            phase static. The old re-bake test hook is gone. Kept so
-            existing sdkconfig files keep validating.
-
-    config UI_MOON_DUSK_ENABLE
-        bool "Light-sleep dusk: pole-axis spin to the fully unilluminated side"
-        default y
-        help
-            When the device enters light sleep the moon (parked at the
-            exact free-spin pose, seamless seam) spins about its POLE at
-            the current phase -- 1 degree per frame, the shortest arc to
-            the fully unilluminated view (at most a half turn, 14-95 s
-            at the ~0.2 s/frame display pace) -- and the deep-sleep RTC
-            countdown (UI_DEEP_SLEEP_COUNTDOWN_SEC) is armed on the
-            LAST frame's display, so the sleep depth follows the
-            animation. The spin is a CONSTANT PROJECTION, not a re-bake:
-            the renderer's color depends only on the body-frame surface
-            direction and the epoch's fixed sun (the camera basis never
-            enters the color), so the fully-lit body-frame equirect map
-            (864x432) is baked ONCE for the epoch (~1.5-2 s) and every
-            intermediate frame re-projects that fixed map through the
-            folded camera basis -- a gather-class pass (~50 ms), no
-            per-frame shadow/lighting recompute, and no terminator
-            flicker (a fixed surface point keeps its exact color).
-            The FINAL (dark-side) frame is one full MOON_PX bake at the
-            endpoint (pixel-exact lighting) and lingers on the sleep
-            screens; the dark side keeps its contrast (earthshine +
-            relief-lit rims, dark_zero stays 0). Waking from sleep shows
-            the CURRENT phase static at the parked pose -- no
-            animation; the burn-in spin resumes from exactly the pose
-            the dusk started from.
-
-    config UI_MOON_SPIN_ENABLE
-        bool "Free spin: rotate the moon in place (phase-anchored)"
-        default n if BOARD_P4
-        default y
-        help
-            Burn-in is an AMOLED duty: the P4 4C carries an IPS LCD
-            (JD9365 MIPI-DSI) with no burn-in to prevent, so the spin
-            defaults OFF there (user 2026-11-13: "non-amoled screens
-            (e.g. lcd) do not need to use the anti-burnin moon-spin
-            animation") -- the moon stays the static LVGL frame and
-            the direct-panel spin path never runs. The S3 AMOLED keeps
-            it on. With it off, every spin consumer stays inert: the
-            task never starts and the keep-mask, pause and screen-
-            switch re-anchor ride the never-set running flag.
-
-            The current phase is baked once (the static frame) and then
-            rotated in-plane on screen by a FREE SPIN (a nearest-neighbor
-            gather, ~8 ms/frame at the full 400x400 render size -- no
-            re-bake; the lighting re-bake happens once per day, the
-            rotation is pure gather): a spin angle integrated per
-            frame whose rate is smoothed toward a target. While the
-            device is in use (touched or tilted within the settle
-            window) the rate is the ACTIVE period below; once it
-            settles the rate eases to the SLOW SETTLED period (default
-            600 s/turn) -- the continuous slow rotation moves the lit
-            pixels around the panel, preventing AMOLED burn-in.
-            Picking the device up spins it faster; letting it settle
-            slows it visibly back to the settled rate. Each frame is
-            written STRAIGHT to the panel from the render task (core
-            1) via a wrapped esp_lcd_panel_draw_bitmap (the 400x400
-            moon area, one whole-moon-area write per frame, the panel's
-            SPI bus lock serializing with LVGL's own flushes). A UI
-            keep-mask (analytic seconds-arc ring band + a full-screen
-            lv_snapshot of the active screen with the moon image
-            hidden) protects every non-black UI pixel -- clock digits,
-            the alarm row, icons -- so the spin composites the frame
-            only where the UI is not. The spin no longer routes
-            through LVGL's ~175 ms whole-panel re-render, so the
-            touch core (LVGL, core 0) stays free and the spin can
-            show more, finer frames at lower CPU. The spin runs on
-            every screen that shows the moon and is paused (not
-            stopped) while the tilt-driven orbit re-bake, the boot
-            sweep, the dusk, or a fade leg owns the buffer.
-
-    config UI_MOON_SPIN_PERIOD_S
-        int "Active spin: seconds for one full turn (while in use)"
-        default 300
-        range 30 7200
-        help
-            The spin rate while the device is in use: one full in-plane
-            rotation in this many seconds (the default 300 s = a turn
-            every 5 minutes). After the last user activity (touch or
-            tilt) the rate eases down toward the settled period over the
-            settle window. Lower = a faster (more visible) spin while
-            in use.
-
-    config UI_MOON_SPIN_SETTLED_PERIOD_S
-        int "Settled spin: seconds for one full turn (at rest)"
-        default 600
-        range 60 7200
-        help
-            The spin rate once the device has settled (no touch or
-            tilt within the settle window): one full in-plane rotation
-            in this many seconds (the default 600 s = a turn every
-            10 minutes, half the active rate). The spin stays VISIBLE
-            at rest -- it is the AMOLED burn-in protection, so it
-            must keep moving the lit pixels; the old phase-true coast
-            (one turn per synodic month) was effectively invisible and
-            read as the moon freezing a minute before light sleep.
-            The continuous slow rotation keeps guarding against
-            burn-in while the device sits on a table.
-
-    config UI_MOON_SPIN_FPS
-        int "Spin frame rate: rendered/panel-written frames per second"
-        default 8
-        range 2 30
-        help
-            How many spin frames the render task writes to the panel
-            per second. Each frame is one cheap nearest-neighbor
-            rotate of the baked 400x400 phase (~8 ms) plus a direct
-            QSPI write of the moon area (~30-40 ms of panel time,
-            QSPI quad at 40 MHz) -- the frame is paced to this rate,
-            so a higher value is smoother (a smaller angular step per
-            displayed frame) at a higher core-1 duty. The rate is
-            time-integrated, so a dropped frame is a bigger step,
-            never a repeat or a stall. 8 fps at the 300 s active
-            period steps the rim by ~0.15 deg/frame -- smooth.
-
-    config UI_MOON_SPIN_SETTLE_S
-        int "Spin settle window: seconds of idle before easing to the settled rate"
-        default 10
-        range 2 60
-        help
-            After this much time without user activity (touch or tilt)
-            the spin rate begins easing from the active period down to
-            the settled period. The rate change is exponential (time
-            constant ~ this/3), so a few multiples of this window
-            settle the spin fully. Larger = the moon keeps its active
-            spin longer after use.
 
     config TEST_AUTO_WAKE_SEC
         int "Test: auto-wake from sleep after N seconds (0 = off)"
@@ -466,7 +253,7 @@ menu "UI Component Configuration"
             trigger the idle-wake path automatically after N seconds of
             being asleep -- no touch needed. Lets the wake-from-sleep
             transitions (WiFi reconnect, screen switch, moon
-            re-bake/animation) be exercised repeatedly without touching
+            re-bake) be exercised repeatedly without touching
             the device. 0 (default) = off.
 
     config TEST_SETTINGS_DEMO_SEC
@@ -479,7 +266,7 @@ menu "UI Component Configuration"
             pomodoro (set + save a 90-minute interval) -> alarm time
             (set + save 12:35 Mon-Fri, the range-arc default) ->
             light-sleep (set the
-            idle timeout + countdown + animation flags + save) ->
+            idle timeout + countdown + save) ->
             airplane, logging every transition, the scheduler /
             settings-store writes, and reading the alarm / settings
             files back. Headless acceptance path for the whole
@@ -491,7 +278,7 @@ menu "UI Component Configuration"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot (waits out the boot sweep)
+            Test hook: N seconds after boot (waits out the boot bake)
             open the settings WiFi screen -- its entry starts the
             background AP scan, whose radio bring-up/scan/teardown
             storm is the same class as the wake-sync storm -- dwell 2 s
@@ -499,38 +286,15 @@ menu "UI Component Configuration"
             return HOME so the home screen's atomic switch flush
             overlaps the scan's radio session. Writes
             NOTHING to settings or credentials; the evidence is the
-            moon_ui "ui mask rebuilt" lines, the co5300 failure
+            moon_ui drain/hold lines, the co5300 failure
             signature and the panel itself. 0 (default) = off.
-
-    config TEST_SPIN_BANDS
-        int "Test: spin writes per-strip gray bands instead of the moon (0 = off)"
-        default 0
-        range 0 100
-        help
-            Seam diagnostic for the spin's direct panel write. When >0,
-            the spin replaces the rotated moon (and the UI keep-mask
-            overlay) with one distinct gray level per strip -- the 16
-            strips of the moon area become 16 horizontal bands, darkest
-            to brightest, so any glitch at a strip seam (a stray line, a
-            shifted boundary, a row that does not land) is visible on a
-            clean pattern with no moon texture or mask to confound it.
-            The write path (same strips, same geometry, same panel
-            mutex) is unchanged; only the content differs.
-            Value 1 = the bands written with the normal spin geometry
-            (400-wide strips at x=33). Value 2 = the same band pattern
-            written as FULL-PANEL-WIDTH strips (x 0..465, 466 px/row --
-            the LVGL flush geometry): the A/B that isolates the
-            400-wide strip window as the seam-line cause (the black
-            edge margins cover the arc-ring slivers at the mid-height
-            edges for the duration of the test). 0 (default) = the
-            normal moon.
 
     config TEST_WIFI_SCAN_SEC
         int "Test: open the WiFi settings screen N seconds after boot (0 = off)"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot (waits out the boot sweep
+            Test hook: N seconds after boot (waits out the boot bake
             first), open the settings WiFi screen -- the one that
             starts the background AP scan (wifi_scan_begin) and
             renders the results as rows. Headless verification of the
@@ -544,14 +308,14 @@ menu "UI Component Configuration"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot (so the boot sweep is done
+            Test hook: N seconds after boot (so the boot bake is done
             and the device rests), log every task's share of total CPU
             time (FreeRTOS run-time stats) once per second — 10 s on
             the home screen, then 30 s on the settings hub (loading it
             once); each line holds the idle timer awake. Enables the
             FreeRTOS run-time stats tick (the hook's only runtime cost:
             a two-word read on every context switch). One capture
-            therefore shows the active-spin CPU on the home screen and
+            therefore shows the home-screen CPU and
             the settings-idle CPU on the hub. Headless CPU profiling
             aid; 0 (default) = off.
 
@@ -573,15 +337,15 @@ menu "UI Component Configuration"
             no physical tilt needed (exercises the PSRAM layer
             allocation and the centre pivot). The 1 s window lags the
             step changes by ~1 s. Idle monitoring is paused for the
-            script so it does not dusk-sleep mid-run.
+            script so it does not light-sleep mid-run.
             0 (default) = off.
 
     config TEST_ALARM_RING_SEC
-        int "Test: fire the alarm ring N seconds after the boot sweep (0 = off)"
+        int "Test: fire the alarm ring N seconds after the boot bake (0 = off)"
         default 0
         range 0 3600
         help
-            Test hook: N seconds after boot (waits out the boot sweep
+            Test hook: N seconds after boot (waits out the boot bake
             first), fire the REAL alarm path (action_alarm_triggered:
             the ring start + the alarm screen); ~9 s later (past the
             2.5 s volume ramp) stop the ring the way the touch dismiss
@@ -623,18 +387,17 @@ menu "UI Component Configuration"
         bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"
         default y
         help
-            The moon's in-plane pose is the free spin's (UI_MOON_SPIN_*,
-            which rotates the baked phase in place); the device tilt
-            (QMI8658 gravity) changes which side of the sphere the
-            camera sees (the out-of-plane orbit, see UI_MOON_ORBIT_*).
-            Tilt also counts as user activity: it holds the idle timer,
-            wakes the device from sleep, and drives the spin's active
-            rate (picking the device up spins it faster). Touch is not
-            an input to the moon's pose (it is only the core-UI wake
-            input). When the IMU is absent or this is disabled the
-            orbit is off (the tilt monitor runs on but gets no pose
-            input, so no tilt-driven activity/wake; the free spin still
-            runs when UI_MOON_SPIN_ENABLE is set).
+            The moon's in-plane pose is fixed (the burn-in spin was
+            removed 2026-11-13 -- the home shows the baked phase static);
+            the device tilt (QMI8658 gravity) changes which side of the
+            sphere the camera sees (the out-of-plane orbit, see
+            UI_MOON_ORBIT_*, and the whole-screen orientation correction,
+            UI_CLOCK_ROLL_SIGN). Tilt also counts as user activity: it
+            holds the idle timer and wakes the device from sleep. Touch
+            is not an input to the moon's pose (it is only the core-UI
+            wake input). When the IMU is absent or this is disabled the
+            orbit and the tilt-driven activity/wake monitor are off (the
+            tilt monitor runs on but gets no pose input).
 
     config UI_IMU_ACTIVITY_DEG
         int "Tilt activity threshold: departure from the settled pose (degrees)"
@@ -682,9 +445,9 @@ menu "UI Component Configuration"
         default 0
         range 0 359
         help
-            Obsolete: the free spin (UI_MOON_SPIN_*) is time-driven,
-            not tilt-driven, so a resting roll offset has no effect.
-            Kept so existing sdkconfig files keep validating.
+            Obsolete: the moon's in-plane pose is fixed (the burn-in
+            spin was removed 2026-11-13), so a resting roll offset has
+            no effect. Kept so existing sdkconfig files keep validating.
 
     config UI_CLOCK_ROLL_SIGN
         int "Screen-orientation correction sign (+1 or -1)"
@@ -728,11 +491,12 @@ menu "UI Component Configuration"
             The whole-screen rotation at orientation step 0 (the pose
             the settled-pose reference anchors to): positive =
             clockwise, LVGL transform units (1/10 deg). Applied at
-            init and on every 2 s press re-sync, and it feeds the
-            spin's direct-panel pre-rotation and UI keep-mask through
-            the pushed value - this is the single source for the mount
-            offset. Must be a multiple of 900: the spin's step table
-            only understands quarter turns.
+            init and on every 2 s press re-sync -- this is the single
+            source for the panel-mount offset (the shared clock widget
+            and every screen root carry it; the burn-in spin's
+            pre-rotation it once also fed was removed 2026-11-13).
+            Must be a multiple of 900: the orientation pipeline only
+            understands quarter turns.
 
     config UI_MOON_ORBIT_ENABLE
         bool "Sphere model: peek at the dark side via out-of-plane tilt"
@@ -746,20 +510,17 @@ menu "UI Component Configuration"
             unilluminated limb. This requires a re-bake with a
             pre-rotated camera basis (~1.7-2.4 s with the relief DEM
             on this board); the finished frame is then displayed as one
-            atomic whole frame, exactly like the burn-in spin (one
-            ~150 ms frame -- the same sequential update the spin uses),
-            so the viewport change lands as a frame instead of a slow
-            wipe. The free spin (UI_MOON_SPIN_*) rotates the baked
-            frame in place on top of the orbit's viewport.
+            atomic whole frame (the same sequential update the
+            hourly-refresh and re-bake pipelines use), so the viewport
+            change lands as a frame instead of a slow wipe.
 
             DISABLED by default: the ~2 s relief-DEM re-bake cannot be
             served at the tilt-driven cadence on the ESP32-S3 (the
             display pipeline stalls and the viewport lags the tilt), so
             on the S3 the tilt drives the CLOCK orientation instead
             (UI_CLOCK_ROLL_SIGN) and the moon stays on its default
-            viewport. The in-plane free spin and the tilt activity/wake
-            monitor are unaffected. Re-enable on the ESP32-P4, which can
-            hold the re-bake rate.
+            viewport. The tilt activity/wake monitor is unaffected.
+            Re-enable on the ESP32-P4, which can hold the re-bake rate.
 
     config UI_MOON_ORBIT_MAX_DEG
         int "Max orbit (peek) angle in degrees"

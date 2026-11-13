@@ -86,12 +86,14 @@ is pinned to:
      - yes (``task_pin_to_core 0``)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - bake tasks (orbit / rebake)
+   * - bake tasks (orbit / rebake / hourly)
      - 1
      - **yes** (pinned, PSRAM-stack)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
-       ``moon_rebake`` re-bakes the static frame off the LVGL task
-       (the tick displays the finished frame atomically)
+       ``moon_rebake`` re-bakes the static frame off the LVGL task and
+       ``moon_hourly`` produces the once-per-hour frame (a bake or a TF
+       hour-cache fetch) — the tick displays each finished frame
+       atomically
    * - ``panel_wdg``
      - 0
      - yes
@@ -104,7 +106,7 @@ is pinned to:
        for the 1.7 s wake freeze, :doc:`the clock and sleep machine <clock-sleep>`)
 
 Two design choices are worth calling out. First, the bake producers
-(orbit, rebake) are **pinned to core 1** because a bake
+(orbit, rebake, hourly) are **pinned to core 1** because a bake
 is CPU-bound work: the LVGL task (on core 0, with the touch pipeline,
 the clock minute update, and the fade ramps) must never share a core
 with a bake or a gather. Second, those pipelines run as *tasks*
@@ -181,7 +183,9 @@ original design fought. The atomic rule is what makes a screen switch
 look like a screen switch.
 
 There is exactly **one sanctioned exception**, and it is a property
-of the panel, not of LVGL:
+of the panel, not of LVGL: the **hardware brightness ramp** (CO5300
+``0x51`` / the P4 backlight PWM), which writes no pixels. Two flows
+ride it:
 
 1. **The fade-to-black screen switch** (``UI_SCREEN_SWITCH_FADE``):
    the switch dims the panel's own hardware brightness (CO5300
@@ -190,13 +194,21 @@ of the panel, not of LVGL:
    ramps the brightness back. The invariant is preserved *off the
    visible path*: the atomic flush runs, it just runs while nothing is
    visible (:doc:`the animation pipelines <animations>`).
+2. **The hourly refresh** (``UI_MOON_HOURLY_ENABLE``): once per hour the
+   moon redraws behind this SAME ramp — fade to black, a core-1 producer
+   rebuilds the frame (a bake, or a TF hour-cache fetch — no panel
+   traffic), the finished frame lands as ONE atomic whole-panel flush
+   while black, then the brightness ramps back. It reuses the screen
+   switch's fade rule verbatim, and the clock, alarm row and seconds
+   keep running through it (:doc:`the animation pipelines <animations>`).
 
 (The burn-in spin's direct panel write and the TF sweep cache's
 direct-write replay were exceptions 2 and 3 until 2026-11-13, when
 the spin subsystem was removed entirely at the user's request —
 *"It does more things worse than good."* — and the boot sweep (the TF
-replay's producer) followed later the same day. Every moon frame now
-rides the LVGL path.)
+replay's producer) followed later the same day. The TF cache lives on
+as the hourly refresh's hour cache, and every moon frame now rides the
+LVGL path.)
 
 Everything else that shows moon content obeys the rule: the boot and
 wake displays (one atomic flush of the current-phase bake) and the orbit

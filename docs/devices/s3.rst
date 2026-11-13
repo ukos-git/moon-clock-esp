@@ -35,7 +35,7 @@ above traces the buses the project actually uses; this table is the
 complete reference, including the un-used GPS / expander (``EXIO``)
 lines. The SD socket is **SPI 1-bit** (MOSI GPIO01 / SCK GPIO02 /
 MISO GPIO03 / CS GPIO41, D1–D7 not wired); there is no SDMMC wiring on
-this board. The TF sweep cache (``UI_MOON_TFCACHE``,
+this board. The TF hour cache (``UI_MOON_TFCACHE``,
 :doc:`the animation pipelines <../implementation/animations>`) mounts it with
 ``esp_vfs_fat_sdspi_mount`` on **SPI3_HOST** — not through the vendored
 BSP's ``bsp_sdcard_mount()``, which attaches to SPI2_HOST, and SPI2 is
@@ -43,9 +43,10 @@ already the QSPI **panel's** bus (``BSP_LCD_SPI_NUM``), so sharing it
 starves the card to a 0x107 timeout. ``moon_tfcache`` therefore
 initializes the SPI3 bus itself (the caller owns ``spi_bus_initialize``
 under the SDSPI contract) and attaches the card there — a missing card
-was a silent no-op and the sweep just ran bake-paced. The module
-survives the sweep it served: dormant since 2026-11-13, until the
-hourly refresh repurposes it.
+is a silent no-op and the hourly refresh just bakes on-device. The
+module survives the sweep it was built for: it now serves the
+**hourly refresh**, which mounts the card lazily on its first refresh
+(boot never touches the SD bus).
 
 .. code-block:: text
    :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)
@@ -242,11 +243,11 @@ The S3 build merges the shared defaults with
    CONFIG_SPIRAM_SPEED_80M=y
    # The S3 core clock (the P4 runs at its own 400 MHz default).
    CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-   # Task watchdog: core 1 runs the bounded moon bakes + the spin
-   # render; a full bake can starve the CPU1 idle task for >5 s,
-   # which would trip the (log-only) WDT. The bakes are bounded and
-   # self-cancelling, so core 1's idle check is off; core 0's stays
-   # on as the hang safety net.
+   # Task watchdog: core 1 runs the bounded moon bakes (orbit, deferred
+   # re-bake, the once-per-hour producer) + the event day scan; a full
+   # bake can starve the CPU1 idle task for >5 s, which would trip the
+   # (log-only) WDT. The bakes are bounded and self-cancelling, so core
+   # 1's idle check is off; core 0's stays on as the hang safety net.
    CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
    # LCD flush queue depth 1: the S3 SPI DMA caps one transfer at
    # 32 KiB and PSRAM is not DMA-capable, so every strip is staged
@@ -266,18 +267,17 @@ The shared file (``sdkconfig.defaults``) contributes the board-neutral
 values: the 16 MB flash header (``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``
 — both boards flash a 16 MB header), ``CONFIG_PARTITION_TABLE_CUSTOM=y``
 (the S3 keeps the default ``partitions.csv``), ``CONFIG_SPIRAM=y``,
-``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF sweep cache
+``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF hour cache
 hour keys exceed 8.3; a historic ``LFN_NONE`` pin was stripped from
 the live configs),
 the LVGL 9.6 setup (notably ``CONFIG_LV_USE_CLIB_MALLOC=y`` — the
 clock-roll's full-screen PSRAM transform layer needs the libc
-allocator, not LVGL's 64 KB static pool), and the UI seeds
-(``CONFIG_UI_SCREEN_SWITCH_FADE=240``,
-``CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S=600``,
-``CONFIG_UI_MOON_SPIN_FPS=8``, ``CONFIG_UI_CLOCK_ALPHA_PCT=20``,
-``CONFIG_UI_MOON_DUSK_ENABLE=y``,
-``CONFIG_UI_MOON_ANIM_ON_WAKE=n`` — obsolete, kept for config
-validation).
+allocator, not LVGL's 64 KB static pool), the hardware
+brightness fade + the once-per-hour refresh (``CONFIG_UI_SCREEN_SWITCH_FADE=240``,
+``CONFIG_UI_MOON_HOURLY_ENABLE=y``), ``CONFIG_UI_CLOCK_ALPHA_PCT=20``,
+and ``CONFIG_LV_USE_SNAPSHOT=n`` (the burn-in spin's keep-mask was its
+only device user; gone with the spin 2026-11-13). The spin / boot-anim /
+dusk pins the file once carried are gone with the whole animation stack.
 
 Compile-time settings
 ---------------------

@@ -18,7 +18,7 @@
  * displays it whole.
  *
  * Display invariant (the "no top-to-bottom" rule): every frame the
- * pipeline produces -- orbit sweep frame, re-bake,
+ * pipeline produces -- orbit sweep frame, re-bake, the hourly refresh,
  * and even a screen switch -- is displayed as ONE atomic whole-frame /
  * whole-panel lv_refr_now under the buffer mutex. A frame
  * must never be left for LVGL's async refresh to drain in 25-row strips
@@ -26,10 +26,21 @@
  * invalidation (e.g. a screen-load animation) may ride along in one of
  * these flushes -- a screen switch is a plain lv_scr_load + one atomic
  * whole-panel flush (moon_ui_screen_switched). The ONE sanctioned
- * exception: the screen-switch fade (UI_SCREEN_SWITCH_FADE) -- a
- * hardware panel-brightness ramp that writes no pixels, whose one
- * atomic flush of the new screen runs while the panel is dimmed to
- * black.
+ * exception: the hardware brightness fade (UI_SCREEN_SWITCH_FADE, reused
+ * by the hourly refresh) -- a panel-brightness ramp that writes no
+ * pixels, whose one atomic flush of the new frame runs while the panel
+ * is dimmed to black.
+ *
+ * Once per hour the home's moon refreshes behind that fade (the hourly
+ * section): the panel dims to black on its OWN brightness (0x51 / the
+ * P4 backlight), a core-1 task produces the current-phase frame at the
+ * HOUR CENTRE (the TF hour cache serves it when the card has it, else a
+ * full bake with write-through store), the finished frame lands as ONE
+ * atomic whole-panel flush while the panel is still black, and the
+ * brightness ramps back. Only the brightness animates -- the clock, the
+ * alarm row and the seconds keep running, and the refresh is skipped
+ * while the device is idle, on a moon-less screen, or while another
+ * pipeline / 0x51 ramp owns the buffers.
  *
  * Tilt input: the on-board QMI8658 (components/imu) is the ONLY input
  * to the moon (touch is the core-UI wake input, never a moon input).
@@ -124,6 +135,7 @@
 #include "settings_store.h"
 #if CONFIG_UI_MOON_TFCACHE
 #include "freertos/queue.h"
+#include "moon_tfcache.h" /* the hourly producer's fetch/store (hour keys) */
 #endif
 
 static const char *TAG = "moon_ui";
@@ -179,8 +191,8 @@ static const char *TAG = "moon_ui";
 #define CONFIG_UI_IMU_ANGLE_SIGN 1
 #endif
 /* Fallback 0, NOT 1: a Kconfig "n" leaves the macro UNDEFINED in
- * sdkconfig.h, so a #define-to-1 fallback would silently re-enable the
- * orbit (the same gotcha the UI_MOON_ANIM_ENABLE note documents). The
+ * sdkconfig.h, so a #define-to-1 fallback would silently re-enable a
+ * feature the build turned off. The
  * orbit (the ~2 s relief-DEM re-bake at the tilt-driven cadence) cannot
  * be served on the ESP32-S3 -- disabled by default; re-enable on the
  * ESP32-P4 via CONFIG_UI_MOON_ORBIT_ENABLE=y. */
@@ -199,8 +211,23 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_MOON_ORBIT_LPF_ALPHA
 #define CONFIG_UI_MOON_ORBIT_LPF_ALPHA 30
 #endif
-#ifndef CONFIG_UI_MOON_ANIM_ENABLE
-#define CONFIG_UI_MOON_ANIM_ENABLE 1
+/* Once-per-hour moon refresh (the hourly section). All four fall back to
+ * 0/off so a Kconfig "n" (which leaves the macro UNDEFINED) can never
+ * re-enable a feature the build turned off -- the rule the orbit note
+ * above documents. FADE_MS follows the screen-switch fade when Kconfig
+ * leaves it at its default; it is only referenced while HOURLY_ENABLE is
+ * on. HOURLY_TFCACHE gates the producer's TF hour-cache leg. */
+#ifndef CONFIG_UI_MOON_HOURLY_ENABLE
+#define CONFIG_UI_MOON_HOURLY_ENABLE 0
+#endif
+#ifndef CONFIG_UI_MOON_HOURLY_TFCACHE
+#define CONFIG_UI_MOON_HOURLY_TFCACHE 0
+#endif
+#ifndef CONFIG_UI_MOON_HOURLY_FADE_MS
+#define CONFIG_UI_MOON_HOURLY_FADE_MS CONFIG_UI_SCREEN_SWITCH_FADE
+#endif
+#ifndef CONFIG_TEST_HOURLY_FORCE_S
+#define CONFIG_TEST_HOURLY_FORCE_S 0
 #endif
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
@@ -268,6 +295,18 @@ static volatile bool s_panel_wrap;     /* the draw_bitmap wrapper is installed *
 static volatile bool s_fade_busy;
 /* Forward decl: the hold arm's LVGL-task check (defined below). */
 static bool moon_on_lvgl(void);
+/* Forward decls (the fade section, defined after the tick + pause): the
+ * hourly refresh's completion legs run on the tick (moon_tick_cb via
+ * moon_hourly_service) and on sleep entry (moon_ui_pause), both ahead of
+ * the fade machinery. fade_ramp took an explicit ms leg-time so the
+ * hourly fade can pace independently of the screen-switch fade.
+ * s_panel_pct / s_fade_pending are the fade section's panel bookkeeping
+ * that the hourly probe / service gate on; tentative decls here, defined
+ * (with the initializer) below. */
+static void fade_ramp(int from_pct, int to_pct, int ms);
+static void moon_hourly_finish(int show_new);
+static bool s_fade_pending;
+static volatile int s_panel_pct;
 
 /* The sync-storm panel-traffic hold (moon_ui.h). The wake path's on-demand
  * WiFi sync brings the radio up HERE: esp_wifi_init loads the full
@@ -925,6 +964,34 @@ static volatile bool s_rebake_show;   /* bake finished on core 1: the tick displ
 static volatile int64_t s_rebake_epoch;
 static TaskHandle_t s_rebake_task;
 
+/* Once-per-hour moon refresh (UI_MOON_HOURLY_ENABLE, the hourly section).
+ * Producer/consumer split, exactly like the deferred re-bake: the LVGL task
+ * is never blocked on a bake. The minute path (moon_ui_day_tick ->
+ * moon_hourly_probe) records the INTENT (s_hourly_start + the hour-centre
+ * epoch); the tick (moon_hourly_service, LVGL task) does the fade-to-black
+ * + spawns the core-1 producer; the producer fills s_hourly_gray (TF hour
+ * fetch or a full bake), then in ONE s_rgb_mtx block memcpy's it over
+ * s_frame and rebuilds s_rgb, and sets s_hourly_done; the tick's done leg
+ * shows the frame as ONE atomic whole-panel flush while the panel is still
+ * black, then ramps the brightness back. The clock, alarm row and seconds
+ * keep running throughout -- only the brightness animates. */
+#define HOURLY_BUDGET_MS 5000                 /* producer wall-clock budget */
+static volatile bool s_hourly_start;          /* the probe armed a cycle; the tick fades + spawns */
+static volatile bool s_hourly_baking;         /* core-1 producer running */
+static volatile bool s_hourly_done;           /* producer filled s_rgb: the tick shows it */
+static volatile bool s_hourly_failed;         /* producer could not produce: restore, keep old frame */
+static volatile bool s_hourly_faded;          /* dimmed to black: a fade-in back to 100 is owed */
+static volatile int64_t s_hourly_epoch;       /* the hour-centre epoch being produced */
+static volatile int s_hourly_event_sig;       /* signature to commit on show (s_baked_event) */
+static volatile int s_hourly_src;             /* 1 = TF hour cache, 0 = baked (log only) */
+static volatile int64_t s_hourly_deadline_ms; /* esp_timer ms; the 5 s budget */
+static TaskHandle_t s_hourly_task;
+static uint8_t *s_hourly_gray; /* PSRAM MOON_PX^2 fetch/bake bounce */
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+static bool s_tf_ready; /* tfcache_init ran once (producer; TF hour leg only) */
+#endif
+static int64_t s_last_hourly_ms; /* esp_timer ms of the last arm (TEST cadence) */
+
 /* The LVGL task's handle, cached on the first tilt-monitor tick (which
  * runs on the LVGL task). The synchronous atomic displays (a whole
  * 466x466 lv_refr_now) need the 8 KB LVGL task stack; the boot path
@@ -960,7 +1027,7 @@ static TaskHandle_t s_event_task;
  * the boot task) is guarded by moon_event_classify_here. */
 static bool moon_ev_scan_allowed(void) {
     const TaskHandle_t me = xTaskGetCurrentTaskHandle();
-    return me == s_orbit_task || me == s_event_task || me == s_rebake_task;
+    return me == s_orbit_task || me == s_event_task || me == s_rebake_task || me == s_hourly_task;
 }
 
 static void moon_event_task(void *arg) {
@@ -1166,6 +1233,169 @@ static void moon_rebake_request(int64_t epoch) {
     }
 }
 
+/* ---------------- once-per-hour moon refresh (UI_MOON_HOURLY_ENABLE) -----
+ *
+ * The fade-to-black redraw (the file header + UI_MOON_HOURLY_ENABLE help).
+ * Three roles, never on the same task at once:
+ *   - the minute path moon_hourly_probe() (from moon_ui_day_tick) gates and
+ *     arms: it records the hour-centre epoch + s_hourly_start, doing NO
+ *     panel work (it may run on any task);
+ *   - the tick moon_hourly_service() (LVGL task) fades to black and spawns
+ *     the producer, then lands the finished frame as ONE atomic flush and
+ *     fades back -- the fade's "atomic flush while black" rule, reused;
+ *   - the producer moon_hourly_task() (core 1) fills the PSRAM bounce
+ *     (TF hour fetch, else a full bake with write-through) and publishes
+ *     s_frame + s_rgb in ONE s_rgb_mtx block. It NEVER touches the panel.
+ * The hour-centre epoch (hour*3600+1800) is a stable key: byte-identical
+ * across boots and boards (so the TF hour cache hits), and at most 30 min
+ * stale at the show. s_baked_hour / s_baked_event commit on SHOW, not on
+ * produce, so a cycle that never shows leaves the next hour still due. */
+
+/* The core-1 producer: produce the hour-centre frame into s_hourly_gray and
+ * publish it. 12 KB stack (the bake's era chain + the allowed in-place day
+ * scan), core 1 (IDLE1 unwatched), same shape as moon_rebake_task. A no-
+ * albedo produce leaves the on-screen frame untouched and reports failure. */
+static void moon_hourly_task(void *arg) {
+    (void)arg;
+    bool produced = false;
+    const int64_t epoch = s_hourly_epoch;
+    const int64_t hour = epoch / 3600;
+    int64_t t0 = esp_timer_get_time();
+    /* Classify the hour-centre instant: this sets the gray->RGB565 tint LUT
+     * the publish below reads AND yields the blood-moon occlusion for a
+     * cold bake. Allowed to run the day scan in place (core-1 pipeline --
+     * moon_ev_scan_allowed). The LUT is stable for this fixed epoch. */
+    moon_event_t ev;
+    moon_event_classify_here(epoch, &ev);
+    moon_gray565_set_event(&ev);
+    s_hourly_event_sig = moon_event_signature(&ev);
+    const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
+
+    bool fetched = false;
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+    if (!s_tf_ready) { /* lazy: the card mounts on the first refresh, never at boot */
+        s_tf_ready = true;
+        tfcache_init(MOON_PX, MOON_PX, MOON_ALB_W, moon_relief() != NULL);
+        if (tfcache_ready())
+            tfcache_fetch_buf_alloc();
+    }
+    if (tfcache_ready() && tfcache_fetch(hour, s_hourly_gray, MOON_PX))
+        fetched = true; /* gray8 is LUT-independent; the tint LUT above covers it */
+#endif
+    if (!fetched) {
+        moon_geom_t g;
+        moon_geometry(epoch, &g);
+        const uint8_t *alb = moon_albedo();
+        if (!alb) {
+            ESP_LOGE(TAG, "hourly: no albedo; keeping the old frame");
+            s_hourly_baking = false;
+            s_hourly_failed = true;
+            vTaskDelete(NULL);
+        }
+        const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief();
+        moon_bake(&g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
+                  MOON_ALB_H, 1, 0.0f, bev);
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+        if (tfcache_ready()) {
+            tfcache_store(hour, s_hourly_gray, MOON_PX); /* write-through */
+            tfcache_evict(hour);                         // drop hours older than the window
+        }
+#endif
+    }
+    /* Publish: ONE guarded block replaces the whole frame (s_frame + s_rgb),
+     * so no reader ever sees a half-written frame (same rule as
+     * moon_bake_epoch). s_rgb_mtx held; no flush here (the tick shows it). */
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
+    for (int i = 0; i < MOON_PX * MOON_PX; i++)
+        s_rgb[i] = moon_gray565(s_frame[i]);
+    xSemaphoreGive(s_rgb_mtx);
+    s_frame_stale = false;
+    s_orbit_epoch = epoch; /* a later orbit peek re-bakes this same phase */
+    produced = true;
+    s_hourly_baking = false;
+    s_hourly_done = produced; /* the tick's done leg shows + commits on show */
+    ESP_LOGI(TAG, "hourly frame: hour %lld src=%s %lldms", (long long)hour, fetched ? "tf" : "bake",
+             (long long)((esp_timer_get_time() - t0) / 1000));
+    vTaskDelete(NULL);
+}
+
+/* The minute path's once-per-hour trigger. Returns true when it took the
+ * hour (so moon_ui_day_tick skips the competing re-bake for it). Cheap flag
+ * work only -- the tick performs the fade + spawn on the LVGL task. */
+static bool moon_hourly_probe(int64_t now) {
+    if (!CONFIG_UI_MOON_HOURLY_ENABLE || s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed)
+        return false;
+    const int64_t hour = now / 3600;
+    const int64_t now_ms = esp_timer_get_time() / 1000;
+    bool due;
+    if (CONFIG_TEST_HOURLY_FORCE_S > 0)
+        due = (s_last_hourly_ms == 0) || (now_ms - s_last_hourly_ms >= (int64_t)CONFIG_TEST_HOURLY_FORCE_S * 1000);
+    else
+        due = (hour != s_baked_hour);
+    if (!due)
+        return false;
+    /* Not while idle (light sleep), a moon-less screen is up, another
+     * pipeline owns s_frame/s_rgb, or a 0x51 ramp / screen-switch fade owns
+     * the panel. */
+    if (!s_moon_screen || clock_is_idle() || s_orbit_baking || s_orbit_sweeping || s_rebake_baking || s_fade_pending ||
+        s_fade_busy)
+        return false;
+    if (!s_hourly_gray) {
+        /* Degraded (the PSRAM bounce never allocated): a plain deferred
+         * re-bake still refreshes the phase this hour, just without the
+         * fade and without the TF leg. */
+        moon_rebake_request(hour * 3600 + 1800);
+        return true;
+    }
+    s_hourly_epoch = hour * 3600 + 1800; /* the hour centre: a stable TF key */
+    s_last_hourly_ms = now_ms;
+    s_hourly_start = true;
+    return true;
+}
+
+/* The tick's hourly legs (LVGL task), called at the head of moon_tick_cb.
+ * Start leg: the probe armed a cycle -- fade to black on the hardware
+ * brightness (the fade's atomic rule: the flush that shows the new frame
+ * lands while black) and spawn the producer. Done leg: the producer filled
+ * s_rgb -- show it as ONE atomic whole-panel flush, then ramp back. Failed
+ * leg (or a blown deadline): restore the brightness; the OLD frame is still
+ * what s_rgb held. A late producer that lands after the deadline still
+ * shows on its own done leg, but with no second fade-in (s_hourly_faded was
+ * already cleared) -- never a second black. */
+static void moon_hourly_service(void) {
+    if (s_hourly_start) {
+        s_hourly_start = false;
+        if (!s_hourly_baking && !s_hourly_done && !s_hourly_failed && !s_orbit_baking && !s_orbit_sweeping &&
+            !s_rebake_baking && s_moon_screen && !s_fade_pending && !s_fade_busy) {
+            s_hourly_deadline_ms = esp_timer_get_time() / 1000 + HOURLY_BUDGET_MS;
+            s_hourly_baking = true;
+            s_fade_busy = true;    /* the dim ramp is the only 0x51 writer */
+            s_hourly_faded = true; /* a fade-in back to 100 is owed */
+            fade_ramp(s_panel_pct, 0, CONFIG_UI_MOON_HOURLY_FADE_MS);
+            if (xTaskCreatePinnedToCore(moon_hourly_task, "moon_hourly", 12288, NULL, configMAX_PRIORITIES - 3,
+                                        &s_hourly_task, 1) != pdPASS) {
+                ESP_LOGW(TAG, "hourly: producer task failed to start; restoring the old frame");
+                s_hourly_baking = false;
+                s_hourly_failed = true; /* the failed leg below restores brightness */
+            }
+        }
+    }
+    if (s_hourly_baking && !s_hourly_done && !s_hourly_failed && esp_timer_get_time() / 1000 > s_hourly_deadline_ms) {
+        ESP_LOGW(TAG, "hourly: producer overran %d ms; restoring without it", HOURLY_BUDGET_MS);
+        s_hourly_failed = true; /* the producer, if it lands, only updates s_rgb late */
+    }
+    if (s_hourly_done) {
+        s_hourly_done = false;
+        s_hourly_baking = false;
+        moon_hourly_finish(1);
+    } else if (s_hourly_failed) {
+        s_hourly_failed = false;
+        s_hourly_baking = false;
+        moon_hourly_finish(0);
+    }
+}
+
 /* Forward decl: defined in the orbit section below (the orbit pipeline
  * must be cancelled before a re-bake takes over s_frame/s_rgb). */
 static void moon_orbit_interrupt(void);
@@ -1283,7 +1513,10 @@ static void moon_orbit_start(void) {
  * meaningful once a static bake exists (s_orbit_epoch > 0, set by the
  * first bake) -- it bakes THE current phase at a peeked viewport. */
 static void moon_orbit_drain(void) {
-    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping)
+    /* The hourly producer owns s_frame/s_rgb while it is armed or baking --
+     * an orbit bake starting then would race the publish memcpy. */
+    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
+        s_hourly_baking || s_hourly_start)
         return;
     if (s_orbit_target == 0 || s_orbit_target == s_orbit_baked)
         return; /* default viewport, or the on-screen frame is this viewport */
@@ -1537,6 +1770,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
     (void)timer;
     if (!s_ready || !s_started)
         return;
+    moon_hourly_service(); /* once-per-hour: fade / produce / show legs (head, owns the 0x51) */
     /* Deferred re-bake display leg: the core-1 bake task filled s_rgb
      * off the LVGL task (where moon_convert_to_rgb must not flush -- the
      * 3.5 KB stack rule), so the tick lands the finished frame as ONE
@@ -1639,6 +1873,15 @@ void moon_ui_init(void) {
     if (!s_frame || !s_rgb) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
+    }
+    if (CONFIG_UI_MOON_HOURLY_ENABLE) {
+        /* The hourly producer's PSRAM bounce (fetch target / bake output),
+         * kept separate from s_frame so the on-screen frame stays intact
+         * until the publish memcpy. A failed alloc degrades the hourly to a
+         * plain re-bake (moon_hourly_probe falls back), not a failure. */
+        s_hourly_gray = heap_caps_malloc((size_t)MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
+        if (!s_hourly_gray)
+            ESP_LOGW(TAG, "hourly bounce buffer failed; the hourly refresh degrades to a plain re-bake");
     }
     /* Report the RAM budget. The display path (esp_lcd_panel_io_spi ->
      * spi_master setup_priv_desc) stages every PSRAM color strip into an
@@ -1821,29 +2064,29 @@ void moon_ui_day_tick(void) {
         return;
     int64_t day = now / 86400;
     bool new_day = day != s_baked_day;
-    /* Sky-event transition probe (runs every minute, from the minute
+    /* Sky-event + hourly probe (runs every minute, from the minute
      * tick): a lunar eclipse starts and ends at the hour it happens,
      * NOT at the UTC midnight the date change sees, and the harvest /
      * blue / super tints only make sense when the day is actually full
      * (the is_full test's ~10 h window). Re-bake when the event's
      * 5-bit signature changes (blood turns on as the Moon enters the
      * shadow, off at the exit) -- the re-bake picks up the per-pixel
-     * occlusion and the tint LUT -- and, while a blood moon is up,
-     * once per hour: the eclipse shadow sweeps the disk in minutes
-     * (a total eclipse lasts ~1.5 h), so a fresh bake each hour tracks
-     * the bite's drift across the face. The probe is two moon_geometry
-     * calls plus the blue-moon back-step, which is cached per calendar
-     * day in moon_event.c (one ~350-step scan per day, not per
-     * minute -- and taken on the event worker / a pipeline task, never
-     * on the LVGL task; see moon_event_classify_here). */
-    if (s_orbit_baking || s_orbit_sweeping) {
-        /* The orbit pipeline owns s_frame/s_rgb until it finishes;
-         * defer (do NOT advance s_baked_day) so the next tick re-tries
-         * and the bakes never race on the buffers. The guard sits
-         * BEFORE the classify probe on purpose: while a pipeline task
-         * runs, that task classifies its own epoch and warms the day
-         * cache -- the LVGL task never pays for the scan here
-         * (moon_event_classify_here). */
+     * occlusion and the tint LUT. The once-per-hour refresh
+     * (moon_hourly_probe, the hourly section) subsumes the old per-hour
+     * blood-moon re-bake: while a blood moon is up the hour-centre bake
+     * already carries the occlusion, so the hourly refresh tracks the
+     * bite's drift across the disk on its own. The probe is two
+     * moon_geometry calls plus the blue-moon back-step, cached per
+     * calendar day in moon_event.c (one ~350-step scan per day, not per
+     * minute -- taken on the event worker / a pipeline task, never on
+     * the LVGL task; see moon_event_classify_here). */
+    if (s_orbit_baking || s_orbit_sweeping || s_hourly_baking || s_hourly_start) {
+        /* A pipeline owns s_frame/s_rgb until it finishes; defer (do NOT
+         * advance s_baked_day) so the next tick re-tries and the bakes
+         * never race on the buffers. The guard sits BEFORE the classify
+         * probe on purpose: while a pipeline task runs, that task
+         * classifies its own epoch and warms the day cache -- the LVGL
+         * task never pays for the scan here (moon_event_classify_here). */
         return;
     }
     moon_event_t ev;
@@ -1851,19 +2094,36 @@ void moon_ui_day_tick(void) {
         return; /* cold day: the event worker (core 1) takes the scan;
                  * the probe continues on a later tick, once warm */
     const bool ev_change = moon_event_signature(&ev) != s_baked_event;
-    const bool blood_hour = ev.blood && now / 3600 != s_baked_hour;
-    if (!new_day && !ev_change && !blood_hour)
+    /* Once-per-hour refresh: on the hour it fades to black and redraws
+     * (the blood bite rides the hour-centre bake). Taking the hour here
+     * skips the competing day/event re-bake for it. */
+    const bool hourly = moon_hourly_probe(now);
+    if (!new_day && !ev_change && !hourly)
         return;
-    ESP_LOGI(TAG, "deferring moon re-bake (new day=%d event sig=%d->%d blood-hour=%d)", new_day, s_baked_event,
-             moon_event_signature(&ev), blood_hour);
+    ESP_LOGI(TAG, "deferring moon re-bake (new day=%d event sig=%d->%d)", new_day, s_baked_event,
+             moon_event_signature(&ev));
     s_baked_day = day;
-    moon_rebake_request(now);
+    if (!hourly)
+        moon_rebake_request(now);
 }
 
 void moon_ui_pause(bool pause) {
     if (!s_tick)
         return;
     if (pause) {
+        /* An hourly cycle caught mid-flight must never hand a black panel
+         * to the sleep screens (the #34 fade-starve lesson, this time on
+         * the sleep path): drop the pending legs and restore the brightness
+         * NOW, before the tick pauses. The producer, if it is still baking,
+         * keeps filling s_hourly_gray/s_rgb off the LVGL task -- harmless
+         * while the tick is paused (nothing flushes), and the wake shows the
+         * fresh frame (the next day-tick commits s_baked_hour when it
+         * finally shows). */
+        if (s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed || s_hourly_faded) {
+            s_hourly_start = s_hourly_done = s_hourly_failed = s_hourly_baking = false;
+            moon_hourly_finish(0); /* restores brightness if we had dimmed */
+            ESP_LOGI(TAG, "sleep entry mid-hourly: brightness restored, legs dropped");
+        }
         /* Sleep entry (and the alarm screen): interrupt the orbit
          * (sleep shows the last baked viewport), then pause the tick.
          * The on-screen frame simply stays as it is under the sleep
@@ -1982,8 +2242,10 @@ static volatile bool s_fade_busy; /* a 0x51 ramp is running: the other
 static volatile int s_panel_pct = 100;
 
 /* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
- * (0..100) in FADE_STEPS steps, paced CONFIG_UI_SCREEN_SWITCH_FADE /
- * FADE_STEPS ms between steps. Each step is one 0x51 SPI param
+ * (0..100) in FADE_STEPS steps, paced `ms / FADE_STEPS` ms between steps.
+ * Callers pass the leg time: the screen-switch fade / the dim ramp pass
+ * CONFIG_UI_SCREEN_SWITCH_FADE, the hourly refresh passes
+ * CONFIG_UI_MOON_HOURLY_FADE_MS. Each step is one 0x51 SPI param
  * transaction (~100 us): the ramp is free, so the steps are many and
  * short (the luminance steps stay small enough not to read as
  * discrete steps). Each write takes the panel mutex: a 0x51 write must
@@ -1993,7 +2255,7 @@ static volatile int s_panel_pct = 100;
  * the freeze this project hit). The ramp runs on the LVGL task between
  * the atomic flushes, and s_fade_busy makes the 0x51 ramps mutually
  * exclusive, so in practice the mutex is free when the ramp runs. */
-static void fade_ramp(int from_pct, int to_pct) {
+static void fade_ramp(int from_pct, int to_pct, int ms) {
     if (panel_hold_live())
         return; /* storm: no write lands, so the panel stays at its tracked
                  * level -- s_panel_pct untouched is the truthful bookkeeping */
@@ -2003,10 +2265,38 @@ static void fade_ramp(int from_pct, int to_pct) {
         bsp_display_brightness_set(pct);
         xSemaphoreGive(s_panel_mtx);
         if (s < FADE_STEPS)
-            vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
+            vTaskDelay(pdMS_TO_TICKS(ms / FADE_STEPS));
     }
     s_panel_pct = to_pct; /* the steps are portMAX_DELAY: by the end the
                            * panel is unambiguously at the target */
+}
+
+/* The hourly refresh's completion (LVGL task), called from moon_hourly_service
+ * and from moon_ui_pause's sleep hand-off. show_new=1 (the producer landed a
+ * frame): display it as ONE atomic whole-panel flush, then (the fade's rule)
+ * ramp the brightness back -- and commit s_baked_hour / s_baked_event now
+ * that the frame is actually up (commit-on-show). show_new=0 (a failed or
+ * blown-deadline cycle, or the sleep hand-off): no flush (s_rgb still holds
+ * the last complete frame), only restore the brightness if we had dimmed.
+ * The fade-in is owed exactly while s_hourly_faded is set, so a cycle that
+ * never dimmed (spawn failure before the ramp) restores nothing -- and the
+ * brightness never strands black (the #34 rule, honored on every exit). */
+static void moon_hourly_finish(int show_new) {
+    if (show_new) {
+        moon_invalidate_all();
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        lv_refr_now(NULL);
+        xSemaphoreGive(s_rgb_mtx);
+        moon_panel_drain_verify("hourly fade-in");
+        s_baked_hour = s_hourly_epoch / 3600; /* commit-on-show */
+        s_baked_event = s_hourly_event_sig;
+    }
+    if (s_hourly_faded) {
+        s_hourly_faded = false;
+        fade_ramp(0, 100, CONFIG_UI_MOON_HOURLY_FADE_MS);
+        s_fade_busy = false; /* the other 0x51 writers may run again */
+        ESP_LOGI(TAG, "hourly: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_MOON_HOURLY_FADE_MS);
+    }
 }
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
@@ -2027,7 +2317,7 @@ void moon_ui_fade_out(void) {
     if (from > 0) {
         s_fade_busy = true; /* the other 0x51 writers hold off until the
                              * screen switch (moon_ui_screen_switched) */
-        fade_ramp(from, 0);
+        fade_ramp(from, 0, CONFIG_UI_SCREEN_SWITCH_FADE);
     }
     ESP_LOGI(TAG, "screen switch fade-out: panel brightness %d -> 0 (%d ms)", from, CONFIG_UI_SCREEN_SWITCH_FADE);
 }
@@ -2111,10 +2401,10 @@ void moon_ui_panel_dim_ramp(int to_pct) {
         return;
     }
     if (panel_hold_live())
-        return;              /* storm: skipped whole (fade_ramp drops its steps anyway;
-                              * s_panel_pct stays truthful -- the panel never moved) */
-    s_fade_busy = true;      /* the other 0x51 writers hold off for the ramp */
-    fade_ramp(from, to_pct); /* also tracks s_panel_pct */
+        return;                                            /* storm: skipped whole (fade_ramp drops its steps anyway;
+                                                            * s_panel_pct stays truthful -- the panel never moved) */
+    s_fade_busy = true;                                    /* the other 0x51 writers hold off for the ramp */
+    fade_ramp(from, to_pct, CONFIG_UI_SCREEN_SWITCH_FADE); /* also tracks s_panel_pct */
     s_fade_busy = false;
     ESP_LOGI(TAG, "panel dim ramp: brightness %d -> %d%% (%d ms)", from, to_pct, CONFIG_UI_SCREEN_SWITCH_FADE);
 }
@@ -2171,7 +2461,7 @@ void moon_ui_screen_switched(void) {
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
         moon_panel_drain_verify("switch fade-in");
-        fade_ramp(0, 100);
+        fade_ramp(0, 100, CONFIG_UI_SCREEN_SWITCH_FADE);
         s_fade_busy = false; /* the other 0x51 writers may run again */
         ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
         return;
@@ -2198,4 +2488,6 @@ void moon_ui_dump_hang_context(void) {
              (int)s_frame_stale);
     ESP_LOGE(TAG, "  flags: rebake_baking=%d rebake_show=%d panel_wrap=%d", (int)s_rebake_baking, (int)s_rebake_show,
              (int)s_panel_wrap);
+    ESP_LOGE(TAG, "  flags: hourly start=%d baking=%d done=%d failed=%d faded=%d", (int)s_hourly_start,
+             (int)s_hourly_baking, (int)s_hourly_done, (int)s_hourly_failed, (int)s_hourly_faded);
 }

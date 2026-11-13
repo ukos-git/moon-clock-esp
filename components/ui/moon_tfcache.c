@@ -1,5 +1,5 @@
 /*
- * TF-card bake cache for the synodic boot sweep -- implementation.
+ * TF-card hour cache for the once-per-hour moon refresh -- implementation.
  * See moon_tfcache.h for the contract (versioned folder + meta
  * self-description, hourly keys, write-through, bounded window, silent
  * fallback to on-device baking).
@@ -16,7 +16,8 @@
  * back to a 565/RGB888 duplicate of the gray (chroma of a gray image is
  * neutral, so the round trip still lands inside the probe tolerance).
  * The fetched frame goes through the SAME moon_gray565() tint LUT as a
- * baked frame (the sweep's convert block), so cache and compute paths
+ * baked frame (the hourly producer sets it for the hour-centre epoch
+ * before publishing either), so cache and compute paths
  * are pixel-identical by construction.
  *
  * Buffer alignment: the S3 codec wants 16-byte aligned in/out buffers;
@@ -25,8 +26,8 @@
  */
 #include "sdkconfig.h"
 
-#if CONFIG_UI_MOON_TFCACHE /* whole module compiled out when off (task #4's                                            \
-                            * sweep branch is guarded by the same symbol) */
+#if CONFIG_UI_MOON_TFCACHE /* whole module compiled out when off (the hourly producer's TF leg is guarded by the same  \
+                              symbol) */
 
 #include <dirent.h>
 #include <errno.h>
@@ -68,7 +69,7 @@ static const char *TAG = "tfcache";
  * BSP_SD_MOUNT_POINT, so the root must be under it (an unprefixed
  * "/moon_cache" is outside the VFS mount -- every path ENOENTs). */
 #define CACHE_ROOT BSP_SD_MOUNT_POINT "/moon_cache"
-#define SYNODIC_S ((int64_t)(29.53 * 86400)) /* same constant as the sweep */
+#define SYNODIC_S ((int64_t)(29.53 * 86400)) /* one synodic cycle, seconds */
 #define TF_MAX_HOURS 709                     /* ceil(29.53 d / 1 h) + slack */
 #define PROBE_TOL 24                         /* gray round-trip max |diff|  */
 
@@ -76,29 +77,32 @@ static volatile bool s_ready;
 static int s_px;       /* bake size the scratch was sized for   */
 static char s_dir[96]; /* /moon_cache/<calcver>_<tgt>_<px>      */
 
-/* Codec scratch (one direction per task: fetch runs on the prefetch task,
- * store on the sweep task -- no locking needed on any of these). */
+/* Codec scratch. The hourly producer task is the single caller of fetch()
+ * and store(), so no locking is needed on any of these. The scratch stays
+ * resident for the boot (the spin's UI keep-mask snapshot that once
+ * needed it all handed back is gone with the spin). */
 static uint8_t *s_dec_rgb; /* 3*S*S RGB888 decode out (16-aligned)  */
 static uint8_t *s_enc_in;  /* encode in, fmt-sized (16-aligned)     */
 static uint8_t *s_enc_out; /* encode out (16-aligned)               */
 static size_t s_enc_out_cap;
-static uint8_t *s_fetch_in; /* persistent fetch input (PREFETCH TASK
+static uint8_t *s_fetch_in; /* persistent fetch input (the hourly producer
                              * only, sized s_enc_out_cap = the max a
-                             * valid cached file can be); allocated on
-                             * demand by the prefetch owner BEFORE the
-                             * slot queue, so fetch never races the
-                             * queue for the last of the PSRAM pool
-                             * (a per-call file buffer OOM'd there at
-                             * q90 file sizes -- "cache off for this
+                             * valid cached file can be); allocated once by
+                             * tfcache_fetch_buf_alloc() before the first
+                             * fetch, so fetch never races the PSRAM pool
+                             * for a per-call buffer (that OOM'd at q90
+                             * file sizes -- "cache off for this
                              * boot: no psram (fetch)", 2026-11-08) */
 static int s_enc_fmt;       /* 1 GRAY, 2 RGB565_LE dup, 3 RGB888 dup */
 
 static tfcache_stats_t s_st;
 static int64_t s_max_hour;        /* newest key stored this boot           */
 static int64_t s_last_evict_hour; /* hour basis of the last eviction scan  */
-static int s_files;               /* cached hours found at init (warm-folder verdict;    \
-                                   * a cold folder never decodes, so the decode buffer   \
-                                   * stays unallocated -- see tfcache_folder_warm())      */
+static int s_files;               /* cached hours found at init: >0 means the
+                                   * folder is warm, so the deferred decode
+                                   * out-buffer (allocated on the first real
+                                   * hit) will actually be needed; a cold
+                                   * folder never decodes, leaving it NULL  */
 static bool s_dec_warned;         /* one shot when the deferred decode alloc fails */
 
 /* ---- 16-byte-aligned SPIRAM helpers ---------------------------------- */
@@ -455,12 +459,11 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
     s_enc_out_cap = (size_t)S * S + (size_t)S * S / 2 + 1024;
     /* The decode out-buffer (3*S*S) is NOT allocated here: a cold folder
      * never decodes anything this boot (every fetch is a miss until the
-     * first write-through, and the prefetch runs ahead of those), and on
-     * the 8 MB S3 those 470 KB were exactly what starved the slot queue
-     * -- "tf slots: only 1/2 x 156KB -- card-less path" baked all 1344
-     * frames every boot and seeded nothing (task #38). tfcache_fetch
-     * allocates it on the first real hit; the prefetch budget reserves it
-     * when this boot can actually hit (s_files > 0). */
+     * first write-through), and on the 8 MB S3 those 470 KB were exactly
+     * what starved the codec path when allocated eagerly -- "cache off for
+     * this boot: no psram" baked every hour on-device and seeded nothing
+     * (task #38). tfcache_fetch allocates it lazily on the first real hit
+     * (this boot can hit only when the folder is warm: s_files > 0). */
     s_enc_in = alloc16(in_bytes);
     s_enc_out = alloc16(s_enc_out_cap);
     if (!s_enc_in || !s_enc_out) {
@@ -477,31 +480,11 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
     return ESP_OK;
 }
 
-/* true when the version folder already held hours at init: the prefetch
- * budget must then reserve the deferred decode buffer (every hit needs
- * it). A cold folder (0 hours) never decodes -- prefetch may spend that
- * PSRAM on slots instead. */
-bool tfcache_folder_warm(void) { return s_ready && s_files > 0; }
-
 bool tfcache_ready(void) { return s_ready; }
-
-void tfcache_scratch_free(void) {
-    if (!s_ready)
-        return; /* never up, or already handed back */
-    free16(s_dec_rgb);
-    free16(s_enc_in);
-    free16(s_enc_out);
-    free16(s_fetch_in); /* task #39: the persistent fetch input joins the
-                         * hand-back -- post-sweep it is 241 KB of dead
-                         * weight the 8 MB S3 needs for the mask snapshot */
-    s_dec_rgb = s_enc_in = s_enc_out = s_fetch_in = NULL;
-    s_enc_out_cap = 0;
-    ESP_LOGI(TAG, "codec scratch returned: PSRAM back for the mask snapshot");
-}
 
 bool tfcache_fetch_buf_alloc(void) {
     if (!s_ready || !s_enc_out)
-        return false; /* scratch handed back after the card-less verdict */
+        return false; /* never up: stay on the card-less (bake) path */
     if (!s_fetch_in)
         s_fetch_in = alloc16(s_enc_out_cap);
     return s_fetch_in != NULL;
@@ -512,7 +495,7 @@ void tfcache_disable(const char *reason) {
         return; /* already off; the first reason is the truth */
     s_ready = false;
     s_st.disable_reason = reason;
-    ESP_LOGW(TAG, "cache off for this boot: %s (sweep recomputes on-device)", reason ? reason : "?");
+    ESP_LOGW(TAG, "cache off for this boot: %s (the hourly refresh bakes on-device)", reason ? reason : "?");
 }
 
 bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
@@ -530,11 +513,11 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
         s_st.misses++;
         return false;
     }
-    if (!s_fetch_in) { /* the prefetch owner never got its buffer */
+    if (!s_fetch_in) { /* the producer never got its fetch buffer */
         tfcache_disable("no psram (fetch buf)");
         return false;
     }
-    uint8_t *in = s_fetch_in; /* persistent (prefetch-task only), sized
+    uint8_t *in = s_fetch_in; /* persistent (the producer only), sized
                                * s_enc_out_cap -- the corrupt-file size
                                * check above bounds st.st_size to that */
     bool ok = false;
@@ -551,11 +534,12 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
     }
     s_st.bytes_read += st.st_size;
     if (!s_dec_rgb) { /* first real hit this boot: pay for the decode out-
-                       * buffer here, never on a cold miss (prefetch task
-                       * only -- no locking, same rule as the other codec
-                       * buffers). Out of PSRAM: degrade to a miss so the
-                       * sweep bakes this frame (and stores it, like any
-                       * miss) -- correctness is untouched. */
+                       * buffer here, never on a cold miss (the producer is
+                       * the only caller -- no locking, same rule as the
+                       * other codec buffers). Out of PSRAM: degrade to a
+                       * miss so the hourly refresh bakes this hour (and
+                       * stores it, like any miss) -- correctness is
+                       * untouched. */
         s_dec_rgb = alloc16((size_t)S * S * 3);
         if (!s_dec_rgb) {
             if (!s_dec_warned) {
