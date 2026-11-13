@@ -182,8 +182,7 @@ cutover — the shared home registered neither): the seam attaches a
 gated progress row to the producer's caption staging
 (``knob_ui_bind_caption``) — a montserrat-16, 240 px, DOT-centred
 label at the **top band** (+28; the middle belongs to the clock
-column, and the battery icon sits in the top-right quadrant clear
-below this band), revealed by the swap task
+column, the foot to the battery icon), revealed by the swap task
 only while the staged text is the sweep progress or an honest
 failure state (``no time``, ``moon unavailable``) — the shared clock
 row owns the daily text there. And a screen press aborts the sweep
@@ -483,9 +482,10 @@ The gauge is the knob's only addition to the home screen, and it is a
 iPhone-style status-bar battery icon to the shared home root after
 everything else — a grey-outlined capsule with a right nub and a
 proportional fill, click-transparent so the home tap → hub gesture
-keeps owning every tap — in the **top-right quadrant** (``TOP_MID``
-+86/+47 at the 360 panel, the single calibration pair, clearing the
-sweep progress row's band), refreshed by a one-minute ``lv_timer``:
+keeps owning every tap — **bottom-centre** (``BOTTOM_MID`` with a
+``UI_PX(26)`` foot lift at the 360 panel — the retired label's
+proven spot, the single calibration constant), refreshed by a
+one-minute ``lv_timer``:
 white fill, red at or below ``KNOB_BATTERY_LOW_PCT``, green + a
 hand-rasterised bolt while ``knob_battery_charging()`` — a heuristic,
 not a signal: a cell read at or above ``KNOB_BATTERY_CHARGING_MV``

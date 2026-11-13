@@ -6,9 +6,9 @@ config KNOB_BATTERY_GAUGE
     help
         The P4 parity item built ahead of the multimeter ritual: an
         adc_oneshot read on GPIO 1 (ADC1_CH0, behind the board's 10K/10K
-        divider) rendered as an iPhone-style battery icon at the top of
-        the shared home screen. The calibration below is the PLACEHOLDER
-        LiPo pair --
+        divider) rendered as an iPhone-style battery icon at the bottom
+        centre of the shared home screen. The calibration below is the
+        PLACEHOLDER LiPo pair --
         honest numbers land when the user-present multimeter session
         settles whether the divider's top rail is the cell or VBUS
         (the schematic draws 5V; the factory gauge read an impossible
@@ -54,7 +54,7 @@ config KNOB_BATTERY_CHARGING_MV
         Heuristic, not a signal: the board has no charge-state line, but
         the cell-sense ADC reads the USB rail when docked (bench
         signature ~4522 mV), far above the 4200 mV cell ceiling. At or
-        above this threshold the top indicator shows the green fill +
+        above this threshold the battery icon shows the green fill +
         bolt ("on the dock"). Same honesty class as the placeholder
         percentage -- the multimeter ritual may retire it. 0 hides the
         bolt entirely.
@@ -64,7 +64,7 @@ config KNOB_BATTERY_LOW_PCT
     default 20
     range 1 99
     help
-        iOS-style low-battery red on the top indicator's fill. The
+        iOS-style low-battery red on the battery icon's fill. The
         percentage itself rides the placeholder calibration, so this
         threshold is decorative until the multimeter session lands.
 

@@ -30,8 +30,8 @@ saved through the native handler into ``/spiffs/alarm.txt``. The
 **P4 battery gauge** (same day) added the battery home-screen
 overlay reading GPIO 1 behind the divider on the **placeholder**
 LiPo calibration — redone 2026-11-13 as a small iPhone-style
-status-bar icon (capsule + nub + fill + docked-bolt heuristic) in
-the top-right — the gauge ships, the multimeter ritual still
+status-bar icon (capsule + nub + fill + docked-bolt heuristic) at
+the bottom centre — the gauge ships, the multimeter ritual still
 owes it honest numbers.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the

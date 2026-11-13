@@ -1,9 +1,9 @@
 /**
  * @file knob_battery_ui.c
  * @brief Knob battery status: an iPhone-style battery icon (capsule
- *        outline + nub + proportional fill + charging bolt) at the top
- *        of the shared home screen, refreshed once a minute (the cell
- *        moves on the minute scale, not the second).
+ *        outline + nub + proportional fill + charging bolt) at the
+ *        bottom centre of the shared home screen, refreshed once a
+ *        minute (the cell moves on the minute scale, not the second).
  *
  * The look follows the iOS status-bar battery (grey capsule, white
  * fill, red at low, green + bolt on the dock) — the geometry and
@@ -16,9 +16,12 @@
  * (byte-identical rule), so the gauge is added to the modem_sleep
  * root here — created after everything else, so it sits on top, and
  * click-transparent so the home tap -> hub gesture still owns every
- * tap. It sits in the top-right quadrant INSIDE the round rim, below
- * the sweep progress row's band (TOP_MID +28, h 18) — the offsets
- * below are the single calibration pair if the bench wants it nudged.
+ * tap. It sits bottom-centre at the foot of the panel — the proven
+ * spot of the retired label (under the alarm row, a detent above the
+ * rim; the round chord there is far wider than the icon) — and clear
+ * of the sweep progress row's top band (28..46). The foot offset
+ * below is the single calibration constant if the bench wants it
+ * nudged.
  * The charging bolt is the documented heuristic (knob_battery_charging:
  * cell read >= KNOB_BATTERY_CHARGING_MV, the USB-rail signature), and
  * the calibration is the placeholder pair until the multimeter ritual
@@ -42,10 +45,10 @@ static const char *TAG = "knob_battery_ui";
 
 /* ---- geometry (design px at 466, UI_PX-scaled to the panel) --------
  * At the knob's 360 px panel: body 40x18, nub 3x7, whole icon 44x18 —
- * about 12 % of the panel width, the "small, top" the iOS status bar
- * does it with. The position keeps the icon inside the circle's chord
- * at its y (half-chord at y=47 is ~120 px) and clear of the progress
- * row's band (bottom 46 px). */
+ * about 12 % of the panel width, the "small" the iOS status bar does
+ * it with. Bottom-centre keeps the icon on the panel's vertical axis
+ * under the clock column; the chord there (foot band 20..38 from the
+ * rim) is ~170 px wide, far wider than the 44 px icon. */
 #define ICON_BODY_W UI_PX(52) /* 40 */
 #define ICON_BODY_H UI_PX(24) /* 18 */
 #define ICON_BORDER UI_PX(3)  /*  2 */
@@ -53,8 +56,7 @@ static const char *TAG = "knob_battery_ui";
 #define ICON_NUB_H UI_PX(10)  /*  7 */
 #define ICON_GAP UI_PX(2)     /*  1: body<->nub gap AND border<->fill inset */
 #define ICON_INSET (ICON_BORDER + ICON_GAP)
-#define ICON_X UI_PX(112) /* 86: TOP_MID centre offset, top-right quadrant */
-#define ICON_Y UI_PX(62)  /* 47: below the progress row (band 28..46) */
+#define ICON_FOOT UI_PX(26) /* 20: BOTTOM_MID lift off the rim (the old label's spot) */
 
 /* ---- iOS palette (the reference look, hand-adopted) ----------------*/
 #define COL_GREY 0x808080u      /* capsule outline + nub */
@@ -163,7 +165,7 @@ void knob_battery_ui_attach(void) {
 
     s_root = icon_obj_create(objects.modem_sleep);
     lv_obj_set_size(s_root, ICON_BODY_W + ICON_GAP + ICON_NUB_W, ICON_BODY_H);
-    lv_obj_align(s_root, LV_ALIGN_TOP_MID, ICON_X, ICON_Y);
+    lv_obj_align(s_root, LV_ALIGN_BOTTOM_MID, 0, -ICON_FOOT);
 
     s_body = icon_obj_create(s_root);
     lv_obj_set_size(s_body, ICON_BODY_W, ICON_BODY_H);
