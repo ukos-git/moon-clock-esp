@@ -469,13 +469,34 @@ static volatile TickType_t s_panel_hold_until;
 static volatile bool s_panel_hold_release; /* sync ended, tail draining */
 static volatile bool s_panel_repaint;      /* a whole-screen repaint is queued */
 
-/* The hold's LVGL flush guard: renders complete, nothing hits the bus. */
+/* The hold's LVGL flush guard: renders complete, nothing hits the bus.
+ * DROPPED flushes are counted and (first four) logged with their area:
+ * this is the field evidence for the hold/heal bookkeeping (task #32) --
+ * which pixels the panel never saw, and whether the restore repaint is
+ * the only thing between that and a permanently stale screen. */
+static volatile uint32_t s_hold_flush_drops;
 static void hold_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    (void)area;
     (void)px_map;
+    const uint32_t n = ++s_hold_flush_drops;
+    if (n <= 4)
+        ESP_LOGI(TAG, "flush DROPPED (hold) #%u: (%ld,%ld)-(%ld,%ld)", (unsigned)n, (long)area->x1, (long)area->y1,
+                 (long)area->x2, (long)area->y2);
     lv_display_flush_ready(disp);
 }
 static lv_display_flush_cb_t s_flush_cb_real; /* captured at moon_ui_init */
+
+/* Probe wrapper around the adapter's flush: logs every flush that really
+ * goes to the bus, with the hold flag as seen at entry. A real flush at
+ * hold=1 is the unguarded pre-arm window (an arm from a non-LVGL task
+ * leaves the guard swap one tick late -- while the LVGL task is busy in
+ * exactly this flush); a drop at hold=1 with no later restore+repaint is
+ * a screen the panel never got. */
+static void flush_cb_probe(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+    ESP_LOGI(TAG, "flush: (%ld,%ld)-(%ld,%ld) hold=%d", (long)area->x1, (long)area->y1, (long)area->x2, (long)area->y2,
+             (int)s_panel_hold);
+    if (s_flush_cb_real)
+        s_flush_cb_real(disp, area, px_map);
+}
 
 /* Bounded, yielding replacement for LVGL's unbounded flush wait
  * (task #31, the 2026-11-12 "touch is very unresponsive on the AMOLED").
@@ -564,6 +585,7 @@ void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
             return;
         }
         ESP_LOGI(TAG, "panel traffic hold ON (%d ms cap)", cap_ms);
+        s_hold_flush_drops = 0;
         s_panel_hold_release = false;
         s_panel_hold_until = want;
         s_panel_hold = true;
@@ -628,7 +650,8 @@ bool moon_ui_panel_repaint_pending(void) {
         return false;
     }
     if (lv_display_get_flush_cb(d) == hold_flush_cb) {
-        lv_display_set_flush_cb(d, s_flush_cb_real); /* restore */
+        lv_display_set_flush_cb(d, flush_cb_probe); /* restore */
+        ESP_LOGI(TAG, "flush guard restored (%u flushes dropped by the hold)", (unsigned)s_hold_flush_drops);
         s_panel_repaint = true;
     }
     if (!s_panel_repaint)
@@ -697,7 +720,8 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK)
             return ESP_OK;
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(1); /* a full tick: pdMS_TO_TICKS(1) = 0 ticks at HZ=100
+                        * made this a 100-attempt tight spin, not a backoff */
     }
     ESP_LOGW(TAG, "panel draw not accepted after ~100 ms (y %d..%d)", y_start, y_end);
     return ESP_ERR_TIMEOUT;
@@ -1840,7 +1864,11 @@ static void moon_orbit_task(void *arg) {
             rrow[x] = moon_gray565(frow[x]);
         xSemaphoreGive(s_rgb_mtx);
         if ((y & 15) == 15)
-            vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+            vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
+                            * rounds to 0 ticks -- a no-op that starved IDLE1
+                            * (bench: boot-sweep bake spun core 1, TWDT
+                            * IDLE1 hits every 5 s once the CPU1 check was
+                            * enabled) */
     }
     int64_t t1 = esp_timer_get_time();
     if (!s_orbit_cancel) {
@@ -2414,7 +2442,11 @@ static void moon_sweep_task(void *arg) {
                            bev); /* dk_sup 0.0f = the true moving phase; bev = the blood-moon
                                     occlusion (final frame only) */
             if ((y & 15) == 15)
-                vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+                vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
+                                * rounds to 0 ticks -- a no-op that starved IDLE1
+                                * (bench: boot-sweep bake spun core 1, TWDT
+                                * IDLE1 hits every 5 s once the CPU1 check was
+                                * enabled) */
         }
         if (s_sweep_abort)
             break;
@@ -2773,7 +2805,11 @@ static void moon_dusk_task(void *arg) {
         moon_shade_map_rows(&g0, alb, grel, s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
                             bev);
         if ((y & 15) == 15)
-            vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+            vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
+                            * rounds to 0 ticks -- a no-op that starved IDLE1
+                            * (bench: boot-sweep bake spun core 1, TWDT
+                            * IDLE1 hits every 5 s once the CPU1 check was
+                            * enabled) */
     }
     if (s_dusk_abort)
         goto abort_out; /* s_frame/s_rgb untouched: the parked pose */
@@ -2818,7 +2854,11 @@ static void moon_dusk_task(void *arg) {
                                MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
                                bev); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
                 if ((y & 15) == 15)
-                    vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+                    vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
+                                    * rounds to 0 ticks -- a no-op that starved IDLE1
+                                    * (bench: boot-sweep bake spun core 1, TWDT
+                                    * IDLE1 hits every 5 s once the CPU1 check was
+                                    * enabled) */
             }
         } else {
             /* Intermediate frames: RE-PROJECT the constant map through
@@ -2848,7 +2888,11 @@ static void moon_dusk_task(void *arg) {
                 moon_reproject_rows(s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
                                     (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1, lit_w);
                 if ((y & 15) == 15)
-                    vTaskDelay(pdMS_TO_TICKS(1)); /* feed the idle task + TWDT */
+                    vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
+                                    * rounds to 0 ticks -- a no-op that starved IDLE1
+                                    * (bench: boot-sweep bake spun core 1, TWDT
+                                    * IDLE1 hits every 5 s once the CPU1 check was
+                                    * enabled) */
             }
         }
         if (s_dusk_abort)
@@ -2902,7 +2946,7 @@ abort_out: /* the map-build abort lands here: the else-branch below handles it
                                         wake frame during an eclipse) */
                 xSemaphoreGive(s_rgb_mtx);
                 if ((y & 15) == 15)
-                    vTaskDelay(pdMS_TO_TICKS(1));
+                    vTaskDelay(1); /* a full tick (see the bake-loop feeds) */
             }
         }
     }
@@ -3453,6 +3497,9 @@ void moon_ui_init(void) {
     lv_display_t *ldisp = lv_display_get_default();
     if (ldisp) {
         s_flush_cb_real = lv_display_get_flush_cb(ldisp);
+        /* Everything that runs with the "real" flush now goes through the
+         * probe (the hold swaps between hold_flush_cb and the probe). */
+        lv_display_set_flush_cb(ldisp, flush_cb_probe);
         /* Bound the flush wait (lost trans-done hand = frozen touch;
          * see moon_flush_wait_cb). */
         lv_display_set_flush_wait_cb(ldisp, moon_flush_wait_cb);

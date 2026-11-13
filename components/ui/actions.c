@@ -779,8 +779,10 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     /* A released panel traffic hold (the wake-sync storm) dropped flushes on
      * purpose: invalidate the active screen once so LVGL re-emits the whole
      * panel and panel / mirror / spin re-anchor together. */
-    if (moon_ui_panel_repaint_pending())
+    if (moon_ui_panel_repaint_pending()) {
+        ESP_LOGI(TAG, "panel repaint: whole-screen invalidate of the active screen");
         lv_obj_invalidate(lv_screen_active());
+    }
     ui_tick();
 }
 
