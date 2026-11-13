@@ -118,6 +118,15 @@ bool knob_ui_sweep_press(void);
  *         also enables the gated visibility (NULL detaches). */
 void knob_ui_bind_caption(lv_obj_t *label);
 
+/** @brief Override the baked disk geometry (task #35, 2026-11-13). The
+ *         legacy own-screen view bakes r 150 at cy 168 — its bottom
+ *         caption row owns the foot band. The SHARED home has no bottom
+ *         caption (the clock row owns the daily text), so its render
+ *         seam centres and fills the disk like the clocks' MOON_PX one
+ *         and lets the battery gauge / progress row overlap it. Set
+ *         before the first bake (the seam does it in moon_ui_init). */
+void knob_ui_set_disk_geom(float r, int cy);
+
 /** @brief True once the first frame has been applied to the panel. */
 bool knob_ui_shown(void);
 

@@ -158,6 +158,11 @@ void moon_ui_fade_out(void) {
 
 void moon_ui_init(void) {
     s_ready = knob_ui_alloc_frames();
+    /* The shared home has no bottom caption row to reserve (the clock
+     * row owns the daily text): centre the disk and let it fill the
+     * square like the clocks' MOON_PX one -- the battery gauge and the
+     * gated progress row overlay it (task #35). */
+    knob_ui_set_disk_geom(KNOB_LCD_H_RES / 2.0f, KNOB_LCD_H_RES / 2);
     ESP_LOGI(TAG, "moon render seam %s (buffers %s)", s_ready ? "ready" : "DEGRADED",
              s_ready ? "up" : "failed (moon-less screens)");
 }

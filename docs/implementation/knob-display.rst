@@ -483,7 +483,15 @@ The gauge is the knob's only addition to the home screen, and it is a
 (bottom-centre below the alarm row, range font, click-transparent so
 the home tap → hub gesture keeps owning every tap), refreshed by a
 one-minute ``lv_timer`` with coarse traffic-light tinting — the cell
-moves on the minute scale, not the second. The reading lives in
+moves on the minute scale, not the second. It *overlaps* the moon
+rather than making room for it: the shared home bakes the disk
+centred and full-square (r 180 at cy 180 — the clocks'
+``MOON_R = MOON_PX/2`` posture, set by the render seam via
+``knob_ui_set_disk_geom``), while the legacy own-screen view keeps
+the foot-band bake (r 150 at cy 168) whose 12 px below centre kept
+its bottom-edge caption row clear of the lunar limb (task #35,
+2026-11-13 — the user's verdict: the indicator overlaps, the moon
+fills). The reading lives in
 ``knob/components/knob_battery``: ``adc_oneshot`` on **ADC1** ch
 ``KNOB_BATTERY_ADC_CHANNEL`` (GPIO 1; ADC2 is unusable with the radio
 on), 12 dB attenuation, the eFuse curve-fitting calibration with a

@@ -56,12 +56,18 @@
 static const char *TAG = "knob_ui";
 
 /* The disk: the full 360 px square (the round window crops the corners
- * itself), disk r 150 at cy 168 — the 12 px below centre stays free of
- * lunar limb for the caption row at the bottom edge. */
+ * itself). The LEGACY own-screen view (KNOB_UI_ENABLE=n) bakes r 150 at
+ * cy 168 — the 12 px below centre stay free of lunar limb for its
+ * caption row at the bottom edge. The SHARED home (the shipped config)
+ * rebakes through knob_ui_set_disk_geom(): the disk centres and fills
+ * the square like the clocks' MOON_PX one, and the battery gauge and
+ * the gated progress row simply OVERLAP it (task #35, 2026-11-13 —
+ * "the battery indicator should overlap and the moon fill in
+ * completely"). */
 #define MOON_SIZE KNOB_LCD_H_RES
-#define MOON_R 150.0f
 #define MOON_CX (KNOB_LCD_H_RES / 2)
-#define MOON_CY 168
+static float s_moon_r = 150.0f; /* legacy default; the shared seam centres it */
+static int s_moon_cy = 168;     /* legacy default; the shared seam centres it */
 
 /* #ifndef-seeded (the repo invariant: a Kconfig 'n' leaves the macro
  * UNDEFINED; these seed the Kconfig defaults, never redefine them). */
@@ -239,6 +245,11 @@ static void lvgl_unlock(void) {
 
 void knob_ui_set_lvgl_lock(SemaphoreHandle_t mux) { s_lvgl_mux = mux; }
 
+void knob_ui_set_disk_geom(float r, int cy) {
+    s_moon_r = r;
+    s_moon_cy = cy;
+}
+
 static int sweep_frames_get(void) { return CONFIG_KNOB_MOON_SWEEP_FRAMES; }
 
 static int sweep_bake_px_get(void) {
@@ -329,7 +340,7 @@ static bool bake_publish(int64_t epoch, int bake_px, bool pass_event, const vola
     }
     const int back = 1 - s_front;
     knob_ui_gasp(bake_px == 0 ? KNOB_GASP_LAND_BAKE : KNOB_GASP_BAKE);
-    if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, MOON_R, MOON_CX, MOON_CY, epoch, bake_px, pass_event,
+    if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, bake_px, pass_event,
                                 abort_flag, &s_last_bake_ms)) {
         return false;
     }
@@ -431,8 +442,9 @@ static void static_once_body(void) {
  * Cold-boot synodic sweep (the clock's moon_sweep_task, minus the spin
  * pause / idle hold / AMOLED machinery): frames evenly spaced from the
  * last NEW MOON (dark) to NOW, intermediate frames baked at
- * KNOB_MOON_SWEEP_BAKE_PX (the disk geometry scales with the bake -- the
- * knob's disk does NOT fill the square, unlike the clock's MOON_PX one),
+ * KNOB_MOON_SWEEP_BAKE_PX (the disk geometry scales with the bake -- in
+ * the legacy view the disk is smaller than the square; the shared home
+ * fills it, see knob_ui_set_disk_geom),
  * the FINAL frame crisp with the event. LUT authority: classify now
  * ONCE before the loop (the special moon's color foreshadows as the
  * disk brightens; the occlusion only rides the final frame).
@@ -834,7 +846,7 @@ void knob_ui_create(void) {
     /* Screen press = sweep abort (the screen is clickable by default). */
     lv_obj_add_event_cb(scr, scr_press_cb, LV_EVENT_PRESSED, NULL);
 
-    ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, sweep %s, PSRAM free %d KB)", MOON_SIZE, (double)MOON_R,
+    ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, sweep %s, PSRAM free %d KB)", MOON_SIZE, (double)s_moon_r,
              knob_ui_sweep_enabled() ? "armed" : "off", (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
 }
 
