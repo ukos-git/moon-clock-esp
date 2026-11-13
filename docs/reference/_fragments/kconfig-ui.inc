@@ -141,11 +141,15 @@ The moon animation pipeline
        re-anchors the spin); card-less sweeps are unaffected.
    * - ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``
      - ``2``
-     - Floor for the PSRAM prefetch queue, 1–12. The real depth is
-       derived from free PSRAM at sweep start
-       (free / (bake_px²·1.15 + 4 KiB), capped at 12, logged per
-       boot); if even the floor cannot be allocated the sweep runs
-       card-less.
+     - Target floor for the PSRAM prefetch queue, 1–12. The real depth
+       is derived from free PSRAM at sweep start
+       ((free − deferred-decode reservation) / (bake_px²·1.15 + 4 KiB),
+       capped at 12, logged per boot) and raised to this under normal
+       memory; a tighter boot **runs thin** (logged) down to one slot
+       rather than dropping the card path — a starved slot times out
+       to a local bake, never wedges the sweep. Only zero allocatable
+       slots run card-less. The decode reservation (3·bake_px²) is
+       budgeted only when the folder already holds hours (task #38).
    * - ``UI_MOON_ANIM_ON_WAKE``
      - ``y``
      - **Obsolete.** The sweep plays at boot only; wakes show the

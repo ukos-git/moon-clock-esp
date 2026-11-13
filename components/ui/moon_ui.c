@@ -2505,12 +2505,27 @@ static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
     const int free_ps = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     const size_t slot_sz = (size_t)px * px;
     const size_t est = slot_sz + slot_sz / 7 + 4096; /* the *1.15 + slack the queue must fit */
-    int want = (int)(free_ps / est);
+    /* Reserve the DEFERRED decode out-buffer (moon_tfcache.c allocates
+     * 3*px*px on the first real hit, keeping it off the cold-boot ledger):
+     * on a warm folder every fetched frame needs it, so the slots must
+     * not eat the last of the pool that decode still wants -- the same
+     * lesson as the fetch buffer above, generalized. The hard floor is
+     * now ONE slot, not PREFETCH_MIN_SLOTS: the 8 MB S3 used to fit 1 of
+     * the floor's 2 and dropped the whole card path -- which baked all
+     * 1344 frames (~36 min) every boot and seeded nothing (task #38).
+     * Even one slot replays and seeds: moon_tf_pop's 2 s timeout
+     * degrades a starved slot to a local bake, so a thin queue can
+     * never wedge the sweep. */
+    const size_t dec_res = tfcache_folder_warm() ? (size_t)px * px * 3 + 32 : 0;
+    int want = (free_ps > (int)dec_res) ? (int)((free_ps - (int)dec_res) / est) : 0;
     const int floor_n = CONFIG_UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS;
     if (want > TF_Q_MAX)
         want = TF_Q_MAX;
+    if (want < 1)
+        want = 1;
     if (want < floor_n)
-        want = floor_n;
+        ESP_LOGI(TAG, "tf slots: %d below floor %d (free PSRAM %d KB, decode reservation %u KB) -- running thin", want,
+                 floor_n, free_ps / 1024, (unsigned)(dec_res / 1024));
     int got = 0;
     while (got < want) {
         s_tf_slot[got] = heap_caps_malloc(slot_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -2518,9 +2533,10 @@ static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
             break;
         got++;
     }
-    if (got < floor_n) {
+    if (got < 1) {
         moon_tf_prefetch_stop();
-        ESP_LOGW(TAG, "tf slots: only %d/%d x %uKB -- card-less path", got, want, (unsigned)(slot_sz / 1024));
+        ESP_LOGW(TAG, "tf slots: no PSRAM for even one %uKB slot (free PSRAM %d KB) -- card-less path",
+                 (unsigned)(slot_sz / 1024), free_ps / 1024);
         return false;
     }
     s_tf_ready_q = xQueueCreate(got, sizeof(int));
@@ -2702,9 +2718,10 @@ static void moon_sweep_task(void *arg) {
                     ESP_LOGW(TAG, "tf replay: mask rebuild did not run within 2 s");
             }
         } else if (tfcache_ready()) {
-            /* TF rejected for this boot (hours < 1, probe, slots or
-             * task OOM): hand the codec scratch back -- ~860 KB of
-             * PSRAM the classic path never touches, while it starves
+            /* TF rejected for this boot (hours < 1, probe, not even one
+             * slot, or task OOM): hand the codec scratch back -- ~392 KB
+             * of PSRAM (eager; plus the deferred decode buffer if a hit
+             * ever took it) that the classic path never touches, while it starves
              * the mask snapshot (a ~434 KB lv_malloc), freezing the
              * front mirror on its stale seed so the spin repaints
              * stale clock digits over every heal (the home clock-row

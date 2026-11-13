@@ -68,9 +68,10 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 bool tfcache_ready(void);
 
 /* The sweep rejected the TF path this boot (card-less fallback): return
- * the codec scratch (three big PSRAM buffers, ~860 KB at 400px/q90 --
- * dead weight the classic path never touches while it starves the spin
- * mask's 434 KB lv_snapshot). fetch/store then fail like any !ready
+ * the codec scratch (the two eager PSRAM buffers, ~392 KB at 400px/q90
+ * -- dead weight the classic path never touches while it starves the
+ * spin mask's 434 KB lv_snapshot; the 3*px*px decode buffer joins them
+ * if a hit ever allocated it). fetch/store then fail like any !ready
  * state. Only the sweep task may call it, after its TF decision (the
  * prefetch task is never started on the card-less path). */
 void tfcache_scratch_free(void);
@@ -82,6 +83,12 @@ void tfcache_scratch_free(void);
  * sizes -- "cache off for this boot: no psram (fetch)", 2026-11-08.
  * false = no memory: stay on the card-less path. Idempotent. */
 bool tfcache_fetch_buf_alloc(void);
+
+/* true when the version folder already held cached hours at init. The
+ * prefetch budget must reserve the deferred 3*px*px decode out-buffer
+ * (allocated by the first real hit inside tfcache_fetch) while this is
+ * true; a cold folder never decodes, so its PSRAM may go to slots. */
+bool tfcache_folder_warm(void);
 
 /* Decode /hour.3600.jpg into gray_out (S*S gray8, S == bake_px from
  * init). false = miss (no file / corrupt file -- the caller bakes and

@@ -189,15 +189,29 @@ front of it:
   replay at 4.6/3.6 fps; core 0 holds only the mostly-idle LVGL task,
   ~7–9 % during the sweep) walks the hour list ahead of the display;
   the queue depth is derived from free PSRAM,
-  ``clamp(free / (S²·1.15 + 4 KiB), UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, 12)``,
-  so 1-bit SD read jitter never sits on the frame path. The fetch
-  path **allocates nothing**: one persistent input buffer (the size a
-  valid cached file can reach) is allocated *before* the slot queue —
-  on the 8 MB S3 only ~568 KB of PSRAM is free at prefetch start (the
-  relief cache + assets + bake scratch own the rest), and a per-call
-  file buffer racing a full queue for that head died at q90 file
-  sizes (frame 39: ``cache off for this boot: no psram (fetch)``,
-  2026-11-08).
+  ``clamp((free − decode reservation) / (S²·1.15 + 4 KiB), 1, 12)``
+  and raised to ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS`` when memory
+  allows — a tighter boot **runs thin** (logged) rather than dropping
+  the card path: even one slot replays and seeds the card, and
+  ``moon_tf_pop``'s 2 s timeout degrades a starved slot to a local
+  bake, so a thin queue can never wedge the sweep. The *decode
+  reservation* (``3·S²``, deferred inside ``moon_tfcache.c``) is
+  budgeted only when the version folder already holds hours — every
+  hit needs the buffer, and the slots must not eat what the first hit
+  still wants; a cold folder never decodes (fetches are misses until
+  write-through begins, and the prefetch always runs ahead of those
+  stores), so its PSRAM goes to slots. The fetch path itself **still
+  allocates nothing**: one persistent input buffer (the size a valid
+  cached file can reach) is allocated *before* the slot queue — on
+  the 8 MB S3 only a few hundred KB of PSRAM are free at prefetch
+  start (the relief cache + assets + bake scratch own the rest), and
+  a per-call file buffer racing a full queue for that head died at
+  q90 file sizes (frame 39: ``cache off for this boot: no psram
+  (fetch)``, 2026-11-08). The hard floor matters for the same reason
+  the fetch buffer does: while the decode buffer sat allocated at
+  init, the 8 MB S3 fit only 1 of the floor's 2 slots, the whole card
+  path was dropped **every boot** — 1344 frames baked, nothing ever
+  seeded — until the deferred decode freed it (task #38, below).
 - **Direct-write replay** (``UI_MOON_TFCACHE_FPS``, default 25) —
   replayed *intermediate* frames are displayed by the sweep task
   itself through ``moon_spin_write_panel()``: the spin's own sanctioned
@@ -322,6 +336,29 @@ lands the whole synodic story in **~2 min** on both boards at the
 shipped q90. The **hourly JPEGs stay small**: 29 KB per frame at
 400 px, 73 KB at 650 px — ~20 MB (S3) / ~51 MB (P4) for the whole
 cycle.
+
+**2026-11-13 regression, closed by the deferred decode (task #38).**
+Reported as "all devices currently cache new". Two layers, one by
+design and one bug. *By design*: the folder is keyed on the build's
+git-describe stamp (see **Versioned folder** above), so **every new
+flash starts its cache from zero** and prunes the old version's
+folder — re-flashing the bench re-keys all three boards, and a dirty
+tree even gets a fresh ``-dirty`` folder per build. *The bug*: the
+S3's card path had quietly died **entirely** — while the eager
+``3·S²`` decode out-buffer (470 KB at 400 px) sat allocated at init,
+the boot could not fit the floor's two 156 KB slots, the floor acted
+as an all-or-nothing gate, and the boot logged ``tf slots: only 1/2
+x 156KB -- card-less path`` — a 36-min, 1344-frame bake that writes
+**nothing** through, so the cache could never warm up no matter how
+many boots (the 2026-11-08 table above fitted its two slots with a
+~332 KB head; the budget had been that tight since day one and some
+later PSRAM consumer tipped it — not bisected, the cliff itself is
+what got removed). Measured on the bench S3 after the fix (4.6-day
+span, 110 hours): cold seeding boot ``tf prefetch: 4 slots x 156KB
+(free PSRAM 794 KB)``, 110 frames × ``put`` ≈ 4.4 min; the very next
+boot ``ready: … (+110 hours)``, one thin slot with the 468 KB decode
+reservation, ``stats: hits=109 miss=0`` — **~24 s** replay wall,
+every frame ``src=tf bake=0ms``.
 
 Two honest caveats. The accounting is *per-boot*, the card is
 *cumulative*: the hour list ages in as wall clock advances (it is

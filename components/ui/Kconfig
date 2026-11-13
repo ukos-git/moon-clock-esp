@@ -302,19 +302,23 @@ menu "UI Component Configuration"
             unaffected (bake-paced, tick-displayed, as before).
 
     config UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS
-        int "TF cache prefetch queue floor (slots)"
+        int "TF cache prefetch queue floor (slots, target)"
         depends on UI_MOON_TFCACHE
         default 2
         range 1 12
         help
             The prefetch task decodes card frames into a PSRAM slot queue
             ahead of the display; the depth is DERIVED from the free
-            PSRAM at sweep start (free / (bake_px^2 * 1.15 + 4 KiB),
-            capped at 12, logged per boot). This is the floor: even a
-            tight-memory boot tries this many slots (and falls back to
-            full on-device baking if even the floor cannot be allocated,
-            or if 12 slots leave no headroom -- the queue only ever
-            covers the INTERMEDIATE frames at bake_px).
+            PSRAM at sweep start ((free - deferred-decode reservation) /
+            (bake_px^2 * 1.15 + 4 KiB), capped at 12, logged per boot).
+            This is the floor the derived depth is raised to under normal
+            memory -- below it the boot runs THIN (logged) rather than
+            dropping the card path: even ONE slot replays and seeds the
+            card (a starved slot times out to a local bake, never wedges
+            the sweep). Only zero allocatable slots fall back to full
+            on-device baking. On a warm folder the budget first reserves
+            the deferred 3*bake_px^2 decode buffer (allocated by the
+            first hit); a cold folder spends it on slots (task #38).
 
     config UI_MOON_ANIM_ON_WAKE
         bool "Re-bake the moon on every wake from sleep (testing)"

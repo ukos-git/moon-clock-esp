@@ -96,6 +96,10 @@ static int s_enc_fmt;       /* 1 GRAY, 2 RGB565_LE dup, 3 RGB888 dup */
 static tfcache_stats_t s_st;
 static int64_t s_max_hour;        /* newest key stored this boot           */
 static int64_t s_last_evict_hour; /* hour basis of the last eviction scan  */
+static int s_files;               /* cached hours found at init (warm-folder verdict;    \
+                                   * a cold folder never decodes, so the decode buffer   \
+                                   * stays unallocated -- see tfcache_folder_warm())      */
+static bool s_dec_warned;         /* one shot when the deferred decode alloc fails */
 
 /* ---- 16-byte-aligned SPIRAM helpers ---------------------------------- */
 
@@ -160,6 +164,24 @@ static bool parse_hour_name(const char *name, int64_t *hour) {
         return false;
     *hour = (int64_t)v;
     return true;
+}
+
+/* Number of "<hour>.jpg" hours cached in path (the warm-folder verdict).
+ * Cheap: one FAT readdir of a folder bounded by TF_MAX_HOURS entries, and
+ * only ever on the exists path of init. */
+static int count_hours(const char *path) {
+    int n = 0;
+    DIR *d = opendir(path);
+    if (!d)
+        return 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        int64_t hour;
+        if (parse_hour_name(e->d_name, &hour))
+            n++;
+    }
+    closedir(d);
+    return n;
 }
 
 /* ---- meta.txt: the self-describing cache (resolution can never lie) --- */
@@ -421,6 +443,7 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
         ESP_LOGI(TAG, "created cache folder %s (calcver %s)", s_dir, MOON_CALC_VER);
     }
     wipe_sibling_folders();
+    s_files = exists ? count_hours(s_dir) : 0; /* warm-folder verdict (below) */
 
     s_enc_fmt = probe_encoder();
     if (!s_enc_fmt) {
@@ -430,23 +453,35 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
 
     size_t in_bytes = (s_enc_fmt == 3) ? (size_t)S * S * 3 : (s_enc_fmt == 2 ? (size_t)S * S * 2 : (size_t)S * S);
     s_enc_out_cap = (size_t)S * S + (size_t)S * S / 2 + 1024;
-    s_dec_rgb = alloc16((size_t)S * S * 3);
+    /* The decode out-buffer (3*S*S) is NOT allocated here: a cold folder
+     * never decodes anything this boot (every fetch is a miss until the
+     * first write-through, and the prefetch runs ahead of those), and on
+     * the 8 MB S3 those 470 KB were exactly what starved the slot queue
+     * -- "tf slots: only 1/2 x 156KB -- card-less path" baked all 1344
+     * frames every boot and seeded nothing (task #38). tfcache_fetch
+     * allocates it on the first real hit; the prefetch budget reserves it
+     * when this boot can actually hit (s_files > 0). */
     s_enc_in = alloc16(in_bytes);
     s_enc_out = alloc16(s_enc_out_cap);
-    if (!s_dec_rgb || !s_enc_in || !s_enc_out) {
-        free16(s_dec_rgb);
+    if (!s_enc_in || !s_enc_out) {
         free16(s_enc_in);
         free16(s_enc_out);
-        s_dec_rgb = s_enc_in = s_enc_out = NULL;
+        s_enc_in = s_enc_out = NULL;
         tfcache_disable("no psram");
         return ESP_ERR_NO_MEM;
     }
     s_px = S;
     s_ready = true;
-    ESP_LOGI(TAG, "ready: %s px=%d q=%d scratch=%u KB", s_dir, S, CONFIG_UI_MOON_TFCACHE_JPEG_Q,
-             (unsigned)(((size_t)S * S * 3) + in_bytes + s_enc_out_cap) / 1024);
+    ESP_LOGI(TAG, "ready: %s px=%d q=%d scratch=%u KB (+%d hours)", s_dir, S, CONFIG_UI_MOON_TFCACHE_JPEG_Q,
+             (unsigned)(in_bytes + s_enc_out_cap) / 1024, s_files);
     return ESP_OK;
 }
+
+/* true when the version folder already held hours at init: the prefetch
+ * budget must then reserve the deferred decode buffer (every hit needs
+ * it). A cold folder (0 hours) never decodes -- prefetch may spend that
+ * PSRAM on slots instead. */
+bool tfcache_folder_warm(void) { return s_ready && s_files > 0; }
 
 bool tfcache_ready(void) { return s_ready; }
 
@@ -478,7 +513,7 @@ void tfcache_disable(const char *reason) {
 }
 
 bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
-    if (!s_ready || S != s_px || !s_dec_rgb || !s_enc_out)
+    if (!s_ready || S != s_px || !s_enc_out)
         return false;
     char path[128];
     hour_path(hour, path, sizeof(path));
@@ -512,6 +547,22 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
         return false;
     }
     s_st.bytes_read += st.st_size;
+    if (!s_dec_rgb) { /* first real hit this boot: pay for the decode out-
+                       * buffer here, never on a cold miss (prefetch task
+                       * only -- no locking, same rule as the other codec
+                       * buffers). Out of PSRAM: degrade to a miss so the
+                       * sweep bakes this frame (and stores it, like any
+                       * miss) -- correctness is untouched. */
+        s_dec_rgb = alloc16((size_t)S * S * 3);
+        if (!s_dec_rgb) {
+            if (!s_dec_warned) {
+                s_dec_warned = true;
+                ESP_LOGW(TAG, "deferred decode scratch out of PSRAM -- hits decode as misses this boot");
+            }
+            s_st.misses++;
+            return false;
+        }
+    }
     jpeg_dec_config_t dc = DEFAULT_JPEG_DEC_CONFIG();
     dc.output_type = JPEG_PIXEL_FORMAT_RGB888;
     jpeg_dec_handle_t dh = NULL;
