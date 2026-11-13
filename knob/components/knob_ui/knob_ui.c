@@ -80,7 +80,10 @@ static const char *TAG = "knob_ui";
 #define KNOB_MAX_IMGS 8
 static lv_obj_t *s_imgs[KNOB_MAX_IMGS];
 static int s_n_imgs;
-static lv_obj_t *s_caption; /* NULL in shared-UI mode (no caption row) */
+static lv_obj_t *s_caption;  /* legacy own-screen label, or the shared home's
+                              * bound progress row (knob_ui_bind_caption) */
+static bool s_caption_gated; /* shared home: the row is a progress/honesty
+                              * affordance, not chrome (caption_display_wanted) */
 static lv_image_dsc_t s_moon_dsc;
 static uint16_t *s_buf[2]; /* PSRAM, each MOON_SIZE*MOON_SIZE RGB565 */
 static bool s_nomem;       /* the double-buffer PSRAM alloc failed */
@@ -348,6 +351,29 @@ static bool bake_publish(int64_t epoch, int bake_px, bool pass_event, const vola
 static void caption_unavailable(void) {
     snprintf(s_caption_text, sizeof(s_caption_text), "moon unavailable");
     s_caption_dirty = true;
+}
+
+/* Shared-home caption gating (task #28): on that screen the clock row
+ * owns the daily text, so the bound row shows ONLY what the shared home
+ * has no other place to say -- the sweep progress and the two honest
+ * failure states. The legacy own-screen view is ungated (there the
+ * daily UTC line WAS the time affordance; its label is bound without
+ * the flag, by knob_ui_create itself). */
+static bool caption_display_wanted(void) {
+    return strncmp(s_caption_text, "sweeping ", 9) == 0 || strcmp(s_caption_text, "no time") == 0 ||
+           strcmp(s_caption_text, "moon unavailable") == 0;
+}
+
+/* Write the staged caption to the bound label (LVGL lock held by the
+ * caller); the gated row reveals/hides itself with its text. */
+static void caption_apply_locked(void) {
+    if (!s_caption) {
+        return;
+    }
+    lv_label_set_text(s_caption, s_caption_text);
+    if (s_caption_gated) {
+        lv_obj_set_hidden(s_caption, !caption_display_wanted());
+    }
 }
 
 /* ---- the producer task ---------------------------------------------- */
@@ -635,7 +661,7 @@ static void swap_task(void *arg) {
             if (s_caption_dirty) {
                 s_caption_dirty = false;
                 if (s_caption) {
-                    lv_label_set_text(s_caption, s_caption_text);
+                    caption_apply_locked();
                     /* #31 probe: caption geometry after relayout, 1 s
                      * throttle (the sweep re-labels every frame). */
                     static char last_cap[48];
@@ -697,9 +723,7 @@ static void scr_press_cb(lv_event_t *e) {
     ESP_LOGI(TAG, "scr_press: seen (sweeping=%d)", (int)s_sweeping);
 #endif
     knob_power_notify_activity(); /* K7e: a press is activity */
-    if (s_sweeping) {
-        s_abort = true; /* the row loop honors it within one row */
-    }
+    (void)knob_ui_sweep_press();
 }
 
 /* ---- public API ------------------------------------------------------- */
@@ -754,6 +778,20 @@ void knob_ui_invalidate_all(void) {
 }
 
 bool knob_ui_sweeping(void) { return s_sweeping; }
+
+bool knob_ui_sweep_press(void) {
+    if (!s_sweeping) {
+        return false;
+    }
+    s_abort = true; /* the row loop honors it within one row */
+    ESP_LOGI(TAG, "sweep: press abort requested (frame %lu published)", (unsigned long)s_pub);
+    return true;
+}
+
+void knob_ui_bind_caption(lv_obj_t *label) {
+    s_caption = label;
+    s_caption_gated = (label != NULL);
+}
 
 bool knob_ui_shown(void) { return s_shown; }
 
@@ -813,9 +851,8 @@ void knob_ui_show_no_time(void) {
         return; /* a frame path owns the caption, or it names a real failure */
     }
     lvgl_lock();
-    if (s_caption) {
-        lv_label_set_text(s_caption, "no time");
-    }
+    strlcpy(s_caption_text, "no time", sizeof(s_caption_text));
+    caption_apply_locked();
     hide_all_images();
     lvgl_unlock();
 }
@@ -844,9 +881,7 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * #31's photo caught (caption clipped/shifted): every object touch
      * here rides the lock, like the swap task and show_no_time do. */
     lvgl_lock();
-    if (s_caption) {
-        lv_label_set_text(s_caption, s_caption_text);
-    }
+    caption_apply_locked();
     hide_all_images();
     lvgl_unlock();
     s_front = 0;
@@ -873,9 +908,7 @@ void knob_ui_start_sweep(int64_t now_epoch) {
     s_now_base_us = esp_timer_get_time();
     snprintf(s_caption_text, sizeof(s_caption_text), "sweeping 0/%d", sweep_frames_get());
     lvgl_lock();
-    if (s_caption) {
-        lv_label_set_text(s_caption, s_caption_text);
-    }
+    caption_apply_locked();
     hide_all_images();
     lvgl_unlock();
     s_caption_dirty = false;

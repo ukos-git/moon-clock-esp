@@ -175,10 +175,25 @@ The opening act
 Cold boot plays the full synodic sweep — 1344 frames new moon → now
 at 128 px (``KNOB_MOON_SWEEP_FRAMES``; the clock's task #17 no-jump
 count), then one crisp 360-px final frame: **314 s wall**, logging
-``sweeping n/N`` from frame 1 (the never-black posture). Deep-sleep
-and dial wakes show the static current phase instead — the clock's
-wake policy, and the same rule keeps the battery honest. A screen
-press aborts the sweep onto the true phase. The current-phase frame
+``sweeping n/N`` from frame 1 (the never-black posture). Both
+affordances of that posture live on the shared home since task #28
+through the render seam (they had been legacy-view-only since the P1
+cutover — the shared home registered neither): the seam attaches a
+gated progress row to the producer's caption staging
+(``knob_ui_bind_caption``) — a montserrat-16, 240 px, DOT-centred
+label at the **top band** (+28; the foot belongs to the battery
+gauge, the middle to the clock column), revealed by the swap task
+only while the staged text is the sweep progress or an honest
+failure state (``no time``, ``moon unavailable``) — the shared clock
+row owns the daily text there. And a screen press aborts the sweep
+onto the true phase: a press observer on every moon root calls
+``knob_ui_sweep_press`` and then consumes the gesture
+(``lv_indev_reset``), so a skip does not simultaneously open the
+settings hub. The legacy own-screen build (``KNOB_UI_ENABLE=n``)
+keeps its own ungated bottom caption and screen handler.
+Deep-sleep and dial wakes show the static current phase instead —
+the clock's wake policy, and the same rule keeps the battery honest.
+The current-phase frame
 carries the sky event through the shared tint LUT (the 2025-03-14
 total-lunar-eclipse epoch showed the blood tint on glass), and a 1 Hz
 day tick re-bakes exactly once when the UTC date or the event
@@ -432,7 +447,9 @@ cursor moved since the screen was entered.
      - commit the hot letter into the running entry
    * - Sweep / boot arm
      - activity (the ladder holds; a turn never interrupts the act)
-     - abort (native)
+     - abort the sweep and land the true phase — the seam's press
+       observer consumes the tap (``lv_indev_reset``), so it opens
+       no hub while the act plays (task #28)
 
 The wheel keyboard's **touch press partition** at knob scale (bench
 2026-11-11): letters render at r≈130 px, and the mode register arc —

@@ -162,12 +162,57 @@ void moon_ui_init(void) {
              s_ready ? "up" : "failed (moon-less screens)");
 }
 
+/* Sweep affordances on the shared screens (task #28): the legacy own-
+ * screen view registered its own press handler and caption row; the
+ * shared home registers neither for the sweep, so the seam carries both
+ * -- a press on any moon root aborts the sweep, and the home's top band
+ * shows the "sweeping n/N" progress while it plays. */
+static lv_obj_t *s_caption_lbl;
+
+static void sweep_press_cb(lv_event_t *e) {
+    if (!knob_ui_sweep_press()) {
+        return; /* not a sweep tap: the screen's own handlers own it */
+    }
+    /* The abort IS this tap's job while the sweep plays: the shared
+     * home's CLICKED handler would also open the settings hub under it.
+     * Cancel the gesture so a skip stays a skip (the dial table's
+     * "Sweep | tap = abort" row, and the legacy view's promise). */
+    lv_indev_reset(NULL, lv_event_get_target(e));
+}
+
 lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
     if (!s_ready) {
         return NULL;
     }
     lv_obj_t *img = knob_ui_attach_moon_image(parent);
-    if (img && s_n_roots < (int)(sizeof(s_moon_roots) / sizeof(s_moon_roots[0]))) {
+    if (!img) {
+        return NULL;
+    }
+    bool seen = false;
+    for (int i = 0; i < s_n_roots; i++) {
+        seen |= s_moon_roots[i] == parent;
+    }
+    if (!seen) {
+        lv_obj_add_event_cb(parent, sweep_press_cb, LV_EVENT_PRESSED, NULL);
+        if (parent == objects.modem_sleep && !s_caption_lbl) {
+            /* Proven legacy box (montserrat 16, 240 px, DOT, centred),
+             * mirrored to the TOP band: the foot belongs to the battery
+             * gauge (knob_battery_ui -UI_PX(26)) and the middle to the
+             * clock column. Starts hidden -- the gated swap writer
+             * reveals it only while the text is a real state. */
+            lv_obj_t *lbl = lv_label_create(parent);
+            lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+            lv_obj_set_width(lbl, 240);
+            lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+            lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 28);
+            lv_obj_set_clickable(lbl, false);
+            lv_obj_set_hidden(lbl, true);
+            s_caption_lbl = lbl;
+            knob_ui_bind_caption(lbl);
+        }
+    }
+    if (s_n_roots < (int)(sizeof(s_moon_roots) / sizeof(s_moon_roots[0]))) {
         s_moon_roots[s_n_roots++] = parent;
     }
     return img;

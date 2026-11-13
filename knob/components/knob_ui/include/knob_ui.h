@@ -100,6 +100,24 @@ void knob_ui_invalidate_all(void);
  *         on-demand-sync flow gates on it, actions.c). */
 bool knob_ui_sweeping(void);
 
+/** @brief A screen press during the synodic boot sweep (task #28): the
+ *         shared home's press observer rides this through the render
+ *         seam; the legacy own-screen view calls it directly. The row
+ *         loop honors the abort within one row, then lands the true
+ *         current phase. @return true if a sweep was playing and was
+ *         told to abort (the caller may then consume the gesture). */
+bool knob_ui_sweep_press(void);
+
+/** @brief Attach the shared home's progress row to the producer's
+ *         caption staging (task #28): the swap task writes it under the
+ *         LVGL lock exactly like the legacy caption label, but GATED --
+ *         it reveals itself only while the staged text is the sweep
+ *         progress ("sweeping n/N") or an honest failure state ("no
+ *         time", "moon unavailable"); the shared clock row owns the
+ *         daily text there. The render seam owns the label; passing it
+ *         also enables the gated visibility (NULL detaches). */
+void knob_ui_bind_caption(lv_obj_t *label);
+
 /** @brief True once the first frame has been applied to the panel. */
 bool knob_ui_shown(void);
 

@@ -91,7 +91,10 @@ jobs stay from K7e: a detent is activity for the idle ladder on every
 screen but home — there it is the **brightness control** (5 % per
 detent, floored at the ladder's dim rung, and deliberately not
 activity), and after deep sleep it is the wake input (EXT0 on its A channel);
-a screen press aborts the boot sweep. The two clock boards and this
+a screen press aborts the boot sweep (task #28: the seam's press
+observer consumes the tap — no hub opens under a skip — and while
+the sweep plays its ``sweeping n/N`` progress reads on a gated top
+band row). The two clock boards and this
 one remain independent products — no cross-board traffic; what they
 share is the code.
 

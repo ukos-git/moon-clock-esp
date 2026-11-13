@@ -142,10 +142,12 @@ the page above):
        clamped between the pair
    * - ``KNOB_DIAG_TOUCH_INJECT_S``
      - ``0`` (bench)
-     - Bench-only crash-repro hook: an esp_timer one-shot arms a
+     - Bench-only hook: an esp_timer one-shot arms a
        ~350 ms synthetic home tap at the crash coordinates at N
        seconds after boot, flowing through the real
-       ``touch_read_cb``; ``0`` = dead (production)
+       ``touch_read_cb`` — the crash-repro (task #27) and the
+       sweep tap-abort acceptance (task #28) both ride it;
+       ``0`` = dead (production)
        (:doc:`the knob display <../implementation/knob-display>`)
    * - ``KNOB_DIAG_FRAME_TRACE``
      - ``n`` (bench)
