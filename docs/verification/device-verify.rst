@@ -19,8 +19,8 @@ The device's observable is the **serial console** (115200, the
 every pipeline timing is a ``ESP_LOGI`` with a measured
 ``esp_timer_get_time()`` delta, and the Watchdog Timer's fires are
 logged by the ROM reset reason. A verification capture is a serial
-log of a *defined flow* (boot → sweep → idle → dusk → deep
-sleep → wake), read for three classes of line:
+log of a *defined flow* (boot → idle → dusk → deep
+sleep → wake; the boot sweep rung dropped out of it 2026-11-13), read for three classes of line:
 
 .. list-table::
    :header-rows: 1
@@ -30,23 +30,20 @@ sleep → wake), read for three classes of line:
      - The lines
      - What a presence means
    * - **Progress**
-     - the ``sweep span: N d``, ``sweep f/1344 shown in Mms`` (or,
-       warm TF replay, the per-frame ``sweep f/N src=tf … wr=…ms``
-       lines plus the ``TF sweep: N frames in … ms (~F fps,
-       tick-paced, target T), worst gap … ms`` summary),
+     - the ``bake | phase N% illum, subsolar (..) | geo Xms bake
+       Yms`` + ``bake | rgb565 Xms (total Yms)`` pair (one per boot and
+       per day-roll; the retired boot sweep used to log the per-frame
+       ``sweep f/1344 baked/shown`` variants of these),
        ``dusk k/N shown in Mms`` and
        ``panel-io watchdog armed (3000 ms)`` lines
-     - the pipelines ran to their endpoints (a sweep that never logs
-       its final frame is a sweep that stalled)
+     - the pipelines ran to their endpoints (a bake that never logs
+       its ``rgb565`` line is a bake that stalled)
    * - **Timing**
-     - the per-frame ``shown in Mms`` deltas (or the TF replay's
-       ``wr=`` column and measured fps), the bake-vs-display
-       split, the final full-res bake's wall time
-     - the pipeline is *display-paced, not bake-paced* (:doc:`the animation pipelines <../implementation/animations>`);
+     - the per-frame ``shown in Mms`` deltas, the bake-vs-display
+       split, the bake's wall time
+     - the dusk is *display-paced, not bake-paced* (:doc:`the animation pipelines <../implementation/animations>`);
        a ``shown`` delta that tracks the bake (~1.3 s) instead of the
-       display (304 ms measured) is the backpressure failing; a warm
-       replay far below its ``UI_MOON_TFCACHE_FPS`` target with a
-       large worst-gap is the card or decode path starving the sweep
+       display (304 ms measured) is the backpressure failing
    * - **Failure**
      - ``WDT reset``, ``panicked``, ``PANEL IO STUCK``,
        ``panel draw not accepted``,
@@ -62,10 +59,14 @@ performance regression; one that passes timing but shows a WDT is a
 lifecycle bug; the measured numbers in this section (:doc:`the animation pipelines <../implementation/animations>` and :doc:`performance <performance>`) are
 the *timing* column, quoted from accepted captures.
 
-The boot sweep
---------------
+Boot acceptance — and the sweep-era captures
+--------------------------------------------
 
-The boot acceptance (the full 1344-frame flow; the bench S3 re-captured
+Boot is now **one static bake**: the acceptance is the ``bake | phase
+… | geo … bake …`` + ``bake | rgb565 …`` pair on every boot (plus the
+sleep chain that follows). The boot sweep that used to precede it —
+retired 2026-11-13 — needed the longer acceptance below, kept as
+history (the full 1344-frame flow; the bench S3 re-captured
 2026-11-08 at the new count — **~36.5 min wall** at the native 400 px
 intermediate bake. The bench S3 is the project's own board; the old
 "peer's board" label was wrong — see the MAC-based port map in
@@ -92,7 +93,7 @@ intermediate bake. The bench S3 is the project's own board; the old
    I (2297827) ui_actions: Switching to light sleep screen
    I (2310517) moon_ui: dusk done; RTC countdown 60 s to deep sleep armed
 
-Three properties are checked: the span is found (the new-moon scan
+Three properties were checked in the sweep era: the span was found (the new-moon scan
 logged a plausible day count — a degenerate ephemeris logs a full
 29.53 d fallback); the per-frame ``shown`` deltas are display-paced,
 not the bake (~270–280 ms on the S3's 25-row-strip flush path,

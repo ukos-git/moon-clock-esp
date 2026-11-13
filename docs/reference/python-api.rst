@@ -95,7 +95,7 @@ The public names (values as of the current tree):
        comes from here)
    * - ``NUM_INTERMEDIATE_FRAMES``
      - 24
-     - the sweep's per-month sub-sample
+     - the synodic-month sweep's per-month sub-sample
    * - ``EPHEMERIS``
      - ``"builtin"``
      - PyERFA's ``builtin`` ephemeris backend — the same low-order
@@ -188,8 +188,10 @@ vectorized):
 animation — the sweep
 ----------------------
 
-``moon.animation`` is the synodic-month sweep (the boot sweep's model,
-:doc:`the animation pipelines <../implementation/animations>`):
+``moon.animation`` is the synodic-month sweep — the model the device's
+boot sweep followed until its retirement 2026-11-13, and the renderer
+behind ``docs/gen_media.py``'s sweep films
+(:doc:`the animation pipelines <../implementation/animations>`):
 
 .. code-block:: python
 

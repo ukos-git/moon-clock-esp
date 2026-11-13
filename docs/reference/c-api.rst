@@ -32,8 +32,9 @@ them:
   function has a ``*_rows`` sibling (``moon_bake_rows``,
   ``moon_rotate_rows``, ``moon_shade_map_rows``,
   ``moon_reproject_rows``) so the caller can sweep a finished row band
-  to the display while the rest is still being computed (the boot
-  sweep's progressive strips, :doc:`the animation pipelines <../implementation/animations>`).
+  to the display while the rest is still being computed (the orbit
+  bakes rows and the dusk re-projects rows today; the boot sweep was
+  the original user, retired 2026-11-13, :doc:`the animation pipelines <../implementation/animations>`).
 
 The geometry
 ------------

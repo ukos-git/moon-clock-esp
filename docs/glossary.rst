@@ -28,10 +28,12 @@ Lunar astronomy
   physical): the posangle sweep + the subearth point's excursion,
   which lets ~59 % of the surface be seen over a cycle. The cheap
   ephemeris carries it (the subsolar/subearth residual, :doc:`the geometry <science/geometry>`).
-- **Synodic month** — 29.530589 days; the phase cycle the boot sweep
-  plays (:doc:`the animation pipelines <implementation/animations>`).
-- **New-moon epoch** — the instant of zero phase; the sweep's start
-  (the two-pass 6 h coarse + 20 min fine scan, :doc:`the animation pipelines <implementation/animations>`).
+- **Synodic month** — 29.530589 days; the phase cycle (the
+  clock's boot sweep played it until 2026-11-13; the knob companion
+  still does at cold boot, :doc:`the animation pipelines <implementation/animations>`).
+- **New-moon epoch** — the instant of zero phase; the retired boot
+  sweep's start (the two-pass 6 h coarse + 20 min fine scan came down
+  with it, :doc:`the animation pipelines <implementation/animations>`).
 
 The rendering model
 ^^^^^^^^^^^^^^^^^^^
@@ -86,12 +88,14 @@ The device pipeline
   written *directly* to the panel (LVGL bypassed for that frame).
   Retired entirely — the home moon is plain LVGL, shown static
   (:doc:`the architecture <implementation/architecture>`).
-- **Sweep** — the boot animation: the last synodic month — card-less,
-  1344 tick-displayed frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF
-  sweep cache, the cycle's hour list replayed as the same
-  tick-displayed frames — always ending on the live
-  full-resolution final bake; boot-only (wakes are static)
-  (:doc:`the animation pipelines <implementation/animations>`).
+- **Sweep** *(removed from the clocks 2026-11-13)* — the former boot
+  animation: the last synodic month — card-less, 1344 tick-displayed
+  frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF sweep cache, the
+  cycle's hour list replayed as the same tick-displayed frames —
+  always ending on the live full-resolution final bake. The home now
+  boots straight to the static current phase (and always showed that
+  on wakes); the knob companion keeps its own cold-boot sweep
+  (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
 - **Dusk** — the light-sleep entry: the constant-projection pole
   spin to the dark side (the shade map + the re-projects), the
   backlight dim to 25 %, the RTC countdown armed on the last frame

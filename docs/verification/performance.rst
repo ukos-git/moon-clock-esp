@@ -126,8 +126,8 @@ up-scaled onto the panel. ``N`` below is the bake's pixel count
   the ``panel``-px round display is one bilinear sample per *display*
   pixel: **O(display²)** in the LVGL/canvas draw and the flush strips
   (:doc:`the display pipeline <../implementation/display>`) — the
-  reason the sweep bakes 240 px and lets the *draw* do the
-  up-scaling.
+  reason the (pre-8954e88, retired 2026-11-13) boot sweep baked 240
+  px and let the *draw* do the up-scaling.
 
 The measured log-log slopes in the figures below are the empirical
 signature of these classes: ~2.0 against linear size (≡ linear in
@@ -241,14 +241,16 @@ The A/B variants (host C)
    product's backlit-night + soft-terminator branch). At the 400 px
    product size: **relief off saves 37 %, the display path costs
    +27 %** — and the shape of the trade-off holds across the size
-   range, which is why the sweep can trade resolution for frames.
+   range, which is why the sweep (retired 2026-11-13) could trade
+   resolution for frames.
 
 The display path's +27 % is the backlit night side (a large fraction
 of the disk at a crescent) running the ``moon_backlit_night`` branch
 per dark pixel, plus the soft-terminator smoothstep at the terminator.
 That 27 % is the *art pass's* performance cost (:doc:`the artistic pass <../science/art-pass>`), paid by the S3 at
 ~0.19 s per 400 px frame — a price the sweep's 240 px bake (0.28 s
-wall) and the spin's once-baked model make affordable. The relief
+wall) and the spin's once-baked model used to make affordable (both
+retired 2026-11-13). The relief
 cache's 37 % is the cheap side of that trade: the one-time ~1.3 s
 gradient-cache build (S3) buys back ~2 s per frame of naive
 6-loads-per-pixel DEM sampling.
@@ -267,12 +269,12 @@ The device pipelines (accepted captures)
    builds (amber), and the brightness-ramp fade (vermilion).
 
 The *pipeline-level* lesson is the ratio that makes the product: the
-sweep and dusk are **display-paced, not bake-paced** (the per-frame
+dusk (and, until its 2026-11-13 retirement, the sweep) are **display-paced, not bake-paced** (the per-frame
 display cost — ~0.23 s on the S3 — is *less* than the bake, so the
 bake task paces and the display keeps up with backpressure), and the
-spin is **gather-paced, not bake-paced** (the 45 ms frame against a
-1.3 s bake is the ~30× — 150× counting just the 8 ms gather — that
-makes a *free* spin off a once-baked frame possible). A pipeline
+spin (retired the same day) was **gather-paced, not bake-paced** (the 45 ms frame against a
+1.3 s bake was the ~30× — 150× counting just the 8 ms gather — that
+made a *free* spin off a once-baked frame possible). A pipeline
 whose display cost exceeded its bake cost would show the backpressure
 failing (the ``shown in`` deltas tracking the bake) — which is the
 verification signature :doc:`on-device verification <device-verify>` checks.
@@ -289,14 +291,16 @@ The device CPU (one-core shares)
    hub-idle bar carries its measured 7–9 % range.
 
 The budget's shape is the architecture's shape: the *bake* is on a
-dedicated core (core 1, the spin/bake task) and the *UI* is on
+dedicated core (core 1, the bake tasks — the spin task retired
+2026-11-13 with its subsystem) and the *UI* is on
 core 0 (LVGL + touch + clock) — a bake that starves the UI is a
-design bug, not a timing accident. The two-core split is what lets
+design bug, not a timing accident. The two-core split is what let
 the sweep run for ~37 min (S3, native 400 px intermediate bake,
-2026-11-08 capture; ~11 min if ``UI_MOON_ANIM_BAKE_PX`` is dropped to
-240) — that is the *card-less* path; with the TF cache mounted the
-same sweep replays from the card in ~2 min warm (:doc:`the
-animation pipelines <../implementation/animations>`). Either way
+2026-11-08 capture; ~11 min if ``UI_MOON_ANIM_BAKE_PX`` was dropped to
+240) — that was the *card-less* path; with the TF cache mounted the
+same sweep replayed from the card in ~2 min warm (:doc:`the
+animation pipelines <../implementation/animations>`; the sweep
+retired 2026-11-13). Either way
 the touch pipeline never sees a bake. The hub idle sits at 7–9 % because the LVGL adapter's
 ``task_min_delay_ms`` floor parks the loop at ~93 Hz — the pre-fix
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
@@ -305,35 +309,39 @@ the touch pipeline never sees a bake. The hub idle sits at 7–9 % because the L
 The performance decisions, ranked
 ---------------------------------
 
-The measured costs justify the project's performance decisions, in
-the order they matter:
+The measured costs justify the spin/sweep era's performance decisions
+(both subsystems retired 2026-11-13 — the list stays as the record of
+what the numbers bought; the relief cache and the dusk's
+constant-projection economics outlive them), in the order they
+mattered:
 
 1. **The relief gradient cache** (:doc:`the C core <../implementation/core-c>`) — the single largest
    win: ~3.3 s → ~1.3 s (S3, 466 px) by turning six dependent
    PSRAM loads per pixel into one packed 2-byte load. Worth ~2 s
    per frame on the S3; on the host (where loads are free) the same
    cache is worth the 37 % the A/B plot measures.
-2. **The once-baked spin** (:doc:`rotation and the LUT <../implementation/rotate-lut>` and :doc:`the animation pipelines <../implementation/animations>`) — the 8 ms gather
-   against the 1.3 s bake is what makes the burn-in rotation
-   free; without it, the spin would be a 1.3 s re-bake per hand
-   motion.
+2. **The once-baked spin** (:doc:`rotation and the LUT <../implementation/rotate-lut>` and :doc:`the animation pipelines <../implementation/animations>`, retired
+   2026-11-13) — the 8 ms gather against the 1.3 s bake is what made
+   the burn-in rotation free; without it, the spin was a 1.3 s
+   re-bake per hand motion.
 3. **The constant-projection dusk** (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`) — the one-time
    1.6 s map build against the per-frame 1.3 s bake; the dusk's
    43 s runs off ~50 ms re-projects.
-4. **The reduced-res sweep lever** (:doc:`the animation pipelines <../implementation/animations>`) — the 240 px intermediate
+4. **The reduced-res sweep lever** (:doc:`the animation pipelines <../implementation/animations>`, retired with the sweep
+   2026-11-13) — the 240 px intermediate
    (~0.28 s) against the native bake: the sweep's 1343
-   intermediate frames are ~56 % cheaper on the per-frame math.
-   The shipped default since 8954e88 is the NATIVE bake (S3 400 px,
+   intermediate frames were ~56 % cheaper on the per-frame math.
+   The shipped default since 8954e88 was the NATIVE bake (S3 400 px,
    P4 650 px — every intermediate frame pixel-identical to the
-   static/spin bakes), a quality decision that costs boot time:
+   static/spin bakes), a quality decision that cost boot time:
    measured ~36.5 min wall on the bench S3 (2026-11-08; per-frame
    bake 1211–1354 ms @ 400 px against the earlier ~0.72 s note —
-   the 864-albedo PSRAM-load floor). The TF cache pays this cost
-   once: the cold card still bakes every intermediate (at hourly
-   granularity, ~19 min S3, measured 1164 s), the warm card replays
+   the 864-albedo PSRAM-load floor). The TF cache paid this cost
+   once: the cold card baked every intermediate (at hourly
+   granularity, ~19 min S3, measured 1164 s), the warm card replayed
    it in ~2 min —
-   but on a *card-less* boot the native lever applies at full
-   price, which is why it still matters. ``UI_MOON_ANIM_BAKE_PX`` is
+   but on a *card-less* boot the native lever applied at full
+   price, which is why it mattered. ``UI_MOON_ANIM_BAKE_PX`` was
    the single Kconfig value to drop it (240 px → arithmetically
    ~11 min).
 5. **The 25-row strips / 23,300 B cap** (:doc:`the display pipeline <../implementation/display>`) — not a
@@ -343,13 +351,14 @@ the order they matter:
    ~31 KiB blocks that fit the internal heap.
 
 The honest limit: the S3's bake is ~0.7–1.3 s, and the product
-*accepts* it — the sweep is a ~37 min card-less boot story at the
+*accepts* it — the sweep was a ~37 min card-less boot story at the
 native default, ~19 min on a cold TF card and ~2 min on a warm
 one (frame count
 quadrupled on 2026-11-07: users watched the old 2.8 min sweep stutter,
 so the boot grew longer and smooth; the TF cache, 2026-11-08, made
-the length a once-per-calculation cost), the spin is
-once-baked, the dusk is map-re-projected. The alternative (a
+the length a once-per-calculation cost) before its 2026-11-13
+retirement; the spin (likewise retired) was
+once-baked; the dusk is map-re-projected. The alternative (a
 faster silicon, a smaller disk, a coarser relief) would buy
 speed and lose *physical correctness at this resolution* — the
 gate's numbers (:doc:`the image gate <image-gate>`) are the price of the resolution, and

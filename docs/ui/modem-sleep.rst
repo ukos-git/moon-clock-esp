@@ -29,7 +29,7 @@ Elements
 
    * - 1
      - Moon — the current phase
-     - Baked statically at the current phase (the boot-only sweep ``UI_MOON_ANIM_ENABLE`` ends on it; wakes show it static — no re-animation).
+     - Baked statically at the current phase — the home is this frame from the first frame of boot (the boot-only sweep ``UI_MOON_ANIM_ENABLE`` used to end on it; retired 2026-11-13). Wakes show it static — no re-animation.
      - :cfunc:`moon_screen_prepare` (the moon component), :cfunc:`tick_screen_modem_sleep`
 
    * - 2

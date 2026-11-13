@@ -130,7 +130,7 @@ static void auto_wake_test_cb(lv_timer_t *timer) {
 // (wifi_scan_begin) and renders the results as rows. Headless verification
 // of the scan path (on the P4: the esp_hosted RPC scan through the remote
 // C6, including its 5 GHz APs). Like the settings demo it waits out the
-// boot sweep (a screen switch mid-sweep is guarded off) and keeps idle
+// boot sync (the transient WiFi screen must have dropped) and keeps idle
 // monitoring off so the capture is not cut by the sleep transition.
 static void wifi_scan_test_cb(lv_timer_t *timer) {
     (void)timer;
@@ -141,11 +141,11 @@ static void wifi_scan_test_cb(lv_timer_t *timer) {
     if (wait_s > 0) {
         if (--wait_s > 0)
             return;
-        ESP_LOGW(TAG, "TEST wifi scan: wait done, waiting out the boot sweep");
+        ESP_LOGW(TAG, "TEST wifi scan: wait done, waiting out the boot sync");
         clock_idle_set_enabled(false);
     }
-    if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
-        return; // hold until the sweep is done
+    if (ui_current_screen() == SCREEN_ID_WIFI)
+        return; // hold until the sync screen has dropped
     if (opened)
         return;
     opened = true;
@@ -167,7 +167,7 @@ static void wifi_scan_test_cb(lv_timer_t *timer) {
 // scan's radio session. Writes NOTHING (no settings, no credentials);
 // the evidence is moon_ui's "ui mask rebuilt" lines, the co5300 failure
 // signature, and the panel itself. Like the other hooks it waits out the
-// boot sweep and keeps idle monitoring off.
+// boot sync and keeps idle monitoring off.
 static void settings_return_test_cb(lv_timer_t *timer) {
     (void)timer;
     if (CONFIG_TEST_SETTINGS_RETURN_SEC <= 0)
@@ -186,8 +186,8 @@ static void settings_return_test_cb(lv_timer_t *timer) {
             return;
         clock_idle_set_enabled(false);
     }
-    if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
-        return; /* the sweep guards off mid-sweep switches; hold */
+    if (ui_current_screen() == SCREEN_ID_WIFI)
+        return; /* the sync hand-off would swallow the switch; hold */
     if (phase == 0) {
         phase = 1;
         /* Dwell 2 s < the scan's ~3.9 s (bring-up 1.2 + active 2.7): the
@@ -239,11 +239,11 @@ static void settings_demo_cb(lv_timer_t *timer) {
         ESP_LOGW(TAG, "TEST settings demo: starting");
         clock_idle_set_enabled(false);
     }
-    /* Wait out the boot sync AND the boot sweep. The scripted run is the
-     * user's "tap home -> settings" scenario; a switch during the sweep
-     * is guarded off (s_sweep_baking suppresses the fade), so hold at
-     * step 0 until the sweep is done, then switch. */
-    if (step == 0 && (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping()))
+    /* Wait out the boot sync. The scripted run is the
+     * user's "tap home -> settings" scenario; a switch while the
+     * transient WiFi screen is up would be swallowed by the sync's
+     * hand-off, so hold at step 0 until the sync is done, then switch. */
+    if (step == 0 && ui_current_screen() == SCREEN_ID_WIFI)
         return;
     esp_err_t r;
     switch (step++) {
@@ -313,7 +313,7 @@ static void settings_demo_cb(lv_timer_t *timer) {
 }
 
 // Test hook (CONFIG_TEST_ALARM_RING_SEC): the headless alarm-ring script.
-// N seconds after boot (waits out the boot sweep + sync first), it fires
+// N seconds after boot (waits out the boot sync first), it fires
 // the REAL alarm path (action_alarm_triggered: the ring start + the alarm
 // screen); ~9 s later (past the 2.5 s volume ramp) it stops the ring the
 // way the touch dismiss does (the ~150 ms fade-out + codec close); ~4 s
@@ -339,9 +339,8 @@ static void alarm_ring_test_cb(lv_timer_t *timer) {
             ESP_LOGW(TAG, "TEST alarm ring: starting");
             clock_idle_set_enabled(false);
         }
-        /* Wait out the boot sync AND the boot sweep (same gate as the
-         * settings demo). */
-        if (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping())
+        /* Wait out the boot sync (same gate as the settings demo). */
+        if (ui_current_screen() == SCREEN_ID_WIFI)
             return;
     }
     switch (step++) {
@@ -375,7 +374,7 @@ static void alarm_ring_test_cb(lv_timer_t *timer) {
 // the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS, the stats
 // clock = esp_timer, so microseconds). Profiling aid for which task burns
 // the settings-idle CPU. After N seconds of waiting (so
-// the boot sweep is done and the device rests) it logs once per second,
+// boot has settled and the device rests) it logs once per second,
 // 10 s on the home screen then 30 s on the settings hub (loading it). The
 // window's "busy" total excludes the IDLE tasks (they account for the idle
 // time on each core, so including them reads ~200 % = both cores); the
@@ -454,7 +453,7 @@ static void cpu_stats_cb(lv_timer_t *timer) {
     if (CONFIG_TEST_CPU_STATS_SEC <= 0)
         return;
     /* Hold the device awake the way a user touch does: the idle timer
-     * otherwise dusk-sleeps ~60 s after the boot sweep drops to the
+     * otherwise dusk-sleeps ~60 s after boot drops to the
      * airplane screen (before the hub measurement window), and the LVGL
      * task pauses for deep sleep. */
     clock_idle_reset_timer();
@@ -663,9 +662,9 @@ extern "C" void app_main(void) {
     // which at boot is before the UI appears, so it is never shown at boot
     // on the success path.
 
-    // Moon phase: start the moon -- play the synodic boot sweep (the last
-    // new moon -> now, from a BLACK screen, ending on the current phase;
-    // see UI_MOON_ANIM_*; off/refused = bake the current phase directly).
+    // Moon phase: start the moon -- bake the CURRENT phase directly and
+    // show it static from the first frame (the synodic boot sweep -- last
+    // new moon -> now, from a BLACK screen -- was removed 2026-11-13).
     // Wakes from sleep show the current phase static (no
     // animation); the light-sleep "dusk" (pole spin to the dark side) is
     // the sleep indicator and arms the deep-sleep countdown on its last
@@ -687,7 +686,7 @@ extern "C" void app_main(void) {
 
     // Test hook: the scripted settings run (CONFIG_TEST_SETTINGS_DEMO_SEC;
     // 0 = off). Idle monitoring stays off from boot so the device holds the
-    // rest-on-airplane pose while the boot sweep runs (the demo would
+    // rest-on-airplane pose into the scripted run (the demo would
     // otherwise fire mid-light-sleep, with the dusk bake suppressing the
     // switch it is meant to exercise).
     if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0) {

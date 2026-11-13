@@ -55,8 +55,9 @@ examples; callout #18 of the board's docs page). The registry BSP
 exposes it as ``bsp_sdcard_mount()`` with exactly those pins
 (``BSP_SD_*``, ``width = 4``) — the same call shape as the S3's 1-bit
 socket — so the TF sweep cache (``UI_MOON_TFCACHE``,
-:doc:`the boot sweep <../implementation/animations>`) runs
-symmetrically on both boards. The pins are disjoint from the C6's
+:doc:`the animation pipelines <../implementation/animations>`) ran
+symmetrically on both boards (dormant since the boot sweep retired
+2026-11-13; the hourly refresh repurposes it). The pins are disjoint from the C6's
 SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
 SDMMC hosts, and the bench confirmed it: **Wi-Fi-connected + card
 mounted** runs (2026-11-08) brought the card up at t≈40 s with the C6
@@ -152,10 +153,11 @@ Sphinx site this page belongs to.
 Measured results on the P4
 --------------------------
 
-On-device captures (full run, 0 WDT / 0 panic; the dusk and the
-reject accounting are spin-era captures, quoted as history):
+On-device captures (full run, 0 WDT / 0 panic; the boot sweep, the
+dusk and the reject accounting are spin/sweep-era captures of now
+retired subsystems, quoted as history):
 
-- Boot sweep: 336/336 frames completed.
+- Boot sweep (retired 2026-11-13): 336/336 frames completed.
 - Final bake: ~959 ms at 650 px (599 ms at the earlier 618 px scale,
   before the 2026-11-01 upscale).
 - Dusk: ~43 s for the full constant-projection spin.

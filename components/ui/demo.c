@@ -401,8 +401,9 @@ static bool home_drain_sync(uint32_t budget_ms, const char *what) {
 /* ---------------- phase steppers (every 10 ms) ------------------------ */
 
 static void step_arm(void) {
-    if (moon_ui_sweeping())
-        return; /* the boot sweep owns the display until it is done */
+    /* No boot-animation wait: the home bakes its static phase at boot
+     * (the synodic boot sweep retired 2026-11-13), so the tour arms on
+     * schedule. */
     clock_idle_set_enabled(false);
     s_active = true;
     ESP_LOGI(TAG, "demo mode armed: full tour (screen dwell %d s, dusk wait %d s)", CONFIG_UI_DEMO_SCREEN_SEC,

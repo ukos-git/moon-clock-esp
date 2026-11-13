@@ -1,7 +1,7 @@
 The idle timeout (light sleep)
 ==============================
 
-One parameterized sleep-settings builder (the light and deep screens are near-identical): the **idle-timeout** roller — 1–30 **minutes**, stored internally as seconds (60–1800) — and the icon-only **dusk animation toggle** on the same horizontal line (roller left of centre at −90, toggle right at +90; the row clears the exit button's band). The value is applied **live** via ``clock_idle_set_timeout_ms()``; the release persists the store. The toggle (a 96 px regular moon glyph, white on / grey off — no switch widget, ``LV_USE_SWITCH`` is off) is the *sleep-transition* animation (the dusk pole spin); the boot sweep's ``boot_anim_enable`` flag is a BOOT animation and is not exposed here.
+One parameterized sleep-settings builder (the light and deep screens are near-identical): the **idle-timeout** roller — 1–30 **minutes**, stored internally as seconds (60–1800) — and the icon-only **dusk animation toggle** on the same horizontal line (roller left of centre at −90, toggle right at +90; the row clears the exit button's band). The value is applied **live** via ``clock_idle_set_timeout_ms()``; the release persists the store. The toggle (a 96 px regular moon glyph, white on / grey off — no switch widget, ``LV_USE_SWITCH`` is off) is the *sleep-transition* animation (the dusk pole spin); the retired boot sweep's ``boot_anim_enable`` store flag (a BOOT animation, legacy no-op since 2026-11-13) is not exposed here.
 
 .. figure:: ../img/screens/annot/settings-light-sleep_s3.png
    :alt: the idle timeout (light sleep) — the S3 panel (466, annotated)

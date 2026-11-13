@@ -19,8 +19,7 @@ extern "C" {
  * display (shown STATIC by plain LVGL -- the old in-plane burn-in spin and
  * its direct-panel-write compositing were removed 2026-11-13), the
  * tilt-driven
- * out-of-plane orbit (QMI8658 IMU sphere model), the synodic sweep (the
- * new-moon -> now phase animation, played at BOOT from a black screen),
+ * out-of-plane orbit (QMI8658 IMU sphere model),
  * the light-sleep "dusk" spin (the pole-axis rotation to the fully
  * unilluminated side; the deep-sleep countdown is armed only when it
  * completes), and the tilt activity/wake monitor. Every frame the
@@ -32,10 +31,10 @@ extern "C" {
  *   moon_ui_init()   -- PSRAM buffers + shared image descriptor + timers
  *   create_screens() -- each moon screen calls moon_ui_create_image(parent)
  *                       FIRST so the moon sits below the clock (z-order)
- *   moon_ui_start()  -- mark started: the moon is on a BLACK screen and
- *                       moon_ui_start kicks off the synodic boot sweep
- *                       (new moon -> now, moon_ui_replay_animation)
- *                       itself
+ *   moon_ui_start()  -- mark started and bake the CURRENT phase
+ *                       directly: boot shows the static phase from the
+ *                       first frame (the synodic boot sweep was removed
+ *                       2026-11-13)
  */
 
 /** Allocate buffers, build the image descriptor, start the tick timer. */
@@ -54,16 +53,14 @@ void moon_ui_refresh(void);
 /** Bake + display the moon for the given UTC epoch. */
 void moon_ui_bake_now(int64_t utc_epoch);
 
-/** Start the moon: kick off the synodic boot sweep, or bake the current
- *  phase directly when the sweep is off / refused. */
+/** Start the moon: bake the current phase directly (boot is static). */
 void moon_ui_start(void);
 
 /**
- * Play the synodic wake sweep (the last 29.5 days in
- * CONFIG_UI_MOON_ANIM_FRAMES frames, ending on the current phase)
- * right now. No-op when the moon has not started yet or while the
- * orbit / sweep pipeline owns the buffers. Called on every wake from
- * sleep by the UI layer (UI_MOON_ANIM_ENABLE).
+ * Boot-animation SEAM, kept for the knob companion: the clock home
+ * plays NO boot animation since 2026-11-13 (this is an empty no-op
+ * there), while the knob's own producer seam plays its OWN boot sweep
+ * here, so the shared wake flow keeps a single call site family-wide.
  */
 void moon_ui_replay_animation(void);
 
@@ -75,7 +72,7 @@ void moon_ui_day_tick(void);
 
 /**
  * Pause/resume the moon tick (sleep screens show a static moon). A pause
- * joins the wake sweep and a running
+ * joins a running
  * dusk (the light-sleep pole spin) and interrupts the orbit; the frame
  * on screen simply stays under the sleep screens. The deep-sleep
  * transition after a
@@ -113,10 +110,10 @@ bool moon_ui_dusk_start(void);
 bool moon_ui_tilt_settled(void);
 
 /**
- * True while the synodic boot sweep's bake task is running. The
- * on-demand sync flow (actions.c) waits for it before switching the
- * WiFi screen to airplane, so the boot sweep is never interrupted by
- * the sync hand-off.
+ * Boot-animation SEAM predicate: true while a boot sweep is baking.
+ * Always false on the clock home (the sweep retired 2026-11-13); the
+ * knob companion's seam answers from its OWN boot sweep, which the
+ * shared actions.c idle re-arm and Wi-Fi-sync gates still honor there.
  */
 bool moon_ui_sweeping(void);
 

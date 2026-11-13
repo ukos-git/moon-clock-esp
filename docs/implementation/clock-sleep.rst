@@ -17,8 +17,7 @@ the foreground, the clock label, the seconds arc — no icons. The
 shown only while a sync is in flight (boot, hourly, manual), then
 dropped back to airplane. Because both screens carry the same moon
 image, the switch between them is the *both-moon* case of the fade
-rule (:doc:`the animation pipelines <animations>`): no dim, one atomic whole-panel flush, and the
-sweep animation flows seamlessly across the switch.
+rule (:doc:`the animation pipelines <animations>`): no dim, one atomic whole-panel flush (while the boot sweep existed, this is how its replay flowed seamlessly across the switch).
 
 .. figure:: ../img/screens/modem_sleep.png
    :alt: The airplane (home) screen
@@ -128,7 +127,10 @@ gates matter:
   sleep), the screen is dark, and the next wake restores the panel
   and the minute update re-applies.
 - **The sweep gate** — an on-demand WiFi sync (below) may not fire
-  while the boot sweep is playing: it would switch screens mid-sweep.
+  while a boot sweep is playing: it would switch screens mid-sweep.
+  The gate entry remains for the knob's own sweep
+  (:doc:`the knob display <knob-display>`); on the clocks it is
+  permanently open (their boot sweep retired 2026-11-13).
 
 The minute label is drawn as **fixed-width HH:MM slots** — the numbers
 font is proportional, so a single label would read 175 px at ``11:11``
@@ -414,9 +416,9 @@ blocked for the whole reconnect. The freeze was not a crash and not a
 WDT; it was the UI's own task parked inside the radio stack.
 
 The wake shows the **current phase static** (:doc:`the animation
-pipelines <animations>`) — no sweep at wake, by design: the sweep is
-the boot story ("here is how the moon got to where it is"), and a
-wake is an answer, not a story. The frame the wake displays is the
+pipelines <animations>`) — no sweep at wake, by design: the sweep
+(retired 2026-11-13) was the boot story ("here is how the moon got to
+where it is"), and a wake is an answer, not a story. The frame the wake displays is the
 boot's bake when the day has not turned; when it *is* stale (new
 day, new event tint, mid-bake at sleep) the wake still returns
 immediately — the re-bake runs on a core-1 task and the next tick
@@ -434,8 +436,9 @@ path fires. The policy is deliberately conservative:
 
 - **at rest only** — a sleeping device is not woken (the power net
   loss; the next wake re-syncs);
-- **no interference** — the sweep, a settings session, and an active
-  sync all gate the trigger off;
+- **no interference** — a settings session and an active sync gate
+  the trigger off (the sweep's gate entry remains for the knob's own
+  sweep; on the clocks it is permanently open);
 - **transient** — the WiFi screen shows only while the sync is
   in flight; success or failure both drop back to airplane.
 
@@ -447,7 +450,7 @@ The state machine, in full
    <pre class="mermaid">
    stateDiagram-v2
      [*] --> BOOT
-     BOOT --> WIFI: NTP ok — boot sweep (1344 f, ~37 min)
+     BOOT --> WIFI: NTP ok — static-phase bake (the 1344-frame boot sweep retired 2026-11-13)
      BOOT --> AIRPLANE: NTP fail
      WIFI --> AIRPLANE: sync complete
      AIRPLANE --> HUB: tap — the sub-screens (exit returns via the on-demand sync)

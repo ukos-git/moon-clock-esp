@@ -210,7 +210,8 @@ Where each path runs
    * - Host ``pole_test``
      - 0 (earthshine)
      - 0.0
-   * - Boot sweep / static bakes (display)
+   * - Static bakes (display; the boot sweep's
+       row retired with it 2026-11-13)
      - 1 (backlit)
      - 0.0
    * - Dusk intermediate frames (map build)

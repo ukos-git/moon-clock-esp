@@ -47,8 +47,8 @@ static bool g_backlight_off = false;
 // to know that its call is a real wake event -- which keeps a stale
 // alarm (one that rang while the user slept) from hijacking the wake
 // flow. It no longer drives an animation: wakes (INCLUDING a dismissed
-// alarm) show the current moon phase static, no synodic sweep (the
-// sweep plays at BOOT only).
+// alarm) show the current moon phase static -- the synodic animation
+// family is gone (the boot sweep retired 2026-11-13).
 static bool g_asleep = false;
 
 /* The WiFi + NTP sync runs on a dedicated task, never on the LVGL task:
@@ -725,7 +725,7 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
     // screen. Only while awake: if the device re-slept during the
     // handshake, drop the hand-off and let the next wake re-trigger it.
     /* The demo mode (UI_DEMO_MODE) runs until the next reset: a sync
-     * completing under it (a boot sync that outlived the sweep) must
+     * completing under it (a boot sync that outlived the boot bake) must
      * not hand the display off to the airplane screen mid-recording.
      * The flag is left unclaimed -- the demo owns the display. */
     if (!s_wifi_sync_running && s_wifi_sync_done && !action_demo_active()) {
@@ -735,12 +735,15 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
                 loadScreen(SCREEN_ID_MODEM_SLEEP);
                 ui_tick();
             }
-            /* The boot sweep owns the idle lifecycle (it disables the
-             * monitoring at start and re-arms it at the end): re-arming
-             * here while it plays would let the 60 s idle timeout fire
-             * mid-sweep and interrupt the boot animation with the
-             * light-sleep transition (the P4's on-demand sync runs ~30 s
-             * through the remote C6 and regularly overlaps the sweep). */
+            /* The knob companion's boot sweep owns the idle lifecycle
+             * (its seam disables the monitoring at start and re-arms at
+             * the end): re-arming here while it plays would let the 60 s
+             * idle timeout fire mid-sweep and interrupt the boot
+             * animation with the light-sleep transition (the P4's
+             * on-demand sync runs ~30 s through the remote C6 and
+             * regularly overlaps boot). On the clocks
+             * moon_ui_sweeping() is constant false -- no boot sweep
+             * since 2026-11-13. */
             if (!moon_ui_sweeping()) {
                 clock_idle_set_enabled(true);
                 clock_idle_reset_timer();
@@ -771,8 +774,8 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
  * The device lives on the airplane (modem-sleep) screen; WiFi is
  * activated on demand (boot, wake, the hourly tick, the settings hub's
  * exit button) purely to refresh the RTC, then the sync flow drops
- * straight back to airplane. The WiFi screen hosts the handshake and
- * the (boot) synodic sweep; it and the airplane screen share the one
+ * straight back to airplane. The WiFi screen hosts the handshake; it
+ * and the airplane screen share the one
  * moon image, so the hand-off is the atomic whole-panel flush with no
  * visible seam.
  */
@@ -781,8 +784,8 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
  * flight (wake / manual / hourly / boot-NTP-failed). The boot hand-off
  * poller is gone: at boot the clock is acquired by the blocking boot
  * sync BEFORE the UI appears, so the success path lands straight on the
- * home (airplane) screen and the boot sweep plays there (both screens
- * share the one moon image, s_rgb). The NTP-failed boot path shows the
+ * home (airplane) screen, where the boot bake shows the static phase
+ * (both screens share the one moon image, s_rgb). The NTP-failed boot path shows the
  * WiFi screen via action_start_wifi_sync (above) and drops to airplane
  * through the s_wifi_sync_done pickup in ui_tick_timer_cb -- no poller. */
 
@@ -930,7 +933,8 @@ void action_update_clock_display(lv_event_t *e) {
      * NTP interval), activate WiFi + NTP and drop back to airplane.
      * Gated to AT REST on airplane: no waking a sleeping device (a
      * 30 s radio wake for an NTP fetch is a net power loss -- the next
-     * wake re-syncs), no interference with the boot sweep, no yanking
+     * wake re-syncs), no interference with a boot sweep (the knob's --
+     * constant false on the clocks), no yanking
      * a settings session away. */
     if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() &&
         !s_wifi_sync_running && !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
@@ -1363,8 +1367,8 @@ void action_wake_screen(lv_event_t *e) {
 
     // Normal (active) mode: the moon re-bakes if the
     // calendar day rolled over while we slept. Wakes show the current
-    // phase STATIC -- no synodic animation on wake (the sweep is the
-    // boot animation only; after a dusk the wake display in
+    // phase STATIC -- no synodic animation on wake (the whole sweep
+    // family retired 2026-11-13; after a dusk the wake display in
     // moon_ui_pause(false) replaces the dark side atomically).
     moon_ui_pause(false);
     moon_ui_day_tick();

@@ -39,10 +39,10 @@ Enabling it
        :doc:`UI Kconfig <../reference/kconfig-ui>`,
        :doc:`knob Kconfig <../reference/kconfig-knob>`)
 
-One cycle of the clock tour takes roughly seven minutes on top of the
-boot sweep (the tour arms only once ``moon_ui_sweeping()`` is false —
-the same gate as the test hooks); the recording normally spans the
-boot sweep too, since the sweep is itself a cross-device comparison.
+One cycle of the clock tour takes roughly seven minutes. (It used to
+arm only once ``moon_ui_sweeping()`` was false — the boot sweep that
+gate waited for retired 2026-11-13, so the tour now arms on schedule;
+takes no longer span a boot sweep on the clocks.)
 
 The clock tour
 --------------
@@ -224,12 +224,14 @@ The recording harness
 Reading a take
 --------------
 
-* The **sweep** plays the 1344-frame spec (693 frames at the current
-  cycle age) from the last new moon on every device. With a warm TF
-  cache it replays (measured 2026-11-08: S3 295 s at 400 px, ~2.3 fps;
-  P4 217 s at 650 px, ~3.2 fps); cold it bakes (~1.5 s/frame:
-  ≈ 17 min on the S3, ≈ 1120 s ≈ 19 min on the P4): identical frame
-  pacing and identical illumination curves are the first look-test.
+* The **sweep** (retired from the clocks 2026-11-13 — the knob's
+  cold-boot sweep still plays) played the 1344-frame spec (693 frames
+  at the current cycle age) from the last new moon on every device.
+  With a warm TF cache it replayed (measured 2026-11-08: S3 295 s at
+  400 px, ~2.3 fps; P4 217 s at 650 px, ~3.2 fps); cold it baked
+  (~1.5 s/frame: ≈ 17 min on the S3, ≈ 1120 s ≈ 19 min on the P4):
+  identical frame pacing and identical illumination curves were the
+  first look-test.
 * ``home`` (with the knob's ``now`` step aliased into it) compares
   the current-phase rendering across the three panels — same core,
   same live instant; the knob's canonical phase steps are its own
@@ -365,8 +367,8 @@ WDT backtrace named the same class one level ABOVE the panel seam:
 (disp->flushing);`` spin, and a lost trans-done hand (the sync
 screen's own pre-arm switch flush during the boot sync into a marginal
 AP) pins whichever task enters it forever: the LVGL task (its indev
-poll dies with it: touch goes dead) or the sweep task at
-``lv_refr_now``. No mutex is held, so the task WDT only prints and the
+poll dies with it: touch goes dead) — and, until the boot sweep
+retired, the sweep task at ``lv_refr_now``. No mutex is held, so the task WDT only prints and the
 panel watchdog is blind. Fix: ``moon_flush_wait_cb``
 (:ref:`display-lost-dma`) gates on ``s_panel_mtx`` with a 2 s cap — a
 free mutex means the flush physically landed, LVGL clears
@@ -415,7 +417,8 @@ untouched — and outside every widget; under a panel hold it is trivially
 accepted) run after EVERY sanctioned atomic whole-panel flush: dusk
 replay, sweep frame, orbit batch, spin park, wake-static display,
 re-bake display, and the screen-switch flush with its fade-in leg
-(the spin park site retired with the spin subsystem later the same
+(the spin park site retired with the spin subsystem and the sweep
+frame with the boot sweep, both later the same
 day; the drain-probe site list in :ref:`display-lost-dma` is
 current).
 The 20 ms lead-in makes the healthy path an attempt-0 accept (a strip

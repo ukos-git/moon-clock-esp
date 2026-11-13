@@ -11,13 +11,14 @@
  *     its compositing machinery caused the clock-row flicker family
  *     and cost more than the burn-in duty it served.
  *
- * The month sweep (SYNODIC WAKE SWEEP, see the sweep section below) is
- * played on the same atomic whole-frame pipeline as everything else:
- * the last 29.5 days in N frames, on every wake from sleep -- each
- * frame lands whole, so no frame ever shows a top-to-bottom redraw.
+ * Boot shows the CURRENT phase statically: the synodic boot sweep (the
+ * last 29.5 days played from the black screen, one atomic whole-frame
+ * per tick) was removed 2026-11-13 -- the user retired the whole
+ * animation stack. moon_ui_start bakes the current phase and the tick
+ * displays it whole.
  *
  * Display invariant (the "no top-to-bottom" rule): every frame the
- * pipeline produces -- orbit sweep frame, wake sweep frame, re-bake,
+ * pipeline produces -- orbit sweep frame, re-bake,
  * and even a screen switch -- is displayed as ONE atomic whole-frame /
  * whole-panel lv_refr_now under the buffer mutex. A frame
  * must never be left for LVGL's async refresh to drain in 25-row strips
@@ -123,7 +124,6 @@
 #include "settings_store.h"
 #if CONFIG_UI_MOON_TFCACHE
 #include "freertos/queue.h"
-#include "moon_tfcache.h"
 #endif
 
 static const char *TAG = "moon_ui";
@@ -213,16 +213,7 @@ static const char *TAG = "moon_ui";
  * screens override them and persist them); the Kconfig macros are only
  * the build-time defaults. The countdown is a runtime setting too (the
  * deep-sleep settings screen changes it). */
-static bool boot_anim_enabled(void) { return CONFIG_UI_MOON_ANIM_ENABLE && settings_boot_anim_enable(); }
 static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && settings_dusk_anim_enable(); }
-#ifndef CONFIG_UI_MOON_ANIM_FRAMES
-#define CONFIG_UI_MOON_ANIM_FRAMES 168
-#endif
-#ifndef CONFIG_UI_MOON_ANIM_BAKE_PX
-/* Tracks the Kconfig S3 default (native 400 = MOON_PX; the P4 default is
- * 650 = its MOON_PX, selected via `default 650 if BOARD_P4`). */
-#define CONFIG_UI_MOON_ANIM_BAKE_PX 400
-#endif
 /* Perf A/B hook (unset bools are absent from sdkconfig.h; fall back to
  * 0 = relief ON, the normal path). */
 #ifndef CONFIG_TEST_BAKE_NO_RELIEF
@@ -230,9 +221,6 @@ static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && setti
 #endif
 static uint8_t *s_frame;          /* 8-bit baked frame, MOON_PX^2 */
 static uint16_t *s_rgb;           /* RGB565 display buffer, MOON_PX^2 */
-static uint8_t *s_sweep_small;    /* reduced-res intermediate sweep frame (see
-                                   * UI_MOON_ANIM_BAKE_PX); MOON_PX^2 if the
-                                   * reduction is disabled */
 static uint8_t *s_shade_map;      /* the dusk's pre-shaded body-frame equirect
                                    * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
                                    * dusk section -- built once per dusk epoch,
@@ -371,8 +359,9 @@ static void flush_cb_probe(lv_display_t *disp, const lv_area_t *area, uint8_t *p
  * switch flush completed at the DRIVER level, the adapter's LVGL hand
  * never landed). LVGL's default wait_for_flushing then spins without
  * yielding on whichever task enters it -- the LVGL task (its indev
- * poll dies with it: touch goes dead) and the sweep task (lv_refr_now
- * at frame show). No mutex is held, so the panel watchdog is blind;
+ * poll dies with it: touch goes dead) and, until the boot sweep
+ * retired, the sweep task (lv_refr_now at frame show). No mutex is
+ * held, so the panel watchdog is blind;
  * the task WDT only prints, it cannot free the board.
  *
  * The replacement gates on what actually matters: ALL panel traffic
@@ -927,17 +916,6 @@ static void moon_panel_drain_verify(const char *site) {
 #endif
 }
 
-/* Synodic wake sweep state (see the sweep section below). The task
- * (core 1) bakes whole frames off screen and publishes them one by one;
- * the tick (core 0) displays each as one atomic whole frame and paces
- * the task (backpressure) so the month unfolds at the bake rate. */
-static volatile bool s_sweep_baking;    /* bake task running */
-static volatile bool s_sweep_abort;     /* stop the running sweep */
-static volatile uint32_t s_sweep_pub;   /* frames fully baked (0..s_sweep_frames) */
-static volatile uint32_t s_sweep_shown; /* frames the tick has displayed */
-static volatile int32_t s_sweep_frames; /* this sweep's total frame count */
-static int64_t s_sweep_now;
-static TaskHandle_t s_sweep_task;
 static volatile bool s_frame_stale; /* s_frame/s_rgb left mid-bake by an
                                      * abort; a completed bake clears it.
                                      * The sleep park must not rotate a
@@ -1001,7 +979,7 @@ static bool moon_on_lvgl(void) { return s_lvgl_task && s_lvgl_task == xTaskGetCu
  * half-way 18:34 -> 18:35) and starving IDLE0 into a 5 s task-WDT
  * storm (no panic -- CONFIG_ESP_TASK_WDT_PANIC is off, so the device
  * looked like it was "crash looping" on the console). The CPU-1
- * pipeline tasks (sweep / dusk / orbit -- all pinned to core 1, where
+ * pipeline tasks (dusk / orbit -- all pinned to core 1, where
  * IDLE1 is unwatched, and all 12 KB-stacked for this scan) classify
  * their own epochs directly; every other caller asks the worker below
  * to warm the day cache and gets a plain (all-false) event until that
@@ -1016,7 +994,7 @@ static TaskHandle_t s_event_task;
  * the boot task) is guarded by moon_event_classify_here. */
 static bool moon_ev_scan_allowed(void) {
     const TaskHandle_t me = xTaskGetCurrentTaskHandle();
-    return me == s_sweep_task || me == s_dusk_task || me == s_orbit_task || me == s_event_task || me == s_rebake_task;
+    return me == s_dusk_task || me == s_orbit_task || me == s_event_task || me == s_rebake_task;
 }
 
 static void moon_event_task(void *arg) {
@@ -1192,10 +1170,10 @@ static void moon_bake_epoch(int64_t epoch) {
     /* Sky events (moon_event.c, the pre-calculated display tints):
      * classify this epoch's instant and select the matching LUT -- the
      * rebuild is a no-op when it already matches (a no-op on an ordinary
-     * day, multipliers 1.0). The sweep and the dusk set the SAME global
-     * LUT for their own epochs (they can run before any bake -- the boot
-     * sweep is the first bake -- and they must not race the display's
-     * table read-out, so each sets it once before its first frame). The
+     * day, multipliers 1.0). The dusk sets the SAME global LUT for
+     * its own epoch (it can run before any bake and must not race the
+     * display's table read-out, so it sets it once before its first
+     * frame). The
      * blood occlusion (the eclipse "bite") is passed per-pixel into the
      * bake; an all-false event bakes as NULL (byte-identical). */
     moon_event_t ev;
@@ -1383,15 +1361,15 @@ static void moon_orbit_start(void) {
         clock_idle_set_enabled(false);
 }
 
-/* Start a bake if the quantized target is set and no bake/sweep is in
- * flight. Called from the tick (cheap flag checks); latest-wins falls
+/* Start a bake if the quantized target is set and no bake or dusk is
+ * in flight. Called from the tick (cheap flag checks); latest-wins falls
  * out of the target being read at task start. The orbit is only
  * meaningful once a static bake exists (s_orbit_epoch > 0, set by the
  * first bake) -- it bakes THE current phase at a peeked viewport. */
 static void moon_orbit_drain(void) {
     if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
-        s_sweep_baking || s_dusk_baking || s_dusk_done)
-        return; /* the wake sweep owns the buffers; a peek can wait.
+        s_dusk_baking || s_dusk_done)
+        return; /* the dusk owns the buffers; a peek can wait.
                  * s_dusk_done: the dark side is on screen and the deep-sleep
                  * countdown runs -- an orbit peek would re-bake s_frame/s_rgb
                  * and replace the dark side with the lit phase mid-countdown.
@@ -1435,613 +1413,6 @@ static void moon_orbit_interrupt(void) {
         clock_idle_set_enabled(true);
 }
 
-/* ---------------- synodic boot sweep (new moon -> now) ----------------
- *
- * The phase sweep, rebuilt on the atomic whole-frame
- * pipeline: the last synodic cycle (from the last NEW MOON to now) in
- * CONFIG_UI_MOON_ANIM_FRAMES frames, played at BOOT from the black
- * screen (moon_ui_replay_animation) -- the boot animation only; wakes
- * from sleep show the current phase static. Starting at the new moon
- * means the
- * animation always begins on a dark disk; its length is the moon's
- * current age this cycle (<= 29.53 days). A dedicated
- * bake task (core 1, like the orbit) bakes the frames OFF
- * screen and publishes them one at a time; the tick displays each
- * published frame as ONE atomic whole frame (MOON_ORBIT_BATCH =
- * MOON_NSTRIPS strips in one lv_refr_now), one frame
- * per tick. Backpressure: the bake task does not start frame f+1 until
- * the tick has displayed frame f -- without it, the display's full-frame
- * flush could pick up the new frame's first rows over the old frame's
- * bottom (a mixed frame on screen, the wipe the old pipeline showed).
- *
- * Resolution: the intermediate frames bake at UI_MOON_ANIM_BAKE_PX
- * (default 240, a scratch s_sweep_small frame) and upscase to the full
- * 400x400 for display; the FINAL frame (the current phase the spin
- * resumes from) always bakes at full MOON_PX. The bake cost scales
- * with the on-disk pixel count, (S/400)^2 -- measured on the accepted
- * 336-frame capture (per-frame costs carry over): 200 -> ~0.21 s/frame,
- * 240 -> ~0.28 s, 320 -> ~0.48 s, 400 -> ~0.72 s, plus a fixed ~0.23 s
- * of display+tick per frame (resolution-independent), so at the current
- * 1344-frame default the sweep wall is 200 -> ~10 min, 240 -> ~11 min,
- * 400 -> ~21 min (full res, montage pixel-identical to the static/spin
- * bakes). The frame count was 336 until 2026-11-07; at that density
- * the per-frame illumination jump read as a stutter, hence the 4x. A reduced bake size makes the montage coarser (400/S
- * x 400/S NN blocks) but physically correct (the lighting/relief model is resolution-independent).
- *
- * The frames are evenly spaced from the last NEW MOON (f=0, a dark
- * disk) to the CURRENT phase (f=frames-1, epoch = now); the tick
- * re-anchors the spin at the unrotated pose the last frame just showed
- * and lets it resume. The spin render is paused for the whole sweep
- * (the flag poll), the idle timer is held (the user is present for the
- * sweep), and the sleep transition aborts the sweep
- * (moon_sweep_interrupt).
- */
-
-/* The last NEW MOON before utc_epoch: the coarse (6 h) + fine (20 min)
- * backward scan of moon_geometry's illumination over at most one
- * synodic month. Two passes because the ephemeris is a few dozen ms per
- * call and a full 20-min grid over 29.53 d would be ~2200 of them. The
- * coarse grid (6 h -> ~240 calls) brackets the minimum within 6 h; the
- * fine pass only refines the coarse minimum and its two neighbors. The
- * 1e-6 slack keeps a flat/tied coarse step from drifting the fine pass
- * to a neighboring cycle's minimum (a full month further back). Returns
- * < utc_epoch by construction; the caller clamps the span. */
-static int64_t new_moon_epoch(int64_t utc_epoch) {
-    moon_geom_t g;
-    int64_t best = utc_epoch - (int64_t)(29.53 * 86400);
-    float best_illum = 1.0f;
-    for (int64_t e = utc_epoch - (int64_t)(6 * 3600); e >= utc_epoch - (int64_t)(29.53 * 86400); e -= 6 * 3600) {
-        /* Abortable: this scan runs ~8 s before the frame loop (no
-         * frames baked yet), and moon_sweep_interrupt joins it -- an
-         * abort must be honored inside the scan, not just in the loop.
-         * On abort the partial `best` is good enough: the sweep is
-         * dying anyway (its frame loop exits at its first poll). */
-        if (s_sweep_abort)
-            return best;
-        /* moon_geometry() is void and no-ops on the (never-seen) ephemeris
-         * failure: preset illum so a failed call can never win. */
-        g.illum = 1.0f;
-        moon_geometry(e, &g);
-        if (g.illum < best_illum - 1e-6f) {
-            best_illum = g.illum;
-            best = e;
-        }
-    }
-    int64_t fine_best = best;
-    float fine_illum = best_illum;
-    for (int64_t e = best + 6 * 3600; e >= best - 6 * 3600; e -= 20 * 60) {
-        if (s_sweep_abort)
-            return fine_best;
-        g.illum = 1.0f;
-        moon_geometry(e, &g);
-        if (g.illum < fine_illum - 1e-6f) {
-            fine_illum = g.illum;
-            fine_best = e;
-        }
-    }
-    return fine_best;
-}
-
-#if CONFIG_UI_MOON_TFCACHE
-/* ---- TF prefetch producer (components/ui/moon_tfcache.c) --------------
- * Decodes the coming intermediate frames AHEAD of the display: card read
- * + JPEG decode into gray8 PSRAM slots, handed to the sweep task through
- * a ready-queue. The IO never sits on the frame path (the knob lesson:
- * precompute, pre-cache, constant cadence). Queue depth is DERIVED from
- * the free PSRAM (user spec): free / (S*S*1.15 + 4 KiB), capped at 12,
- * floored by UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS, logged per boot. Every
- * failure mode (no slots, no card, dead cache) just means the sweep task
- * bakes the frame itself -- the original path. PINNED TO CORE 0 (the
- * LVGL core, idle ~7-9 % while the sweep owns the display): the producer
- * is a 45-80 ms read+decode burst per slot, and on core 1 it shared the
- * core with its own consumer -- the sweep task (priority MAX-3) preempted
- * it (MAX-4) whenever runnable, so the producer only ran in the
- * consumer's pacing pauses and the queue chronically starved (warm
- * replay measured 4.6 fps S3 / 3.6 fps P4, most of the frame cost
- * landing OUTSIDE the read/dec sections -- pure time-slice waiting). On
- * core 0 the two cores pipeline: producer bursts while the consumer
- * converts and writes. PSRAM stack as before. */
-/* Replay pacing target (see moon_sweep_task's direct-write branch).
- * A target, not a promise -- the achieved rate is pop + convert +
- * write-bound; the sweep summary logs the measured fps + worst gap. */
-#ifndef CONFIG_UI_MOON_TFCACHE_FPS
-#define CONFIG_UI_MOON_TFCACHE_FPS 25
-#endif
-static inline int moon_tf_fps(void) {
-    int f = CONFIG_UI_MOON_TFCACHE_FPS;
-    if (f < 2)
-        f = 2;
-    if (f > 30)
-        f = 30;
-    return f;
-}
-
-#define TF_Q_MAX 12
-static uint8_t *s_tf_slot[TF_Q_MAX];
-static uint8_t s_tf_slot_hit[TF_Q_MAX];
-static int32_t s_tf_slot_ms[TF_Q_MAX]; /* card read + decode, for the perf line */
-static QueueHandle_t s_tf_ready_q, s_tf_free_q;
-static TaskHandle_t s_tf_task;
-static volatile bool s_tf_quit;
-static int s_tf_px;
-static int64_t s_tf_first;
-
-static void moon_tf_prefetch_stop(void);
-
-static void moon_tf_prefetch_task(void *arg) {
-    const int n = (int)(intptr_t)arg;
-    for (int i = 0; i < n && !s_sweep_abort && !s_tf_quit; i++) {
-        int slot = -1;
-        while (!s_sweep_abort && !s_tf_quit && xQueueReceive(s_tf_free_q, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
-            ;
-        if (slot < 0 || s_sweep_abort || s_tf_quit)
-            break;
-        int64_t t0 = esp_timer_get_time();
-        bool hit = tfcache_fetch(s_tf_first + i, s_tf_slot[slot], s_tf_px);
-        s_tf_slot_ms[slot] = (int32_t)((esp_timer_get_time() - t0) / 1000);
-        s_tf_slot_hit[slot] = hit ? 1 : 0;
-        while (!s_sweep_abort && !s_tf_quit && xQueueSend(s_tf_ready_q, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
-            ;
-    }
-    s_tf_task = NULL; /* exit handshake with moon_tf_prefetch_stop() */
-    vTaskDelete(NULL);
-}
-
-/* Allocates the slot queue and starts the producer. false = no card path
- * (the sweep keeps CONFIG_UI_MOON_ANIM_FRAMES and bakes every frame). */
-static bool moon_tf_prefetch_start(int64_t first, int hours, int px) {
-    s_tf_first = first;
-    s_tf_px = px;
-    /* The persistent fetch input goes FIRST (moon_tfcache.c): with the
-     * queue full the fetch path must not allocate at all -- on the 8 MB
-     * S3 only ~568 KB of PSRAM is free at this point (the relief cache
-     * + assets + bake/scratch buffers own the rest), and a per-call
-     * file buffer then raced the slots for the last of it and died at
-     * q90 file sizes (frame 39 of 702 -- "cache off for this boot: no
-     * psram (fetch)" left 665 frames baked-but-unstored). */
-    if (!tfcache_fetch_buf_alloc()) {
-        ESP_LOGW(TAG, "tf prefetch: no PSRAM for the fetch buffer -- card-less path");
-        return false;
-    }
-    const int free_ps = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    const size_t slot_sz = (size_t)px * px;
-    const size_t est = slot_sz + slot_sz / 7 + 4096; /* the *1.15 + slack the queue must fit */
-    /* Reserve the DEFERRED decode out-buffer (moon_tfcache.c allocates
-     * 3*px*px on the first real hit, keeping it off the cold-boot ledger):
-     * on a warm folder every fetched frame needs it, so the slots must
-     * not eat the last of the pool that decode still wants -- the same
-     * lesson as the fetch buffer above, generalized. The hard floor is
-     * now ONE slot, not PREFETCH_MIN_SLOTS: the 8 MB S3 used to fit 1 of
-     * the floor's 2 and dropped the whole card path -- which baked all
-     * 1344 frames (~36 min) every boot and seeded nothing (task #38).
-     * Even one slot replays and seeds: moon_tf_pop's 2 s timeout
-     * degrades a starved slot to a local bake, so a thin queue can
-     * never wedge the sweep. */
-    const size_t dec_res = tfcache_folder_warm() ? (size_t)px * px * 3 + 32 : 0;
-    int want = (free_ps > (int)dec_res) ? (int)((free_ps - (int)dec_res) / est) : 0;
-    const int floor_n = CONFIG_UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS;
-    if (want > TF_Q_MAX)
-        want = TF_Q_MAX;
-    if (want < 1)
-        want = 1;
-    if (want < floor_n)
-        ESP_LOGI(TAG, "tf slots: %d below floor %d (free PSRAM %d KB, decode reservation %u KB) -- running thin", want,
-                 floor_n, free_ps / 1024, (unsigned)(dec_res / 1024));
-    int got = 0;
-    while (got < want) {
-        s_tf_slot[got] = heap_caps_malloc(slot_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!s_tf_slot[got])
-            break;
-        got++;
-    }
-    if (got < 1) {
-        moon_tf_prefetch_stop();
-        ESP_LOGW(TAG, "tf slots: no PSRAM for even one %uKB slot (free PSRAM %d KB) -- card-less path",
-                 (unsigned)(slot_sz / 1024), free_ps / 1024);
-        return false;
-    }
-    s_tf_ready_q = xQueueCreate(got, sizeof(int));
-    s_tf_free_q = xQueueCreate(got, sizeof(int));
-    if (!s_tf_ready_q || !s_tf_free_q) {
-        moon_tf_prefetch_stop();
-        return false;
-    }
-    for (int i = 0; i < got; i++)
-        xQueueSend(s_tf_free_q, &i, 0);
-    s_tf_quit = false;
-    ESP_LOGI(TAG, "tf prefetch: %d slots x %uKB (free PSRAM %d KB) for %d hourly frames", got,
-             (unsigned)(slot_sz / 1024), free_ps / 1024, hours);
-    if (xTaskCreatePinnedToCoreWithCaps(moon_tf_prefetch_task, "moon_tfprefetch", 8192, (void *)(intptr_t)hours,
-                                        configMAX_PRIORITIES - 4, &s_tf_task, 0, MALLOC_CAP_SPIRAM) != pdPASS) {
-        s_tf_task = NULL;
-        moon_tf_prefetch_stop();
-        ESP_LOGW(TAG, "tf prefetch task create failed -- card-less path");
-        return false;
-    }
-    return true;
-}
-
-/* Stops the producer and frees everything (sweep task, at its exit only).
- * The producer polls quit/abort at every blocking point (50 ms cadence),
- * so it is gone before the teardown touches its queues. */
-static void moon_tf_prefetch_stop(void) {
-    s_tf_quit = true;
-    int waited = 0;
-    while (s_tf_task && waited < 1000) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-        waited += 10;
-    }
-    if (s_tf_task) { /* must not happen -- leak rather than rip queues out */
-        ESP_LOGE(TAG, "tf prefetch task would not quit -- leaking its state");
-        return;
-    }
-    if (s_tf_ready_q) {
-        vQueueDelete(s_tf_ready_q);
-        s_tf_ready_q = NULL;
-    }
-    if (s_tf_free_q) {
-        vQueueDelete(s_tf_free_q);
-        s_tf_free_q = NULL;
-    }
-    for (int i = 0; i < TF_Q_MAX; i++) {
-        free(s_tf_slot[i]);
-        s_tf_slot[i] = NULL;
-    }
-}
-
-/* Next ready slot, or -1 = bake this frame (timeout / cache died / abort). */
-static int moon_tf_pop(void) {
-    if (!s_tf_ready_q || !tfcache_ready())
-        return -1;
-    int slot;
-    int waited = 0;
-    while (!s_sweep_abort && waited < 2000) {
-        if (xQueueReceive(s_tf_ready_q, &slot, pdMS_TO_TICKS(50)) == pdTRUE)
-            return slot;
-        waited += 50;
-    }
-    return -1;
-}
-
-static void moon_tf_release(int slot) {
-    if (s_tf_free_q && slot >= 0)
-        xQueueSend(s_tf_free_q, &slot, 0);
-}
-#endif /* CONFIG_UI_MOON_TFCACHE */
-
-static void moon_sweep_task(void *arg) {
-    (void)arg;
-    int32_t frames = s_sweep_frames;
-    int sweep_bake_px = CONFIG_UI_MOON_ANIM_BAKE_PX; /* intermediate frames' bake size */
-    const uint8_t *alb = moon_albedo();
-    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
-    if (!alb) {
-        ESP_LOGE(TAG, "no albedo; sweep aborted");
-        s_sweep_baking = false;
-        vTaskDelete(NULL);
-    }
-    if (!grel)
-        ESP_LOGW(TAG, "no relief cache; sweep relief-free");
-    int64_t now = s_sweep_now;
-    /* Sweep span: the last synodic cycle, from the last NEW MOON to now
-     * (the animation always starts dark). new_moon_epoch() finds it by
-     * coarse-then-fine scanning moon_geometry's illumination backwards
-     * over at most one synodic month; the span is clamped to (0, 29.53 d]. */
-    const int64_t SYNODIC_S = 29.53 * 86400;
-    int64_t span = now - new_moon_epoch(now);
-    if (span <= 0)
-        span = SYNODIC_S; /* ephemeris degenerate: fall back to a full month */
-    if (span > SYNODIC_S)
-        span = SYNODIC_S;
-    ESP_LOGI(TAG, "sweep span: %lld d (new moon %lld s before now)", (long long)(span / 86400), (long long)span);
-    /* The sweep's FINAL frame is the current phase (epoch = now) -- the
-     * only frame that carries a sky event's OCCLUSION (the intermediate
-     * frames are past phases up to a month back, not eclipsed). Classify
-     * now's instant once, and set the tint LUT HERE (boot reaches the
-     * sweep before any moon_bake_epoch, so this is the sweep's own LUT
-     * authority; a no-op on an ordinary day). The tint covers the WHOLE
-     * sweep deliberately: the special moon's color foreshadows as the
-     * disk brightens toward now, and setting it once before the first
-     * frame keeps the LUT table write-out of the display path (one
-     * global 256-entry table, read per-pixel by the atomic flush). The
-     * spin hands over to the same LUT (the day_tick's moon_bake_epoch
-     * re-selects it at most once a day -- same event, no rebuild). */
-    moon_event_t sweep_ev;
-    moon_event_classify_here(now, &sweep_ev); /* sweep task (core 1): scans in place */
-    moon_gray565_set_event(&sweep_ev);
-    const moon_bake_ev_t *sweep_bev = moon_event_any(&sweep_ev) ? &sweep_ev : NULL;
-#if CONFIG_UI_MOON_TFCACHE
-    /* ---- TF replay branch (moon_tfcache.c / UI_MOON_TFCACHE) -----------
-     * With a usable card the intermediate frames are HOURLY: one per hour
-     * center in (new moon, now], fetched from the cache, plus the live
-     * final frame at full MOON_PX. CONFIG_UI_MOON_ANIM_FRAMES then paces
-     * only the card-less path. The hour key <-> epoch map is
-     * deterministic (frame == hour*3600 + 1800), so a frame written
-     * through by a miss regenerates identically on every later boot.
-     * tfcache_init mounts + probes + sizes its scratch HERE (after the
-     * clock fix, at sweep time -- a card-less boot pays nothing on the
-     * fast path); the producer decodes ahead in a PSRAM slot queue.
-     * NOTHING below this block is skipped on failure: whatever the card
-     * cannot serve is baked and stored exactly as before (write-through),
-     * and a dead card simply makes every frame a miss. */
-    bool use_tf = false;
-    int64_t tf_first_hour = 0, tf_hours = 0;
-    {
-        int tfpx = sweep_bake_px > MOON_PX ? MOON_PX : sweep_bake_px;
-        int64_t first = (now - span) / 3600 + 1; /* first hour center after the new moon */
-        int64_t last = (now - 1800) / 3600;      /* hour centers never ahead of now */
-        if (last >= first) {
-            tf_first_hour = first;
-            tf_hours = last - first + 1;
-        }
-        /* tf_hours >= 1: with a fresh-moon boot younger than an hour the
-         * classic path stays (the t-formula needs frames >= 2). */
-        if (tf_hours >= 1 && tfcache_init(tfpx, MOON_PX, MOON_ALB_W, !CONFIG_TEST_BAKE_NO_RELIEF) == ESP_OK &&
-            tfcache_ready() && moon_tf_prefetch_start(tf_first_hour, (int)tf_hours, tfpx)) {
-            use_tf = true;
-            frames = (int32_t)tf_hours + 1; /* hourly frames + live final frame */
-            s_sweep_frames = frames;        /* the tick + completion wait follow it */
-            ESP_LOGI(TAG, "sweep from TF: %d hourly frames (%lld..%lld) + live final @%dpx (card-less would be %d)",
-                     (int)tf_hours, (long long)tf_first_hour, (long long)(tf_first_hour + tf_hours - 1), tfpx,
-                     (int)CONFIG_UI_MOON_ANIM_FRAMES);
-        } else if (tfcache_ready()) {
-            /* TF rejected for this boot (hours < 1, probe, not even one
-             * slot, or task OOM): hand the codec scratch back -- ~392 KB
-             * of PSRAM (eager; plus the deferred decode buffer if a hit
-             * ever took it) that the classic path never touches. The
-             * sweep runs once per boot, so the verdict is final here. */
-            tfcache_scratch_free();
-        }
-    }
-    int64_t tf_prev_pub = esp_timer_get_time(), tf_worst_gap = 0; /* perf: worst display-to-display gap */
-#endif
-    int64_t t0 = esp_timer_get_time();
-    for (int f = 0; f < frames && !s_sweep_abort; f++) {
-        /* Backpressure (see the section above): the previous frame must
-         * be on screen before s_rgb may be overwritten with the next.
-         * The tick displays each published frame one tick later (one
-         * atomic ~140 ms lv_refr_now), while the bake is ~1.3 s, so the
-         * bake paces the sweep and this wait is usually ~0; the 5 s cap
-         * is a safety bail (the only tick-paused case -- sleep entry --
-         * sets s_sweep_abort, which the loop polls too). */
-        if (f > 0) {
-            int waited = 0;
-            while (!s_sweep_abort && s_sweep_shown < (uint32_t)f) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                waited += 10;
-                if (waited > 5000)
-                    break;
-            }
-            if (s_sweep_abort)
-                break;
-        }
-        /* Frame f is (frames-1-f) sweep steps before the current
-         * phase: f=0 is the last NEW MOON (dark disk), f=frames-1 is
-         * NOW.
-         *
-         * Intermediate frames bake at the reduced UI_MOON_ANIM_BAKE_PX
-         * resolution (the on-disk pixel count scales (S/400)^2, so the
-         * per-frame cost drops with it -- the lighting/relief model is
-         * resolution-independent, only the screen sampling is coarser),
-         * then upscase to the full MOON_PX for display. The FINAL frame
-         * is always baked at full MOON_PX: it is the current phase the
-         * spin resumes from, and it is the only frame that lingers on
-         * screen. With the reduction disabled (bake px >= MOON_PX) every
-         * frame bakes at full resolution (the old path).
-         *
-         * The S > MOON_PX clamp below is permanent: baking ABOVE the
-         * panel's native MOON_PX adds no display quality (the screen
-         * can only show MOON_PX) and costs (S/MOON_PX)^2 PSRAM/RAM and
-         * bake time; the sharpness budget is the MOON_ALBEDO_W texture
-         * oversampling, not supersampled bakes. */
-        double t = (double)(frames - 1 - f) / (double)(frames - 1);
-        int64_t epoch = now - (int64_t)(t * span);
-#if CONFIG_UI_MOON_TFCACHE
-        if (use_tf) /* deterministic hour key <-> epoch map (see the branch block) */
-            epoch = (f == frames - 1) ? now : (tf_first_hour + f) * 3600 + 1800;
-#endif
-        moon_geom_t g;
-        moon_geometry(epoch, &g);
-        int S = (f == frames - 1) ? MOON_PX : sweep_bake_px; /* this frame's bake size */
-        if (S > MOON_PX)
-            S = MOON_PX;
-        uint8_t *dst = (S == MOON_PX) ? s_frame : s_sweep_small; /* non-NULL (init check) */
-        /* Computed (backlit) dark side for every montage frame: the
-         * unlit surface with its real relief, lit faintly from the
-         * anti-solar direction (dark_zero = 1, MOON_NIGHT_BACKLIT_K) --
-         * the same night side as the static/wake frame, so the sweep's
-         * final frame hands over to the static phase without a dark-side
-         * pop. (Replaces the old flat-black device dark side; the
-         * backlit ramp is a smooth per-pixel gradient, not the
-         * earthshine's ~17-step banded ramp that motivated the flat
-         * floor.) */
-        int dark_zero = 1;
-        /* Only the final frame (the current phase) can carry a sky event;
-         * the intermediate past phases bake as NULL (byte-identical). */
-        const moon_bake_ev_t *bev = (f == frames - 1) ? sweep_bev : NULL;
-#if CONFIG_UI_MOON_TFCACHE
-        int tf_slot = -1;
-        bool tf_skip_bake = false;
-        int32_t tf_rd_ms = 0;
-        if (use_tf && f != frames - 1) {
-            tf_slot = moon_tf_pop();
-            if (tf_slot >= 0 && s_tf_slot_hit[tf_slot]) {
-                tf_rd_ms = s_tf_slot_ms[tf_slot];
-                /* Land in the SAME buffer a bake would have written (dst is
-                 * s_frame at S == MOON_PX -- the boards' default bake is
-                 * native -- or s_sweep_small), so the convert block below
-                 * stays the single tinted+upscaled path: the fetched frame
-                 * goes through the same moon_gray565 LUT as a computed one. */
-                memcpy(dst, s_tf_slot[tf_slot], (size_t)S * S);
-                tf_skip_bake = true;
-            }
-            moon_tf_release(tf_slot); /* consumed (hit copy done / miss unused) */
-        }
-#endif
-        int64_t b0 = esp_timer_get_time();
-        for (int y = 0; y < S && !s_sweep_abort
-#if CONFIG_UI_MOON_TFCACHE
-                        && !tf_skip_bake
-#endif
-             ;
-             y++) {
-            /* Bake into the (scratch, sweep-only) small frame unlocked:
-             * nothing else reads s_sweep_small, the spin is paused for
-             * the whole sweep, and the display only ever touches s_rgb
-             * (converted below, under the mutex). A cancel is honored
-             * within a row. */
-            moon_bake_rows(&g, alb, grel, dst, S, (float)(S / 2), (float)(S / 2), (float)(S / 2), MOON_ALB_W,
-                           MOON_ALB_H, y, y + 1, dark_zero, 0.0f,
-                           bev); /* dk_sup 0.0f = the true moving phase; bev = the blood-moon
-                                    occlusion (final frame only) */
-            if ((y & 15) == 15)
-                vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
-                                * rounds to 0 ticks -- a no-op that starved IDLE1
-                                * (bench: boot-sweep bake spun core 1, TWDT
-                                * IDLE1 hits every 5 s once the CPU1 check was
-                                * enabled) */
-        }
-        if (s_sweep_abort)
-            break;
-#if CONFIG_UI_MOON_TFCACHE
-        int64_t bake_us = esp_timer_get_time() - b0; /* the bake loop only (0 on tf hit) */
-#endif
-        /* Convert + (if reduced) upscase into s_rgb as ONE locked block:
-         * the display's atomic flush (under the same mutex) can never
-         * mix two frames, and the small buffer is only read here. */
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        if (S == MOON_PX) {
-            for (int y = 0; y < MOON_PX; y++) {
-                const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
-                uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
-                for (int x = 0; x < MOON_PX; x++)
-                    rrow[x] = moon_gray565(frow[x]);
-            }
-        } else {
-            /* Nearest-neighbor (S -> MOON_PX): the pixel centers map to
-             * src = (i + 0.5) * S / MOON_PX, computed as (2i+1)*S/(2*MOON_PX)
-             * to keep it exact in int math (S/MOON_PX is not integer). */
-            int sm[MOON_PX];
-            for (int i = 0; i < MOON_PX; i++) {
-                int s_ = ((2 * i + 1) * S) / (2 * MOON_PX);
-                if (s_ >= S)
-                    s_ = S - 1;
-                sm[i] = s_;
-            }
-            for (int Y = 0; Y < MOON_PX; Y++) {
-                const uint8_t *frow = &s_sweep_small[(size_t)sm[Y] * S];
-                uint16_t *rrow = &s_rgb[(size_t)Y * MOON_PX];
-                for (int x = 0; x < MOON_PX; x++)
-                    rrow[x] = moon_gray565(frow[sm[x]]);
-            }
-        }
-        xSemaphoreGive(s_rgb_mtx);
-#if CONFIG_UI_MOON_TFCACHE
-        if (use_tf) {
-            s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
-            long long put_ms = 0;
-            if (f != frames - 1 && !tf_skip_bake) {
-                int64_t p0 = esp_timer_get_time();
-                tfcache_store(tf_first_hour + f, dst, S); /* write-through: wasn't on the card */
-                put_ms = (esp_timer_get_time() - p0) / 1000;
-            }
-            int64_t tn = esp_timer_get_time();
-            if (f > 0 && tn - tf_prev_pub > tf_worst_gap)
-                tf_worst_gap = tn - tf_prev_pub;
-            tf_prev_pub = tn;
-            ESP_LOGI(TAG, "sweep %d/%d src=%s rd=%lldms bake=%lldms put=%lldms @%dpx (illum %.1f%%)", f + 1, frames,
-                     tf_skip_bake ? "tf" : "bake", (long long)tf_rd_ms, (long long)(bake_us / 1000), put_ms, S,
-                     g.illum * 100.0f);
-        } else
-#endif
-        {
-            s_sweep_pub = (uint32_t)f + 1; /* the tick displays this frame next */
-            ESP_LOGI(TAG, "sweep %d/%d baked in %lldms @%dpx (illum %.1f%%)", f + 1, frames,
-                     (long long)((esp_timer_get_time() - b0) / 1000), S, g.illum * 100.0f);
-        }
-    }
-#if CONFIG_UI_MOON_TFCACHE
-    if (use_tf) {
-        moon_tf_prefetch_stop();
-        tfcache_evict(tf_first_hour + tf_hours - 1); /* bound the window to one cycle */
-        tfcache_stats_log();
-        int64_t wall = esp_timer_get_time() - t0;
-        ESP_LOGI(TAG, "TF sweep: %u frames in %lld ms (~%.2f fps, tick-paced, target %d fps), worst gap %lld ms",
-                 (unsigned)s_sweep_pub, (long long)(wall / 1000),
-                 wall > 0 ? (double)s_sweep_pub * 1000000.0 / (double)wall : 0.0, moon_tf_fps(),
-                 (long long)(tf_worst_gap / 1000));
-        /* Task #39 (2026-11-13): hand the codec scratch back the moment
-         * the sweep is done -- the card path being HEALTHY (task #38) is
-         * what keeps ~1.1 MB of PSRAM (encode in/out, persistent fetch
-         * input, deferred decode out) resident for the whole boot
-         * otherwise; the 8 MB S3 has no use for it once the sweep ends.
-         * fetch/store already fail on the NULL buffers, and nothing
-         * calls them after the sweep. */
-        tfcache_scratch_free();
-    }
-#endif
-    if (!s_sweep_abort) {
-        /* Wait for the LAST frame to be on screen before exiting (the
-         * tick advances s_sweep_shown in its sweep consumer). The 5 s
-         * bail covers the tick being paused (the only such case --
-         * sleep entry -- aborts the sweep, which the loop polls). */
-        int waited = 0;
-        while (!s_sweep_abort && s_sweep_shown < (uint32_t)s_sweep_frames && waited < 5000) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            waited += 10;
-        }
-    } else if (s_sweep_pub < (uint32_t)s_sweep_frames) {
-        s_frame_stale = true; /* the buffers were left mid-bake */
-    } else {
-        s_frame_stale = false; /* all frames completed */
-        /* The completed sweep's final frame IS the current phase, tinted
-         * by the sweep's own LUT select (above, before frame 0) with the
-         * blood occlusion baked in -- record its signature so the
-         * minute-tick day-tick does not immediately re-bake the same
-         * current phase (one 1.3 s bake) at boot. An aborted sweep left
-         * a stale frame (re-baked by the wake path) and records
-         * nothing. */
-        s_baked_event = moon_event_signature(&sweep_ev);
-        s_baked_hour = now / 3600;
-    }
-    s_sweep_baking = false;
-    ESP_LOGI(TAG, "sweep bake %s in %lldms", s_sweep_abort ? "interrupted" : "done",
-             (long long)((esp_timer_get_time() - t0) / 1000));
-    vTaskDelete(NULL);
-}
-
-/* Abort a running sweep and clear its state (sleep entry / start). The
- * task checks s_sweep_abort per row and in the backpressure poll, so it
- * exits within a row (~2 ms) of the abort. */
-static void moon_sweep_interrupt(void) {
-    if (s_sweep_baking) {
-        s_sweep_abort = true;
-        int waited = 0;
-        while (s_sweep_baking && waited < 400) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            waited += 10;
-        }
-        if (s_sweep_baking) {
-            /* The task is still inside a section between abort polls
-             * (the epoch scan or the 5 s backpressure bail): it WILL
-             * exit at its next poll -- leaving s_sweep_abort SET means
-             * it cannot resume the animation in the meantime. Resetting
-             * the abort here (the old code) let a zombie task keep
-             * baking the full sweep (1344 frames at the default) into
-             * the buffers after the caller had
-             * moved on to the sleep screens. */
-            ESP_LOGW(TAG, "sweep task did not exit within 400 ms; abort stays armed until it exits");
-            s_frame_stale = true; /* it may still be mid-row in the buffers */
-            return;               /* the zombie exits on its own and clears s_sweep_baking */
-        }
-    }
-    s_sweep_abort = false;
-    s_sweep_baking = false;
-    s_sweep_pub = 0;
-    s_sweep_shown = 0;
-    s_sweep_frames = 0;
-}
-
 /* ---------------- light-sleep "dusk" (pole-axis spin to the dark side) ---
  *
  * The light-sleep entry indicator: the moon spins about its POLE (the
@@ -2064,8 +1435,9 @@ static void moon_sweep_interrupt(void) {
  * lighting re-bake (~1.3 s). A fixed surface point keeps exactly its map
  * cell's color on every frame, so the terminator cannot flicker (the
  * per-frame re-bake's reduced-res lighting was the flicker source).
- * The phase sweep keeps per-frame bakes: there the sun geometry changes
- * between frames. The map build itself (~1.5-2 s) is one-time at dusk
+ * (Per-frame BAKES are right only where the sun geometry changes between
+ * frames -- that was the boot sweep's domain, retired 2026-11-13.) The
+ * map build itself (~1.5-2 s) is one-time at dusk
  * start; the animation is display-paced from then on.
  *
  * Each frame folds the camera basis three ways:
@@ -2106,7 +1478,7 @@ static void moon_sweep_interrupt(void) {
  * at |phi*| frames (14-95 s) -- the animation's duration is the sleep
  * indicator.
  *
- * Display: the sweep's pipeline -- the task paces on s_dusk_shown
+ * Display: the shared pipeline -- the task paces on s_dusk_shown
  * (backpressure), the tick shows each published frame as ONE atomic whole
  * frame. The moon tick is resumed for the duration (the light-sleep entry
  * paused it for the parked pose; moon_ui_dusk resumes it, and the orbit
@@ -2218,8 +1590,8 @@ static void moon_dusk_task(void *arg) {
     /* One-time: the full body-frame equirect map for this epoch (lit +
      * backlit night side; S is never folded -- the folds touch the
      * camera basis only). Row-by-row so an abort lands within a row
-     * (~2 ms); s_shade_map is dusk-only (the sweep and dusk never run at
-     * once, and the sweep does not use the map). */
+     * (~2 ms); s_shade_map is dusk-only (nothing else builds or reads
+     * it). */
     int64_t mb0 = esp_timer_get_time();
     for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
         /* dark_zero + dk_kill (the geometric bound + the kill margin):
@@ -2245,7 +1617,7 @@ static void moon_dusk_task(void *arg) {
     ESP_LOGI(TAG, "dusk shade map built in %lldms (%d cells)", (long long)((esp_timer_get_time() - mb0) / 1000),
              MOON_ALB_W * MOON_ALB_H);
     for (int f = 0; f < frames && !s_dusk_abort; f++) {
-        /* Backpressure (the sweep's rule): the previous frame on screen
+        /* Backpressure (the pipeline rule): the previous frame on screen
          * before s_rgb may be overwritten. The tick displays each frame
          * one tick later; the 5 s cap is the safety bail (the only
          * tick-paused case -- a wake -- sets s_dusk_abort, polled here). */
@@ -2300,7 +1672,7 @@ static void moon_dusk_task(void *arg) {
              * clean backlit dark side, and the endpoint frame (the dk_kill
              * bake) takes over with no pop. The lerp moves only the lit
              * cells (the companion map is identical backlit there).
-             * Row-by-row like the sweep so an abort lands within a row. */
+             * Row-by-row so an abort lands within a row. */
             float t = (frames > 2) ? (float)f / (float)(frames - 2) : 0.0f;
             float lit_w = 1.0f;
             if (t > MOON_DUSK_FADE_HOLD) {
@@ -2326,7 +1698,7 @@ static void moon_dusk_task(void *arg) {
         }
         if (s_dusk_abort)
             break;
-        /* Convert into s_rgb as ONE locked block (the sweep's block):
+        /* Convert into s_rgb as ONE locked block (the orbit's rule):
          * the tick's atomic flush can never mix two frames. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         for (int y = 0; y < MOON_PX; y++) {
@@ -2629,9 +2001,11 @@ static void moon_tilt_monitor_cb(lv_timer_t *timer) {
  * at-rest drift cannot rotate the text. */
 bool moon_ui_tilt_settled(void) { return s_tilt_settled; }
 
-/* True while the synodic boot sweep's bake task is running (the on-demand
- * sync flow waits for it before switching the WiFi screen to airplane). */
-bool moon_ui_sweeping(void) { return s_sweep_baking; }
+/* Boot-animation seam predicate. The clock home has no boot sweep
+ * (retired 2026-11-13 -- boot bakes the static phase in moon_ui_start);
+ * the knob companion's seam answers this from its OWN boot sweep, which
+ * the shared actions.c idle/Wi-Fi gates still honor there. */
+bool moon_ui_sweeping(void) { return false; }
 
 /* True while the dark side is the on-screen state (the dusk spin's last
  * frame has displayed and the deep-sleep countdown was armed from it).
@@ -2650,7 +2024,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * 3.5 KB stack rule), so the tick lands the finished frame as ONE
      * atomic whole-panel flush. Waits out any pipeline that is mid-read
      * of s_rgb (the strips it would interrupt belong to that pipeline). */
-    if (s_rebake_show && !s_orbit_sweeping && !s_sweep_baking && !s_dusk_baking) {
+    if (s_rebake_show && !s_orbit_sweeping && !s_dusk_baking) {
         s_rebake_show = false;
         moon_invalidate_all();
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
@@ -2662,7 +2036,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * the task has fully converted, top to bottom, so the new viewport
      * sweeps in instead of popping in. The drain below is the only s_rgb
      * reader while the sweep runs -- every other writer is gated on the
-     * orbit/sweep flags. */
+     * orbit/dusk flags. */
     if (s_orbit_sweeping) {
         int strips_ready = (int)((uint32_t)s_orbit_pub / MOON_STRIP_ROWS);
         if (strips_ready > MOON_NSTRIPS)
@@ -2696,40 +2070,8 @@ static void moon_tick_cb(lv_timer_t *timer) {
                 clock_idle_set_enabled(true);
         }
     }
-    /* Synodic wake sweep consumer (see the sweep section): each
-     * published frame is displayed as ONE atomic whole frame -- never
-     * left for LVGL's async 25-row drain. The task paces itself on
-     * s_sweep_shown (backpressure), so the cycle unfolds at the bake
-     * rate (~0.51 s/frame at the default 240 px: ~0.28 s bake + ~0.23 s
-     * display+tick, ~11 min for the default 1344 frames). */
-    if (s_sweep_baking && s_sweep_pub > s_sweep_shown) {
-        moon_invalidate_all();
-        int64_t r0 = esp_timer_get_time();
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        lv_refr_now(NULL);
-        xSemaphoreGive(s_rgb_mtx);
-        /* The sweep's frames land back-to-back on the tick; a lost
-         * trans-done hand here would freeze the LVGL task mid-sweep.
-         * Catch it on the tick. */
-        moon_panel_drain_verify("sweep frame");
-        s_sweep_shown = s_sweep_pub;
-        ESP_LOGI(TAG, "sweep %u/%d shown in %dms", (unsigned)s_sweep_shown, (int)s_sweep_frames,
-                 (int)((esp_timer_get_time() - r0) / 1000));
-        if (s_sweep_shown >= (uint32_t)s_sweep_frames) {
-            if (s_orbit_epoch <= 0) {
-                /* Boot sweep: the first static frame of the session.
-                 * The orbit pipeline needs the phase epoch (the sweep's
-                 * last frame bakes the default viewport, so the
-                 * on-screen pose is orbit angle 0). */
-                s_orbit_epoch = s_sweep_now;
-                s_orbit_baked = 0;
-            }
-            if (!clock_is_idle())
-                clock_idle_set_enabled(true);
-        }
-    }
-    /* Light-sleep "dusk" consumer (see the dusk section): like the
-     * sweep, each published frame is ONE atomic whole frame. On the
+    /* Light-sleep "dusk" consumer (see the dusk section): each
+     * published frame is ONE atomic whole frame. On the
      * LAST frame the deep-sleep countdown is armed -- the sleep depth
      * follows the animation (the timer fires only once the fully
      * unilluminated side is on screen), never at the light-sleep entry
@@ -2808,15 +2150,6 @@ void moon_ui_init(void) {
 
     s_frame = heap_caps_malloc(MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
     s_rgb = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
-    /* Reduced-res intermediate sweep frame (UI_MOON_ANIM_BAKE_PX): the
-     * wake sweep's non-final frames bake here (smaller than MOON_PX^2) and
-     * are upscased into s_rgb on display. Allocated at the bake size (not
-     * MOON_PX^2) -- the bake writes size^2 bytes. If the reduction is
-     * disabled (bake size >= MOON_PX) this stays NULL and the sweep bakes
-     * intermediate frames into s_frame directly (the old full-res path). */
-    int sweep_bake_px = CONFIG_UI_MOON_ANIM_BAKE_PX;
-    if (sweep_bake_px < MOON_PX)
-        s_sweep_small = heap_caps_malloc((size_t)sweep_bake_px * sweep_bake_px, MALLOC_CAP_SPIRAM);
     /* The dusk's pre-shaded body-frame equirect map (the constant-
      * projection pass; see the dusk section): MOON_ALB_W x MOON_ALB_H
      * 8-bit cells, built once per dusk epoch, re-projected every dusk
@@ -2830,7 +2163,7 @@ void moon_ui_init(void) {
      * (it samples at MOON_PX density, not the map density). */
     s_shade_map = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
     s_shade_map_dark = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb || (sweep_bake_px < MOON_PX && !s_sweep_small) || !s_shade_map || !s_shade_map_dark) {
+    if (!s_frame || !s_rgb || !s_shade_map || !s_shade_map_dark) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }
@@ -2849,10 +2182,10 @@ void moon_ui_init(void) {
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     /* Eagerly load the albedo + build the relief gradient cache HERE, on
      * the main task, before ui_init / moon_ui_start can spawn a bake task
-     * (orbit/sweep). The build is the one slow, non-idempotent op (one 4 MB
+     * (orbit/re-bake). The build is the one slow, non-idempotent op (one 4 MB
      * packed PSRAM array from a one-shot whole-DEM read +
      * moon_relief_build); running it once up front means the later
-     * moon_bake_epoch / orbit / sweep moon_relief() calls are cheap
+     * moon_bake_epoch / orbit moon_relief() calls are cheap
      * pointer returns with no concurrent-build race (two tasks both
      * seeing relief_built == false and double-allocating the array). */
     if (!moon_albedo() || !moon_relief())
@@ -2873,7 +2206,7 @@ void moon_ui_init(void) {
     lv_timer_pause(s_tick);
     /* Sync: a buffer mutex serializing every s_rgb / s_frame
      * reader+writer (the orbit's row sweep, the static LUT convert, the
-     * sweep/dusk pipelines), and a PANEL mutex serializing every panel
+     * dusk pipeline), and a PANEL mutex serializing every panel
      * write (LVGL's flush strips, the 0x51 ramp steps, the drain
      * probes) -- which reach the panel through the draw_bitmap wrapper
      * installed below (every LVGL flush funnels through
@@ -2937,7 +2270,7 @@ void moon_ui_init(void) {
     /* The sky-event day-scan worker (see moon_event_classify_here):
      * core 1 (IDLE1 is not WDT-watched, so its 15-20 s scan can never
      * trip the watchdog), below the bake tasks in priority, and 12 KB
-     * of stack like the sweep -- the era chain needs the headroom
+     * of stack -- the era chain needs the headroom
      * (2026-11-04 lesson). */
     if (xTaskCreatePinnedToCoreWithCaps(moon_event_task, "moon_event", 12288, NULL, configMAX_PRIORITIES - 4,
                                         &s_event_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
@@ -2988,64 +2321,24 @@ void moon_ui_start(void) {
         lv_timer_resume(s_tick);
         return;
     }
-    /* Boot: the moon starts on a BLACK screen (s_rgb was zeroed at
-     * init) and the synodic sweep reveals it -- new moon -> now, ending
-     * on the current phase. The kickoff is the whole of the boot
-     * animation (the sweep's first frame is the dark new moon: the
-     * reveal is built into the pipeline, no separate fade). */
-    moon_ui_replay_animation();
-    if (!s_sweep_baking) {
-        /* No sweep (UI_MOON_ANIM_ENABLE off / kickoff refused): bake the
-         * current phase directly so the screen is not left black. */
-        moon_orbit_interrupt(); /* the boot bake owns the buffers */
-        s_baked_day = now / 86400;
-        moon_bake_epoch(now);
-    }
+    /* Boot: bake the CURRENT phase directly (the synodic boot sweep was
+     * removed 2026-11-13 -- the home is the static phase from the first
+     * frame). The screen shows black until the bake lands and the tick
+     * displays it as one atomic frame; moon_bake_epoch records the phase
+     * for the orbit pipeline (s_orbit_epoch) and the day-tick
+     * (s_baked_day below, so the minute path does not queue a second
+     * bake). */
+    moon_orbit_interrupt(); /* the boot bake owns the buffers */
+    s_baked_day = now / 86400;
+    moon_bake_epoch(now);
     lv_timer_resume(s_tick);
 }
 
 void moon_ui_replay_animation(void) {
-    /* Synodic sweep (see the sweep section): the current synodic cycle
-     * (last NEW MOON -> now) in CONFIG_UI_MOON_ANIM_FRAMES frames,
-     * baked off screen by the bake task and displayed one atomic whole
-     * frame per tick, ending on the current phase. This is the BOOT
-     * animation only (moon_ui_start kicks it off from the black
-     * screen; the tick keeps showing the sweep's last frame after it)
-     * -- wakes from sleep show the current phase STATIC, no animation.
-     * No-op before moon_ui_start and while the orbit / sweep pipeline
-     * owns the buffers. The idle timer
-     * is held too (the user is present for the sweep's ~11 min at the
-     * default 240 px / 1344 frames). */
-    if (!boot_anim_enabled() || !s_ready || !s_started || s_orbit_baking || s_orbit_sweeping || s_sweep_baking)
-        return;
-    int64_t now;
-    if (clock_get_utc_epoch(&now) != ESP_OK)
-        return;
-    moon_sweep_interrupt(); /* defensive join; nothing should be running */
-    s_sweep_now = now;
-    s_sweep_frames = CONFIG_UI_MOON_ANIM_FRAMES;
-    s_sweep_pub = 0;
-    s_sweep_shown = 0;
-    s_sweep_abort = false;
-    s_frame_stale = false;
-    s_baked_day = now / 86400; /* the sweep's final frame is the current phase */
-    /* Ownership flag BEFORE the task exists (the orbit rule): the task
-     * may start baking s_rgb rows immediately; the spin's pause-poll and
-     * the tick's display guard must already be stopped. */
-    s_sweep_baking = true;
-    /* 12 KB, not 8: the sweep's moon_event_classify scan (§5.5) on top of
-     * the era chain and this task's int sm[MOON_PX] upscase scratch
-     * overflowed the 8 KB stack (stack-protection fault in sin on the P4,
-     * 2026-11-04). The spin task (no classify) stays at 8 KB. */
-    if (xTaskCreatePinnedToCoreWithCaps(moon_sweep_task, "moon_sweep", 12288, NULL, configMAX_PRIORITIES - 3,
-                                        &s_sweep_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
-        ESP_LOGE(TAG, "sweep task allocation failed; moon stays on the current frame");
-        s_sweep_baking = false;
-        return;
-    }
-    if (!clock_is_idle())
-        clock_idle_set_enabled(false); /* hold sleep for the sweep duration */
-    ESP_LOGI(TAG, "synodic boot sweep started: %d frames (new moon -> now)", s_sweep_frames);
+    /* Boot-animation seam. The clock home plays NO boot animation since
+     * 2026-11-13 (moon_ui_start bakes the static current phase); the
+     * knob companion's seam answers this call with its OWN boot sweep,
+     * so the shared wake flow keeps a single call site family-wide. */
 }
 
 bool moon_ui_dusk_start(void) {
@@ -3063,7 +2356,7 @@ bool moon_ui_dusk_start(void) {
      * then arms the deep-sleep countdown immediately (the pre-dusk
      * behavior) so the deep-sleep transition still happens. */
     if (!dusk_anim_enabled() || !s_ready || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
-        s_sweep_baking || s_dusk_baking || s_dusk_done)
+        s_dusk_baking || s_dusk_done)
         return false;
     /* The start pose, captured before the task exists: the in-plane
      * angle is the identity (the free spin is gone -- the home frame
@@ -3087,12 +2380,13 @@ bool moon_ui_dusk_start(void) {
     s_dusk_shown = 0;
     s_dusk_abort = false;
     s_dusk_done = false;
-    /* Ownership flag BEFORE the task exists (the sweep's rule): the
+    /* Ownership flag BEFORE the task exists (the pipeline rule): the
      * task may start baking s_rgb rows immediately; the tick's display
      * legs (rebake display, orbit drain, screen switch) must already be
      * stopped. */
     s_dusk_baking = true;
-    /* 12 KB: same classify-on-top-of-era-chain reason as the sweep. */
+    /* 12 KB: the classify-on-top-of-era-chain headroom (the event
+     * worker's reason). */
     if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 12288, NULL, configMAX_PRIORITIES - 3,
                                         &s_dusk_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "dusk task allocation failed; the moon stays parked");
@@ -3134,8 +2428,8 @@ void moon_ui_day_tick(void) {
      * day in moon_event.c (one ~350-step scan per day, not per
      * minute -- and taken on the event worker / a pipeline task, never
      * on the LVGL task; see moon_event_classify_here). */
-    if (s_orbit_baking || s_orbit_sweeping || s_sweep_baking || s_dusk_baking || s_dusk_done) {
-        /* The orbit or wake-sweep pipeline owns s_frame/s_rgb until
+    if (s_orbit_baking || s_orbit_sweeping || s_dusk_baking || s_dusk_done) {
+        /* The orbit or dusk pipeline owns s_frame/s_rgb until
          * it finishes; defer (do NOT advance s_baked_day) so the
          * next tick re-tries and the bakes never race on the
          * buffers. s_dusk_done: the dark side is on screen (light
@@ -3167,14 +2461,13 @@ void moon_ui_pause(bool pause) {
         return;
     if (pause) {
         /* Sleep entry (and the alarm screen): the pipelines take
-         * priority in this order -- join the wake sweep, join the dusk,
+         * priority in this order -- join the dusk,
          * interrupt the orbit (sleep shows the last baked viewport) --
          * then the tick pauses. The on-screen frame simply stays as it
          * is under the sleep screens.
          * Sleep is the preparation for the full stop. All of this is
          * bounded (each join polls its exit at 10 ms) and runs in the
          * LVGL task, so the display stays live the whole way. */
-        moon_sweep_interrupt();
         moon_dusk_interrupt();
         moon_orbit_interrupt(); /* sleep shows the last baked viewport */
         lv_timer_pause(s_tick);
@@ -3185,12 +2478,10 @@ void moon_ui_pause(bool pause) {
          * the user is back. The join is bounded (<= 400 ms, polled at
          * 10 ms) and runs in the LVGL task, like the sleep-side joins. */
         moon_dusk_interrupt();
-        if (s_frame_stale && s_started && !s_sweep_baking) {
+        if (s_frame_stale && s_started) {
             /* A mid-bake abort left s_frame/s_rgb partial (a sleep
              * transition landed on an in-flight bake): re-bake the
-             * current phase.
-             * Skipped while a sweep owns the buffers: the sweep's last
-             * frame IS the current phase. */
+             * current phase. */
             int64_t now;
             if (clock_get_utc_epoch(&now) == ESP_OK) {
                 /* Deferred: the frame stays flagged stale (a completed
@@ -3262,7 +2553,7 @@ void moon_ui_pause(bool pause) {
  * state (s_rgb holds the last complete frame) and an orbit sweep in
  * flight (s_rgb fully converted, the tick is draining its strips). It
  * is unsafe ONLY while a bake task is actively rewriting s_rgb row by
- * row (s_orbit_baking / s_sweep_baking): that leaves a temporarily
+ * row (s_orbit_baking): that leaves a temporarily
  * mixed frame (new top rows over old bottom rows) that a full flush
  * would put on screen. Skip in that case: the bake's completion display
  * (or another pipeline's completion leg) lands the new screen atomically.
@@ -3376,8 +2667,7 @@ static void fade_ramp(int from_pct, int to_pct) {
  * brightness back. No-op when the fade is off, the moon UI is not
  * ready, or a bake pipeline owns the buffers. */
 void moon_ui_fade_out(void) {
-    if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_sweep_baking ||
-        s_dusk_baking)
+    if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_dusk_baking)
         return;
     int from = s_panel_pct;
     s_fade_pending = true; /* the fade-in (0 -> 100) is owed either way */
@@ -3483,13 +2773,13 @@ void moon_ui_screen_switched(void) {
          * would park on the withheld display handshake). */
         s_moon_screen = moon_screen_has_image();
     }
-    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking) {
+    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_dusk_baking) {
         if (s_fade_pending && s_panel_pct == 0) {
             /* A starved fade-in: the fade-out ramp LANDED physically
              * (the panel sits at true black, s_panel_pct says so), but
              * this branch paints the new screen without the fade-in
              * ramp. The bake flag won the race between
-             * moon_ui_fade_out() and here -- the boot sweep sets it
+             * moon_ui_fade_out() and here -- the boot bake sets it
              * before the switch completes -- and without this rescue
              * the panel strands BLACK with a fully live app (P4 bench,
              * 2026-11-13). Restore now, holding s_panel_mtx per the
@@ -3551,8 +2841,8 @@ void moon_ui_dump_hang_context(void) {
     ESP_LOGE(TAG, "  flags: ready=%d moon_screen=%d fade_pending=%d", (int)s_ready, (int)s_moon_screen,
              (int)s_fade_pending);
     ESP_LOGE(TAG, "  flags: panel_pct=%d fade_busy=%d", (int)s_panel_pct, (int)s_fade_busy);
-    ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d sweep_baking=%d dusk_baking=%d frame_stale=%d",
-             (int)s_orbit_baking, (int)s_orbit_sweeping, (int)s_sweep_baking, (int)s_dusk_baking, (int)s_frame_stale);
+    ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d dusk_baking=%d frame_stale=%d", (int)s_orbit_baking,
+             (int)s_orbit_sweeping, (int)s_dusk_baking, (int)s_frame_stale);
     ESP_LOGE(TAG, "  flags: rebake_baking=%d rebake_show=%d panel_wrap=%d", (int)s_rebake_baking, (int)s_rebake_show,
              (int)s_panel_wrap);
 }

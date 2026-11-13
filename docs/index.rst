@@ -14,8 +14,9 @@ current moment, projected through the real camera libration. The
 pipeline is small enough to run in about 1.4 MB of flash and to bake a
 full frame in well under a second on the S3 board (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what makes the
-animations in :doc:`the animation pipelines <implementation/animations>` (the synodic boot sweep,
-the "dusk") possible on a $20 board.
+animations in :doc:`the animation pipelines <implementation/animations>` (the
+"dusk"; the boot sweep was retired 2026-11-13) possible on a $20
+board.
 
 .. figure:: _static/photos/sim_home.png
    :alt: Simulated render of the finished clock on the Waveshare ESP32-S3-Touch-AMOLED-1.75
@@ -31,7 +32,8 @@ the "dusk") possible on a $20 board.
 This documentation covers a real, working product end to end: the C
 core that bakes a moon frame on a microcontroller, the display
 pipeline that ships each frame as one atomic whole-panel flush, the
-animation system (boot sweep, the "dusk"), the
+animation system (the "dusk" — the boot sweep and burn-in spin were
+retired 2026-11-13), the
 sleep/wake machine, the settings stack, and the validation gates that
 prove the rendering matches NASA's rendered moon to within a couple of
 gray levels per pixel.

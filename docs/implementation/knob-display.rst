@@ -56,8 +56,9 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
 
 - a **producer** task bakes frames into a PSRAM double buffer. It is
   CPU1-pinned and TWDT-unregistered
-  (``xTaskCreatePinnedToCoreWithCaps``, the clock's sweep-task
-  posture), but everything long on it **yields**: the core's classify
+  (``xTaskCreatePinnedToCoreWithCaps``, the clock's then-live
+  sweep-task posture — the clock's sweep retired 2026-11-13, the
+  knob's own survives), but everything long on it **yields**: the core's classify
   scan on a 20 ms wall-clock budget (``moon_event.c``'s
   ``CONFIG_BOARD_KNOB`` branches — the coarse grid *and*
   ``se_argmax``'s 73-sample fine window), the bake by rows, the sweep

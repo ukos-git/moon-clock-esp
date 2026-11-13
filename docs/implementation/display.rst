@@ -387,7 +387,8 @@ reach it: LVGL's own flush wait. ``wait_for_flushing`` is a
 non-yielding ``while (disp->flushing);`` spin on whichever task enters
 it — the LVGL task (its indev poll dies with the spin: touch goes
 dead — the user's "touch is very unresponsive on the AMOLED",
-task #31) or the sweep task at ``lv_refr_now``. Normally unreachable,
+task #31) — and, until the boot sweep retired, the sweep task at
+``lv_refr_now``. Normally unreachable,
 the adapter keeps up — but a **lost trans-done hand** makes it
 permanent: ``disp->flushing`` was already set when the hold swaps its
 stub in (the sync screen's own pre-arm switch flush loses the hand to
@@ -457,9 +458,10 @@ capture's first boot lost the BOOT SWEEP's last-frame hand (the
 spin's first window write rejected on attempt 0, 120 ms after
 ``sweep 5/5 shown``) and then lost another after the scan-hold
 release repaint, with the watchdog naming task ``moon_spin`` — both
-captures predate the spin's removal. So the
-helper runs after every atomic display: the dusk replay, each sweep
-frame, the orbit batch, the wake's static pose display,
+captures predate the spin's removal (and the sweep's, later the same
+day). So the
+helper runs after every atomic display: the dusk replay, the orbit
+batch, the wake's static pose display,
 the deferred re-bake display, and the screen-switch flush with its fade-in leg.
 S3 only (the DPI P4 rejects legitimately and needs no such probe); the
 last dusk frame is probed too — its next writer is the wake after the
@@ -632,5 +634,4 @@ this wrong is invisible in the simulator (the host renderer writes
 PNGs) and shows up on the panel as every color's red and blue
 channels transposed — the "the moon looks teal" bug class.
 
-:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the boot sweep,
-the dusk, and the fade.
+:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the dusk and the fade (the boot sweep was a third caller until its retirement 2026-11-13).

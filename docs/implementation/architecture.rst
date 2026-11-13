@@ -29,10 +29,10 @@ The layer stack
 
    <pre class="mermaid">
    flowchart TB
-     main["main.cpp — app_main: BSP bring-up, wifi boot, clock init, boot sweep, deep-sleep entry"]
+     main["main.cpp — app_main: BSP bring-up, wifi boot, clock init, static moon bake, deep-sleep entry"]
      clock["components/clock — minute display, NTP, idle/sleep state, alarm scheduler, timezone, settings"]
      wifi["components/wifi — wifi_manager, wifi scan"]
-     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · sweep · dusk · panel write)"]
+     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · orbit · dusk · panel write)"]
      moon["components/moon — the portable core (Ch. 11): ephemeris, bake, render, Q15.15, assets"]
      board["components/board — the board shim: display / panel / touch / IMU / RTC (S3 + P4, one API)"]
      bsp["vendored BSPs — S3: CO5300 QSPI · P4: JD9365 MIPI-DSI"]
@@ -79,17 +79,16 @@ is pinned to:
    * - ``main`` (app_main)
      - 0
      - no
-     - boot sequence, the sweep's *display* at boot (it joins the
-       LVGL task for the atomic flush), deep-sleep entry
+     - boot sequence (bakes the static current phase), deep-sleep
+       entry
    * - ``LVGL`` (adapter)
      - 0
      - yes (``task_pin_to_core 0``)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - bake tasks (orbit / sweep / dusk / rebake)
+   * - bake tasks (orbit / dusk / rebake)
      - 1
-     - **yes** (pinned, PSRAM-stack; the TF prefetch task rides
-       core 0)
+     - **yes** (pinned, PSRAM-stack)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
        ``moon_rebake`` re-bakes the static frame off the LVGL task
        (the tick displays the finished frame atomically)
@@ -105,7 +104,7 @@ is pinned to:
        for the 1.7 s wake freeze, :doc:`the clock and sleep machine <clock-sleep>`)
 
 Two design choices are worth calling out. First, the bake producers
-(sweep, dusk, orbit, rebake) are **pinned to core 1** because a bake
+(dusk, orbit, rebake) are **pinned to core 1** because a bake
 is CPU-bound work: the LVGL task (on core 0, with the touch pipeline,
 the clock minute update, and the fade ramps) must never share a core
 with a bake or a gather. Second, those pipelines run as *tasks*
@@ -134,10 +133,6 @@ The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
      - the LUT convert writes it (RGB565, one gather from
        ``s_frame``); LVGL reads it as the moon image
        (``s_dsc.data``)
-   * - ``s_sweep_small``
-     - 240×240 × 1 B (if reduction on)
-     - the sweep's intermediate frames bake here and are upscased into
-       ``s_rgb`` on display (:doc:`the animation pipelines <animations>`)
    * - ``s_shade_map``
      - 864×432 × 1 B = 373 KB
      - the dusk's pre-shaded body-frame map (:doc:`the animation pipelines <animations>`)
@@ -202,14 +197,16 @@ of the panel, not of LVGL:
 (The burn-in spin's direct panel write and the TF sweep cache's
 direct-write replay were exceptions 2 and 3 until 2026-11-13, when
 the spin subsystem was removed entirely at the user's request —
-*"It does more things worse than good."* Every moon frame now rides
-the LVGL path.)
+*"It does more things worse than good."* — and the boot sweep (the TF
+replay's producer) followed later the same day. Every moon frame now
+rides the LVGL path.)
 
-Everything else that shows moon content obeys the rule: the boot
-sweep's frames (one atomic flush per published frame — card-less and
-warm TF replay alike, reduced-res bake upscased), the dusk's
-re-projected frames (same), the wake (a static frame), the orbit
-sweep (one atomic flush of the whole converted frame).
+Everything else that shows moon content obeys the rule: the boot and
+wake displays (one atomic flush of the current-phase bake), the dusk's
+re-projected frames (same), the orbit
+sweep (one atomic flush of the whole converted frame). (The boot
+sweep's frames — card-less and warm TF replay alike — had obeyed it
+one flush per published frame until its retirement.)
 
 Why the invariant is worth two locks
 ------------------------------------
