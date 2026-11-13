@@ -206,8 +206,12 @@ static const char *TAG = "moon_ui";
  * CONFIG_UI_MOON_SPIN_PERIOD_S (see the spin section below). No
  * animation buffers or dsc: the spin renders straight into the shared
  * frame buffer the static moon uses, at the same MOON_PX resolution. */
+/* Seed mirrors the Kconfig 'n': this file is target-only (the host sim
+ * stubs the whole moon_ui API in uisim/stubs.c), so an UNDEFINED symbol
+ * can only be a Kconfig 'n' here -- seeding it 1 (the old seed) made
+ * the option impossible to turn off. The 'y' arrives as a real =1. */
 #ifndef CONFIG_UI_MOON_SPIN_ENABLE
-#define CONFIG_UI_MOON_SPIN_ENABLE 1
+#define CONFIG_UI_MOON_SPIN_ENABLE 0
 #endif
 #ifndef CONFIG_UI_MOON_SPIN_PERIOD_S
 #define CONFIG_UI_MOON_SPIN_PERIOD_S 300

@@ -3657,6 +3657,15 @@ static bool s_clock_unsynced_dim;
  * starts. The spin's UI keep-mask is rebuilt when the pixels change
  * (roll start via the tick's label_changed, and settle, in the
  * animation timer). */
+/* Roll gate (UI_CLOCK_ROLL_ENABLE, default n -- the user asked for the
+ * minute-change animation off 2026-11-13): seed mirrors the Kconfig 'n'
+ * for Kconfig-less builds (the host sim compiles this file); a target
+ * 'y' arrives as a real =1. Disabled, every pair change takes the
+ * existing hard-swap branch below. */
+#ifndef CONFIG_UI_CLOCK_ROLL_ENABLE
+#define CONFIG_UI_CLOCK_ROLL_ENABLE 0
+#endif
+
 #define CLOCK_ROLL_MS 300 /* one pair's roll time (the roller's default) */
 
 /* Per-pair in-flight flag + the pair the label is rolling toward.
@@ -3755,6 +3764,18 @@ void tick_user_widget_clock(int startWidgetIndex) {
             }
             if (old[0] == new_pair[0] && old[1] == new_pair[1])
                 continue;
+            if (!CONFIG_UI_CLOCK_ROLL_ENABLE) {
+                /* Roll off (family default): hard-swap every change --
+                 * the SAME branch the mixed-jump hard-swap takes, so
+                 * the label_changed tail rebuilds the spin keep-mask
+                 * identically. (The arc itself never animated: LVGL's
+                 * lv_arc_set_value is instant.) */
+                tick_value_change_obj = label;
+                lv_label_set_text(label, new_pair);
+                tick_value_change_obj = NULL;
+                label_changed = true;
+                continue;
+            }
             /* The wheel delta on the mod-10 digit circles: every
              * CHANGED digit must move delta 1 (up, new below the old)
              * or delta 9 (down, new above), all in the SAME direction

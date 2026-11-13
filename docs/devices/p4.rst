@@ -11,6 +11,16 @@ different controller, a different pixel format, and a different DMA
 story. This page covers what the port took and what the
 measurements showed.
 
+**Panel-technology posture.** Burn-in is an AMOLED duty: the free
+spin (``UI_MOON_SPIN_ENABLE``) defaults to ``n`` on this board (user
+2026-11-13: "non-amoled screens (e.g. lcd) do not need to use the
+anti-burnin moon-spin animation") — the IPS panel has no burn-in to
+prevent, so the moon stays the static LVGL frame and the spin task
+never starts. The spin-era facts on this page (the 103-row strips,
+the 1-FB + ``LV_DISPLAY_RENDER_MODE_NONE`` posture, the async-DMA
+reject absorption) are the display-pipeline contract as measured when
+the spin ran, kept current for any build that opts back in.
+
 Component wiring
 ----------------
 

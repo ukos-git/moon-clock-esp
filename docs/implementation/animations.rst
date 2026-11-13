@@ -389,6 +389,18 @@ The free spin
 
    The free spin (burn-in rotation), filmed from the bake (``free_spin.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 
+**Per-board posture.** Burn-in is an AMOLED duty, so the spin runs
+only on the S3 AMOLED. The P4 4C carries an IPS LCD (JD9365 MIPI-DSI)
+with no burn-in to prevent, so there ``UI_MOON_SPIN_ENABLE`` defaults
+to ``n`` (user 2026-11-13: "non-amoled screens (e.g. lcd) do not need
+to use the anti-burnin moon-spin animation") — the moon stays the
+static LVGL frame, the spin task never starts, and the direct-panel
+sanctioned exception is then exercised only by the TF-cache replay.
+(The knob, the family's other backlit LCD, never had a spin: the
+render seam has no direct-write path.) With the option off, every
+spin consumer stays inert — the keep-mask, pause and screen-switch
+re-anchor all ride the never-set running flag.
+
 The burn-in rotation is a *free* spin: the rendered frame is the
 baked phase (one full ``MOON_PX`` bake), rotated in-plane by an
 angle that integrates freely — no re-bake follows the hand, so the
@@ -683,6 +695,24 @@ static frame at completion), and the per-frame work is gather-class
 (8–50 ms). The pipelines are display-paced, not bake-paced, which is
 why the sweep and dusk run for minutes without the touch core ever
 seeing a bake.
+
+The clock digit roll (opt-in)
+-----------------------------
+
+Task #54's split-flap look animated a minute-pair change as a
+roller-style roll (two-line strip, ease-out, ``CLOCK_ROLL_MS`` 300 ms,
+in the wheel-delta direction — the 5456799-era shared home). It is
+gated by ``UI_CLOCK_ROLL_ENABLE`` and **OFF by default**: the roll
+fires exactly when the seconds arc completes its cycle, and read as a
+spurious ARC animation (user 2026-11-13: "the arc seems to have an
+animation active when completing the full cycle to update top-to
+bottom the spinner. If this can be switched off, that would be
+good"). With it off, every pair change takes the mixed-jump
+hard-swap branch — the label changes in one frame and the shared
+``label_changed`` tail rebuilds the spin keep-mask identically, so
+the S3 spin stays pixel-safe either way. (The seconds arc itself never
+animated: LVGL 9.6's ``lv_arc_set_value`` is instant and the arc
+styles carry no transitions.)
 
 Next: the machine that decides *when* all of this runs — the clock,
 the idle/sleep state machine, and the wake paths (:doc:`the clock and sleep machine <clock-sleep>`).

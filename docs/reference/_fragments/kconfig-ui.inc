@@ -162,7 +162,7 @@ The moon animation pipeline
        re-projects it (~50 ms gather); the final dark-side frame is one
        full-``MOON_PX`` bake.
    * - ``UI_MOON_SPIN_ENABLE``
-     - ``y``
+     - ``y`` (S3) / ``n`` (P4)
      - Free spin: the current phase is baked once and rotated
        in-plane (nearest-neighbor gather, ~8 ms/frame) at a rate that
        eases from the active period to the settled period. Each frame
@@ -170,7 +170,11 @@ The moon animation pipeline
        via a wrapped ``esp_lcd_panel_draw_bitmap`` (one of the three
        sanctioned exceptions to the atomic-flush invariant, next to
        the fade and the TF replay's direct write), with a UI
-       keep-mask protecting every non-black UI pixel.
+       keep-mask protecting every non-black UI pixel. Burn-in is an
+       AMOLED duty: the P4's IPS LCD defaults the spin OFF (user
+       2026-11-13) and the moon stays the static LVGL frame — the
+       spin task never starts and every consumer rides the never-set
+       running flag.
    * - ``UI_MOON_SPIN_PERIOD_S``
      - ``300``
      - Active spin: seconds per full turn while in use, 30–7200.
@@ -261,6 +265,27 @@ IMU and tilt coupling
      - ``30``
      - Orbit low-pass coefficient in percent (5–95) at the 20 Hz UI
        tick.
+
+Clock widget
+------------
+.. list-table::
+   :header-rows: 1
+   :widths: 30 14 56
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``UI_CLOCK_ROLL_ENABLE``
+     - ``n``
+     - Clock digit roll: animate a minute-pair change as a roller-style
+       roll (two-line strip, ease-out, 300 ms, wheel-delta direction —
+       task #54's split-flap look). OFF by default: the roll fires
+       exactly when the seconds arc completes its cycle and read as a
+       spurious ARC animation (user 2026-11-13) — pairs hard-swap in
+       one frame. The path stays compiled for an opt-in build; the
+       spin keep-mask rebuild rides the shared ``label_changed`` tail
+       either way (LVGL's ``lv_arc_set_value`` itself is instant —
+       the arc never animated).
 
 Demo mode
 ----------

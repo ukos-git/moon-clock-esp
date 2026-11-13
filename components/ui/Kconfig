@@ -61,6 +61,24 @@ menu "UI Component Configuration"
             means one application point (the light-sleep entry) covers
             every moon-background clock display.
 
+    config UI_CLOCK_ROLL_ENABLE
+        bool "Clock digits roll to new values (split-flap animation)"
+        default n
+        help
+            Animate a minute pair's change as a roller-style roll (a
+            two-line strip, ease-out, 300 ms, in the wheel-delta
+            direction -- task #54's split-flap look). The roll fires
+            exactly when the seconds arc completes its cycle and read
+            as a spurious ARC animation (user 2026-11-13: "the arc
+            seems to have an animation active when completing the
+            full cycle to update top-to bottom the spinner. If this
+            can be switched off, that would be good") -- so it is OFF
+            by default: pairs hard-swap in one frame. The roll path
+            stays compiled for a build that opts back in; the
+            keep-mask rebuild rides the shared label_changed tail
+            either way (the never-animated hard-swap branch is
+            exactly what a disabled roll takes).
+
     config UI_DEMO_MODE
         bool "Demo mode: full on-device tour of every screen and function"
         default n
@@ -337,8 +355,19 @@ menu "UI Component Configuration"
 
     config UI_MOON_SPIN_ENABLE
         bool "Free spin: rotate the moon in place (phase-anchored)"
+        default n if BOARD_P4
         default y
         help
+            Burn-in is an AMOLED duty: the P4 4C carries an IPS LCD
+            (JD9365 MIPI-DSI) with no burn-in to prevent, so the spin
+            defaults OFF there (user 2026-11-13: "non-amoled screens
+            (e.g. lcd) do not need to use the anti-burnin moon-spin
+            animation") -- the moon stays the static LVGL frame and
+            the direct-panel spin path never runs. The S3 AMOLED keeps
+            it on. With it off, every spin consumer stays inert: the
+            task never starts and the keep-mask, pause and screen-
+            switch re-anchor ride the never-set running flag.
+
             The current phase is baked once (the static frame) and then
             rotated in-plane on screen by a FREE SPIN (a nearest-neighbor
             gather, ~8 ms/frame at the full 400x400 render size -- no
