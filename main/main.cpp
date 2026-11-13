@@ -740,10 +740,15 @@ extern "C" void app_main(void) {
     // Test hook: the LVGL-task hang watcher (TEST_HANG_WATCH; off by
     // default). The heartbeat timer is the only thing that keeps the
     // LVGL task alive; a stuck LVGL task goes stale and the watcher
-    // dumps every task + backtrace, then aborts.
+    // dumps every task + backtrace, then aborts. NOT pinned: the
+    // failure class it hunts includes a high-priority task SPINNING one
+    // core (silent starvation -- a pinned watcher dies with that core,
+    // proven on the bench where a core-1 pin stayed silent through a
+    // total console death); unpinned, the scheduler runs it on the core
+    // with room.
 #if CONFIG_TEST_HANG_WATCH
     lv_timer_create(lvgl_hb_cb, 200, NULL);
-    xTaskCreatePinnedToCore(hang_watch_task, "hang_watch", 6144, NULL, 5, NULL, 1);
+    xTaskCreate(hang_watch_task, "hang_watch", 6144, NULL, 5, NULL);
 #endif
 
     ESP_LOGI(TAG, "Using RTC interrupts with %.1f second polling.", RTC_POLL_INTERVAL_MS / 1000.0f);
