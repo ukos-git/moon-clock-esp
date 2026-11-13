@@ -199,6 +199,16 @@ total-lunar-eclipse epoch showed the blood tint on glass), and a 1 Hz
 day tick re-bakes exactly once when the UTC date or the event
 signature changes.
 
+Bench acceptance for the seam affordances (2026-11-13, synthetic
+tap via ``KNOB_DIAG_TOUCH_INJECT_S``): a tap at t = 61.5 s into the
+running sweep logged ``sweep: press abort requested (frame 42
+published)``, the row loop honored it within one row, the 988 ms
+crisp land baked the true phase, and ``sweep done: 42/1344`` closed
+the act — **no hub-load lines behind the tap** (the gesture was
+consumed), the caption row's probe logged ``x=60 y=28 w=240 h=18``
+(the top band, centred), and the ladder dimmed at idle 60 s after
+the act with 0 WDT/resets across 130 s.
+
 Time: SNTP truth or nothing
 ---------------------------
 
