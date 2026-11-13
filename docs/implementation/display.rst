@@ -514,11 +514,21 @@ The fix applies the class's own logic one step earlier: every
 sanctioned atomic whole-panel flush is followed by a
 **drain-verify** — ``moon_panel_drain_verify(site)`` waits 20 ms (a
 strip DMAs in ~10 ms, so the healthy path is an attempt-0 accept) and
-writes one 1-px black pixel at the panel's bottom edge via the real
-``s_panel`` handle (bottom edge: outside the moon window's mirror band
-and every widget, black on AMOLED black; passing ``NULL`` instead
+writes one black **full-width row** at the panel's bottom edge via the
+real ``s_panel`` handle (``y 465``: DRAM, 466 px, 932 B, one DMA chunk
+— the exact strip shape; bottom edge: outside the moon window's mirror
+band and every widget, black on AMOLED black; passing ``NULL`` instead
 dereferences the CO5300 panel struct inside ``s_orig_draw`` — a
 core-0 ``LoadProhibited`` the first probe build learned the hard way).
+The row's shape is not cosmetic: the original probe was ONE 2-byte
+pixel from a ``static const`` FLASH (DROM) buffer — the only color
+write on the whole bus that ``spi_master`` heap-bounces per write, and
+the only write whose io callback never fired at ANY site in ANY boot
+(capture 7: strips 19/19 per frame, probe 0/2). Every earlier
+capture's "probe accepted" was genuine while its own completion
+silently never existed — which is why the witness below demanded its
+probe's own done, and why the probe had to become a DMA-capable
+single-chunk row first.
 The write forces the pending trans-done to be consumed NOW, at the
 flush site; if it does not come back (``moon_panel_draw_wait`` rejects
 for ~2 s), the log names the SITE and the same recovery the watchdog
@@ -561,36 +571,86 @@ dummy-draw off, no TE), so replacing it wedges LVGL's own refr loop.
 (``moon_panel_witness_arm``): it reads the bridge's ``{fn, ctx}`` off
 the io's private struct — those two callback fields are pinned to the
 IDF v5.5.1 ``esp_lcd_panel_io_spi.c`` layout, and drift shows up LOUD,
-never silently: a boot-time arm test (one drain-pixel write, the
-counter must move) either sees no increment and leaves the drain
-accept-only, or faults at boot on the bench — registers its own
+never silently: the boot-time arm test (one drain-ROW write, its OWN
+increment required, under the same serialized discipline as the drain
+— capture 6 had proved the old "any ambient increment counts" test
+worthless) either sees no increment and leaves the drain accept-only,
+or faults at boot on the bench — registers its own
 counting callback through the official single-slot API, and forwards
 every completion untouched into the bridge's handler. The witness
 counts every color completion on the single QSPI spi_device.
 
-With the counter the drain becomes airtight under the same depth-1
-FIFO argument: the snapshot is taken *after* the probe's accept
-(accept = queue empty = every prior completion already counted; only
-our pixel is in flight), and any later increment proves our own done —
-the queue cannot hand its slot to a later writer before our completion
-fired, and that writer's completion callback is itself the increment.
-A 300 ms silence is ambiguous (lost completion vs. the µs race of our
-done landing between submit and snapshot); the tie breaks on the same
-FIFO fact — a second probe can only be ACCEPTED if the first
-completed — so accept-then-rewait proves the first, and its rejection
-is a genuine loss. When the second probe's own counter stays frozen
-the loss is real, and this is where recovery happens: the site is
-logged and the board restarts with the panel still dark, before the
-next writer ever learns. The dusk wake branch additionally probes
-BEFORE starting the pose flush (``wake preflush``): whatever the last
-accepted write was — the dusk replay's pixel, the park's — a loss
+With the counter the drain can prove its probe's own done — but the
+first witnessed builds (captures 6–9) turned the witness into a
+deterministic false-positive: probes were accepted while their counter
+sat dead at exactly the sites that share the bus with other writers
+(the spin park during the alarm-ring storm, the switch fade-in, the
+screen switch), and never at the queue-exclusive ones (the sweep
+frames, 19/19 completions per frame). The RTC-FAST mirror + throttled
+ISR-side log settled it (capture 9): at a frozen site the **callback
+side was dead too** — poller cache-blindness was ruled out. The
+mechanism is the io driver's per-transaction completion flag
+(``en_trans_done_cb``): it lives inside the depth-1 pool *descriptor*,
+and the next writer ``memset``s that slot before reuse
+(``esp_lcd_panel_io_spi.c``); a concurrent writer slipping in during
+the probe's ~10 ms flight — a fade-ramp 0x51 ``tx_param``, an LVGL
+strip, a spin strip — recycles the descriptor under the ISR and
+silently eats the flag. The accept stays genuine (the recycle path
+desyncs the io's ``num_trans_inflight`` bookkeeping by one), the
+probe's own callback never fires, and the following writer is fine.
+That is the impossible triangle — accept ⇒ ISR ran ⇒ callback chained
+⇒ increment, yet none — resolved.
+
+The final drain therefore enforces three rules, each bought with a
+capture: **shape** — a DMA-capable DRAM single-chunk row (above);
+**hold** — under a live panel hold the preceding flush was itself
+dropped (``hold_flush_cb`` / ``moon_panel_draw_wait``'s shortcut never
+touched the bus), so the drain no-ops entirely (probing anyway would
+ride the shortcut into a phantom accept — the capture-8 hold series);
+probes that start healthy submit **strict**, bypassing the shortcut,
+so a hold beginning mid-drain can never phantom-accept; and
+**serialization** — the drain holds ``s_panel_mtx`` across the whole
+submit+witness window (no drain call site holds it — audited), making
+the probe's transaction the only io traffic while its completion is
+pending. Healthy hold ≈ 40 ms, full-anomaly hold ≈ 620 ms — a fraction
+of the panel watchdog's 3 s + 3 s. With the queue exclusive, the
+depth-1 FIFO argument finally holds: the snapshot after the accept
+means only the probe is in flight, any increment proves its own done,
+and the second probe (accepted ⇒ the first completed) breaks the µs
+race between them. Serialization still does not PREVENT the loss — it
+makes the witness airtight, which is what lets the two shapes be
+treated differently: a probe that cannot even be accepted is a WEDGED
+queue → restart at the site, with the panel still dark, before the
+next writer learns, guarded by a per-boot restart budget in
+``RTC_NOINIT`` (magic-checked, 3 restarts: a regression that turns the
+witness into a boot loop degrades to a working clock instead of a
+restart storm); an accepted probe whose counter stays frozen is the
+driver having eaten the completion flag (the GPSPI ISR has no
+``host->polling`` guard — a completion interrupt still enabled from
+the strip stream can deliver a co5300 per-draw polling transaction's
+pointer into the display device's ret_queue, desyncing the io
+driver's ``num_trans_inflight`` so its unconditional pool[0] recycle
+clears the in-flight transaction's ``en_trans_done_cb`` — see the
+verification page's capture-6..10 record) → heal IN PLACE: a no-op
+``esp_lcd_panel_io_tx_param(io, -1, NULL, 0)`` runs the driver's own
+drain loop over all inflight entries and re-arms the flush queue,
+with the site and slot-ownership evidence logged (``slot MINE``
+guards against a stolen single callback slot). A truly undelivered
+completion parks that call in ``get_trans_result`` under the panel
+mutex and the watchdog restarts in 3 s + 3 s — the honest fallback
+for a wedge.
+The dusk wake branch additionally probes BEFORE starting the pose flush
+(``wake preflush``): whatever the last accepted write was, a loss
 surfaces at the flush site in the dark, never as the freeze-then-crash
-in the user's face. Healthy cost: one 1-px write and ~10 ms per probe
-site (a rare ambiguous silence adds the second write, ~40 ms).
-``moon_panel_draw_wait``'s give-up line still names the last ACCEPTED
-write (task + strip range + age — the probe pixel is unmistakable at
-``y465..466``), so culprit and victim appear in one line; the watchdog
-keeps covering every path the probes do not.
+in the user's face. Healthy cost: one row write and ~10 ms per probe
+site. The boot-time arm test (``moon_panel_witness_arm``) demands the
+arm row's **own** completion under the same serialized, strict
+discipline — capture 6 had proved the old "any ambient increment
+counts" test worthless — and failure leaves the drain accept-only with
+a log line, never silent. ``moon_panel_draw_wait``'s give-up line still
+names the last ACCEPTED write (task + strip range + age — the probe
+row is unmistakable at ``y465..466``), so culprit and victim appear in
+one line; the watchdog keeps covering every path the probes do not.
 
 The 0x51 brightness path
 ------------------------

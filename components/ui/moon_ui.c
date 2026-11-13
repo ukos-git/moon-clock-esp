@@ -723,9 +723,14 @@ static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (
 static volatile uint32_t s_last_accept_tick;
 static char s_last_accept_desc[40];
 
+/* strict=true (drain probes only): submit to the bus even under a live
+ * hold. A drain has already decided the queue must be exercised; under
+ * a hold the write simply queues behind the storm's traffic, and the
+ * hold shortcut would turn the probe into a phantom (accepted without
+ * ever touching the bus -- the capture-8 hold series). */
 static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
-                                      const void *color_data) {
-    if (panel_hold_live())
+                                      const void *color_data, bool strict) {
+    if (!strict && panel_hold_live())
         return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
     for (int attempt = 0; attempt < 100; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
@@ -759,14 +764,16 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
     return ESP_ERR_TIMEOUT;
 }
 
-static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
-                                        const void *color_data) {
+/* The wrapper body with the panel mutex ALREADY TAKEN by the caller.
+ * moon_panel_drain_verify holds s_panel_mtx across its whole
+ * submit+witness window so the probe's transaction descriptor is the
+ * only io traffic while its completion is pending -- concurrent
+ * writers could recycle it (the driver memsets the pool slot before
+ * reuse) and silently eat the per-transaction completion flag before
+ * the ISR-side post_cb reads it. strict passes through to draw_wait. */
+static esp_err_t moon_panel_draw_bitmap_locked(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                               const void *color_data, bool strict) {
     (void)panel;
-    /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
-     * transaction's trans-done notify, so a drop at this seam breaks its
-     * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
-     * nothing reaches this wrapper at all. */
-    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
     if (s_front && x_end > MOON_IMG_POS && x_start < MOON_IMG_POS + MOON_PX && y_end > MOON_IMG_POS &&
         y_start < MOON_IMG_POS + MOON_PX) {
         const int x0 = x_start > MOON_IMG_POS ? x_start : MOON_IMG_POS;
@@ -782,7 +789,17 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
             memcpy(dst, srow, (size_t)xw * sizeof(uint16_t));
         }
     }
-    esp_err_t r = moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data);
+    return moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data, strict);
+}
+
+static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
+                                        const void *color_data) {
+    /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
+     * transaction's trans-done notify, so a drop at this seam breaks its
+     * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
+     * nothing reaches this wrapper at all. */
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+    esp_err_t r = moon_panel_draw_bitmap_locked(panel, x_start, y_start, x_end, y_end, color_data, false);
     xSemaphoreGive(s_panel_mtx);
     return r;
 }
@@ -832,20 +849,6 @@ typedef struct {
 } moon_panel_io_spi_view_t;
 
 static volatile uint32_t s_panel_done_cnt;
-/* PROBE INSTRUMENT (capture-8 follow-up, ISR truth): the freezes are
- * TASK-DEPENDENT -- sweep-frame drains (UI tick task, the GPSPI ISR's
- * core) witness their own completion; the park drain (spin task) and
- * the switch fade-in / screen-switch drains (LVGL task) freeze for the
- * full 600 ms while the ambient counter advances between sites. The
- * last open gap of the impossible triangle (accept ⇒ ISR ran ⇒
- * post_cb ⇒ increment, yet the poller sees nothing) is VISIBILITY: an
- * increment written by the ISR may never reach this poller's cached
- * line. This mirror lives in RTC FAST memory -- bus-side, off both
- * cores' DCache, ISR-safe -- and the ISR logs its own count every 64
- * completions. A frozen site printing an ADVANCED mirror is a
- * visibility failure (poller blind); a frozen mirror is a genuine
- * post_cb absence. */
-static RTC_FAST_ATTR volatile uint32_t s_panel_done_cnt_isr;
 static esp_lcd_panel_io_color_trans_done_cb_t s_prev_trans_done;
 static void *s_prev_trans_done_ctx;
 static bool s_panel_witness; /* armed by moon_panel_witness_arm() */
@@ -854,9 +857,6 @@ static bool IRAM_ATTR moon_panel_trans_done_cb(esp_lcd_panel_io_handle_t io, esp
                                                void *user_ctx) {
     (void)user_ctx;
     s_panel_done_cnt++;
-    s_panel_done_cnt_isr++;
-    if ((s_panel_done_cnt_isr & 63u) == 0u)
-        ESP_EARLY_LOGW(TAG, "tdc #%lu", (unsigned long)s_panel_done_cnt_isr);
     if (s_prev_trans_done)
         return s_prev_trans_done(io, edata, s_prev_trans_done_ctx);
     return false;
@@ -884,18 +884,27 @@ static void moon_panel_witness_arm(void) {
      * proved the old "any increment counts" test worthless: ambient
      * LVGL flushes carried it while the probe pixel itself never
      * completed. The row is DMA-capable DRAM, single chunk -- the
-     * exact shape whose completion the witness must trust. */
+     * exact shape whose completion the witness must trust. Serialized
+     * exactly like the drain (mutex across submit+poll, strict submit):
+     * an ambient flush racing in here could recycle the descriptor and
+     * eat the completion, failing the arm on a healthy chain. */
     static DRAM_ATTR uint16_t s_arm_row[BSP_LCD_H_RES];
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
     const uint32_t before = s_panel_done_cnt;
     vTaskDelay(pdMS_TO_TICKS(20));
-    if (moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_arm_row) != ESP_OK) {
+    esp_err_t arm =
+        moon_panel_draw_bitmap_locked(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_arm_row, true);
+    bool arm_seen = false;
+    if (arm == ESP_OK) {
+        for (int i = 0; i < 30 && !arm_seen; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            arm_seen = (s_panel_done_cnt != before);
+        }
+    }
+    xSemaphoreGive(s_panel_mtx);
+    if (arm != ESP_OK) {
         ESP_LOGW(TAG, "trans-done witness: arm write rejected (drain stays accept-only)");
         return;
-    }
-    bool arm_seen = false;
-    for (int i = 0; i < 30 && !arm_seen; i++) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-        arm_seen = (s_panel_done_cnt != before);
     }
     if (!arm_seen) {
         ESP_LOGE(TAG, "trans-done witness: arm row never completed (drain stays accept-only)");
@@ -906,120 +915,180 @@ static void moon_panel_witness_arm(void) {
 }
 #endif /* !CONFIG_BOARD_P4 */
 
+/* Drain recovery (task #32, lost-completion family). A drain loss means
+ * the depth-1 flush queue holds a write whose trans-done will never
+ * land: the alternative to recovering HERE is the next writer pinned at
+ * ~2 s per strip (capture 2: the LVGL task after the wake flush;
+ * capture 3: the spin task 120 ms after "sweep 5/5 shown") until the
+ * panel watchdog restarts -- naming the VICTIM, not the flush that lost
+ * the hand. So restart at the site. The RTC_NOINIT budget survives
+ * esp_restart (warm restarts keep RTC fast memory; a cold boot reads
+ * garbage, caught by the magic): if a regression ever turns the witness
+ * into a deterministic boot loop, restarts stop after the budget and
+ * the boot proceeds degraded -- a working clock beats a restart storm,
+ * and the field log still carries every loss line. */
+#define DRAIN_RESTART_BUDGET 3
+#define DRAIN_BOOT_MAGIC 0xD2A1CE00u
+static RTC_NOINIT_ATTR struct {
+    uint32_t magic;
+    uint32_t used;
+} s_drain_boot;
+
+static void drain_recovery(const char *site, int probe, const char *why) {
+    if (s_drain_boot.magic != DRAIN_BOOT_MAGIC) { /* cold boot: contents are garbage */
+        s_drain_boot.magic = DRAIN_BOOT_MAGIC;
+        s_drain_boot.used = 0;
+    }
+    if (s_drain_boot.used >= DRAIN_RESTART_BUDGET) {
+        ESP_LOGE(TAG,
+                 "drain verify after %s (probe %d): %s -- restart budget (%d) exhausted this boot; "
+                 "continuing degraded (the panel watchdog only catches a stuck BUS, not this)",
+                 site, probe, why, DRAIN_RESTART_BUDGET);
+        return;
+    }
+    s_drain_boot.used++;
+    ESP_LOGE(TAG,
+             "drain verify after %s (probe %d): %s; recovering here instead of pinning the next writer "
+             "[restart %u/%u this boot]",
+             site, probe, why, (unsigned long)s_drain_boot.used, DRAIN_RESTART_BUDGET);
+    vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+    esp_restart();                  /* never returns while budget remains */
+}
+
 /* Drain-verify after a sanctioned atomic whole-panel flush. lv_refr_now
  * returns with the LAST strip's DMA still in flight -- and when that one
  * trans-done is lost, the depth-1 flush queue stays occupied invisibly
- * until the NEXT writer hits it: the LVGL task pinned on s_panel_mtx at
- * ~2 s per strip after the wake flush (capture 2), the spin task after
- * the boot sweep's last frame (attempt-0 reject 120 ms after "sweep 5/5
- * shown", capture 3). The panel watchdog restarts seconds later and
- * names the VICTIM, not the flush that lost the hand. One 1-px drain
- * write at the AMOLED's bottom edge (outside the moon window -- mirror
- * untouched -- and outside every widget; a live panel hold has no strip
- * in the queue, so it is simply accepted) forces that hand to be
- * consumed NOW, at the flush site. The 20 ms lead-in makes the healthy
- * path an attempt-0 accept (a strip DMAs in ~10 ms), so a loss shows up
- * as draw_wait's ~2 s of rejects and a give-up; nothing at our layer can
- * reclaim the slot, and the watchdog restart is coming either way --
- * into the next writer's freeze -- so restart HERE, at the site that
- * lost the hand. S3 only: the lost-completion family is the GPSPI
- * driver's; the P4 DSI path keeps its proven behaviour untouched.
+ * until the NEXT writer hits it. One full-width 1-row drain write at the
+ * AMOLED's bottom edge (y 465: outside the moon window -- mirror
+ * untouched -- outside every widget, black on AMOLED black) forces that
+ * hand to be consumed NOW, at the flush site; the 20 ms lead-in makes
+ * the healthy path an attempt-0 accept (a strip DMAs in ~10 ms). The
+ * probe's OWN completion is then witnessed through the chained io
+ * callback above: accepted-but-never-completed is exactly the family
+ * signature, and it is now visible. S3 only: the lost-completion family
+ * is the GPSPI driver's; the P4 DSI path keeps its proven behaviour
+ * untouched.
  *
- * Witnessed (capture 5, same day): the probe alone cannot prove its
- * OWN completion -- the preflush probe's pixel became the culprit that
- * froze the wake flush ("last accepted: lvgl y465..466", three boots,
- * one signature), because the next writer that would prove a tail
- * pixel is itself the victim. So when moon_panel_witness_arm() armed
- * the io trans-done chain (see above), the helper additionally waits
- * for the driver to report the probe pixel's own completion. The
- * snapshot is taken AFTER the accept (accept = queue empty = every
- * prior completion already counted; only our pixel is in flight), and
- * any later increment proves our done -- the depth-1 FIFO cannot
- * hand a later writer its slot before our completion fired, and that
- * writer's completion callback is itself the increment. A 300 ms
- * silence is ambiguous (lost completion vs. the µs race of our done
- * landing between submit and snapshot), and the tie is broken the
- * same FIFO way: a second probe's ACCEPT can only happen if the first
- * completed, so accept-then-rewait proves the first, and its rejection
- * is a genuine loss. Healthy cost: one 1-px write + ~10 ms per site. */
+ * Three hardening rules, each bought with a bench capture:
+ *
+ * 1. SHAPE (capture 7): the probe must be a DMA-capable single-chunk
+ *    write. The original 2-byte flash (DROM) probe pixel was the ONLY
+ *    color write on the bus whose completion never fired at ALL sites
+ *    and boots (strips 19/19 per frame, probe 0/2) -- spi_master
+ *    heap-bounces a flash buffer per write and the io color callback
+ *    then never reaches us. The row (DRAM, 466 px, 932 B, one chunk --
+ *    the exact strip shape) completes. The arm test (above) demands the
+ *    row's own completion at BOOT, where failure is a log line.
+ *
+ * 2. HOLD (capture 8): under a live panel hold, the flush the drain
+ *    follows was itself DROPPED (hold_flush_cb / draw_wait's shortcut
+ *    never touched the bus) -- there is no hand to consume, and probing
+ *    anyway rides draw_wait's hold shortcut into a phantom accept
+ *    ("accepted" without ever queuing; counter cannot move; four boots
+ *    logged it at switch fade-in / screen switch). The drain no-ops
+ *    while the hold is live; the hold's heal repaint owns display
+ *    recovery. Probes that start healthy submit STRICT (bypass the
+ *    shortcut) so a hold beginning mid-drain can never phantom-accept.
+ *
+ * 3. SERIALIZATION (captures 6-9): the probe's transaction descriptor
+ *    must be the ONLY io traffic while its completion is pending. The
+ *    per-transaction completion flag lives in the depth-1 pool
+ *    descriptor and the next writer memsets that slot before reuse
+ *    (esp_lcd_panel_io_spi.c, en_trans_done_cb); a concurrent writer
+ *    slipping in during the probe's ~10 ms flight -- a fade-ramp 0x51
+ *    tx_param, an LVGL strip, a spin strip -- recycles the descriptor
+ *    under the ISR and silently eats the flag. That is the impossible
+ *    triangle resolved: the probe is genuinely accepted (the accept
+ *    bookkeeping is desynced by the recycle path), its own callback
+ *    never fires, and the following writer is fine. Captures 6-9 froze
+ *    exactly the drains whose sites share the bus with other writers,
+ *    and only there; the RTC-FAST mirror + throttled ISR log (capture 9)
+ *    proved the callback side, not the poller, is dead. So the drain
+ *    now holds s_panel_mtx across the WHOLE submit+witness window (no
+ *    drain call site holds it -- audited 2026-11-13); healthy hold
+ *    ~40 ms, full-anomaly hold ~620 ms, both a fraction of the 3 s +
+ *    3 s panel watchdog. Serialization still does NOT prevent the loss
+ *    (it lives inside the GPSPI/io driver -- see the heal branch), but
+ *    it makes the witness AIRTIGHT: with the queue exclusive, an
+ *    accepted probe whose own completion stays silent is the driver
+ *    eating its flag -- healed in place; a probe that cannot even be
+ *    accepted is a wedged queue -- restarted at the site (budget
+ *    above). Healthy cost: one row write + ~10 ms. */
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
-    /* PROBE INSTRUMENT (capture-7 follow-up): the probe used to be ONE
-     * black pixel at (0, 465) via a `static const` buffer -- i.e. a
-     * 2-byte transaction, in OCT mode, from a FLASH (DROM) pointer:
-     * the only color write on the whole bus that is not a >= 2-byte
-     * DMA-capable SRAM chunk, and the ONLY write whose completion
-     * never fires (strips 19/19 per frame, probe 0/2 across all boots
-     * and sites -- spi_master silently heap-bounces the flash buffer
-     * per write). Shape + placement are the two structural
-     * differences from a strip; this buffer is both (DRAM, full width,
-     * 932 B, single chunk). Black on AMOLED black, y 465: below the
-     * moon window (mirror untouched), outside every widget. */
     static DRAM_ATTR uint16_t s_drain_row[BSP_LCD_H_RES];
+    if (panel_hold_live())
+        return;                                 /* rule 2: the preceding flush never reached the bus */
+    xSemaphoreTake(s_panel_mtx, portMAX_DELAY); /* rule 3, see audit note above */
     for (int probe = 0; probe < 2; probe++) {
         /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
          * free by the time the probe reaches it (attempt-0 accept). */
         vTaskDelay(pdMS_TO_TICKS(20));
-        /* PROBE INSTRUMENT (capture-6 follow-up): a live hold makes the
-         * accept phantom (draw_wait's hold shortcut never touches the
-         * bus) -- record it per probe so the frozen-counter log can tell
-         * a genuine loss from a bus that was never probed. */
-        const bool held = panel_hold_live();
         /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
          * (s_orig_draw) on this handle -- a NULL here is a core-0
          * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
          * is what the first drain-verify build did on its very first dusk
-         * frame. The direct-write seam always passes the real handle. */
-        esp_err_t drain =
-            moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_drain_row);
-        if (held)
-            ESP_LOGW(TAG, "drain %s probe %d accepted under live hold (phantom accept)", site, probe);
+         * frame. The direct-write seam always passes the real handle.
+         * strict: see rule 2 -- no phantom accepts under a late hold. */
+        esp_err_t drain = moon_panel_draw_bitmap_locked(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES,
+                                                        s_drain_row, true);
         if (drain != ESP_OK) {
-            ESP_LOGE(TAG,
-                     "drain verify after %s (probe %d): the pending write's trans-done was lost (%s); "
-                     "recovering here instead of pinning the next writer",
-                     site, probe, esp_err_to_name(drain));
-            vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
-            esp_restart();
+            drain_recovery(site, probe, "the pending write never released the depth-1 queue");
+            xSemaphoreGive(s_panel_mtx); /* only reached on budget exhaustion */
+            return;
         }
-        if (!s_panel_witness)
+        if (!s_panel_witness) {
+            xSemaphoreGive(s_panel_mtx);
             return; /* witness not armed: accept-only, the capture-4 behaviour */
+        }
         const uint32_t c0 = s_panel_done_cnt;
-        const uint32_t m0 = s_panel_done_cnt_isr; /* ISR-TRUTH mirror snapshot */
         for (int i = 0; i < 30 && s_panel_done_cnt == c0; i++)
             vTaskDelay(pdMS_TO_TICKS(10));
-        if (s_panel_done_cnt != c0)
-            return; /* this probe pixel's own completion was witnessed */
-        /* ISR-TRUTH INSTRUMENT: if the cached counter sat dead but the
-         * RTC-FAST mirror moved, the ISR ran and the POLLER was blind
-         * (visibility); if the mirror sat dead too, post_cb never
-         * fired for this write. Read this line against the "tdc #N"
-         * ISR logs in the same window. */
-        if (s_panel_done_cnt_isr != m0)
-            ESP_LOGE(TAG, "drain %s probe %d: CACHED counter blind (stuck at %lu) while ISR mirror advanced %lu -> %lu",
-                     site, probe, (unsigned long)c0, (unsigned long)m0, (unsigned long)s_panel_done_cnt_isr);
+        if (s_panel_done_cnt != c0) {
+            xSemaphoreGive(s_panel_mtx);
+            return; /* this probe's own completion was witnessed */
+        }
         if (probe == 1) {
-            /* PROBE INSTRUMENT (capture-6 follow-up): four boots caught
-             * this path deterministically at "sweep frame" with the
-             * counter frozen at DIFFERENT values (99/99/119/100) --
-             * alive through boot flushes, dead by the first witnessed
-             * drain. Before this path may restart anything, tell a
-             * genuine loss apart from a stolen slot (someone
-             * re-registered the single io callback after the chain) and
-             * from phantom accepts (hold): log the evidence, do NOT
-             * restart -- the boot must live to show its dusk. */
+            /* The queue-exclusive probe was accepted yet its own callback
+             * stayed silent. The driver's own arithmetic then pins the
+             * loss: ret_queue delivery and post_cb run back-to-back in the
+             * ISR (spi_master.c, spi_intr: post then send), so "no
+             * callback" cannot mean "no completion" -- what died is the
+             * per-transaction en_trans_done_cb flag, memset by the io
+             * driver's unconditional pool[0] recycle
+             * (esp_lcd_panel_io_spi.c:224) whenever a stale ret_queue
+             * entry (the polling-command double-post -- the GPSPI ISR has
+             * no host->polling guard) let the inflight bookkeeping run
+             * ahead. That is the lost-trans-done family, and it lives
+             * below anything the public API can reach: co5300's per-draw
+             * CASET/RASET/RAMWR polling is the trigger, IDF-internal the
+             * bug. Recover IN PLACE instead of restarting: the stale
+             * entries are just the io's bookkeeping -- a no-op
+             * tx_param(-1) runs the driver's own drain loop over ALL
+             * inflight entries and re-arms the flush queue clean. (If a
+             * completion were ever truly undelivered that call parks in
+             * get_trans_result under the panel mutex and the panel
+             * watchdog restarts in 3 s + 3 s -- the honest fallback for
+             * a wedge, with the log below naming the site.) */
             const moon_panel_io_spi_view_t *v = (const moon_panel_io_spi_view_t *)board_panel_io();
-            ESP_LOGE(TAG,
-                     "drain verify after %s: probe counter frozen at %lu; slot %s (fn %p ctx %p, mine %p), "
-                     "held %d, last accepted %s",
+            ESP_LOGW(TAG,
+                     "drain verify after %s: completion swallowed (counter frozen at %lu; slot %s "
+                     "(fn %p ctx %p, mine %p), last accepted %s); healing the flush-queue bookkeeping",
                      site, (unsigned long)c0,
                      (v && v->on_color_trans_done == moon_panel_trans_done_cb) ? "MINE" : "STOLEN",
                      v ? (const void *)v->on_color_trans_done : NULL, v ? v->user_ctx : NULL,
-                     (const void *)moon_panel_trans_done_cb, (int)held, s_last_accept_desc);
+                     (const void *)moon_panel_trans_done_cb, s_last_accept_desc);
+            esp_err_t heal = esp_lcd_panel_io_tx_param(board_panel_io(), -1, NULL, 0);
+            if (heal != ESP_OK) {
+                drain_recovery(site, probe, "completion swallowed AND the heal was rejected");
+            }
+            xSemaphoreGive(s_panel_mtx);
             return;
         }
-        /* else: ambiguous silence -- retry once; the second probe's ACCEPT
-         * is itself the proof that the first completed (depth-1 FIFO). */
+        /* else: ambiguous silence -- retry once; with the queue exclusive
+         * this should be the µs race (done landing between submit and
+         * snapshot) at worst, and the second probe's ACCEPT is itself the
+         * proof that the first completed (depth-1 FIFO). */
     }
 #else
     (void)site;
@@ -1940,7 +2009,8 @@ static void moon_spin_write_panel(void) {
             xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
             for (int y0 = 0; y0 < BSP_LCD_H_RES; y0 += MOON_SPIN_STRIP_ROWS) {
                 const int y1 = y0 + MOON_SPIN_STRIP_ROWS < BSP_LCD_H_RES ? y0 + MOON_SPIN_STRIP_ROWS : BSP_LCD_H_RES;
-                (void)moon_panel_draw_wait(s_panel, 0, y0, BSP_LCD_H_RES, y1, s_bands + (size_t)y0 * BSP_LCD_H_RES);
+                (void)moon_panel_draw_wait(s_panel, 0, y0, BSP_LCD_H_RES, y1, s_bands + (size_t)y0 * BSP_LCD_H_RES,
+                                           false);
             }
             xSemaphoreGive(s_panel_mtx);
             return;
@@ -1998,7 +2068,7 @@ static void moon_spin_write_panel(void) {
     for (int s = 0; s < MOON_SPIN_NSTRIPS; s++) {
         (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS + s * MOON_SPIN_STRIP_ROWS,
                                    MOON_IMG_POS + MOON_PX, MOON_IMG_POS + (s + 1) * MOON_SPIN_STRIP_ROWS,
-                                   s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX);
+                                   s_disp + (size_t)s * MOON_SPIN_STRIP_ROWS * MOON_PX, false);
     }
 #else
     /* S3: ONE continuous write of the whole 400x400 window. The io driver
@@ -2011,7 +2081,7 @@ static void moon_spin_write_panel(void) {
      * toggle per strip) left a visible seam line at every 25-row strip
      * boundary (2026-11-01). */
     (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS, MOON_IMG_POS + MOON_PX, MOON_IMG_POS + MOON_PX,
-                               s_disp);
+                               s_disp, false);
 #endif
     xSemaphoreGive(s_panel_mtx);
 }

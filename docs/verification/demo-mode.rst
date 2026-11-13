@@ -455,5 +455,80 @@ increment after its post-accept snapshot; a 300 ms silence is
 ambiguous (lost completion vs. the µs race of the done landing between
 submit and snapshot) and the tie breaks FIFO-wise — a second probe can
 only be ACCEPTED if the first completed — while a frozen counter on
-the second probe is a genuine loss: log the site, restart with the
-panel dark. Healthy cost stays one 1-px write and ~10 ms per site.
+the second probe is a genuine loss.
+
+**Follow-up (captures 6–9) — the witness found its own bug, and the
+family found its root.** The first witnessed builds turned the witness
+into a deterministic *false* positive: four boots restarted at the
+first witnessed site (``probe counter frozen at 99/99/119/100`` at
+``sweep frame``) — the counter was alive through every boot flush and
+dead by the first drain. Instrumenting before trusting the restart
+path exposed the whole mechanism, in three steps:
+
+*Capture 7 — probe shape.* The 2-byte probe pixel rode a ``static
+const`` FLASH (DROM) buffer — the only color write on the bus that
+``spi_master`` heap-bounces per write, and the only write whose io
+color callback never fired at ANY site in ANY boot (strips 19/19 per
+frame, probe 0/2). Every earlier capture's "probe accepted" was real
+while its own completion silently never existed. The probe became a
+DMA-capable DRAM full-width row (932 B, single chunk — the exact strip
+shape), and the boot-time arm test was rewritten to demand the row's
+**own** increment (the old "any ambient increment counts" test had
+been riding ambient LVGL flushes and proved nothing).
+
+*Capture 8 — the hold hole.* A live panel hold made ``moon_panel_
+draw_wait`` return OK without ever touching the bus, so a drain probe
+under a hold was "accepted" while nothing was queued — four boots,
+``accepted under live hold (phantom accept)`` then the frozen counter,
+at exactly the hold-managed sites (switch fade-in, screen switch). The
+drain now no-ops under a live hold (the flush it follows was itself
+dropped — there is no hand to consume; the hold's heal repaint owns
+recovery) and submits STRICT otherwise, so a hold starting mid-drain
+can never phantom-accept.
+
+*Capture 9 — task-dependence → ISR truth.* The remaining freezes were
+TASK-dependent: drains on the UI-tick task (the sweep frames) always
+passed, while the spin-task park and the LVGL-task switch drains froze
+for the full poll window with the ambient counter advancing between
+sites. An RTC-FAST mirror (bus-side, off both cores' DCache) plus a
+throttled ISR-side log settled it: at a frozen site the mirror sat
+dead too — poller cache-blindness ruled out, the callback side was
+genuinely absent. Holding ``s_panel_mtx`` across the whole
+submit+witness window (no drain call site holds it — audited; healthy
+hold ≈ 40 ms, full-anomaly ≈ 620 ms vs the watchdog's 3 s + 3 s)
+still reproduced it at the serialized sites — capture 10 restarted
+``sweep frame`` and ``switch fade-in``, one loss per boot under the
+test hammer.
+
+That localized the family INSIDE the driver, below anything the
+public API can reach: the GPSPI ISR has no ``host->polling`` guard
+(grep: three uses of the flag, none in ``spi_intr``), so a completion
+interrupt still enabled from the strip stream can enter while a
+co5300 per-draw polling transaction (CASET/RASET/RAMWR — the io driver
+sends commands with ``spi_device_polling_transmit``) is in flight, and
+the ISR delivers that polling transaction's pointer into the display
+device's ret_queue — one stale entry, which the task-side
+``spi_device_polling_end`` then also posts. From there the io
+driver's own ``num_trans_inflight`` bookkeeping runs one ahead:
+``get_trans_result`` pops the stale entry as a "recycle", and the
+unconditional ``memset(trans_pool[0])`` (``esp_lcd_panel_io_spi.c:224``)
+clears the still-in-flight transaction's ``en_trans_done_cb`` — the
+color callback is skipped, the accept stays genuine. Every member of
+the family — the wake-flush freeze, the sweep last frame, the
+hold-release repaint stall — is this flag eaten.
+
+The final design therefore treats the two detectable shapes
+differently, and the witness is what makes them distinguishable:
+**rejected probe** (depth-1 queue never frees, ~2 s of attempt
+rejects) = a wedged queue = restart at the site, guarded by a
+per-boot budget in ``RTC_NOINIT`` (magic-checked, 3 restarts — a
+regression that boot-loops degrades to a working clock instead);
+**accepted probe with frozen counter** (queue-exclusive ⇒ the ISR
+delivered, the flag was eaten) = heal IN PLACE: a no-op
+``esp_lcd_panel_io_tx_param(io, -1, NULL, 0)`` runs the driver's own
+drain loop over all inflight entries and re-arms the flush queue, with
+the site and slot-ownership evidence logged (``slot MINE`` still
+guards a stolen callback slot). If a completion were ever truly
+undelivered, that call parks in ``get_trans_result`` under the panel
+mutex and the watchdog restarts in 3 s + 3 s — the honest fallback.
+Healthy cost stays one row write and ~10 ms per site.
