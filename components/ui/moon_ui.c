@@ -925,6 +925,11 @@ static void moon_panel_drain_verify(const char *site) {
         /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
          * free by the time the probe reaches it (attempt-0 accept). */
         vTaskDelay(pdMS_TO_TICKS(20));
+        /* PROBE INSTRUMENT (capture-6 follow-up): a live hold makes the
+         * accept phantom (draw_wait's hold shortcut never touches the
+         * bus) -- record it per probe so the frozen-counter log can tell
+         * a genuine loss from a bus that was never probed. */
+        const bool held = panel_hold_live();
         /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
          * (s_orig_draw) on this handle -- a NULL here is a core-0
          * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
@@ -947,15 +952,24 @@ static void moon_panel_drain_verify(const char *site) {
         if (s_panel_done_cnt != c0)
             return; /* this probe pixel's own completion was witnessed */
         if (probe == 1) {
-            /* Its accept (above) proved the first probe's done; this one's
-             * never lands. Genuine loss -- restart HERE, panel dark, next
-             * writer never learns about it. */
+            /* PROBE INSTRUMENT (capture-6 follow-up): four boots caught
+             * this path deterministically at "sweep frame" with the
+             * counter frozen at DIFFERENT values (99/99/119/100) --
+             * alive through boot flushes, dead by the first witnessed
+             * drain. Before this path may restart anything, tell a
+             * genuine loss apart from a stolen slot (someone
+             * re-registered the single io callback after the chain) and
+             * from phantom accepts (hold): log the evidence, do NOT
+             * restart -- the boot must live to show its dusk. */
+            const moon_panel_io_spi_view_t *v = (const moon_panel_io_spi_view_t *)board_panel_io();
             ESP_LOGE(TAG,
-                     "drain verify after %s: the probe pixel's own trans-done was lost (counter %lu); "
-                     "recovering here instead of pinning the next writer",
-                     site, (unsigned long)c0);
-            vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
-            esp_restart();
+                     "drain verify after %s: probe counter frozen at %lu; slot %s (fn %p ctx %p, mine %p), "
+                     "held %d, last accepted %s",
+                     site, (unsigned long)c0,
+                     (v && v->on_color_trans_done == moon_panel_trans_done_cb) ? "MINE" : "STOLEN",
+                     v ? (const void *)v->on_color_trans_done : NULL, v ? v->user_ctx : NULL,
+                     (const void *)moon_panel_trans_done_cb, (int)held, s_last_accept_desc);
+            return;
         }
         /* else: ambiguous silence -- retry once; the second probe's ACCEPT
          * is itself the proof that the first completed (depth-1 FIFO). */
