@@ -27,6 +27,14 @@ int knob_battery_cell_mv(void);
  * no reading is available. */
 int knob_battery_percent(void);
 
+/* Heuristic "on the dock" verdict: true when a fresh cell read sits at
+ * or above KNOB_BATTERY_CHARGING_MV (0 -> always false). There is no
+ * charge-state line on the board; the sense ADC reads the USB rail
+ * when plugged (bench ~4522 mV, far over the cell ceiling), so this
+ * means "charging", not "charging right now" -- the same honesty class
+ * as the placeholder percentage. False with no reading / no gauge. */
+bool knob_battery_charging(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -27,9 +27,11 @@ commits it through the native handlers
 day) put the weekday-arc range handles under the dial as well, so a
 full rule — hour, minute, start/end day — is set with dial + tap and
 saved through the native handler into ``/spiffs/alarm.txt``. The
-**P4 battery gauge** (same day) added the ``NN %`` home-screen
+**P4 battery gauge** (same day) added the battery home-screen
 overlay reading GPIO 1 behind the divider on the **placeholder**
-LiPo calibration — the gauge ships, the multimeter ritual still
+LiPo calibration — redone 2026-11-13 as a small iPhone-style
+status-bar icon (capsule + nub + fill + docked-bolt heuristic) in
+the top-right — the gauge ships, the multimeter ritual still
 owes it honest numbers.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
@@ -135,7 +137,9 @@ The ESP32-S3 side (vendor-demo-confirmed, schematic cross-checked):
        charging; multimeter-verify before ever trusting the gauge.
        The P4 firmware gauge rides this channel behind
        ``KNOB_BATTERY_GAUGE`` (fuse-calibrated ``adc_oneshot``,
-       placeholder divider + LiPo pair until the verdict lands)
+       placeholder divider + LiPo pair until the verdict lands; the
+       docked-VBUS bolt heuristic ``KNOB_BATTERY_CHARGING_MV`` rides
+       the same read)
    * - I2S to the DAC mux
      - BCK 39, DIN 41, WS 40 — the U4WDH has its own set (BCK 25,
        DIN 26, WS 27); a CH445P analog mux picks one source for
@@ -433,14 +437,17 @@ Layout and commands:
   logged, then the board settles **stable-dark** (backlight 0, ladder
   frozen) — it looks slept but stays reachable over USB-JTAG; a touch
   or brightening the dial wakes it.
-* The **battery gauge deliberately does not ship yet**: the schematic's
-  10K/10K top rail (drawn as 5V) may measure VBUS rather than the
-  cell, so the ``adc_oneshot`` GPIO 1 gauge only enters the firmware
-  after the multimeter ritual **with the user present** (gauge mV vs
-  multimeter at the divider top, USB-plugged vs battery-only; a gauge
-  not agreeing within ~50 mV does not ship, and the VBUS verdict goes
-  here). Until then the display shows no battery state — an honest
-  absence beats the factory gauge's impossible 4.6 V read.
+* The **battery gauge ships on placeholder calibration only**: the
+  schematic's 10K/10K top rail (drawn as 5V) may measure VBUS rather
+  than the cell, so the multimeter ritual **with the user present**
+  still owes the ``adc_oneshot`` GPIO 1 gauge its honest numbers
+  (gauge mV vs multimeter at the divider top, USB-plugged vs
+  battery-only; a gauge not agreeing within ~50 mV needs recalibration,
+  and the VBUS verdict goes here). The charging bolt is the documented
+  consequence of that ambiguity: ``KNOB_BATTERY_CHARGING_MV`` reads a
+  cell value far over the 4200 mV ceiling — the docked-USB signature
+  (bench ~4522 mV) — as "on the dock" (0 disables the bolt). Until the
+  verdict lands the icon reads plausible, not verified.
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``

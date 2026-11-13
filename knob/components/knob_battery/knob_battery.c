@@ -39,6 +39,9 @@ static const char *TAG = "knob_battery";
 #ifndef CONFIG_KNOB_BATTERY_MV_FULL
 #define CONFIG_KNOB_BATTERY_MV_FULL 4200
 #endif
+#ifndef CONFIG_KNOB_BATTERY_CHARGING_MV
+#define CONFIG_KNOB_BATTERY_CHARGING_MV 4400
+#endif
 
 #if defined(CONFIG_KNOB_BATTERY_GAUGE) && CONFIG_KNOB_BATTERY_GAUGE
 
@@ -131,11 +134,20 @@ int knob_battery_percent(void) {
     return pct;
 }
 
+bool knob_battery_charging(void) {
+    if (!s_ready || (int)CONFIG_KNOB_BATTERY_CHARGING_MV <= 0) {
+        return false;
+    }
+    const int mv = knob_battery_cell_mv();
+    return mv >= (int)CONFIG_KNOB_BATTERY_CHARGING_MV;
+}
+
 #else /* !CONFIG_KNOB_BATTERY_GAUGE */
 
 void knob_battery_init(void) {}
 bool knob_battery_available(void) { return false; }
 int knob_battery_cell_mv(void) { return -1; }
 int knob_battery_percent(void) { return -1; }
+bool knob_battery_charging(void) { return false; }
 
 #endif /* CONFIG_KNOB_BATTERY_GAUGE */

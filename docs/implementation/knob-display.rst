@@ -181,8 +181,9 @@ through the render seam (they had been legacy-view-only since the P1
 cutover — the shared home registered neither): the seam attaches a
 gated progress row to the producer's caption staging
 (``knob_ui_bind_caption``) — a montserrat-16, 240 px, DOT-centred
-label at the **top band** (+28; the foot belongs to the battery
-gauge, the middle to the clock column), revealed by the swap task
+label at the **top band** (+28; the middle belongs to the clock
+column, and the battery icon sits in the top-right quadrant clear
+below this band), revealed by the swap task
 only while the staged text is the sweep progress or an honest
 failure state (``no time``, ``moon unavailable``) — the shared clock
 row owns the daily text there. And a screen press aborts the sweep
@@ -478,12 +479,21 @@ Battery gauge (P4)
 ------------------
 
 The gauge is the knob's only addition to the home screen, and it is a
-**knob-side overlay** by design: ``knob_battery_ui.c`` adds a small
-``NN %`` label to the shared home root after everything else
-(bottom-centre below the alarm row, range font, click-transparent so
-the home tap → hub gesture keeps owning every tap), refreshed by a
-one-minute ``lv_timer`` with coarse traffic-light tinting — the cell
-moves on the minute scale, not the second. It *overlaps* the moon
+**knob-side overlay** by design: ``knob_battery_ui.c`` adds an
+iPhone-style status-bar battery icon to the shared home root after
+everything else — a grey-outlined capsule with a right nub and a
+proportional fill, click-transparent so the home tap → hub gesture
+keeps owning every tap — in the **top-right quadrant** (``TOP_MID``
++86/+47 at the 360 panel, the single calibration pair, clearing the
+sweep progress row's band), refreshed by a one-minute ``lv_timer``:
+white fill, red at or below ``KNOB_BATTERY_LOW_PCT``, green + a
+hand-rasterised bolt while ``knob_battery_charging()`` — a heuristic,
+not a signal: a cell read at or above ``KNOB_BATTERY_CHARGING_MV``
+(0 = bolt off) is the docked-USB signature (bench ~4522 mV, far over
+the cell ceiling); no reading leaves an empty pale-grey capsule.
+(Retired with this 2026-11-13 pass: the bottom-centre ``NN %`` digit
+label, digits + % on the SSID font.) The cell moves on the minute
+scale, not the second. It *overlaps* the moon
 rather than making room for it: the shared home bakes the disk
 centred and full-square (r 180 at cy 180 — the clocks'
 ``MOON_R = MOON_PX/2`` posture, set by the render seam via
@@ -500,7 +510,7 @@ linear raw approximation as fallback, scaled by
 linear between ``KNOB_BATTERY_MV_EMPTY`` and ``KNOB_BATTERY_MV_FULL``
 (clamped). ``knob_battery_init`` + ``knob_battery_ui_attach`` run in
 ``main.c`` inside the P1 umbrella; with ``CONFIG_KNOB_BATTERY_GAUGE=n``
-or a failed ADC init every entry point is inert, the label never
+or a failed ADC init every entry point is inert, the icon never
 appears, and the log says ``gauge off``. The first read logs
 ``raw -> mV sense -> mV cell`` — the bench line the multimeter ritual
 will check against.
