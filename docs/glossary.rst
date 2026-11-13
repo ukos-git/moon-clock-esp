@@ -109,6 +109,15 @@ The device pipeline
 - **phi\*** — the dusk's retired endpoint latitude (``atan2(−B, −A)``),
   the pole angle that put the visible disk fully in the dark side
   (:doc:`the animation pipelines <implementation/animations>`).
+- **Hourly refresh** *(``UI_MOON_HOURLY_ENABLE``)* — the one live motion
+  left on the home: once per hour the moon fades to black on the panel's
+  own hardware brightness, a core-1 producer rebuilds the current-phase
+  frame at the **hour centre** (a TF hour-cache fetch, else a full bake),
+  that frame lands as ONE atomic whole-panel flush while the panel is still
+  black, then the brightness ramps back — the clock, alarm row and seconds
+  keep running through it. Replaces the retired boot sweep; the TF hour
+  cache is its card-side fetch
+  (:doc:`the animation pipelines <implementation/animations>`).
 - **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
   cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row
   strip fix, :doc:`the P4 port <implementation/p4-port>`).
@@ -118,10 +127,12 @@ The device pipeline
 - **Panel-io watchdog** — the ``panel_wdg`` task: a stuck panel-io
   (the lost-DMA-completion freeze, :doc:`the display pipeline <implementation/display>`) restarts the board
   after ``PANEL_IO_WATCHDOG_LIMIT_MS`` (3000 ms).
-- **Fade-to-black** — the sanctioned screen-switch exception: the
-  CO5300's *hardware* brightness ramp (0x51, 12 steps, 240 ms)
-  writes no pixels — the new screen's one atomic flush runs while
-  the panel is still black (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
+- **Fade-to-black** — the sole sanctioned exception to the atomic-flush
+  rule: the CO5300's *hardware* brightness ramp (0x51, 12 steps, 240 ms)
+  writes no pixels, and the new frame's one atomic flush runs while the
+  panel is still black. Two flows ride it — the screen switch
+  (``UI_SCREEN_SWITCH_FADE``) and the hourly refresh's two legs
+  (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
 - **Keep-mask** *(removed with the spin, 2026-11-13)* — the spin's
   former UI overlay: a full-screen ``lv_snapshot`` that kept the
   clock legible while the moon rotated beneath it under the direct

@@ -465,7 +465,8 @@ dusk's, later the same
 day). So the
 helper runs after every atomic display: the orbit
 batch, the wake's static pose display,
-the deferred re-bake display, and the screen-switch flush with its fade-in leg.
+the deferred re-bake display, the hourly refresh's while-black show
+(``drain_verify("hourly fade-in")``), and the screen-switch flush with its fade-in leg.
 S3 only (the DPI P4 rejects legitimately and needs no such probe).
 
 The single probe still left one member uncaught, and the next capture

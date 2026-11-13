@@ -188,9 +188,11 @@ vectorized):
 animation — the sweep
 ----------------------
 
-``moon.animation`` is the synodic-month sweep — the model the device's
-boot sweep followed until its retirement 2026-11-13, and the renderer
-behind ``docs/gen_media.py``'s sweep films
+``moon.animation`` is the host synodic-month sweep model — the renderer
+that filmed the device's boot sweep (``docs/gen_media.py``'s
+``boot_sweep.mp4``) before that subsystem's retirement 2026-11-13; the
+film and the device sweep are gone, the host module stays runnable
+standalone with ``python -m moon.animation``
 (:doc:`the animation pipelines <../implementation/animations>`):
 
 .. code-block:: python

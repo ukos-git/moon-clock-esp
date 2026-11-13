@@ -30,8 +30,9 @@ light sleep is a **static dim frame** now: panel to 25 %, clock to
 straight to the static current phase, sleeps the same way, and refreshes
 its moon once per hour (below). The home's moon is plain LVGL, shown
 static; see :doc:`the architecture <architecture>` for what the removals
-left of the exceptions list. The removed subsystems' measurements stay
-below as dated history. The TF card cache module outlived the sweep it
+left of the exceptions list. The removed subsystems are summarized below
+as dated history (their full per-frame measurements live in the git
+history of this page). The TF card cache module outlived the sweep it
 was built for and now serves the hourly refresh as the **TF hour cache**
 (below); its sweep-era Kconfig keys (``UI_MOON_TFCACHE_FPS``,
 ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were retired with the config
@@ -117,411 +118,79 @@ cache and compute paths are pixel-identical by construction.
 The boot sweep (retired 2026-11-13)
 -----------------------------------
 
-Retired with the rest of the animation stack: ``moon_ui_start`` now
-bakes the CURRENT phase directly — no ``new_moon_epoch``, no bake
-task, no card replay on the clocks — and boot is one static frame,
-like every wake. The knob companion keeps its own cold-boot sweep
-(:doc:`the knob display <knob-display>`). Everything below is the
-subsystem as shipped, in the tense it was measured; the code
-(``moon_sweep_task`` / ``moon_sweep_interrupt`` / ``s_sweep_*``) and
-its Kconfig (``UI_MOON_ANIM_*``) are gone from the clock tree.
+Retired with the rest of the animation stack: ``moon_ui_start`` now bakes
+the CURRENT phase directly — no ``new_moon_epoch``, no bake task, no card
+replay on the clocks — and boot is one static frame, like every wake. The
+knob companion keeps its own cold-boot sweep
+(:doc:`the knob display <knob-display>`). The subsystem as shipped is
+summarized here only as dated history; the code (``moon_sweep_task`` /
+``moon_sweep_interrupt`` / ``s_sweep_*`` / ``new_moon_epoch``) and its
+Kconfig (``UI_MOON_ANIM_*``) are gone from the clock tree.
 
-.. raw:: html
+What it did: at boot the moon replayed the **current synodic cycle** —
+from the last new moon (a dark disk) to *now*, at most 29.53 days — in
+``UI_MOON_ANIM_FRAMES`` frames (1344 since 2026-11-07, when the per-frame
+illumination jump at the old 336-frame density read as a visible stutter).
+The span came from ``new_moon_epoch``, a two-pass backward scan of
+``moon_geometry``'s illumination (a 6 h coarse grid over one synodic month,
+then a 20-min fine pass around the coarse minimum, the 1e-6 slack keeping a
+tied coarse step from drifting into a neighbouring cycle). A core-1 bake
+task produced the frames **off screen** and published them one at a time;
+the tick displayed each as one atomic whole frame (the whole-panel
+``lv_refr_now``, measured 304 ms S3 / 207 ms P4), and the **backpressure**
+rule — the bake did not start frame *f*+1 until the tick had displayed
+frame *f* — is what kept a mixed (torn) frame off screen. Because the
+display was faster than the bake (~1.3 s at native resolution), the bake
+paced the sweep: a full-res boot ran ~36.5 min (S3, 1344 frames) / ~40 min
+(P4), intermediate frames baked at native ``MOON_PX`` (400 / 650) since
+8954e88, so the montage was pixel-identical to the static bake. The
+per-frame cost carried over unchanged to the deferred re-bake and the
+hourly producer, which bake at the same native resolution and hit the same
+864-albedo PSRAM load-latency floor (:doc:`the C core <core-c>`); the
+retired subsystem's full per-resolution bake table and the
+TF-cache-state × board wall table are the 2026-11-08 bench captures in this
+page's git history.
 
-   <video src="../_static/img/boot_sweep.mp4" controls muted playsinline width="400"></video>
+The TF card cache it drove was the **sweep's** cache — its prefetch task
+(``moon_tfprefetch``, core 0), its replay pacing (``UI_MOON_TFCACHE_FPS``)
+and PSRAM slot floor (``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) retired with
+the sweep, and the config sweep deleted those keys. The *module* outlived
+it: ``moon_tfcache.c`` now serves the hourly refresh as the **TF hour
+cache** (*The TF hour cache*, above) — the same versioned, self-describing
+``/sdcard/moon_cache/<calcver>_<target>_<px>/`` folder, the same gray-JPEG
+codec (``esp_new_jpeg``, format self-probed at init), the same
+tint-LUT-identical fetch, and the same silent card-less fallback, all on
+the per-board mount (S3 SPI 1-bit on SPI3_HOST, P4 4-bit SDMMC) and
+``CONFIG_FATFS_LFN_HEAP``. Two dated facts about that module stay worth
+knowing because they still shape it: the folder is keyed on the build's
+``git describe`` stamp, so **every new flash starts its cache from zero**
+and prunes the old version's folder (by design — a new bake build is a new
+calculation, and a dirty tree gets a fresh ``-dirty`` folder); and the
+decode out-buffer is allocated **lazily** on the first hit rather than at
+init (task #38, 2026-11-13) — holding the ``3·S²`` buffer eagerly starved
+the 8 MB S3's slot floor and silently killed the card path *every* boot, so
+the cache could never warm. The spin's keep-mask/snapshot starvation that a
+healthy card once exposed (task #39) has no surface left to starve — the
+spin and its full-screen ``lv_snapshot`` are gone
+(:doc:`the architecture <architecture>`). The once-a-day sky-events day
+scan that used to print ``IDLE0`` watchdog bursts on the LVGL task at boot
+was root-caused and moved off it 2026-11-09 (the core-1 sky-events worker,
+:doc:`the clock and sleep machine <clock-sleep>`).
 
-   The boot sweep, filmed from the bake (``boot_sweep.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
+Wakes: the deferred re-bake (live)
+..................................
 
-At boot the moon starts on a black screen and replays the **current
-synodic cycle** — from the last new moon (a dark disk) to *now*, at
-most 29.53 days — in ``UI_MOON_ANIM_FRAMES`` frames (default and
-production: **1344**; the count was 336 until 2026-11-07, when the
-per-frame illumination jump read as a visible stutter and the density
-was quadrupled). The span is found by
-``new_moon_epoch()``, a two-pass backward scan of ``moon_geometry``'s
-illumination (6 h coarse grid over at most one synodic month, then a
-20-min fine pass around the coarse minimum):
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (new_moon_epoch, abridged)
-
-   for (int64_t e = utc_epoch - 6 * 3600; e >= utc_epoch - SYNODIC_S; e -= 6 * 3600) {
-       moon_geometry(e, &g);
-       if (g.illum < best_illum - 1e-6f) { best_illum = g.illum; best = e; }
-   }
-   /* fine pass: 20-min grid over +/- 6 h around the coarse minimum */
-
-Two passes because ``moon_geometry`` costs a few dozen milliseconds
-each (the ERFA series), and a full 20-min grid over 29.53 days would
-be ~2,200 calls. The 1e-6 slack keeps a flat/tied coarse step from
-drifting the fine pass to a neighboring cycle's minimum.
-
-The bake task (core 1, pinned, PSRAM stack) bakes the frames **off
-screen** and publishes them one at a time; the tick displays each
-published frame as one atomic whole frame — the whole-panel
-``lv_refr_now``, measured 304 ms median on the S3 / 207 ms on the P4.
-The **backpressure** rule —
-the bake does not start frame *f*+1 until the tick has displayed
-frame *f* — is what keeps a mixed frame (new top rows over old bottom
-rows) off screen:
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (the sweep's backpressure)
-
-   if (f > 0) {
-       int waited = 0;
-       while (!s_sweep_abort && s_sweep_shown < (uint32_t)f) {
-           vTaskDelay(pdMS_TO_TICKS(10));
-           ...
-       }
-   }
-
-Because the display (304 ms) is faster than the bake (~1.3 s at full
-resolution), the bake paces the sweep and the wait is usually ~0; the
-5 s cap is a safety bail (the only tick-paused case — sleep entry —
-sets ``s_sweep_abort``, which the loop polls too). When the TF sweep
-cache served (below), the same rule held with the producer swapped:
-prefetch + read + decode replaced the bake, and the tick still
-displayed each published frame as one atomic whole frame.
-
-**Resolution** — the intermediate frames baked at
-``UI_MOON_ANIM_BAKE_PX`` — native ``MOON_PX`` on both boards since
-8954e88 (400 S3 / 650 P4), so the "upscaled" frames were pixel-
-identical to the static bake; the pre-8954e88 default was 240,
-upscased NN from the scratch ``s_sweep_small`` buffer. The **final
-frame** (the current phase the home then shows
-statically) always baked at full ``MOON_PX``. The bake cost scales with
-:math:`(S/400)^2`; the measured per-frame table from the accepted
-336-frame capture (per-frame costs carry over to the 1344-frame
-default; on the S3 board — the Waveshare ESP32-S3-Touch-AMOLED-1.75 —
-from the pipeline's own header) is:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 24 26 30
-
-   * - Bake size
-     - Bake per frame
-     - Sweep wall (1344 f)
-     - Note
-   * - 200 px
-     - ~0.21 s
-     - ~10 min
-     - coarsest
-   * - 240 px
-     - ~0.28 s
-     - ~11 min
-     - the pre-8954e88 default (frame count
-       quadrupled 2026-11-07, visible
-       jump fix)
-   * - 320 px
-     - ~0.48 s
-     - ~16 min
-     - —
-   * - 400 px (the default: native MOON_PX,
-       since 8954e88)
-     - 1.21–1.35 s
-       (measured 2026-11-08, 864 albedo)
-     - **2193 s ≈ 36.5 min** (measured
-       2026-11-08, bench S3)
-     - full res; montage pixel-identical
-       to the static bake
-
-The 200/240/320 rows are 336-frame-era per-frame captures scaled
-arithmetically to 1344 frames; only the 400 px row (the shipped
-default) is a 1344-frame measurement. The per-frame bake grew
-~0.72 → ~1.2–1.35 s against the earlier note — the 864-albedo PSRAM
-load-latency floor (the P4 sees the same effect at 2048: bake median
-1543 ms @ 650 px).
-
-plus a measured 271–281 ms of display + tick per frame (resolution
-independent). A reduced bake size makes the on-screen montage coarser
-(400/S × 400/S NN blocks) but **physically correct** — the lighting
-and relief model is resolution-independent.
-
-**TF card cache** (``UI_MOON_TFCACHE``, default on —
-``components/ui/moon_tfcache.c``). The module survives the sweep,
-dormant: its producer is gone with the boot animation, and its keys
-linger in Kconfig until the config sweep retires them. The table
-above was the
-*card-less* path. With a TF card in the socket the sweep instead
-**replayed bake results** at display cadence: one gray JPEG per hour
-of the synodic cycle, streamed through the same convert block (the
-``moon_gray565`` warm/event tint LUT colors replay frames exactly
-like baked ones). It never *replaced* the bake path — it sat in
-front of it:
-
-- **Layout** — ``/sdcard/moon_cache/<calcver>_<target>_<bake_px>/<epoch_hour>.jpg``
-  with ``epoch_hour = floor(epoch/3600)``. One entry per hour, at
-  most 29.53 d × 24 ≈ **709 files** of a few KB each; every store
-  evicts hours older than the current synodic cycle, so the cache
-  never outgrows one cycle.
-- **Versioned folder** — ``<calcver>`` is ``git describe --tags
-  --always --dirty`` embedded at build time (``MOON_CALC_VER``, set
-  by the root ``CMakeLists.txt``; commitizen's ``cz bump`` produces
-  the ``v*`` tags — until then the folder carries the short hash).
-  When the sweep first needs the cache and the current version
-  folder is missing (new calc, wiped card), it is created and **all
-  sibling version folders are deleted** — frames of an old
-  calculation are stale by definition and never mix.
-- **Self-describing** — each folder carries a ``meta.txt``
-  (``calcver``, ``target``, ``bake_px``, ``moon_albedo_w``,
-  ``relief``, ``jpeg_q``); any missing key or mismatch — above all
-  ``bake_px`` when ``UI_MOON_ANIM_BAKE_PX`` changes — wipes and
-  recreates the folder before baking, so switching resolutions can
-  never serve wrong-resolution frames even inside one calc version.
-- **Codec** — ``esp_new_jpeg`` **gray** JPEG at quality
-  ``UI_MOON_TFCACHE_JPEG_Q`` (default **90** — the panel verdict
-  chain, in order: q 10, the knob-demo recipe class, showed visible
-  blocking in the flat dark and bright areas; q 32 *still* showed it
-  on the panel during the warm replay (2026-11-08) even though the
-  flats measured clean; 90 is the visually-transparent class for gray
-  DCT encoding. Measured q90 files are 29 KB per hour at 400 px and
-  73 KB at 650 px — a whole cached cycle is ~20 MB (S3) / ~51 MB
-  (P4), comfortably inside any card — and encode/decode cost is
-  resolution-bound, not quality-bound (S3 encode 48 ms, decode
-  37 ms/frame at 400 px), so the replay path pays almost nothing for
-  it. ``meta.txt`` pins it, so a change wipes and re-bakes the
-  folder).
-  The official decoder
-  input is RGB, not gray, so the module **self-probes** at init
-  (encode a 16×16 gradient, decode it back, keep the format whose
-  max ``|diff|`` ≤ 24): GRAY → RGB565 gray-duplicate → RGB888
-  gray-duplicate. Decode output is always RGB888 and the R channel
-  *is* the gray.
-- **Prefetch** — a producer task (``moon_tfprefetch``, pinned to
-  **core 0**, PSRAM stack — with the sweep consumer on core 1 an
-  equal-or-higher producer was preempted except during the
-  consumer's pacing pauses and the queue starved, capping the warm
-  replay at 4.6/3.6 fps; core 0 holds only the mostly-idle LVGL task,
-  ~7–9 % during the sweep) walks the hour list ahead of the display;
-  the queue depth is derived from free PSRAM,
-  ``clamp((free − decode reservation) / (S²·1.15 + 4 KiB), 1, 12)``
-  and raised to ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS`` when memory
-  allows — a tighter boot **runs thin** (logged) rather than dropping
-  the card path: even one slot replays and seeds the card, and
-  ``moon_tf_pop``'s 2 s timeout degrades a starved slot to a local
-  bake, so a thin queue can never wedge the sweep. The *decode
-  reservation* (``3·S²``, deferred inside ``moon_tfcache.c``) is
-  budgeted only when the version folder already holds hours — every
-  hit needs the buffer, and the slots must not eat what the first hit
-  still wants; a cold folder never decodes (fetches are misses until
-  write-through begins, and the prefetch always runs ahead of those
-  stores), so its PSRAM goes to slots. The fetch path itself **still
-  allocates nothing**: one persistent input buffer (the size a valid
-  cached file can reach) is allocated *before* the slot queue — on
-  the 8 MB S3 only a few hundred KB of PSRAM are free at prefetch
-  start (the relief cache + assets + bake scratch own the rest), and
-  a per-call file buffer racing a full queue for that head died at
-  q90 file sizes (frame 39: ``cache off for this boot: no psram
-  (fetch)``, 2026-11-08). The hard floor matters for the same reason
-  the fetch buffer does: while the decode buffer sat allocated at
-  init, the 8 MB S3 fit only 1 of the floor's 2 slots, the whole card
-  path was dropped **every boot** — 1344 frames baked, nothing ever
-  seeded — until the deferred decode freed it (task #38, below).
-- **Replay pacing** — since the spin's removal (2026-11-13) the
-  replayed *intermediate* frames rode the tick's whole-panel atomic
-  ``lv_refr_now``, exactly like the card-less bake frames: the sweep
-  task produced (fetch + decode on core 1), the tick displayed, the
-  backpressure rule above applied unchanged. The tick flush
-  (304 ms S3 / 207 ms P4) was then the frame floor on both paths —
-  a warm replay ran ~3 fps where the spin-era direct write measured
-  ~6 fps (the table below is that earlier era). A slow frame was
-  never repeated or skipped, and the sweep summary logged the
-  **measured** fps and worst inter-frame gap (``UI_MOON_TFCACHE_FPS``,
-  default 25, a dormant Kconfig key since the sweep retired). The
-  **final** frame was always the live
-  full-``MOON_PX`` bake on the same tick path.
-- **Write-through** — any frame the device computes that is not yet
-  on the card is encoded and stored after it publishes, so the next
-  boot finds it.
-- **Hourly frames** — with the cache serving, the intermediate
-  frames were the hour entries (epoch = ``hour·3600 + 1800``, the
-  hour *center*, never ahead of *now*) plus the **final frame,
-  always the live full-``MOON_PX`` bake**;
-  ``UI_MOON_ANIM_FRAMES`` applied only to the card-less path. With
-  fewer than one whole cached hour the sweep kept the classic
-  count-based list. (The hour-center epoch convention survives: the
-  hourly refresh that replaces the sweep fetches exactly these
-  frames.)
-- **The card-less path was the code above, byte for byte** — missing
-  card, mount failure, foreign card (never formatted), meta
-  mismatch, decode error, a mid-sweep pull or a failed store all
-  disabled the cache silently for the boot and the sweep continued
-  bake-paced. The same tint LUT colored both sources identically and
-  both reached the panel the same way (the tick's atomic flush), so a
-  replayed frame and a baked frame were indistinguishable on screen.
-- **Mount** — per-board, in ``card_mount()``: the S3 socket is **SPI
-  1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS 41) and mounts on
-  ``esp_vfs_fat_sdspi_mount`` over **SPI3_HOST** — SPI2 is the QSPI
-  panel's bus, so the module initializes SPI3 itself (the SDSPI
-  contract makes the caller own ``spi_bus_initialize``) rather than
-  using the BSP helper that would ride SPI2 (``docs/devices/s3``).
-  The P4 has a real **4-bit SDMMC** TF slot (CLK 43 / CMD 44 / D0–D3
-  39–42, its own host, disjoint from the C6 Wi-Fi SDIO link —
-  ``docs/devices/p4``) and uses the BSP's ``bsp_sdcard_mount()``.
-  FATFS long filenames (``CONFIG_FATFS_LFN_HEAP``) are **required** —
-  the hour keys and the version folder exceed 8.3.
-
-**Measured 2026-11-08** on the two bench boards (the ``tfcache:
-stats:`` line at sweep end, per-boot; final frame always the live
-bake). The warm rows date from the spin's direct-write replay era —
-since 2026-11-13 the replay rides the tick flush, so its wall time
-re-measures longer (flush-bound ~3 fps ≈ 4 min for 703 frames, bench
-re-measure pending):
-
-.. list-table:: Boot sweep wall, TF-cache state × board (bench 2026-11-08)
-   :header-rows: 1
-   :widths: 22 10 14 26 28
-
-   * - Cache state
-     - Board
-     - Sweep wall
-     - Per intermediate frame
-     - Cache accounting
-   * - card-less (fallback)
-     - S3
-     - 2193 s
-     - bake 1.36–1.63 s
-     - 1344-frame classic list, cache untouched
-   * - card-less
-     - P4
-     - ~2430 s
-     - bake ~1.81 s
-     - 1344-frame classic list, cache untouched
-   * - cold card (write-through pass)
-     - S3
-     - 1164 s
-     - bake 1.33 s + put 264 ms (encode 48, card write 216) ≈ 1.77 s
-       (SPI 1-bit)
-     - put 703/0, evict 1158 ms; prefetch 2 slots × 156 KB
-       (332 KB PSRAM head)
-   * - cold card
-     - P4
-     - 1415 s
-     - bake 1.89 s + put 313 ms (encode 92, card write 221) ≈ 2.2 s
-       (SDMMC 4-bit)
-     - put 703/0, evict 541 ms; prefetch 12 slots × 412 KB
-   * - warm card (replay)
-     - S3
-     - 118 s (~5.97 fps, worst gap 1416 ms)
-     - read 56 ms + decode 37 ms ⇒ 177 ms/frame; direct panel write
-       49 ms
-     - hits 703 miss 0 put 0, 20437 KB / 39660 ms read (≈0.5 MB/s,
-       1-bit SPI), 29 KB per file
-   * - warm card
-     - P4
-     - 132 s (~5.35 fps, worst gap 1996 ms)
-     - read 55 ms + decode 79 ms ⇒ 184 ms/frame; direct panel write
-       87 ms
-     - hits 703 miss 0 put 0, 51247 KB / 38803 ms (≈1.3 MB/s, 4-bit
-       SDMMC), 73 KB per file
-
-Three readings (all of them 2026-11-08, direct-write replay era).
-The **cold pass is already the cheaper bake**:
-hourly granularity bakes 703 intermediates instead of the card-less
-path's 1344, so even a full write-through pass runs in ~19 min
-(S3) / ~24 min (P4). The **warm replay is read+decode-bound**, never
-display-bound — the 49/87 ms panel writes sit far inside the
-177/184 ms frame, the prefetch queue keeping the panel fed — and
-lands the whole synodic story in **~2 min** on both boards at the
-shipped q90. The **hourly JPEGs stay small**: 29 KB per frame at
-400 px, 73 KB at 650 px — ~20 MB (S3) / ~51 MB (P4) for the whole
-cycle.
-
-**2026-11-13 regression, closed by the deferred decode (task #38).**
-Reported as "all devices currently cache new". Two layers, one by
-design and one bug. *By design*: the folder is keyed on the build's
-git-describe stamp (see **Versioned folder** above), so **every new
-flash starts its cache from zero** and prunes the old version's
-folder — re-flashing the bench re-keys all three boards, and a dirty
-tree even gets a fresh ``-dirty`` folder per build. *The bug*: the
-S3's card path had quietly died **entirely** — while the eager
-``3·S²`` decode out-buffer (470 KB at 400 px) sat allocated at init,
-the boot could not fit the floor's two 156 KB slots, the floor acted
-as an all-or-nothing gate, and the boot logged ``tf slots: only 1/2
-x 156KB -- card-less path`` — a 36-min, 1344-frame bake that writes
-**nothing** through, so the cache could never warm up no matter how
-many boots (the 2026-11-08 table above fitted its two slots with a
-~332 KB head; the budget had been that tight since day one and some
-later PSRAM consumer tipped it — not bisected, the cliff itself is
-what got removed). Measured on the bench S3 after the fix (4.6-day
-span, 110 hours): cold seeding boot ``tf prefetch: 4 slots x 156KB
-(free PSRAM 794 KB)``, 110 frames × ``put`` ≈ 4.4 min; the very next
-boot ``ready: … (+110 hours)``, one thin slot with the 468 KB decode
-reservation, ``stats: hits=109 miss=0`` — **~24 s** replay wall,
-every frame ``src=tf bake=0ms``.
-
-**2026-11-13 second follow-up: a healthy card froze the spin's mirror
-again (task #39).** The dead card path had one accidental virtue: the
-card-less verdict returned the codec scratch (``tfcache_scratch_free``),
-which is exactly the PSRAM the spin's UI keep-mask rebuild needs for its
-full-screen ``lv_snapshot`` (~434 KB on the S3). With the card path
-working, the scratch — ~1.1 MB at 400 px/q90 (encode in+out, the
-persistent fetch input, the deferred decode out) — stayed allocated for
-the *whole boot*, the snapshot never got a block (measured 306 KB free,
-largest block 160 KB), and every rebuild printed ``mask snapshot FAILED
-(mirror stays stale)``: the mirror froze on its sweep-start digits and
-the 8 fps spin pasted stale clock digits over the panel between the
-tick's fresh flushes — **hard flicker on the clock during the spin**.
-The sweep handed the scratch back right after its last frame (dde0b25
-— the card path, too, not only the card-less verdict), and the tilt
-monitor's 1 s retry landed the mask+mirror pair immediately. The fix
-stood barely a day: later the same day the user retired the whole spin
-subsystem — keep-mask, mirror, snapshot and direct writes included —
-so there is no mask snapshot left to starve (:doc:`the architecture
-<architecture>`).
-
-Two honest caveats. The accounting is *per-boot*, the card is
-*cumulative*: the hour list ages in as wall clock advances (it is
-built at sweep start), so a boot right after the cold pass can still
-miss a few tail hours and put them back — one measured P4 boot read
-hits 680, miss 23, **put 23/0**; its next boot read 703/0/0. And
-most S3 boots (3 of the 5 bench captures; a repeat warm replay ran
-clean) carried the *then-existing* boot classify burst — up to four
-``IDLE0`` watchdog prints around a ~20 s cold day-cache scan on the
-LVGL task at boot, identical card-less, intermittent (the P4 runs
-were clean, 0 prints — its faster core keeps the scan under the
-5 s limit). One warm boot also saw the burst swallow the replay's
-bounded 2 s mask re-seed wait (sweep start t≈45 s inside a
-t≈36–56 s burst printed ``mask rebuild did not run within 2 s`` —
-by design the replay then serves the existing mask+mirror pair,
-built post-wrapper by the init rebuild and kept fresh by the flush
-wrapper). The burst was root-caused to the sky-events day cache and
-**eliminated 2026-11-09**: the once-a-day ``full_moments`` scan
-(~350–600 ephemeris evaluations, 15–20 s on the S3 — it had also
-been freezing the minute roll mid-animation, the clock half-way
-between two minutes on glass) never runs on the LVGL task anymore.
-``moon_event_classify_here`` hands the scan to a core-1 sky-events
-worker (or lets a running bake task take it with its
-own epoch — those already classify, and IDLE1 is unwatched), and
-until the day is warm the guarded caller gets a plain all-false
-event: one untinted bake that self-heals, because the next
-day-tick probe sees the signature change and re-bakes with the
-tint.
-
-Detach mid-sweep: a read fault on the producer or the consumer
-disabled the cache silently and the remaining frames fell back to
-bake pacing — the card-less boot (above) was that path end to end;
-the physical mid-sweep pull completed the matrix (:doc:`on-device
-verification <../verification/device-verify>`).
-
-While it ran: the idle timer was held (the user was present for
-the sweep), and a sleep transition aborted the sweep
-(``moon_sweep_interrupt``, retired with the rest). The final frame was
-the current phase, and the home kept showing it static — the same
-frame ``moon_ui_start`` bakes directly today.
-
-**Boot only.** Waking from sleep (touch, tilt, or an alarm dismiss)
-shows the current moon phase **static**, with no animation: when the
-day has not turned, the boot's bake is still current, so the first
-wake frame is the current phase, not the dark-side disk
+Waking from sleep (touch, tilt, or an alarm dismiss) shows the current
+moon phase **static**, with no animation: when the day has not turned, the
+boot's bake is still current, so the first wake frame is the current
+phase, not a dark-side disk
 (:doc:`the clock and sleep machine <clock-sleep>`). When the frame
 *is* stale — a new day, a changed sky-event signature,
 or a frame that was mid-bake when the device slept —
 the wake no longer bakes on the LVGL task: the parked frame displays
 immediately and ``moon_rebake_request()`` re-bakes on a core-1 task
-(the same worker pattern as the day scan above). The finished frame is
+(the same worker pattern as the day-tick re-bake and the hourly producer).
+The finished frame is
 never displayed off-task — the convert flushes only on the LVGL task
 (the 3.5 KB stack rule) — so the bake merely raises a show flag and
 the **next tick** displays it: invalidate, one atomic whole-panel
@@ -551,109 +220,43 @@ single sample never pays that cost).
 The dusk (retired 2026-11-13)
 -----------------------------
 
-Retired with the rest of the animation stack: the light-sleep entry
-is now the **static dim** itself — ``moon_ui_pause(true)`` interrupts
-the orbit and pauses the tick, the clock widget drops to
+Retired with the rest of the animation stack: the light-sleep entry is
+now the **static dim** itself — ``moon_ui_pause(true)`` interrupts the
+orbit and pauses the tick, the clock widget drops to
 ``UI_CLOCK_ALPHA_PCT`` (20 %), ``moon_ui_panel_dim_ramp`` walks the
-panel to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), and the deep-sleep
-countdown is armed at the entry (the countdown used to fire only once
-the dusk's dark side was on screen — sleep depth followed the
-animation; it now follows the timer). The code
-(``moon_dusk_task`` / ``moon_ui_dusk_start`` / ``MOON_DUSK_*`` and the
-shade-map decls) is gone from the clock tree; the shade-map and
-pole-rotate entry points stay in the portable core
-(:doc:`the C core <core-c>`) with the shared host tools. Everything
-below is the subsystem as shipped, in the tense it was measured.
+panel to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), and the deep-sleep countdown
+is armed at the entry itself (the countdown used to fire only once the
+dusk's dark side was on screen — sleep depth followed the animation; it
+now follows the timer, :doc:`the clock and sleep machine <clock-sleep>`).
+The code (``moon_dusk_task`` / ``moon_ui_dusk_start`` / ``MOON_DUSK_*``
+and the shade-map decls) is gone from the clock tree.
 
-.. raw:: html
-
-   <video src="../_static/img/dusk.mp4" controls muted playsinline width="400"></video>
-
-   The dusk (light-sleep entry), filmed from the bake (``dusk.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
-
-The light-sleep entry plays the **dusk**: the camera rotates about
-the Moon's **pole** (body-frame +z), at the current phase, from the
-unrotated pose (with the spin gone the dusk starts from the static
-frame — the entry seam is trivial), until the fully
-**unilluminated** side faces the viewer — then the deep-sleep
-countdown is armed. Sleep depth follows the *animation*, never a
-fixed timer: the countdown fires only once the dark side is on
-screen.
-
-The dusk is cheap because of the **constant-projection property**
-(:doc:`the dark side <../science/darkside>`): the renderer's color is a function of the body-frame
-surface direction and the epoch's fixed body-frame Sun only — the
-view basis selects *which* direction is visible but never enters the
-*color*. So the full body-frame equirect color map (lit side: albedo
-× displaced-normal Lambert × tone LUT; dark side: the faint backlit
-surface; 864×432 8-bit cells) is **built once** for the dusk epoch
-(``moon_shade_map_build``, ~1.5–2 s on the S3), and every pole-spin
-frame **re-projects** that fixed map through the folded camera basis
-— a ``moon_rotate``-class gather (one map load per pixel, ~50 ms),
-**not** a lighting re-bake (~1.3 s). A fixed surface point keeps
-exactly its map cell's color on every frame, so the terminator cannot
-flicker.
-
-Each frame folds the camera basis **three ways**, in order:
-
-.. code-block:: text
-   :caption: The dusk's camera fold
-
-   orbit(o)    the tilt viewport of the parked frame (moon_orbit_geometry)
-   inplane(th) the parked on-screen pose (moon_inplane_geometry) --
-               with the spin removed the dusk starts unrotated:
-               theta is always 0 and this fold is the identity
-   pole(phi)   the animation itself (moon_pole_geometry): phi advances
-               1 degree per frame from 0 to phi*, the shortest arc to
-               the dark side (at most a half turn)
-
-The endpoint is where :math:`\mathbf{E}\cdot\mathbf{S}` is minimized
-(the visible disk fully night-side). With :math:`\mathbf{E}` the
-orbit-folded view direction (the *actual* starting view — the tilt
-peeks the view, so the endpoint is computed from the folded
-:math:`\mathbf{E}`, not the plain one) and :math:`\mathbf{S}` the
-body-frame Sun:
-
-.. math::
-
-   E(\phi) \cdot S = A\cos\phi + B\sin\phi + C, \qquad
-   \phi^* = \mathrm{atan2}(-B,\, -A)
-
-which is the shortest-arc minimum (the host-verified against a
-full-circle grid). ``phi*`` in frames (1°/frame) is the animation's
-duration — 14–95 s, display-paced at ~0.2 s/frame; the animation
-*is* the sleep indicator.
-
-The dark side is **computed** (``dark_zero = 1``) for every dusk
-frame — the shade map's dark cells and the final bake's night side
-are written the faint backlit surface (:doc:`the dark side <../science/darkside>`), so no
-phase-dependent earthshine speckle survives to the rim while the far
-side still shows the lunar surface. The image gate keeps
-``dark_zero = 0`` — the earthshine *model* is unchanged;
-only the device-visible rendering dropped it.
-
-The **final frame** is a full ``MOON_PX`` bake at ``phi*`` — the one
-pixel-exact dark-side lighting pass, which lingers on the sleep
-screen through the countdown. On completion the task pre-bakes the
-**static** frame (epoch + orbit viewport, unrotated), row by row so
-an interrupt is honored: the wake shows the *current* phase, not the
-dark-side disk, and shows it static.
-
-The rim sliver (``dk_sup``; retired with the dusk)
----------------------------------------------------
-
-The dusk's endpoint had one edge case (:doc:`the dark side <../science/darkside>` documents the model;
-this is where it lived in the pipeline): the pole spin never changes
-the view *latitude*, so at ``phi*`` the visible disk could still carry
-a thin geometrically-lit rim. The dusk bake passed ``dk_sup`` and
-wrote the backlit night side for ``d < dk_sup`` instead of ``d < 0``
-there — and since that sliver
-is sun-lit, its backlit value clips to **pure black**. The
-``MOON_DK_MARGIN`` erosion (:doc:`the dark side <../science/darkside>`) covered the intermediate
-re-projected frames, whose nearest-neighbor map sample could otherwise
-round a dark pixel to a lit cell and re-light the ray. The bake entry
-point still carries the parameter (the portable core is shared
-verbatim with the host tools); every device bake today passes 0.
+What it did: the entry rotated the camera about the Moon's **pole**
+(body-frame +z) at the current phase, 1°/frame along the shortest arc to
+the fully unilluminated side (14–95 s, display-paced at ~0.2 s/frame),
+then armed the countdown. It was cheap because of the
+**constant-projection property**
+(:doc:`the dark side <../science/darkside>`, :doc:`the C core <core-c>`):
+a pixel's color depends on the body-frame surface direction and the
+epoch's fixed Sun only — the view basis selects *which* direction is
+visible but never enters the *color* — so the full body-frame shade map
+was **built once** for the epoch (``moon_shade_map_build``, ~1.6 s S3 /
+~282 ms P4) and every frame **re-projected** it through the folded camera
+basis (a ``moon_rotate``-class gather, ~50 ms, **not** a ~1.3 s re-bake).
+A fixed surface point kept exactly its map cell's color on every frame, so
+the terminator could not flicker. The endpoint is where
+:math:`\mathbf{E}\cdot\mathbf{S}` is minimized (the disk fully night-side;
+the shortest-arc minimum :math:`\phi^* = \mathrm{atan2}(-B,\,-A)`,
+host-verified against a full-circle grid), and with :math:`\mathbf{E}` the
+orbit-folded view direction (the tilt peeks the view, so the endpoint was
+computed from the folded, not the plain, :math:`\mathbf{E}`). The **final
+frame** was one full-``MOON_PX`` bake at ``phi*``; its thin sun-lit rim was
+handled by the ``dk_sup`` backlit-sliver parameter — the bake entry point
+still carries it (the portable core is shared verbatim with the host tools)
+but every device bake today passes 0, and :doc:`the dark side
+<../science/darkside>` documents the model. The shade-map and pole-rotate
+entry points stay in the portable core, exercised by the shared host tools
+(:doc:`the C core <core-c>`).
 
 The fade (no pixels written)
 ----------------------------
@@ -670,32 +273,37 @@ hardware brightness** (0x51) to 0, switches the screen while the
 panel is still black, and ramps back:
 
 .. code-block:: c
-   :caption: components/ui/moon_ui.c (the fade ramp)
+   :caption: components/ui/moon_ui.c (the fade ramp — shared by the screen switch and the hourly refresh's legs)
 
-   static void fade_ramp(int from_pct, int to_pct) {
+   static void fade_ramp(int from_pct, int to_pct, int ms) {
+       if (panel_hold_live())
+           return; /* storm: no write lands, so the panel stays at its
+                    * tracked level -- s_panel_pct untouched is truthful */
        for (int s = 1; s <= FADE_STEPS; s++) {
            int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
            bsp_display_brightness_set(pct);
            xSemaphoreGive(s_panel_mtx);
            if (s < FADE_STEPS)
-               vTaskDelay(pdMS_TO_TICKS(CONFIG_UI_SCREEN_SWITCH_FADE / FADE_STEPS));
+               vTaskDelay(pdMS_TO_TICKS(ms / FADE_STEPS));
        }
        s_panel_pct = to_pct;
    }
 
-Production: ``UI_SCREEN_SWITCH_FADE`` = 240 ms, ``FADE_STEPS`` = 12
-(20 ms per step). Each step is one ~100 µs SPI param transaction —
-the ramp is free, so the steps are many and short, and the luminance
-steps stay small enough not to read as discrete steps. The fade-in
+The screen switch calls it with ``UI_SCREEN_SWITCH_FADE`` = 240 ms, the
+hourly refresh's legs with ``UI_MOON_HOURLY_FADE_MS`` (default the same);
+``FADE_STEPS`` = 12, so 20 ms per step at the default. Each step is one
+~100 µs SPI param transaction — the ramp is free, so the steps are many
+and short, and the luminance steps stay small enough not to read as
+discrete steps. The fade-in
 leg displays the new screen as **one atomic whole-panel
 ``lv_refr_now`` while the panel is still black** — the invariant's
 atomic display, off the visible path — and then the brightness comes
 up and the fully rendered screen appears at once.
 
 The fade-in is owed, not guaranteed by the leg itself: when a bake
-pipeline owns the buffers (while the boot sweep existed it set
-``s_sweep_baking`` there; orbit / rebake own the branch today),
+pipeline owns the buffers (the orbit / rebake / hourly own the branch
+today),
 ``moon_ui_screen_switched`` takes its plain-paint early-return
 branch. That branch rescues a starved fade-in — if the fade-out
 ramp actually landed (tracked level at true 0), it brings the panel
@@ -727,7 +335,7 @@ with the tick, so the sleeping display is one quiet still image.
 Measured timings
 ----------------
 
-The device-side numbers these pipelines produce (full
+The device-side numbers the *live* pipelines produce (full
 benchmark context in :doc:`performance <../verification/performance>`):
 
 .. list-table::
@@ -737,37 +345,33 @@ benchmark context in :doc:`performance <../verification/performance>`):
    * - Pipeline
      - S3 (466 px, 400 disk)
      - P4 (720 px, 650 disk)
-   * - Boot sweep (retired 2026-11-13; 1344 f,
-       native bake — S3 400 px / P4 650 px)
-     - 1344/1344 frames, wall 2193 s ≈ 36.5 min
-       (2026-11-08 bench capture; bake median
-       1211–1354 ms @ 400 px, shown 271–281 ms;
-       0 QSPI errors, no panic — IDLE0 WDT
-       starvation noise during the sweep only)
-     - 1344/1344 frames, 0 WDT
-       (~40 min wall @ 650 px,
-       2026-11-07 capture)
-   * - Sweep final frame (full res; retired with
-       the sweep)
-     - ~1.3 s
-     - 599 ms @ 618 px / 959 ms @ 650 px
-   * - Dusk shade-map build (retired 2026-11-13)
-     - ~1.6 s (one-time)
-     - ~282 ms (one-time)
-   * - Dusk frame, re-project (retired)
-     - ~50 ms
-     - —
-   * - Dusk total (retired)
-     - —
-     - ~43 s (1°/frame, display-paced)
+   * - Static / deferred bake, full ``MOON_PX``
+       (boot, wake, day tick, hourly miss, orbit)
+     - ~1.3 s (864-albedo PSRAM load-latency floor;
+       deferred re-bake / hourly show the next tick)
+     - ~2.4 s (2048 albedo; bake median ~1543 ms @ 650 px)
+   * - Hourly refresh, warm card (TF hour-cache fetch)
+     - read ~56 ms + decode ~37 ms per hour + the two
+       fade legs (fetch path carried from the sweep-era
+       measurement; hourly bench pending)
+     - read ~55 ms + decode ~79 ms per hour + the two
+       fade legs (fetch path carried; bench pending)
+   * - Screen-switch fade (0x51 ramp, no pixels)
+     - 240 ms × 2 legs, 12 steps (~100 µs param each)
+     - 240 ms × 2 legs, 12 steps
+   * - Light-sleep dim (the same ramp to a floor)
+     - one ``UI_SCREEN_SWITCH_FADE`` ramp down to 25 %;
+       clock to 20 % alpha
+     - same
 
 The pattern worth internalizing (it holds for the bake paths that
 remain): **everything expensive is built
-once** (the relief cache at boot, the static frame at completion),
+once** (the relief cache at boot, the static frame at bake completion),
 and the per-frame work is gather-class
-(8–50 ms). The retired pipelines were display-paced, not bake-paced,
-which is why the dusk ran for minutes without the touch core ever
-seeing a bake (the sweep did the same until its retirement).
+(8–50 ms). The retired spin/sweep/dusk pipelines were display-paced,
+not bake-paced, which is why they ran for minutes without the touch core
+ever seeing a bake; their full per-frame tables are in the git history of
+this page.
 
 The clock digit roll (opt-in)
 -----------------------------

@@ -268,16 +268,25 @@ The device pipelines (accepted captures)
    bakes (blue), display-paced per-frame costs (cyan), one-time
    builds (amber), and the brightness-ramp fade (vermilion).
 
-The *pipeline-level* lesson is the ratio that makes the product: the
-dusk (and, until its 2026-11-13 retirement, the sweep) are **display-paced, not bake-paced** (the per-frame
-display cost — ~0.23 s on the S3 — is *less* than the bake, so the
-bake task paces and the display keeps up with backpressure), and the
-spin (retired the same day) was **gather-paced, not bake-paced** (the 45 ms frame against a
-1.3 s bake was the ~30× — 150× counting just the 8 ms gather — that
-made a *free* spin off a once-baked frame possible). A pipeline
-whose display cost exceeded its bake cost would show the backpressure
-failing (the ``shown in`` deltas tracking the bake) — which is the
-verification signature :doc:`on-device verification <device-verify>` checks.
+The figure is an **accepted capture of the spin/sweep/dusk era** — all
+three motion pipelines retired 2026-11-13, so the cyan display-paced and
+gather-paced bars are dated history (their live successors' hourly-refresh
+bench numbers are pending). The *pipeline-level* lesson is the ratio that
+made the product: the dusk and the sweep (both retired 2026-11-13) **were
+display-paced, not bake-paced** (the per-frame display cost — ~0.23 s on
+the S3 — is *less* than the bake, so the bake task paces and the display
+keeps up with backpressure), and the spin (retired the same day) was
+**gather-paced, not bake-paced** (the 45 ms frame against a 1.3 s bake was
+the ~30× — 150× counting just the 8 ms gather — that made a *free* spin off
+a once-baked frame possible). A pipeline whose display cost exceeded its
+bake cost would show the backpressure failing (the ``shown in`` deltas
+tracking the bake) — which is the verification signature :doc:`on-device
+verification <device-verify>` checks. What remains on the device today is
+the **static bake** (boot / wake / day tick / the hourly producer's TF-miss
+path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 bake, the
+864/2048-albedo PSRAM load-latency floor) and the **orbit** re-bake
+(~1.7–2.4 s), plus the **hourly refresh**'s two 240 ms hardware-brightness
+fade legs around that bake.
 
 The device CPU (one-core shares)
 --------------------------------

@@ -16,7 +16,8 @@ full frame in well under a second on the S3 board (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what made the
 animation stack (the free spin, the boot sweep, the "dusk") possible
 on a $20 board; the user retired all three on 2026-11-13, and the
-home is a static LVGL phase now
+home is a static LVGL phase now — refreshed once per hour behind the
+hardware fade
 (:doc:`the animation pipelines <implementation/animations>`).
 
 .. figure:: _static/photos/sim_home.png
@@ -34,7 +35,8 @@ This documentation covers a real, working product end to end: the C
 core that bakes a moon frame on a microcontroller, the display
 pipeline that ships each frame as one atomic whole-panel flush, the
 retired animation stack (the free spin, the boot sweep and the
-"dusk" — all retired 2026-11-13, leaving the fade and the orbit), the
+"dusk" — all retired 2026-11-13, leaving the orbit, the fade, and a
+new once-per-hour moon refresh behind that fade), the
 sleep/wake machine, the settings stack, and the validation gates that
 prove the rendering matches NASA's rendered moon to within a couple of
 gray levels per pixel.

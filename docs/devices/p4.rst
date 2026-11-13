@@ -45,8 +45,8 @@ while an alarm is pending the device deliberately stays in **light
 sleep** (dim panel) instead of dropping to the deep state (backlight
 off) — a deep-sleep wake does not exist on this board (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
 
-TF card slot (sweep cache)
---------------------------
+TF card slot (hour cache)
+-------------------------
 
 The 4C also carries an onboard **microSD slot on its own 4-bit SDMMC
 host** — separate from the Wi-Fi link: **CLK GPIO43, CMD GPIO44, D0–D3
@@ -54,15 +54,17 @@ GPIO39–42** (the official Waveshare ``08_SD_Card`` / ``05_sdmmc``
 examples; callout #18 of the board's docs page). The registry BSP
 exposes it as ``bsp_sdcard_mount()`` with exactly those pins
 (``BSP_SD_*``, ``width = 4``) — the same call shape as the S3's 1-bit
-socket — so the TF sweep cache (``UI_MOON_TFCACHE``,
-:doc:`the animation pipelines <../implementation/animations>`) ran
-symmetrically on both boards (dormant since the boot sweep retired
-2026-11-13; the hourly refresh repurposes it). The pins are disjoint from the C6's
+socket — so the **TF hour cache** (``UI_MOON_TFCACHE``,
+:doc:`the animation pipelines <../implementation/animations>`) serves
+the hourly refresh symmetrically on both boards: the producer mounts the
+card **lazily on its first refresh** (boot never touches the SD bus) and
+every card failure falls back silently to on-device baking. The module
+outlived the boot sweep it was built for (retired 2026-11-13) and now
+caches one gray JPEG per hour. The pins are disjoint from the C6's
 SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
 SDMMC hosts, and the bench confirmed it: **Wi-Fi-connected + card
 mounted** runs (2026-11-08) brought the card up at t≈40 s with the C6
-link already at 4-bit/40 MHz — zero SDIO / esp_hosted / sdmmc errors
-across full cold and warm sweeps.
+link already at 4-bit/40 MHz — zero SDIO / esp_hosted / sdmmc errors.
 
 Why a second board
 ------------------

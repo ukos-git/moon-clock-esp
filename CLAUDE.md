@@ -64,12 +64,17 @@ system, build steps) **update the site** — do not let it drift:
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
   `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). ONE sanctioned
-  exception: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, a
-  hardware panel-brightness ramp that writes no pixels — the new screen's one
-  atomic flush runs while the panel is still black). (The burn-in spin's direct
-  panel write and the TF sweep cache's direct-write replay were exceptions
+  exception: the hardware panel-brightness ramp (a 0x51/backlight ramp that
+  writes no pixels). Two flows ride it — the fade-to-black screen switch
+  (`UI_SCREEN_SWITCH_FADE`) and the once-per-hour moon refresh
+  (`UI_MOON_HOURLY_ENABLE`, which fades to black, lets a core-1 producer
+  rebuild the frame off-panel, lands the finished frame as ONE atomic flush
+  while still black, then fades back). In both, the new frame's one atomic
+  flush runs while the panel is still black. (The burn-in spin's direct panel
+  write and the TF sweep cache's direct-write replay were further exceptions
   until 2026-11-13, when the spin subsystem was removed entirely — the home
-  moon is plain LVGL, shown static.)
+  moon is plain LVGL, shown static; the TF module now serves the hourly refresh
+  as its hour cache.)
 - `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
   either; `spiffs/` edits are separate `spiffs:` commits.
 - The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are
