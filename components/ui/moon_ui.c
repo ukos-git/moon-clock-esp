@@ -861,20 +861,27 @@ static void moon_panel_witness_arm(void) {
         ESP_LOGW(TAG, "trans-done witness: registration failed (drain stays accept-only)");
         return;
     }
-    /* Arm test: one drain-pixel write must bump the counter -- proving
-     * struct view, slot ownership and ISR reachability at BOOT, where
-     * failure is a log line, not the first dusk. Any increment counts:
-     * the chain is what's under test, not this pixel. */
-    static const uint16_t s_arm_px;
+    /* Arm test: one drain-ROW write must bump the counter ITSELF --
+     * proving struct view, slot ownership and ISR reachability at
+     * BOOT, where failure is a log line, not the first dusk. Capture 6
+     * proved the old "any increment counts" test worthless: ambient
+     * LVGL flushes carried it while the probe pixel itself never
+     * completed. The row is DMA-capable DRAM, single chunk -- the
+     * exact shape whose completion the witness must trust. */
+    static DRAM_ATTR uint16_t s_arm_row[BSP_LCD_H_RES];
+    const uint32_t before = s_panel_done_cnt;
     vTaskDelay(pdMS_TO_TICKS(20));
-    if (moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_arm_px) != ESP_OK) {
+    if (moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_arm_row) != ESP_OK) {
         ESP_LOGW(TAG, "trans-done witness: arm write rejected (drain stays accept-only)");
         return;
     }
-    for (int i = 0; i < 30 && s_panel_done_cnt == 0; i++)
+    bool arm_seen = false;
+    for (int i = 0; i < 30 && !arm_seen; i++) {
         vTaskDelay(pdMS_TO_TICKS(10));
-    if (s_panel_done_cnt == 0) {
-        ESP_LOGE(TAG, "trans-done witness: counter never advanced (drain stays accept-only)");
+        arm_seen = (s_panel_done_cnt != before);
+    }
+    if (!arm_seen) {
+        ESP_LOGE(TAG, "trans-done witness: arm row never completed (drain stays accept-only)");
         return;
     }
     s_panel_witness = true;
@@ -920,7 +927,18 @@ static void moon_panel_witness_arm(void) {
  * is a genuine loss. Healthy cost: one 1-px write + ~10 ms per site. */
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
-    static const uint16_t s_drain_px; /* one black pixel */
+    /* PROBE INSTRUMENT (capture-7 follow-up): the probe used to be ONE
+     * black pixel at (0, 465) via a `static const` buffer -- i.e. a
+     * 2-byte transaction, in OCT mode, from a FLASH (DROM) pointer:
+     * the only color write on the whole bus that is not a >= 2-byte
+     * DMA-capable SRAM chunk, and the ONLY write whose completion
+     * never fires (strips 19/19 per frame, probe 0/2 across all boots
+     * and sites -- spi_master silently heap-bounces the flash buffer
+     * per write). Shape + placement are the two structural
+     * differences from a strip; this buffer is both (DRAM, full width,
+     * 932 B, single chunk). Black on AMOLED black, y 465: below the
+     * moon window (mirror untouched), outside every widget. */
+    static DRAM_ATTR uint16_t s_drain_row[BSP_LCD_H_RES];
     for (int probe = 0; probe < 2; probe++) {
         /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
          * free by the time the probe reaches it (attempt-0 accept). */
@@ -935,7 +953,10 @@ static void moon_panel_drain_verify(const char *site) {
          * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
          * is what the first drain-verify build did on its very first dusk
          * frame. The direct-write seam always passes the real handle. */
-        esp_err_t drain = moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_drain_px);
+        esp_err_t drain =
+            moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_drain_row);
+        if (held)
+            ESP_LOGW(TAG, "drain %s probe %d accepted under live hold (phantom accept)", site, probe);
         if (drain != ESP_OK) {
             ESP_LOGE(TAG,
                      "drain verify after %s (probe %d): the pending write's trans-done was lost (%s); "
