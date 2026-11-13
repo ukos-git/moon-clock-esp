@@ -134,7 +134,7 @@ The moon disk scales with the panel in one place:
    #define MOON_R ((float)MOON_PX / 2.0f)
 
 Everything below derives from ``MOON_PX`` — the disk radius, the
-image position, the strip count, the keep-mask geometry — so the port
+image position, the strip count — so the port
 is a *scale factor*, not a second layout. (The P4 disk grew 618 → 650
 after the M3/M4 work; the bake cost table in :doc:`performance <../verification/performance>` carries both.)
 
@@ -154,30 +154,35 @@ The P4's display path: the strips are *smaller*, not larger
 
 The S3's constraint was the 32 KiB SPI DMA cap (:doc:`the display pipeline <display>`). The P4's
 constraint is different: the panel and its PSRAM are **X16 and XIP** —
-both cores fetch *instructions* from the same PSRAM the spin strips
-read out of. One 206-row (255 KB) strip read occasionally starves the
-DPI controller's FIFO ("can't fetch data from external memory fast
-enough, underrun" — measured 2026-10-31, one underrun per ~28 s of
-settled spin). The fix halves the burst: **103 rows** (6 strips,
-127 KB). For the 650 px disk the strips are **65 rows** (10 strips,
-84.5 KB) — an even smaller burst, the same proven-safe class:
+both cores fetch *instructions* from the same PSRAM the strip reads
+come out of. Measured 2026-10-31, one 206-row (255 KB) direct strip
+write occasionally starved the DPI controller's FIFO ("can't fetch
+data from external memory fast enough, underrun" — one underrun per
+~28 s of settled spin). The fix halved the burst: **103 rows** (6
+strips, 127 KB); for the 650 px disk the direct-write era settled at
+**65 rows** (10 strips, 84.5 KB) — an even smaller burst, the same
+proven-safe class. That era's write path retired with the spin
+subsystem (2026-11-13, :doc:`the animation pipelines <animations>`);
+what survives is its strip pitch, demoted to a *pacing* constant for
+the atomic displays' invalidations:
 
 .. code-block:: c
-   :caption: components/ui/moon_ui.c (the strip pitch)
+   :caption: components/ui/moon_ui.c (the display strip pitch)
 
    #if defined(CONFIG_BOARD_P4)
-   #define MOON_SPIN_STRIP_ROWS 65
+   #define MOON_STRIP_ROWS 130
    #else
-   #define MOON_SPIN_STRIP_ROWS 25
+   #define MOON_STRIP_ROWS 25
    #endif
-   #define MOON_SPIN_NSTRIPS (MOON_PX / MOON_SPIN_STRIP_ROWS)
-   #if (MOON_PX % MOON_SPIN_STRIP_ROWS) != 0
-   #error "MOON_PX must be a multiple of MOON_SPIN_STRIP_ROWS"
+   #define MOON_NSTRIPS (MOON_PX / MOON_STRIP_ROWS)
+   #if (MOON_PX % MOON_STRIP_ROWS) != 0
+   #error "MOON_PX must be a multiple of MOON_STRIP_ROWS"
    #endif
 
-The spin writes those strips *per strip* (the S3's single 400×400
-window does not apply — the DSI panel wants smaller bursts), each
-through ``moon_panel_draw_wait`` (below).
+The strips now only *pace LVGL invalidations* (the orbit's
+strip-by-strip display); every flush goes through the LVGL adapter's
+own buffers, and ``moon_panel_draw_wait`` (below) still rides every
+write.
 
 The async-DSI retry (``moon_panel_draw_wait``)
 ----------------------------------------------
@@ -194,21 +199,31 @@ accepts the write:
    :caption: components/ui/moon_ui.c (moon_panel_draw_wait)
 
    static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start,
-                                        int x_end, int y_end, const void *color_data) {
+                                         int x_end, int y_end, const void *color_data, bool strict) {
+       if (!strict && panel_hold_live())
+           return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
        for (int attempt = 0; attempt < 100; attempt++) {
            esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
-           if (r == ESP_OK)
+           if (r == ESP_OK) {
+               snprintf(s_last_accept_desc, ..., "%s y%d..%d", pcTaskGetName(NULL), ...);
+               s_last_accept_tick = lv_tick_get();
                return ESP_OK;
-           vTaskDelay(pdMS_TO_TICKS(1));
+           }
+           ... /* rate-limited attempt-0 anomaly log, see the display page */
+           vTaskDelay(1); /* a full tick: pdMS_TO_TICKS(1) = 0 at HZ=100 */
        }
-       ESP_LOGW(TAG, "panel draw not accepted after ~100 ms (y %d..%d)", y_start, y_end);
+       /* ~100 attempts, but each rejected attempt costs the io onFly
+        * poll (~10 ms) plus the tick: ~2 s per strip before the give-up
+        * line names the last ACCEPTED write (task + strip + age). */
+       ESP_LOGW(TAG, "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit)", ...);
        return ESP_ERR_TIMEOUT;
    }
 
 Callers must hold ``s_panel_mtx``. On the P4 this retry absorbs the
-async-DMA throughput floor — measured ~3,900 spin rejects over a long
-session, **0 dropped strips** (every reject is retried and lands). The
-rejects are spin-only (0 during the sweep and dusk), and they are the
+async-DMA throughput floor — measured **~3,900 rejects, 0 dropped
+strips** over a long session in the spin era (the rejects were
+spin-only — 0 during the sweep and dusk; today the same retry rides
+the atomic flushes' back-to-back bursts). They are the
 panel's *throughput* limit, not a bug: the 1-FB + ``NONE`` tear mode
 (fix ``d3d68b9``) removed the triple-buffer flip that showed a stale
 pose from a framebuffer's last visit, and the retries are what keeps
@@ -220,19 +235,11 @@ The byte-order seam
 The S3's QSPI io sends 16-bit pixels MSB-first (the *swapped* form);
 the P4's MIPI-DSI wants LVGL-native order (its adapter bridge does not
 swap — ``lv_draw_sw_rgb565_swap`` fires only for the "OTHER" panel
-interface). The spin's direct write byte-swaps accordingly
-(:doc:`the display pipeline <display>`):
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (the panel byte order)
-
-   #if defined(CONFIG_BOARD_P4)
-   static inline uint16_t spin_bswap16(uint16_t v) { return v; }
-   #else
-   static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (v << 8)); }
-   #endif
-
-One function, the port's entire color-order concern.
+interface). Both facts are handled at the panel boundary: LVGL's
+strips are pre-swapped by the right bridge per board, and the spin-era
+direct write carried its own identity/byte-swap inline — retired with
+the spin subsystem (:doc:`the display pipeline <display>`), leaving
+the bridges as the port's entire color-order concern.
 
 The remote C6 Wi-Fi
 -------------------
@@ -306,12 +313,11 @@ What the port did *not* touch
   ``components/moon``. The port is entirely in ``moon_ui.c`` (the
   display path), ``board_display.c`` (the seam), and the build files.
 - **The atomic invariant** — the P4 obeys the same rule (one atomic
-  whole-panel display; the same three sanctioned exceptions — the
-  fade, the spin's direct write, and the TF replay's direct write,
-  which on the P4 goes through the same per-strip path as the spin).
-  The P4's direct write is per-strip (65 rows) rather than a single
-  window, but it is still one ``s_panel_mtx``-held, per-frame atomic
-  unit.
+  whole-panel display; the one sanctioned exception, the fade). In
+  the spin era the P4's two extra exceptions (the spin's direct write
+  and the TF replay's) went per-strip (65 rows) rather than the S3's
+  single window, but were still ``s_panel_mtx``-held, per-frame
+  atomic units — all retired 2026-11-13 with the spin.
 - **The panel-io watchdog** — the same ``s_panel_mtx``-based restart
   guard runs on the P4 (its DSI bus has its own stall modes; the
   bounded-hold + watchdog discipline is board-blind).

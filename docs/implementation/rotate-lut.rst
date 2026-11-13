@@ -3,8 +3,13 @@ Rotation and the gray→RGB565 LUT
 
 Two small functions close the core: the **in-plane rotation**
 ("ball-in-hand" free spin) and the **gray→RGB565** conversion. Both
-run on every frame the spin displays, so both are latency-optimized;
-both are in ``components/moon/core/moon_render.c`` together with the
+were latency-optimized for the frame rate of the burn-in spin, which
+displayed 8 fps off a once-baked frame; the spin was removed
+2026-11-13, and with it the rotation's only device caller — what
+remains on the device is the LUT (every displayed frame goes through
+``moon_gray565``) and the core's rotation API, used verbatim by
+``host_sim`` (and kept, shared, in ``components/moon/core``). Both are
+in ``components/moon/core/moon_render.c`` together with the
 fixed-point table in ``moon_fixp.c``.
 
 Why a rotation at all
@@ -20,12 +25,16 @@ nearest-neighbor gather. The in-plane rotation is exact for what it
 models (turning the visible disk about the screen normal) and wrong
 for what it is not (a true 3-D pose would need a re-bake — which is
 what the *orbit* pipeline does when the tilt demands it, :doc:`the animation pipelines <animations>`).
+That product decision outlived its justification and was retired
+2026-11-13 ("It does more things worse than good") — the gather and
+its rationale stay in the shared core, exercised by the host tools,
+while the orbit remains the live tilt pipeline.
 
 The fixed-point table
 ---------------------
 
 The gather needs :math:`\cos\theta` and :math:`\sin\theta` per frame
-(240 frames per spin turn). ``moon_fixp.c`` provides them as
+(the spin era needed them eight times a second). ``moon_fixp.c`` provides them as
 **Q15.15** integers (16 fixed bits, values in
 :math:`[-2^{15}, 2^{15}-1]`) from a lazily built quarter table:
 
@@ -45,8 +54,7 @@ The gather needs :math:`\cos\theta` and :math:`\sin\theta` per frame
 The table is 1025 int32 entries (8 KB) covering [0, π/2]; the
 four-quadrant fold (the ``red16`` reduction) covers the full circle.
 Linear interpolation between entries gives ~18 bits of angular
-precision — the spin's angular error per frame is far smaller than
-one pixel of rotation.
+precision — far smaller than one pixel of rotation per frame.
 
 The gather
 ----------
@@ -86,7 +94,8 @@ inside-disk pixels always gather inside the frame:
    }
 
 Four properties make this function the performance anchor of the
-whole spin (a full 400×400 gather is **~8 ms** on the S3):
+rotation (a full 400×400 gather is **~8 ms** on the S3 — the number
+that made the spin's 125 ms frame budget work):
 
 1. **Incremental Q15.15** — :math:`f_x, f_y` update by add/subtract
    per pixel (``fx += c15; fy -= s15``), exact integer math, no
@@ -104,9 +113,13 @@ whole spin (a full 400×400 gather is **~8 ms** on the S3):
    is 0), so the disk edge falls off to black with no mask.
 
 ``moon_rotate`` runs the whole square; ``moon_rotate_rows(y0, y1)``
-runs a row band — the orbit sweep publishes converted rows as they
-finish (:doc:`the animation pipelines <animations>`) and displays them strip by strip under the same
-atomic rule.
+is the same operation on a row band. Neither runs on the device
+today: the spin — the only device caller — was retired 2026-11-13,
+and the row-publishing sweeps never gathered at all (the orbit bakes
+on a basis pre-rotated by ``moon_orbit_geometry`` and publishes
+converted rows through ``moon_bake_rows``,
+:doc:`the animation pipelines <animations>`). They stay in the shared
+core, verbatim — ``host_sim`` and the bench drive ``moon_rotate``.
 
 The gray→RGB565 LUT
 -------------------
@@ -150,19 +163,23 @@ Byte order: the LUT emits **LVGL-native** RGB565 (MSB = red, as LVGL
 expects in an ``LV_COLOR_FORMAT_RGB565`` draw buffer). The panel's own
 byte order (the QSPI io sends 16-bit pixels MSB-first, which is the
 *swapped* order) is handled at the panel boundary, not in the core —
-the spin's direct write byte-swaps on the way out (:doc:`the display pipeline <display>`), and
+the spin era carried a byte-swap inline on its direct writes
+(:doc:`the display pipeline <display>`, retired with the spin), and
 the LVGL flush path is pre-swapped by the adapter.
 
 Where these run on the device
 -----------------------------
 
-- ``moon_rotate`` — the spin's render task (core 1), once per spin
-  frame (~8 ms of the 125 ms frame budget at 8 fps; the panel write is
-  the rest, :doc:`the display pipeline <display>`).
-- ``moon_rotate_rows`` — the orbit sweep's convert task (rows
-  published to the LVGL tick's strip drain).
-- ``g565`` — fused into the gather (free) and used by the static
-  convert (the wake's one-time gray→565 of the current phase).
+- ``moon_rotate`` / ``moon_rotate_rows`` — **no device caller** since
+  the spin's removal (2026-11-13); the host tools
+  (``host_sim/main.c``, ``host_sim/bench.c``) drive the whole-frame
+  variant verbatim.
+- ``g565`` — the live path, everywhere: fused into the host gather
+  (free) and, on the device, the static convert
+  (``moon_convert_to_rgb``), the orbit's per-row convert, the TF
+  cache's replay tint (``moon_tfcache`` runs the fetched frame
+  through the *same* LUT as a computed one) and the knob's companion
+  (``knob_moon``).
 
 The core is done. The remaining question — the one that defines the
 device's character — is how a finished frame gets onto a panel whose

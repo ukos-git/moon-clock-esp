@@ -15,7 +15,7 @@ split-flap HH:MM + alarm row + seconds arc) compiled from
 ``components/ui`` unchanged, driven through the **render seam**
 below; the legacy own-screen view (one moon disk + caption) still
 builds behind ``KNOB_UI_ENABLE=n``. What the AMOLED clock carries and
-the knob does not: the burn-in spin, the keep-mask, the 0x51
+the knob does not: the 0x51
 brightness ramp, the panel watchdog (the SH8601 is a **backlit LCD**
 with no burn-in exposure and no TE line), the IMU tilt logic (no
 chip — the shim answers fixed-upright), and audio (no codec —
@@ -119,8 +119,9 @@ public headers from its own components:
   is a **documented no-op** (the S3's minute-freeze lesson,
   :doc:`the animations page <animations>` — the
   classify/event probe is the producer task's job on CPU1, never the
-  LVGL tick's); ``dusk_start`` says false, tilt says settled, the
-  panel-step/keep-mask calls are no-ops (no spin, no AMOLED burn-in).
+  LVGL tick's); ``dusk_start`` says false, tilt says settled (no
+  spin seam at all since 2026-11-13 — the clock's seam API lost its
+  panel-step/keep-mask surface with the spin subsystem).
 - ``knob_alarm_audio_stub.c`` answers ``alarm_audio.h``: ring/preview
   are silent no-ops and every selectable sound is honestly named
   "Silent" (codec-less board) — the shared alarm paths link and run.

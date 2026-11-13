@@ -239,13 +239,10 @@ static void settings_demo_cb(lv_timer_t *timer) {
         ESP_LOGW(TAG, "TEST settings demo: starting");
         clock_idle_set_enabled(false);
     }
-    /* Wait out the boot sync AND the boot sweep. The user's freeze is a
-     * home->settings switch while the FREE SPIN is running (post-sweep,
-     * the spin's direct panel writes run concurrently with the fade). A
-     * switch during the sweep is guarded off (s_sweep_baking suppresses
-     * the fade and the spin is paused), so it does not reproduce the
-     * bug. Hold at step 0 until the sweep is done and the spin has
-     * resumed, then switch -- exactly the user's "tap home -> settings". */
+    /* Wait out the boot sync AND the boot sweep. The scripted run is the
+     * user's "tap home -> settings" scenario; a switch during the sweep
+     * is guarded off (s_sweep_baking suppresses the fade), so hold at
+     * step 0 until the sweep is done, then switch. */
     if (step == 0 && (ui_current_screen() == SCREEN_ID_WIFI || moon_ui_sweeping()))
         return;
     esp_err_t r;
@@ -377,15 +374,13 @@ static void alarm_ring_test_cb(lv_timer_t *timer) {
 // Test hook (CONFIG_TEST_CPU_STATS_SEC): per-second per-task CPU % from
 // the FreeRTOS run-time stats (configGENERATE_RUN_TIME_STATS, the stats
 // clock = esp_timer, so microseconds). Profiling aid for which task burns
-// the settings-idle CPU and the spin CPU. After N seconds of waiting (so
+// the settings-idle CPU. After N seconds of waiting (so
 // the boot sweep is done and the device rests) it logs once per second,
 // 10 s on the home screen then 30 s on the settings hub (loading it). The
 // window's "busy" total excludes the IDLE tasks (they account for the idle
 // time on each core, so including them reads ~200 % = both cores); the
 // per-task lines still report IDLE0/IDLE1 so the idle share is visible.
-// Note: it holds the idle timer awake each second, which ALSO keeps the
-// moon spin at its ACTIVE rate (activity < SETTLE_S), so the home window
-// shows the active spin, not the settled coast-skip. 0 (default) = off.
+// Note: it holds the idle timer awake each second. 0 (default) = off.
 #ifndef CONFIG_TEST_CPU_STATS_SEC
 #define CONFIG_TEST_CPU_STATS_SEC 0
 #endif
@@ -586,7 +581,7 @@ extern "C" void app_main(void) {
 
     bsp_display_lock(-1);
 
-    // QMI8658 IMU (device tilt for the moon's ball-in-hand spin). Runs on
+    // QMI8658 IMU (device tilt for the moon's ball-in-hand orbit). Runs on
     // the shared BSP I2C bus after clock_init; soft-fails (the moon stays
     // touch-drag-only) when the chip is absent.
     ret = imu_init();
@@ -668,11 +663,10 @@ extern "C" void app_main(void) {
     // which at boot is before the UI appears, so it is never shown at boot
     // on the success path.
 
-    // Moon phase: start the free spin (phase-anchored: active rate while
-    // in use, one turn per synodic month when settled -- the AMOLED
-    // burn-in protection) and play the synodic boot sweep (the last new
-    // moon -> now, from a BLACK screen, ending on the current phase; see
-    // UI_MOON_ANIM_*). Wakes from sleep show the current phase static (no
+    // Moon phase: start the moon -- play the synodic boot sweep (the last
+    // new moon -> now, from a BLACK screen, ending on the current phase;
+    // see UI_MOON_ANIM_*; off/refused = bake the current phase directly).
+    // Wakes from sleep show the current phase static (no
     // animation); the light-sleep "dusk" (pole spin to the dark side) is
     // the sleep indicator and arms the deep-sleep countdown on its last
     // frame (UI_MOON_DUSK_*). A blank RTC (no NTP, no RTC time) leaves
@@ -695,7 +689,7 @@ extern "C" void app_main(void) {
     // 0 = off). Idle monitoring stays off from boot so the device holds the
     // rest-on-airplane pose while the boot sweep runs (the demo would
     // otherwise fire mid-light-sleep, with the dusk bake suppressing the
-    // spin-render stop it is meant to exercise).
+    // switch it is meant to exercise).
     if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0) {
         lv_timer_create(settings_demo_cb, 1000, NULL);
         clock_idle_set_enabled(false);

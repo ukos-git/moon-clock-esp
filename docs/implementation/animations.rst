@@ -3,17 +3,22 @@ The animation pipelines
 
 A moon clock is mostly *waiting* — waiting for the next minute, the
 next hour, the next wake. The project's answer to waiting was to make
-the waiting itself the interface: four motion pipelines, all built on
+the waiting itself the interface: three motion pipelines, all built on
 the one atomic-display rule (:doc:`the architecture <architecture>`) and the one panel-write
 discipline (:doc:`the display pipeline <display>`):
 
 1. **The boot sweep** — the current synodic month, played at boot.
-2. **The free spin** — the ball-in-hand burn-in rotation, forever.
-3. **The dusk** — the light-sleep entry: a constant-projection pole
+2. **The dusk** — the light-sleep entry: a constant-projection pole
    spin to the dark side.
-4. **The fade** — the screen-switch dim, which writes no pixels.
+3. **The fade** — the screen-switch dim, which writes no pixels.
 
-All four share one pipeline shape: a *bake task* (core 1) produces
+(The fourth was **the free spin**, the ball-in-hand burn-in rotation
+— removed 2026-11-13: *"It does more things worse than good."* The
+home's moon is now plain LVGL, shown static; see
+:doc:`the architecture <architecture>` for what the removal left of the
+exceptions list.)
+
+All three share one pipeline shape: a *bake task* (core 1) produces
 frames off screen into the shared PSRAM buffers; the *tick* (LVGL
 task, 50 ms) displays each published frame as **one atomic whole
 frame**; backpressure (the bake waits for the display) keeps the two
@@ -76,17 +81,15 @@ Because the display (304 ms) is faster than the bake (~1.3 s at full
 resolution), the bake paces the sweep and the wait is usually ~0; the
 5 s cap is a safety bail (the only tick-paused case — sleep entry —
 sets ``s_sweep_abort``, which the loop polls too). When the TF sweep
-cache serves (below), the sweep task instead *displays replayed
-intermediate frames itself* — the spin's direct panel write paced to
-``UI_MOON_TFCACHE_FPS``, the third sanctioned exception — and
-pre-sets the shown counter for those frames, so this rule holds
-trivially and the tick never sees an intermediate.
+cache serves (below), the same rule holds with the producer swapped:
+prefetch + read + decode replace the bake, and the tick still displays
+each published frame as one atomic whole frame.
 
 **Resolution** — the intermediate frames bake at
 ``UI_MOON_ANIM_BAKE_PX`` (production: **240**, into the scratch
 ``s_sweep_small`` buffer) and are upscased NN to the full 400×400 for
-display; the **final frame** (the current phase the spin resumes
-from) always bakes at full ``MOON_PX``. The bake cost scales with
+display; the **final frame** (the current phase the home then shows
+statically) always bakes at full ``MOON_PX``. The bake cost scales with
 :math:`(S/400)^2`; the measured per-frame table from the accepted
 336-frame capture (per-frame costs carry over to the 1344-frame
 default; on the S3 board — the Waveshare ESP32-S3-Touch-AMOLED-1.75 —
@@ -121,7 +124,7 @@ from the pipeline's own header) is:
      - **2193 s ≈ 36.5 min** (measured
        2026-11-08, bench S3)
      - full res; montage pixel-identical
-       to the static/spin bakes
+       to the static bake
 
 The 200/240/320 rows are 336-frame-era per-frame captures scaled
 arithmetically to 1344 frames; only the 400 px row (the shipped
@@ -212,38 +215,19 @@ front of it:
   init, the 8 MB S3 fit only 1 of the floor's 2 slots, the whole card
   path was dropped **every boot** — 1344 frames baked, nothing ever
   seeded — until the deferred decode freed it (task #38, below).
-- **Direct-write replay** (``UI_MOON_TFCACHE_FPS``, default 25) —
-  replayed *intermediate* frames are displayed by the sweep task
-  itself through ``moon_spin_write_panel()``: the spin's own sanctioned
-  write — step-rotated by the current panel step, the live UI
-  keep-mask composited over the moon window from the LVGL mirror, one
-  continuous window write (S3) / 65-row strips (P4) under
-  ``s_panel_mtx``, no LVGL refresh. The composite copies the keep
-  runs (the ``(y, x0, x1)`` list built with the mask,
-  ``spin_mask_runs_rebuild``) instead of scanning all
-  ``MOON_PX²`` mask bits per frame. **Mask and mirror are one
-  atomic pair:** ``spin_mask_rebuild_once`` writes each kept
-  pixel's mirror value together with its mask bit, under
-  ``s_panel_mtx``, from the *same* full-screen snapshot — and the
-  replay seeds both (``s_mask_dirty`` + a bounded wait on the tilt
-  monitor) before frame 0. It has to: the replay itself does zero
-  LVGL flushes, and the boot's early label flushes can precede the
-  flush-wrapper install, so a flush-history-only mirror composites
-  black over the clock for the whole replay (observed 2026-11-08).
-  If the snapshot allocation fails (a full prefetch queue squeezes
-  the S3 pool to a ~100 KB head), the rebuild **keeps the existing
-  pair** rather than falling back to band-only — which would destroy
-  a good glyph mask and desync the mirror from it.
-  The tick's whole-panel flush
-  (304 ms S3 / 207 ms P4) would cap a tick-displayed replay at ~3
-  fps; the direct write runs at the spin's frame cost instead.
-  Constant-cadence pacing like the spin task — a slow frame is never
-  repeated or skipped — and the sweep summary logs the **measured**
-  fps and worst inter-frame gap. The **final** frame still rides the
-  tick's atomic ``lv_refr_now`` (it reconciles LVGL with the panel
-  and re-anchors the spin), card-less sweeps are tick-displayed and
-  bake-paced as above, and if the spin's panel buffers are missing
-  the replay falls back to tick display.
+- **Replay pacing** — since the spin's removal (2026-11-13) the
+  replayed *intermediate* frames ride the tick's whole-panel atomic
+  ``lv_refr_now``, exactly like the card-less bake frames: the sweep
+  task produces (fetch + decode on core 1), the tick displays, the
+  backpressure rule above applies unchanged. The tick flush
+  (304 ms S3 / 207 ms P4) is now the frame floor on both paths —
+  a warm replay runs ~3 fps where the spin-era direct write measured
+  ~6 fps (the table below is that earlier era). A slow frame is
+  never repeated or skipped, and the sweep summary logs the
+  **measured** fps and worst inter-frame gap (``UI_MOON_TFCACHE_FPS``,
+  default 25, survives only as the summary line's target until the
+  Kconfig sweep retires it). The **final** frame is always the live
+  full-``MOON_PX`` bake on the same tick path.
 - **Write-through** — any frame the device computes that is not yet
   on the card is encoded and stored after it publishes, so the next
   boot finds it.
@@ -258,11 +242,9 @@ front of it:
   card, mount failure, foreign card (never formatted), meta
   mismatch, decode error, a mid-sweep pull or a failed store all
   disable the cache silently for the boot and the sweep continues
-  bake-paced. The same tint LUT colors both sources identically;
-  they differ only in *how* the converted frame reaches the panel
-  (the tick's atomic flush card-less, the spin's direct write on
-  warm replay), so a replayed frame and a baked frame are
-  indistinguishable on screen.
+  bake-paced. The same tint LUT colors both sources identically and
+  both reach the panel the same way (the tick's atomic flush), so a
+  replayed frame and a baked frame are indistinguishable on screen.
 - **Mount** — per-board, in ``card_mount()``: the S3 socket is **SPI
   1-bit** (MOSI 1 / SCK 2 / MISO 3 / CS 41) and mounts on
   ``esp_vfs_fat_sdspi_mount`` over **SPI3_HOST** — SPI2 is the QSPI
@@ -277,7 +259,10 @@ front of it:
 
 **Measured 2026-11-08** on the two bench boards (the ``tfcache:
 stats:`` line at sweep end, per-boot; final frame always the live
-bake):
+bake). The warm rows date from the spin's direct-write replay era —
+since 2026-11-13 the replay rides the tick flush, so its wall time
+re-measures longer (flush-bound ~3 fps ≈ 4 min for 703 frames, bench
+re-measure pending):
 
 .. list-table:: Boot sweep wall, TF-cache state × board (bench 2026-11-08)
    :header-rows: 1
@@ -326,7 +311,8 @@ bake):
      - hits 703 miss 0 put 0, 51247 KB / 38803 ms (≈1.3 MB/s, 4-bit
        SDMMC), 73 KB per file
 
-Three readings. The **cold pass is already the cheaper bake**:
+Three readings (all of them 2026-11-08, direct-write replay era).
+The **cold pass is already the cheaper bake**:
 hourly granularity bakes 703 intermediates instead of the card-less
 path's 1344, so even a full write-through pass runs in ~19 min
 (S3) / ~24 min (P4). The **warm replay is read+decode-bound**, never
@@ -372,9 +358,13 @@ largest block 160 KB), and every rebuild printed ``mask snapshot FAILED
 (mirror stays stale)``: the mirror froze on its sweep-start digits and
 the 8 fps spin pasted stale clock digits over the panel between the
 tick's fresh flushes — **hard flicker on the clock during the spin**.
-The sweep now hands the scratch back right after its last frame (the
-card path, too, not only the card-less verdict), and the tilt monitor's
-1 s retry lands the mask+mirror pair immediately.
+The sweep handed the scratch back right after its last frame (dde0b25
+— the card path, too, not only the card-less verdict), and the tilt
+monitor's 1 s retry landed the mask+mirror pair immediately. The fix
+stood barely a day: later the same day the user retired the whole spin
+subsystem — keep-mask, mirror, snapshot and direct writes included —
+so there is no mask snapshot left to starve (:doc:`the architecture
+<architecture>`).
 
 Two honest caveats. The accounting is *per-boot*, the card is
 *cumulative*: the hour list ages in as wall clock advances (it is
@@ -410,12 +400,11 @@ bake pacing — the card-less boot (above) is that path end to end;
 the physical mid-sweep pull completes the matrix (:doc:`on-device
 verification <../verification/device-verify>`).
 
-While the sweep runs: the spin render is paused (the flag poll), the
-idle timer is held (the user is present for the sweep), and a sleep
-transition aborts the sweep (``moon_sweep_interrupt``). On completion
-the tick re-anchors the spin at the unrotated pose the last frame
-showed, and the spin resumes from exactly there — the sweep hands the
-burn-in rotation back with a seamless pose.
+While the sweep runs: the idle timer is held (the user is present for
+the sweep), and a sleep transition aborts the sweep
+(``moon_sweep_interrupt``). The final frame is the current phase, and
+the home keeps showing it static — there is nothing left to hand back
+to.
 
 **Boot only.** Waking from sleep (touch, tilt, or an alarm dismiss)
 shows the current moon phase **static**, with no animation: when the
@@ -426,120 +415,27 @@ wake frame is the current phase, not the dark-side disk
 on a new day, or a frame that was mid-bake when the device slept —
 the wake no longer bakes on the LVGL task: the parked frame displays
 immediately and ``moon_rebake_request()`` re-bakes on a core-1 task
-(the same worker pattern as the day scan above). The spin render
-publishes the finished frame itself when the bake releases the frame
-mutex, and the spin pause poll also parks while the frame is
-*partial* (a mid-bake abort), so a half-gathered disk never reaches
-the panel. The bake's ~1.3 s thus left the wake path entirely: what
+(the same worker pattern as the day scan above). The finished frame is
+never displayed off-task — the convert flushes only on the LVGL task
+(the 3.5 KB stack rule) — so the bake merely raises a show flag and
+the **next tick** displays it: invalidate, one atomic whole-panel
+``lv_refr_now`` under ``s_rgb_mtx``, then the drain verify. A bake
+aborted mid-frame marks the frame stale and is never published, so a
+half-gathered disk never reaches the panel. The bake's ~1.3 s thus
+left the wake path entirely: what
 the user touches is the wake handler returning, not a bake.
-
-The free spin
--------------
-
-.. raw:: html
-
-   <video src="../_static/img/free_spin.mp4" controls muted playsinline width="400"></video>
-
-   The free spin (burn-in rotation), filmed from the bake (``free_spin.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
-
-**Per-board posture.** Burn-in is an AMOLED duty, so the spin runs
-only on the S3 AMOLED. The P4 4C carries an IPS LCD (JD9365 MIPI-DSI)
-with no burn-in to prevent, so there ``UI_MOON_SPIN_ENABLE`` defaults
-to ``n`` (user 2026-11-13: "non-amoled screens (e.g. lcd) do not need
-to use the anti-burnin moon-spin animation") — the moon stays the
-static LVGL frame, the spin task never starts, and the direct-panel
-sanctioned exception is then exercised only by the TF-cache replay.
-(The knob, the family's other backlit LCD, never had a spin: the
-render seam has no direct-write path.) With the option off, every
-spin consumer stays inert — the keep-mask, pause and screen-switch
-re-anchor all ride the never-set running flag.
-
-The burn-in rotation is a *free* spin: the rendered frame is the
-baked phase (one full ``MOON_PX`` bake), rotated in-plane by an
-angle that integrates freely — no re-bake follows the hand, so the
-spin never waits on the 1.3 s bake:
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (the spin render, abridged)
-
-   double dt = (double)(t0 - s_spin_last_ms) / 1e6;
-   if (dt < 0.0) dt = 0.0; else if (dt > 0.5) dt = 0.5; /* a resume step */
-   bool active = clock_idle_last_activity_ms() < (uint64_t)CONFIG_UI_MOON_SPIN_SETTLE_S * 1000ULL;
-   double w_target = active ? (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_PERIOD_S)
-                            : (6.283185307179586 / (double)CONFIG_UI_MOON_SPIN_SETTLED_PERIOD_S);
-   double alpha = 1.0 - exp(-(dt * 3.0) / (double)CONFIG_UI_MOON_SPIN_SETTLE_S);
-   s_spin_omega += (w_target - s_spin_omega) * alpha;
-   s_spin_theta += s_spin_omega * dt;
-   float rad = (float)fmod(s_spin_theta, 2 * M_PI);
-   moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2,
-               MOON_PX / 2, MOON_PX / 2, moon_cos15(rad), moon_sin15(rad));
-   xSemaphoreGive(s_rgb_mtx);
-   if (!s_fade_busy)
-       moon_spin_write_panel();
-
-The production rates (``sdkconfig``):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 26 18 56
-
-   * - Constant
-     - Value
-     - Meaning
-   * - ``UI_MOON_SPIN_PERIOD_S``
-     - 300 s/turn
-     - the ACTIVE rate — the device was touched or tilted within the
-       settle window (the idle system's activity timer tracks both)
-   * - ``UI_MOON_SPIN_SETTLED_PERIOD_S``
-     - 600 s/turn
-     - the SETTLED rate — the slow burn-in creep the moon must keep
-       doing at rest (a constant, phase-true rate; the old phase-true
-       *coast* was effectively invisible and read as a freeze)
-   * - ``UI_MOON_SPIN_FPS``
-     - 8 fps
-     - the display cadence; a dropped frame is a bigger angular step,
-       never a stall
-   * - ``UI_MOON_SPIN_SETTLE_S``
-     - 10 s
-     - the settle window; the rate smoothing's time constant is
-       ~SETTLE/3
-
-Three properties of this loop are load-bearing:
-
-- **Time-based angle.** ``theta += omega*dt`` with real elapsed time,
-  so the angular speed is exact regardless of frame drops. The
-  0.5 s ``dt`` clamp bounds a resume (a sleep/wake gap) to half a
-  second of spin — the resume cannot step a whole turn.
-- **The rate, not the angle, survives the re-bake.** A re-bake
-  zeroes ``theta`` inside its own critical section (``moon_spin_reanchor``),
-  so the render can never mix a new frame with a stale pre-re-bake
-  angle (an orientation jump) — but the *rate* carries over: a settled
-  coast keeps coasting across the re-bake.
-- **The pose survives the sleep.** ``moon_park`` (sleep entry)
-  advances ``theta`` by the spin rate over the pause gap (clamped
-  0.5 s) and displays that frame atomically — the moon rests at the
-  exact pose the spin was heading to, and ``s_spin_last_rad`` (the
-  last displayed angle) is what the wake path resumes the spin from.
-
-The frame is the **direct panel write** (:doc:`the display pipeline <display>`): ~8 ms gather
-+ ~4 ms composite + ~30–40 ms QSPI at 8 fps — a ~45 ms frame budget
-in a 125 ms slot. While a fade ramp runs (``s_fade_busy``), the spin
-keeps integrating its angle but **skips the panel write**, so the
-0x51 ramp is the only panel-io traffic in flight (the freeze
-prevention, :doc:`the display pipeline <display>`); the first frame after the switch lands from
-the exact pose.
 
 The orbit (tilt viewport)
 -------------------------
 
-Between the free spin (in-plane) and a full re-bake sits the **orbit**:
-when the tilt sensor holds a sustained off-axis pose, the *viewport*
-itself rotates (the camera basis folds about the screen normal by the
-tilt angle) — a re-bake at the tilted orbit, displayed strip by strip
+The home's moon is a static bake — and when the tilt sensor holds a
+sustained off-axis pose, the **orbit** rotates the *viewport* itself
+(the camera basis folds about the screen normal by the tilt angle) —
+a re-bake at the tilted orbit, displayed strip by strip
 (latest-wins: only the newest pending orbit is baked; older tilt
 samples are dropped). The orbit bake is a normal ``moon_bake`` into
 ``s_frame`` with the orbit-folded camera basis; its completion is one
-atomic whole-frame flush, and the spin re-anchors at the new pose.
+atomic whole-frame flush.
 The orbit is what makes "tilt the clock and the moon shows a
 different face" true, at the cost of a 1.3 s bake per sustained
 change (the tilt confirmation — 1 s windowed mean, integer
@@ -557,7 +453,8 @@ The dusk
 
 The light-sleep entry plays the **dusk**: the camera rotates about
 the Moon's **pole** (body-frame +z), at the current phase, from the
-exact on-screen pose the free spin parked it at, until the fully
+unrotated pose (with the spin gone the dusk starts from the static
+frame — the entry seam is trivial), until the fully
 **unilluminated** side faces the viewer — then the deep-sleep
 countdown is armed. Sleep depth follows the *animation*, never a
 fixed timer: the countdown fires only once the dark side is on
@@ -583,10 +480,9 @@ Each frame folds the camera basis **three ways**, in order:
    :caption: The dusk's camera fold
 
    orbit(o)    the tilt viewport of the parked frame (moon_orbit_geometry)
-   inplane(th) the parked free-spin angle (moon_inplane_geometry) --
-               the on-screen pose is a theta-rotated gather of the
-               static frame, so the theta-folded basis reproduces it:
-               the seamless entry seam
+   inplane(th) the parked on-screen pose (moon_inplane_geometry) --
+               with the spin removed the dusk starts unrotated:
+               theta is always 0 and this fold is the identity
    pole(phi)   the animation itself (moon_pole_geometry): phi advances
                1 degree per frame from 0 to phi*, the shortest arc to
                the dark side (at most a half turn)
@@ -621,7 +517,7 @@ pixel-exact dark-side lighting pass, which lingers on the sleep
 screen through the countdown. On completion the task pre-bakes the
 **static** frame (epoch + orbit viewport, unrotated), row by row so
 an interrupt is honored: the wake shows the *current* phase, not the
-dark-side disk, and the spin resumes from exactly the parked pose.
+dark-side disk, and shows it static.
 
 The rim sliver (``dk_sup``)
 ---------------------------
@@ -692,9 +588,9 @@ stepped) charged one full-screen ``lv_refr_now`` per step — ~175 ms
 of QSPI strip traffic each — and the panel's left-to-right strip fill
 showed as a slow **crawl** on every switch. The 0x51 fade writes no
 pixels at all; the panel scales everything on screen at once (the
-moon, the labels, the spin's direct writes) with no overlay to
-composite. That is why the fade is one of the three sanctioned
-exceptions to the atomic rule: the rule is preserved *off the visible
+moon, the labels, the arc) with no overlay to
+composite. That is why the fade is the only sanctioned
+exception to the atomic rule: the rule is preserved *off the visible
 path*, not violated.
 
 The light-sleep dim is the same ramp to a floor: the entry ramps
@@ -729,9 +625,6 @@ benchmark context in :doc:`performance <../verification/performance>`):
    * - Sweep final frame (full res)
      - ~1.3 s
      - 599 ms @ 618 px / 959 ms @ 650 px
-   * - Spin frame (gather + write)
-     - ~8 ms + ~30–40 ms
-     - 103-row DSI strips; 0 underrun
    * - Dusk shade-map build
      - ~1.6 s (one-time)
      - ~282 ms (one-time)
@@ -761,9 +654,10 @@ spurious ARC animation (user 2026-11-13: "the arc seems to have an
 animation active when completing the full cycle to update top-to
 bottom the spinner. If this can be switched off, that would be
 good"). With it off, every pair change takes the mixed-jump
-hard-swap branch — the label changes in one frame and the shared
-``label_changed`` tail rebuilds the spin keep-mask identically, so
-the S3 spin stays pixel-safe either way. (The seconds arc itself never
+hard-swap branch — the label changes in one frame. (The shared
+``label_changed`` tail that used to rebuild the spin keep-mask on
+this signal died with the spin subsystem, 2026-11-13.) (The seconds
+arc itself never
 animated: LVGL 9.6's ``lv_arc_set_value`` is instant and the arc
 styles carry no transitions.)
 

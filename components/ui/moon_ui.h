@@ -16,11 +16,9 @@ extern "C" {
  * Moon phase UI layer (device side of components/moon).
  *
  * Owns the PSRAM frame buffers, the shared lv_image_dsc_t the moon screens
- * display, the free spin (in-plane rotation of the baked phase: a
- * faster rate while in use, a slow settled rate at rest -- the AMOLED
- * burn-in protection; each frame is written straight to the panel by
- * the render task, compositing over LVGL's on-panel UI via a
- * per-pixel keep-mask), the tilt-driven
+ * display (shown STATIC by plain LVGL -- the old in-plane burn-in spin and
+ * its direct-panel-write compositing were removed 2026-11-13), the
+ * tilt-driven
  * out-of-plane orbit (QMI8658 IMU sphere model), the synodic sweep (the
  * new-moon -> now phase animation, played at BOOT from a black screen),
  * the light-sleep "dusk" spin (the pole-axis rotation to the fully
@@ -37,8 +35,7 @@ extern "C" {
  *   moon_ui_start()  -- mark started: the moon is on a BLACK screen and
  *                       moon_ui_start kicks off the synodic boot sweep
  *                       (new moon -> now, moon_ui_replay_animation)
- *                       itself; the free spin resumes from the sweep's
- *                       last frame
+ *                       itself
  */
 
 /** Allocate buffers, build the image descriptor, start the tick timer. */
@@ -57,7 +54,8 @@ void moon_ui_refresh(void);
 /** Bake + display the moon for the given UTC epoch. */
 void moon_ui_bake_now(int64_t utc_epoch);
 
-/** Bake the current phase and start the free spin. */
+/** Start the moon: kick off the synodic boot sweep, or bake the current
+ *  phase directly when the sweep is off / refused. */
 void moon_ui_start(void);
 
 /**
@@ -76,20 +74,19 @@ void moon_ui_replay_animation(void);
 void moon_ui_day_tick(void);
 
 /**
- * Pause/resume the moon tick (sleep screens show a static moon). On
- * pause the moon PARKS: it renders one final frame at the exact
- * current wall-clock spin pose and displays it atomically, so the
- * sleep screens show the pose the clock says the moon is in (sleep is
- * the preparation for the full stop). A pause also joins a running
- * dusk (the light-sleep pole spin); the deep-sleep transition after a
- * completed dusk keeps the dark side on screen (no re-park).
+ * Pause/resume the moon tick (sleep screens show a static moon). A pause
+ * joins the wake sweep and a running
+ * dusk (the light-sleep pole spin) and interrupts the orbit; the frame
+ * on screen simply stays under the sleep screens. The deep-sleep
+ * transition after a
+ * completed dusk keeps the dark side on screen.
  */
 void moon_ui_pause(bool pause);
 
 /**
  * Start the light-sleep "dusk" (the pole-axis spin to the fully
  * unilluminated side, 1 degree/frame, shortest arc). Call AFTER
- * moon_ui_pause(true) so the parked pose (in-plane spin angle + tilt
+ * moon_ui_pause(true) so the on-screen pose (tilt
  * orbit viewport) is captured. The spin is a constant projection: the
  * fully-lit body-frame equirect map is baked ONCE for the epoch (~2 s)
  * and the intermediate frames re-project that fixed map through the
@@ -133,8 +130,8 @@ bool moon_ui_dusk_complete(void);
 /**
  * Display the new screen's contents (moon image included) as ONE
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
- * LVGL task context. No-op while a pipeline owns the buffer (the spin
- * or a bake completion then displays the screen atomically itself).
+ * LVGL task context. No-op while a pipeline owns the buffer (a bake
+ * completion then displays the screen atomically itself).
  * When a screen-switch fade-out dimmed the panel (s_fade_pending,
  * loadScreen), the new screen's atomic flush runs while the panel is
  * still black and the hardware brightness then ramps back
@@ -145,8 +142,8 @@ void moon_ui_screen_switched(void);
 /**
  * Dim the panel's OWN hardware brightness to black ahead of a screen
  * switch (LVGL task; loadScreen calls it before lv_scr_load on EVERY
- * switch except the both-moon one). Writes no pixels; the spin keeps
- * running and its frames just dim. No-op when the fade is off, the
+ * switch except the both-moon one). Writes no pixels; the static panel
+ * simply dims. No-op when the fade is off, the
  * moon UI is not ready, or a bake pipeline owns the buffers.
  */
 void moon_ui_fade_out(void);
@@ -157,8 +154,8 @@ void moon_ui_fade_out(void);
 bool moon_ui_screen_is_moon(enum ScreensEnum id);
 
 /**
- * Set the panel's own hardware brightness (0..100 %), serialized with the
- * spin's direct panel writes and LVGL's flushes (the one QSPI bus the panel
+ * Set the panel's own hardware brightness (0..100 %), serialized with
+ * LVGL's flushes (the one QSPI bus the panel
  * io owns). The wake / deep-sleep / boot backlight paths use it IN PLACE
  * OF bsp_display_brightness_set()/bsp_display_backlight_on/off() so a 0x51
  * write is never queued behind a strip DMA that could stall the bus.
@@ -170,9 +167,9 @@ esp_err_t moon_ui_panel_brightness_set(int pct);
  * Ramp the panel's hardware brightness from its current level to `to_pct`
  * (0..100 %), paced like the screen-switch fade (UI_SCREEN_SWITCH_FADE ms).
  * LVGL task (the light-sleep entry / wake / alarm call sites); non-LVGL /
- * not-ready callers get the instant set. Holds the spin's panel writes for
- * the ramp's duration (the 0x51 steps must be the only panel-io traffic in
- * flight) but owes NO fade-in afterwards (s_fade_pending is untouched).
+ * not-ready callers get the instant set. Holds off the other 0x51 writers
+ * for the ramp's duration (the 0x51 steps must be the only panel-io traffic
+ * in flight) but owes NO fade-in afterwards (s_fade_pending is untouched).
  * No-op when the panel is already at the target. The light-sleep dim uses
  * it (down to CONFIG_UI_LIGHT_SLEEP_DIM_PCT, back to 100 on wake / an
  * alarm ring); the screen-switch fade keeps moon_ui_fade_out.
@@ -183,12 +180,12 @@ void moon_ui_panel_dim_ramp(int to_pct);
  * Freeze the panel's io traffic while the wake path's on-demand WiFi sync
  * storm runs. esp_wifi_init loads the full Wi-Fi firmware into RAM and
  * calibrates the RF; the storm takes in-flight QSPI DMA completions
- * (bench-verified on the S3 AMOLED: a wake sync with live tick flushes /
- * spin traffic stalls the GPSPI bus lock ~6 s into the wake -- lost
+ * (bench-verified on the S3 AMOLED: a wake sync with live tick flushes
+ * stalls the GPSPI bus lock ~6 s into the wake -- lost
  * completion, panel-io watchdog restart). While held, EVERY panel write
- * is DROPPED, not blocked (LVGL flush strips, spin strips, 0x51
+ * is DROPPED, not blocked (LVGL flush strips, 0x51
  * brightness writes; fade/dim ramps are skipped whole): writers never
- * park, LVGL keeps drawing into its buffers, the spin keeps integrating.
+ * park and LVGL keeps drawing into its buffers.
  * The LVGL flushes complete their hand through the hold's stub flush_cb
  * (swapped in/out by the UI-tick poll in moon_ui_panel_repaint_pending):
  * dropping a flush inside the panel draw_bitmap wrapper instead would
@@ -197,7 +194,7 @@ void moon_ui_panel_dim_ramp(int to_pct);
  * LVGL task the arm additionally QUIESCES -- it installs the flush guard
  * immediately (a tick early, so the sync screen's own switch flush rides
  * the bus before the storm, never into it) and drains one in-flight DMA
- * under the panel mutex (an already-queued spin strip is the storm's
+ * under the panel mutex (an already-queued flush strip is the storm's
  * victim; the hold flags cannot drop it).
  * wifi_sync_task_fn first takes the radio fully DOWN (wifi_manager_deinit
  * -- an ASSOCIATED station's ~300 ms DTIM beacon wake steals completions
@@ -206,8 +203,8 @@ void moon_ui_panel_dim_ramp(int to_pct);
  * branch) -- but the release only STAMPS a 4 s radio-tail drain (the
  * driver teardown churn that deinit kicks off), which the UI-tick poll
  * then unfreezes at; a 15 s deadline self-heals a missed release. On
- * release a whole-screen repaint is queued -- the screen self-heals, the
- * spin rewrites at 8 fps. No-op seam on the knob (LEDC backlight, no
+ * release a whole-screen repaint is queued -- the screen self-heals.
+ * No-op seam on the knob (LEDC backlight, no
  * shared bus lock to wedge).
  */
 void moon_ui_panel_traffic_hold(bool hold);
@@ -230,25 +227,8 @@ void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms);
 bool moon_ui_panel_repaint_pending(void);
 
 /**
- * Publish the current 90-degree screen orientation (0..3) to the spin
- * render: its panel writes pre-rotate each frame by the step and the
- * UI keep-mask is re-rotated to match. Safe from any task (one volatile
- * write); the mask itself is rebuilt on the LVGL task only.
- */
-void moon_ui_set_panel_step(int step);
-
-/**
- * Rebuild the spin's UI keep-mask (LVGL task only -- the mask is a
- * snapshot of the current screen with the moon image hidden). Call
- * after anything changes what the moon must NOT clobber: screen
- * switches and the clock/alarm label updates do this already; call
- * explicitly on an orientation step change.
- */
-void moon_ui_rebuild_ui_mask(void);
-
-/**
  * Hang-diagnostic context dump: print the volatile pipeline flags around
- * the fade / spin / flush path (TEST_HANG_WATCH aid; safe from any task).
+ * the fade / flush path (TEST_HANG_WATCH aid; safe from any task).
  * Cross-reference with the task-state dump to identify which lock a stuck
  * task is parked on.
  */

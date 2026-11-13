@@ -18,7 +18,7 @@ shown only while a sync is in flight (boot, hourly, manual), then
 dropped back to airplane. Because both screens carry the same moon
 image, the switch between them is the *both-moon* case of the fade
 rule (:doc:`the animation pipelines <animations>`): no dim, one atomic whole-panel flush, and the
-spin/sweep animation flows seamlessly across the switch.
+sweep animation flows seamlessly across the switch.
 
 .. figure:: ../img/screens/modem_sleep.png
    :alt: The airplane (home) screen
@@ -53,9 +53,10 @@ The **settings hub** (tap on the home or WiFi screen) and its
 sub-screens (alarm, pomodoro, alarm time, light-sleep, deep-sleep,
 timezone, WiFi) carry *no* moon image. ``moon_screen_has_image()``
 checks the active screen's root against the moon images' roots — and
-that check is the lever that **starts and stops the spin render
-task**: on a moon-less screen the spin and the tick's full-panel
-``lv_refr_now`` would idle at ~50% of one core redrawing nothing.
+that check feeds ``s_moon_screen``, the moon-screen display gate.
+(Since the burn-in spin's removal there is no render task to key off
+it; the gate tracks which screen carries the image, and the hourly
+refresh probe is its next consumer.)
 
 .. figure:: ../img/screens/settings_hub.png
    :alt: The settings hub
@@ -63,7 +64,7 @@ task**: on a moon-less screen the spin and the tick's full-panel
 
    The **settings hub** — the sub-screens as a hub-and-spoke around
    the exit. The moon is gone: a hub screen is one of the moon-less
-   screens the spin task keys off.
+   screens the display gate tracks.
 
 The sub-screens:
 
@@ -170,11 +171,11 @@ screen* (the LVGL root transform) through every intermediate angle,
 which at 50 ms ticks costs a full-panel re-render per step — and a
 partial rotation is exactly the half-frame failure mode the atomic
 rule exists to forbid. Four discrete poses, each applied atomically,
-is both cheaper and correct. The spin's direct write knows about the
-steps (``s_panel_step``): its ``spin_step_rotate`` pre-rotates every
-frame by the current step so the panel shows the same pixels LVGL's
-own transform would, and the UI keep-mask re-rotates with the step
-(:doc:`the display pipeline <display>`).
+is both cheaper and correct. (The direct-write spin had to pre-rotate
+every frame by the current step and re-rotate the UI keep-mask with it
+so its panel writes matched LVGL's root transform; that machinery was
+removed 2026-11-13 — the root transform is now the only rotation the
+panel sees (:doc:`the display pipeline <display>`).)
 
 Two calibration facts are load-bearing. The panel's **mount offset**
 (Kconfig ``UI_ORI_BASE_V10``, per board: the P4 panel is mounted +90°
@@ -418,8 +419,9 @@ the boot story ("here is how the moon got to where it is"), and a
 wake is an answer, not a story. The frame the wake displays is the
 boot's bake when the day has not turned; when it *is* stale (new
 day, new event tint, mid-bake at sleep) the wake still returns
-immediately — the re-bake runs on a core-1 task and the spin render
-publishes it, exactly as the 1.7 s WiFi-freeze fix moved the radio
+immediately — the re-bake runs on a core-1 task and the next tick
+displays the finished frame atomically, exactly as the 1.7 s
+WiFi-freeze fix moved the radio
 off this task.
 
 The hourly sync

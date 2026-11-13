@@ -116,7 +116,8 @@ take showed the S3's QSPI completion-loss race (lost DMA completion ->
 into this phase in all four cycles the board ran — the alarm's
 wake/dismiss window,
 where the 0x51 hardware brightness ramp, the fade-to-black switch and
-the spin resume overlap (the same family as the #96 settings-freeze
+the spin resume (the spin retired 2026-11-13) then overlapped (the
+same family as the #96 settings-freeze
 stall). Placing the phase at the cycle end keeps dusk, roll and sync
 comparable on every cycle even while that watchdog recovery runs; the
 race itself was root-caused 2026-11-12 to the wake path's WiFi-init
@@ -392,7 +393,8 @@ fired in any capture, so the pin was below that seam). It is the lost
 completion family's next member (:ref:`display-lost-dma`), sitting on
 the tick's DUSK replay: ``lv_refr_now`` returns with the last strip's
 DMA in flight, and when exactly that one trans-done is lost the depth-1
-flush queue stays occupied invisibly — the NEXT writer discovers it.
+flush queue stays occupied invisibly — the NEXT writer discovers it
+(the spin-era witness below reads accordingly).
 Capture 1, boot 1: dusk frame 8 lost its last strip's completion at
 203.4 s; ~700 ms later the touch wake ran the wake branch's own atomic
 flush into the occupied slot, the LVGL task pinned ``s_panel_mtx`` at
@@ -412,7 +414,10 @@ bottom edge (outside the moon window — the front-buffer mirror is
 untouched — and outside every widget; under a panel hold it is trivially
 accepted) run after EVERY sanctioned atomic whole-panel flush: dusk
 replay, sweep frame, orbit batch, spin park, wake-static display,
-re-bake display, and the screen-switch flush with its fade-in leg.
+re-bake display, and the screen-switch flush with its fade-in leg
+(the spin park site retired with the spin subsystem later the same
+day; the drain-probe site list in :ref:`display-lost-dma` is
+current).
 The 20 ms lead-in makes the healthy path an attempt-0 accept (a strip
 DMAs in ~10 ms); a loss shows up as draw_wait's ~2 s of rejects and
 logs the SITE, then restarts there — before the next writer is frozen,

@@ -14,8 +14,8 @@ current moment, projected through the real camera libration. The
 pipeline is small enough to run in about 1.4 MB of flash and to bake a
 full frame in well under a second on the S3 board (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what makes the
-animations in :doc:`the animation pipelines <implementation/animations>` (the synodic boot sweep, the continuous
-burn-in spin, the "dusk") possible on a $20 board.
+animations in :doc:`the animation pipelines <implementation/animations>` (the synodic boot sweep,
+the "dusk") possible on a $20 board.
 
 .. figure:: _static/photos/sim_home.png
    :alt: Simulated render of the finished clock on the Waveshare ESP32-S3-Touch-AMOLED-1.75
@@ -31,7 +31,7 @@ burn-in spin, the "dusk") possible on a $20 board.
 This documentation covers a real, working product end to end: the C
 core that bakes a moon frame on a microcontroller, the display
 pipeline that ships each frame as one atomic whole-panel flush, the
-animation system (boot sweep, burn-in spin, the "dusk"), the
+animation system (boot sweep, the "dusk"), the
 sleep/wake machine, the settings stack, and the validation gates that
 prove the rendering matches NASA's rendered moon to within a couple of
 gray levels per pixel.
@@ -66,8 +66,8 @@ direction:
    The device is a clock that mostly sleeps. Light sleep shows the
    moon in a slow constant-projection spin (the "dusk") and deep
    sleep hides the clock and turns the backlight off. The animations
-   are not decoration — they are the burn-in mitigation strategy for
-   an always-on display (:doc:`the animation pipelines <implementation/animations>`) and the sleep-state indicators
+   are not decoration — they are the sleep-state indicators for
+   an always-on display (:doc:`the animation pipelines <implementation/animations>`) and the entry/exit flow itself
    (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
 
 The two boards

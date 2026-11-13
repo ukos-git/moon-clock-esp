@@ -168,8 +168,8 @@ The relief cache
 (``int8`` slope, the ``MOON_DEM_STEPS = 254`` DEM range) is the
 prototype-vs-device floor the gate measures (:doc:`the image gate <../verification/image-gate>`).
 
-The rotation (the spin's gather)
---------------------------------
+The rotation (the spin-era gather)
+----------------------------------
 
 .. code-block:: c
    :caption: moon.h — the Q15.15 in-plane rotation
@@ -179,15 +179,17 @@ The rotation (the spin's gather)
                     int f_cx, int f_cy, int32_t cos15, int32_t sin15);
    void moon_rotate_rows(..., int y0, int y1);
 
-   int32_t moon_sin15(float rad);   /* Q15.15, 2048-entry quarter table */
+   int32_t moon_sin15(float rad);   /* Q15.15, 1025-entry quarter table */
    int32_t moon_cos15(float rad);
 
-The spin's per-frame cost (:doc:`rotation and the LUT <../implementation/rotate-lut>`): the Q15.15 quarter-symmetric
+The spin's per-frame cost, measured in the spin era and still the
+host tools' cost (:doc:`rotation and the LUT <../implementation/rotate-lut>`): the Q15.15 quarter-symmetric
 table (``moon_fixp.c``), the nearest-neighbor gather (1 PSRAM
 read/px), the fused ``moon_rotate`` + ``moon_gray565`` LUT (no
 separate gray->565 pass). ``cx/cy`` are the *output* centre,
-``f_cx/f_cy`` the *frame* centre — the spin's theta is integrated
-time-based (:doc:`the animation pipelines <../implementation/animations>`) and converted through this pair.
+``f_cx/f_cy`` the *frame* centre — the spin integrated theta
+time-based and converted it through this pair; ``host_sim`` uses the
+same shape.
 
 The tone LUT
 ------------
@@ -275,7 +277,8 @@ A minimal host caller (the bench's shape):
 
    uint16_t *rgb = malloc(size * size * sizeof(uint16_t));
    moon_rotate(frame, size, rgb, size, cx, cy, cx, cy,
-               moon_cos15(theta), moon_sin15(theta));      /* the spin */
+               moon_cos15(theta), moon_sin15(theta));      /* the spin-era gather;
+                                                            * host tools today */
    /* rgb is RGB565 (the device bswaps on the S3; the P4 is identity —
     * the display pipeline's byte-order seam). */
 
@@ -298,7 +301,7 @@ The omissions are the design:
   decision, not an API option.
 - **No row-band *bake* of a rotating frame.** The progressive display
   is the *output*'s (the ``*_rows`` variants sweep the *result*);
-  the spin's per-frame gather is whole-frame (the 8 ms budget,
+  the spin's per-frame gather was whole-frame (the 8 ms budget,
   :doc:`performance <../verification/performance>`).
 
 The device wraps the API in the display pipeline (``moon_panel_draw_bitmap`` + the atomic-frame invariant, :doc:`the architecture <../implementation/architecture>`)

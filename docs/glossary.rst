@@ -75,21 +75,21 @@ The device pipeline
 
 - **Atomic frame** — the invariant: every moon-pipeline frame hits
   the panel as ONE whole-panel ``lv_refr_now`` under ``s_rgb_mtx``;
-  the three sanctioned exceptions (the fade-to-black, the spin's
-  direct write, the TF replay's direct write)
+  the one sanctioned exception is the fade-to-black
   (:doc:`the architecture <implementation/architecture>`).
 - **s_rgb_mtx / s_panel_mtx** — the two locks: the *image* lock
-  (bake/rotate/display of the moon buffer) and the *panel-io* lock
-  (LVGL flushes, the spin's strip writes, the 0x51 brightness)
+  (bake/display of the moon buffer) and the *panel-io* lock
+  (LVGL flushes, the 0x51 brightness)
   (:doc:`the architecture <implementation/architecture>`).
-- **Spin** — the burn-in rotation: a once-baked frame re-projected by
-  the Q15.15 gather at 8 fps, written *directly* to the panel under
-  ``s_panel_mtx`` (LVGL bypassed for that frame), time-based theta
-  with active (300 s/turn) / settled (600 s/turn) rates (:doc:`rotation and the LUT <implementation/rotate-lut>` and :doc:`the animation pipelines <implementation/animations>`).
+- **Spin** *(removed 2026-11-13)* — the former burn-in rotation: a
+  once-baked frame re-projected by the Q15.15 gather at 8 fps and
+  written *directly* to the panel (LVGL bypassed for that frame).
+  Retired entirely — the home moon is plain LVGL, shown static
+  (:doc:`the architecture <implementation/architecture>`).
 - **Sweep** — the boot animation: the last synodic month — card-less,
   1344 tick-displayed frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF
-  sweep cache, the cycle's hour list replayed via the spin's direct
-  write at ``UI_MOON_TFCACHE_FPS`` — always ending on the live
+  sweep cache, the cycle's hour list replayed as the same
+  tick-displayed frames — always ending on the live
   full-resolution final bake; boot-only (wakes are static)
   (:doc:`the animation pipelines <implementation/animations>`).
 - **Dusk** — the light-sleep entry: the constant-projection pole
@@ -112,10 +112,10 @@ The device pipeline
   CO5300's *hardware* brightness ramp (0x51, 12 steps, 240 ms)
   writes no pixels — the new screen's one atomic flush runs while
   the panel is still black (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
-- **Keep-mask** — the spin's UI overlay: the ring band + the
-  full-screen ``lv_snapshot`` (rotated by the panel step, the moon
-  hidden) so the clock stays legible over the rotating moon
-  (:doc:`rotation and the LUT <implementation/rotate-lut>` and :doc:`the animation pipelines <implementation/animations>`).
+- **Keep-mask** *(removed with the spin, 2026-11-13)* — the spin's
+  former UI overlay: a full-screen ``lv_snapshot`` that kept the
+  clock legible while the moon rotated beneath it under the direct
+  writes.
 - **90°-step orientation** — the tilt roll: whole-screen orientation
   in 90° steps (the int4-quantized g + the 1 s windowed mean + the
   integer dot/cross quadrant), the +90° mount base (:doc:`the clock and sleep machine <implementation/clock-sleep>`).

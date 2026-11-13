@@ -10,8 +10,8 @@ them:
 
 1. **One image buffer, one atomic flush.** Every moon-pipeline frame
    reaches the panel as a single whole-panel display under one
-   critical section. There are exactly three sanctioned exceptions,
-   and all are documented here.
+   critical section. There is exactly one sanctioned exception,
+   documented here.
 2. **The physics is portable.** The moon core — ephemeris, bake,
    relief, rotation, the LUT — is a dependency-free C library that
    compiles unchanged into the device *and* the host simulator.
@@ -32,7 +32,7 @@ The layer stack
      main["main.cpp — app_main: BSP bring-up, wifi boot, clock init, boot sweep, deep-sleep entry"]
      clock["components/clock — minute display, NTP, idle/sleep state, alarm scheduler, timezone, settings"]
      wifi["components/wifi — wifi_manager, wifi scan"]
-     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · spin · sweep · dusk · panel write)"]
+     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · sweep · dusk · panel write)"]
      moon["components/moon — the portable core (Ch. 11): ephemeris, bake, render, Q15.15, assets"]
      board["components/board — the board shim: display / panel / touch / IMU / RTC (S3 + P4, one API)"]
      bsp["vendored BSPs — S3: CO5300 QSPI · P4: JD9365 MIPI-DSI"]
@@ -86,12 +86,13 @@ is pinned to:
      - yes (``task_pin_to_core 0``)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - ``moon_spin``
+   * - bake tasks (orbit / sweep / dusk / rebake)
      - 1
-     - **yes** (``xTaskCreatePinnedToCoreWithCaps``)
-     - the free-spin render: integrates the angle, runs
-       ``moon_rotate`` over the whole 400×400 frame, writes the moon
-       area straight to the panel
+     - **yes** (pinned, PSRAM-stack; the TF prefetch task rides
+       core 0)
+     - ``moon_bake`` per frame into the shared PSRAM buffers;
+       ``moon_rebake`` re-bakes the static frame off the LVGL task
+       (the tick displays the finished frame atomically)
    * - ``panel_wdg``
      - 0
      - yes
@@ -102,19 +103,15 @@ is pinned to:
      - no
      - ``wifi_manager_init`` + SNTP sync off the LVGL task (the fix
        for the 1.7 s wake freeze, :doc:`the clock and sleep machine <clock-sleep>`)
-   * - bake tasks (orbit / sweep / dusk)
-     - none
-     - no (spelled out per pipeline in :doc:`the animation pipelines <animations>`)
-     - ``moon_bake`` per frame into the shared PSRAM buffers
 
-Two design choices are worth calling out. First, the spin render is
-**pinned to core 1** because the panel write is CPU-bound QSPI
-streaming: the LVGL task (also on core 0, with the touch pipeline,
+Two design choices are worth calling out. First, the bake producers
+(sweep, dusk, orbit, rebake) are **pinned to core 1** because a bake
+is CPU-bound work: the LVGL task (on core 0, with the touch pipeline,
 the clock minute update, and the fade ramps) must never share a core
-with the spin's frame gather. Second, the bake pipelines (sweep,
-dusk, orbit) run as *tasks* rather than on the LVGL task: a 1.3 s
-frame bake must not block the 50 ms tick that drains the previous
-frame's strips.
+with a bake or a gather. Second, those pipelines run as *tasks*
+rather than on the LVGL task: a 1.3 s frame bake must not block the
+50 ms tick that drains the previous frame's strips — the tick's only
+pipeline job is displaying what the producers publish.
 
 The buffers and who touches them
 --------------------------------
@@ -130,12 +127,13 @@ The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
      - Writers / readers
    * - ``s_frame``
      - 400×400 × 1 B = 160 KB
-     - bake tasks write (gray 8-bit); the spin reads it to rotate
+     - bake tasks write (gray 8-bit); the LUT convert
+       (``moon_convert_to_rgb``) reads it
    * - ``s_rgb``
      - 400×400 × 2 B = 320 KB
-     - the spin's ``moon_rotate`` writes (RGB565); LVGL reads it as
-       the moon image (``s_dsc.data``); the spin's panel write reads
-       it via the step-rotate
+     - the LUT convert writes it (RGB565, one gather from
+       ``s_frame``); LVGL reads it as the moon image
+       (``s_dsc.data``)
    * - ``s_sweep_small``
      - 240×240 × 1 B (if reduction on)
      - the sweep's intermediate frames bake here and are upscased into
@@ -143,18 +141,6 @@ The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
    * - ``s_shade_map``
      - 864×432 × 1 B = 373 KB
      - the dusk's pre-shaded body-frame map (:doc:`the animation pipelines <animations>`)
-   * - ``s_front``
-     - 400×400 × 2 B
-     - the *front mirror*: LVGL's on-panel content in the moon area,
-       panel byte order; refreshed by the ``draw_bitmap`` wrapper on
-       every LVGL strip
-   * - ``s_disp``
-     - 400×400 × 2 B
-     - the spin's per-frame composite (rotated moon + kept UI), the
-       single window written to the panel
-   * - ``s_ui_mask``
-     - 400×400 × 1 B
-     - the per-pixel UI keep-mask (:doc:`the display pipeline <display>`)
    * - relief gradient cache
      - 2048×1024 × 2 B = 4 MB
      - built once at boot (``moon_relief``), read by every bake
@@ -170,22 +156,22 @@ The two locks that order all of it:
      - Held for
    * - ``s_rgb_mtx``
      - every reader/writer of ``s_rgb`` *and* ``s_frame`` (the bake,
-       the spin's gather, the orbit row sweep, the static LUT
-       convert, the atomic ``lv_refr_now``)
-     - one frame: a bake row sweep, a gather (~8 ms), or the
-       whole-panel flush
+       the orbit row sweep, the static LUT convert, the atomic
+       ``lv_refr_now``)
+     - one frame: a bake row sweep, a LUT gather, or the whole-panel
+       flush
    * - ``s_panel_mtx``
      - every QSPI/DSI panel transaction: LVGL flushes (via the
-       ``draw_bitmap`` wrapper), the spin's direct write, the 0x51
-       brightness writes (fade, dim, backlight)
-     - one strip (~10 ms) or one spin frame (30–80 ms)
+       ``draw_bitmap`` wrapper), the 0x51 brightness writes (fade,
+       dim, backlight)
+     - one strip (~10 ms) or one 0x51 ramp step
 
 ``s_rgb_mtx`` answers "who may read the image"; ``s_panel_mtx``
 answers "who may touch the panel's io". They are deliberately
-different resources: the spin holds ``s_rgb_mtx`` during the gather
-and *releases it* before taking ``s_panel_mtx`` for the write, so a
-bake task can re-bake the next phase while the spin's current frame is
-still streaming to the panel.
+different resources: a bake task holds ``s_rgb_mtx`` while it fills
+``s_frame``/``s_rgb`` and releases it before the display path ever
+takes the panel lock, so the next bake can start while the current
+frame is still streaming out.
 
 The atomic-frame invariant
 --------------------------
@@ -202,8 +188,8 @@ screen top-to-bottom over about a second — the "wake artifact" the
 original design fought. The atomic rule is what makes a screen switch
 look like a screen switch.
 
-There are exactly **three sanctioned exceptions**, and all are
-properties of the panel, not of LVGL:
+There is exactly **one sanctioned exception**, and it is a property
+of the panel, not of LVGL:
 
 1. **The fade-to-black screen switch** (``UI_SCREEN_SWITCH_FADE``):
    the switch dims the panel's own hardware brightness (CO5300
@@ -212,31 +198,18 @@ properties of the panel, not of LVGL:
    ramps the brightness back. The invariant is preserved *off the
    visible path*: the atomic flush runs, it just runs while nothing is
    visible (:doc:`the animation pipelines <animations>`).
-2. **The burn-in spin's direct panel write** (:doc:`the display pipeline <display>`): the spin's
-   frame is written straight to the panel's RAM with
-   ``esp_lcd_panel_draw_bitmap`` under ``s_panel_mtx``, bypassing
-   LVGL entirely. It is still atomic — one whole 400×400 window per
-   frame, held under the mutex for the entire write — and it is the
-   only non-LVGL writer the panel has.
-3. **The TF sweep cache's direct-write replay**
-   (``UI_MOON_TFCACHE`` / ``UI_MOON_TFCACHE_FPS``,
-   :doc:`the animation pipelines <animations>`): warm-replayed
-   *intermediate* sweep frames are displayed by the sweep task itself
-   with the spin's very write (``moon_spin_write_panel`` — step
-   rotated, UI keep-mask composited, under ``s_panel_mtx``), paced to
-   ``UI_MOON_TFCACHE_FPS``. The tick's whole-panel refresh measures
-   304 ms (S3) / 207 ms (P4) and would cap a tick-displayed replay at
-   ~3 fps; the direct write keeps the same step-rotated, keep-masked
-   whole-window atomicity as the spin. The sweep's **final** frame
-   still rides the tick's atomic ``lv_refr_now`` — it reconciles LVGL
-   with the panel and re-anchors the spin.
+
+(The burn-in spin's direct panel write and the TF sweep cache's
+direct-write replay were exceptions 2 and 3 until 2026-11-13, when
+the spin subsystem was removed entirely at the user's request —
+*"It does more things worse than good."* Every moon frame now rides
+the LVGL path.)
 
 Everything else that shows moon content obeys the rule: the boot
-sweep's frames (one atomic flush per published frame on the
-card-less path, reduced-res bake upscased; the warm TF replay is
-exception 3), the dusk's re-projected frames (same), the wake (a
-static frame), the orbit sweep (one atomic flush of the whole
-converted frame).
+sweep's frames (one atomic flush per published frame — card-less and
+warm TF replay alike, reduced-res bake upscased), the dusk's
+re-projected frames (same), the wake (a static frame), the orbit
+sweep (one atomic flush of the whole converted frame).
 
 Why the invariant is worth two locks
 ------------------------------------

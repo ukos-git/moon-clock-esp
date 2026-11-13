@@ -19,7 +19,7 @@ The device's observable is the **serial console** (115200, the
 every pipeline timing is a ``ESP_LOGI`` with a measured
 ``esp_timer_get_time()`` delta, and the Watchdog Timer's fires are
 logged by the ROM reset reason. A verification capture is a serial
-log of a *defined flow* (boot → sweep → spin → idle → dusk → deep
+log of a *defined flow* (boot → sweep → idle → dusk → deep
 sleep → wake), read for three classes of line:
 
 .. list-table::
@@ -32,9 +32,9 @@ sleep → wake), read for three classes of line:
    * - **Progress**
      - the ``sweep span: N d``, ``sweep f/1344 shown in Mms`` (or,
        warm TF replay, the per-frame ``sweep f/N src=tf … wr=…ms``
-       lines plus the ``TF sweep: N frames … (~F fps, target T,
-       direct write)`` summary), ``dusk k/N shown in Mms``,
-       ``spin started`` (300/600 s/turn, 8 fps) and
+       lines plus the ``TF sweep: N frames in … ms (~F fps,
+       tick-paced, target T), worst gap … ms`` summary),
+       ``dusk k/N shown in Mms`` and
        ``panel-io watchdog armed (3000 ms)`` lines
      - the pipelines ran to their endpoints (a sweep that never logs
        its final frame is a sweep that stalled)
@@ -49,7 +49,7 @@ sleep → wake), read for three classes of line:
        large worst-gap is the card or decode path starving the sweep
    * - **Failure**
      - ``WDT reset``, ``panicked``, ``PANEL IO STUCK``,
-       ``panel draw not accepted``, ``spin task did not exit``,
+       ``panel draw not accepted``,
        ``ESP_ERR_NO_MEM`` from the flush
      - any one of these is a verification failure; the count over the
        capture window is the acceptance number (0)
@@ -74,7 +74,9 @@ intermediate bake. The bench S3 is the project's own board; the old
 .. code-block:: text
    :caption: Boot sweep acceptance (S3, 2026-11-08 bench capture,
              1344-frame default at the native 400 px bake; the capture
-             also shows the full sleep chain after the sweep)
+             also shows the full sleep chain after the sweep; the
+             ``spin started`` line is from the spin era — retired
+             2026-11-13, captures after it end at the bake-done line)
 
    I (11987) moon_ui: panel-io watchdog armed (3000 ms stuck limit)
    I (15127) moon_ui: synodic boot sweep started: 1344 frames (new moon -> now)
@@ -94,8 +96,10 @@ Three properties are checked: the span is found (the new-moon scan
 logged a plausible day count — a degenerate ephemeris logs a full
 29.53 d fallback); the per-frame ``shown`` deltas are display-paced,
 not the bake (~270–280 ms on the S3's 25-row-strip flush path,
-~190 ms on the P4 — never the ~1.2–2 s bake); and the hand-off to the
-spin happens (the re-anchor + ``spin started``). The 2026-11-08 S3
+~190 ms on the P4 — never the ~1.2–2 s bake); and the capture carries
+on into the sleep chain (what used to be the spin hand-off is today
+the static final frame — the spin subsystem was retired 2026-11-13).
+The 2026-11-08 S3
 capture ran the whole sleep chain on the heels of the sweep: idle
 re-arm, ``Idle timeout reached after 60888 ms``, the light-sleep
 switch, the 15-frame dusk (shade map 990 ms), the 60 s RTC countdown
@@ -112,40 +116,31 @@ ahead of the S3 per pixel before the 2048 albedo brought the bake
 back to the PSRAM-load-latency floor
 (:doc:`performance <performance>`).
 
-The spin
---------
+Sustained panel-io (the spin-era window)
+----------------------------------------
 
-The spin's acceptance is a **sustained window** (120 s of continuous
-settled spin on the S3), not a boot flow: the spin's failure modes
-are the panel-io ones (the lost-DMA-completion stall, the seam lines),
-which take a while to show. The seam fix (the single 400×400
-window write, ``1582ddb``) was verified with exactly this window:
+The spin-era acceptance was a **sustained window** (120 s of
+continuous settled spin on the S3), not a boot flow: the spin's
+failure modes were the panel-io ones (the lost-DMA-completion stall,
+the seam lines), which take a while to show. The seam fix (the single
+400×400 window write, ``1582ddb``) was verified with exactly this
+window, and the *seam lines* themselves with a diagnostic build
+(``TEST_SPIN_BANDS=1``: the spin's 25-row strips rendered as 16
+distinct gray bands through the *same write path* as the moon — the
+bands confirmed the lines at the 25-px band edges, and the
+single-window write removed them). That flow retired with the spin
+subsystem on 2026-11-13 (diagnostic included).
 
-.. code-block:: text
-   :caption: Sustained spin acceptance (S3, 2026-11-01)
-
-   [120 s of settled spin, no user interaction]
-   (no PANEL IO STUCK; no WDT reset; no reboots)
-
-The *seam lines* themselves were verified with a diagnostic build
-(``TEST_SPIN_BANDS=1``): the spin's 25-row strips become 16 distinct
-gray bands (darkest to brightest), so a glitch at a strip seam (a
-stray line, a shifted boundary, a row that does not land) shows on a
-clean pattern with no moon texture to confound it. The bands build
-renders one gray per strip through the *same write path* as the
-moon; the diagnostic confirmed the lines at the 25-px band edges,
-and the single-window write removed them (the user's visual
-confirmation followed the serial acceptance — the serial log proves
-the *write path*, the eye proves the *picture*).
-
-The P4's spin is verified the same way, with the async-DSI reject
-count added: the ``moon_panel_draw_wait`` retries log a warning only
-when a strip is *not accepted after ~100 ms* (a drop), and the
-acceptance is **0 such warnings over the window**, with the
-throughput-floor rejects (``ESP_ERR_INVALID_STATE`` on back-to-back
-calls, retried at 1 ms) counted separately — measured **~3,900
-rejects, 0 dropped strips** over a long session, spin-only (0
-during the sweep and dusk).
+What survives is the write path *underneath* the atomic whole-panel
+flushes. The P4 keeps the async-DSI reject accounting: the
+``moon_panel_draw_wait`` retries log a warning only when a strip is
+*not accepted after the ~100-attempt loop* (~2 s per strip — a drop),
+and the acceptance stays **0
+such warnings over the window**, with the throughput-floor rejects
+(``ESP_ERR_INVALID_STATE`` on back-to-back calls, retried at 1 ms)
+counted separately — measured **~3,900 rejects, 0 dropped strips**
+over a long session in the spin era; today's traffic is the atomic
+``lv_refr_now`` flushes on the same path.
 
 The dusk and the sleep machine
 ------------------------------

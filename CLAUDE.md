@@ -63,19 +63,13 @@ system, build steps) **update the site** — do not let it drift:
 ## Hard invariants (violations ship visible bugs)
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
-  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). Three sanctioned
-  exceptions: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, a
+  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). ONE sanctioned
+  exception: the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`, a
   hardware panel-brightness ramp that writes no pixels — the new screen's one
-  atomic flush runs while the panel is still black), the burn-in spin's direct
-  panel write (wrapped `esp_lcd_panel_draw_bitmap`, the render task owns the
-  panel for that frame under `s_panel_mtx`; **S3 only** — `UI_MOON_SPIN_ENABLE`
-  defaults `n` on the P4, whose IPS LCD has no burn-in duty, and the knob seam
-  has no direct-write path), and the TF sweep cache's direct-write replay
-  (`UI_MOON_TFCACHE`: warm-replayed INTERMEDIATE frames are displayed by the
-  sweep task itself via `moon_spin_write_panel` — step-rotated, UI keep-mask
-  composited, under `s_panel_mtx`, paced to `UI_MOON_TFCACHE_FPS`; the FINAL
-  frame still rides the tick's atomic `lv_refr_now`, which reconciles LVGL with
-  the panel and re-anchors the spin).
+  atomic flush runs while the panel is still black). (The burn-in spin's direct
+  panel write and the TF sweep cache's direct-write replay were exceptions
+  until 2026-11-13, when the spin subsystem was removed entirely — the home
+  moon is plain LVGL, shown static.)
 - `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
   either; `spiffs/` edits are separate `spiffs:` commits.
 - The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are

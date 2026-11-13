@@ -5,8 +5,8 @@
  *
  * The shared screens (components/ui screens.c/ui.c/actions.c) call the
  * moon_ui.h surface unchanged. On the two AMOLED clocks that surface is
- * moon_ui.c: PSRAM buffers, spin, orbit, dusk, TF cache, 0x51 fades,
- * keep-masks. The knob is a backlit LCD with no IMU, no codec and no
+ * moon_ui.c: PSRAM buffers, orbit, dusk, TF cache, 0x51 fades.
+ * The knob is a backlit LCD with no IMU, no codec and no
  * direct-panel-write path, so most of that machinery has no analogue --
  * the honest mapping:
  *
@@ -308,10 +308,6 @@ bool moon_ui_dusk_complete(void) { return false; }
 bool moon_ui_tilt_settled(void) { return true; } /* no IMU: always at rest */
 
 bool moon_ui_sweeping(void) { return knob_ui_sweeping(); }
-
-void moon_ui_set_panel_step(int step) { (void)step; /* no direct panel writes to pre-rotate */ }
-
-void moon_ui_rebuild_ui_mask(void) { /* No keep-mask: the spin never writes the panel behind LVGL here. */ }
 
 void moon_ui_dump_hang_context(void) {
     ESP_LOGI(TAG, "hang ctx: ready=%d started=%d sweeping=%d shown=%d duty=%d fade_pending=%d roots=%d", (int)s_ready,

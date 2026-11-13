@@ -467,8 +467,6 @@ bool moon_ui_screen_is_moon(enum ScreensEnum id) {
     return id == SCREEN_ID_MODEM_SLEEP || id == SCREEN_ID_WIFI || id == SCREEN_ID_LIGHT_SLEEP ||
            id == SCREEN_ID_DEEP_SLEEP;
 }
-void moon_ui_set_panel_step(int step) { (void)step; }
-void moon_ui_rebuild_ui_mask(void) {}
 /* Panel traffic hold (the QSPI completion-thief guard, task #29/#30):
  * no shared bus lock on the host -- screens.c arms/releases around the
  * WiFi scan session; accept and forget. */

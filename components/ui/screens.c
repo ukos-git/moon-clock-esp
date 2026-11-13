@@ -45,7 +45,7 @@ static void moon_screen_prepare(lv_obj_t *obj) {
 }
 
 /* Settings screens are moon-less by design: black background only, NO
- * moon image (the spin pipeline's s_images[] stays at the four moon
+ * moon image (s_images[] stays at the four moon
  * screens). */
 static void settings_screen_prepare(lv_obj_t *obj) {
     lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1647,7 +1647,7 @@ static void event_handler_cb_wifi_roller(lv_event_t *e) {
  * strips right over the clock row (y 176..214, y 214..252) in ~3 s. The
  * drop is permanent: LVGL believes the flush landed (flush_cb answers
  * ready even for held writes), nothing re-invalidates those strips, and
- * the spin's direct write only ever covers the moon window -- the clock
+ * nothing else repaints them -- the clock
  * row keeps showing whatever the last full paint left there (the user's
  * "blank white, no digits"). Same completion-thief class as the wake-sync
  * storm (task #29) -- which is why that had a traffic hold and this never
@@ -3654,9 +3654,7 @@ static bool s_clock_unsynced_dim;
  * mid-roll. If it is converging on the LATEST pair it is left to
  * finish; if a NEWER pair arrived, the roll is dropped (the label
  * settles to the latest at translate 0) and no second animation
- * starts. The spin's UI keep-mask is rebuilt when the pixels change
- * (roll start via the tick's label_changed, and settle, in the
- * animation timer). */
+ * starts. */
 /* Roll gate (UI_CLOCK_ROLL_ENABLE, default n -- the user asked for the
  * minute-change animation off 2026-11-13): seed mirrors the Kconfig 'n'
  * for Kconfig-less builds (the host sim compiles this file); a target
@@ -3692,8 +3690,7 @@ static void clock_roll_exec(void *obj, int32_t y) {
  * window: settle to the resting state -- one line (the rolled-in pair)
  * at translate 0. Both changes land in the same frame (LVGL renders
  * after the timer handler returns), so the pair holds its on-screen
- * position -- no flicker. Rebuild the spin's UI keep-mask (the
- * settled pair's pixels are authoritative now). */
+ * position -- no flicker. */
 static void clock_roll_done(lv_anim_t *a) {
     lv_obj_t *label = (lv_obj_t *)a->var;
     int i = clock_pair_index(label);
@@ -3704,11 +3701,9 @@ static void clock_roll_done(lv_anim_t *a) {
     lv_label_set_text(label, s_clock_roll_target[(size_t)i]);
     tick_value_change_obj = NULL;
     s_clock_rolling[i] = 0;
-    moon_ui_rebuild_ui_mask();
 }
 
 void tick_user_widget_clock(int startWidgetIndex) {
-    bool label_changed = false;
 #if !CONFIG_CLOCK_USE_PCF85063A
     // Dim the time while the P4 clock is unsynced (no SNTP since boot and
     // no trusted manual entry) so an approximate value reads as
@@ -3747,7 +3742,6 @@ void tick_user_widget_clock(int startWidgetIndex) {
                 tick_value_change_obj = label;
                 lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
-                label_changed = true;
                 continue;
             }
             const char *old = lv_label_get_text(label);
@@ -3759,21 +3753,18 @@ void tick_user_widget_clock(int startWidgetIndex) {
                 tick_value_change_obj = label;
                 lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
-                label_changed = true;
                 continue;
             }
             if (old[0] == new_pair[0] && old[1] == new_pair[1])
                 continue;
             if (!CONFIG_UI_CLOCK_ROLL_ENABLE) {
                 /* Roll off (family default): hard-swap every change --
-                 * the SAME branch the mixed-jump hard-swap takes, so
-                 * the label_changed tail rebuilds the spin keep-mask
-                 * identically. (The arc itself never animated: LVGL's
+                 * the SAME branch the mixed-jump hard-swap takes. (The
+                 * arc itself never animated: LVGL's
                  * lv_arc_set_value is instant.) */
                 tick_value_change_obj = label;
                 lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
-                label_changed = true;
                 continue;
             }
             /* The wheel delta on the mod-10 digit circles: every
@@ -3807,7 +3798,6 @@ void tick_user_widget_clock(int startWidgetIndex) {
                 tick_value_change_obj = label;
                 lv_label_set_text(label, new_pair);
                 tick_value_change_obj = NULL;
-                label_changed = true;
                 continue;
             }
             /* Build the two-line strip centred on the old pair. The
@@ -3846,7 +3836,6 @@ void tick_user_widget_clock(int startWidgetIndex) {
             lv_anim_set_exec_cb(&anim, clock_roll_exec);
             lv_anim_set_completed_cb(&anim, clock_roll_done);
             lv_anim_start(&anim);
-            label_changed = true;
         }
     }
     {
@@ -3856,19 +3845,11 @@ void tick_user_widget_clock(int startWidgetIndex) {
             tick_value_change_obj = ((lv_obj_t **)&objects)[startWidgetIndex + 2];
             lv_label_set_text(((lv_obj_t **)&objects)[startWidgetIndex + 2], new_val);
             tick_value_change_obj = NULL;
-            label_changed = true;
         }
     }
     {
-        if (tick_alarm_prefix(s_alarm_prefix))
-            label_changed = true;
+        tick_alarm_prefix(s_alarm_prefix);
     }
-    if (label_changed)
-        /* The spin's UI keep-mask protects LVGL's text by pixel: the
-         * new digits live at pixels the old mask does not cover (and
-         * the old ones at pixels it still covers), so the mask must
-         * follow the label (LVGL task here, as the snapshot needs). */
-        moon_ui_rebuild_ui_mask();
 }
 
 /* The shared clock widget's per-screen PARENT container (layout

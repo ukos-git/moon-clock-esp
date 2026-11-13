@@ -6,8 +6,8 @@ a 466×466 RGB565 QSPI panel driven by a dual-core CPU whose display
 DMA can move **32 KiB at a time**, whose PSRAM is **not DMA-capable**,
 and whose panel io can, on rare occasions, **lose a DMA completion and
 hang the bus forever**. Every mechanism on this page — the 25-row
-strips, the 23,300-byte transfer cap, the panel mutex, the direct
-spin write, the watchdog — is a consequence of those three facts.
+strips, the 23,300-byte transfer cap, the panel mutex, the watchdog —
+is a consequence of those three facts.
 
 The panel and the numbers that constrain it
 -------------------------------------------
@@ -105,33 +105,27 @@ vtable's ``draw_bitmap`` member:
    :caption: components/ui/moon_ui.c (the draw_bitmap wrapper)
 
    static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start,
-                                          int x_end, int y_end, const void *color_data) {
-       (void)panel;
+                                           int x_end, int y_end, const void *color_data) {
+       /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
+        * transaction's trans-done notify, so a drop at this seam breaks its
+        * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
+        * nothing reaches this wrapper at all. */
        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-       if (s_front && /* strip overlaps the moon area */) {
-           /* refresh the front mirror for the strip about to be
-            * overwritten (the front content AFTER this write) */
-           ...
-       }
-       r = moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data);
+       esp_err_t r = moon_panel_draw_bitmap_locked(panel, x_start, y_start, x_end, y_end,
+                                                   color_data, false);
        xSemaphoreGive(s_panel_mtx);
        return r;
    }
 
-The wrapper does two jobs at once:
-
-1. **Serialization** — every LVGL flush strip takes ``s_panel_mtx``,
-   the same mutex the spin's direct write and the 0x51 brightness
-   writes take. The panel io's own bus lock serializes the actual
-   transfers; the mutex is what keeps *this* project's code from
-   queueing a 0x51 behind a strip that might never complete (the
-   freeze, below).
-2. **The front mirror** — for every strip that overlaps the moon
-   area, the wrapper copies the strip into ``s_front`` *after* the
-   write (the panel content the strip now holds). The spin's
-   composite reads ``s_front`` as "what LVGL is currently showing in
-   the moon area" — the clock label, the seconds arc — so the spin's
-   direct write can keep them in place (the UI keep-mask, below).
+The wrapper's job is **serialization** — every LVGL flush strip takes
+``s_panel_mtx``, the same mutex the 0x51 brightness writes take, and
+rides it into ``moon_panel_draw_wait`` (the accepted/rejected retry,
+below). The panel io's own bus lock serializes the actual transfers;
+the mutex is what keeps *this* project's code from queueing a 0x51
+behind a strip that might never complete (the freeze, below). (Until
+2026-11-13 the wrapper had a *second* job — refreshing the front
+mirror ``s_front`` so the spin's direct-write composite could keep the
+clock and arc in place; retired with the spin subsystem, below.)
 
 The atomic whole-panel flush (``moon_ui_screen_switched``) is the same
 path with the panel mutex *not* involved at the LVGL level: the
@@ -139,124 +133,47 @@ synchronous ``lv_refr_now`` drains all 19 strips back-to-back through
 the wrapper, and under ``s_rgb_mtx`` the moon image is stable, so no
 strip can show a mixed frame.
 
-The spin's direct write
------------------------
+The direct-write spin (history, removed 2026-11-13)
+----------------------------------------------------
 
-The burn-in spin (:doc:`the animation pipelines <animations>`) displays at 8 fps. Its original path —
-invalidate the moon image and let LVGL re-render the whole panel per
-spin frame — cost ~175 ms of *touch-core* work per frame: at 8 fps
-that is the LVGL task busy 100% of the time redrawing pixels that are
-95% identical to the previous frame, and the spin fell to ~6 fps with
-visible jitter. The fix moved the spin's frame **off LVGL entirely**:
+Until 2026-11-13 the home's moon rotated on the panel by itself. The
+burn-in spin displayed a once-baked frame at 8 fps by **direct**
+``esp_lcd_panel_draw_bitmap`` writes under ``s_panel_mtx``, bypassing
+LVGL entirely (the second sanctioned exception). Its original LVGL
+path had cost ~175 ms of *touch-core* work per frame — the LVGL task
+100% busy redrawing pixels 95% identical to the previous frame, the
+spin falling to ~6 fps with visible jitter — so the write moved off
+LVGL, and a per-pixel UI keep-mask (analytic ring band + a full-screen
+``lv_snapshot`` with the moon hidden) plus a front mirror ``s_front``
+refreshed by the wrapper kept the clock label and seconds arc legible
+over the rotating disk.
 
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (moon_spin_write_panel, S3 path)
+Two hardware lessons from that era still constrain the panel path:
 
-   xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
-   if (CONFIG_TEST_SPIN_BANDS == 0) {
-       for (int y = 0; y < MOON_PX; y++) {
-           ...
-           if (mrow[x]) row[x] = frow[x];   /* keep-mask pixels: front mirror */
-       }
-   }
-   /* S3: ONE continuous write of the whole 400x400 window. The io
-    * driver issues a single CASET+RASET + 0x2C and streams the 320 KB
-    * with CS held active between 466x25x2 = 23,300 B chunks -- the bus
-    * max_transfer_sz is set to exactly that size in the vendored BSP,
-    * because the S3's largest DMA-capable internal-RAM block is ~31 KiB
-    * (the io driver's default 32 KiB chunking NO_MEM'd the first chunk
-    * of this write). The 16-strip variant (one CASET/RASET re-latch +
-    * CS toggle per strip) left a visible seam line at every 25-row
-    * strip boundary (2026-11-01). */
-   (void)moon_panel_draw_wait(s_panel, MOON_IMG_POS, MOON_IMG_POS,
-                              MOON_IMG_POS + MOON_PX, MOON_IMG_POS + MOON_PX, s_disp);
-   xSemaphoreGive(s_panel_mtx);
+- **One window, not sixteen.** The spin's 320 KB whole-disk write was
+  a single ``CASET`` + ``RASET`` + ``0x2C`` with the CS line held
+  active between the io driver's 23,300-B chunks; the earlier 16-strip
+  variant (one window re-latch + CS toggle per 25-row strip) left a
+  **visible seam line at every strip boundary** — a QSPI artifact of
+  the repeated re-latch, not a data error (measured clean 2026-11-01:
+  zero errors, zero WDT/reboots over 120 s of sustained spin). And the
+  S3's largest DMA-capable internal block is ~31 KiB, which is why the
+  vendored BSP's ``max_transfer_sz`` stays pinned to exactly the
+  23,300-B strip size — a 32 KiB first chunk would NO_MEM the staging
+  copy. The LVGL flush path rides that same cap today.
+- **The snapshot can starve.** A keep-mask rebuild is a ~434 KB
+  full-screen ``lv_snapshot`` from the PSRAM pool; a live TF codec
+  scratch (~1.1 MB of gray-JPEG buffers) could squeeze it out, the
+  rebuild kept ``s_mask_dirty`` and retried on the tilt monitor's 1 s
+  tick, and a stale mirror pasted old clock digits between the fresh
+  flushes (task #39, 2026-11-13 — the sweep returning the codec
+  scratch after its last frame was that fix).
 
-The frame budget at 8 fps (125 ms/frame):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 18 52
-
-   * - Step
-     - Time (S3)
-     - Note
-   * - angle integrate + ``moon_rotate`` gather
-     - ~8 ms
-     - :doc:`rotation and the LUT <rotate-lut>`; 400×400 Q15.15 gather
-   * - step-rotate into ``s_disp`` + keep-mask composite
-     - ~4 ms
-     - ``spin_step_rotate`` (the orientation step) + the mask loop
-   * - panel write
-     - ~30–40 ms
-     - 320 KB over QSPI, async DMA after the staging copies;
-       CPU is mostly idle
-   * - *total*
-     - *~45 ms*
-     - *~80 ms of headroom per frame*
-
-Two details of the S3 write are worth keeping. First, **one window,
-not sixteen**: the 320 KB write is a *single* ``CASET`` + ``RASET`` +
-``0x2C`` with the CS line held active between the io driver's 23,300-B
-chunks. The earlier 16-strip variant (one window + CS toggle per
-25-row strip) left a **visible seam line at every strip boundary** —
-a QSPI panel artifact of the repeated window re-latch, not a data
-error. The single-window form was measured 2026-11-01: zero errors
-over the first spin frames, zero WDT/reboots over 120 s of sustained
-spin.
-
-Second, the **23,300-B ``max_transfer_sz``**: the io driver's default
-chunking (32 KiB) would have staged a 32 KiB internal copy for the
-first chunk of the 320 KB stream and NO_MEM'd — the largest
-DMA-capable internal block is ~31 KiB. Setting the cap to exactly the
-strip size makes the chunking match the staging budget.
-
-The P4 writes differently (smaller strips: the panel and its PSRAM are
-X16/XIP, so a large strip read starves the DPI controller's FIFO —
-:doc:`the P4 port <p4-port>`), but the structure is identical: one atomic window per
-frame, ``s_panel_mtx`` held for the whole write, the real
-``draw_bitmap`` (not the wrapper) so the mutex is taken once.
-
-The UI keep-mask
-----------------
-
-The spin writes the rotated moon *everywhere except where LVGL's own
-UI lives* — the clock label (which sits *inside* the disk, so a radius
-rule cannot separate moon from UI) and the seconds-arc ring outside
-it. The mask is **per pixel**, one bit per moon-area pixel, built from
-the analytic ring band plus a full-screen ``lv_snapshot`` with the
-moon image hidden (the screen root is black everywhere, so every
-non-black pixel *is* UI):
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c (mask rebuild, abridged)
-
-   /* snapshot the active screen with the moon images hidden; every
-    * non-black pixel is UI -> set its bit in s_ui_mask. The snapshot is
-    * screen-local; the panel is rotated by the orientation step, so the
-    * mask is re-rotated (spin_step_rotate's case logic) when the step
-    * changes. Refreshed on: every screen switch, a clock/alarm label
-    * change (the only content that changes shape while a moon screen
-    * is active), and an orientation step change. */
-
-The mask is refreshed (a) on every screen switch, (b) when the clock
-or alarm label changes shape (the only UI content that changes while a
-moon screen is active — the ring and knob never leave their band),
-and (c) on an orientation-step change (the mask is screen-local; the
-panel is rotated by the root transform, so the mask rotates with it).
-
-A rebuild is a full-screen ``lv_snapshot`` — ~434 KB from the PSRAM
-pool, so it can fail. The contract then (task #32, 2026-11-13): a
-failed rebuild **leaves** ``s_mask_dirty`` set — the tilt monitor's
-1 s tick retries until it lands — and logs the PSRAM free/largest
-state (rate-limited). Clearing the flag on a failed build was the
-original bug: the spin then kept pasting the *stale* front mirror
-over every heal inside the moon window (the alarm/settings-exit /
-deep-sleep-wake clock-row artifacts). The companion fix keeps the
-pool sized for the snapshot: a card-less sweep verdict returns the
-TF codec scratch (~860 KB of gray-JPEG buffers the classic path
-never touches — ``tfcache_scratch_free``) instead of holding it for
-the boot.
+The subsystem — keep-mask, mirror, step-rotate, byte-swap helper,
+direct writes — was removed in its entirety later the same day at the
+user's request (*"It does more things worse than good."*). The home
+moon is plain LVGL, shown static; every moon frame now rides the
+atomic ``lv_refr_now`` path and the wrapper's second job is gone.
 
 The lost-DMA-completion freeze (and the watchdog)
 -------------------------------------------------
@@ -265,15 +182,15 @@ The worst bug this project hit was a **silent, permanent, no-WDT
 freeze** with a deterministic repro: a whole-panel LVGL flush in
 flight while the spin's strip writes raced it. The root cause:
 
-1. Every QSPI panel write — LVGL flush strip, spin frame, 0x51
+1. Every QSPI panel write — LVGL flush strip, drain probe, 0x51
    brightness — goes through the panel io's one ``spi_device`` and the
    GPSPI **bus lock** (a hardware-managed background request).
 2. A queued DMA transfer's completion was *lost* (a CO5300 + QSPI
    driver failure mode on this board).
 3. The bus lock's REQ/PEND bit was never cleared.
-4. Every later ``spi_device_acquire_bus`` — LVGL's next flush, the
-   spin's next strip, a 0x51 write — **blocked forever** in
-   ``dev_wait`` (``portMAX_DELAY``), and the panel mutex was *held*
+4. Every later ``spi_device_acquire_bus`` — LVGL's next flush, a 0x51
+   write — **blocked forever** in ``dev_wait`` (``portMAX_DELAY``),
+   and the panel mutex was *held*
    for the duration.
 5. Two tasks parked on one bus lock, no holder, no timeout: the
    Task WDT does not fire (parked tasks keep the idles alive), the
@@ -308,20 +225,24 @@ The fix is three layers:
    }
 
 - **Layer 1 — serialization**: ``s_panel_mtx`` (the wrapper above) so
-  no 0x51 or spin write is *queued behind* a strip that might never
+  no 0x51 write is *queued behind* a strip that might never
   complete. A 0x51 write queued behind a lost-completion DMA parks
   *the ramp's writer* forever; the mutex prevents that interleave
   entirely.
-- **Layer 2 — the fade hold**: ``s_fade_busy`` makes the spin **skip
-  its panel write** while a 0x51 ramp is running (the spin keeps
-  integrating its angle — the moon holds its pose for ~240 ms — and
-  resumes from the exact angle when the ramp ends). The ramp's 0x51
-  writes are then the *only* panel-io traffic in flight.
+- **Layer 2 — the fade hold**: ``s_fade_busy`` makes every other
+  brightness writer stand down while a 0x51 ramp is running (the ramp
+  runs on the panel mutex step by step, and
+  ``moon_ui_panel_brightness_set`` joins the same flag — so the ramp's
+  0x51 writes are the *only* panel-io brightness traffic in flight).
+  In the spin's era this layer also froze the spin's panel write for
+  the ramp's ~240 ms; with the spin gone the flag's whole job is
+  making 0x51 ramps mutually exclusive and keeping other brightness
+  writers off the ramp's window.
 - **Layer 3 — the watchdog**: ``s_panel_mtx`` is held only for a strip
-  (~10 ms) or a spin frame (30–80 ms) or a whole-panel flush (< 500
+  (~10 ms), a 0x51 ramp step, or a whole-panel flush (< 500
   ms). A test take that overruns 3 s *can only mean the bus is
   stuck* — no legitimate path waits that long — and the watchdog
-  restarts the device. Priority 3 (above the spin and every UI task);
+  restarts the device. Priority 3 (above every UI task);
   the take is its only work, so it starves nothing.
 
 The design philosophy: the bus lock is a *shared hardware resource
@@ -366,8 +287,7 @@ mutex, because the hold flags cannot drop an already-queued strip);
 outcomes (and the kickoff's task-create-failure branch does); the
 release merely stamps a 4 s radio-tail drain that the UI-tick poll
 then unfreezes at. While held, every panel
-write is *dropped*: the spin's direct strip writes and the 0x51
-brightness API are gated in ``moon_panel_draw_wait`` /
+write is *dropped*: the 0x51 brightness API is gated in
 ``moon_ui_panel_brightness_set``, the fade/dim ramps skip whole, and
 the LVGL flushes drop at a **stub flush callback swapped into the
 display** (``moon_ui_panel_repaint_pending``, polled on the UI tick —
@@ -381,11 +301,9 @@ error path blocks in the notify take, so a dropped flush leaves
 ``wait_for_flushing`` forever (IDLE0 WDT spam, frozen screen — found
 by the same proof hammer). Writers are never *blocked*: parking a
 writer is the wake-freeze regression ``0c35dd7`` cured, and a dropped
-writer simply advances — LVGL keeps drawing into its buffers, the spin
-keeps integrating its angle. On release the UI tick restores the real
+writer simply advances — LVGL keeps drawing into its buffers. On release the UI tick restores the real
 flush callback and invalidates the active screen: one whole-panel
-repaint re-anchors panel, mirror and spin (the spin rewrites at 8 fps
-regardless). The wake's own
+repaint re-anchors panel and screen. The wake's own
 brightness restore and the WiFi-screen dim ramp run *before* the hold
 arms, so the transient screen switch keeps its normal traffic.
 
@@ -478,7 +396,7 @@ lands, and no mutex is held — the task WDT only prints and the panel
 watchdog is blind. The seam's answer is ``moon_flush_wait_cb``,
 installed at ``moon_ui_init`` via ``lv_display_set_flush_wait_cb``:
 it gates on what actually matters instead of on the LVGL hand — every
-panel writer (adapter flushes, spin strips, atomics) serializes under
+panel writer (adapter flushes, atomic displays, drain probes) serializes under
 ``s_panel_mtx`` and ``moon_panel_draw_wait`` consumes the trans-done
 *inside* it, so a free mutex means the flush physically landed.
 Returning makes LVGL clear ``disp->flushing`` itself and the refr pass
@@ -516,8 +434,8 @@ sanctioned atomic whole-panel flush is followed by a
 strip DMAs in ~10 ms, so the healthy path is an attempt-0 accept) and
 writes one black **full-width row** at the panel's bottom edge via the
 real ``s_panel`` handle (``y 465``: DRAM, 466 px, 932 B, one DMA chunk
-— the exact strip shape; bottom edge: outside the moon window's mirror
-band and every widget, black on AMOLED black; passing ``NULL`` instead
+— the exact strip shape; bottom edge: outside every widget, black on
+AMOLED black; passing ``NULL`` instead
 dereferences the CO5300 panel struct inside ``s_orig_draw`` — a
 core-0 ``LoadProhibited`` the first probe build learned the hard way).
 The row's shape is not cosmetic: the original probe was ONE 2-byte
@@ -538,10 +456,11 @@ proved the probe cannot live on the dusk path alone: the next
 capture's first boot lost the BOOT SWEEP's last-frame hand (the
 spin's first window write rejected on attempt 0, 120 ms after
 ``sweep 5/5 shown``) and then lost another after the scan-hold
-release repaint, with the watchdog naming task ``moon_spin``. So the
+release repaint, with the watchdog naming task ``moon_spin`` — both
+captures predate the spin's removal. So the
 helper runs after every atomic display: the dusk replay, each sweep
-frame, the orbit batch, the spin park, the wake's static pose display,
-the re-bake display, and the screen-switch flush with its fade-in leg.
+frame, the orbit batch, the wake's static pose display,
+the deferred re-bake display, and the screen-switch flush with its fade-in leg.
 S3 only (the DPI P4 rejects legitimately and needs no such probe); the
 last dusk frame is probed too — its next writer is the wake after the
 deep-sleep countdown.
@@ -667,10 +586,19 @@ serialized entry point:
 
    esp_err_t moon_ui_panel_brightness_set(int pct) {
        esp_err_t r;
+       if (s_ready && panel_hold_live())
+           return ESP_OK; /* storm: the 0x51 would ride the same bus; the wake
+                           * restored the level BEFORE the hold arms, so nothing
+                           * is owed -- and s_panel_pct stays truthful */
        if (s_ready && s_panel_mtx) {
+           bool held = s_fade_busy;
+           if (!held)
+               s_fade_busy = true; /* the 0x51 rides alone (the fade's rule) */
            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
            r = bsp_display_brightness_set(pct);
            xSemaphoreGive(s_panel_mtx);
+           if (!held)
+               s_fade_busy = false;
        } else {
            r = bsp_display_brightness_set(pct);
        }
@@ -692,17 +620,9 @@ One last hardware fact: the QSPI io sends 16-bit pixels **MSB-first**,
 which is the *byte-swapped* form of LVGL's native RGB565. The LVGL
 flush path is pre-swapped by the adapter's bridge (``lv_draw_sw_rgb565_swap``
 fires for this panel interface), so LVGL's strips arrive at the panel
-correct. The spin's *direct* write bypasses the adapter's swap, so
-``spin_step_rotate`` byte-swaps every pixel on the way out:
-
-.. code-block:: c
-   :caption: components/ui/moon_ui.c
-
-   #if defined(CONFIG_BOARD_P4)
-   static inline uint16_t spin_bswap16(uint16_t v) { return v; }
-   #else
-   static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (v << 8)); }
-   #endif
+correct. (The spin's *direct* write used to bypass the adapter's swap
+and byte-swap every pixel itself on the way out — retired with the
+spin subsystem.)
 
 The P4 board's (Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) MIPI-DSI
 panel wants LVGL-native order (its adapter bridge
@@ -713,4 +633,4 @@ PNGs) and shows up on the panel as every color's red and blue
 channels transposed — the "the moon looks teal" bug class.
 
 :doc:`The animation pipelines <animations>` assembles these pieces into the motion: the boot sweep,
-the free spin, the dusk, and the fade.
+the dusk, and the fade.

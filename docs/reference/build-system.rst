@@ -200,7 +200,7 @@ conventions with *specific bugs* behind each:
    is the build's. The mismatch guard (above) makes the two agree at
    build time, so the app can gate on the board and never see a
    target/board split. The P4's moon-geometry choices (``MOON_PX``
-   400/650, ``MOON_R`` 200/325, the 103/65-row spin strips) are the
+   400/650, ``MOON_R`` 200/325, the 25/130-row display strip pitch) are the
    main consumers (:doc:`the P4 port <../implementation/p4-port>`).
 
 4. **``managed_components/`` is gitignored.** The component manager

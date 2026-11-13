@@ -55,7 +55,7 @@ static bool g_asleep = false;
  * the wake handler (action_wake_screen) runs in the LVGL task (indev
  * event / moon tilt timer / the RTC minute tick), and the old blocking
  * wifi_manager_init() there parked the LVGL task for the whole ~1.25 s
- * WPA2 handshake -- no LVGL timer fired, so the moon spin and the clock
+ * WPA2 handshake -- no LVGL timer fired, so the moon tick and the clock
  * were frozen until the connection landed. The display now stays live
  * during the handshake (on the transient WiFi screen); the drop back to
  * the airplane screen is picked up by the UI tick below (LVGL task)
@@ -201,9 +201,7 @@ static int32_t s_win_head;
 static int32_t s_win_count;
 static int8_t s_ref_qx, s_ref_qy; /* the settled-pose reference, int4 scale */
 static bool s_have_ref;
-static int32_t s_last_v10;   /* the last value pushed to LVGL, 1/10 deg (dedupe) */
-static int s_last_spin_step; /* the last 90-degree step published to the
-                                spin's direct panel write (dedupe) */
+static int32_t s_last_v10; /* the last value pushed to LVGL, 1/10 deg (dedupe) */
 static int64_t s_ori_last_ms;
 /* Sustained confirmation (same idiom as the tilt monitor's streak): a
  * step change applies only when ~1 s of consecutive samples agree on it
@@ -314,23 +312,6 @@ static int8_t s_ori_test_gx, s_ori_test_gy;
  * alarm screens alike; LVGL's hit test is inverse-mapped through the
  * transform (lv_indev_search_obj), so touch lands on the right widget in
  * any orientation. */
-/* Publish the 90-degree step to the spin's direct panel write (its
- * frames pre-rotate by it) and re-rotate the spin's UI keep-mask: the
- * mask is screen-local and must match the step the panel frames are
- * rotated by. The rebuild is LVGL-task only (the snapshot) -- the
- * orientation pipeline runs there, so it is immediate; the app_main
- * base push (main task) is a no-op there and leaves the mask-dirty
- * flag for the moon's 1 Hz monitor tick (the spin is not running at
- * boot anyway). */
-static void ori_publish_spin_step(int32_t v10) {
-    const int step = (int)((((v10 % 3600) + 3600) % 3600) / 900);
-    if (step == s_last_spin_step)
-        return;
-    s_last_spin_step = step;
-    moon_ui_set_panel_step(step);
-    moon_ui_rebuild_ui_mask();
-}
-
 static void ori_apply_v10(int32_t v10) {
     lv_obj_t *roots[16] = {
         objects.modem_sleep,
@@ -357,7 +338,6 @@ static void ori_apply_v10(int32_t v10) {
         lv_obj_set_style_transform_pivot_y(roots[i], LV_PCT(50), 0);
         lv_obj_set_style_transform_rotation(roots[i], v10, 0);
     }
-    ori_publish_spin_step(v10);
 }
 
 /* Push the base orientation to every screen root (app_main, after
@@ -777,8 +757,8 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
      * stamp is seen by the same tick's expiry check. */
     screens_wifi_scan_hold_poll();
     /* A released panel traffic hold (the wake-sync storm) dropped flushes on
-     * purpose: invalidate the active screen once so LVGL re-emits the whole
-     * panel and panel / mirror / spin re-anchor together. */
+     * purpose: invalidate the active screen once so LVGL re-emits the
+     * whole panel and the panel re-anchors. */
     if (moon_ui_panel_repaint_pending()) {
         ESP_LOGI(TAG, "panel repaint: whole-screen invalidate of the active screen");
         lv_obj_invalidate(lv_screen_active());
@@ -1381,11 +1361,10 @@ void action_wake_screen(lv_event_t *e) {
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
 
-    // Normal (active) mode: the moon resumes its free spin from the
-    // exact pose it parked at sleep (no snap) and re-bakes if the
+    // Normal (active) mode: the moon re-bakes if the
     // calendar day rolled over while we slept. Wakes show the current
     // phase STATIC -- no synodic animation on wake (the sweep is the
-    // boot animation only; after a dusk the wake pose display in
+    // boot animation only; after a dusk the wake display in
     // moon_ui_pause(false) replaces the dark side atomically).
     moon_ui_pause(false);
     moon_ui_day_tick();
@@ -1506,8 +1485,8 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     clock_idle_set_enabled(false);
     g_idle_timer_active = false;
 
-    // Sleep mode: the moon parks at its exact spin pose (no tilt
-    // rotation), then the light-sleep "dusk" spins it about its pole
+    // Sleep mode: the moon stays STATIC under the sleep screens, then
+    // the light-sleep "dusk" spins it about its pole
     // to the fully unilluminated side (1 degree/frame). The RTC
     // countdown for the deep-sleep transition is armed by the moon
     // tick on the dusk's LAST frame -- the sleep depth follows the
@@ -1545,7 +1524,8 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // sleep level, paced like the screen-switch fade. This is a
     // both-moon screen (no fade switch), so nothing else would dim it.
     // The dusk keeps spinning at the new level (the ramp's 0x51 steps
-    // hold the spin's panel writes; the dusk's frames display from
+    // hold off the other brightness writers; the dusk's frames display
+    // from
     // this same LVGL task, so they simply resume after the ramp). The
     // wake ramps back to 100 (no-op when the panel was never dimmed --
     // e.g. the TEST hook wakes).
