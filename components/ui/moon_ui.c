@@ -832,6 +832,20 @@ typedef struct {
 } moon_panel_io_spi_view_t;
 
 static volatile uint32_t s_panel_done_cnt;
+/* PROBE INSTRUMENT (capture-8 follow-up, ISR truth): the freezes are
+ * TASK-DEPENDENT -- sweep-frame drains (UI tick task, the GPSPI ISR's
+ * core) witness their own completion; the park drain (spin task) and
+ * the switch fade-in / screen-switch drains (LVGL task) freeze for the
+ * full 600 ms while the ambient counter advances between sites. The
+ * last open gap of the impossible triangle (accept ⇒ ISR ran ⇒
+ * post_cb ⇒ increment, yet the poller sees nothing) is VISIBILITY: an
+ * increment written by the ISR may never reach this poller's cached
+ * line. This mirror lives in RTC FAST memory -- bus-side, off both
+ * cores' DCache, ISR-safe -- and the ISR logs its own count every 64
+ * completions. A frozen site printing an ADVANCED mirror is a
+ * visibility failure (poller blind); a frozen mirror is a genuine
+ * post_cb absence. */
+static RTC_FAST_ATTR volatile uint32_t s_panel_done_cnt_isr;
 static esp_lcd_panel_io_color_trans_done_cb_t s_prev_trans_done;
 static void *s_prev_trans_done_ctx;
 static bool s_panel_witness; /* armed by moon_panel_witness_arm() */
@@ -840,6 +854,9 @@ static bool IRAM_ATTR moon_panel_trans_done_cb(esp_lcd_panel_io_handle_t io, esp
                                                void *user_ctx) {
     (void)user_ctx;
     s_panel_done_cnt++;
+    s_panel_done_cnt_isr++;
+    if ((s_panel_done_cnt_isr & 63u) == 0u)
+        ESP_EARLY_LOGW(TAG, "tdc #%lu", (unsigned long)s_panel_done_cnt_isr);
     if (s_prev_trans_done)
         return s_prev_trans_done(io, edata, s_prev_trans_done_ctx);
     return false;
@@ -968,10 +985,19 @@ static void moon_panel_drain_verify(const char *site) {
         if (!s_panel_witness)
             return; /* witness not armed: accept-only, the capture-4 behaviour */
         const uint32_t c0 = s_panel_done_cnt;
+        const uint32_t m0 = s_panel_done_cnt_isr; /* ISR-TRUTH mirror snapshot */
         for (int i = 0; i < 30 && s_panel_done_cnt == c0; i++)
             vTaskDelay(pdMS_TO_TICKS(10));
         if (s_panel_done_cnt != c0)
             return; /* this probe pixel's own completion was witnessed */
+        /* ISR-TRUTH INSTRUMENT: if the cached counter sat dead but the
+         * RTC-FAST mirror moved, the ISR ran and the POLLER was blind
+         * (visibility); if the mirror sat dead too, post_cb never
+         * fired for this write. Read this line against the "tdc #N"
+         * ISR logs in the same window. */
+        if (s_panel_done_cnt_isr != m0)
+            ESP_LOGE(TAG, "drain %s probe %d: CACHED counter blind (stuck at %lu) while ISR mirror advanced %lu -> %lu",
+                     site, probe, (unsigned long)c0, (unsigned long)m0, (unsigned long)s_panel_done_cnt_isr);
         if (probe == 1) {
             /* PROBE INSTRUMENT (capture-6 follow-up): four boots caught
              * this path deterministically at "sweep frame" with the
