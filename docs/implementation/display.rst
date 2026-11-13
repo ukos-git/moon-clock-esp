@@ -245,6 +245,19 @@ moon screen is active — the ring and knob never leave their band),
 and (c) on an orientation-step change (the mask is screen-local; the
 panel is rotated by the root transform, so the mask rotates with it).
 
+A rebuild is a full-screen ``lv_snapshot`` — ~434 KB from the PSRAM
+pool, so it can fail. The contract then (task #32, 2026-11-13): a
+failed rebuild **leaves** ``s_mask_dirty`` set — the tilt monitor's
+1 s tick retries until it lands — and logs the PSRAM free/largest
+state (rate-limited). Clearing the flag on a failed build was the
+original bug: the spin then kept pasting the *stale* front mirror
+over every heal inside the moon window (the alarm/settings-exit /
+deep-sleep-wake clock-row artifacts). The companion fix keeps the
+pool sized for the snapshot: a card-less sweep verdict returns the
+TF codec scratch (~860 KB of gray-JPEG buffers the classic path
+never touches — ``tfcache_scratch_free``) instead of holding it for
+the boot.
+
 The lost-DMA-completion freeze (and the watchdog)
 -------------------------------------------------
 
@@ -476,6 +489,53 @@ proceed. The healthy path never runs the callback:
 ``wait_for_flushing`` calls it only while ``flushing`` is still set.
 Shared code — S3 and P4 alike; the knob's render seam has no shared
 bus lock to wedge.
+
+The class's sixth member is the **light-sleep dusk replay** (2026-11-13,
+"the S3 AMOLED crashed coming back from light sleep via touch"):
+``moon_tick_cb`` displays each published dusk frame with the tick's
+atomic ``lv_refr_now`` while the dusk task bakes the next frame on
+core 1 — and ``lv_refr_now`` returns with the frame's LAST strip's DMA
+still in flight. When that one trans-done is lost (same driver failure
+mode; on the bench it surfaced right after an atomic whole-panel
+display — a dusk frame in the first two ``TEST_AUTO_WAKE_SEC`` hammer
+captures, later a boot-sweep last frame and a scan-hold release
+repaint), the depth-1 flush queue stays occupied
+invisibly — nothing touches the bus until the user's wake runs its
+atomic pose flush into the occupied slot. The capture reads cleanly:
+last dusk strip enqueued, ~700 ms of quiet, then every wake strip is
+rejected on attempt 0 ("spi transmit (queue) color failed", task
+``lvgl`` per the wrapper's attribution probe), each strip burning
+~2 s of the 100-attempt retry loop, and the panel watchdog restarts
+the board (``PANEL IO STUCK ... by task lvgl``, ``rst:0xc``) — a
+~4.5 s freeze into the user's face, then a reboot that reads as a
+crash.
+
+The fix applies the class's own logic one step earlier: every
+sanctioned atomic whole-panel flush is followed by a
+**drain-verify** — ``moon_panel_drain_verify(site)`` waits 20 ms (a
+strip DMAs in ~10 ms, so the healthy path is an attempt-0 accept) and
+writes one 1-px black pixel at the panel's bottom edge via the real
+``s_panel`` handle (bottom edge: outside the moon window's mirror band
+and every widget, black on AMOLED black; passing ``NULL`` instead
+dereferences the CO5300 panel struct inside ``s_orig_draw`` — a
+core-0 ``LoadProhibited`` the first probe build learned the hard way).
+The write forces the pending trans-done to be consumed NOW, at the
+flush site; if it does not come back (``moon_panel_draw_wait`` rejects
+for ~2 s), the log names the SITE and the same recovery the watchdog
+would run seconds later — into the next writer's freeze — happens
+there instead, during the dusk where it is invisible. The bench
+proved the probe cannot live on the dusk path alone: the next
+capture's first boot lost the BOOT SWEEP's last-frame hand (the
+spin's first window write rejected on attempt 0, 120 ms after
+``sweep 5/5 shown``) and then lost another after the scan-hold
+release repaint, with the watchdog naming task ``moon_spin``. So the
+helper runs after every atomic display: the dusk replay, each sweep
+frame, the orbit batch, the spin park, the wake's static pose display,
+the re-bake display, and the screen-switch flush with its fade-in leg.
+Healthy cost: one small write per displayed frame. S3 only (the DPI
+P4 rejects legitimately and needs no such probe); the last dusk frame
+is probed too — its next writer is the wake after the deep-sleep
+countdown. The watchdog keeps covering every path the probe does not.
 
 The 0x51 brightness path
 ------------------------

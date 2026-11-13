@@ -720,10 +720,26 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK)
             return ESP_OK;
+        if (attempt == 0) {
+            /* Anomaly-only attribution (2026-11-13 wake wedge): a FIRST
+             * attempt that fails means the depth-1 flush queue slot is
+             * already held -- the previous strip's trans-done has not
+             * landed (legitimately in flight, or lost). Task + y tell the
+             * wedge timeline apart; P4's async DMA2D rejects are routine
+             * here, so the line is rate-limited, not per-strip. */
+            static uint32_t s_reject0_log;
+            const uint32_t now = lv_tick_get();
+            if (now - s_reject0_log >= 5000) {
+                s_reject0_log = now;
+                ESP_LOGW(TAG, "panel draw rejected attempt 0: task %s (y %d..%d)", pcTaskGetName(NULL), y_start, y_end);
+            }
+        }
         vTaskDelay(1); /* a full tick: pdMS_TO_TICKS(1) = 0 ticks at HZ=100
                         * made this a 100-attempt tight spin, not a backoff */
     }
-    ESP_LOGW(TAG, "panel draw not accepted after ~100 ms (y %d..%d)", y_start, y_end);
+    /* ~100 ms is stale: each rejected attempt costs the io onFly poll
+     * (~10 ms) plus the delay tick, so the loop is ~2 s per strip. */
+    ESP_LOGW(TAG, "panel draw not accepted: task %s (y %d..%d)", pcTaskGetName(NULL), y_start, y_end);
     return ESP_ERR_TIMEOUT;
 }
 
@@ -753,6 +769,47 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
     esp_err_t r = moon_panel_draw_wait(panel, x_start, y_start, x_end, y_end, color_data);
     xSemaphoreGive(s_panel_mtx);
     return r;
+}
+
+/* Drain-verify after a sanctioned atomic whole-panel flush. lv_refr_now
+ * returns with the LAST strip's DMA still in flight -- and when that one
+ * trans-done is lost, the depth-1 flush queue stays occupied invisibly
+ * until the NEXT writer hits it: the LVGL task pinned on s_panel_mtx at
+ * ~2 s per strip after the wake flush (capture 2), the spin task after
+ * the boot sweep's last frame (attempt-0 reject 120 ms after "sweep 5/5
+ * shown", capture 3). The panel watchdog restarts seconds later and
+ * names the VICTIM, not the flush that lost the hand. One 1-px drain
+ * write at the AMOLED's bottom edge (outside the moon window -- mirror
+ * untouched -- and outside every widget; a live panel hold has no strip
+ * in the queue, so it is simply accepted) forces that hand to be
+ * consumed NOW, at the flush site. The 20 ms lead-in makes the healthy
+ * path an attempt-0 accept (a strip DMAs in ~10 ms), so a loss shows up
+ * as draw_wait's ~2 s of rejects and a give-up; nothing at our layer can
+ * reclaim the slot, and the watchdog restart is coming either way --
+ * into the next writer's freeze -- so restart HERE, at the site that
+ * lost the hand. S3 only: the lost-completion family is the GPSPI
+ * driver's; the P4 DSI path keeps its proven behaviour untouched. */
+static void moon_panel_drain_verify(const char *site) {
+#if !defined(CONFIG_BOARD_P4)
+    vTaskDelay(pdMS_TO_TICKS(20));
+    static const uint16_t s_drain_px; /* one black pixel */
+    /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
+     * (s_orig_draw) on this handle -- a NULL here is a core-0
+     * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
+     * is what the first drain-verify build did on its very first dusk
+     * frame. The direct-write seam always passes the real handle. */
+    esp_err_t drain = moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_drain_px);
+    if (drain != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "drain verify after %s: the last strip's trans-done was lost (%s); "
+                 "recovering here instead of pinning the next writer",
+                 site, esp_err_to_name(drain));
+        vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+        esp_restart();
+    }
+#else
+    (void)site;
+#endif
 }
 
 /* Synodic wake sweep state (see the sweep section below). The task
@@ -922,6 +979,8 @@ static void moon_convert_to_rgb(void) {
     if (moon_on_lvgl())
         lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
+    if (moon_on_lvgl())
+        moon_panel_drain_verify("re-bake");
 }
 
 /* Sphere-model camera: rotate the camera basis about the right
@@ -1814,6 +1873,10 @@ static void moon_park(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
+    /* The parked frame is the LAST write before the sleep screen holds:
+     * a hand lost here would already occupy the queue when the wake's
+     * own atomic flush runs. */
+    moon_panel_drain_verify("park");
     s_spin_deg = (int)(rad * 57.29577951308232f + 0.5f);
     ESP_LOGI(TAG, "parked at spin deg %d (exact pose)", s_spin_deg);
 }
@@ -3280,6 +3343,9 @@ static void moon_tick_cb(lv_timer_t *timer) {
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);
             xSemaphoreGive(s_rgb_mtx);
+            /* The batch right before the orbit's last one hands the
+             * spin its first window write -- catch a lost hand here. */
+            moon_panel_drain_verify("orbit batch");
         }
         if (s_orbit_strip_shown >= MOON_NSTRIPS) {
             /* Re-anchor (under the buffer mutex) BEFORE clearing the
@@ -3308,6 +3374,10 @@ static void moon_tick_cb(lv_timer_t *timer) {
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
+        /* Capture 3: the sweep's LAST frame is this branch's flush, and
+         * 120 ms later the spin's first window write was rejected at
+         * attempt 0 -- the hand was lost here. Catch it on the tick. */
+        moon_panel_drain_verify("sweep frame");
         s_sweep_shown = s_sweep_pub;
         ESP_LOGI(TAG, "sweep %u/%d shown in %dms", (unsigned)s_sweep_shown, (int)s_sweep_frames,
                  (int)((esp_timer_get_time() - r0) / 1000));
@@ -3353,6 +3423,12 @@ static void moon_tick_cb(lv_timer_t *timer) {
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
+        /* The LAST dusk frame matters too: its next writer is the wake
+         * after the deep-sleep countdown -- a hand lost there would
+         * freeze the DEEP wake (the exact stall the wake-sync storm fix
+         * cured), minutes later and in the user's face. Mid-dusk the
+         * restart this catches is invisible. */
+        moon_panel_drain_verify("dusk replay");
         s_dusk_shown = s_dusk_pub;
         ESP_LOGI(TAG, "dusk %u/%d shown in %dms", (unsigned)s_dusk_shown, (int)s_dusk_frames,
                  (int)((esp_timer_get_time() - r0) / 1000));
@@ -3400,10 +3476,10 @@ static void moon_panel_watchdog_task(void *arg) {
          * Restart so the user gets a working clock instead of a dead
          * one; the log marks it unambiguously for the field. */
         ESP_LOGE(TAG,
-                 "PANEL IO STUCK: panel mutex held %lu ms after a %lu ms wait -- the QSPI "
+                 "PANEL IO STUCK: panel mutex held %lu ms after a %lu ms wait by task %s -- the QSPI "
                  "bus lock is stuck (a DMA completion was lost); restarting",
                  (unsigned long)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS,
-                 (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
+                 (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS, pcTaskGetName(xSemaphoreGetMutexHolder(s_panel_mtx)));
         vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
         esp_restart();
     }
@@ -3893,6 +3969,12 @@ void moon_ui_pause(bool pause) {
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);
             xSemaphoreGive(s_rgb_mtx);
+            /* Capture 2's member: this wake flush's last strip losing
+             * its hand pinned the LVGL task here ~2 s per strip -- the
+             * user's "crash coming back from light sleep". A loss now
+             * restarts immediately (before the panel comes up) instead
+             * of freezing ~4.5 s and restarting into the user's face. */
+            moon_panel_drain_verify("wake static");
             /* Re-anchor the spin to the displayed pose (like
              * moon_park): the on-screen frame is now at this angle. */
             s_spin_last_rad = rad;
@@ -4185,6 +4267,7 @@ void moon_ui_screen_switched(void) {
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
+        moon_panel_drain_verify("switch fade-in");
         fade_ramp(0, 100);
         s_fade_busy = false; /* the spin's panel writes resume */
         ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
@@ -4193,6 +4276,7 @@ void moon_ui_screen_switched(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
+    moon_panel_drain_verify("screen switch");
 }
 
 /* Hang-diagnostic context dump (TEST_HANG_WATCH only; the hang-watcher in

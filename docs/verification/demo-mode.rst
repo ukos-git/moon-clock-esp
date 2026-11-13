@@ -382,3 +382,43 @@ needed to fire), zero aborts. Steady-state CPU from the same captures
 1–5 %; the hub shows a one-time ~44 % load burst, then 4–5 % idle.
 Touch had headroom all along — the unresponsiveness was the wedge
 state, now bounded.
+
+**Follow-up closed (2026-11-13) — the light-sleep wake crash (task #32).**
+User report: "the s3 amoled just crashed coming back from light sleep
+via touch." The line after the blackout named it: ``rst:0xc
+(RTC_SW_CPU_RST)`` — a panel-watchdog ``esp_restart``, not a panic (and
+with the #31 flush-wait bound installed, ``moon_flush_wait_cb`` never
+fired in any capture, so the pin was below that seam). It is the lost
+completion family's next member (:ref:`display-lost-dma`), sitting on
+the tick's DUSK replay: ``lv_refr_now`` returns with the last strip's
+DMA in flight, and when exactly that one trans-done is lost the depth-1
+flush queue stays occupied invisibly — the NEXT writer discovers it.
+Capture 1, boot 1: dusk frame 8 lost its last strip's completion at
+203.4 s; ~700 ms later the touch wake ran the wake branch's own atomic
+flush into the occupied slot, the LVGL task pinned ``s_panel_mtx`` at
+~2 s per strip for 4.5 s, and the watchdog logged ``PANEL IO STUCK
+... by task lvgl`` and restarted — the "crash". The probe build
+(attempt-0 anomaly log, give-up log, mutex-holder name in the STUCK
+log) reproduced it with ``task lvgl`` on all three lines; the second
+wake in the same capture woke clean, matching the sporadic report.
+The fix capture then exposed a second flush site of the same shape on
+its very first boot: the BOOT SWEEP's last frame — the tick's atomic
+flush — lost its last strip's hand 120 ms before the spin's first
+window write was rejected at attempt 0, and after the scan-hold
+release repaint lost another one the watchdog named ``task moon_spin``
+at 76.9 s. So the catch cannot live on the dusk path alone. Fix:
+``moon_panel_drain_verify(site)`` — a 1-px black write at the AMOLED's
+bottom edge (outside the moon window — the front-buffer mirror is
+untouched — and outside every widget; under a panel hold it is trivially
+accepted) run after EVERY sanctioned atomic whole-panel flush: dusk
+replay, sweep frame, orbit batch, spin park, wake-static display,
+re-bake display, and the screen-switch flush with its fade-in leg.
+The 20 ms lead-in makes the healthy path an attempt-0 accept (a strip
+DMAs in ~10 ms); a loss shows up as draw_wait's ~2 s of rejects and
+logs the SITE, then restarts there — before the next writer is frozen,
+and during the dusk it is invisible; the watchdog restart was coming
+either way. S3-only (``#if !defined(CONFIG_BOARD_P4)``), the P4 DSI
+path untouched. Side finding: capture 1's first "timers fired while
+LVGL was stuck" reading was an artifact of the file spanning the
+watchdog restart — boot 2's uptimes overwrote boot 1's window; grep
+the ``rst:0x``/``cpu_start`` markers before reading any window.
