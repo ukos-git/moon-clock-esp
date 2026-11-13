@@ -712,14 +712,27 @@ static inline uint16_t spin_bswap16(uint16_t v) { return (uint16_t)((v >> 8) | (
  * strip is DROPPED. The S3's QSPI panel writes synchronously, so the first
  * attempt always succeeds and the retry costs nothing there. Callers must
  * hold s_panel_mtx. */
+/* Last-accepted-write witness (lost-completion family): when a write
+ * finally gives up, the stuck depth-1 queue slot belongs to whoever was
+ * accepted LAST, not to the task that notices it. Logging the victim
+ * (task + y) alone sent two captures chasing the wrong writer; the
+ * accepted-write line names the culprit -- and the drain-verify pixel
+ * is unmistakable in it (y 465..466). Plain statics: log-only, a torn
+ * read across the spin/LVGL writers costs nothing. */
+static volatile uint32_t s_last_accept_tick;
+static char s_last_accept_desc[40];
+
 static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                       const void *color_data) {
     if (panel_hold_live())
         return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
     for (int attempt = 0; attempt < 100; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
-        if (r == ESP_OK)
+        if (r == ESP_OK) {
+            snprintf(s_last_accept_desc, sizeof(s_last_accept_desc), "%s y%d..%d", pcTaskGetName(NULL), y_start, y_end);
+            s_last_accept_tick = lv_tick_get();
             return ESP_OK;
+        }
         if (attempt == 0) {
             /* Anomaly-only attribution (2026-11-13 wake wedge): a FIRST
              * attempt that fails means the depth-1 flush queue slot is
@@ -739,7 +752,9 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
     }
     /* ~100 ms is stale: each rejected attempt costs the io onFly poll
      * (~10 ms) plus the delay tick, so the loop is ~2 s per strip. */
-    ESP_LOGW(TAG, "panel draw not accepted: task %s (y %d..%d)", pcTaskGetName(NULL), y_start, y_end);
+    ESP_LOGW(TAG, "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit)",
+             pcTaskGetName(NULL), y_start, y_end, s_last_accept_desc,
+             (unsigned long)(lv_tick_get() - s_last_accept_tick));
     return ESP_ERR_TIMEOUT;
 }
 
@@ -788,24 +803,52 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
  * reclaim the slot, and the watchdog restart is coming either way --
  * into the next writer's freeze -- so restart HERE, at the site that
  * lost the hand. S3 only: the lost-completion family is the GPSPI
- * driver's; the P4 DSI path keeps its proven behaviour untouched. */
+ * driver's; the P4 DSI path keeps its proven behaviour untouched.
+ *
+ * TWO rounds (capture 4, same day): the single probe proved the flush's
+ * last strip -- its accept means the queue was empty -- but can never
+ * prove its OWN completion. The dusk-replay probe was accepted ~700 ms
+ * before the wake flush; the wake-join burst (core-1 rebake start, the
+ * cache-invalidation storm) ate the probe pixel's trans-done, and the
+ * wake flush's strip 1 met the occupied queue -- the exact freeze the
+ * helper exists to prevent, just one write later. Round 2 is that
+ * proof: its attempt-0 accept means round 1's done landed (a depth-1
+ * queue cannot accept a new write until the pending one's completion
+ * fires -- the same FIFO fact that makes round 1's accept a proof of
+ * the flush strip). Round 2's own pixel is then the last unproven
+ * write -- until the next writer's accept, which is precisely why the
+ * dusk branch also probes BEFORE starting the wake flush ("wake
+ * preflush"): whatever the last accepted write was, its done is
+ * proven before LVGL's strips begin, with the panel still dark. The
+ * irreducible remainder (a loss in the ~ms between an accept and the
+ * burst landing on it) stays watchdog-covered, and the give-up line
+ * now names it (s_last_accept_desc). An io-callback counter would be
+ * airtight but cannot be had: esp_lcd's io callback slot is
+ * single-occupancy and the esp_lvgl_adapter bridge owns it -- its
+ * NONE-tear-mode handler IS this display's flush-ready signal
+ * (lvgl_bridge_v9_handle_vsync), so replacing it wedges LVGL itself.
+ * Healthy cost: two 1-px writes + 30 ms per site. */
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
-    vTaskDelay(pdMS_TO_TICKS(20));
     static const uint16_t s_drain_px; /* one black pixel */
-    /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
-     * (s_orig_draw) on this handle -- a NULL here is a core-0
-     * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
-     * is what the first drain-verify build did on its very first dusk
-     * frame. The direct-write seam always passes the real handle. */
-    esp_err_t drain = moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_drain_px);
-    if (drain != ESP_OK) {
-        ESP_LOGE(TAG,
-                 "drain verify after %s: the last strip's trans-done was lost (%s); "
-                 "recovering here instead of pinning the next writer",
-                 site, esp_err_to_name(drain));
-        vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
-        esp_restart();
+    for (int round = 0; round < 2; round++) {
+        /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
+         * free by the time the probe reaches it (attempt-0 accept). */
+        vTaskDelay(pdMS_TO_TICKS(20));
+        /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
+         * (s_orig_draw) on this handle -- a NULL here is a core-0
+         * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
+         * is what the first drain-verify build did on its very first dusk
+         * frame. The direct-write seam always passes the real handle. */
+        esp_err_t drain = moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_drain_px);
+        if (drain != ESP_OK) {
+            ESP_LOGE(TAG,
+                     "drain verify after %s (round %d): the pending write's trans-done was lost (%s); "
+                     "recovering here instead of pinning the next writer",
+                     site, round, esp_err_to_name(drain));
+            vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+            esp_restart();
+        }
     }
 #else
     (void)site;
@@ -3965,6 +4008,17 @@ void moon_ui_pause(bool pause) {
             moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                         moon_cos15(rad), moon_sin15(rad));
             xSemaphoreGive(s_rgb_mtx);
+            /* Capture 4's member, sealed BEFORE the flush starts: the
+             * last accepted write (the dusk replay's drain pixel, or the
+             * park's) has its done proven here -- if the wake-join burst
+             * ate it, this probe's round 1 never gets accepted and the
+             * restart fires with the panel STILL showing the dusk frame:
+             * a blink, never the 4.5 s freeze-then-crash the user saw.
+             * Its accepted round 2 is then proven by the wake flush's
+             * own strip 1, whose last strip the wake-static drain
+             * proves below -- the chain has no unproven hand left at
+             * the visible moment. */
+            moon_panel_drain_verify("wake preflush");
             moon_invalidate_all();
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             lv_refr_now(NULL);

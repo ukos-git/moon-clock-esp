@@ -532,10 +532,44 @@ release repaint, with the watchdog naming task ``moon_spin``. So the
 helper runs after every atomic display: the dusk replay, each sweep
 frame, the orbit batch, the spin park, the wake's static pose display,
 the re-bake display, and the screen-switch flush with its fade-in leg.
-Healthy cost: one small write per displayed frame. S3 only (the DPI
-P4 rejects legitimately and needs no such probe); the last dusk frame
-is probed too — its next writer is the wake after the deep-sleep
-countdown. The watchdog keeps covering every path the probe does not.
+S3 only (the DPI P4 rejects legitimately and needs no such probe); the
+last dusk frame is probed too — its next writer is the wake after the
+deep-sleep countdown.
+
+The single probe still left one member uncaught, and the next capture
+walked into it: a probe's accept proves the *previous* write (a
+depth-1 queue only accepts when empty) but can never prove its
+**own** completion. The dusk-replay probe was accepted ~700 ms before
+the wake; the wake-join burst — the deferred re-bake task starting on
+core 1, the cache-invalidation storm around it — then ate the probe
+pixel's trans-done, and the wake flush's strip 1 met the occupied
+queue: the same 2 s-per-strip freeze, one write later, with the
+watchdog naming the victim task ``lvgl`` again. The helper therefore
+runs the write TWICE (each round with the 20 ms lead-in): round 2's
+attempt-0 accept means round 1's completion fired — a depth-1 queue
+cannot accept a new write until the pending one's completion runs, the
+same FIFO fact that makes round 1's accept a proof of the flush's last
+strip. Round 2's pixel is then the last unproven write until the next
+writer's accept, which is why the dusk wake branch additionally probes
+BEFORE starting the pose flush (``wake preflush``): whatever the last
+accepted write was — the dusk replay's pixel, the park's — its done is
+proven while the panel still shows the dusk frame, so a loss restarts
+as a blink in the dark, never as the freeze-then-crash in the user's
+face. The flush's own last strip is then closed by the post-flush
+``wake static`` probe and the wake's strip 1 closes round 2 — the
+chain leaves no unproven hand at the visible moment. A hardware
+completion counter would be airtight but is not obtainable: the
+esp_lcd io callback slot is single-occupancy and the
+``esp_lvgl_adapter`` bridge owns it — in the S3's ``NONE`` tear-avoid
+mode that very handler *is* the display's flush-ready signal
+(``display_bridge_v9_handle_vsync``), so replacing it wedges LVGL
+itself. The irreducible remainder (a loss in the few ms between an
+accept and a burst landing on it) stays watchdog-covered, and
+``moon_panel_draw_wait``'s give-up line now names it: it logs the
+last ACCEPTED write (task + strip range + age — the probe pixel is
+unmistakable at ``y465..466``), so the culprit and the victim appear
+in one line. Healthy cost: two 1-px writes and ~40 ms per probe site;
+the watchdog keeps covering every path the probe does not.
 
 The 0x51 brightness path
 ------------------------
