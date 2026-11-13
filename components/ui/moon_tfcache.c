@@ -450,9 +450,20 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
 
 bool tfcache_ready(void) { return s_ready; }
 
-bool tfcache_fetch_buf_alloc(void) {
+void tfcache_scratch_free(void) {
     if (!s_ready)
-        return false;
+        return; /* never up, or already handed back */
+    free16(s_dec_rgb);
+    free16(s_enc_in);
+    free16(s_enc_out);
+    s_dec_rgb = s_enc_in = s_enc_out = NULL;
+    s_enc_out_cap = 0;
+    ESP_LOGI(TAG, "codec scratch returned (card-less boot): PSRAM back for the mask snapshot");
+}
+
+bool tfcache_fetch_buf_alloc(void) {
+    if (!s_ready || !s_enc_out)
+        return false; /* scratch handed back after the card-less verdict */
     if (!s_fetch_in)
         s_fetch_in = alloc16(s_enc_out_cap);
     return s_fetch_in != NULL;
@@ -467,7 +478,7 @@ void tfcache_disable(const char *reason) {
 }
 
 bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
-    if (!s_ready || S != s_px)
+    if (!s_ready || S != s_px || !s_dec_rgb || !s_enc_out)
         return false;
     char path[128];
     hour_path(hour, path, sizeof(path));
@@ -526,7 +537,7 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S) {
 }
 
 bool tfcache_store(int64_t hour, const uint8_t *gray, int S) {
-    if (!s_ready || S != s_px)
+    if (!s_ready || S != s_px || !s_enc_in || !s_enc_out)
         return false;
     int in_bytes;
     if (s_enc_fmt == 1) {

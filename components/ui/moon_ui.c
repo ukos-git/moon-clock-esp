@@ -1472,7 +1472,8 @@ static void spin_mask_band(void) {
  * the step it was built with, so the build re-checks the step and
  * retries if it moved (a step change is a 1 s-sustained tilt event,
  * so one retry suffices in practice; the cap bounds it). */
-static void spin_mask_rebuild_once(lv_obj_t *screen, int step);
+static uint32_t s_mask_bail_log; /* rate limit for the stale-mirror WARN */
+static bool spin_mask_rebuild_once(lv_obj_t *screen, int step);
 static void spin_mask_rebuild(void) {
     if (!s_ui_mask)
         return;
@@ -1481,20 +1482,25 @@ static void spin_mask_rebuild(void) {
         return;
     for (int tries = 0; tries < 4; tries++) {
         const int step0 = s_panel_step;
-        spin_mask_rebuild_once(screen, step0);
-        if (s_panel_step == step0) {
+        if (spin_mask_rebuild_once(screen, step0) && s_panel_step == step0) {
             s_mask_dirty = false;
-            return; /* the mask matches its step */
+            return; /* a full pair landed, and it matches its step */
         }
     }
-    /* The step moved while every build ran: the mask is stale for the
-     * current step. Leave s_mask_dirty -- the next monitor tick
-     * rebuilds (a step change needs 1 s of sustained tilt, so this is
-     * the rare-of-rare case). */
+    /* Either the step moved while every build ran, or every snapshot
+     * failed (see the bail in once()): the pair is STALE. Leave
+     * s_mask_dirty -- the tilt monitor's 1 s tick retries until a full
+     * pair lands. (Clearing it on a failed build froze the mirror on
+     * its stale seed: the spin then repainted stale clock digits over
+     * every heal flush -- the home clock-row artifact family,
+     * 2026-11-13.) A step change needs 1 s of sustained tilt, so the
+     * step-move-alone path is the rare-of-rare case. */
 }
 
-/* One mask build at the given step (see spin_mask_rebuild). */
-static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
+/* One mask build at the given step (see spin_mask_rebuild). Returns
+ * false when the snapshot failed and the existing pair was kept -- the
+ * caller must keep s_mask_dirty so the monitor retries. */
+static bool spin_mask_rebuild_once(lv_obj_t *screen, int step) {
     /* Hide the active moon image for the snapshot (restore on every
      * path -- the snapshot is synchronous, no yield in between). */
     lv_obj_t *img = NULL;
@@ -1522,17 +1528,25 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
                   shot->data;
     }
     if (!shot_ok && s_mask_runs_n >= 0) {
-        /* The snapshot is a transient LVGL-pool allocation and CAN fail
-         * when the prefetch queue has taken the PSRAM pool down to a
-         * ~100 KB head (measured on the 8 MB S3): a band-only rebuild
-         * would then DESTROY the good glyph mask and leave the mirror
-         * out of sync with the mask. Keep the existing pair intact and
-         * let the next trigger (minute label change, screen switch,
-         * queue drained) rebuild. With no pair yet (the first build)
-         * fall through to band-only. */
+        /* The snapshot is a transient heap allocation (stdlib
+         * lv_malloc -> a ~434 KB PSRAM block on this board) and CAN
+         * fail when the TF codec scratch/slots take the PSRAM head
+         * down (measured on the 8 MB S3): a band-only rebuild would
+         * then DESTROY the good glyph mask and leave the mirror out of
+         * sync with the mask. Keep the existing pair intact and FAIL
+         * the build -- the caller keeps s_mask_dirty and the tilt
+         * monitor retries every second. With no pair yet (the first
+         * build) fall through to band-only. */
         if (shot)
             lv_draw_buf_destroy(shot);
-        return;
+        const uint32_t now = lv_tick_get();
+        if (now - s_mask_bail_log >= 5000) {
+            s_mask_bail_log = now;
+            ESP_LOGW(TAG, "mask snapshot FAILED (mirror stays stale): SPIRAM free %u KB, largest block %u KB",
+                     (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+                     (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
+        }
+        return false;
     }
     spin_mask_band();
     if (shot_ok) {
@@ -1601,6 +1615,7 @@ static void spin_mask_rebuild_once(lv_obj_t *screen, int step) {
         lv_draw_buf_destroy(shot);
     spin_mask_runs_rebuild(); /* the run list always matches the mask */
     ESP_LOGI(TAG, "ui mask rebuilt: %d UI px, %d runs (step %d)", kept, s_mask_runs_n, step);
+    return true;
 }
 
 /* Write the current s_rgb (screen frame) to the panel as the spin's
@@ -2335,6 +2350,16 @@ static void moon_sweep_task(void *arg) {
                 if (s_mask_dirty)
                     ESP_LOGW(TAG, "tf replay: mask rebuild did not run within 2 s");
             }
+        } else if (tfcache_ready()) {
+            /* TF rejected for this boot (hours < 1, probe, slots or
+             * task OOM): hand the codec scratch back -- ~860 KB of
+             * PSRAM the classic path never touches, while it starves
+             * the mask snapshot (a ~434 KB lv_malloc), freezing the
+             * front mirror on its stale seed so the spin repaints
+             * stale clock digits over every heal (the home clock-row
+             * artifact family, 2026-11-13). The sweep runs once per
+             * boot, so the verdict is final here. */
+            tfcache_scratch_free();
         }
     }
     int64_t tf_prev_pub = esp_timer_get_time(), tf_worst_gap = 0; /* perf: worst display-to-display gap */

@@ -67,6 +67,14 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 /* true while the cache is usable (mounted, folder ready, scratch up). */
 bool tfcache_ready(void);
 
+/* The sweep rejected the TF path this boot (card-less fallback): return
+ * the codec scratch (three big PSRAM buffers, ~860 KB at 400px/q90 --
+ * dead weight the classic path never touches while it starves the spin
+ * mask's 434 KB lv_snapshot). fetch/store then fail like any !ready
+ * state. Only the sweep task may call it, after its TF decision (the
+ * prefetch task is never started on the card-less path). */
+void tfcache_scratch_free(void);
+
 /* Allocate the persistent fetch-input buffer (the size a valid cached
  * file can reach). Call from the prefetch owner BEFORE allocating the
  * slot queue: with a full queue the PSRAM pool is down to a ~100 KB
