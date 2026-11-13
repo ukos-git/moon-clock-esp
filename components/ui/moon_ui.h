@@ -20,9 +20,10 @@ extern "C" {
  * its direct-panel-write compositing were removed 2026-11-13), the
  * tilt-driven
  * out-of-plane orbit (QMI8658 IMU sphere model),
- * the light-sleep "dusk" spin (the pole-axis rotation to the fully
- * unilluminated side; the deep-sleep countdown is armed only when it
- * completes), and the tilt activity/wake monitor. Every frame the
+ * and the tilt activity/wake monitor (the light-sleep "dusk" pole spin
+ * was removed 2026-11-13 -- light sleep is a static dim frame now, and
+ * the deep-sleep countdown is armed at the light-sleep entry itself).
+ * Every frame the
  * pipeline produces is displayed as one atomic whole-frame / whole-panel
  * lv_refr_now (never LVGL's async 25-row strip drain), which is the "no
  * top-to-bottom redraw" rule.
@@ -57,14 +58,6 @@ void moon_ui_bake_now(int64_t utc_epoch);
 void moon_ui_start(void);
 
 /**
- * Boot-animation SEAM, kept for the knob companion: the clock home
- * plays NO boot animation since 2026-11-13 (this is an empty no-op
- * there), while the knob's own producer seam plays its OWN boot sweep
- * here, so the shared wake flow keeps a single call site family-wide.
- */
-void moon_ui_replay_animation(void);
-
-/**
  * Cheap day-change probe (call at most once per minute, e.g. from the clock
  * display update): re-bakes when the calendar day rolls over.
  */
@@ -72,32 +65,14 @@ void moon_ui_day_tick(void);
 
 /**
  * Pause/resume the moon tick (sleep screens show a static moon). A pause
- * joins a running
- * dusk (the light-sleep pole spin) and interrupts the orbit; the frame
- * on screen simply stays under the sleep screens. The deep-sleep
- * transition after a
- * completed dusk keeps the dark side on screen.
+ * interrupts the orbit; the frame
+ * on screen simply stays under the sleep screens (the dusk pole spin
+ * that used to run here was removed 2026-11-13). A wake resumes the
+ * tick and, if a bake was still mid-flight when the sleep entry joined
+ * it (s_frame_stale), defers a current-phase re-bake to core 1 -- the
+ * tick's rebake leg displays the fresh frame atomically.
  */
 void moon_ui_pause(bool pause);
-
-/**
- * Start the light-sleep "dusk" (the pole-axis spin to the fully
- * unilluminated side, 1 degree/frame, shortest arc). Call AFTER
- * moon_ui_pause(true) so the on-screen pose (tilt
- * orbit viewport) is captured. The spin is a constant projection: the
- * fully-lit body-frame equirect map is baked ONCE for the epoch (~2 s)
- * and the intermediate frames re-project that fixed map through the
- * folded camera basis (a gather-class pass, no per-frame lighting
- * recompute, no terminator flicker); the final (dark-side) frame is one
- * full-resolution bake at the endpoint and lingers on the sleep
- * screens. The deep-sleep RTC countdown is armed on the LAST frame's
- * display (the tick), never at the light-sleep entry. Returns false
- * when the dusk could not start (no static phase yet / a pipeline owns
- * the buffers / the dark side is already the on-screen state), so the
- * caller can arm the countdown immediately as a fallback.
- * UI_MOON_DUSK_ENABLE.
- */
-bool moon_ui_dusk_start(void);
 
 /**
  * The tilt monitor's settled state: true while the measured departure of
@@ -116,13 +91,6 @@ bool moon_ui_tilt_settled(void);
  * shared actions.c idle re-arm and Wi-Fi-sync gates still honor there.
  */
 bool moon_ui_sweeping(void);
-
-/**
- * True once the dusk spin's dark-side frame is on screen (see
- * moon_ui_dusk_start). Reset by the wake and by any fresh bake. The
- * demo tour polls it to know its dusk spin completed (UI_DEMO_MODE).
- */
-bool moon_ui_dusk_complete(void);
 
 /**
  * Display the new screen's contents (moon image included) as ONE

@@ -1,7 +1,7 @@
 The idle timeout (light sleep)
 ==============================
 
-One parameterized sleep-settings builder (the light and deep screens are near-identical): the **idle-timeout** roller — 1–30 **minutes**, stored internally as seconds (60–1800) — and the icon-only **dusk animation toggle** on the same horizontal line (roller left of centre at −90, toggle right at +90; the row clears the exit button's band). The value is applied **live** via ``clock_idle_set_timeout_ms()``; the release persists the store. The toggle (a 96 px regular moon glyph, white on / grey off — no switch widget, ``LV_USE_SWITCH`` is off) is the *sleep-transition* animation (the dusk pole spin); the retired boot sweep's ``boot_anim_enable`` store flag (a BOOT animation, legacy no-op since 2026-11-13) is not exposed here.
+One parameterized sleep-settings builder (the light and deep screens are near-identical): the **idle-timeout** roller — 1–30 **minutes**, stored internally as seconds (60–1800) — alone and **centred** on its row (the row clears the exit button's band). The value is applied **live** via ``clock_idle_set_timeout_ms()``; the release persists the store. The icon-only **dusk animation toggle** (a 96 px regular moon glyph) that used to share this row left with the dusk itself on 2026-11-13 — light sleep is a static dim frame now, so there is no sleep-transition animation to toggle. The store's ``dusk_anim_enable`` — like the retired boot sweep's ``boot_anim_enable`` — stays as a legacy no-op, unread and unexposed.
 
 .. figure:: ../img/screens/annot/settings-light-sleep_s3.png
    :alt: the idle timeout (light sleep) — the S3 panel (466, annotated)
@@ -34,15 +34,10 @@ Elements
 
    * - 2
      - Idle timeout (1–30 min)
-     - The one roller on the shared line (210 px wide, 96 px numbers font). Applied live to the idle timer; the store keeps the seconds (the screen shows minutes).
+     - The one roller, centred on its row (210 px wide, 96 px numbers font). Applied live to the idle timer; the store keeps the seconds (the screen shows minutes).
      - ``event_handler_cb_settings_sleep_roller_released`` — options ``idle_timeout_sec`` (the store), ``CLOCK_IDLE_TIMEOUT_SEC`` (the seed)
 
    * - 3
-     - Dusk animation toggle
-     - The 96 px regular (unfilled) moon glyph in a 100 px clickable box; a tap flips the flag, saves, and recolors. Both sleep screens show the ONE sleep-transition toggle (the deep transition ends on the flat-black disk, so it carries no separate animation).
-     - :cfunc:`settings_anim_toggle`, ``event_handler_cb_settings_anim_toggle`` — option ``dusk_anim_enable`` (the store), ``UI_MOON_DUSK_ENABLE`` (the seed)
-
-   * - 4
      - Exit → hub
      - The shared bottom-centre exit back to the hub.
      - :cfunc:`settings_sub_screen_prepare`

@@ -32,7 +32,7 @@ The layer stack
      main["main.cpp — app_main: BSP bring-up, wifi boot, clock init, static moon bake, deep-sleep entry"]
      clock["components/clock — minute display, NTP, idle/sleep state, alarm scheduler, timezone, settings"]
      wifi["components/wifi — wifi_manager, wifi scan"]
-     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · orbit · dusk · panel write)"]
+     ui["components/ui — screens, navigation + wake/sleep flow, the moon pipeline (bake · orbit · panel write)"]
      moon["components/moon — the portable core (Ch. 11): ephemeris, bake, render, Q15.15, assets"]
      board["components/board — the board shim: display / panel / touch / IMU / RTC (S3 + P4, one API)"]
      bsp["vendored BSPs — S3: CO5300 QSPI · P4: JD9365 MIPI-DSI"]
@@ -86,7 +86,7 @@ is pinned to:
      - yes (``task_pin_to_core 0``)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - bake tasks (orbit / dusk / rebake)
+   * - bake tasks (orbit / rebake)
      - 1
      - **yes** (pinned, PSRAM-stack)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
@@ -104,7 +104,7 @@ is pinned to:
        for the 1.7 s wake freeze, :doc:`the clock and sleep machine <clock-sleep>`)
 
 Two design choices are worth calling out. First, the bake producers
-(dusk, orbit, rebake) are **pinned to core 1** because a bake
+(orbit, rebake) are **pinned to core 1** because a bake
 is CPU-bound work: the LVGL task (on core 0, with the touch pipeline,
 the clock minute update, and the fade ramps) must never share a core
 with a bake or a gather. Second, those pipelines run as *tasks*
@@ -133,9 +133,6 @@ The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
      - the LUT convert writes it (RGB565, one gather from
        ``s_frame``); LVGL reads it as the moon image
        (``s_dsc.data``)
-   * - ``s_shade_map``
-     - 864×432 × 1 B = 373 KB
-     - the dusk's pre-shaded body-frame map (:doc:`the animation pipelines <animations>`)
    * - relief gradient cache
      - 2048×1024 × 2 B = 4 MB
      - built once at boot (``moon_relief``), read by every bake
@@ -202,11 +199,11 @@ replay's producer) followed later the same day. Every moon frame now
 rides the LVGL path.)
 
 Everything else that shows moon content obeys the rule: the boot and
-wake displays (one atomic flush of the current-phase bake), the dusk's
-re-projected frames (same), the orbit
+wake displays (one atomic flush of the current-phase bake) and the orbit
 sweep (one atomic flush of the whole converted frame). (The boot
-sweep's frames — card-less and warm TF replay alike — had obeyed it
-one flush per published frame until its retirement.)
+sweep's frames — card-less and warm TF replay alike — and the dusk's
+re-projected frames had obeyed it one flush per published frame until
+their retirement.)
 
 Why the invariant is worth two locks
 ------------------------------------

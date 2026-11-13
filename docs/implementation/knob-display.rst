@@ -120,9 +120,10 @@ public headers from its own components:
   is a **documented no-op** (the S3's minute-freeze lesson,
   :doc:`the animations page <animations>` — the
   classify/event probe is the producer task's job on CPU1, never the
-  LVGL tick's); ``dusk_start`` says false, tilt says settled (no
+  LVGL tick's), tilt says settled (no
   spin seam at all since 2026-11-13 — the clock's seam API lost its
-  panel-step/keep-mask surface with the spin subsystem).
+  panel-step/keep-mask surface with the spin subsystem, and the dusk
+  seam entries with the dusk the same day).
 - ``knob_alarm_audio_stub.c`` answers ``alarm_audio.h``: ring/preview
   are silent no-ops and every selectable sound is honestly named
   "Silent" (codec-less board) — the shared alarm paths link and run.
@@ -278,7 +279,7 @@ countdown after THAT (``settings_deep_sleep_countdown_sec``, default
 touch/dial activity. The store is clamped to 60..1800 so it always
 answers; ``KNOB_DIM_AFTER_S`` (15) and ``KNOB_SLEEP_TIMEOUT_S`` (60)
 are the seed fallbacks behind it. The dim rung is
-**two-part** like the clocks' dusk: the supervisor drops the LEDC
+**two-part** like the clocks' light sleep: the supervisor drops the LEDC
 duty to ``KNOB_DIM_DUTY`` **64 = 25 %** (the P1 dim-parity value
 matching the clocks' light-sleep panel), and a registered dim observer (``knob_power_set_dim_cb`` —
 main.c wires it to the seam's ``knob_render_set_home_dim``) drops
@@ -599,7 +600,7 @@ Not shipped (on purpose)
   the *sleep-ON* session: the short-countdown TIMER fire on a
   genuinely deep-slept board (the ladder runs log-only for now per
   the bench rule).
-- dusk/orbit ambient tasks, sub-hour TZ granularity, charge detection
+- orbit ambient tasks, sub-hour TZ granularity, charge detection
   (no known VBUS sense). Credentials are entered on the glass since
   P2 (WiFi roller → wheel keyboard, COMMIT = save + connect through
   the native handler writing the gitignored credentials file);

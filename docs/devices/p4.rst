@@ -160,7 +160,8 @@ retired subsystems, quoted as history):
 - Boot sweep (retired 2026-11-13): 336/336 frames completed.
 - Final bake: ~959 ms at 650 px (599 ms at the earlier 618 px scale,
   before the 2026-11-01 upscale).
-- Dusk: ~43 s for the full constant-projection spin.
+- Dusk (retired 2026-11-13): ~43 s for the full constant-projection
+  spin.
 - The async-DMA rejects during the spin are absorbed — 0 dropped
   strips after the ``moon_panel_draw_wait`` retry (the retry rides
   today's atomic flushes on the same path).

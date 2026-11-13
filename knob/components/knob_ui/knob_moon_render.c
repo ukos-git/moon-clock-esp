@@ -5,7 +5,7 @@
  *
  * The shared screens (components/ui screens.c/ui.c/actions.c) call the
  * moon_ui.h surface unchanged. On the two AMOLED clocks that surface is
- * moon_ui.c: PSRAM buffers, orbit, dusk, TF cache, 0x51 fades.
+ * moon_ui.c: PSRAM buffers, orbit, the dormant TF cache, 0x51 fades.
  * The knob is a backlit LCD with no IMU, no codec and no
  * direct-panel-write path, so most of that machinery has no analogue --
  * the honest mapping:
@@ -17,16 +17,11 @@
  *                              LVGL-task probe was the S3 minute-freeze
  *                              root cause -- the knob never puts it there)
  *   pause                   -> NO-OP (a static moon needs no parking)
- *   dusk                    -> false (no pole spin; the caller's fallback
- *                              arms the esp_timer countdown, which is
- *                              awake-only here -- knob_power owns the
- *                              real deep-sleep arming)
  *   tilt settled            -> true (no IMU: always at rest)
  *   fade / dim / brightness -> LEDC ramps (no 0x51 to wedge: the backlight
  *                              is a GPIO PWM, safe from any task)
  *   screen_switched         -> ONE atomic lv_refr_now (the family rule;
  *                              LVGL partial flush carries it to the panel)
- *   panel step / keep-mask  -> NO-OP (no direct panel writes to pre-rotate)
  *
  * Exactly two lv_refr_now owners stay true: the knob swap task and this
  * seam (the clock's screen-switch path). Settings screens (moon-less)
@@ -277,16 +272,6 @@ void moon_ui_start(void) {
     ESP_LOGI(TAG, "moon started (static posture; the boot arm owns sweep-vs-static)");
 }
 
-void moon_ui_replay_animation(void) {
-    /* The shared wake flow asks for the sweep; the knob's sweep is
-     * boot-only by policy (the clock's wake posture = static current
-     * phase), and boot_arm_task already decides it. Static re-arm: */
-    int64_t now = 0;
-    if (clock_get_utc_epoch(&now) == ESP_OK && now != 0) {
-        (void)knob_ui_show_moon(now);
-    }
-}
-
 void moon_ui_day_tick(void) {
     /* NO-OP by design: the knob producer task runs the 1 Hz day/event
      * probe on CPU1 (knob_ui moon_task). The clock's variant of this
@@ -295,15 +280,7 @@ void moon_ui_day_tick(void) {
      * knob keeps the scan off the render core by construction. */
 }
 
-void moon_ui_pause(bool pause) { (void)pause; /* a static frame parks itself: no spin on this board */ }
-
-bool moon_ui_dusk_start(void) {
-    /* No pole spin on the knob (backlit LCD, no burn-in duty). Returning
-     * false takes the caller's documented fallback. */
-    return false;
-}
-
-bool moon_ui_dusk_complete(void) { return false; }
+void moon_ui_pause(bool pause) { (void)pause; /* a static frame parks itself */ }
 
 bool moon_ui_tilt_settled(void) { return true; } /* no IMU: always at rest */
 

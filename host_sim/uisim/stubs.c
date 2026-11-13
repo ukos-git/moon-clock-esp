@@ -6,7 +6,7 @@
  *   fixed alarm rule 12:35 Mon-Fri (0x3E)   -- the range-arc default
  *   alarm prefix "Mo"                        -- the next fire is > 24 h away
  *   pomodoro interval 45 min (0:45)
- *   idle timeout 60 s, deep-sleep countdown 60 s, dusk anim on
+ *   idle timeout 60 s, deep-sleep countdown 60 s
  *   wifi scan complete, 5 canned APs
  *
  * moon_ui_create_image bakes the REAL current-phase moon (the portable

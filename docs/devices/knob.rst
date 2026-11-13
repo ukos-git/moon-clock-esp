@@ -14,7 +14,7 @@ knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
 put the family's own app on the glass: the shared home screen —
 moon image, split-flap HH:MM, alarm row, seconds arc — runs over the
 ``knob_moon_render.c`` seam (generated ``fonts_knob/`` tier), the
-idle ladder dims to the clocks' dusk look (LEDC 25 % + clock widget
+idle ladder dims to the clocks' light-sleep look (LEDC 25 % + clock widget
 20 %), and a fixed alarm rule **shows** across real deep sleep via
 the internal RTC **TIMER** wake (silent — no codec). The **P2 dial
 step** (same day) made the settings surface operable without touch:

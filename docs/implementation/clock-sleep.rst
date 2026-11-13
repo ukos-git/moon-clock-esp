@@ -3,8 +3,9 @@ The clock and the sleep machine
 
 The moon pipelines decide what to show; this page's machine decides
 *when* — the minute-driven clock, the 90° orientation steps, the
-idle/sleep state machine (light sleep = the dimmed dusk, deep sleep =
-backlight off), and the three wake paths (touch, tilt, alarm). It is
+idle/sleep state machine (light sleep = a static dim frame, deep
+sleep = backlight off), and the three wake paths (touch, tilt,
+alarm). It is
 the part of the product where a *clock* and a *moon* have to agree on
 every minute of the day.
 
@@ -94,7 +95,7 @@ The sub-screens:
    :figclass: align-center
 
    The **sleep countdown** — the light-sleep → deep-sleep seconds
-   (the one-shot armed on the dusk's last frame, above).
+   (the one-shot armed at the light-sleep entry itself).
 
 .. figure:: ../img/screens/settings_tz.png
    :alt: The timezone / UTC-offset settings screen
@@ -206,24 +207,30 @@ trigger.
 
 **Light sleep** (``action_switch_to_light_sleep_screen``):
 
-- the moon **dusk** plays (:doc:`the animation pipelines <animations>`) — the constant-projection pole
-  spin to the dark side;
+- the moon tick pauses on a **static frame**
+  (:doc:`the animation pipelines <animations>`) — ``moon_ui_pause(true)``
+  interrupts the orbit and parks the last baked viewport; the dusk
+  pole spin that used to play here was retired 2026-11-13;
+- the clock widget drops to ``UI_CLOCK_ALPHA_PCT`` (production:
+  **20%** alpha) and the seconds timer pauses with the tick;
 - the panel ramps to ``UI_LIGHT_SLEEP_DIM_PCT`` (production: **25%**)
   over the fade duration (``moon_ui_panel_dim_ramp`` — the same 0x51
   ramp as the screen-switch fade, serialized on ``s_panel_mtx``,
-  spin writes held by ``s_fade_busy``);
-- the deep-sleep countdown is armed **on the dusk's last frame**
+  0x51 ramps mutually exclusive via ``s_fade_busy``); the dim *is*
+  the sleep transition;
+- the deep-sleep countdown is armed **at the entry**
   (``clock_timer_enable(settings_deep_sleep_countdown_sec(), ...)``)
-  — the RTC one-shot fires only once the fully unilluminated side is
-  on screen, so the sleep depth follows the animation, not a timer
-  started at the entry.
+  — the RTC one-shot fires the countdown from the moment the device
+  goes quiet (it used to wait for the dusk's last frame, so sleep
+  depth followed the animation; there is no animation to wait for).
 
 .. figure:: ../img/screens/light_sleep.png
    :alt: The light-sleep screen
    :figclass: align-center
 
-   The **light-sleep** screen — the dusk has settled on the dark side
-   and the panel is ramped to 25 %; the clock still runs underneath.
+   The **light-sleep** screen — the static current-phase moon, the
+   panel ramped to 25 %, the clock at 20 % alpha still ticking the
+   minutes (the seconds timer paused with the entry).
 
    On the real glass the 25 % is a *hardware* dim (the 0x51 ramp), so
    the whole panel — moon and digits — glows at a quarter of the home
@@ -302,7 +309,8 @@ The knob (:doc:`the Knob board <../devices/knob>`) shares the
 wake on, no RTC to arm, no light sleep. Its
 ``knob_power`` supervisor dims by LEDC duty (``KNOB_DIM_DUTY`` 64 =
 the clocks' 25 % panel rung) plus the shared clock widget at
-``UI_CLOCK_ALPHA_PCT`` (20 %) — the same dimmed *look* as dusk, two
+``UI_CLOCK_ALPHA_PCT`` (20 %) — the same dimmed *look* as the clocks'
+light sleep, two
 rungs down from the clocks' ladder — and then calls the real
 ``esp_deep_sleep_start`` (the clocks' app-layer "deep sleep" never
 powers down; the knob's does, battery honesty for a portable knob).
@@ -455,7 +463,7 @@ The state machine, in full
      WIFI --> AIRPLANE: sync complete
      AIRPLANE --> HUB: tap — the sub-screens (exit returns via the on-demand sync)
      HUB --> AIRPLANE
-     AIRPLANE --> LIGHT_SLEEP: idle 60 s — dusk (pole spin to dark side, + 25% dim)
+     AIRPLANE --> LIGHT_SLEEP: idle 60 s — static dim (25% panel, 20% clock alpha, countdown armed at entry)
      LIGHT_SLEEP --> AIRPLANE: wake (touch / tilt / alarm) — backlight → 100, static phase, on-demand sync
      LIGHT_SLEEP --> DEEP_SLEEP: RTC countdown (30 s)
      DEEP_SLEEP --> LIGHT_SLEEP: ALM pending (P4 stays dim, does not drop out)

@@ -1,7 +1,7 @@
 Light sleep
 ===========
 
-Light sleep keeps the panel on but dims the panel's *own* hardware brightness to ``UI_LIGHT_SLEEP_DIM_PCT`` (default 25 %, over the ``UI_SCREEN_SWITCH_FADE`` ramp) and drops the shared clock to ``UI_CLOCK_ALPHA_PCT`` (default 20 %) LVGL opacity — a plain panel has no true alpha, so the clock's own opacity IS the alpha. The moon holds the dusk's settled pose (the dusk pole spin, ``UI_MOON_DUSK_ENABLE``, :doc:`the sleep machine <../implementation/clock-sleep>`), and the deep-sleep countdown (``deep_sleep_countdown_sec``) runs toward the :doc:`deep-sleep <deep-sleep>` screen. Any tilt departure beyond ``UI_IMU_WAKE_DEG``, a touch, or a pending alarm wakes the device; the tick rate here is ``UI_LIGHT_SLEEP_TICK_MS`` (vs 10 ms active).
+Light sleep keeps the panel on but dims the panel's *own* hardware brightness to ``UI_LIGHT_SLEEP_DIM_PCT`` (default 25 %, over the ``UI_SCREEN_SWITCH_FADE`` ramp) and drops the shared clock to ``UI_CLOCK_ALPHA_PCT`` (default 20 %) LVGL opacity — a plain panel has no true alpha, so the clock's own opacity IS the alpha. The moon holds its last baked frame **static** (``moon_ui_pause(true)`` interrupts the orbit and pauses the tick — the dusk pole spin that used to play here was retired 2026-11-13, and the dim *is* the transition, :doc:`the sleep machine <../implementation/clock-sleep>`), and the deep-sleep countdown (``deep_sleep_countdown_sec``, armed at the entry itself) runs toward the :doc:`deep-sleep <deep-sleep>` screen. Any tilt departure beyond ``UI_IMU_WAKE_DEG``, a touch, or a pending alarm wakes the device; the tick rate here is ``UI_LIGHT_SLEEP_TICK_MS`` (vs 10 ms active).
 
 .. figure:: ../img/screens/annot/light-sleep_s3.png
    :alt: light sleep — the S3 panel (466, annotated)

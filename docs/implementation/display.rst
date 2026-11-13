@@ -409,8 +409,10 @@ proceed. The healthy path never runs the callback:
 Shared code — S3 and P4 alike; the knob's render seam has no shared
 bus lock to wedge.
 
-The class's sixth member is the **light-sleep dusk replay** (2026-11-13,
-"the S3 AMOLED crashed coming back from light sleep via touch"):
+The class's sixth member was caught on the **light-sleep dusk
+replay** (the dusk itself was retired 2026-11-13; the discovery bench,
+2026-11-13: "the S3 AMOLED crashed coming back from light sleep via
+touch"):
 ``moon_tick_cb`` displays each published dusk frame with the tick's
 atomic ``lv_refr_now`` while the dusk task bakes the next frame on
 core 1 — and ``lv_refr_now`` returns with the frame's LAST strip's DMA
@@ -452,20 +454,19 @@ The write forces the pending trans-done to be consumed NOW, at the
 flush site; if it does not come back (``moon_panel_draw_wait`` rejects
 for ~2 s), the log names the SITE and the same recovery the watchdog
 would run seconds later — into the next writer's freeze — happens
-there instead, during the dusk where it is invisible. The bench
-proved the probe cannot live on the dusk path alone: the next
+there instead, in the dark where it is invisible. The bench
+proved the probe cannot live on one path alone: the next
 capture's first boot lost the BOOT SWEEP's last-frame hand (the
 spin's first window write rejected on attempt 0, 120 ms after
 ``sweep 5/5 shown``) and then lost another after the scan-hold
-release repaint, with the watchdog naming task ``moon_spin`` — both
-captures predate the spin's removal (and the sweep's, later the same
+release repaint, with the watchdog naming task ``moon_spin`` — all
+those captures predate the spin's removal (and the sweep's and the
+dusk's, later the same
 day). So the
-helper runs after every atomic display: the dusk replay, the orbit
+helper runs after every atomic display: the orbit
 batch, the wake's static pose display,
 the deferred re-bake display, and the screen-switch flush with its fade-in leg.
-S3 only (the DPI P4 rejects legitimately and needs no such probe); the
-last dusk frame is probed too — its next writer is the wake after the
-deep-sleep countdown.
+S3 only (the DPI P4 rejects legitimately and needs no such probe).
 
 The single probe still left one member uncaught, and the next capture
 walked into it: a probe's accept proves the *previous* write (a
@@ -560,10 +561,12 @@ guards against a stolen single callback slot). A truly undelivered
 completion parks that call in ``get_trans_result`` under the panel
 mutex and the watchdog restarts in 3 s + 3 s — the honest fallback
 for a wedge.
-The dusk wake branch additionally probes BEFORE starting the pose flush
-(``wake preflush``): whatever the last accepted write was, a loss
-surfaces at the flush site in the dark, never as the freeze-then-crash
-in the user's face. Healthy cost: one row write and ~10 ms per probe
+While the dusk existed its wake branch additionally probed BEFORE
+starting the pose flush (``wake preflush``) — whatever the last
+accepted write was, a loss surfaced at the flush site in the dark,
+never as the freeze-then-crash in the user's face; the plain static
+wake display carries the class's normal post-flush probe today.
+Healthy cost: one row write and ~10 ms per probe
 site. The boot-time arm test (``moon_panel_witness_arm``) demands the
 arm row's **own** completion under the same serialized, strict
 discipline — capture 6 had proved the old "any ambient increment
@@ -634,4 +637,4 @@ this wrong is invisible in the simulator (the host renderer writes
 PNGs) and shows up on the panel as every color's red and blue
 channels transposed — the "the moon looks teal" bug class.
 
-:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the dusk and the fade (the boot sweep was a third caller until its retirement 2026-11-13).
+:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the fade and the orbit's atomic displays (the dusk, the free spin and the boot sweep were callers until their retirement 2026-11-13).

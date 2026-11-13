@@ -128,9 +128,11 @@ narrow **smoothstep** over a band of width ``MOON_TERM_SOFT`` (0.03
 
 The gating is deliberate: the blend runs **only** in the display bake
 (:math:`dark_zero = 1` *and* :math:`dk_sup = 0`). The gate
-(:math:`dark_zero = 0`) and the dusk (:math:`dk_sup > 0`) both fall
-through to the original hard path, so the validation numbers and the
-sleep-screen endpoint are untouched by the soft edge.
+(:math:`dark_zero = 0`) and the dusk's map path
+(:math:`dk_sup > 0` — retired with the dusk 2026-11-13, the
+parameter kept in the portable core) both fell through to the
+original hard path, so the validation numbers and the — then live —
+sleep-screen endpoint stayed untouched by the soft edge.
 
 The warm tint
 -------------

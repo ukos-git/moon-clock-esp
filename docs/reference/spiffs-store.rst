@@ -102,10 +102,14 @@ a bad/missing value falling back to the Kconfig-seeded default
      - ``UI_DEEP_SLEEP_COUNTDOWN_SEC`` (60)
    * - ``boot_anim_enable``
      - ``0``/``1``
-     - ``UI_MOON_ANIM_ENABLE`` (1)
+     - ``UI_MOON_ANIM_ENABLE`` (1) — **legacy no-op**: nothing has read
+       it since the boot sweep retired 2026-11-13 (kept so the store
+       round-trips unchanged)
    * - ``dusk_anim_enable``
      - ``0``/``1``
-     - ``UI_MOON_DUSK_ENABLE`` (1)
+     - ``UI_MOON_DUSK_ENABLE`` (1) — **legacy no-op**: nothing has read
+       it since the dusk retired 2026-11-13 (kept so the store
+       round-trips unchanged)
    * - ``timezone_idx``
      - 0..53
      - ``CLOCK_TZ_BERLIN_IDX`` (53)

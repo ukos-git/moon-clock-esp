@@ -13,10 +13,11 @@ relief), lit by the real Sun from the real subsolar point of the
 current moment, projected through the real camera libration. The
 pipeline is small enough to run in about 1.4 MB of flash and to bake a
 full frame in well under a second on the S3 board (the Waveshare
-ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what makes the
-animations in :doc:`the animation pipelines <implementation/animations>` (the
-"dusk"; the boot sweep was retired 2026-11-13) possible on a $20
-board.
+ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what made the
+animation stack (the free spin, the boot sweep, the "dusk") possible
+on a $20 board; the user retired all three on 2026-11-13, and the
+home is a static LVGL phase now
+(:doc:`the animation pipelines <implementation/animations>`).
 
 .. figure:: _static/photos/sim_home.png
    :alt: Simulated render of the finished clock on the Waveshare ESP32-S3-Touch-AMOLED-1.75
@@ -32,8 +33,8 @@ board.
 This documentation covers a real, working product end to end: the C
 core that bakes a moon frame on a microcontroller, the display
 pipeline that ships each frame as one atomic whole-panel flush, the
-animation system (the "dusk" — the boot sweep and burn-in spin were
-retired 2026-11-13), the
+retired animation stack (the free spin, the boot sweep and the
+"dusk" — all retired 2026-11-13, leaving the fade and the orbit), the
 sleep/wake machine, the settings stack, and the validation gates that
 prove the rendering matches NASA's rendered moon to within a couple of
 gray levels per pixel.
@@ -65,10 +66,13 @@ direction:
    this one invariant.
 
 3. **The display is also the sleep surface.**
-   The device is a clock that mostly sleeps. Light sleep shows the
-   moon in a slow constant-projection spin (the "dusk") and deep
-   sleep hides the clock and turns the backlight off. The animations
-   are not decoration — they are the sleep-state indicators for
+   The device is a clock that mostly sleeps. Light sleep is a
+   **static dim frame** (panel to 25 %, clock to 20 % alpha — the
+   dusk's slow constant-projection spin that used to play the
+   transition was retired 2026-11-13, and the dim itself is now the
+   sleep indicator) and deep
+   sleep hides the clock and turns the backlight off. The hardware
+   dim and the fade carry the sleep-state story for
    an always-on display (:doc:`the animation pipelines <implementation/animations>`) and the entry/exit flow itself
    (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
 

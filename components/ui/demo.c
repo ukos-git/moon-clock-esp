@@ -3,8 +3,8 @@
  * A camera-ready self-driving tour of every screen and function, so the
  * bench can record the S3 and the P4 side by side and compare them
  * frame for frame (docs/verification/demo-mode). Kconfig:
- * UI_DEMO_MODE (+ UI_DEMO_FULL_TOUR, UI_DEMO_SCREEN_SEC,
- * UI_DEMO_DUSK_WAIT_S). Off by default; the stubs at the bottom keep
+ * UI_DEMO_MODE (+ UI_DEMO_FULL_TOUR, UI_DEMO_SCREEN_SEC).
+ * Off by default; the stubs at the bottom keep
  * the hooks (action_demo_active, ui_demo_init) compiling in production.
  *
  * What one cycle walks (all taps go through the REAL touch path -- a
@@ -20,7 +20,6 @@
  *              x2 (clear, then exit) -- the COMMIT key is NEVER tapped
  *              (it would write wifi_credentials.txt and start a connect)
  *   BACK       wifi exit -> hub exit -> home
- *   DUSK       light sleep + the pole spin to the dark side, wake
  *   ROLL       the synthetic tilt script through the real roll pipeline
  *   SYNC       one bounded on-demand WiFi + NTP sync
  *   ALARM      LAST in the cycle: the real ring script (fire, stop,
@@ -28,7 +27,7 @@
  *              suppressed. Last on purpose: the 2026-11-08 take showed
  *              the S3 QSPI completion-loss race firing reliably ~29 s
  *              into this phase (panel watchdog -> controlled reboot);
- *              running it at the cycle end keeps dusk/roll/sync
+ *              running it at the cycle end keeps roll/sync
  *              comparable on every cycle even when that recovery runs.
  *
  * Suppressed while the tour runs (actions.c guards): the deep-sleep
@@ -69,9 +68,6 @@ static const char *TAG = "DEMO";
  * reads, never the macros. */
 #ifndef CONFIG_UI_DEMO_SCREEN_SEC
 #define CONFIG_UI_DEMO_SCREEN_SEC 15
-#endif
-#ifndef CONFIG_UI_DEMO_DUSK_WAIT_S
-#define CONFIG_UI_DEMO_DUSK_WAIT_S 180
 #endif
 
 #define DEMO_MS_PER_S 1000u
@@ -144,23 +140,21 @@ static bool tap_wheel_point(lv_point_t local) {
 /* ---------------- phase engine --------------------------------------- */
 
 enum phase {
-    PH_ARM,       /* wait out the boot sweep, then take over */
-    PH_MOONS,     /* the five moon screens on a rotation */
-    PH_HUB_WALK,  /* scripted tap list: home -> hub -> every icon -> exits */
-    PH_WIFI,      /* hub wifi icon -> settings wifi -> scan -> AP row */
-    PH_WHEEL,     /* the keyboard drive (discard only, never commit) */
-    PH_BACK,      /* wifi exit -> hub exit -> home */
-    PH_ALARM,     /* the real ring script */
-    PH_HOME,      /* drain the post-dismiss sync, land on home */
-    PH_DUSK,      /* light sleep + dusk spin */
-    PH_DUSK_DARK, /* hold the dark side, then wake */
-    PH_ROLL,      /* the synthetic tilt script */
-    PH_SYNC,      /* one bounded on-demand sync */
+    PH_ARM,      /* arm on schedule (no boot animation to wait out), then take over */
+    PH_MOONS,    /* the five moon screens on a rotation */
+    PH_HUB_WALK, /* scripted tap list: home -> hub -> every icon -> exits */
+    PH_WIFI,     /* hub wifi icon -> settings wifi -> scan -> AP row */
+    PH_WHEEL,    /* the keyboard drive (discard only, never commit) */
+    PH_BACK,     /* wifi exit -> hub exit -> home */
+    PH_ALARM,    /* the real ring script */
+    PH_HOME,     /* land on home (drains an on-demand sync if one is owed) */
+    PH_ROLL,     /* the synthetic tilt script */
+    PH_SYNC,     /* one bounded on-demand sync */
     PH_N
 };
 
-static const char *const s_phase_names[PH_N] = {"arm",   "moons", "hub_walk", "wifi", "wheel", "back",
-                                                "alarm", "home",  "dusk",     "dark", "roll",  "sync"};
+static const char *const s_phase_names[PH_N] = {"arm",  "moons", "hub_walk", "wifi", "wheel",
+                                                "back", "alarm", "home",     "roll", "sync"};
 
 static enum phase s_phase = PH_ARM;
 static bool s_active = false; /* from ARM to the end of the first cycle, then always */
@@ -406,8 +400,7 @@ static void step_arm(void) {
      * schedule. */
     clock_idle_set_enabled(false);
     s_active = true;
-    ESP_LOGI(TAG, "demo mode armed: full tour (screen dwell %d s, dusk wait %d s)", CONFIG_UI_DEMO_SCREEN_SEC,
-             CONFIG_UI_DEMO_DUSK_WAIT_S);
+    ESP_LOGI(TAG, "demo mode armed: full tour (screen dwell %d s)", CONFIG_UI_DEMO_SCREEN_SEC);
     s_moon_i = 0;
     phase_enter(PH_MOONS);
 }
@@ -646,17 +639,17 @@ static void step_back(void) {
         if (!due(s_sub_t0, TAP_SETTLE_MS))
             break;
         ensure_screen(SCREEN_ID_MODEM_SLEEP);
-        phase_enter(PH_DUSK);
+        phase_enter(PH_HOME);
         break;
     default:
-        phase_enter(PH_DUSK);
+        phase_enter(PH_HOME);
         break;
     }
     if (due(s_phase_t0, 20000)) {
         phase_timeout("back", 20000);
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
-        phase_enter(PH_DUSK);
+        phase_enter(PH_HOME);
     }
 }
 
@@ -710,44 +703,11 @@ static void step_alarm(void) {
     }
 }
 
-static void step_dusk(void) {
-    const uint32_t budget_ms = (uint32_t)CONFIG_UI_DEMO_DUSK_WAIT_S * DEMO_MS_PER_S;
-    switch (s_sub) {
-    case 0: /* the real light-sleep entry: pause + dusk spin + dim */
-        action_switch_to_light_sleep_screen(NULL);
-        s_sub = 1;
-        s_sub_t0 = now_ms();
-        break;
-    case 1:
-        if (moon_ui_dusk_complete()) {
-            s_sub = 2;
-            s_sub_t0 = now_ms();
-        } else if (due(s_sub_t0, budget_ms)) {
-            phase_timeout("dusk spin", budget_ms);
-            s_sub = 2;
-            s_sub_t0 = now_ms();
-        }
-        break;
-    default:
-        break;
-    }
-    if (s_sub == 2 && due(s_sub_t0, 10000)) /* linger 10 s on the dark side */
-        phase_enter(PH_DUSK_DARK);
-    if (due(s_phase_t0, budget_ms + 30000)) {
-        phase_timeout("dusk", budget_ms + 30000);
-        phase_enter(PH_DUSK_DARK);
-    }
-}
-
-static void step_dusk_dark(void) {
-    /* One step: the real wake (spin resumes, dusk flag resets, the
-     * wake flow runs the on-demand sync -- drained by PH_HOME). */
-    action_wake_screen(NULL);
-    phase_enter(PH_HOME);
-}
-
 static void step_home(void) {
-    if (home_drain_sync(45000, "dusk wake"))
+    /* PH_BACK landed on the airplane screen; drain an on-demand sync
+     * if one happens to be owed (none is, since the dusk wake leg left
+     * the tour), then hand to the roll script. */
+    if (home_drain_sync(45000, "home landing"))
         phase_enter(PH_ROLL);
 }
 
@@ -821,12 +781,6 @@ static void demo_tick_cb(lv_timer_t *timer) {
     case PH_HOME:
         step_home();
         break;
-    case PH_DUSK:
-        step_dusk();
-        break;
-    case PH_DUSK_DARK:
-        step_dusk_dark();
-        break;
     case PH_ROLL:
         step_roll();
         break;
@@ -849,7 +803,7 @@ void ui_demo_init(void) {
     }
     s_sec_t0 = now_ms();
     lv_timer_create(demo_tick_cb, 10, NULL);
-    ESP_LOGI(TAG, "demo mode: tour created (arming after the boot sweep)");
+    ESP_LOGI(TAG, "demo mode: tour created (arming on schedule)");
 }
 
 #else /* !CONFIG_UI_DEMO_MODE -- production stubs (the hooks stay compiling) */

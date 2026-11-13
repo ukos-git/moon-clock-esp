@@ -202,35 +202,23 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_MOON_ANIM_ENABLE
 #define CONFIG_UI_MOON_ANIM_ENABLE 1
 #endif
-#ifndef CONFIG_UI_MOON_DUSK_ENABLE
-#define CONFIG_UI_MOON_DUSK_ENABLE 1
-#endif
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
 #endif
 
-/* The animation on/off flags are runtime settings (the sleep settings
- * screens override them and persist them); the Kconfig macros are only
- * the build-time defaults. The countdown is a runtime setting too (the
- * deep-sleep settings screen changes it). */
-static bool dusk_anim_enabled(void) { return CONFIG_UI_MOON_DUSK_ENABLE && settings_dusk_anim_enable(); }
+/* The countdown is a runtime setting (the deep-sleep settings screen
+ * overrides it and persists it); the Kconfig macro is only the
+ * build-time default. (The store's dusk/boot animation flags are
+ * legacy no-ops since 2026-11-13 -- nothing reads them.) */
 /* Perf A/B hook (unset bools are absent from sdkconfig.h; fall back to
  * 0 = relief ON, the normal path). */
 #ifndef CONFIG_TEST_BAKE_NO_RELIEF
 #define CONFIG_TEST_BAKE_NO_RELIEF 0
 #endif
-static uint8_t *s_frame;          /* 8-bit baked frame, MOON_PX^2 */
-static uint16_t *s_rgb;           /* RGB565 display buffer, MOON_PX^2 */
-static uint8_t *s_shade_map;      /* the dusk's pre-shaded body-frame equirect
-                                   * map (MOON_ALB_W x MOON_ALB_H 8-bit; see the
-                                   * dusk section -- built once per dusk epoch,
-                                   * every dusk frame re-projects it instead of
-                                   * re-baking the lighting) */
-static uint8_t *s_shade_map_dark; /* the lit-fade companion: the same map
-                                   * with every LIT cell zeroed (see the
-                                   * dusk's MOON_DUSK_FADE_* below) */
-static lv_image_dsc_t s_dsc;      /* (MOON_PX), points at s_rgb */
-static lv_obj_t *s_images[8];     /* 4 moon screens today; headroom for more */
+static uint8_t *s_frame;      /* 8-bit baked frame, MOON_PX^2 */
+static uint16_t *s_rgb;       /* RGB565 display buffer, MOON_PX^2 */
+static lv_image_dsc_t s_dsc;  /* (MOON_PX), points at s_rgb */
+static lv_obj_t *s_images[8]; /* 4 moon screens today; headroom for more */
 static int s_n_images;
 static lv_obj_t *s_moon_roots[8];          /* the screen root each image was created in */
 static volatile bool s_moon_screen = true; /* the active screen carries a moon image */
@@ -701,7 +689,7 @@ static void moon_panel_witness_arm(void) {
     }
     /* Arm test: one drain-ROW write must bump the counter ITSELF --
      * proving struct view, slot ownership and ISR reachability at
-     * BOOT, where failure is a log line, not the first dusk. Capture 6
+     * BOOT, where failure is a log line, not a sleep transition. Capture 6
      * proved the old "any increment counts" test worthless: ambient
      * LVGL flushes carried it while the probe pixel itself never
      * completed. The row is DMA-capable DRAM, single chunk -- the
@@ -918,31 +906,9 @@ static void moon_panel_drain_verify(const char *site) {
 
 static volatile bool s_frame_stale; /* s_frame/s_rgb left mid-bake by an
                                      * abort; a completed bake clears it.
-                                     * The sleep park must not rotate a
-                                     * half-baked frame onto the panel. */
-
-/* Light-sleep "dusk" state (see the dusk section below). The task (core 1)
- * bakes whole frames off screen and publishes them one by one; the tick
- * (core 0) displays each as one atomic whole frame and arms the
- * deep-sleep RTC countdown when the LAST frame lands. */
-static volatile bool s_dusk_baking;    /* bake task running */
-static volatile bool s_dusk_abort;     /* stop the running dusk */
-static volatile uint32_t s_dusk_pub;   /* frames fully baked (0..s_dusk_frames) */
-static volatile uint32_t s_dusk_shown; /* frames the tick has displayed */
-static volatile int32_t s_dusk_frames; /* this dusk's total frame count */
-static int64_t s_dusk_epoch;           /* the parked frame's phase epoch */
-static float s_dusk_theta;             /* the dusk's start pose (identity) */
-static int32_t s_dusk_orbit;           /* the parked orbit (peek) angle, deg */
-static volatile bool s_dusk_done;      /* the dark-side frame is on screen and
-                                        * s_frame holds the pre-baked static
-                                        * phase: a wake must show the current
-                                        * phase at the parked pose, atomically
-                                        * (the wake display clears it) */
-static volatile bool s_dusk_on_screen; /* an interrupted dusk left one of its
-                                        * intermediate frames in s_rgb: the next
-                                        * wake must show the parked pose
-                                        * atomically (the wake display clears it) */
-static TaskHandle_t s_dusk_task;
+                                     * A wake with the flag set defers a
+                                     * re-bake instead of showing a
+                                     * half-baked frame. */
 
 /* Deferred wake re-bake (2026-11-10). The wake path and the day-tick
  * re-bake ~1.3 s of moon_bake_epoch -- on the LVGL task that froze the
@@ -979,7 +945,7 @@ static bool moon_on_lvgl(void) { return s_lvgl_task && s_lvgl_task == xTaskGetCu
  * half-way 18:34 -> 18:35) and starving IDLE0 into a 5 s task-WDT
  * storm (no panic -- CONFIG_ESP_TASK_WDT_PANIC is off, so the device
  * looked like it was "crash looping" on the console). The CPU-1
- * pipeline tasks (dusk / orbit -- all pinned to core 1, where
+ * pipeline tasks (orbit / re-bake -- both pinned to core 1, where
  * IDLE1 is unwatched, and all 12 KB-stacked for this scan) classify
  * their own epochs directly; every other caller asks the worker below
  * to warm the day cache and gets a plain (all-false) event until that
@@ -994,7 +960,7 @@ static TaskHandle_t s_event_task;
  * the boot task) is guarded by moon_event_classify_here. */
 static bool moon_ev_scan_allowed(void) {
     const TaskHandle_t me = xTaskGetCurrentTaskHandle();
-    return me == s_dusk_task || me == s_orbit_task || me == s_event_task || me == s_rebake_task;
+    return me == s_orbit_task || me == s_event_task || me == s_rebake_task;
 }
 
 static void moon_event_task(void *arg) {
@@ -1106,52 +1072,6 @@ static void moon_orbit_geometry(const moon_geom_t *src, float orbit_rad, moon_ge
     /* right unchanged (orbit axis). */
 }
 
-/* In-plane fold: rotate the camera basis about the view axis E by theta
- * (right' = cos right + sin up, up' = -sin right + cos up, E unchanged).
- * The on-screen in-plane pose was a theta-rotated nearest-neighbor GATHER
- * of the baked frame (moon_rotate), so baking at the theta-folded basis
- * reproduces that pose -- the light-sleep dusk starts from the exact
- * displayed pose, today the identity (the seam; the host probe
- * host_sim/pole_test.c verifies the sign: the residual is the inherent
- * 1-px gather mismatch, a wrong sign misaligns the terminator by 2*theta). */
-static void moon_inplane_geometry(const moon_geom_t *src, float theta, moon_geom_t *dst) {
-    *dst = *src;
-    float c = cosf(theta), s = sinf(theta);
-    float r[3] = {src->right[0], src->right[1], src->right[2]};
-    float u[3] = {src->up[0], src->up[1], src->up[2]};
-    dst->right[0] = c * r[0] + s * u[0];
-    dst->right[1] = c * r[1] + s * u[1];
-    dst->right[2] = c * r[2] + s * u[2];
-    dst->up[0] = -s * r[0] + c * u[0];
-    dst->up[1] = -s * r[1] + c * u[1];
-    dst->up[2] = -s * r[2] + c * u[2];
-    /* E unchanged (the in-plane axis). */
-}
-
-/* Pole spin: rotate the camera basis about the body-frame pole (+z). The
- * x/y components of every basis vector mix (right -> up for +phi), the z
- * components are invariant -- the pole stays at the top of the disk, the
- * visible longitude range moves (the far side is revealed), and the light
- * source S (body frame) stays put, so the terminator sweeps the disk.
- * The light-sleep "dusk" rotates the camera here by phi_k per frame until
- * E . S is minimized (the fully unilluminated view; see the dusk section). */
-static void moon_pole_geometry(const moon_geom_t *src, float phi, moon_geom_t *dst) {
-    *dst = *src;
-    float c = cosf(phi), s = sinf(phi);
-    float a[3] = {src->right[0], src->right[1], src->right[2]};
-    float b[3] = {src->up[0], src->up[1], src->up[2]};
-    float e[3] = {src->E[0], src->E[1], src->E[2]};
-    dst->right[0] = c * a[0] - s * a[1];
-    dst->right[1] = s * a[0] + c * a[1];
-    dst->right[2] = a[2];
-    dst->up[0] = c * b[0] - s * b[1];
-    dst->up[1] = s * b[0] + c * b[1];
-    dst->up[2] = b[2];
-    dst->E[0] = c * e[0] - s * e[1];
-    dst->E[1] = s * e[0] + c * e[1];
-    dst->E[2] = e[2];
-}
-
 static void moon_bake_epoch(int64_t epoch) {
     moon_geom_t g;
     int64_t t0 = esp_timer_get_time();
@@ -1170,10 +1090,7 @@ static void moon_bake_epoch(int64_t epoch) {
     /* Sky events (moon_event.c, the pre-calculated display tints):
      * classify this epoch's instant and select the matching LUT -- the
      * rebuild is a no-op when it already matches (a no-op on an ordinary
-     * day, multipliers 1.0). The dusk sets the SAME global LUT for
-     * its own epoch (it can run before any bake and must not race the
-     * display's table read-out, so it sets it once before its first
-     * frame). The
+     * day, multipliers 1.0). The
      * blood occlusion (the eclipse "bite") is passed per-pixel into the
      * bake; an all-false event bakes as NULL (byte-identical). */
     moon_event_t ev;
@@ -1191,7 +1108,6 @@ static void moon_bake_epoch(int64_t epoch) {
               bev);                /* the blood-moon umbra occlusion (NULL on ordinary days) */
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false; /* a complete, consistent frame is in s_frame */
-    s_dusk_done = false;   /* a fresh bake supersedes any dusk pre-bake */
     int64_t t2 = esp_timer_get_time();
     /* (The relief-free vs with-DEM split that ran here while diagnosing
      * the old ~2.3 s bake settled the question: the per-pixel 4-neighbor
@@ -1207,7 +1123,7 @@ static void moon_bake_epoch(int64_t epoch) {
     ESP_LOGI(TAG, "bake | rgb565 %lldms (total %lldms)", (long long)((t3 - t2) / 1000), (long long)((t3 - t0) / 1000));
 }
 
-/* Deferred wake re-bake (see the state block by the dusk flags): the
+/* Deferred wake re-bake (see the rebake flags above): the
  * core-1 bake task. moon_bake_epoch owns the buffer mutex for the
  * bake; on completion the task sets s_rebake_show and the tick's
  * rebake leg displays the frame as ONE atomic whole-panel flush; a newer
@@ -1361,19 +1277,14 @@ static void moon_orbit_start(void) {
         clock_idle_set_enabled(false);
 }
 
-/* Start a bake if the quantized target is set and no bake or dusk is
- * in flight. Called from the tick (cheap flag checks); latest-wins falls
+/* Start a bake if the quantized target is set and no bake is in
+ * flight. Called from the tick (cheap flag checks); latest-wins falls
  * out of the target being read at task start. The orbit is only
  * meaningful once a static bake exists (s_orbit_epoch > 0, set by the
  * first bake) -- it bakes THE current phase at a peeked viewport. */
 static void moon_orbit_drain(void) {
-    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
-        s_dusk_baking || s_dusk_done)
-        return; /* the dusk owns the buffers; a peek can wait.
-                 * s_dusk_done: the dark side is on screen and the deep-sleep
-                 * countdown runs -- an orbit peek would re-bake s_frame/s_rgb
-                 * and replace the dark side with the lit phase mid-countdown.
-                 * Cleared on the next wake (moon_ui_pause(false)). */
+    if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping)
+        return;
     if (s_orbit_target == 0 || s_orbit_target == s_orbit_baked)
         return; /* default viewport, or the on-screen frame is this viewport */
     moon_orbit_start();
@@ -1385,7 +1296,7 @@ static void moon_orbit_drain(void) {
 static void moon_orbit_interrupt(void) {
     /* Joining the orbit task makes sure no writer is still mid-row in
      * s_rgb when the state is reset and the buffers go to the next
-     * pipeline (the rebake/dusk tasks may block on the orbit's per-row
+     * pipeline (the re-bake task may block on the orbit's per-row
      * mutex): that matters once the moon has started. Before
      * moon_ui_start there is no other writer, and the boot bake runs on
      * the display core before the task is ever spawned, so a
@@ -1411,393 +1322,6 @@ static void moon_orbit_interrupt(void) {
     s_orbit_target = 0; /* sleep shows the default viewport */
     if (!clock_is_idle())
         clock_idle_set_enabled(true);
-}
-
-/* ---------------- light-sleep "dusk" (pole-axis spin to the dark side) ---
- *
- * The light-sleep entry indicator: the moon spins about its POLE (the
- * body-frame +z axis) at the current phase, from the exact on-screen pose
- * the free spin parked it at, until the fully UNILLUMINATED side faces the
- * viewer -- then the deep-sleep countdown is armed. Sleep depth follows
- * the animation, not a fixed timer (the deep-sleep countdown is armed on
- * the last frame's display, never at the light-sleep entry itself).
- *
- * The spin is a CONSTANT-PROJECTION re-render: the renderer's color is a
- * function of the body-frame surface direction and the epoch's fixed
- * body-frame sun S alone (the view basis selects which direction is
- * visible but never enters the color -- see the moon_bake.c section).
- * So the full body-frame equirect color map (lit side: albedo x
- * displaced-normal Lambert x tone LUT; dark side: the faint backlit
- * surface, 864x432 8-bit cells) is built ONCE for the dusk epoch and
- * every pole-spin frame RE-PROJECTS that fixed map through the folded
- * camera basis -- the
- * cheap moon_rotate-class gather (one map load/pixel, ~50 ms), NOT a
- * lighting re-bake (~1.3 s). A fixed surface point keeps exactly its map
- * cell's color on every frame, so the terminator cannot flicker (the
- * per-frame re-bake's reduced-res lighting was the flicker source).
- * (Per-frame BAKES are right only where the sun geometry changes between
- * frames -- that was the boot sweep's domain, retired 2026-11-13.) The
- * map build itself (~1.5-2 s) is one-time at dusk
- * start; the animation is display-paced from then on.
- *
- * Each frame folds the camera basis three ways:
- *   orbit(o)    the tilt viewport of the parked frame (moon_orbit_geometry)
- *   inplane(th) the parked free-spin angle (moon_inplane_geometry): the
- *               on-screen pose is a theta-rotated gather of the static
- *               frame, so the theta-folded basis reproduces it -- the
- *               seamless entry seam (verified on the host)
- *   pole(phi)   the animation itself (moon_pole_geometry): phi advances
- *               1 degree per frame from 0 to phi*, the shortest arc to the
- *               dark side (at most a half turn).
- *
- * Endpoint: the visible disk is fully night-side when E . S is minimized.
- * With E = the orbit-folded view direction (the ACTUAL starting view --
- * the tilt peeks the view, so the endpoint is computed from the folded E,
- * not the plain one) and S the body-frame Sun direction:
- *   E(phi) . S = A cos(phi) + B sin(phi) + C,  A = E0 S0 + E1 S1,
- *               B = E0 S1 - E1 S0,  C = E2 S2
- * and phi* = atan2(-B, -A) is that minimum (host-verified against a
- * full-circle grid; the in-plane fold leaves E unchanged, so it does not
- * shift the endpoint). phi* in (-pi, pi] is the shortest arc.
- *
- * dark_zero = 1 for every dusk frame (the user's decision: the dark side
- * is COMPUTED, not the earthshine "earth ray"): the shade map's dark
- * cells and the final bake's night side are written the faint backlit
- * surface (albedo + relief lit from the anti-solar direction), so no
- * phase-dependent earthshine/relief speckle survives to the rim (the
- * "bright fragment on the edge") while the far side still shows the
- * lunar surface. The host gate keeps dark_zero = 0 there (pole_test):
- * the earthshine model itself is unchanged -- only the device-visible
- * rendering drops it.
- *
- * Resolution: intermediate frames re-project the FULL-RES map (the
- * re-projection is gather-class, so no reduced-res bake + NN upscase is
- * needed); the FINAL frame is a full MOON_PX bake at phi* (the one
- * pixel-exact dark-side lighting pass -- it lingers on the sleep screens
- * through the countdown). The animation is display-paced (~0.2 s/frame)
- * at |phi*| frames (14-95 s) -- the animation's duration is the sleep
- * indicator.
- *
- * Display: the shared pipeline -- the task paces on s_dusk_shown
- * (backpressure), the tick shows each published frame as ONE atomic whole
- * frame. The moon tick is resumed for the duration (the light-sleep entry
- * paused it for the parked pose; moon_ui_dusk resumes it, and the orbit
- * drain is guarded off while the dusk owns the buffers). On completion the
- * task pre-bakes the STATIC frame (epoch + orbit viewport, unrotated) into
- * s_frame, row by row so an interrupt is honored: the wake shows the
- * CURRENT phase, not the dark-side disk, and the spin resumes from exactly
- * the parked pose.
- */
-/* The dusk's rim-sliver kill bound is dk_sup + this margin ("kill the
- * limb harder", 2026-11-04 bugreport): 0.12 in the cosine distance d,
- * ~7 deg of crescent edge. The lit region stays full brightness where
- * it remains; the shade map and the final bake use the same bound. */
-#define MOON_DUSK_KILL_MARGIN 0.12f
-/* The dusk's LIT-FADE ("completely remove the earth ray", 2026-11-04):
- * the margin kill covers the ENDPOINT's rim sliver only. The lit crescent
- * itself slides along the disk's limb while the pole spins and, hugging
- * the rim, lingers as a bright arc (peak gray 237 in the re-projected
- * frames) through the late dusk -- real sun-lit cells whose d is well
- * above dk_kill, so no static kill bound can remove them without also
- * killing the start-pose crescent. The fix fades the lit side to the
- * backlit dark side over the spin: the shade map is built twice (the lit
- * map + the all-dark companion -- the same map with the lit cells zeroed;
- * the backlit cells are identical in both), and every intermediate frame
- * re-projects the lerp lit*lit_w + dark*(1-lit_w), so ONLY the lit cells
- * move. lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
- * (the real current-phase crescent shows full -- no pop against the
- * parked pose), then smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END --
- * so the lit side is FULLY DARK before the endpoint and the spin's final
- * stretch (MOON_DUSK_FADE_END -> 1.0) rests on the clean backlit dark
- * side (the endpoint frame is the dk_kill bake, backlit dark side, so the
- * fade lands on it with no pop). The completion is deliberately EARLY
- * (not at the endpoint): a linear fade over the whole spin holds the rim
- * arc at ~50 % brightness through the second half, which still reads as
- * "the earth ray is still visible" -- the user's 2026-11-04 ask is that
- * it be COMPLETELY gone, so it must be imperceptible well before arrival. */
-#define MOON_DUSK_FADE_HOLD 0.15f
-#define MOON_DUSK_FADE_END 0.70f
-
-static void moon_dusk_task(void *arg) {
-    (void)arg;
-    int frames = s_dusk_frames;
-    const uint8_t *alb = moon_albedo();
-    const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief(); /* perf A/B hook */
-    if (!alb) {
-        ESP_LOGE(TAG, "no albedo; dusk aborted");
-        s_dusk_baking = false;
-        vTaskDelete(NULL);
-    }
-    if (!grel)
-        ESP_LOGW(TAG, "no relief cache; dusk relief-free");
-    moon_geom_t g0;
-    moon_geometry(s_dusk_epoch, &g0);
-    /* Orbit-fold the view FIRST (the parked frame's viewport), so the
-     * endpoint is computed from the actual starting E. */
-    moon_geom_t g1;
-    moon_orbit_geometry(&g0, (float)s_dusk_orbit * (float)M_PI / 180.0f, &g1);
-    float A = g1.E[0] * g1.S[0] + g1.E[1] * g1.S[1];
-    float B = g1.E[0] * g1.S[1] - g1.E[1] * g1.S[0];
-    float phi_star = atan2f(-B, -A); /* the fully unilluminated view */
-    float phi_end = phi_star;
-    /* The endpoint's rim-sliver kill (the dusk's "white ray"): the pole
-     * spin never changes the view latitude, so the endpoint view still
-     * carries a geometrically LIT rim sliver -- the visible disk stays
-     * d > 0 within 180 deg - (the pole's angular distance to the
-     * anti-solar point) of the horizon, i.e. d up to sqrt(1 - E.S(phi*)^2).
-     * Left lit it lingers on the otherwise-dark sleep screen as a bright
-     * arc hugging the disk edge -- AND in every re-projected frame: the
-     * map's 0 < d < dk_sup band (relief-boosted, up to gray 137) sweeps
-     * the disk as a latitudinal arc while the pole spins (the "white
-     * ray" the user reported on 2026-10-29). So BOTH the shade map (the
-     * one-time build below) and the FINAL bake (below) write the BACKLIT
-     * night side for d < dk_sup -- and since that sliver is sun-lit
-     * (lns > 0), its backlit color clips to pure black, the exact old
-     * flat-floor kill: the lit region the frames show is the
-     * body-fixed d > dk_sup crescent -- constant (it only rotates) and
-     * in agreement with the final bake at the endpoint (no pop). The
-     * one step change is at frame 1 (the parked pose's true terminator
-     * -> the shifted one, ~7 deg of crescent edge today): the user-
-     * accepted look over the ray.
-     *
-     * The kill margin (the 2026-11-04 bugreport, "kill the limb harder"): the
-     * bound is dk_sup + MOON_DUSK_KILL_MARGIN, not the geometric dk_sup --
-     * the lit crescent is THINNER by 0.12 (~7 deg in the cosine distance d),
-     * still full brightness where it remains, and the map + the final bake
-     * agree on the same bound (no pop at the endpoint). The bound is clamped
-     * < 1.0: at dk_sup = 1 (the parked pose 90 deg from the Sun -- the phi*
-     * minimum still half-lit) a wider bound would write the backlit side
-     * over the whole disk and black out the half that is still lit. */
-    float e_dot_s_end = A * cosf(phi_star) + B * sinf(phi_star) + g1.E[2] * g1.S[2]; /* = E(phi*).S */
-    float dk_sup = sqrtf(1.0f - e_dot_s_end * e_dot_s_end);
-    float dk_kill = dk_sup + MOON_DUSK_KILL_MARGIN;
-    if (dk_kill >= 1.0f)
-        dk_kill = 0.999f;
-    /* Sky event for this epoch (the blood occlusion): the dusk's
-     * intermediate frames re-project the lit crescent, so they carry the
-     * same umbra/penumbra bite as the static frame (the final frame is
-     * the dark side -- the occlusion only touches the lit Lambert, so it
-     * is inert there). The tint LUT is re-selected for THIS epoch (a
-     * no-op when it already matches: the dusk follows a bake that set
-     * the same day's event; set here so the dusk never depends on the
-     * cross-task ordering, and the write-out stays ahead of frame 1). */
-    moon_event_t dusk_ev;
-    moon_event_classify_here(s_dusk_epoch, &dusk_ev); /* dusk task (core 1): scans in place */
-    moon_gray565_set_event(&dusk_ev);
-    const moon_bake_ev_t *bev = moon_event_any(&dusk_ev) ? &dusk_ev : NULL;
-    int64_t t0 = esp_timer_get_time();
-    bool s_frame_touched = false;
-    /* One-time: the full body-frame equirect map for this epoch (lit +
-     * backlit night side; S is never folded -- the folds touch the
-     * camera basis only). Row-by-row so an abort lands within a row
-     * (~2 ms); s_shade_map is dusk-only (nothing else builds or reads
-     * it). */
-    int64_t mb0 = esp_timer_get_time();
-    for (int y = 0; y < MOON_ALB_H && !s_dusk_abort; y++) {
-        /* dark_zero + dk_kill (the geometric bound + the kill margin):
-         * the backlit night side for d < dk_kill kills the 0 < d <
-         * dk_kill rim sliver in the MAP itself (the "white ray" on the
-         * re-projected frames, see above), one step wider than the
-         * geometric sliver. bev = the blood-moon occlusion.
-         *
-         * s_shade_map_dark = the lit-fade companion (see the
-         * MOON_DUSK_FADE_HOLD doc): the same map with every lit cell
-         * zeroed, built in the SAME pass (no extra build). */
-        moon_shade_map_rows(&g0, alb, grel, s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
-                            bev);
-        if ((y & 15) == 15)
-            vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
-                            * rounds to 0 ticks -- a no-op that starved IDLE1
-                            * (bench: boot-sweep bake spun core 1, TWDT
-                            * IDLE1 hits every 5 s once the CPU1 check was
-                            * enabled) */
-    }
-    if (s_dusk_abort)
-        goto abort_out; /* s_frame/s_rgb untouched: the parked pose */
-    ESP_LOGI(TAG, "dusk shade map built in %lldms (%d cells)", (long long)((esp_timer_get_time() - mb0) / 1000),
-             MOON_ALB_W * MOON_ALB_H);
-    for (int f = 0; f < frames && !s_dusk_abort; f++) {
-        /* Backpressure (the pipeline rule): the previous frame on screen
-         * before s_rgb may be overwritten. The tick displays each frame
-         * one tick later; the 5 s cap is the safety bail (the only
-         * tick-paused case -- a wake -- sets s_dusk_abort, polled here). */
-        if (f > 0) {
-            int waited = 0;
-            while (!s_dusk_abort && s_dusk_shown < (uint32_t)f) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                waited += 10;
-                if (waited > 5000)
-                    break;
-            }
-            if (s_dusk_abort)
-                break;
-        }
-        /* Frame f+1 of frames: phi advances 1 deg/frame (the user's
-         * smoothness bar) along the shortest arc to the dark side. */
-        float phi = phi_end * ((float)f + 1.0f) / (float)frames;
-        moon_geom_t g;
-        moon_inplane_geometry(&g1, s_dusk_theta, &g);
-        moon_pole_geometry(&g, phi, &g);
-        s_frame_touched = true; /* every frame writes s_frame, row by row */
-        int64_t b0 = esp_timer_get_time();
-        if (f == frames - 1) {
-            /* FINAL frame: the one pixel-exact dark-side bake at phi*
-             * (full lighting, dark_zero 1 -- the backlit night side: no
-             * earthshine/relief speckle at the rim, the "bright fragment
-             * on the edge" the user wanted gone, yet the far side still
-             * shows the faint surface). It lingers on the sleep screens
-             * through the countdown. */
-            for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
-                /* bev = the blood-moon occlusion (inert here: the final
-                 * frame is the dark side, and the occlusion only touches
-                 * the lit Lambert). */
-                moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, dk_kill,
-                               bev); /* kill the endpoint's lit rim sliver (the "white ray"), margin wider */
-                if ((y & 15) == 15)
-                    vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
-                                    * rounds to 0 ticks -- a no-op that starved IDLE1
-                                    * (bench: boot-sweep bake spun core 1, TWDT
-                                    * IDLE1 hits every 5 s once the CPU1 check was
-                                    * enabled) */
-            }
-        } else {
-            /* Intermediate frames: RE-PROJECT the constant map through
-             * the folded basis (no lighting recompute, no flicker) at
-             * full resolution, with the LIT-FADE (see MOON_DUSK_FADE_HOLD):
-             * lit_w holds 1.0 for the first MOON_DUSK_FADE_HOLD of the spin
-             * (the real current-phase crescent, full brightness), then
-             * smoothsteps to exactly 0.0 by MOON_DUSK_FADE_END -- the last
-             * stretch of the spin (MOON_DUSK_FADE_END -> 1.0) rests on the
-             * clean backlit dark side, and the endpoint frame (the dk_kill
-             * bake) takes over with no pop. The lerp moves only the lit
-             * cells (the companion map is identical backlit there).
-             * Row-by-row so an abort lands within a row. */
-            float t = (frames > 2) ? (float)f / (float)(frames - 2) : 0.0f;
-            float lit_w = 1.0f;
-            if (t > MOON_DUSK_FADE_HOLD) {
-                float p = (t - MOON_DUSK_FADE_HOLD) / (MOON_DUSK_FADE_END - MOON_DUSK_FADE_HOLD);
-                if (p > 1.0f)
-                    p = 1.0f;
-                float e = p * p * (3.0f - 2.0f * p); /* smoothstep */
-                lit_w = 1.0f - e;
-            }
-            for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
-                /* The map already carries the dark side (backlit, with the
-                 * dk_sup + margin erosion) -- no bound; the fade lerp is
-                 * the earth-ray kill (lit_w 1 -> 0 over the spin). */
-                moon_reproject_rows(s_shade_map, s_shade_map_dark, MOON_ALB_W, MOON_ALB_H, &g, s_frame, MOON_PX, MOON_R,
-                                    (float)(MOON_PX / 2), (float)(MOON_PX / 2), y, y + 1, lit_w);
-                if ((y & 15) == 15)
-                    vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
-                                    * rounds to 0 ticks -- a no-op that starved IDLE1
-                                    * (bench: boot-sweep bake spun core 1, TWDT
-                                    * IDLE1 hits every 5 s once the CPU1 check was
-                                    * enabled) */
-            }
-        }
-        if (s_dusk_abort)
-            break;
-        /* Convert into s_rgb as ONE locked block (the orbit's rule):
-         * the tick's atomic flush can never mix two frames. */
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        for (int y = 0; y < MOON_PX; y++) {
-            const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
-            uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
-            for (int x = 0; x < MOON_PX; x++)
-                rrow[x] = moon_gray565(frow[x]);
-        }
-        xSemaphoreGive(s_rgb_mtx);
-        s_dusk_pub = (uint32_t)f + 1;
-        if ((f & 15) == 0 || f == frames - 1)
-            ESP_LOGD(TAG, "dusk %d/%d %s in %lldms (phi %+.1f deg)", f + 1, frames,
-                     f == frames - 1 ? "final dark-side bake" : "reprojected",
-                     (long long)((esp_timer_get_time() - b0) / 1000), phi * 57.29577951308232f);
-    }
-abort_out: /* the map-build abort lands here: the else-branch below handles it
-            * (s_frame_touched/s_dusk_pub are both still 0 -> no stale frame,
-            * nothing dusk-published on screen) */
-    if (!s_dusk_abort) {
-        /* Wait for the LAST frame to be on screen before the pre-bake:
-         * the tick arms the deep-sleep countdown on this same advance. */
-        int waited = 0;
-        while (!s_dusk_abort && s_dusk_shown < (uint32_t)s_dusk_frames && waited < 5000) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            waited += 10;
-        }
-        if (!s_dusk_abort) {
-            /* Pre-bake the STATIC frame (the basis the spin gathered before
-             * the dusk: epoch + orbit viewport, NO in-plane/pole fold -- the
-             * spin re-applies the parked angle on wake) into s_frame, row by
-             * row so an interrupt is honored quickly. It is NOT displayed:
-             * the dark-side disk stays on the sleep screens; the wake
-             * (moon_ui_pause(false)) displays it atomically at the parked
-             * pose. s_rgb keeps the dark side the whole time. */
-            s_frame_touched = true;
-            for (int y = 0; y < MOON_PX && !s_dusk_abort; y++) {
-                xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-                /* dark_zero 1: the wake frame's night side is the
-                 * backlit computed surface too (matching the static
-                 * phase). This is the CURRENT phase (not the dusk's dark
-                 * endpoint), so it keeps the true d < 0 terminator:
-                 * dk_sup 0.0f. */
-                moon_bake_rows(&g1, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                               MOON_ALB_W, MOON_ALB_H, y, y + 1, 1, 0.0f, bev); /* the current phase's
-                                        blood occlusion too (the static
-                                        wake frame during an eclipse) */
-                xSemaphoreGive(s_rgb_mtx);
-                if ((y & 15) == 15)
-                    vTaskDelay(1); /* a full tick (see the bake-loop feeds) */
-            }
-        }
-    }
-    if (!s_dusk_abort) {
-        s_frame_stale = false; /* the pre-bake completed: a consistent static frame */
-        s_dusk_done = true;    /* wake: show the current phase at the parked pose */
-        ESP_LOGI(TAG,
-                 "dusk done in %lldms (%d frames, %+.0f deg about the pole); countdown armed, static frame pre-baked",
-                 (long long)((esp_timer_get_time() - t0) / 1000), frames, phi_star * 57.29577951308232f);
-    } else {
-        s_frame_stale = s_frame_touched;   /* a partial last frame / pre-bake;
-                                            * an abort before either left s_frame intact */
-        s_dusk_on_screen = s_dusk_pub > 0; /* s_rgb may hold an intermediate
-                                            * dusk frame (zero published frames:
-                                            * it still holds the parked pose) */
-        ESP_LOGI(TAG, "dusk interrupted at %d/%d in %lldms", (int)s_dusk_pub, frames,
-                 (long long)((esp_timer_get_time() - t0) / 1000));
-    }
-    s_dusk_baking = false;
-    vTaskDelete(NULL);
-}
-
-/* Abort a running dusk and clear its state (wake / alarm / deep-sleep
- * transition). The task checks s_dusk_abort per row (the shade-map build,
- * the re-projection frames AND the static pre-bake) and in the
- * backpressure poll, so it exits within a row (~2 ms) of the abort -- the
- * 400 ms join is a defensive margin. */
-static void moon_dusk_interrupt(void) {
-    if (s_dusk_baking) {
-        s_dusk_abort = true;
-        int waited = 0;
-        while (s_dusk_baking && waited < 400) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            waited += 10;
-        }
-        if (s_dusk_baking) {
-            ESP_LOGW(TAG, "dusk task did not exit within 400 ms; forcing state clear");
-            s_frame_stale = true; /* it may still be mid-row in s_frame */
-        }
-    }
-    s_dusk_abort = false;
-    s_dusk_baking = false;
-    s_dusk_pub = 0;
-    s_dusk_shown = 0;
-    s_dusk_frames = 0;
-    /* s_dusk_done / s_dusk_on_screen are the WAKE's business: they must
-     * survive this (sleep-side) call so the wake display can show the
-     * parked pose atomically. The task's abort path already refreshed
-     * s_dusk_on_screen; a no-op join (nothing running) leaves both as
-     * they are. */
 }
 
 /* The tilt drives the moon's OUT-OF-PLANE orbit (sphere model; there is
@@ -2007,12 +1531,6 @@ bool moon_ui_tilt_settled(void) { return s_tilt_settled; }
  * the shared actions.c idle/Wi-Fi gates still honor there. */
 bool moon_ui_sweeping(void) { return false; }
 
-/* True while the dark side is the on-screen state (the dusk spin's last
- * frame has displayed and the deep-sleep countdown was armed from it).
- * Reset by the wake (moon_ui_pause(false)) and by any fresh bake, so a
- * demo cycle can poll the dusk to completion after re-arming it. */
-bool moon_ui_dusk_complete(void) { return s_dusk_done; }
-
 /* ---------------- tick ---------------- */
 
 static void moon_tick_cb(lv_timer_t *timer) {
@@ -2024,7 +1542,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * 3.5 KB stack rule), so the tick lands the finished frame as ONE
      * atomic whole-panel flush. Waits out any pipeline that is mid-read
      * of s_rgb (the strips it would interrupt belong to that pipeline). */
-    if (s_rebake_show && !s_orbit_sweeping && !s_dusk_baking) {
+    if (s_rebake_show && !s_orbit_sweeping) {
         s_rebake_show = false;
         moon_invalidate_all();
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
@@ -2036,7 +1554,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
      * the task has fully converted, top to bottom, so the new viewport
      * sweeps in instead of popping in. The drain below is the only s_rgb
      * reader while the sweep runs -- every other writer is gated on the
-     * orbit/dusk flags. */
+     * orbit flags. */
     if (s_orbit_sweeping) {
         int strips_ready = (int)((uint32_t)s_orbit_pub / MOON_STRIP_ROWS);
         if (strips_ready > MOON_NSTRIPS)
@@ -2068,38 +1586,6 @@ static void moon_tick_cb(lv_timer_t *timer) {
             s_orbit_sweeping = false; /* the orbit frame is fully on screen */
             if (!clock_is_idle())
                 clock_idle_set_enabled(true);
-        }
-    }
-    /* Light-sleep "dusk" consumer (see the dusk section): each
-     * published frame is ONE atomic whole frame. On the
-     * LAST frame the deep-sleep countdown is armed -- the sleep depth
-     * follows the animation (the timer fires only once the fully
-     * unilluminated side is on screen), never at the light-sleep entry
-     * itself. Same LVGL-task context the countdown poll callback runs
-     * in. */
-    if (s_dusk_baking && s_dusk_pub > s_dusk_shown) {
-        moon_invalidate_all();
-        int64_t r0 = esp_timer_get_time();
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        lv_refr_now(NULL);
-        xSemaphoreGive(s_rgb_mtx);
-        /* The LAST dusk frame matters too: its next writer is the wake
-         * after the deep-sleep countdown -- a hand lost there would
-         * freeze the DEEP wake (the exact stall the wake-sync storm fix
-         * cured), minutes later and in the user's face. Mid-dusk the
-         * restart this catches is invisible. */
-        moon_panel_drain_verify("dusk replay");
-        s_dusk_shown = s_dusk_pub;
-        ESP_LOGI(TAG, "dusk %u/%d shown in %dms", (unsigned)s_dusk_shown, (int)s_dusk_frames,
-                 (int)((esp_timer_get_time() - r0) / 1000));
-        if (s_dusk_shown >= (uint32_t)s_dusk_frames) {
-            esp_err_t ret = clock_timer_enable(settings_deep_sleep_countdown_sec(),
-                                               CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
-            if (ret == ESP_OK)
-                ESP_LOGI(TAG, "dusk done; RTC countdown %u s to deep sleep armed",
-                         (unsigned)settings_deep_sleep_countdown_sec());
-            else
-                ESP_LOGE(TAG, "dusk done but the countdown arm failed: %d", (int)ret);
         }
     }
     moon_imu_tick();    /* tilt drives the orbit target (no-op without an IMU) */
@@ -2150,20 +1636,7 @@ void moon_ui_init(void) {
 
     s_frame = heap_caps_malloc(MOON_PX * MOON_PX, MALLOC_CAP_SPIRAM);
     s_rgb = heap_caps_malloc((size_t)MOON_PX * MOON_PX * 2, MALLOC_CAP_SPIRAM);
-    /* The dusk's pre-shaded body-frame equirect map (the constant-
-     * projection pass; see the dusk section): MOON_ALB_W x MOON_ALB_H
-     * 8-bit cells, built once per dusk epoch, re-projected every dusk
-     * frame (no per-frame lighting recompute). + the lit-fade companion
-     * (the same map, the lit cells zeroed; see MOON_DUSK_FADE_HOLD) --
-     * the fade lerps the two, so only the lit crescent moves. The maps
-     * follow the per-board albedo (MOON_ALBEDO_W): at the P4's 2048
-     * that is two 2,097,152 B maps (+3.45 MB of asset PSRAM), and the
-     * epoch build scales with the cell count (~5.4x the S3 864's 282 ms
-     * -> ~1.5 s); the per-frame re-project cost stays ~50 ms either way
-     * (it samples at MOON_PX density, not the map density). */
-    s_shade_map = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
-    s_shade_map_dark = heap_caps_malloc((size_t)MOON_ALB_W * MOON_ALB_H, MALLOC_CAP_SPIRAM);
-    if (!s_frame || !s_rgb || !s_shade_map || !s_shade_map_dark) {
+    if (!s_frame || !s_rgb) {
         ESP_LOGE(TAG, "allocation failed (PSRAM); moon disabled");
         return;
     }
@@ -2206,7 +1679,7 @@ void moon_ui_init(void) {
     lv_timer_pause(s_tick);
     /* Sync: a buffer mutex serializing every s_rgb / s_frame
      * reader+writer (the orbit's row sweep, the static LUT convert, the
-     * dusk pipeline), and a PANEL mutex serializing every panel
+     * re-bake pipeline), and a PANEL mutex serializing every panel
      * write (LVGL's flush strips, the 0x51 ramp steps, the drain
      * probes) -- which reach the panel through the draw_bitmap wrapper
      * installed below (every LVGL flush funnels through
@@ -2334,71 +1807,6 @@ void moon_ui_start(void) {
     lv_timer_resume(s_tick);
 }
 
-void moon_ui_replay_animation(void) {
-    /* Boot-animation seam. The clock home plays NO boot animation since
-     * 2026-11-13 (moon_ui_start bakes the static current phase); the
-     * knob companion's seam answers this call with its OWN boot sweep,
-     * so the shared wake flow keeps a single call site family-wide. */
-}
-
-bool moon_ui_dusk_start(void) {
-    /* Light-sleep entry (see the dusk section): the pole-axis spin from
-     * the displayed (unrotated) pose to the fully unilluminated side,
-     * 1 degree per frame (the smoothness
-     * bar), shortest arc -- at most a half turn. The caller
-     * (action_switch_to_light_sleep_screen) runs moon_ui_pause(true)
-     * first, so the on-screen pose
-     * (orbit viewport) is stable to capture here, and
-     * the tick is paused -- resumed below, the dusk frames need it to
-     * display. Returns FALSE when the dusk could not start (no static
-     * phase yet, a pipeline owns the buffers, or the dark side is
-     * already the on-screen state after a completed dusk): the caller
-     * then arms the deep-sleep countdown immediately (the pre-dusk
-     * behavior) so the deep-sleep transition still happens. */
-    if (!dusk_anim_enabled() || !s_ready || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
-        s_dusk_baking || s_dusk_done)
-        return false;
-    /* The start pose, captured before the task exists: the in-plane
-     * angle is the identity (the free spin is gone -- the home frame
-     * sits unrotated) and the tilt orbit viewport (endpoint
-     * computed from the orbit-folded view). */
-    s_dusk_theta = 0.0f; /* no free spin: the dusk starts from the identity pose */
-    s_dusk_orbit = s_orbit_baked;
-    s_dusk_epoch = s_orbit_epoch;
-    moon_geom_t g0;
-    moon_geometry(s_dusk_epoch, &g0);
-    moon_geom_t g1;
-    moon_orbit_geometry(&g0, (float)s_dusk_orbit * (float)M_PI / 180.0f, &g1);
-    float A = g1.E[0] * g1.S[0] + g1.E[1] * g1.S[1];
-    float B = g1.E[0] * g1.S[1] - g1.E[1] * g1.S[0];
-    float phi_star = atan2f(-B, -A);                                        /* the fully unilluminated view */
-    int32_t frames = (int32_t)lrintf(fabsf(phi_star) * 57.29577951308232f); /* 1 deg/frame */
-    if (frames < 1)
-        frames = 1;
-    s_dusk_frames = frames;
-    s_dusk_pub = 0;
-    s_dusk_shown = 0;
-    s_dusk_abort = false;
-    s_dusk_done = false;
-    /* Ownership flag BEFORE the task exists (the pipeline rule): the
-     * task may start baking s_rgb rows immediately; the tick's display
-     * legs (rebake display, orbit drain, screen switch) must already be
-     * stopped. */
-    s_dusk_baking = true;
-    /* 12 KB: the classify-on-top-of-era-chain headroom (the event
-     * worker's reason). */
-    if (xTaskCreatePinnedToCoreWithCaps(moon_dusk_task, "moon_dusk", 12288, NULL, configMAX_PRIORITIES - 3,
-                                        &s_dusk_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
-        ESP_LOGE(TAG, "dusk task allocation failed; the moon stays parked");
-        s_dusk_baking = false;
-        return false;
-    }
-    lv_timer_resume(s_tick); /* the dusk frames display from the tick */
-    ESP_LOGI(TAG, "dusk started: %d frames (%+.0f deg about the pole, 1 deg/frame)", frames,
-             phi_star * 57.29577951308232f);
-    return true;
-}
-
 void moon_ui_day_tick(void) {
     /* Guarded on s_started, not just s_ready: at boot the main-screen
      * handler runs BEFORE moon_ui_start (its one first bake: the
@@ -2428,18 +1836,14 @@ void moon_ui_day_tick(void) {
      * day in moon_event.c (one ~350-step scan per day, not per
      * minute -- and taken on the event worker / a pipeline task, never
      * on the LVGL task; see moon_event_classify_here). */
-    if (s_orbit_baking || s_orbit_sweeping || s_dusk_baking || s_dusk_done) {
-        /* The orbit or dusk pipeline owns s_frame/s_rgb until
-         * it finishes; defer (do NOT advance s_baked_day) so the
-         * next tick re-tries and the bakes never race on the
-         * buffers. s_dusk_done: the dark side is on screen (light
-         * or deep sleep, countdown running) -- a re-bake here would
-         * replace it with the lit phase. The wake path
-         * (moon_ui_pause(false)) bakes the rolled-over day. The
-         * guard sits BEFORE the classify probe on purpose: while a
-         * pipeline task runs, that task classifies its own epoch and
-         * warms the day cache -- the LVGL task never pays for the
-         * scan here (moon_event_classify_here). */
+    if (s_orbit_baking || s_orbit_sweeping) {
+        /* The orbit pipeline owns s_frame/s_rgb until it finishes;
+         * defer (do NOT advance s_baked_day) so the next tick re-tries
+         * and the bakes never race on the buffers. The guard sits
+         * BEFORE the classify probe on purpose: while a pipeline task
+         * runs, that task classifies its own epoch and warms the day
+         * cache -- the LVGL task never pays for the scan here
+         * (moon_event_classify_here). */
         return;
     }
     moon_event_t ev;
@@ -2460,83 +1864,32 @@ void moon_ui_pause(bool pause) {
     if (!s_tick)
         return;
     if (pause) {
-        /* Sleep entry (and the alarm screen): the pipelines take
-         * priority in this order -- join the dusk,
-         * interrupt the orbit (sleep shows the last baked viewport) --
-         * then the tick pauses. The on-screen frame simply stays as it
-         * is under the sleep screens.
-         * Sleep is the preparation for the full stop. All of this is
-         * bounded (each join polls its exit at 10 ms) and runs in the
-         * LVGL task, so the display stays live the whole way. */
-        moon_dusk_interrupt();
+        /* Sleep entry (and the alarm screen): interrupt the orbit
+         * (sleep shows the last baked viewport), then pause the tick.
+         * The on-screen frame simply stays as it is under the sleep
+         * screens -- the static dim IS the whole sleep transition now
+         * (the dusk pole spin retired 2026-11-13). The join is bounded
+         * and runs in the LVGL task, so the display stays live the
+         * whole way. */
         moon_orbit_interrupt(); /* sleep shows the last baked viewport */
         lv_timer_pause(s_tick);
     } else {
-        /* Wake (any input: touch, tilt, alarm dismiss): interrupt a
-         * RUNNING dusk first -- otherwise it would keep baking/displaying
-         * toward the dark side (and arm the deep-sleep countdown) while
-         * the user is back. The join is bounded (<= 400 ms, polled at
-         * 10 ms) and runs in the LVGL task, like the sleep-side joins. */
-        moon_dusk_interrupt();
+        /* Wake (any input: touch, tilt, alarm dismiss): a mid-bake
+         * abort (a sleep transition that landed on an in-flight bake)
+         * left s_frame/s_rgb partial -- re-bake the current phase,
+         * DEFERRED: the frame stays flagged stale (a completed bake
+         * clears it) and the tick's rebake leg displays the fresh
+         * frame as ONE atomic whole-panel flush once the core-1 bake
+         * lands it (~1.3 s, off the LVGL task, the UI stays live). The
+         * rolled-over-day re-bake is moon_ui_day_tick's, which
+         * action_wake_screen runs right after this. */
         if (s_frame_stale && s_started) {
-            /* A mid-bake abort left s_frame/s_rgb partial (a sleep
-             * transition landed on an in-flight bake): re-bake the
-             * current phase. */
             int64_t now;
             if (clock_get_utc_epoch(&now) == ESP_OK) {
-                /* Deferred: the frame stays flagged stale (a completed
-                 * bake clears it), and the tick's rebake leg displays
-                 * the fresh frame atomically once the core-1 bake lands
-                 * it (a bounded ~1.3 s, off the LVGL task). */
                 ESP_LOGI(TAG, "frame was mid-bake at sleep; deferring the wake re-bake");
                 s_baked_day = now / 86400;
                 moon_rebake_request(now);
             }
-        }
-        if (s_dusk_done || s_dusk_on_screen) {
-            /* A dusk (completed or interrupted) left one of ITS frames
-             * on screen (the dark side / an intermediate dusk frame)
-             * while s_frame holds the static phase. A wake shows the
-             * CURRENT phase STATIC, unrotated, ONE atomic
-             * whole frame -- no animation. */
-            s_dusk_done = false;
-            s_dusk_on_screen = false;
-            int64_t now;
-            if (clock_get_utc_epoch(&now) == ESP_OK && now / 86400 != s_baked_day) {
-                /* The dusk's pre-bake is the phase at the SLEEP entry --
-                 * possibly a day old for an all-night sleep (same
-                 * rule as moon_ui_day_tick). The pose display below
-                 * shows it NOW (a valid moon, slightly stale phase),
-                 * and the current-phase bake is deferred to core 1 --
-                 * the tick's rebake leg shows it when it lands (~1.3 s,
-                 * the UI stays live; s_baked_day advances here so the
-                 * wake's day-tick leg does not queue a second bake). */
-                ESP_LOGI(TAG, "wake after dusk on a new day; deferred re-bake behind the pose display");
-                s_baked_day = now / 86400;
-                moon_rebake_request(now);
-            }
-            /* Capture 4's member, sealed BEFORE the flush starts: if the
-             * wake-join burst ate the last accepted write (the dusk
-             * replay's drain pixel), this probe's own
-             * write never gets accepted and the restart fires with the
-             * panel STILL showing the dusk frame -- a blink, never the
-             * 4.5 s freeze-then-crash the user saw. With the witness
-             * armed the probe also waits for its OWN completion, so
-             * LVGL's strips start from a queue that is empty and
-             * accounted for; the flush's last strip is then closed by
-             * the convert's own drain verify below. */
-            moon_panel_drain_verify("wake preflush");
-            /* The current phase, unrotated, as ONE atomic whole frame:
-             * LUT into s_rgb, invalidate, lv_refr_now and the drain
-             * verify -- on the LVGL task, so the atomic leg runs.
-             * Capture 2's member rides that verify: this wake flush's
-             * last strip losing its hand pinned the LVGL task ~2 s per
-             * strip -- the user's "crash coming back from light sleep".
-             * A loss now restarts immediately (before the panel comes
-             * up) instead of freezing ~4.5 s and restarting into the
-             * user's face. */
-            moon_convert_to_rgb();
-            ESP_LOGI(TAG, "wake after dusk: current phase, static, no animation");
         }
         lv_timer_resume(s_tick);
     }
@@ -2667,7 +2020,7 @@ static void fade_ramp(int from_pct, int to_pct) {
  * brightness back. No-op when the fade is off, the moon UI is not
  * ready, or a bake pipeline owns the buffers. */
 void moon_ui_fade_out(void) {
-    if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking || s_dusk_baking)
+    if (!s_ready || !moon_on_lvgl() || CONFIG_UI_SCREEN_SWITCH_FADE <= 0 || s_orbit_baking)
         return;
     int from = s_panel_pct;
     s_fade_pending = true; /* the fade-in (0 -> 100) is owed either way */
@@ -2744,8 +2097,8 @@ esp_err_t moon_ui_panel_brightness_set(int pct) {
  * for the ramp's duration (the 0x51 steps must be the only panel-io
  * traffic in flight, the fade's rule) but no fade-in is owed afterwards:
  * the next screen switch paints plain (s_fade_pending is untouched).
- * The dusk's frames display from the tick (this same task), so they are
- * blocked behind the ramp and simply resume at the new level. No-op when
+ * The sleep frame is static -- there is nothing displaying behind the
+ * ramp to resume. No-op when
  * the panel is already at the target -- the call sites are unconditional
  * (the wake and alarm paths also run on a fully-lit panel). Non-LVGL /
  * not-ready: the instant set. */
@@ -2773,7 +2126,7 @@ void moon_ui_screen_switched(void) {
          * would park on the withheld display handshake). */
         s_moon_screen = moon_screen_has_image();
     }
-    if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_dusk_baking) {
+    if (!s_ready || !moon_on_lvgl() || s_orbit_baking) {
         if (s_fade_pending && s_panel_pct == 0) {
             /* A starved fade-in: the fade-out ramp LANDED physically
              * (the panel sits at true black, s_panel_pct says so), but
@@ -2841,8 +2194,8 @@ void moon_ui_dump_hang_context(void) {
     ESP_LOGE(TAG, "  flags: ready=%d moon_screen=%d fade_pending=%d", (int)s_ready, (int)s_moon_screen,
              (int)s_fade_pending);
     ESP_LOGE(TAG, "  flags: panel_pct=%d fade_busy=%d", (int)s_panel_pct, (int)s_fade_busy);
-    ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d dusk_baking=%d frame_stale=%d", (int)s_orbit_baking,
-             (int)s_orbit_sweeping, (int)s_dusk_baking, (int)s_frame_stale);
+    ESP_LOGE(TAG, "  flags: orbit_baking=%d orbit_sweep=%d frame_stale=%d", (int)s_orbit_baking, (int)s_orbit_sweeping,
+             (int)s_frame_stale);
     ESP_LOGE(TAG, "  flags: rebake_baking=%d rebake_show=%d panel_wrap=%d", (int)s_rebake_baking, (int)s_rebake_show,
              (int)s_panel_wrap);
 }

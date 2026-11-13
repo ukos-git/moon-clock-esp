@@ -389,7 +389,7 @@ static __attribute__((always_inline)) inline void bake_px(bake_ctx_t *c, int x) 
      * clipped L) because dark_zero's BACKLIT night side needs it: L_anti =
      * clip(-lns, 0, 1) is the anti-solar Lambert of the same surface. The
      * night test differs by caller: dark_zero = 0 (the validated model --
-     * the host gate / pole_test) is lns <= 0 exactly as before (a d < 0
+     * the host gate) is lns <= 0 exactly as before (a d < 0
      * base direction whose displaced normal still catches the Sun, lns > 0,
      * stays LIT there), while dark_zero = 1 (the device) extends it to
      * d < dk_sup so the dusk's geometrically-lit rim sliver (0 < d < dk_sup,

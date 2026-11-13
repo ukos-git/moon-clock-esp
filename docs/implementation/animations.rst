@@ -7,18 +7,21 @@ to make the waiting itself the interface: three motion pipelines, all
 built on
 the one atomic-display rule (:doc:`the architecture <architecture>`) and the one panel-write
 discipline (:doc:`the display pipeline <display>`). The user retired
-two of them on 2026-11-13. What is left:
+all three on 2026-11-13. What is left:
 
-1. **The dusk** — the light-sleep entry: a constant-projection pole
-   spin to the dark side.
+1. **The orbit** — a *response*, not an animation: the tilt viewport
+   re-bake, one atomic frame per sustained pose change.
 2. **The fade** — the screen-switch dim, which writes no pixels.
 
 Retired 2026-11-13, one after the other: **the free spin** (the
 ball-in-hand burn-in rotation — *"It does more things worse than
-good."*) and **the boot sweep** (the current synodic month played at
-boot — the user retired the whole animation stack; the home now boots
-straight to the static current phase). The home's moon is plain LVGL,
-shown static; see
+good."*), **the boot sweep** (the current synodic month played at
+boot), and **the dusk** (the light-sleep pole spin to the dark side —
+light sleep is a **static dim frame** now: panel to 25 %, clock to
+20 % alpha, and the deep-sleep countdown armed at the entry itself;
+:doc:`the clock and sleep machine <clock-sleep>`). The home now boots
+straight to the static current phase and sleeps the same way. The
+home's moon is plain LVGL, shown static; see
 :doc:`the architecture <architecture>` for what the removals left of the
 exceptions list. The removed subsystems' measurements stay below as
 dated history; the TF card cache module outlives the sweep it served
@@ -410,7 +413,7 @@ wrapper). The burst was root-caused to the sky-events day cache and
 been freezing the minute roll mid-animation, the clock half-way
 between two minutes on glass) never runs on the LVGL task anymore.
 ``moon_event_classify_here`` hands the scan to a core-1 sky-events
-worker (or lets a running sweep/dusk/orbit task take it with its
+worker (or lets a running bake task take it with its
 own epoch — those already classify, and IDLE1 is unwatched), and
 until the day is warm the guarded caller gets a plain all-false
 event: one untinted bake that self-heals, because the next
@@ -434,8 +437,8 @@ shows the current moon phase **static**, with no animation: when the
 day has not turned, the boot's bake is still current, so the first
 wake frame is the current phase, not the dark-side disk
 (:doc:`the clock and sleep machine <clock-sleep>`). When the frame
-*is* stale — a new day, a changed sky-event signature, a dusk wake
-on a new day, or a frame that was mid-bake when the device slept —
+*is* stale — a new day, a changed sky-event signature,
+or a frame that was mid-bake when the device slept —
 the wake no longer bakes on the LVGL task: the parked frame displays
 immediately and ``moon_rebake_request()`` re-bakes on a core-1 task
 (the same worker pattern as the day scan above). The finished frame is
@@ -465,8 +468,22 @@ change (the tilt confirmation — 1 s windowed mean, integer
 quadrant, sustained confirmation, :doc:`the clock and sleep machine <clock-sleep>` — exists precisely so a
 single sample never pays that cost).
 
-The dusk
---------
+The dusk (retired 2026-11-13)
+-----------------------------
+
+Retired with the rest of the animation stack: the light-sleep entry
+is now the **static dim** itself — ``moon_ui_pause(true)`` interrupts
+the orbit and pauses the tick, the clock widget drops to
+``UI_CLOCK_ALPHA_PCT`` (20 %), ``moon_ui_panel_dim_ramp`` walks the
+panel to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), and the deep-sleep
+countdown is armed at the entry (the countdown used to fire only once
+the dusk's dark side was on screen — sleep depth followed the
+animation; it now follows the timer). The code
+(``moon_dusk_task`` / ``moon_ui_dusk_start`` / ``MOON_DUSK_*`` and the
+shade-map decls) is gone from the clock tree; the shade-map and
+pole-rotate entry points stay in the portable core
+(:doc:`the C core <core-c>`) with the shared host tools. Everything
+below is the subsystem as shipped, in the tense it was measured.
 
 .. raw:: html
 
@@ -531,9 +548,9 @@ The dark side is **computed** (``dark_zero = 1``) for every dusk
 frame — the shade map's dark cells and the final bake's night side
 are written the faint backlit surface (:doc:`the dark side <../science/darkside>`), so no
 phase-dependent earthshine speckle survives to the rim while the far
-side still shows the lunar surface. The gate keeps ``dark_zero = 0``
-on its own ``pole_test`` path — the earthshine *model* is unchanged;
-only the device-visible rendering drops it.
+side still shows the lunar surface. The image gate keeps
+``dark_zero = 0`` — the earthshine *model* is unchanged;
+only the device-visible rendering dropped it.
 
 The **final frame** is a full ``MOON_PX`` bake at ``phi*`` — the one
 pixel-exact dark-side lighting pass, which lingers on the sleep
@@ -542,18 +559,21 @@ screen through the countdown. On completion the task pre-bakes the
 an interrupt is honored: the wake shows the *current* phase, not the
 dark-side disk, and shows it static.
 
-The rim sliver (``dk_sup``)
----------------------------
+The rim sliver (``dk_sup``; retired with the dusk)
+---------------------------------------------------
 
-The dusk's endpoint has one edge case (:doc:`the dark side <../science/darkside>` documents the model;
-this is where it lives in the pipeline): the pole spin never changes
-the view *latitude*, so at ``phi*`` the visible disk can still carry
-a thin geometrically-lit rim. The bake writes the backlit night side
-for ``d < dk_sup`` instead of ``d < 0`` there — and since that sliver
+The dusk's endpoint had one edge case (:doc:`the dark side <../science/darkside>` documents the model;
+this is where it lived in the pipeline): the pole spin never changes
+the view *latitude*, so at ``phi*`` the visible disk could still carry
+a thin geometrically-lit rim. The dusk bake passed ``dk_sup`` and
+wrote the backlit night side for ``d < dk_sup`` instead of ``d < 0``
+there — and since that sliver
 is sun-lit, its backlit value clips to **pure black**. The
-``MOON_DK_MARGIN`` erosion (:doc:`the dark side <../science/darkside>`) covers the intermediate
+``MOON_DK_MARGIN`` erosion (:doc:`the dark side <../science/darkside>`) covered the intermediate
 re-projected frames, whose nearest-neighbor map sample could otherwise
-round a dark pixel to a lit cell and re-light the ray.
+round a dark pixel to a lit cell and re-light the ray. The bake entry
+point still carries the parameter (the portable core is shared
+verbatim with the host tools); every device bake today passes 0.
 
 The fade (no pixels written)
 ----------------------------
@@ -595,7 +615,7 @@ up and the fully rendered screen appears at once.
 
 The fade-in is owed, not guaranteed by the leg itself: when a bake
 pipeline owns the buffers (while the boot sweep existed it set
-``s_sweep_baking`` there; orbit / dusk / rebake own the branch today),
+``s_sweep_baking`` there; orbit / rebake own the branch today),
 ``moon_ui_screen_switched`` takes its plain-paint early-return
 branch. That branch rescues a starved fade-in — if the fade-out
 ramp actually landed (tracked level at true 0), it brings the panel
@@ -619,8 +639,10 @@ path*, not violated.
 The light-sleep dim is the same ramp to a floor: the entry ramps
 **down** to ``UI_LIGHT_SLEEP_DIM_PCT`` (production: 25%) over the
 fade duration, and the wake / an alarm ring ramps it back to 100.
-The dusk keeps spinning at the dim level — the whole display glows
-down, the moon included.
+The frame under it is **static** — with the dusk retired there is
+nothing moving at the dim level; the clock widget additionally drops
+to ``UI_CLOCK_ALPHA_PCT`` (20 % alpha) and the seconds timer pauses
+with the tick, so the sleeping display is one quiet still image.
 
 Measured timings
 ----------------
@@ -649,22 +671,23 @@ benchmark context in :doc:`performance <../verification/performance>`):
        the sweep)
      - ~1.3 s
      - 599 ms @ 618 px / 959 ms @ 650 px
-   * - Dusk shade-map build
+   * - Dusk shade-map build (retired 2026-11-13)
      - ~1.6 s (one-time)
      - ~282 ms (one-time)
-   * - Dusk frame (re-project)
+   * - Dusk frame, re-project (retired)
      - ~50 ms
      - —
-   * - Dusk total
+   * - Dusk total (retired)
      - —
      - ~43 s (1°/frame, display-paced)
 
-The pattern worth internalizing: **everything expensive is built
-once** (the relief cache at boot, the shade map at dusk entry, the
-static frame at completion), and the per-frame work is gather-class
-(8–50 ms). The pipelines are display-paced, not bake-paced, which is
-why the dusk runs for minutes without the touch core ever seeing a
-bake (the sweep did the same until its retirement).
+The pattern worth internalizing (it holds for the bake paths that
+remain): **everything expensive is built
+once** (the relief cache at boot, the static frame at completion),
+and the per-frame work is gather-class
+(8–50 ms). The retired pipelines were display-paced, not bake-paced,
+which is why the dusk ran for minutes without the touch core ever
+seeing a bake (the sweep did the same until its retirement).
 
 The clock digit roll (opt-in)
 -----------------------------

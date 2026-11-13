@@ -30,9 +30,6 @@ Enabling it
    * - ``UI_DEMO_SCREEN_SEC``
      - ``15``
      - seconds per moon screen and per settings dwell
-   * - ``UI_DEMO_DUSK_WAIT_S``
-     - ``180``
-     - the dusk phase's wait for the pole spin
    * - ``KNOB_DEMO_MODE`` / ``KNOB_DEMO_PHASE_SEC``
      - ``n`` / ``15``
      - the knob's canonical-phase walk (full tables:
@@ -88,11 +85,6 @@ loadScreen shortcut.
    * - ``back``
      - the WiFi screen's exit → the hub's central exit → home
      - the two exit handler levels
-   * - ``dusk``
-     - the real light-sleep entry (pause + dusk + dim), wait the
-       ``moon_ui_dusk_complete()`` flag, hold the dark side, wake
-     - the pole spin to the fully unilluminated side, the wake
-       replacing the dark side atomically
    * - ``roll``
      - one run of the synthetic tilt script (``action_roll_test_begin``)
        through the real orientation pipeline
@@ -118,7 +110,7 @@ wake/dismiss window,
 where the 0x51 hardware brightness ramp, the fade-to-black switch and
 the spin resume (the spin retired 2026-11-13) then overlapped (the
 same family as the #96 settings-freeze
-stall). Placing the phase at the cycle end keeps dusk, roll and sync
+stall). Placing the phase at the cycle end keeps roll and sync
 comparable on every cycle even while that watchdog recovery runs; the
 race itself was root-caused 2026-11-12 to the wake path's WiFi-init
 storm and closed with the sync-storm panel-traffic hold
@@ -236,8 +228,8 @@ Reading a take
   the current-phase rendering across the three panels — same core,
   same live instant; the knob's canonical phase steps are its own
   bake-path coverage (the clocks cannot display a canonical epoch).
-* ``dusk`` compares the shade map + terminator smoothness; ``alarm``
-  is audible in the video's audio track (both clocks carry the ES8311).
+* ``alarm`` is audible in the video's audio track (both clocks carry
+  the ES8311).
 * The logs beside each take are read like any
   :doc:`device-verification capture <device-verify>`: progress lines
   present, timing sane, zero failure-class lines (no WDT fires that

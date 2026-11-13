@@ -1,7 +1,7 @@
 The sleep countdown (deep sleep)
 ================================
 
-The twin of the :doc:`idle-timeout screen <settings-light-sleep>` (the same parameterized builder, ``screen = 1``): the **deep-sleep countdown** roller, in minutes. The countdown takes effect at the **next dusk arming** — it is armed on the dusk's *last frame* (the sleep depth follows the animation, never a fixed timer at the sleep entry) and triggers the deep-sleep transition on expiry. The deep transition itself ends on the flat-black disk with the backlight off, so this screen shows the same one sleep-transition (dusk) toggle as the light-sleep screen — the solid moon glyph for the countdown entry, the regular one for the idle timeout (the hub's two sleep entries use the same weight distinction).
+The twin of the :doc:`idle-timeout screen <settings-light-sleep>` (the same parameterized builder, ``screen = 1``): the **deep-sleep countdown** roller, in minutes, alone and centred on its row. The countdown takes effect at the **next light-sleep entry** — the RTC one-shot is armed right there (the dusk spin that used to own the arming was retired 2026-11-13; sleep depth follows the timer, :doc:`the sleep machine <../implementation/clock-sleep>`) and triggers the deep-sleep transition on expiry. The deep transition itself ends on the flat-black disk with the backlight off; the store's ``dusk_anim_enable`` flag (with its toggle) left with the dusk, leaving no animation to expose on either sleep screen.
 
 .. figure:: ../img/screens/annot/settings-deep-sleep_s3.png
    :alt: the sleep countdown (deep sleep) — the S3 panel (466, annotated)
@@ -34,15 +34,10 @@ Elements
 
    * - 2
      - Sleep countdown (1–30 min)
-     - Minutes on the screen, seconds in the store. Takes effect at the next dusk arming (the dusk's last frame arms the countdown, :doc:`the sleep machine <../implementation/clock-sleep>`).
+     - Minutes on the screen, seconds in the store. Takes effect at the next light-sleep entry (the entry itself arms the one-shot, :doc:`the sleep machine <../implementation/clock-sleep>`).
      - ``event_handler_cb_settings_sleep_roller_released`` — options ``deep_sleep_countdown_sec`` (the store), ``UI_DEEP_SLEEP_COUNTDOWN_SEC`` (the seed)
 
    * - 3
-     - Dusk animation toggle
-     - The 96 px **solid** moon glyph (the deep-sleep entry's weight); the one sleep-transition toggle, shared with the light-sleep screen.
-     - :cfunc:`settings_anim_toggle` — option ``dusk_anim_enable``
-
-   * - 4
      - Exit → hub
      - The shared bottom-centre exit back to the hub.
      - :cfunc:`settings_sub_screen_prepare`

@@ -16,7 +16,7 @@ The bake's ``dark_zero`` flag selects which dark side is written:
 
 - ``dark_zero = 0`` — the **earthshine** model (:doc:`the lighting model <lighting>`): the dark
   side is a faint phase-independent gradient. This is the *validated*
-  model — it is what the image gate and the host ``pole_test`` run, and
+  model — it is what the image gate runs, and
   it is byte-identical to the original pre-backlit bake for every
   :math:`d`.
 - ``dark_zero = 1`` — the **computed backlit** surface: the dark side is
@@ -115,21 +115,21 @@ The constant-projection property
 A subtle but load-bearing fact: the backlit color is a function of the
 body-frame surface direction and the epoch's fixed Sun only. The camera
 basis (which direction the viewer sees) selects *which* direction is on
-screen, but never enters the *color*. That means for a pole spin at a
-fixed phase (the light-sleep "dusk", :doc:`the animation pipelines <../implementation/animations>`), the fully-lit
-body-frame color map is **constant** — it is built once and every spin
+screen, but never enters the *color*. That is what made a pole spin at a
+fixed phase (the light-sleep "dusk", retired 2026-11-13,
+:doc:`the animation pipelines <../implementation/animations>`) possible: the fully-lit
+body-frame color map is **constant** — it can be built once and every spin
 frame is just a re-projection of that one static map. No per-frame
 lighting recompute, and a fixed surface point keeps exactly its color
-on every frame (no terminator flicker). This is why the dusk is cheap
-and stable, and it is why the backlit dark side is *static* while the
-sphere it is projected onto rotates — the exact behavior the product
-wanted.
+on every frame (no terminator flicker). This is why the dusk was cheap
+and stable, and why the backlit dark side is *static* while the
+sphere it is projected onto rotates.
 
-The dusk's rim sliver: ``dk_sup`` and the "white ray"
------------------------------------------------------
+The dusk's rim sliver: ``dk_sup`` and the "white ray" (retired with the dusk)
+------------------------------------------------------------------------------
 
 The backlit model has one edge case the earthshine model never had. The
-dusk spins the camera about the pole toward a fully-dark endpoint. But
+dusk spun the camera about the pole toward a fully-dark endpoint. But
 the pole spin **never changes the view latitude** — the sub-Earth
 latitude is fixed — so at the endpoint the visible disk can still carry
 a thin **geometrically lit** rim sliver (points with :math:`0 < d <
@@ -156,14 +156,15 @@ killed without a special case:
     * pure black. Every other caller passes 0.0f. */
    int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);
 
-Every non-dusk caller passes ``dk_sup = 0.0f``, so for them the test
-reduces to :math:`lns \le 0` — byte-identical to the pre-backlit bake.
+Every caller passes ``dk_sup = 0.0f`` today (the dusk was the only
+non-zero caller, retired 2026-11-13), so the test reduces to
+:math:`lns \le 0` — byte-identical to the pre-backlit bake.
 
 The shade-map margin (NN aliasing)
 -----------------------------------
 
-The dusk's *intermediate* frames do not re-bake — they re-project the
-pre-shaded body-frame map (:doc:`the animation pipelines <../implementation/animations>`). That map is sampled
+The dusk's *intermediate* frames did not re-bake — they re-projected
+the pre-shaded body-frame map (:doc:`the animation pipelines <../implementation/animations>`). That map is sampled
 **nearest-neighbor**, so a dark pixel near the :math:`d = dk_sup`
 boundary can round to a *lit* cell and re-light the sliver. The fix is a
 margin, applied when the map is *built* (not when it is re-projected):
@@ -207,17 +208,12 @@ Where each path runs
    * - Image gate (``check_gate.py``)
      - 0 (earthshine)
      - 0.0
-   * - Host ``pole_test``
-     - 0 (earthshine)
-     - 0.0
-   * - Static bakes (display; the boot sweep's
-       row retired with it 2026-11-13)
+   * - Static bakes (display; the boot sweep's and the dusk's
+       rows retired with them 2026-11-13)
      - 1 (backlit)
      - 0.0
-   * - Dusk intermediate frames (map build)
-     - 1 (backlit)
-     - the endpoint :math:`dk_sup`
-   * - Dusk final (dark-side) bake
+   * - Dusk frames (map build + final bake;
+       retired 2026-11-13)
      - 1 (backlit)
      - the endpoint :math:`dk_sup`
 

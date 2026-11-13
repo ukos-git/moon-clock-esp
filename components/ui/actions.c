@@ -37,7 +37,7 @@ static bool g_alarm_active = false; // Track if we're showing alarm (for wake ca
 
 // True while the panel backlight is off (deep sleep). Deep sleep is the
 // only state that turns the backlight off -- the light-sleep screens
-// keep the panel lit (the dusk + the dark side with the clock show
+// keep the panel lit (the static dimmed frame with the clock shows
 // there). The wake handler and the alarm trigger restore it.
 static bool g_backlight_off = false;
 
@@ -644,7 +644,7 @@ static void screen_orientation_apply(void) {
  * screen_orientation_apply pipeline -- the int4 quantization, the 1 s
  * running mean, the quadrant decision and the LVGL transform layer (the
  * PSRAM alloc + the centre pivot) all execute for real. Idle monitoring
- * is paused for the run (the script would otherwise dusk-sleep mid-way
+ * is paused for the run (the script would otherwise idle-sleep mid-way
  * and the clock would be hidden). */
 void action_roll_test_cb(lv_timer_t *timer) {
     (void)timer;
@@ -1184,8 +1184,8 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
 
     /* Demo mode: no sleep transitions during the tour. The idle
      * monitor is switched off at the demo's arm, but a countdown armed
-     * BEFORE the demo took over (or re-armed by the dusk phase's own
-     * light-sleep entry) can still expire -- a dead-black panel
+     * BEFORE the demo took over (or armed by a leftover light-sleep
+     * entry) can still expire -- a dead-black panel
      * mid-recording would ruin the take, so refuse the transition and
      * disarm the source. */
     if (action_demo_active()) {
@@ -1199,7 +1199,7 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // esp_deep_sleep -- the crystal clock keeps running through it), so
     // the alarm could still fire from the dark screen; but the user's
     // power decision stands: while an alarm is pending the device stays
-    // in LIGHT sleep (dim panel, dusk/dark side) instead of the deep
+    // in LIGHT sleep (dim panel, static frame) instead of the deep
     // state (backlight off, clock hidden). The countdown already expired
     // (that's why we're here), so simply do not transition -- the
     // light-sleep screen stays up and the software one-shot keeps its
@@ -1245,8 +1245,8 @@ void action_switch_to_deep_sleep_screen(lv_event_t *e) {
     // entry re-hides it after a wake to the other screens.
     lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
 
-    // Update UI one final time to show current state (the dark side
-    // from the completed dusk, one last atomic flush)
+    // Update UI one final time to show current state (the static dimmed
+    // frame, one last atomic flush)
     ui_tick();
 
     // Deep sleep turns the panel backlight OFF (the sleep screens
@@ -1367,9 +1367,9 @@ void action_wake_screen(lv_event_t *e) {
 
     // Normal (active) mode: the moon re-bakes if the
     // calendar day rolled over while we slept. Wakes show the current
-    // phase STATIC -- no synodic animation on wake (the whole sweep
-    // family retired 2026-11-13; after a dusk the wake display in
-    // moon_ui_pause(false) replaces the dark side atomically).
+    // phase STATIC -- no animation on wake (the whole sweep/dusk family
+    // retired 2026-11-13; moon_ui_pause(false) only defers a re-bake
+    // when the sleep entry joined a mid-flight bake).
     moon_ui_pause(false);
     moon_ui_day_tick();
 
@@ -1489,25 +1489,18 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     clock_idle_set_enabled(false);
     g_idle_timer_active = false;
 
-    // Sleep mode: the moon stays STATIC under the sleep screens, then
-    // the light-sleep "dusk" spins it about its pole
-    // to the fully unilluminated side (1 degree/frame). The RTC
-    // countdown for the deep-sleep transition is armed by the moon
-    // tick on the dusk's LAST frame -- the sleep depth follows the
-    // animation, never a fixed timer at the sleep entry. Fallback:
-    // when the dusk cannot start (no static phase yet, pipeline in
-    // flight, dark side already on screen), arm the countdown right
-    // away so the deep-sleep transition still happens.
+    // Sleep mode: the moon stays STATIC under the sleep screens. The
+    // light-sleep "dusk" pole spin was removed 2026-11-13 (the dim
+    // below is the whole sleep transition), so the RTC countdown for
+    // the deep-sleep transition is armed right at the entry -- sleep
+    // depth no longer follows an animation.
     moon_ui_pause(true);
-    if (!moon_ui_dusk_start()) {
-        esp_err_t ret =
-            clock_timer_enable(settings_deep_sleep_countdown_sec(), CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
-        if (ret == ESP_OK)
-            ESP_LOGI(TAG, "dusk unavailable; RTC countdown %u s to deep sleep armed immediately",
-                     (unsigned)settings_deep_sleep_countdown_sec());
-        else
-            ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
-    }
+    esp_err_t ret =
+        clock_timer_enable(settings_deep_sleep_countdown_sec(), CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
+    if (ret == ESP_OK)
+        ESP_LOGI(TAG, "RTC countdown %u s to deep sleep armed", (unsigned)settings_deep_sleep_countdown_sec());
+    else
+        ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
@@ -1527,10 +1520,8 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // or the already-dimmed level on a re-entry) to the configured
     // sleep level, paced like the screen-switch fade. This is a
     // both-moon screen (no fade switch), so nothing else would dim it.
-    // The dusk keeps spinning at the new level (the ramp's 0x51 steps
-    // hold off the other brightness writers; the dusk's frames display
-    // from
-    // this same LVGL task, so they simply resume after the ramp). The
+    // The frame is static -- nothing displays behind the ramp (the
+    // ramp's 0x51 steps hold off the other brightness writers). The
     // wake ramps back to 100 (no-op when the panel was never dimmed --
     // e.g. the TEST hook wakes).
     moon_ui_panel_dim_ramp(CONFIG_UI_LIGHT_SLEEP_DIM_PCT);

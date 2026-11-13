@@ -359,8 +359,15 @@ static void boot_arm_task(void *arg) {
                  * baked yet (this path never reached the static arm at
                  * the tail): start the producer on the current phase --
                  * the clock's alarm wake shows the moon under the alarm,
-                 * and the producer owns the ladder hold from here. */
-                moon_ui_replay_animation();
+                 * and the producer owns the ladder hold from here. The
+                 * clock's replay_animation seam was retired with the
+                 * dusk family 2026-11-13; the knob arms its own producer
+                 * directly (fresh epoch: this branch can outlive the
+                 * boot-time `now` by the whole hold). */
+                int64_t moon_now = 0;
+                if (clock_get_utc_epoch(&moon_now) == ESP_OK && moon_now != 0) {
+                    (void)knob_ui_show_moon(moon_now);
+                }
                 vTaskDelete(NULL);
             }
         }

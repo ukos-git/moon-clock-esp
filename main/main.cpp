@@ -221,10 +221,10 @@ static void settings_return_test_cb(lv_timer_t *timer) {
 // second, writes a real pomodoro interval (90 min -- also the cron
 // N>59 sanity case), a fixed-time alarm (12:35, Mon-Fri -- the
 // range-arc default), and the
-// sleep settings (idle timeout, countdown, animation flags), logs
+// sleep settings (idle timeout, countdown, boot anim flag), logs
 // every transition + write, and reads both SPIFFS files back. Runs in
 // the LVGL task like the real user flow; idle monitoring is off for
-// the ~5 s it runs (it would otherwise dusk-sleep mid-script).
+// the ~5 s it runs (it would otherwise idle-sleep mid-script).
 static void settings_demo_cb(lv_timer_t *timer) {
     (void)timer;
     if (CONFIG_TEST_SETTINGS_DEMO_SEC <= 0)
@@ -272,10 +272,8 @@ static void settings_demo_cb(lv_timer_t *timer) {
         clock_idle_set_timeout_ms(60ULL * 1000ULL);
         settings_set_deep_sleep_countdown_sec(60);
         settings_set_boot_anim_enable(false);
-        settings_set_dusk_anim_enable(true);
         r = settings_store_save();
-        ESP_LOGW(TAG, "TEST settings demo: sleep settings (idle=60, countdown=60, boot=off, dusk=on) -> %s",
-                 esp_err_to_name(r));
+        ESP_LOGW(TAG, "TEST settings demo: sleep settings (idle=60, countdown=60, boot=off) -> %s", esp_err_to_name(r));
         break;
     case 4: {
         loadScreen(SCREEN_ID_MODEM_SLEEP);
@@ -453,7 +451,7 @@ static void cpu_stats_cb(lv_timer_t *timer) {
     if (CONFIG_TEST_CPU_STATS_SEC <= 0)
         return;
     /* Hold the device awake the way a user touch does: the idle timer
-     * otherwise dusk-sleeps ~60 s after boot drops to the
+     * otherwise idle-sleeps ~60 s after boot drops to the
      * airplane screen (before the hub measurement window), and the LVGL
      * task pauses for deep sleep. */
     clock_idle_reset_timer();
@@ -666,9 +664,11 @@ extern "C" void app_main(void) {
     // show it static from the first frame (the synodic boot sweep -- last
     // new moon -> now, from a BLACK screen -- was removed 2026-11-13).
     // Wakes from sleep show the current phase static (no
-    // animation); the light-sleep "dusk" (pole spin to the dark side) is
-    // the sleep indicator and arms the deep-sleep countdown on its last
-    // frame (UI_MOON_DUSK_*). A blank RTC (no NTP, no RTC time) leaves
+    // animation); light sleep is a static dim (panel to
+    // UI_LIGHT_SLEEP_DIM_PCT, clock to UI_CLOCK_ALPHA_PCT) and the
+    // deep-sleep countdown arms at the entry itself -- the dusk pole
+    // spin that used to be the sleep indicator retired 2026-11-13.
+    // A blank RTC (no NTP, no RTC time) leaves
     // the moon black until a trustworthy time exists.
     moon_ui_start();
 
@@ -687,7 +687,7 @@ extern "C" void app_main(void) {
     // Test hook: the scripted settings run (CONFIG_TEST_SETTINGS_DEMO_SEC;
     // 0 = off). Idle monitoring stays off from boot so the device holds the
     // rest-on-airplane pose into the scripted run (the demo would
-    // otherwise fire mid-light-sleep, with the dusk bake suppressing the
+    // otherwise fire mid-light-sleep, where the sleep screens suppress the
     // switch it is meant to exercise).
     if (CONFIG_TEST_SETTINGS_DEMO_SEC > 0) {
         lv_timer_create(settings_demo_cb, 1000, NULL);
@@ -725,7 +725,7 @@ extern "C" void app_main(void) {
     // Demo mode (CONFIG_UI_DEMO_MODE; off by default): the full scripted
     // tour of every screen and function (moon rotation with the MM:SS
     // odometer, the settings walk through the hub via a second virtual
-    // pointer, the wheel keyboard, the alarm ring, the dusk spin, the
+    // pointer, the wheel keyboard, the alarm ring, the
     // roll script, a bounded WiFi sync; serial `phase=` markers).
     // ui_demo_init is a no-op when the mode is off (components/ui/demo.c).
     ui_demo_init();

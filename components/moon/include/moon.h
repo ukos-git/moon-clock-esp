@@ -80,7 +80,7 @@ typedef struct {
  * per-pixel 4-neighbor DEM gather: same displaced-normal model, 2
  * PSRAM loads/px (1 albedo + 1 packed gradient) instead of 6.
  * dark_zero = 0: the dark side is the phase-independent earthshine
- * gradient (the validated model -- the host gate / pole_test).
+ * gradient (the validated model -- the host gate).
  * dark_zero = 1: the dark side is the COMPUTED (backlit) surface -- the
  * lunar albedo + relief lit from the anti-solar direction (-S) at a
  * faint level (peak gray ~51 per the core's MOON_NIGHT_BACKLIT_K, an

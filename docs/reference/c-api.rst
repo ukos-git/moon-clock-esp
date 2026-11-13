@@ -33,8 +33,8 @@ them:
   ``moon_rotate_rows``, ``moon_shade_map_rows``,
   ``moon_reproject_rows``) so the caller can sweep a finished row band
   to the display while the rest is still being computed (the orbit
-  bakes rows and the dusk re-projects rows today; the boot sweep was
-  the original user, retired 2026-11-13, :doc:`the animation pipelines <../implementation/animations>`).
+  bakes rows today; the dusk re-projected rows and the boot sweep was
+  the original user — both retired 2026-11-13, :doc:`the animation pipelines <../implementation/animations>`).
 
 The geometry
 ------------
@@ -96,15 +96,17 @@ The parameters the device always passes (and the two that carry the
   smaller SRAM albedo for the fast boot animation.
 - ``dark_zero`` — the *display* decision, :doc:`the dark side <../science/darkside>`: ``0`` = the
   phase-independent earthshine gradient (the validated model — the
-  gate's and ``pole_test``'s path); ``1`` = the **computed backlit
+  gate's path); ``1`` = the **computed backlit
   night side** (albedo + relief lit from the anti-solar direction at a
   faint level — the "the unilluminated side is fully calculated"
   decision). ``dark_zero = 0`` is byte-identical to the old
   earthshine bake for every pixel (the gate's proof).
-- ``dk_sup`` — the *dusk-only* dark-side bound (``0.0f`` for every
-  other caller): with ``dark_zero``, the dark side is written for
+- ``dk_sup`` — the *dusk-only* dark-side bound: retired with the dusk
+  2026-11-13, the parameter kept in the portable core (shared verbatim
+  with the host tools) — every device bake passes ``0.0f`` today.
+  With ``dark_zero``, the dark side was written for
   ``d < dk_sup`` instead of ``d < 0``, killing the geometrically-lit
-  rim sliver that would linger on the dark sleep screen as a bright
+  rim sliver that would have lingered on the dark sleep screen as a bright
   arc (the "white ray", :doc:`the dark side <../science/darkside>`). The sliver is sun-lit, so the
   backlit color clips to pure black there — exactly the old
   flat-floor kill, computed instead of overlaid.
@@ -117,8 +119,8 @@ the cached gradient (``lns = (d − G·S)/sqrt(1 + |G|²)``, unclipped),
 the phase-independent earthshine (``dark_zero = 0``) or the backlit
 computed surface (``dark_zero = 1``), then the 256-entry tone LUT.
 
-The constant-projection pair (the dusk)
----------------------------------------
+The constant-projection pair (the dusk — host-only since 2026-11-13)
+--------------------------------------------------------------------
 
 .. code-block:: c
    :caption: moon.h — the dusk's map + re-project (abridged)
@@ -134,7 +136,7 @@ The constant-projection pair (the dusk)
                        float radius, float cx, float cy);
    void moon_reproject_rows(..., int y0, int y1);
 
-The pair is the dusk's economics (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`): ``moon_shade_map_build``
+The pair was the dusk's economics (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`): ``moon_shade_map_build``
 builds the **pre-shaded body-frame equirect map** once per epoch (the
 color = the body direction + the epoch's fixed body-frame sun — the
 camera basis never enters the color), and ``moon_reproject`` renders

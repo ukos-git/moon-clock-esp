@@ -53,13 +53,16 @@ The rendering model
   the albedo + relief lit from the anti-solar direction (``−S``) at a
   faint level (peak gray ~51) — the "the unilluminated side is fully
   calculated" decision (:doc:`the dark side <science/darkside>`).
-- **dk_sup** — the dusk's dark-side bound: the dark side is written
+- **dk_sup** — the dusk's dark-side bound (retired with the dusk
+  2026-11-13; the bake parameter stays in the portable core — every
+  device bake today passes 0): the dark side was written
   for ``d < dk_sup`` instead of ``d < 0``, killing the geometrically
   lit rim sliver (the "white ray") with the ``MOON_DK_MARGIN`` NN
   erosion (:doc:`the dark side <science/darkside>`).
 - **Shade map** — the pre-shaded body-frame equirect map the dusk
-  re-projects (the constant-projection pair, :doc:`the dark side <science/darkside>` and :doc:`the animation pipelines <implementation/animations>`).
-- **Constant projection** — the property that makes the dusk cheap:
+  re-projected (the constant-projection pair, :doc:`the dark side <science/darkside>` and :doc:`the animation pipelines <implementation/animations>`; host-side callers only
+  since the dusk's retirement).
+- **Constant projection** — the property that made the dusk cheap:
   the bake's color depends only on the body direction + the epoch
   sun; the camera basis selects the view but never enters the color
   (:doc:`the dark side <science/darkside>`).
@@ -96,12 +99,15 @@ The device pipeline
   boots straight to the static current phase (and always showed that
   on wakes); the knob companion keeps its own cold-boot sweep
   (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
-- **Dusk** — the light-sleep entry: the constant-projection pole
-  spin to the dark side (the shade map + the re-projects), the
-  backlight dim to 25 %, the RTC countdown armed on the last frame
+- **Dusk** — the retired (2026-11-13) light-sleep entry: the
+  constant-projection pole spin to the dark side (the shade map + the
+  re-projects), the backlight dim to 25 %, the RTC countdown armed on
+  the last frame. Light sleep is a **static dim frame** now (panel
+  25 %, clock 20 % alpha, countdown armed at the entry — and the
+  dim *is* the sleep indicator)
   (:doc:`the animation pipelines <implementation/animations>` and :doc:`the clock and sleep machine <implementation/clock-sleep>`).
-- **phi\*** — the dusk's endpoint latitude (``atan2(−B, −A)``), the
-  pole angle that puts the visible disk fully in the dark side
+- **phi\*** — the dusk's retired endpoint latitude (``atan2(−B, −A)``),
+  the pole angle that put the visible disk fully in the dark side
   (:doc:`the animation pipelines <implementation/animations>`).
 - **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
   cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row

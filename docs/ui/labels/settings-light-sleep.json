@@ -17,13 +17,6 @@
     },
     {
       "id": 3,
-      "text": "Dusk animation toggle",
-      "x": 323,
-      "y": 233,
-      "dir": "e"
-    },
-    {
-      "id": 4,
       "text": "Exit → hub",
       "x": 233,
       "y": 387,

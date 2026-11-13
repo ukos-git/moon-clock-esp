@@ -19,8 +19,9 @@ The device's observable is the **serial console** (115200, the
 every pipeline timing is a ``ESP_LOGI`` with a measured
 ``esp_timer_get_time()`` delta, and the Watchdog Timer's fires are
 logged by the ROM reset reason. A verification capture is a serial
-log of a *defined flow* (boot → idle → dusk → deep
-sleep → wake; the boot sweep rung dropped out of it 2026-11-13), read for three classes of line:
+log of a *defined flow* (boot → idle → light sleep → deep
+sleep → wake; the boot sweep and dusk rungs dropped out of it
+2026-11-13), read for three classes of line:
 
 .. list-table::
    :header-rows: 1
@@ -32,16 +33,21 @@ sleep → wake; the boot sweep rung dropped out of it 2026-11-13), read for thre
    * - **Progress**
      - the ``bake | phase N% illum, subsolar (..) | geo Xms bake
        Yms`` + ``bake | rgb565 Xms (total Yms)`` pair (one per boot and
-       per day-roll; the retired boot sweep used to log the per-frame
-       ``sweep f/1344 baked/shown`` variants of these),
-       ``dusk k/N shown in Mms`` and
+       per day-roll; the retired boot sweep and dusk used to log the
+       per-frame ``sweep f/1344 baked/shown`` and ``dusk k/N shown in
+       Mms`` variants of these),
+       ``Switching to light sleep screen``,
+       ``panel dim ramp: brightness 100 -> 25%`` and
+       ``RTC countdown %u s to deep sleep armed``, plus the
        ``panel-io watchdog armed (3000 ms)`` lines
      - the pipelines ran to their endpoints (a bake that never logs
        its ``rgb565`` line is a bake that stalled)
    * - **Timing**
-     - the per-frame ``shown in Mms`` deltas, the bake-vs-display
-       split, the bake's wall time
-     - the dusk is *display-paced, not bake-paced* (:doc:`the animation pipelines <../implementation/animations>`);
+     - the bake's wall time and the atomic ``shown`` delta (the
+       retired sweep/dusk logged these per frame)
+     - the bake-vs-display split still holds — the lesson the retired
+       sweep and dusk taught (*display-paced, not bake-paced*,
+       :doc:`the animation pipelines <../implementation/animations>`):
        a ``shown`` delta that tracks the bake (~1.3 s) instead of the
        display (304 ms measured) is the backpressure failing
    * - **Failure**
@@ -143,19 +149,23 @@ counted separately — measured **~3,900 rejects, 0 dropped strips**
 over a long session in the spin era; today's traffic is the atomic
 ``lv_refr_now`` flushes on the same path.
 
-The dusk and the sleep machine
-------------------------------
+Light sleep and the sleep machine
+---------------------------------
 
-The dusk's acceptance is the *endpoint* and the *countdown arm*: the
-dusk runs ``|phi*|`` frames at ~0.2 s/frame (14–95 s), and the
-acceptance line is the countdown arming **on the last frame's
-display** — not at the entry:
+The dusk's acceptance (the endpoint + the countdown arm on its last
+frame) retired with the dusk 2026-11-13. Light sleep's acceptance is
+now the **static dim entry** and the **countdown arm at the entry**:
+the dim ramp lands, the moon tick pauses on the static frame, the
+seconds timer pauses, and the RTC one-shot is armed by the entry
+itself — nothing animates between the switch and the arm:
 
 .. code-block:: text
-   :caption: Dusk + deep-sleep acceptance (S3, representative)
+   :caption: Light sleep + deep-sleep acceptance (S3, representative)
 
-   I (xxx) moon_ui: dusk 95/95 shown in 156ms
-   I (xxx) moon_ui: dusk done; RTC countdown 30 s to deep sleep armed
+   I (xxx) ui_actions: Switching to light sleep screen
+   I (xxx) ui_actions: Seconds timer paused for light sleep
+   I (xxx) moon_ui: panel dim ramp: brightness 100 -> 25% (240 ms)
+   I (xxx) ui_actions: RTC countdown 60 s to deep sleep armed
    I (xxx) actions: Deep sleep: panel backlight off
    I (xxx) actions: UI tick timer paused for deep sleep
 

@@ -1351,32 +1351,16 @@ void tick_screen_settings_alarm_time() {}
  * SETTINGS_LIGHT_SLEEP: the idle-timeout roller (1-30 MINUTES, the
  * airplane -> light-sleep transition; stored as seconds).
  * SETTINGS_DEEP_SLEEP: the deep-sleep countdown roller (light ->
- * deep), also in minutes. The value roller and the animation toggle
- * sit on ONE horizontal line (roller left of centre, toggle right of
- * centre).
- *
- * One icon-only animation toggle per screen (no caption): a 96 px
- * solid moon glyph, white (on) / moon grey (off) -- no switch widget
- * (LV_USE_SWITCH is off). A tap flips the flag, saves, and recolors.
- * The toggle is the SLEEP-TRANSITION animation (the dusk: the pole
- * spin from the current phase to the dark side, the light-sleep
- * transition). The deep-sleep transition itself ends on the flat-black
- * disk with the backlight off, so it carries no separate animation --
- * both sleep screens show the one sleep-transition toggle. (The boot
- * sweep's boot_anim_enable flag stays in the store; it is a BOOT
- * animation, not a sleep transition, so it is not exposed here.)
- * The countdown takes effect at the next dusk arming; the idle
+ * deep), also in minutes. One centred roller: the icon-only dusk
+ * animation toggle left the screen 2026-11-13 with the dusk itself
+ * (the store's dusk_anim_enable -- and the boot sweep's
+ * boot_anim_enable -- stay as legacy no-ops, unexposed). The
+ * countdown takes effect at the next sleep entry; the idle
  * timeout is applied live via clock_idle_set_timeout_ms().
  *
  * The widgets are created once (loadScreen never destroys them), so
  * the pointers live here; [0] = light-sleep screen, [1] = deep. */
 static lv_obj_t *s_sleep_roller[2];
-static lv_obj_t *s_anim_glyph[2]; /* [screen] the single icon-only dusk toggle */
-
-static void settings_anim_apply_colors(int screen) {
-    lv_color_t c = settings_dusk_anim_enable() ? SETTINGS_WHITE : SETTINGS_GREY;
-    lv_obj_set_style_text_color(s_anim_glyph[screen], c, LV_PART_MAIN | LV_STATE_DEFAULT);
-}
 
 static void settings_sleep_screen_refresh(int screen) {
     if (!s_sleep_roller[screen]) {
@@ -1392,7 +1376,6 @@ static void settings_sleep_screen_refresh(int screen) {
         minutes = 30;
     }
     lv_roller_set_selected(s_sleep_roller[screen], minutes - 1, LV_ANIM_OFF);
-    settings_anim_apply_colors(screen);
 }
 
 /* user_data = screen (0/1). The roller value is MINUTES (1..30); the
@@ -1417,56 +1400,6 @@ static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
     ESP_LOGW("settings_sleep", "screen %d value %d min -> %s", screen, minutes, esp_err_to_name(r));
 }
 
-/* user_data = screen (0/1): flip the sleep-transition (dusk) animation. */
-static void event_handler_cb_settings_anim_toggle(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-        return;
-    }
-    int screen = (int)(intptr_t)lv_event_get_user_data(e);
-    settings_set_dusk_anim_enable(!settings_dusk_anim_enable());
-    esp_err_t r = settings_store_save();
-    ESP_LOGW("settings_anim", "sleep-transition (dusk) anim -> %d (screen %d) -> %s",
-             settings_dusk_anim_enable() ? 1 : 0, screen, esp_err_to_name(r));
-    settings_anim_apply_colors(screen);
-}
-
-/* The single icon-only animation toggle: a 96 px solid moon glyph in a
- * 100 px clickable container (no caption). On the same horizontal line
- * as the minutes roller (offset +90 from screen centre, spans x
- * 273..373): the roller sits at -90 (spans 38..248), so the two share
- * the line with a 25 px gap between them. Vertically centred, so the
- * row clears the bottom-centre exit button's band (top edge y 342). */
-static void settings_anim_toggle(lv_obj_t *parent, int screen) {
-    lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, UI_PX(100), UI_PX(100));
-    lv_obj_align(row, LV_ALIGN_CENTER, UI_PX(90), 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-    /* Kill the theme's default border (a visible square around the glyph)
-     * and the shadow: the glyph is the only visible thing. */
-    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, event_handler_cb_settings_anim_toggle, LV_EVENT_CLICKED, (void *)(intptr_t)screen);
-
-    lv_obj_t *glyph = lv_label_create(row);
-    /* The IDLE TIMEOUT (light-sleep entry, screen 0) toggle reads the
-     * regular (unfilled) moon, the SLEEP COUNTDOWN (deep-sleep entry,
-     * screen 1) the solid one -- the same weight the hub's two moon
-     * entries use (regular / solid). */
-    if (screen) {
-        add_style_label_icon_solid(glyph);
-    } else {
-        add_style_label_icon_regular(glyph);
-    }
-    lv_label_set_text(glyph, GLYPH_MOON);
-    lv_obj_set_size(glyph, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(glyph, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_clear_flag(glyph, LV_OBJ_FLAG_CLICKABLE);
-
-    s_anim_glyph[screen] = glyph;
-}
-
 static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1479,8 +1412,8 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
     /* Minutes, 1..30 (stored internally as seconds, min 60 / max 1800,
-     * default 1 min): the value picker is ONE roller on the shared
-     * horizontal line, the animation toggle on the right of it. */
+     * default 1 min): the value picker is one centred roller (the dusk
+     * toggle that shared this line retired 2026-11-13 with the dusk). */
     char options[512];
     int pos = 0;
     for (int v = 1; v <= 30; v++) {
@@ -1488,11 +1421,9 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     }
     s_sleep_roller[screen] =
         settings_create_roller(obj, options, &ui_font_montserrat_bold_96_numbers, UI_PX(110), 0, UI_PX(210));
-    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, -UI_PX(90), 0);
+    lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
                         (void *)(intptr_t)screen);
-
-    settings_anim_toggle(obj, screen);
 
     settings_sleep_screen_refresh(screen);
 }
@@ -3988,8 +3919,8 @@ void create_screens() {
  * Cursor rules (docs/implementation/knob-display.rst "Dial semantics"):
  *   hub          step the ring (icons + central exit), white = focused
  *   alarm list   step the three glyphs (focus ring), tap toggles/opens
- *   sleep        dial steps the minutes roller; the dusk toggle is a
- *                single tap (one tap IS the toggle's whole operation)
+ *   sleep        dial steps the minutes roller (the dusk toggle left
+ *                this screen with the dusk, 2026-11-13)
  *   rollers      dial steps the FOCUSED roller; pressing another roller
  *                focuses it (twin-roller screens); tap = RELEASED
  *   day arc      (P3, alarm time) the two day handles join the focus

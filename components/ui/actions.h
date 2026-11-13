@@ -57,7 +57,7 @@ extern void action_switch_to_light_sleep_screen(lv_event_t *e);
 void action_roll_test_cb(lv_timer_t *timer);
 
 /* Demo mode (UI_DEMO_MODE): the scripted full tour (moon screens,
- * settings walk, wheel keyboard, alarm ring, dusk, roll, sync) lives in
+ * settings walk, wheel keyboard, alarm ring, roll, sync) lives in
  * demo.c; docs/verification/demo-mode. These are the action-layer
  * hooks it drives. */
 bool action_demo_active(void); /* true while the demo owns the display */
