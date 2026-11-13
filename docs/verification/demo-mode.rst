@@ -422,3 +422,38 @@ path untouched. Side finding: capture 1's first "timers fired while
 LVGL was stuck" reading was an artifact of the file spanning the
 watchdog restart — boot 2's uptimes overwrote boot 1's window; grep
 the ``rst:0x``/``cpu_start`` markers before reading any window.
+
+**Follow-up (same day) — the probe's own hand, closed by a witness.**
+The fix capture (4) caught the probe's tail member: a probe's accept
+proves the *previous* write but never its **own** completion. The
+dusk-replay probe was accepted ~700 ms before the touch wake; the
+wake-join burst (deferred re-bake task starting on core 1 plus its
+cache-invalidation storm) ate the probe pixel's trans-done and the
+wake flush's strip 1 met the occupied queue — same freeze, one write
+later. The first answer chained the write twice (round 2's attempt-0
+accept proves round 1 by the depth-1 FIFO) and added a probe BEFORE
+the wake's pose flush (``wake preflush``). Capture 5 walked straight
+into the hole that left: the preflush probe's own pixel became the
+culprit — ``panel draw not accepted: task lvgl (y 0..24); last
+accepted: lvgl y465..466 @ 1500 ms ago (the culprit)`` — dusk
+interrupted at 8/45, three boots, one signature. No chain of probes
+can close that tail, because the next writer that would prove a tail
+pixel is itself the frozen victim. The airtight proof therefore comes
+from the driver: the io's ``on_color_trans_done`` is the very
+completion whose loss starts the family. Its single slot is owned by
+the ``esp_lvgl_adapter`` bridge, and in the S3's ``NONE`` tear-avoid
+mode that handler *is* LVGL's flush-ready signal — so replacing it
+would wedge the refr loop; instead ``moon_panel_witness_arm()``
+**chains** it: it reads the bridge's ``{fn, ctx}`` off the io's
+private struct (layout pinned to the IDF v5.5.1
+``esp_lcd_panel_io_spi.c``; a boot-time arm test — one drain-pixel
+write, counter must move — turns any drift into a boot log line or a
+bench fault, never a silent loss), registers its own counting callback
+through the official single-slot API and forwards untouched.
+``moon_panel_drain_verify`` then waits for the probe pixel's own
+increment after its post-accept snapshot; a 300 ms silence is
+ambiguous (lost completion vs. the µs race of the done landing between
+submit and snapshot) and the tie breaks FIFO-wise — a second probe can
+only be ACCEPTED if the first completed — while a frozen counter on
+the second probe is a genuine loss: log the site, restart with the
+panel dark. Healthy cost stays one 1-px write and ~10 ms per site.

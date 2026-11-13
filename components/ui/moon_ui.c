@@ -137,7 +137,8 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
-#include "esp_lcd_panel_interface.h" /* the full vtable struct (s_panel->draw_bitmap) */
+#include "esp_lcd_panel_interface.h"    /* the full vtable struct (s_panel->draw_bitmap) */
+#include "esp_lcd_panel_io_interface.h" /* esp_lcd_panel_io_t (the io base struct, for the trans-done witness chain) */
 #include "esp_lcd_panel_ops.h"
 
 #include "board_display.h"
@@ -786,6 +787,101 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
     return r;
 }
 
+/* The trans-done witness (lost-completion family, task #32 finale).
+ * A drain probe's ACCEPT proves the previous write (a depth-1 queue
+ * accepts only when empty) but can never prove the probe pixel's own
+ * completion, and no chain of probes can: the next writer that would
+ * prove a tail pixel is itself the frozen victim. Capture 5 proved
+ * exactly that -- the wake flush's strip 1 froze on the preflush
+ * probe's own pending pixel ("last accepted: lvgl y465..466 ... (the
+ * culprit)"), three boots, same signature. The proof must therefore
+ * come from the driver: the io's on_color_trans_done is the very
+ * completion whose loss starts the family. It is a single slot, and
+ * the esp_lvgl_adapter bridge (PANEL_IF_OTHER's default branch) owns
+ * it from bsp_display_start -- its handler IS this display's
+ * flush-ready in NONE tear-avoid mode (display_bridge_v9_handle_vsync
+ * -> display_manager_flush_ready -> lv_display_flush_ready;
+ * dummy-draw off, no TE), so REPLACING it wedges LVGL's refr loop.
+ * moon_ui_init runs after the adapter, so instead of replacing, the
+ * witness CHAINS: it reads the bridge's {fn, ctx} off the io,
+ * registers its own counting callback, and forwards every completion
+ * into the bridge's handler untouched. The witness counts every color
+ * completion on the single QSPI spi_device -- the drain's depth-1
+ * FIFO argument then makes "an increment after my post-accept
+ * snapshot" equivalent to "my own done landed": any later writer's
+ * accept required my completion first, and its completion callback
+ * is itself the increment. */
+#if !defined(CONFIG_BOARD_P4)
+/* The private half of esp_lcd_panel_io_spi_t (IDF v5.5.1,
+ * components/esp_lcd/spi/esp_lcd_panel_io_spi.c) -- the driver stores
+ * the registered callback pair there and the public API offers no
+ * read-back. These two fields are only READ (registration still goes
+ * through esp_lcd_panel_io_register_event_callbacks). The layout is
+ * pinned by the IDF v5.5.1 checkout the builds use; drift shows up
+ * LOUD, never silently: moon_panel_witness_arm's boot-time arm test
+ * either fails to see a single increment (witness disabled, drain
+ * falls back to accept-only) or faults immediately at boot -- both on
+ * the bench, never in the field. */
+typedef struct {
+    esp_lcd_panel_io_t base;
+    void *spi_dev; /* spi_device_handle_t */
+    size_t spi_trans_max_bytes;
+    int dc_gpio_num;
+    esp_lcd_panel_io_color_trans_done_cb_t on_color_trans_done; /* the bridge's handler */
+    void *user_ctx;                                             /* ...and its impl ctx */
+} moon_panel_io_spi_view_t;
+
+static volatile uint32_t s_panel_done_cnt;
+static esp_lcd_panel_io_color_trans_done_cb_t s_prev_trans_done;
+static void *s_prev_trans_done_ctx;
+static bool s_panel_witness; /* armed by moon_panel_witness_arm() */
+
+static bool IRAM_ATTR moon_panel_trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *edata,
+                                               void *user_ctx) {
+    (void)user_ctx;
+    s_panel_done_cnt++;
+    if (s_prev_trans_done)
+        return s_prev_trans_done(io, edata, s_prev_trans_done_ctx);
+    return false;
+}
+
+static void moon_panel_witness_arm(void) {
+    esp_lcd_panel_io_handle_t io = board_panel_io();
+    if (!io) {
+        ESP_LOGW(TAG, "trans-done witness: no panel io handle (drain stays accept-only)");
+        return;
+    }
+    const moon_panel_io_spi_view_t *v = (const moon_panel_io_spi_view_t *)io;
+    s_prev_trans_done = v->on_color_trans_done; /* the adapter bridge's handler */
+    s_prev_trans_done_ctx = v->user_ctx;
+    static const esp_lcd_panel_io_callbacks_t witness_cbs = {
+        .on_color_trans_done = moon_panel_trans_done_cb,
+    };
+    if (esp_lcd_panel_io_register_event_callbacks(io, &witness_cbs, NULL) != ESP_OK) {
+        ESP_LOGW(TAG, "trans-done witness: registration failed (drain stays accept-only)");
+        return;
+    }
+    /* Arm test: one drain-pixel write must bump the counter -- proving
+     * struct view, slot ownership and ISR reachability at BOOT, where
+     * failure is a log line, not the first dusk. Any increment counts:
+     * the chain is what's under test, not this pixel. */
+    static const uint16_t s_arm_px;
+    vTaskDelay(pdMS_TO_TICKS(20));
+    if (moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_arm_px) != ESP_OK) {
+        ESP_LOGW(TAG, "trans-done witness: arm write rejected (drain stays accept-only)");
+        return;
+    }
+    for (int i = 0; i < 30 && s_panel_done_cnt == 0; i++)
+        vTaskDelay(pdMS_TO_TICKS(10));
+    if (s_panel_done_cnt == 0) {
+        ESP_LOGE(TAG, "trans-done witness: counter never advanced (drain stays accept-only)");
+        return;
+    }
+    s_panel_witness = true;
+    ESP_LOGI(TAG, "panel trans-done witness armed (chained through the LVGL adapter bridge)");
+}
+#endif /* !CONFIG_BOARD_P4 */
+
 /* Drain-verify after a sanctioned atomic whole-panel flush. lv_refr_now
  * returns with the LAST strip's DMA still in flight -- and when that one
  * trans-done is lost, the depth-1 flush queue stays occupied invisibly
@@ -805,33 +901,27 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
  * lost the hand. S3 only: the lost-completion family is the GPSPI
  * driver's; the P4 DSI path keeps its proven behaviour untouched.
  *
- * TWO rounds (capture 4, same day): the single probe proved the flush's
- * last strip -- its accept means the queue was empty -- but can never
- * prove its OWN completion. The dusk-replay probe was accepted ~700 ms
- * before the wake flush; the wake-join burst (core-1 rebake start, the
- * cache-invalidation storm) ate the probe pixel's trans-done, and the
- * wake flush's strip 1 met the occupied queue -- the exact freeze the
- * helper exists to prevent, just one write later. Round 2 is that
- * proof: its attempt-0 accept means round 1's done landed (a depth-1
- * queue cannot accept a new write until the pending one's completion
- * fires -- the same FIFO fact that makes round 1's accept a proof of
- * the flush strip). Round 2's own pixel is then the last unproven
- * write -- until the next writer's accept, which is precisely why the
- * dusk branch also probes BEFORE starting the wake flush ("wake
- * preflush"): whatever the last accepted write was, its done is
- * proven before LVGL's strips begin, with the panel still dark. The
- * irreducible remainder (a loss in the ~ms between an accept and the
- * burst landing on it) stays watchdog-covered, and the give-up line
- * now names it (s_last_accept_desc). An io-callback counter would be
- * airtight but cannot be had: esp_lcd's io callback slot is
- * single-occupancy and the esp_lvgl_adapter bridge owns it -- its
- * NONE-tear-mode handler IS this display's flush-ready signal
- * (lvgl_bridge_v9_handle_vsync), so replacing it wedges LVGL itself.
- * Healthy cost: two 1-px writes + 30 ms per site. */
+ * Witnessed (capture 5, same day): the probe alone cannot prove its
+ * OWN completion -- the preflush probe's pixel became the culprit that
+ * froze the wake flush ("last accepted: lvgl y465..466", three boots,
+ * one signature), because the next writer that would prove a tail
+ * pixel is itself the victim. So when moon_panel_witness_arm() armed
+ * the io trans-done chain (see above), the helper additionally waits
+ * for the driver to report the probe pixel's own completion. The
+ * snapshot is taken AFTER the accept (accept = queue empty = every
+ * prior completion already counted; only our pixel is in flight), and
+ * any later increment proves our done -- the depth-1 FIFO cannot
+ * hand a later writer its slot before our completion fired, and that
+ * writer's completion callback is itself the increment. A 300 ms
+ * silence is ambiguous (lost completion vs. the µs race of our done
+ * landing between submit and snapshot), and the tie is broken the
+ * same FIFO way: a second probe's ACCEPT can only happen if the first
+ * completed, so accept-then-rewait proves the first, and its rejection
+ * is a genuine loss. Healthy cost: one 1-px write + ~10 ms per site. */
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
     static const uint16_t s_drain_px; /* one black pixel */
-    for (int round = 0; round < 2; round++) {
+    for (int probe = 0; probe < 2; probe++) {
         /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
          * free by the time the probe reaches it (attempt-0 accept). */
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -843,12 +933,32 @@ static void moon_panel_drain_verify(const char *site) {
         esp_err_t drain = moon_panel_draw_bitmap(s_panel, 0, BSP_LCD_H_RES - 1, 1, BSP_LCD_H_RES, &s_drain_px);
         if (drain != ESP_OK) {
             ESP_LOGE(TAG,
-                     "drain verify after %s (round %d): the pending write's trans-done was lost (%s); "
+                     "drain verify after %s (probe %d): the pending write's trans-done was lost (%s); "
                      "recovering here instead of pinning the next writer",
-                     site, round, esp_err_to_name(drain));
+                     site, probe, esp_err_to_name(drain));
             vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
             esp_restart();
         }
+        if (!s_panel_witness)
+            return; /* witness not armed: accept-only, the capture-4 behaviour */
+        const uint32_t c0 = s_panel_done_cnt;
+        for (int i = 0; i < 30 && s_panel_done_cnt == c0; i++)
+            vTaskDelay(pdMS_TO_TICKS(10));
+        if (s_panel_done_cnt != c0)
+            return; /* this probe pixel's own completion was witnessed */
+        if (probe == 1) {
+            /* Its accept (above) proved the first probe's done; this one's
+             * never lands. Genuine loss -- restart HERE, panel dark, next
+             * writer never learns about it. */
+            ESP_LOGE(TAG,
+                     "drain verify after %s: the probe pixel's own trans-done was lost (counter %lu); "
+                     "recovering here instead of pinning the next writer",
+                     site, (unsigned long)c0);
+            vTaskDelay(pdMS_TO_TICKS(100)); /* let the log flush out the UART */
+            esp_restart();
+        }
+        /* else: ambiguous silence -- retry once; the second probe's ACCEPT
+         * is itself the proof that the first completed (depth-1 FIFO). */
     }
 #else
     (void)site;
@@ -3667,6 +3777,12 @@ void moon_ui_init(void) {
             ESP_LOGI(TAG, "panel-io watchdog armed (%lu ms stuck limit)", (unsigned long)PANEL_IO_WATCHDOG_LIMIT_MS);
         }
     }
+#if !defined(CONFIG_BOARD_P4)
+    /* The io trans-done witness (the drain probe's own-completion proof;
+     * moon_panel_witness_arm chains the LVGL adapter bridge's handler,
+     * which registered first -- bsp_display_start precedes moon_ui_init). */
+    moon_panel_witness_arm();
+#endif
     /* The sky-event day-scan worker (see moon_event_classify_here):
      * core 1 (IDLE1 is not WDT-watched, so its 15-20 s scan can never
      * trip the watchdog), below the bake tasks in priority, and 12 KB
@@ -4008,16 +4124,16 @@ void moon_ui_pause(bool pause) {
             moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
                         moon_cos15(rad), moon_sin15(rad));
             xSemaphoreGive(s_rgb_mtx);
-            /* Capture 4's member, sealed BEFORE the flush starts: the
-             * last accepted write (the dusk replay's drain pixel, or the
-             * park's) has its done proven here -- if the wake-join burst
-             * ate it, this probe's round 1 never gets accepted and the
-             * restart fires with the panel STILL showing the dusk frame:
-             * a blink, never the 4.5 s freeze-then-crash the user saw.
-             * Its accepted round 2 is then proven by the wake flush's
-             * own strip 1, whose last strip the wake-static drain
-             * proves below -- the chain has no unproven hand left at
-             * the visible moment. */
+            /* Capture 4's member, sealed BEFORE the flush starts: if the
+             * wake-join burst ate the last accepted write (the dusk
+             * replay's drain pixel, or the park's), this probe's own
+             * write never gets accepted and the restart fires with the
+             * panel STILL showing the dusk frame -- a blink, never the
+             * 4.5 s freeze-then-crash the user saw. With the witness
+             * armed the probe also waits for its OWN completion, so
+             * LVGL's strips start from a queue that is empty and
+             * accounted for; the flush's last strip is then closed by
+             * the wake-static probe below. */
             moon_panel_drain_verify("wake preflush");
             moon_invalidate_all();
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);

@@ -73,6 +73,15 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
 esp_lcd_panel_handle_t bsp_display_get_panel(void);
 
 /**
+ * @brief Get the LCD panel IO handle
+ *
+ * @return the QSPI panel io created by bsp_display_new (via
+ *         bsp_display_start), or NULL before it. The S3 app's
+ *         trans-done witness registers on this io (see moon_ui.c).
+ */
+esp_lcd_panel_io_handle_t bsp_display_get_panel_io(void);
+
+/**
  * @brief Initialize display's brightness
  *
  * Brightness is controlled with PWM signal to a pin controlling backlight.

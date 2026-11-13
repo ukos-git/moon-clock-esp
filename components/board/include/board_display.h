@@ -35,6 +35,12 @@ extern "C" {
  * bsp_display_get_panel_handle). Valid after bsp_display_start. */
 esp_lcd_panel_handle_t board_panel(void);
 
+/* The S3's QSPI panel io handle (bsp_display_get_panel_io) -- the
+ * single spi_device every panel write rides. The P4's MIPI-DSI path
+ * has no such io: returns NULL there (its drain witness is
+ * S3-only). */
+esp_lcd_panel_io_handle_t board_panel_io(void);
+
 /* The S3 IO expander handle (TCA9554; the PCF85063A interrupt line).
  * The P4 board has no expander: returns NULL. */
 esp_io_expander_handle_t board_io_expander_init(void);
