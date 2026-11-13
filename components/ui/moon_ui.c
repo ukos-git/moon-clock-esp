@@ -4548,6 +4548,29 @@ void moon_ui_screen_switched(void) {
         spin_mask_rebuild();
     }
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking || s_sweep_baking || s_dusk_baking) {
+        if (s_fade_pending && s_panel_pct == 0) {
+            /* A starved fade-in: the fade-out ramp LANDED physically
+             * (the panel sits at true black, s_panel_pct says so), but
+             * this branch paints the new screen without the fade-in
+             * ramp. The bake flag won the race between
+             * moon_ui_fade_out() and here -- the boot sweep sets it
+             * before the switch completes -- and without this rescue
+             * the panel strands BLACK with a fully live app (P4 bench,
+             * 2026-11-13). Restore now, holding s_panel_mtx per the
+             * 0x51 rule; the spin is already parked (s_fade_busy set
+             * by the fade-out) and resumes at the tail below. Ignore
+             * the hold here: strand-black outranks one 0x51 riding the
+             * storm bus -- the wake path makes the same write. */
+            if (s_ready && s_panel_mtx) {
+                xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
+                bsp_display_brightness_set(100);
+                xSemaphoreGive(s_panel_mtx);
+            } else {
+                bsp_display_brightness_set(100);
+            }
+            s_panel_pct = 100;
+            ESP_LOGI(TAG, "screen switch: fade-in starved by the bake guard, brightness 0 -> 100");
+        }
         s_fade_pending = false; /* a plain async paint shows the new screen */
         s_fade_busy = false;
         return;

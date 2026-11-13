@@ -609,6 +609,19 @@ leg displays the new screen as **one atomic whole-panel
 atomic display, off the visible path — and then the brightness comes
 up and the fully rendered screen appears at once.
 
+The fade-in is owed, not guaranteed by the leg itself: when a bake
+pipeline owns the buffers (the boot sweep sets ``s_sweep_baking``
+between the fade-out and the switch completing),
+``moon_ui_screen_switched`` takes its plain-paint early-return
+branch. That branch rescues a starved fade-in — if the fade-out
+ramp actually landed (tracked level at true 0), it brings the panel
+back to 100 % under the panel mutex, ignoring the radio-traffic hold
+(stranding a black panel with a live app outranks one 0x51 riding
+the storm bus; the wake path makes the same write) — and logs
+``fade-in starved by the bake guard``. The P4 bench caught the
+un-rescued version on 2026-11-13: boot pitch black, app fully
+alive.
+
 The old overlay fade (a black rectangle composited over the screen,
 stepped) charged one full-screen ``lv_refr_now`` per step — ~175 ms
 of QSPI strip traffic each — and the panel's left-to-right strip fill
