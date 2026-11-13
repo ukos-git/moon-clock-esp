@@ -2940,6 +2940,19 @@ static void moon_sweep_task(void *arg) {
                  (unsigned)s_sweep_pub, (long long)(wall / 1000),
                  wall > 0 ? (double)s_sweep_pub * 1000000.0 / (double)wall : 0.0, moon_tf_fps(),
                  tf_direct ? "direct write" : "tick refresh", (long long)(tf_worst_gap / 1000));
+        /* Task #39 (2026-11-13): hand the codec scratch back the moment
+         * the sweep is done -- the card path being HEALTHY (task #38) is
+         * what keeps ~1.1 MB of PSRAM (encode in/out, persistent fetch
+         * input, deferred decode out) resident for the whole boot
+         * otherwise, and the 8 MB S3 cannot also offer the contiguous
+         * ~434 KB lv_snapshot the spin UI keep-mask rebuild needs
+         * (measured: largest block 160 KB). A frozen mirror then pastes
+         * stale clock digits over the panel at the 8 fps spin rate
+         * against the tick's fresh flush: hard clock flicker. The tilt
+         * monitor's 1 s retry lands the mask/mirror right after this
+         * return ("ui mask rebuilt"). fetch/store already fail on the
+         * NULL buffers, and nothing calls them after the sweep. */
+        tfcache_scratch_free();
     }
 #endif
     if (!s_sweep_abort) {

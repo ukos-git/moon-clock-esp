@@ -360,6 +360,22 @@ boot ``ready: … (+110 hours)``, one thin slot with the 468 KB decode
 reservation, ``stats: hits=109 miss=0`` — **~24 s** replay wall,
 every frame ``src=tf bake=0ms``.
 
+**2026-11-13 second follow-up: a healthy card froze the spin's mirror
+again (task #39).** The dead card path had one accidental virtue: the
+card-less verdict returned the codec scratch (``tfcache_scratch_free``),
+which is exactly the PSRAM the spin's UI keep-mask rebuild needs for its
+full-screen ``lv_snapshot`` (~434 KB on the S3). With the card path
+working, the scratch — ~1.1 MB at 400 px/q90 (encode in+out, the
+persistent fetch input, the deferred decode out) — stayed allocated for
+the *whole boot*, the snapshot never got a block (measured 306 KB free,
+largest block 160 KB), and every rebuild printed ``mask snapshot FAILED
+(mirror stays stale)``: the mirror froze on its sweep-start digits and
+the 8 fps spin pasted stale clock digits over the panel between the
+tick's fresh flushes — **hard flicker on the clock during the spin**.
+The sweep now hands the scratch back right after its last frame (the
+card path, too, not only the card-less verdict), and the tilt monitor's
+1 s retry lands the mask+mirror pair immediately.
+
 Two honest caveats. The accounting is *per-boot*, the card is
 *cumulative*: the hour list ages in as wall clock advances (it is
 built at sweep start), so a boot right after the cold pass can still

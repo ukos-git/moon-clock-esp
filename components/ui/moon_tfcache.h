@@ -67,13 +67,21 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 /* true while the cache is usable (mounted, folder ready, scratch up). */
 bool tfcache_ready(void);
 
-/* The sweep rejected the TF path this boot (card-less fallback): return
- * the codec scratch (the two eager PSRAM buffers, ~392 KB at 400px/q90
- * -- dead weight the classic path never touches while it starves the
- * spin mask's 434 KB lv_snapshot; the 3*px*px decode buffer joins them
- * if a hit ever allocated it). fetch/store then fail like any !ready
- * state. Only the sweep task may call it, after its TF decision (the
- * prefetch task is never started on the card-less path). */
+/* Return ALL codec PSRAM to the heap: the two eager buffers (~392 KB at
+ * 400px/q90), the persistent fetch input, and the deferred 3*px*px
+ * decode buffer if a hit ever allocated it -- ~1.1 MB at 400px/q90 once
+ * a warm replay ran. The sweep task calls it twice at most: on the
+ * card-less verdict (after its TF decision; the prefetch task was never
+ * started), and -- task #39 -- right after the sweep's last frame when
+ * the TF path RAN (moon_tf_prefetch_stop() has joined the prefetch
+ * task). Both cases exist so the spin's UI keep-mask rebuild can take
+ * its contiguous ~434 KB lv_snapshot (lv_snapshot_take): on the 8 MB S3
+ * a resident ~1.1 MB of scratch left the largest block at 160 KB, the
+ * snapshot never landed, and the spin composited stale clock digits
+ * from the frozen mirror at 8 fps against the tick's fresh flush --
+ * hard flicker on the clock (observed 2026-11-13). fetch/store/fetch_-
+ * buf_alloc then fail on the NULL buffers like any !ready state; only
+ * the sweep owns them, and nothing calls them after the sweep. */
 void tfcache_scratch_free(void);
 
 /* Allocate the persistent fetch-input buffer (the size a valid cached

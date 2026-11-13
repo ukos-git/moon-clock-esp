@@ -491,9 +491,12 @@ void tfcache_scratch_free(void) {
     free16(s_dec_rgb);
     free16(s_enc_in);
     free16(s_enc_out);
-    s_dec_rgb = s_enc_in = s_enc_out = NULL;
+    free16(s_fetch_in); /* task #39: the persistent fetch input joins the
+                         * hand-back -- post-sweep it is 241 KB of dead
+                         * weight the 8 MB S3 needs for the mask snapshot */
+    s_dec_rgb = s_enc_in = s_enc_out = s_fetch_in = NULL;
     s_enc_out_cap = 0;
-    ESP_LOGI(TAG, "codec scratch returned (card-less boot): PSRAM back for the mask snapshot");
+    ESP_LOGI(TAG, "codec scratch returned: PSRAM back for the mask snapshot");
 }
 
 bool tfcache_fetch_buf_alloc(void) {
