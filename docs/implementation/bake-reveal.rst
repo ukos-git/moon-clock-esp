@@ -302,14 +302,18 @@ per-version cache folder (a new flash caches from start by design):
      - Measured
      - Notes
    * - Boot replay final leg, revealed bake
-     - **2611–2615 ms** (400/400 rows, shown 400)
+     - **2009–2615 ms** (400/400 rows, shown 400; three boots)
      - from ~150 ms after bake start the bands flow (first band =
-       20 rows ≈ 130 ms bake + one 50 ms tick); 20 band states
+       20 rows ≈ 130 ms bake + one 50 ms tick); 20 band states; the
+       empty-folder boot (0 stored frames, fresh per-version folder)
+       reveals too — the leg is then the panel's first image at all
    * - Hourly cold bake, revealed
-     - **1975 ms** bake internals (owner 1, shown 400) + TF write-through
-     - a TF-miss forced cycle (bench); the reveal leg + the first-strip
-       fade payment re-verified post-memoization, where the whole cycle
-       fits the 5 s budget (below)
+     - **2687 ms** bake internals (owner 1, shown 400), whole cycle
+       **3083 ms** — inside the 5 s budget
+     - fresh per-version folder (a new flash), first-strip fade payment
+       observed: ``bake reveal: first strip up, panel brightness 0
+       -> 100 (240 ms)``; the pre-memoization take measured 1975 ms
+       internals with the bake itself unchanged
    * - Hourly warm TF hit
      - **185–235 ms** frame land, fade-back ramp +240 ms
      - no reveal armed (correct); whole black window ≈ the two ramps

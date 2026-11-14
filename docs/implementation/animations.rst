@@ -481,15 +481,16 @@ benchmark context in :doc:`performance <../verification/performance>`):
      - read ~55 ms + decode ~79 ms per hour + the two
        fade legs (fetch path carried; P4 bench pending)
    * - Hourly refresh, cold card (bake + write-through store)
-     - revealed bake internals **1975 ms** (+ store); the
-       fade-back is paid at the first strip, so the dark window
-       is the fade, not the bake (:doc:`the bake reveal
-       <bake-reveal>`)
+     - revealed bake internals **2687 ms**, whole cycle
+       **3083 ms** — inside the 5 s budget (+ store); the fade-back
+       is paid at the first strip (observed: ``first strip up, panel
+       brightness 0 -> 100``), so the dark window is the fade, not
+       the bake (:doc:`the bake reveal <bake-reveal>`)
      - bake ~2.4 s; reveal shape shared — P4 bench pending
    * - Boot replay, warm card (per-frame TF fetch + atomic show)
      - pacing floor ``UI_MOON_REPLAY_FPS`` (8);
-       final revealed leg measured **2611–2615 ms**
-       (400/400 rows, 20 band states, 2026-11-14)
+       final revealed leg measured **2009–2615 ms**
+       (400/400 rows, 20 band states, three boots 2026-11-14)
      - same shape (26-row bands); bench pending
    * - Screen-switch fade (0x51 ramp, no pixels)
      - 240 ms × 2 legs, 12 steps (~100 µs param each)

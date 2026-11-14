@@ -295,9 +295,11 @@ paths: hourly warm TF hits land the frame in **185–235 ms** (after
 the ``new_moon_epoch_cached`` memoization — pre-fix the cache-policy
 leg re-ran the ~8.2 s ephemeris scan every cycle and blew the 5 s
 producer budget every time, a bench-#44 catch); a cold-cycle revealed
-bake measures **1975 ms** internals with the fade-back already paid at
-the first strip; the boot replay's revealed final leg is
-**2611–2615 ms** (20 band states); the knob's revealed boot bake runs
+bake measures **2687 ms** internals, whole cycle **3083 ms** — inside
+the 5 s budget — with the fade-back paid at the first strip (observed:
+``bake reveal: first strip up, panel brightness 0 -> 100``); the boot
+replay's revealed final leg is
+**2009–2615 ms** (20 band states); the knob's revealed boot bake runs
 **2028–2059 ms** against its **991 ms** non-revealed baseline — the
 visible-for-computation tax (band flushes consume real bake
 throughput). Drain witness across the reveal legs: ~5 in-place heals
