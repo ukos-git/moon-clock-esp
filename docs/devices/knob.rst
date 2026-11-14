@@ -454,7 +454,12 @@ Layout and commands:
   consequence of that ambiguity: ``KNOB_BATTERY_CHARGING_MV`` reads a
   cell value far over the 4200 mV ceiling — the docked-USB signature
   (bench ~4522 mV) — as "on the dock" (0 disables the bolt). Until the
-  verdict lands the icon reads plausible, not verified.
+  verdict lands the icon reads plausible, not verified. The docked
+  fill takes the **theme's moon color** —
+  ``theme_colors[active_theme_index][0]``, the seconds-arc ink, read
+  live on every minute tick so a theme change propagates (user
+  2026-11-14, replacing the reference iOS green); the fill is white
+  normally and red at or below ``KNOB_BATTERY_LOW_PCT``.
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
   and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``

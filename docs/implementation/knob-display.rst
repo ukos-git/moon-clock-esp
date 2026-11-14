@@ -486,8 +486,11 @@ keeps owning every tap — **bottom-centre** (``BOTTOM_MID`` with a
 ``UI_PX(26)`` foot lift at the 360 panel — the retired label's
 proven spot, the single calibration constant), refreshed by a
 one-minute ``lv_timer``:
-white fill, red at or below ``KNOB_BATTERY_LOW_PCT``, green + a
-hand-rasterised bolt while ``knob_battery_charging()`` — a heuristic,
+white fill, red at or below ``KNOB_BATTERY_LOW_PCT``, and while
+``knob_battery_charging()`` a hand-rasterised bolt over a fill in the
+**theme's moon color** (``theme_colors[active_theme_index][0]``, the
+seconds-arc ink, read live so a theme change propagates on the next
+minute tick — the reference iOS green replaced 2026-11-14) — a heuristic,
 not a signal: a cell read at or above ``KNOB_BATTERY_CHARGING_MV``
 (0 = bolt off) is the docked-USB signature (bench ~4522 mV, far over
 the cell ceiling); no reading leaves an empty pale-grey capsule.

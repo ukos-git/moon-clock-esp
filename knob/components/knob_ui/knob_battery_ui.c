@@ -6,9 +6,11 @@
  *        minute (the cell moves on the minute scale, not the second).
  *
  * The look follows the iOS status-bar battery (grey capsule, white
- * fill, red at low, green + bolt on the dock) — the geometry and
- * palette are in-house LVGL-9 primitives, no third-party widget or
- * image/font assets. The original foot-of-panel "NN %" label (5456799,
+ * fill, red at low, bolt on the dock) — the geometry and palette are
+ * in-house LVGL-9 primitives, no third-party widget or image/font
+ * assets. The docked fill takes the theme's moon color (the seconds-
+ * arc ink, theme_colors[..][0]) rather than the reference green —
+ * user 2026-11-14. The original foot-of-panel "NN %" label (5456799,
  * font fix 174a668) retired with this pass: the icon shows the level
  * as a fill, not as digits, so the SSID font is not needed here.
  *
@@ -19,7 +21,7 @@
  * tap. It sits bottom-centre at the foot of the panel — the proven
  * spot of the retired label (under the alarm row, a detent above the
  * rim; the round chord there is far wider than the icon) — and clear
- * of the sweep progress row's top band (28..46). The foot offset
+ * of the honesty caption row's top band (28..46). The foot offset
  * below is the single calibration constant if the bench wants it
  * nudged.
  * The charging bolt is the documented heuristic (knob_battery_charging:
@@ -62,9 +64,11 @@ static const char *TAG = "knob_battery_ui";
 #define COL_GREY 0x808080u      /* capsule outline + nub */
 #define COL_GREY_DEAD 0x787878u /* unknown state outline */
 #define COL_FILL 0xFFFFFFu      /* normal fill */
-#define COL_CHARGING 0x37C557u  /* fill while docked */
-#define COL_LOW 0xFD3B2Fu       /* fill at <= LOW_PCT */
-#define COL_BOLT 0xFFFFFFu      /* bolt recolour over the green fill */
+/* The docked fill takes the theme's moon color --
+ * theme_colors[active_theme_index][0], the seconds-arc ink (screens.h)
+ * -- NOT the reference iOS green (user 2026-11-14). */
+#define COL_LOW 0xFD3B2Fu  /* fill at <= LOW_PCT */
+#define COL_BOLT 0xFFFFFFu /* bolt recolour over the fill */
 
 /* ---- charging bolt: 10x14 A8 alpha mask, authored here (even-odd
  * polygon [(6,0)(1.4,7.6)(4.3,7.6)(3,14)(8.6,6.2)(5.7,6.2)] rasterised
@@ -141,10 +145,12 @@ static void battery_timer_cb(lv_timer_t *t) {
     lv_obj_set_style_border_color(s_body, grey, 0);
     lv_obj_set_style_bg_color(s_nub, grey, 0);
 
-    /* iOS priority: docked -> green, low -> red, else white. */
+    /* Priority: docked -> the theme's moon color (the seconds-arc ink;
+     * user 2026-11-14 replaced the iOS green), low -> red, else white.
+     * Read live so a theme change propagates on the next minute tick. */
     uint32_t c = COL_FILL;
     if (charging) {
-        c = COL_CHARGING;
+        c = theme_colors[active_theme_index][0];
     } else if (pct <= CONFIG_KNOB_BATTERY_LOW_PCT) {
         c = COL_LOW;
     }
