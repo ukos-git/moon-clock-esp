@@ -5,7 +5,9 @@ The Knob board
 components** — the ``knob/`` sibling project boots its QSPI panel,
 loads the pre-baked moon assets into PSRAM and renders the physical
 moon (K7 milestones: K7a asset target + gate green, K7b static
-frame, K7c cold-boot synodic sweep + sky-event tint + day tick, K7d
+frame, K7c sky-event tint + day tick — its cold-boot synodic sweep
+retired 2026-11-14, the clocks having dropped their own the day
+before —, K7d
 SNTP time with the honest ``no time`` posture, K7e idle ladder +
 EXT0 dial wake). The **P0 family seam** (2026-11-09) made it the
 third board of the moon-clock family: the project now links the
@@ -92,11 +94,11 @@ everywhere natively, and the dial adds a one-cursor edit path
 jobs stay from K7e: a detent is activity for the idle ladder on every
 screen but home — there it is the **brightness control** (5 % per
 detent, floored at the ladder's dim rung, and deliberately not
-activity), and after deep sleep it is the wake input (EXT0 on its A channel);
-a screen press aborts the boot sweep (task #28: the seam's press
-observer consumes the tap — no hub opens under a skip — and while
-the sweep plays its ``sweeping n/N`` progress reads on a gated top
-band row). The two clock boards and this
+activity), and after deep sleep it is the wake input (EXT0 on its A
+channel). A screen press once aborted the boot sweep (task #28: the
+seam's press observer consumed the tap so no hub opened under a
+skip); with the sweep retired 2026-11-14 every press is an ordinary
+home/hub touch again. The two clock boards and this
 one remain independent products — no cross-board traffic; what they
 share is the code.
 
@@ -267,9 +269,10 @@ with the generated ``fonts_knob/`` tier (74/37/25 px = the S3's
 ("Nov 8 17:29" through ``KNOB_TZ``) still carries the display in the
 legacy own-screen build (``KNOB_UI_ENABLE=n``) — with P2 shipped the
 shared TZ screen owns the zone on the family app and ``KNOB_TZ``
-survives only in that legacy caption. Around that, a cold-boot synodic sweep
-(new moon → now on cold boots only; wakes show the current phase,
-the clock's wake policy), the sky-event tint with a 1 Hz day tick
+survives only in that legacy caption. Around that, the sky-event
+tint with a 1 Hz day tick (every boot and wake shows the static
+current phase — the cold-boot synodic sweep retired 2026-11-14,
+making the clock's wake policy the whole display policy),
 that re-bakes once on a UTC-date or event-signature change, SNTP
 time over the shared ``components/wifi`` join with the clock's NVS
 last-known-instant snapshot (K7d on the shared ``clock_sntp`` path —
@@ -314,21 +317,24 @@ Layout and commands:
   task applies each frame as one atomic ``lv_refr_now`` under the
   LVGL mutex, and the producer only reuses a buffer after the swap's
   ack. The producer is CPU1-pinned and TWDT-unregistered
-  (``xTaskCreatePinnedToCoreWithCaps``, the clock's sweep-task
-  posture) because the core's classify/new-moon scans run ~30 s
-  without yields — ``knob/sdkconfig.defaults`` therefore drops
-  ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` like the clock's S3
-  defaults do. Sweep shape is Kconfig: ``KNOB_MOON_SWEEP_FRAMES``
-  (default 1344 = the clock's task #17 no-jump count; 0 = static
-  only) and ``KNOB_MOON_SWEEP_BAKE_PX`` (default 128, floor 96; the
-  final frame always bakes crisp at 360, so the sweep lands
-  byte-identically on the sweep-off static frame). Measured on the
-  S3R8 (bench, 2026-11-08): full 1344-frame sweep ≈ 5.2 min
-  (~115–130 ms per 128-px frame, final crisp frame ~0.8 s), 0 TWDT.
-  The current-phase frame carries the sky event through the shared
-  tint LUT — a frozen 2025-03-14 total-lunar-eclipse epoch showed
-  the blood tint on glass, and a pinned 23:59:30Z epoch produced
-  exactly one day-tick re-bake after midnight.
+  (``xTaskCreatePinnedToCoreWithCaps``, the clock's bake-producer
+  posture — the re-bake/hourly tasks) because the core's classify
+  scan runs ~25 s end to end; everything long on it yields (the scan
+  on a 20 ms wall-clock budget, the bake by rows), so
+  ``knob/sdkconfig.defaults`` **keeps**
+  ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` on with
+  ``CONFIG_ESP_TASK_WDT_PANIC`` — the 2026-11-11 bench lesson: an
+  unyielding stretch must die as a backtrace, not a naked reset.
+  Every frame bakes crisp at 360 with the event passed —
+  the boot sweep's reduced-size intermediates retired with the sweep
+  on 2026-11-14, so the one crisp path is all that is left (the
+  frame is byte-identical to what the sweep's final frame always
+  was). Measured on the S3R8 (bench, 2026-11-08): crisp bake
+  ~0.8 s, 0 TWDT. The current-phase frame carries the sky event
+  through the shared tint LUT — a frozen 2025-03-14
+  total-lunar-eclipse epoch showed the blood tint on glass, and a
+  pinned 23:59:30Z epoch produced exactly one day-tick re-bake after
+  midnight.
 * K7d time — on the clock's shared time path (P0 family seam): the
   board has **no RTC**, so the display arms only on SNTP truth.
   ``components/clock`` runs its software path (the P4's posture:
@@ -353,8 +359,8 @@ Layout and commands:
   known, untrusted*, and promotes it into the shared namespace. A
   small boot-arm task owns the sequence (restore the snapshot → wait
   up to 15 s for the bounded join → one fix within
-  ``KNOB_TIME_BOOT_SYNC_MS`` = the cold-boot sweep window; late fix =
-  static current phase; no fix = arm on the snapshot only if one
+  ``KNOB_TIME_BOOT_SYNC_MS``; late fix = static current phase;
+  no fix = arm on the snapshot only if one
   exists, keep polling either way — the moon appears the moment time
   lands — and the late loop re-kicks ``esp_wifi_connect()``: the
   shared join's retries are bounded, so it carries the retired
@@ -370,8 +376,9 @@ Layout and commands:
   K7b/K7c acceptance epochs reproducible. Measured on the bench
   (2026-11-08, the posture the seam preserves): join → fix in
   ≈4–11 s, the synced epoch agreeing with the host UTC clock within
-  ~2 s; the full 1344-frame sweep still landed in ~315 s on the real
-  now (illum 1.7 % — three hours past that week's new moon), 0 TWDT.
+  ~2 s; a late fix still re-baked the static current phase on the
+  real now (illum 1.7 % — three hours past that week's new moon),
+  0 TWDT.
   With a dead server (``ntp.invalid.example``) on a board with an
   empty NVS the boot logged ``no NTP fix and no snapshot — 'no time'
   stays on glass`` and the glass stayed ``no time`` with zero bake
@@ -395,8 +402,8 @@ Layout and commands:
   detents **on non-home screens only** (the encoder count polled
   there; on home the dial is the brightness control, so a detent
   there deliberately never un-dims — only *brightening* from a dark
-  panel counts as wake intent); the **boot arm** and the
-  cold-boot sweep (and the static first frame) **hold** the ladder —
+  panel counts as wake intent); the **boot arm** and the boot bake
+  (the static first frame) **hold** the ladder —
   a presentation is never interrupted and a never-yet-presented board
   is never slept over (the hold starts with ``boot_arm_task``, so a
   slow join + NTP window can no longer dim at 60 s and sleep at 120 s
@@ -423,8 +430,8 @@ Layout and commands:
   plan asked for came back **accepted**, device-verified 2026-11-08
   on the production build (P1-era, ladder still on the Kconfig pair —
   the store-driven rungs re-measure with the P2 bench pass) — the
-  314 s cold-boot sweep held the ladder
-  whole (no dim/sleep lines while sweeping), dim fired at idle 15.1 s,
+  boot presentation held the ladder
+  whole (no dim/sleep lines while presenting), dim fired at idle 15.1 s,
   ``EXT0 GPIO 8 accepted, deep sleep now`` at idle 60.1 s, and the
   USB-JTAG node vanished from the host moments later: a real deep
   sleep, not a hang. First-detent caveat, as predicted: the

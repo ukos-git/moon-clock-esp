@@ -6,8 +6,9 @@
  *
  * The supervisor owns the only esp_deep_sleep_start() in the firmware.
  * "Activity" = a touch contact or a dial detent (polled), plus the
- * sweep hold: while the cold-boot sweep plays the display is presenting
- * and must not nap (the clock's idle-hold-during-sweep posture).
+ * presentation hold: while the cold-boot bake presents the display
+ * must not nap (the clock's idle-hold-during-presentation posture;
+ * the boot sweep that once set it retired 2026-11-14).
  *
  * EXT0 caveat (documented, bench-verified): the EC1 detents pulse ONE
  * channel each, alternating A/B -- a detent that happens to pulse only
@@ -32,9 +33,9 @@ void knob_power_init(void);
  *         un-dims. Cheap -- callable from the touch read callback. */
 void knob_power_notify_activity(void);
 
-/** @brief Presentation hold (the sweep): while held, the ladder freezes
- *         (and the panel stays un-dimmed); on release the idle clock
- *         restarts from now. */
+/** @brief Presentation hold (the boot bake, the demo tour): while held,
+ *         the ladder freezes (and the panel stays un-dimmed); on
+ *         release the idle clock restarts from now. */
 void knob_power_set_hold(bool hold);
 
 /** @brief Ladder dim/undim observer (P1 dim parity): called with true

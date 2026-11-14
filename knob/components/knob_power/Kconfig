@@ -76,9 +76,9 @@ config KNOB_SLEEP_TIMEOUT_S
         deep-sleep screen's roller (settings.txt
         deep_sleep_countdown_sec) drives the countdown live, and this
         value is only the seed the supervisor falls back to while the
-        store holds 0. The cold-boot sweep HOLDS the ladder (a
+        store holds 0. The cold-boot presentation HOLDS the ladder (a
         presentation is never interrupted); the clock's wake policy
-        then shows the current phase statically on every wake.
+        then shows the current phase statically on every boot and wake.
 
 config KNOB_TOUCH_WAKE
     bool "Wake from deep sleep on a screen tap (EXT1 CST816S INT)"

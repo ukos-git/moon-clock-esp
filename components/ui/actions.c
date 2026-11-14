@@ -735,19 +735,14 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
                 loadScreen(SCREEN_ID_MODEM_SLEEP);
                 ui_tick();
             }
-            /* The knob companion's boot sweep owns the idle lifecycle
-             * (its seam disables the monitoring at start and re-arms at
-             * the end): re-arming here while it plays would let the 60 s
-             * idle timeout fire mid-sweep and interrupt the boot
-             * animation with the light-sleep transition (the P4's
-             * on-demand sync runs ~30 s through the remote C6 and
-             * regularly overlaps boot). On the clocks
-             * moon_ui_sweeping() is constant false -- no boot sweep
-             * since 2026-11-13. */
-            if (!moon_ui_sweeping()) {
-                clock_idle_set_enabled(true);
-                clock_idle_reset_timer();
-            }
+            /* No boot animation can be interrupted by this any more --
+             * the sweeps retired family-wide (clocks 2026-11-13, the
+             * knob 2026-11-14), so the idle monitoring re-arms right
+             * here. (The P4's on-demand sync still runs ~30 s through
+             * the remote C6 and regularly overlaps boot; the knob's
+             * boot presentation holds its OWN ladder in knob_ui.) */
+            clock_idle_set_enabled(true);
+            clock_idle_reset_timer();
             ESP_LOGI(TAG, "WiFi sync %s -> airplane screen", s_wifi_sync_ok ? "complete" : "failed");
         } else {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
@@ -933,11 +928,11 @@ void action_update_clock_display(lv_event_t *e) {
      * NTP interval), activate WiFi + NTP and drop back to airplane.
      * Gated to AT REST on airplane: no waking a sleeping device (a
      * 30 s radio wake for an NTP fetch is a net power loss -- the next
-     * wake re-syncs), no interference with a boot sweep (the knob's --
-     * constant false on the clocks), no yanking
+     * wake re-syncs), no interference with a boot animation (none
+     * exists family-wide since 2026-11-14), no yanking
      * a settings session away. */
     if (ret == ESP_OK && current_time.minute == 0 && !clock_is_idle() && !action_demo_active() &&
-        !s_wifi_sync_running && !moon_ui_sweeping() && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
+        !s_wifi_sync_running && !wifi_manager_is_connected() && clock_sntp_needs_sync() &&
         ui_current_screen() == SCREEN_ID_MODEM_SLEEP) {
         ESP_LOGI(TAG, "Hourly sync due at the top of the minute; activating WiFi");
         action_start_wifi_sync();

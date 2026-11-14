@@ -6,8 +6,8 @@
  * The supervisor is a plain registered task on a 500 ms cadence -- it
  * only delays and logs, so a watchdog on it is a feature. Activity
  * comes from two cheap polls (touch is pushed by main's read callback,
- * the dial count is pulled from knob_board) plus the sweep hold owned
- * by knob_ui. Deep sleep is armed with EXT0 GPIO 8 (in the S3 RTCIO
+ * the dial count is pulled from knob_board) plus the presentation hold
+ * owned by knob_ui. Deep sleep is armed with EXT0 GPIO 8 (in the S3 RTCIO
  * range 0..21 -- the runtime accept from esp_sleep_enable_ext0_wakeup
  * is the bench verdict the plan asked for, logged at arm time); the
  * first-detent miss when the B channel leads is documented in the
@@ -56,7 +56,7 @@ static const char *TAG = "knob_power";
 #define EPOCH_PLAUSIBLE_MIN 1600000000LL
 
 static volatile int64_t s_last_activity_us; /* written by any task, read by the supervisor */
-static volatile bool s_hold;                /* sweep presenting (knob_ui) */
+static volatile bool s_hold;                /* presentation hold (knob_ui) */
 static bool s_dimmed;                       /* supervisor-private */
 static volatile bool s_sleeping;            /* stable-dark log-only state (KNOB_SLEEP_ALLOW=n) */
 static knob_power_dim_cb_t s_dim_cb;        /* P1 dim parity observer */

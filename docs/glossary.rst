@@ -29,8 +29,8 @@ Lunar astronomy
   which lets ~59 % of the surface be seen over a cycle. The cheap
   ephemeris carries it (the subsolar/subearth residual, :doc:`the geometry <science/geometry>`).
 - **Synodic month** — 29.530589 days; the phase cycle (the
-  clock's boot sweep played it until 2026-11-13; the knob companion
-  still does at cold boot, :doc:`the animation pipelines <implementation/animations>`).
+  clock's boot sweep played it until 2026-11-13, the knob companion
+  at cold boot until 2026-11-14, :doc:`the animation pipelines <implementation/animations>`).
 - **New-moon epoch** — the instant of zero phase; the retired boot
   sweep's start (the two-pass 6 h coarse + 20 min fine scan came down
   with it, :doc:`the animation pipelines <implementation/animations>`).
@@ -103,7 +103,8 @@ The device pipeline
   cycle's hour list replayed as the same tick-displayed frames —
   always ending on the live full-resolution final bake. The home now
   boots straight to the static current phase (and always showed that
-  on wakes); the knob companion keeps its own cold-boot sweep
+  on wakes); the knob companion followed on 2026-11-14, retiring its
+  own cold-boot sweep
   (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
 - **Dusk** — the retired (2026-11-13) light-sleep entry: the
   constant-projection pole spin to the dark side (the shade map + the

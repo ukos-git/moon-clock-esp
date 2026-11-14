@@ -1758,12 +1758,6 @@ static void moon_tilt_monitor_cb(lv_timer_t *timer) {
  * at-rest drift cannot rotate the text. */
 bool moon_ui_tilt_settled(void) { return s_tilt_settled; }
 
-/* Boot-animation seam predicate. The clock home has no boot sweep
- * (retired 2026-11-13 -- boot bakes the static phase in moon_ui_start);
- * the knob companion's seam answers this from its OWN boot sweep, which
- * the shared actions.c idle/Wi-Fi gates still honor there. */
-bool moon_ui_sweeping(void) { return false; }
-
 /* ---------------- tick ---------------- */
 
 static void moon_tick_cb(lv_timer_t *timer) {

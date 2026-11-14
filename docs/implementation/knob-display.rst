@@ -56,13 +56,13 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
 
 - a **producer** task bakes frames into a PSRAM double buffer. It is
   CPU1-pinned and TWDT-unregistered
-  (``xTaskCreatePinnedToCoreWithCaps``, the clock's then-live
-  sweep-task posture — the clock's sweep retired 2026-11-13, the
-  knob's own survives), but everything long on it **yields**: the core's classify
+  (``xTaskCreatePinnedToCoreWithCaps``, the clock's bake-producer
+  posture — the re-bake/hourly tasks; both sweeps are gone, the
+  clock's retired 2026-11-13, the knob's own 2026-11-14), but
+  everything long on it **yields**: the core's classify
   scan on a 20 ms wall-clock budget (``moon_event.c``'s
   ``CONFIG_BOARD_KNOB`` branches — the coarse grid *and*
-  ``se_argmax``'s 73-sample fine window), the bake by rows, the sweep
-  per frame — so ``knob/sdkconfig.defaults`` keeps
+  ``se_argmax``'s 73-sample fine window), the bake by rows — so ``knob/sdkconfig.defaults`` keeps
   ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` **on** and sets
   ``CONFIG_ESP_TASK_WDT_PANIC``. The bench lesson of 2026-11-11: with
   the check off, an unyielding scan reset the board as a naked
@@ -84,14 +84,16 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   in the plan and **not built**: the partial drain never showed seam
   lines on this panel.
 
-Measured on the S3R8 (bench, 2026-11-08): relief build 727 ms, first
+Measured on the S3R8 (bench, 2026-11-08; the sweep-era numbers are
+dated history — the 128-px intermediates retired 2026-11-14): relief
+build 727 ms, first
 360-px bake ~790 ms, ~115–130 ms per 128-px sweep frame, 0 TWDT,
 ~6.8 MB PSRAM free after assets + buffers. Re-measured 2026-11-11
 with the WDT posture above: the classify scan is **463 ephemeris
 evaluations in 24.6 s** (~53 ms each at ``-Og`` — the ~8 ms the first
 fix assumed was off ~7×), sweep frames bake at 132–141 ms, and a boot
 that used to die at t≈11–15 s now runs the full scan and 110 s of
-sweep with 0 task-WDT, 0 resets.
+presentation with 0 task-WDT, 0 resets.
 
 The render seam (P1)
 --------------------
@@ -175,42 +177,37 @@ in the single-threaded creation phase; the log line
 The opening act
 ---------------
 
-Cold boot plays the full synodic sweep — 1344 frames new moon → now
-at 128 px (``KNOB_MOON_SWEEP_FRAMES``; the clock's task #17 no-jump
-count), then one crisp 360-px final frame: **314 s wall**, logging
-``sweeping n/N`` from frame 1 (the never-black posture). Both
-affordances of that posture live on the shared home since task #28
-through the render seam (they had been legacy-view-only since the P1
-cutover — the shared home registered neither): the seam attaches a
-gated progress row to the producer's caption staging
+Every boot and every wake presents the **static** current phase —
+one crisp 360-px bake, clocked by the same rule that keeps the
+battery honest. The cold-boot synodic sweep (1344 frames new moon →
+now at 128 px plus the crisp final frame, **314 s wall**, the
+never-black posture) retired 2026-11-14; the clocks dropped their
+own 2026-11-13, so the clock's wake policy is now the whole display
+policy. The surviving affordance of that posture lives on the shared
+home since task #28 through the render seam: the seam attaches a
+gated row to the producer's caption staging
 (``knob_ui_bind_caption``) — a montserrat-16, 240 px, DOT-centred
 label at the **top band** (+28; the middle belongs to the clock
 column, the foot to the battery icon), revealed by the swap task
-only while the staged text is the sweep progress or an honest
-failure state (``no time``, ``moon unavailable``) — the shared clock
-row owns the daily text there. And a screen press aborts the sweep
-onto the true phase: a press observer on every moon root calls
-``knob_ui_sweep_press`` and then consumes the gesture
-(``lv_indev_reset``), so a skip does not simultaneously open the
-settings hub. The legacy own-screen build (``KNOB_UI_ENABLE=n``)
-keeps its own ungated bottom caption and screen handler.
-Deep-sleep and dial wakes show the static current phase instead —
-the clock's wake policy, and the same rule keeps the battery honest.
+only while the staged text is an honest failure state (``no time``,
+``moon unavailable``) — the shared clock row owns the daily text
+there. The press-abort and its press observer retired with the
+sweep, so every press is an ordinary home/hub touch again. The
+legacy own-screen build (``KNOB_UI_ENABLE=n``) keeps its own ungated
+bottom caption and screen handler.
 The current-phase frame
 carries the sky event through the shared tint LUT (the 2025-03-14
 total-lunar-eclipse epoch showed the blood tint on glass), and a 1 Hz
 day tick re-bakes exactly once when the UTC date or the event
 signature changes.
 
-Bench acceptance for the seam affordances (2026-11-13, synthetic
-tap via ``KNOB_DIAG_TOUCH_INJECT_S``): a tap at t = 61.5 s into the
-running sweep logged ``sweep: press abort requested (frame 42
-published)``, the row loop honored it within one row, the 988 ms
-crisp land baked the true phase, and ``sweep done: 42/1344`` closed
-the act — **no hub-load lines behind the tap** (the gesture was
-consumed), the caption row's probe logged ``x=60 y=28 w=240 h=18``
-(the top band, centred), and the ladder dimmed at idle 60 s after
-the act with 0 WDT/resets across 130 s.
+The press-abort bench acceptance for the seam affordances (2026-11-13,
+synthetic tap via the then-live ``KNOB_DIAG_TOUCH_INJECT_S`` — tap
+into the running sweep, no hub-load lines behind the consumed
+gesture) retired with the sweep on 2026-11-14; the surviving probe
+facts are the caption row's ``x=60 y=28 w=240 h=18`` (the top band,
+centred) and the ladder dimming at idle 60 s after the presentation
+with 0 WDT/resets across 130 s.
 
 Time: SNTP truth or nothing
 ---------------------------
@@ -305,7 +302,8 @@ window from dimming at 60 s and sleeping at 120 s over a glass that
 has not shown a single frame yet (only a board that will never
 present — no assets, or no fix and no snapshot — leaves the ladder
 free to sleep it). Device-verified (P1-era, ladder still on the
-Kconfig pair): the 314 s sweep froze both thresholds, then dim fired
+Kconfig pair): the then-314 s boot presentation (the sweep, before
+its 2026-11-14 retirement) froze both thresholds, then dim fired
 at idle 15.1 s and the sleep at idle 60.1 s, with the USB-JTAG node
 vanishing host-side (a real deep sleep, not a hang) — the
 store-driven rungs re-measure with the P2 bench pass. Before ``esp_deep_sleep_start`` the supervisor
@@ -458,11 +456,10 @@ cursor moved since the screen was entered.
      - step the hot slot; the sector reveal follows (the sticky
        reveal a touch press does)
      - commit the hot letter into the running entry
-   * - Sweep / boot arm
+   * - Boot arm / boot bake
      - activity (the ladder holds; a turn never interrupts the act)
-     - abort the sweep and land the true phase — the seam's press
-       observer consumes the tap (``lv_indev_reset``), so it opens
-       no hub while the act plays (task #28)
+     - an ordinary home/hub touch — the press-abort observer retired
+       with the boot sweep 2026-11-14
 
 The wheel keyboard's **touch press partition** at knob scale (bench
 2026-11-11): letters render at r≈130 px, and the mode register arc —
@@ -536,7 +533,8 @@ its own black box, armed in every production build:
   (``s_gasp`` in ``knob_ui.c``) stamped with single atomic word/byte
   stores on the producer/swap/seam/flush hot paths: a stage byte
   (BAKE / WAIT_ACK / PUBLISH / SWAP_LOCK / SWAP_REFR / SWAP_DONE /
-  SWITCH\_\* / FLUSH / FLUSH\_DONE / LAND\_BAKE), the pub/applied
+  SWITCH\_\* / FLUSH / FLUSH\_DONE; LAND\_BAKE went with the sweep),
+  the pub/applied
   frame counters, and the LEDC duty + fade-pending mirror. RTC slow
   memory survives every reset but power-on, so the boot **after** a
   crash prints one line — ``gasp: crash-reboot reason=… pub=…
@@ -562,18 +560,21 @@ its own black box, armed in every production build:
   with the new table — the added partition sits after
   ``moon_assets``, so nvs/SPIFFS/assets stay intact.
 * **The witness self-test** — ``KNOB_DIAG_PANIC_AT_FRAME`` aborts
-  the producer after sweep frame N; the bench proof (2026-11-12):
+  the producer after N published frames; the bench proof (2026-11-12,
+  sweep era — the hook then rode sweep frames, since 2026-11-14 it
+  rides the static boot bake, where N = 1 is the meaningful value):
   frame 320 → ``abort() was called at PC 0x4201923c on core 1``,
   the boot after printed ``gasp: crash-reboot reason=4 pub=320
   applied=319 stage=0 duty=255 fading=0`` (exactly the crash-time
   state: 320 published, 319 applied, producer just past publish),
   and the flash dump decoded cleanly — ``Found core dump 24324
   bytes``, checksum correct, crashed task ``knob_moon``, PC in
-  ``panic_abort``, the abort PC resolving to the hook in
-  ``sweep_body``. The two other bench-only hooks
-  (``KNOB_DIAG_TOUCH_INJECT_S`` synthetic tap,
-  ``KNOB_DIAG_FRAME_TRACE`` boundary logs) stay in the Kconfig with
-  production default off.
+  ``panic_abort``, the abort PC resolving to the hook in what was
+  then ``sweep_body``. The one remaining bench-only hook
+  (``KNOB_DIAG_FRAME_TRACE`` boundary logs) stays in the Kconfig with
+  production default off; the synthetic-tap hook
+  (``KNOB_DIAG_TOUCH_INJECT_S``) retired with the sweep — its
+  scenario (a tap into a running sweep) is gone.
 
 With the witness shipped, the next field occurrence is answerable
 without repro: read the gasp line from the boot log after the crash

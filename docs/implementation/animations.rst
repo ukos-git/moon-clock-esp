@@ -130,7 +130,8 @@ The boot sweep (retired 2026-11-13)
 Retired with the rest of the animation stack: ``moon_ui_start`` now bakes
 the CURRENT phase directly — no ``new_moon_epoch``, no bake task, no card
 replay on the clocks — and boot is one static frame, like every wake. The
-knob companion keeps its own cold-boot sweep
+knob companion followed on 2026-11-14, retiring its own cold-boot sweep,
+so every board of the family boots to the single static frame
 (:doc:`the knob display <knob-display>`). The subsystem as shipped is
 summarized here only as dated history; the code (``moon_sweep_task`` /
 ``moon_sweep_interrupt`` / ``s_sweep_*`` / ``new_moon_epoch``) and its

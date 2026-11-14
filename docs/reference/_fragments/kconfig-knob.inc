@@ -25,16 +25,6 @@ the page above):
        ``KNOB_TIME_USE_TEST_EPOCH``); what keeps the K7b/K7c
        acceptance epochs reproducible
        (:doc:`the knob display <../implementation/knob-display>`)
-   * - ``KNOB_MOON_SWEEP_FRAMES``
-     - ``1344`` (0..4096)
-     - Cold-boot synodic sweep frame count — the clock's task #17
-       no-jump count; 0/1 = static only. ~Linear frame cost,
-       measured 314 s on the S3R8
-   * - ``KNOB_MOON_SWEEP_BAKE_PX``
-     - ``128`` (96..360)
-     - Intermediate sweep bake edge (cost ~px²); the final frame
-       always bakes crisp at 360. Floor 96 = the clock's measured
-       sharpness floor
    * - ``KNOB_DEMO_MODE``
      - ``n``
      - Bench demo tour (the knob half of
@@ -140,24 +130,17 @@ the page above):
      - ``4200`` (3600..4500)
      - Cell mV at 100 % — LiPo **placeholder**; the percentage is
        clamped between the pair
-   * - ``KNOB_DIAG_TOUCH_INJECT_S``
-     - ``0`` (bench)
-     - Bench-only hook: an esp_timer one-shot arms a
-       ~350 ms synthetic home tap at the crash coordinates at N
-       seconds after boot, flowing through the real
-       ``touch_read_cb`` — the crash-repro (task #27) and the
-       sweep tap-abort acceptance (task #28) both ride it;
-       ``0`` = dead (production)
-       (:doc:`the knob display <../implementation/knob-display>`)
    * - ``KNOB_DIAG_FRAME_TRACE``
      - ``n`` (bench)
      - Bench-only: log flush start/complete, swap apply begin/end,
-       sweep-abort, landing, and every leg of the fade + atomic
+       and every leg of the fade + atomic
        screen switch, so a frozen board's LAST log line names the
        stuck section
    * - ``KNOB_DIAG_PANIC_AT_FRAME``
      - ``0`` (bench)
-     - Black-box self-test: ``abort()`` the producer after sweep
-       frame N; the boot after MUST print the gasp line and the
+     - Black-box self-test: ``abort()`` the producer after N
+       published frames (the hook rides the static boot bake —
+       there, ``1`` is the meaningful value); the boot after MUST
+       print the gasp line and the
        flash coredump must be readable — proves the crash witness
        end to end; ``0`` = dead (production)

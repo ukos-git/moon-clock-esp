@@ -85,14 +85,6 @@ void moon_ui_pause(bool pause);
 bool moon_ui_tilt_settled(void);
 
 /**
- * Boot-animation SEAM predicate: true while a boot sweep is baking.
- * Always false on the clock home (the sweep retired 2026-11-13); the
- * knob companion's seam answers from its OWN boot sweep, which the
- * shared actions.c idle re-arm and Wi-Fi-sync gates still honor there.
- */
-bool moon_ui_sweeping(void);
-
-/**
  * Display the new screen's contents (moon image included) as ONE
  * atomic whole-panel flush after a plain lv_scr_load. Must run in the
  * LVGL task context. No-op while a pipeline owns the buffer (a bake

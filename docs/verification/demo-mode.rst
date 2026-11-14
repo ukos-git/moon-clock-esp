@@ -216,8 +216,8 @@ The recording harness
 Reading a take
 --------------
 
-* The **sweep** (retired from the clocks 2026-11-13 — the knob's
-  cold-boot sweep still plays) played the 1344-frame spec (693 frames
+* The **sweep** (retired from the clocks 2026-11-13, the knob's
+  cold-boot sweep 2026-11-14) played the 1344-frame spec (693 frames
   at the current cycle age) from the last new moon on every device.
   With a warm TF cache it replayed (measured 2026-11-08: S3 295 s at
   400 px, ~2.3 fps; P4 217 s at 650 px, ~3.2 fps); cold it baked

@@ -127,11 +127,12 @@ gates matter:
   keeps running (the crystal clock runs through the app-level deep
   sleep), the screen is dark, and the next wake restores the panel
   and the minute update re-applies.
-- **The sweep gate** — an on-demand WiFi sync (below) may not fire
-  while a boot sweep is playing: it would switch screens mid-sweep.
-  The gate entry remains for the knob's own sweep
-  (:doc:`the knob display <knob-display>`); on the clocks it is
-  permanently open (their boot sweep retired 2026-11-13).
+- **The sweep gate** *(retired family-wide)* — an on-demand WiFi
+  sync (below) used to be blocked while a boot sweep was playing: it
+  would switch screens mid-sweep. The clocks retired the gate with
+  their sweep 2026-11-13, and the knob's own gate went with its sweep
+  on 2026-11-14 (:doc:`the knob display <knob-display>`) — nothing
+  gates the sync but the remaining policy below.
 
 The minute label is drawn as **fixed-width HH:MM slots** — the numbers
 font is proportional, so a single label would read 175 px at ``11:11``
@@ -445,8 +446,8 @@ path fires. The policy is deliberately conservative:
 - **at rest only** — a sleeping device is not woken (the power net
   loss; the next wake re-syncs);
 - **no interference** — a settings session and an active sync gate
-  the trigger off (the sweep's gate entry remains for the knob's own
-  sweep; on the clocks it is permanently open);
+  the trigger off (the sweep's gate entry is gone with the sweeps —
+  clocks 2026-11-13, knob 2026-11-14);
 - **transient** — the WiFi screen shows only while the sync is
   in flight; success or failure both drop back to airplane.
 

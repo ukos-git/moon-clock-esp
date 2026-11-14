@@ -11,7 +11,7 @@
  * the honest mapping:
  *
  *   buffers/images/refresh  -> knob_ui double buffer + attach list
- *   sweep / bake-now        -> knob_ui producer (already family-correct)
+ *   bake-now                -> knob_ui producer (already family-correct)
  *   day tick                -> NO-OP: the knob producer runs the day tick
  *                              itself on CPU1 (1 Hz UTC check; the clock's
  *                              LVGL-task probe was the S3 minute-freeze
@@ -162,23 +162,13 @@ void moon_ui_init(void) {
              s_ready ? "up" : "failed (moon-less screens)");
 }
 
-/* Sweep affordances on the shared screens (task #28): the legacy own-
- * screen view registered its own press handler and caption row; the
- * shared home registers neither for the sweep, so the seam carries both
- * -- a press on any moon root aborts the sweep, and the home's top band
- * shows the "sweeping n/N" progress while it plays. */
+/* The shared home's honesty caption (task #28): the legacy own-screen
+ * view owned its caption row; on the shared home the seam owns one --
+ * the top band, gated to the honest failure states ("no time", "moon
+ * unavailable"; the daily text belongs to the clock row). The sweep's
+ * "sweeping n/N" clause and its press-abort handler retired with the
+ * sweep 2026-11-14. */
 static lv_obj_t *s_caption_lbl;
-
-static void sweep_press_cb(lv_event_t *e) {
-    if (!knob_ui_sweep_press()) {
-        return; /* not a sweep tap: the screen's own handlers own it */
-    }
-    /* The abort IS this tap's job while the sweep plays: the shared
-     * home's CLICKED handler would also open the settings hub under it.
-     * Cancel the gesture so a skip stays a skip (the dial table's
-     * "Sweep | tap = abort" row, and the legacy view's promise). */
-    lv_indev_reset(NULL, lv_event_get_target(e));
-}
 
 lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
     if (!s_ready) {
@@ -193,7 +183,6 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         seen |= s_moon_roots[i] == parent;
     }
     if (!seen) {
-        lv_obj_add_event_cb(parent, sweep_press_cb, LV_EVENT_PRESSED, NULL);
         if (parent == objects.modem_sleep && !s_caption_lbl) {
             /* Proven legacy box (montserrat 16, 240 px, DOT, centred),
              * mirrored to the TOP band: the foot belongs to the battery
@@ -269,7 +258,7 @@ void moon_ui_bake_now(int64_t utc_epoch) { (void)knob_ui_show_moon(utc_epoch); }
 
 void moon_ui_start(void) {
     s_started = true;
-    ESP_LOGI(TAG, "moon started (static posture; the boot arm owns sweep-vs-static)");
+    ESP_LOGI(TAG, "moon started (static posture; the boot arm owns the phase)");
 }
 
 void moon_ui_day_tick(void) {
@@ -284,11 +273,9 @@ void moon_ui_pause(bool pause) { (void)pause; /* a static frame parks itself */ 
 
 bool moon_ui_tilt_settled(void) { return true; } /* no IMU: always at rest */
 
-bool moon_ui_sweeping(void) { return knob_ui_sweeping(); }
-
 void moon_ui_dump_hang_context(void) {
-    ESP_LOGI(TAG, "hang ctx: ready=%d started=%d sweeping=%d shown=%d duty=%d fade_pending=%d roots=%d", (int)s_ready,
-             (int)s_started, (int)knob_ui_sweeping(), (int)knob_ui_shown(), s_duty, (int)s_fade_pending, s_n_roots);
+    ESP_LOGI(TAG, "hang ctx: ready=%d started=%d shown=%d duty=%d fade_pending=%d roots=%d", (int)s_ready,
+             (int)s_started, (int)knob_ui_shown(), s_duty, (int)s_fade_pending, s_n_roots);
 }
 
 /* ---- home-screen dim parity (the knob power ladder's UI half) ---------

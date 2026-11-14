@@ -1,7 +1,7 @@
 /**
  * @file knob_ui.c
- * @brief The knob's moon display (K7b static + K7c sweep/day tick, task
- *        #24): one physical disk + a caption row.
+ * @brief The knob's moon display (K7b static + K7c day tick, task #24):
+ *        one physical disk + a caption row.
  *
  * Frame path = the plan's D7: ONE lv_image carrying a PSRAM RGB565
  * square through the EXISTING partial flush. The descriptor declares
@@ -21,12 +21,11 @@
  * atomic lv_refr_now and acks. The producer never touches the displayed
  * buffer: it waits for the ack (5 s bail = the clock's cap) before
  * reusing the back buffer, and a stale-unacked back buffer is always
- * safe to overwrite. The sweep's final frame (and the always-run
- * landing bake) is the crisp full-size bake with the event passed, so
- * the sweep lands byte-identically on the FRAMES=0 static build.
- * Never-black: the caption counts "sweeping n/N" from frame 1, and a
- * screen press aborts the sweep (the row loop honors it within one row)
- * -- the display still lands on the true current phase.
+ * safe to overwrite. Every published frame is the crisp full-size bake
+ * with the event passed. The cold-boot synodic sweep retired
+ * 2026-11-14 (the clocks dropped their own 2026-11-13): cold boots and
+ * wakes alike arm the STATIC current phase -- the clock's wake policy
+ * is now the knob's whole display policy.
  *
  * The companion mirror views (KEYBOARD/STEPPER, K4) were retired
  * 2026-11-08 with the companion approach; the dial stays initialized and
@@ -69,15 +68,6 @@ static const char *TAG = "knob_ui";
 static float s_moon_r = 150.0f; /* legacy default; the shared seam centres it */
 static int s_moon_cy = 168;     /* legacy default; the shared seam centres it */
 
-/* #ifndef-seeded (the repo invariant: a Kconfig 'n' leaves the macro
- * UNDEFINED; these seed the Kconfig defaults, never redefine them). */
-#ifndef CONFIG_KNOB_MOON_SWEEP_FRAMES
-#define CONFIG_KNOB_MOON_SWEEP_FRAMES 1344 /* task #17's no-jump count */
-#endif
-#ifndef CONFIG_KNOB_MOON_SWEEP_BAKE_PX
-#define CONFIG_KNOB_MOON_SWEEP_BAKE_PX 128 /* bake cost ~px^2; 96 = the clock's sharpness floor */
-#endif
-
 /* P1: the moon image is no longer a single own-screen object — the shared
  * home screen (and every future moon screen) attaches its own lv_image
  * through the SAME descriptor, mirroring the clocks' moon_ui_create_image
@@ -98,14 +88,11 @@ static bool s_started;     /* producer + swap task live */
 
 /* Producer/consumer handshake (the clock's shown/published posture).
  * Only the swap task writes s_front/s_applied; only the producer writes
- * s_pub/s_caption_text(+dirty)/s_abort-clearing; s_abort is set by the
- * touch callback (LVGL task) and polled by the producer. */
+ * s_pub/s_caption_text(+dirty). */
 static volatile uint32_t s_pub;
 static volatile uint32_t s_applied;
-static int s_front;              /* buffer the panel shows */
-static volatile bool s_shown;    /* first frame landed -> unhide */
-static volatile bool s_abort;    /* touch during the sweep */
-static volatile bool s_sweeping; /* press only aborts a sweep */
+static int s_front;           /* buffer the panel shows */
+static volatile bool s_shown; /* first frame landed -> unhide */
 static volatile bool s_caption_dirty;
 static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
@@ -192,14 +179,6 @@ static uint32_t s_baked_day;         /* UTC day key of the frame on screen */
 static int s_baked_sig;              /* event signature it was baked with */
 static volatile bool s_force_rebake; /* K7d: show_moon(epoch) after time-sync */
 
-/* Producer's opening act, set by the entry point that creates it. */
-enum {
-    MODE_IDLE = 0,  /* (unused today: tasks always open with a frame) */
-    MODE_SWEEP = 1, /* cold boot: synodic sweep, then land on now */
-    MODE_STATIC = 2 /* wake / FRAMES=0: crisp now-frame, then day tick */
-};
-static int s_mode;
-
 /* ---- small helpers ------------------------------------------------- */
 
 /* One reentrant wrapper for the APP-WIDE mutex. The LVGL task holds it
@@ -249,21 +228,6 @@ void knob_ui_set_disk_geom(float r, int cy) {
     s_moon_r = r;
     s_moon_cy = cy;
 }
-
-static int sweep_frames_get(void) { return CONFIG_KNOB_MOON_SWEEP_FRAMES; }
-
-static int sweep_bake_px_get(void) {
-    int s = CONFIG_KNOB_MOON_SWEEP_BAKE_PX;
-    if (s < 96) {
-        s = 96; /* never below the clock's sharpness floor */
-    }
-    if (s > MOON_SIZE) {
-        s = MOON_SIZE; /* above the panel adds cost, not pixels */
-    }
-    return s;
-}
-
-bool knob_ui_sweep_enabled(void) { return sweep_frames_get() >= 2; /* 0/1 frames = static only (bench builds) */ }
 
 static int64_t ui_now_epoch(void) {
     int64_t wall = 0;
@@ -329,19 +293,17 @@ static void wait_ack(void) {
 }
 
 /**
- * @brief Bake into the back buffer, stage the caption, publish.
- * bakes at bake_px (0 = crisp full size). caption NULL = caption stays.
- * NEVER publish an aborted frame: the bake returns false mid-rows.
+ * @brief Bake the crisp current-phase frame into the back buffer (the
+ *        armed event passes), stage the caption, publish.
+ * caption NULL = caption stays.
  */
-static bool bake_publish(int64_t epoch, int bake_px, bool pass_event, const volatile bool *abort_flag,
-                         const char *caption) {
+static bool bake_publish(int64_t epoch, const char *caption) {
     if (s_nomem) {
         return false;
     }
     const int back = 1 - s_front;
-    knob_ui_gasp(bake_px == 0 ? KNOB_GASP_LAND_BAKE : KNOB_GASP_BAKE);
-    if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, bake_px, pass_event,
-                                abort_flag, &s_last_bake_ms)) {
+    knob_ui_gasp(KNOB_GASP_BAKE);
+    if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_last_bake_ms)) {
         return false;
     }
     if (caption) {
@@ -366,13 +328,13 @@ static void caption_unavailable(void) {
 
 /* Shared-home caption gating (task #28): on that screen the clock row
  * owns the daily text, so the bound row shows ONLY what the shared home
- * has no other place to say -- the sweep progress and the two honest
- * failure states. The legacy own-screen view is ungated (there the
- * daily UTC line WAS the time affordance; its label is bound without
- * the flag, by knob_ui_create itself). */
+ * has no other place to say -- the two honest failure states. (Task
+ * #28's third clause gated the sweep progress; the sweep retired
+ * 2026-11-14.) The legacy own-screen view is ungated (there the daily
+ * UTC line WAS the time affordance; its label is bound without the
+ * flag, by knob_ui_create itself). */
 static bool caption_display_wanted(void) {
-    return strncmp(s_caption_text, "sweeping ", 9) == 0 || strcmp(s_caption_text, "no time") == 0 ||
-           strcmp(s_caption_text, "moon unavailable") == 0;
+    return strcmp(s_caption_text, "no time") == 0 || strcmp(s_caption_text, "moon unavailable") == 0;
 }
 
 /* Write the staged caption to the bound label (LVGL lock held by the
@@ -389,33 +351,7 @@ static void caption_apply_locked(void) {
 
 /* ---- the producer task ---------------------------------------------- */
 
-/** The crisp current-phase frame, always landed (sweep end OR abort OR
- *  bake failure): full size, event passed, caption = the UTC instant. */
-static void land_current_phase(void) {
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-    ESP_LOGI(TAG, "land: begin (wait_ack)");
-#endif
-    const int64_t now = ui_now_epoch();
-    wait_ack();
-    char cap[40];
-    time_caption(cap, sizeof(cap), now);
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-    ESP_LOGI(TAG, "land: crisp bake begin");
-#endif
-    if (!bake_publish(now, 0, true, NULL, cap)) {
-        ESP_LOGE(TAG, "landing bake failed (bake_px=crisp)");
-        caption_unavailable();
-        return;
-    }
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-    ESP_LOGI(TAG, "land: crisp bake published");
-#endif
-    s_caption_min = now / 60;
-    s_baked_day = day_key(now);
-    s_baked_sig = knob_moon_classify_signature(now);
-}
-
-/* The first frame of the static (wake / sweep-disabled) boot, on the
+/* The first frame of every boot and every wake, on the
  * PRODUCER (unregistered, pinned to CPU1): the display_begin classify
  * scan is the long CPU-bound stretch here -- the core yields on a
  * 20 ms wall-clock budget inside its CONFIG_BOARD_KNOB branches
@@ -428,98 +364,27 @@ static void static_once_body(void) {
     knob_moon_display_begin(now);
     char cap[40];
     time_caption(cap, sizeof(cap), now);
-    if (!bake_publish(now, 0, true, NULL, cap)) {
+    if (!bake_publish(now, cap)) {
         ESP_LOGE(TAG, "static bake failed");
         caption_unavailable();
     } else {
         s_caption_min = now / 60;
-    }
-    s_baked_day = day_key(now);
-    s_baked_sig = knob_moon_classify_signature(now);
-}
-
-/**
- * Cold-boot synodic sweep (the clock's moon_sweep_task, minus the spin
- * pause / idle hold / AMOLED machinery): frames evenly spaced from the
- * last NEW MOON (dark) to NOW, intermediate frames baked at
- * KNOB_MOON_SWEEP_BAKE_PX (the disk geometry scales with the bake -- in
- * the legacy view the disk is smaller than the square; the shared home
- * fills it, see knob_ui_set_disk_geom),
- * the FINAL frame crisp with the event. LUT authority: classify now
- * ONCE before the loop (the special moon's color foreshadows as the
- * disk brightens; the occlusion only rides the final frame).
- */
-static void sweep_body(void) {
-    const int frames = sweep_frames_get();
-    const int bake_px = sweep_bake_px_get();
-    const int64_t now = ui_now_epoch();
-    ESP_LOGI(TAG, "synodic boot sweep: %d frames @%d px (new moon -> now)", frames, bake_px);
-    const int sig = knob_moon_display_begin(now);
-    const int64_t nm = knob_moon_new_moon_epoch(now, &s_abort);
-    const int64_t SYNODIC_S = (int64_t)(29.53 * 86400);
-    int64_t span = now - nm;
-    if (span <= 0) {
-        span = SYNODIC_S; /* ephemeris degenerate: fall back to a full month */
-    }
-    if (span > SYNODIC_S) {
-        span = SYNODIC_S;
-    }
-    ESP_LOGI(TAG, "sweep span: %lld d (new moon %lld s before now, sig 0x%02x)", (long long)(span / 86400),
-             (long long)span, sig);
-    const int64_t t0 = esp_timer_get_time();
-    int f = 0;
-    for (; f < frames; f++) {
-        if (s_abort) {
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-            ESP_LOGI(TAG, "sweep: abort pre-wait at frame %d", f);
-#endif
-            break;
-        }
-        wait_ack();
-        if (s_abort) {
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-            ESP_LOGI(TAG, "sweep: abort after wait_ack at frame %d", f);
-#endif
-            break;
-        }
-        const bool final = (f == frames - 1);
-        /* Frame f is (frames-1-f) steps before the current phase:
-         * f=0 is the last NEW MOON, f=frames-1 is NOW. */
-        const double t = (double)(frames - 1 - f) / (double)(frames - 1);
-        const int64_t epoch = now - (int64_t)(t * span);
-        char cap[40];
-        snprintf(cap, sizeof(cap), "sweeping %d/%d", f + 1, frames);
-        if (!bake_publish(epoch, final ? 0 : bake_px, final, &s_abort, cap)) {
-            if (s_abort) {
-                break;
-            }
-            ESP_LOGE(TAG, "sweep bake failed at frame %d -- landing on current phase", f);
-            break;
-        }
-        if ((f & 63) == 0 || final) {
-            ESP_LOGI(TAG, "sweeping %d/%d (bake %lld ms%s)", f + 1, frames, (long long)s_last_bake_ms,
-                     final ? ", final crisp" : "");
-        }
 #if CONFIG_KNOB_DIAG_PANIC_AT_FRAME
-        /* Black-box self-test (bench): crash at a known frame so the
-         * gasp marker + flash coredump must show up on the boot after
-         * (task #27 — proves the witness chain end to end). */
-        if (f + 1 == CONFIG_KNOB_DIAG_PANIC_AT_FRAME) {
-            ESP_LOGE(TAG, "diag: forced panic after frame %d (gasp+coredump self-test)", f + 1);
+        /* Black-box self-test (bench): crash at a known publish count so
+         * the gasp marker + flash coredump must show up on the boot
+         * after (task #27 — proves the witness chain end to end). The
+         * sweep-era hook rode the sweep loop; the boot bake is the
+         * producer's only once-per-boot publish, so the first frame
+         * reaching the count is the boot frame. */
+        if (s_pub >= (uint32_t)CONFIG_KNOB_DIAG_PANIC_AT_FRAME) {
+            ESP_LOGE(TAG, "diag: forced panic after %lu published frame(s) (gasp+coredump self-test)",
+                     (unsigned long)s_pub);
             abort();
         }
 #endif
-        /* wait_ack() only blocks while the swap task is behind -- when
-         * it keeps up (the normal case) the bakes run back-to-back and
-         * IDLE never runs for the whole 314 s sweep (task-WDT reset,
-         * bench 2026-11-11). One 1 ms delay per frame makes IDLE's
-         * quantum a structural guarantee, not a timing accident. */
-        vTaskDelay(1);
     }
-    land_current_phase();
-    s_sweeping = false;
-    s_abort = false;
-    ESP_LOGI(TAG, "sweep done: %d/%d frames in %lld ms", f, frames, (long long)((esp_timer_get_time() - t0) / 1000));
+    s_baked_day = day_key(now);
+    s_baked_sig = knob_moon_classify_signature(now);
 }
 
 #ifdef CONFIG_KNOB_DEMO_MODE
@@ -545,14 +410,14 @@ static void demo_tour(void) {
     ESP_LOGI("DEMO", "knob tour armed: 8 canonical phases + live now, %d s each", CONFIG_KNOB_DEMO_PHASE_SEC);
     for (;;) {
         const int64_t now = ui_now_epoch();
-        const int64_t nm = knob_moon_new_moon_epoch(now, NULL);
+        const int64_t nm = knob_moon_new_moon_epoch(now);
         for (int k = 0; k < 8; k++) {
             const int64_t epoch = nm + (int64_t)((double)k / 8.0 * (double)SYNODIC_S);
             wait_ack();
             knob_moon_display_begin(epoch);
             char cap[48];
             snprintf(cap, sizeof(cap), "demo %d/8 %s", k + 1, names[k]);
-            if (!bake_publish(epoch, 0, true, NULL, cap)) {
+            if (!bake_publish(epoch, cap)) {
                 ESP_LOGE("DEMO", "phase %s bake failed", names[k]);
                 caption_unavailable();
             }
@@ -568,7 +433,7 @@ static void demo_tour(void) {
         knob_moon_display_begin(live);
         char cap[48];
         time_caption(cap, sizeof(cap), live);
-        if (!bake_publish(live, 0, true, NULL, cap)) {
+        if (!bake_publish(live, cap)) {
             ESP_LOGE("DEMO", "now bake failed");
             caption_unavailable();
         }
@@ -585,16 +450,12 @@ static void demo_tour(void) {
  *  eclipse starts at the hour it happens, not at UTC midnight). */
 static void moon_task(void *arg) {
     (void)arg;
-    /* K7e: the opening act is a PRESENTATION (sweep or first frame) --
-     * hold the power ladder through it (~5 min sweep, ~20 s classify +
-     * bake on the static path); afterwards the ladder runs free and
-     * the day tick bakes may dim/sleep the idle display. */
+    /* K7e: the opening act is a PRESENTATION (the first frame) -- hold
+     * the power ladder through it (~20 s classify + bake); afterwards
+     * the ladder runs free and the day tick bakes may dim/sleep the
+     * idle display. */
     knob_power_set_hold(true);
-    if (s_mode == MODE_SWEEP) {
-        sweep_body();
-    } else if (s_mode == MODE_STATIC) {
-        static_once_body();
-    }
+    static_once_body();
 #ifdef CONFIG_KNOB_DEMO_MODE
     demo_tour(); /* never returns; the power ladder stays held */
 #endif
@@ -615,7 +476,7 @@ static void moon_task(void *arg) {
             knob_moon_display_begin(now); /* re-arm the tint LUT + occlusion */
             char cap[40];
             time_caption(cap, sizeof(cap), now);
-            if (!bake_publish(now, 0, true, NULL, cap)) {
+            if (!bake_publish(now, cap)) {
                 ESP_LOGE(TAG, "day-tick bake failed");
                 caption_unavailable();
                 continue;
@@ -675,7 +536,7 @@ static void swap_task(void *arg) {
                 if (s_caption) {
                     caption_apply_locked();
                     /* #31 probe: caption geometry after relayout, 1 s
-                     * throttle (the sweep re-labels every frame). */
+                     * throttle (the day tick re-labels each minute). */
                     static char last_cap[48];
                     static int64_t last_cap_us;
                     int64_t cap_us = esp_timer_get_time();
@@ -704,18 +565,15 @@ static void swap_task(void *arg) {
     }
 }
 
-static void start_tasks(int mode) {
-    s_mode = mode;
-    s_sweeping = (mode == MODE_SWEEP);
-    s_abort = false;
+static void start_tasks(void) {
     s_started = true;
     s_gasp.magic = KNOB_GASP_MAGIC; /* arm the black box for this session */
-    /* Producer = the clock's sweep-task posture (moon_ui.c:2776):
-     * xTaskCreatePinnedToCoreWithCaps -- unregistered from TWDT (its
-     * work never feeds the watchdog, so a spin of its own is invisible
-     * to it), yet everything long-running on it yields: the classify
-     * scan on a 20 ms budget (moon_event.c knob branches), the bake by
-     * rows, the sweep per frame -- so sdkconfig.defaults keeps CPU1's
+    /* Producer = the clock's bake-producer posture (the re-bake/hourly
+     * tasks): xTaskCreatePinnedToCoreWithCaps -- unregistered from TWDT
+     * (its work never feeds the watchdog, so a spin of its own is
+     * invisible to it), yet everything long-running on it yields: the
+     * classify scan on a 20 ms budget (moon_event.c knob branches), the
+     * bake by rows -- so sdkconfig.defaults keeps CPU1's
      * idle check ON with panic on expiry (bench 2026-11-11: the silent
      * TG1WDT boots were an unyielding scan with the check off),
      * pinned to CPU1 so the bake never starves the render/Wi-Fi core,
@@ -725,17 +583,6 @@ static void start_tasks(int mode) {
      * delays -- a watchdog on it is a feature). */
     xTaskCreatePinnedToCoreWithCaps(moon_task, "knob_moon", 12288, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
     xTaskCreate(swap_task, "knob_swap", 8192, NULL, 7, NULL);
-}
-
-/* ---- touch: the only input with a job until K7e ---------------------- */
-
-static void scr_press_cb(lv_event_t *e) {
-    (void)e;
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-    ESP_LOGI(TAG, "scr_press: seen (sweeping=%d)", (int)s_sweeping);
-#endif
-    knob_power_notify_activity(); /* K7e: a press is activity */
-    (void)knob_ui_sweep_press();
 }
 
 /* ---- public API ------------------------------------------------------- */
@@ -789,17 +636,6 @@ void knob_ui_invalidate_all(void) {
     lvgl_unlock();
 }
 
-bool knob_ui_sweeping(void) { return s_sweeping; }
-
-bool knob_ui_sweep_press(void) {
-    if (!s_sweeping) {
-        return false;
-    }
-    s_abort = true; /* the row loop honors it within one row */
-    ESP_LOGI(TAG, "sweep: press abort requested (frame %lu published)", (unsigned long)s_pub);
-    return true;
-}
-
 void knob_ui_bind_caption(lv_obj_t *label) {
     s_caption = label;
     s_caption_gated = (label != NULL);
@@ -834,8 +670,8 @@ void knob_ui_create(void) {
     s_caption = lv_label_create(scr);
     lv_label_set_text(s_caption, "moon unavailable");
     /* 16 px, not the 28 px default: at 28 the phase names ("demo 3/8
-     * waxing-gibbous") and even "sweeping 1234/1344" would dot-truncate
-     * inside the 240 px box the round window allows. */
+     * waxing-gibbous") would dot-truncate inside the 240 px box the
+     * round window allows. */
     lv_obj_set_style_text_font(s_caption, &lv_font_montserrat_16, 0);
     lv_obj_set_width(s_caption, 240);
     lv_label_set_long_mode(s_caption, LV_LABEL_LONG_DOT);
@@ -843,11 +679,8 @@ void knob_ui_create(void) {
     lv_obj_align(s_caption, LV_ALIGN_BOTTOM_MID, 0, -28);
     lv_obj_set_clickable(s_caption, false);
 
-    /* Screen press = sweep abort (the screen is clickable by default). */
-    lv_obj_add_event_cb(scr, scr_press_cb, LV_EVENT_PRESSED, NULL);
-
-    ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, sweep %s, PSRAM free %d KB)", MOON_SIZE, (double)s_moon_r,
-             knob_ui_sweep_enabled() ? "armed" : "off", (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    ESP_LOGI(TAG, "knob UI up (moon view, %d px disk r %.0f, PSRAM free %d KB)", MOON_SIZE, (double)s_moon_r,
+             (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
 }
 
 /* Arm-path hide (LVGL lock held by the caller): every attached image
@@ -877,8 +710,8 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
     }
     if (s_started) {
         /* K7d hook: called again when SNTP lands a real time -- the day
-         * tick re-bakes the current phase within a second (sweeps own
-         * their epoch; the landing bake re-arms). */
+         * tick re-bakes the current phase within a second (since the
+         * sweep retired it owns every re-bake). */
         s_force_rebake = true;
         return true;
     }
@@ -900,33 +733,6 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
     s_pub = 0;
     s_applied = 0;
     s_shown = false;
-    start_tasks(MODE_STATIC);
+    start_tasks();
     return true;
-}
-
-void knob_ui_start_sweep(int64_t now_epoch) {
-    if (!knob_ui_sweep_enabled()) {
-        (void)knob_ui_show_moon(now_epoch);
-        return;
-    }
-    if (s_started) {
-        s_force_rebake = true;
-        return;
-    }
-    if (!knob_ui_alloc_frames()) {
-        return;
-    }
-    s_now_base_epoch = now_epoch;
-    s_now_base_us = esp_timer_get_time();
-    snprintf(s_caption_text, sizeof(s_caption_text), "sweeping 0/%d", sweep_frames_get());
-    lvgl_lock();
-    caption_apply_locked();
-    hide_all_images();
-    lvgl_unlock();
-    s_caption_dirty = false;
-    s_front = 0;
-    s_pub = 0;
-    s_applied = 0;
-    s_shown = false;
-    start_tasks(MODE_SWEEP);
 }

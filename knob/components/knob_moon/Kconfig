@@ -13,38 +13,14 @@ config KNOB_MOON_TEST_EPOCH
         again only under KNOB_TIME_USE_TEST_EPOCH (bench builds):
         production arms exclusively on an SNTP fix, never here.
 
-config KNOB_MOON_SWEEP_FRAMES
-    int "Cold-boot synodic sweep frame count (0 = static only)"
-    default 1344
-    range 0 4096
-    help
-        The new moon -> now sweep played on COLD boots only
-        (deep-sleep wakes show the current phase, the clock's wake
-        policy). 1344 = the clock's task #17 no-jump count: 336-frame
-        sweeps showed a visible per-frame illumination jump, and the
-        angular step is resolution-independent. The frame cost is
-        roughly linear in this count -- measure it on the bench
-        (K7c) before raising it on a battery product. 0 (or 1)
-        disables the sweep entirely (bench builds).
-
-config KNOB_MOON_SWEEP_BAKE_PX
-    int "Intermediate sweep frame bake size (px)"
-    default 128
-    range 96 360
-    help
-        Intermediate sweep frames bake at this square edge (bake cost
-        ~px^2) and upscale nearest-neighbour; the FINAL frame always
-        bakes crisp at the panel's 360. Never below 96 -- the clock's
-        measured sharpness floor (the terminator goes soft).
-
 config KNOB_DEMO_MODE
     bool "Knob demo mode: scripted phase tour (bench comparison)"
     default n
     help
         The knob side of the on-device demo tour (docs/
         verification/demo-mode, mirrors the clocks' UI_DEMO_MODE).
-        After the boot presentation (sweep/static) the producer task
-        walks EIGHT canonical phases of the current synodic month
+        After the boot presentation (the static frame) the producer
+        task walks EIGHT canonical phases of the current synodic month
         (new moon -> waning crescent, epochs pinned at k/8 of the
         month) plus a ninth step on the LIVE current phase (re-baked
         every cycle, events on), holding each for

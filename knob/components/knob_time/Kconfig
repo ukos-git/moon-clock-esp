@@ -7,7 +7,7 @@ config KNOB_TIME_BOOT_SYNC_MS
     help
         How long the boot arm task waits for the first SNTP fix
         (clock_sync_time_from_ntp with CLOCK_NTP_SERVER) before giving
-        up on the sweep window. After the window the glass arms on the
+        up on a trusted fix. After the window the glass arms on the
         NVS snapshot as "last known" (or stays "no time") and a late fix
         re-bakes the STATIC current phase.
 

@@ -1,10 +1,12 @@
 /**
  * @file knob_ui.h
- * @brief The knob's single view (K7b static + K7c sweep/day tick + K7d
- *        real time): the physical moon disk + a caption row. Glue only —
- *        the bake path lives in knob_moon (the verbatim ported core), the
+ * @brief The knob's single view (K7b static + K7c day tick + K7d real
+ *        time): the physical moon disk + a caption row. Glue only — the
+ *        bake path lives in knob_moon (the verbatim ported core), the
  *        wall clock in knob_time; the dial stays idle until K7e
- *        (settings/power) gives it a job.
+ *        (settings/power) gives it a job. The cold-boot synodic sweep
+ *        retired 2026-11-14 — every boot and wake arms the static
+ *        current phase.
  *
  * Threading (K7c): a producer task bakes into the back PSRAM buffer and
  * publishes a frame counter; a swap task (holding the LVGL mutex handed
@@ -42,35 +44,22 @@ void knob_ui_create(void);
  *         already names the real failure). */
 void knob_ui_show_no_time(void);
 
-/** @brief Cold-boot sweep capability (Kconfig KNOB_MOON_SWEEP_FRAMES > 0). */
-bool knob_ui_sweep_enabled(void);
-
 /**
  * @brief Show one UTC instant statically and drop into the idle day-tick
  *        loop (1 Hz UTC check; re-bakes on date change or event-signature
- *        change, K7c). Also the deep-sleep-wake posture: current phase,
- *        no sweep (the clock's wake policy).
+ *        change, K7c). The one opening act for EVERY boot and wake
+ *        (the clock's wake policy — the knob's own cold-boot sweep
+ *        retired 2026-11-14).
  *
  * Arms only: the classify + crisp bake run on the producer task (the
  * ~20 s core scan must never touch a TWDT-registered task), so the
  * caller returns at once and the producer + swap tasks are up. Calling
- * it again while armed (the K7d SNTP hook: a real time landing after
- * the sweep window) re-bakes the current phase within a second.
+ * it again while armed (the K7d SNTP hook: a real time landing late)
+ * re-bakes the current phase within a second.
  *
  * @return false if PSRAM or the assets failed (caption stays honest)
  */
 bool knob_ui_show_moon(int64_t utc_epoch);
-
-/**
- * @brief Cold-boot-only synodic sweep (new moon -> now), then the same
- *        idle day-tick loop. Never-black: the caption counts
- *        "sweeping n/N" from frame 1, and a screen press aborts the
- *        sweep — the display then lands on the true current phase.
- *
- * Returns immediately after arming the sweep (the boot core must go on
- * starting the LVGL task; the bake runs on the producer).
- */
-void knob_ui_start_sweep(int64_t now_epoch);
 
 /* ---- P1 render-seam surface (used by knob_moon_render.c) --------------
  * The shared home screen (components/ui screens.c moon_screen_prepare)
@@ -96,26 +85,15 @@ lv_obj_t *knob_ui_attach_moon_image(lv_obj_t *parent);
  *         changes). */
 void knob_ui_invalidate_all(void);
 
-/** @brief True while the synodic boot sweep is playing (the shared
- *         on-demand-sync flow gates on it, actions.c). */
-bool knob_ui_sweeping(void);
-
-/** @brief A screen press during the synodic boot sweep (task #28): the
- *         shared home's press observer rides this through the render
- *         seam; the legacy own-screen view calls it directly. The row
- *         loop honors the abort within one row, then lands the true
- *         current phase. @return true if a sweep was playing and was
- *         told to abort (the caller may then consume the gesture). */
-bool knob_ui_sweep_press(void);
-
 /** @brief Attach the shared home's progress row to the producer's
  *         caption staging (task #28): the swap task writes it under the
  *         LVGL lock exactly like the legacy caption label, but GATED --
- *         it reveals itself only while the staged text is the sweep
- *         progress ("sweeping n/N") or an honest failure state ("no
- *         time", "moon unavailable"); the shared clock row owns the
- *         daily text there. The render seam owns the label; passing it
- *         also enables the gated visibility (NULL detaches). */
+ *         it reveals itself only while the staged text is an honest
+ *         failure state ("no time", "moon unavailable"); the shared
+ *         clock row owns the daily text there. (Task #28's sweep-progress
+ *         clause retired with the sweep 2026-11-14.) The render seam
+ *         owns the label; passing it also enables the gated visibility
+ *         (NULL detaches). */
 void knob_ui_bind_caption(lv_obj_t *label);
 
 /** @brief Override the baked disk geometry (task #35, 2026-11-13). The
@@ -166,7 +144,6 @@ typedef enum {
     KNOB_GASP_SWITCH_RAMP = 32,  /* seam: LEDC fade-in ramp */
     KNOB_GASP_FLUSH = 40,        /* draw_bitmap call issued */
     KNOB_GASP_FLUSH_DONE = 41,   /* GPSPI trans-done ISR (frame streamed) */
-    KNOB_GASP_LAND_BAKE = 50,    /* crisp current-phase bake after sweep */
 } knob_gasp_stage_t;
 
 /** @brief Record the executing section (hot path: one byte store). */
