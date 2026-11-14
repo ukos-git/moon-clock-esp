@@ -209,6 +209,15 @@ Exit-path matrix (all measured on the 2026-11-14 bench, S3)
      - last displayed state until the gate opens
      - first strip (deferred) or finish
 
+The witness labels are themselves the per-owner done signature on the
+bench: the hourly leg's own publish rewrites all of ``s_rgb`` and clears
+``s_reveal_dirty``, so its atomic show is the last flush and no heal
+follows; the replay-final leg leaves the flag set, so the tick's
+backstop heal is the final re-convergence — its done line is always
+followed (within a tick or two) by exactly one
+``drain verify after bake reveal restore`` witness. That line on a
+healthy boot means *normal completion*, not an abort.
+
 Design — the knob sibling (``knob/``)
 .....................................
 
