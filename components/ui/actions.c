@@ -1013,7 +1013,9 @@ static int64_t days_from_civil(int y, int m, int d) {
  * rule: a fire within the next 24 h needs no day prefix; beyond that the
  * two-letter weekday of the fire day is shown (e.g. a Friday-only 20:00
  * rule reads "Su 20:00" on Saturday, but plain "20:00" from Friday
- * 20:00 onwards). No scheduled rule -> "--:--", no prefix.
+ * 20:00 onwards). The hour drops its leading zero (a 07:05 rule reads
+ * "7:05" -- task #49, cleaner against the main clock's XX:MM); the
+ * minutes stay zero-padded. No scheduled rule -> "--:--", no prefix.
  */
 static void refresh_alarm_display(const clock_time_t *now) {
     char alarm_str[6];
@@ -1021,7 +1023,7 @@ static void refresh_alarm_display(const clock_time_t *now) {
     clock_time_t next;
 
     if (clock_alarm_get_next_scheduled(&next) == ESP_OK) {
-        snprintf(alarm_str, sizeof(alarm_str), "%02d:%02d", next.hour, next.minute);
+        snprintf(alarm_str, sizeof(alarm_str), "%d:%02d", next.hour, next.minute);
         const int64_t now_s =
             days_from_civil(now->year, now->month, now->day) * 86400 + (int64_t)now->hour * 3600 + now->minute * 60;
         const int64_t next_s =
