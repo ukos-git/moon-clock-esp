@@ -57,10 +57,14 @@ exposes it as ``bsp_sdcard_mount()`` with exactly those pins
 socket — so the **TF hour cache** (``UI_MOON_TFCACHE``,
 :doc:`the animation pipelines <../implementation/animations>`) serves
 the hourly refresh symmetrically on both boards: the producer mounts the
-card **lazily on its first refresh** (boot never touches the SD bus) and
-every card failure falls back silently to on-device baking. The module
-outlived the boot sweep it was built for (retired 2026-11-13) and now
-caches one gray JPEG per hour. The pins are disjoint from the C6's
+card **lazily on the first producer to run** — with ``UI_MOON_BOOT_REPLAY``
+on (the default) that is the boot replay task, which plays the stored
+hour frames ascending and ends on the computed now-frame; with the
+replay off boot never touches the SD bus — and every card failure falls
+back silently to on-device baking. The module outlived the boot sweep
+it was built for (retired 2026-11-13; the replay plays **stored**
+frames, it computes none) and now caches one gray JPEG per hour,
+pruned to the current synodic month at each new moon. The pins are disjoint from the C6's
 SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
 SDMMC hosts, and the bench confirmed it: **Wi-Fi-connected + card
 mounted** runs (2026-11-08) brought the card up at t≈40 s with the C6

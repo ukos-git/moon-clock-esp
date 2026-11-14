@@ -101,11 +101,22 @@ The device pipeline
   animation: the last synodic month — card-less, 1344 tick-displayed
   frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF sweep cache, the
   cycle's hour list replayed as the same tick-displayed frames —
-  always ending on the live full-resolution final bake. The home now
-  boots straight to the static current phase (and always showed that
-  on wakes); the knob companion followed on 2026-11-14, retiring its
-  own cold-boot sweep
+  always ending on the live full-resolution final bake. Its COMPUTED
+  animation stayed removed (every wake is static; with
+  ``UI_MOON_BOOT_REPLAY=n`` so is boot); the knob companion followed
+  on 2026-11-14, retiring its own cold-boot sweep. What returned on
+  2026-11-14 is the **boot replay** — pure playback of stored frames,
+  no per-frame bake
   (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
+- **Boot replay** *(``UI_MOON_BOOT_REPLAY``, added 2026-11-14)* — the
+  boot presentation on the card-boards: a core-1 task plays ALL stored
+  TF hour frames ascending on the boot black and stops on the newest,
+  then the live-computed current phase lands as the final frame (one
+  drain-witnessed atomic whole-panel flush per frame, no fade, the
+  idle→sleep ladder held until the end leg). With no usable cache the
+  display stays black until the current phase is computed; the knob
+  (no SD socket) always takes that path
+  (:doc:`the animation pipelines <implementation/animations>`).
 - **Dusk** — the retired (2026-11-13) light-sleep entry: the
   constant-projection pole spin to the dark side (the shade map + the
   re-projects), the backlight dim to 25 %, the RTC countdown armed on

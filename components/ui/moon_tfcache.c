@@ -98,12 +98,21 @@ static int s_enc_fmt;       /* 1 GRAY, 2 RGB565_LE dup, 3 RGB888 dup */
 static tfcache_stats_t s_st;
 static int64_t s_max_hour;        /* newest key stored this boot           */
 static int64_t s_last_evict_hour; /* hour basis of the last eviction scan  */
-static int s_files;               /* cached hours found at init: >0 means the
-                                   * folder is warm, so the deferred decode
-                                   * out-buffer (allocated on the first real
-                                   * hit) will actually be needed; a cold
-                                   * folder never decodes, leaving it NULL  */
-static bool s_dec_warned;         /* one shot when the deferred decode alloc fails */
+static int64_t s_nm_hour = -1;    /* NEW MOON floor (producers set it; -1  \
+                                   * = unknown). Evict/list clamp to it --  \
+                                   * "cleared on each new moon". Rides      \
+                                   * meta.txt as a NON-authoritative line. \
+                                   */
+static int s_albedo_w;            /* init args, kept so the floor change    \
+                                   * can rewrite meta.txt                   \
+                                   */
+static bool s_relief;
+static int s_files;       /* cached hours found at init: >0 means the
+                           * folder is warm, so the deferred decode
+                           * out-buffer (allocated on the first real
+                           * hit) will actually be needed; a cold
+                           * folder never decodes, leaving it NULL  */
+static bool s_dec_warned; /* one shot when the deferred decode alloc fails */
 
 /* ---- 16-byte-aligned SPIRAM helpers ---------------------------------- */
 
@@ -201,9 +210,36 @@ static void meta_write(const char *dir, int bake_px, int albedo_w, bool relief) 
         ESP_LOGW(TAG, "meta write open failed (%d)", errno);
         return;
     }
-    fprintf(f, "calcver=%s\ntarget=%s\nbake_px=%d\nmoon_albedo_w=%d\nrelief=%d\njpeg_q=%d\n", MOON_CALC_VER,
-            CONFIG_IDF_TARGET, bake_px, albedo_w, relief ? 1 : 0, CONFIG_UI_MOON_TFCACHE_JPEG_Q);
+    /* The new_moon line rides along but is NOT one of the six
+     * authoritative keys: it is cache policy state, never a reason to
+     * wipe the folder (meta_matches ignores unknown keys). */
+    fprintf(f, "calcver=%s\ntarget=%s\nbake_px=%d\nmoon_albedo_w=%d\nrelief=%d\njpeg_q=%d\nnew_moon=%lld\n",
+            MOON_CALC_VER, CONFIG_IDF_TARGET, bake_px, albedo_w, relief ? 1 : 0, CONFIG_UI_MOON_TFCACHE_JPEG_Q,
+            (long long)s_nm_hour);
     fclose(f);
+}
+
+/* The persisted new-moon floor from meta.txt (-1 when absent/older file
+ * -- the synodic cap then alone bounds the window). */
+static int64_t meta_read_new_moon(const char *dir) {
+    char path[128];
+    snprintf(path, sizeof(path), "%s/meta.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+    int64_t hour = -1;
+    char line[80];
+    while (fgets(line, sizeof(line), f)) {
+        if (!strncmp(line, "new_moon=", 9)) {
+            char *end = NULL;
+            long long v = strtoll(line + 9, &end, 10);
+            if (end != line + 9)
+                hour = (int64_t)v;
+            break;
+        }
+    }
+    fclose(f);
+    return hour;
 }
 
 /* true when an existing meta.txt matches the live values exactly (all
@@ -433,6 +469,9 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
         rmrf(s_dir, 3);
         exists = false;
     }
+    /* The persisted new-moon floor survives a boot WITHOUT a trustworthy
+     * clock: a fresh folder (wipe/creation) restarts with none. */
+    s_nm_hour = exists ? meta_read_new_moon(s_dir) : -1;
     if (!exists) {
         if (mkdir_p(s_dir) != 0 || mkdir_p(CACHE_ROOT) != 0) {
             tfcache_disable("mkdir fail");
@@ -474,6 +513,8 @@ esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief) {
         return ESP_ERR_NO_MEM;
     }
     s_px = S;
+    s_albedo_w = albedo_w; /* kept for the floor-change meta rewrite */
+    s_relief = relief;
     s_ready = true;
     ESP_LOGI(TAG, "ready: %s px=%d q=%d scratch=%u KB (+%d hours)", s_dir, S, CONFIG_UI_MOON_TFCACHE_JPEG_Q,
              (unsigned)(in_bytes + s_enc_out_cap) / 1024, s_files);
@@ -646,10 +687,20 @@ bool tfcache_store(int64_t hour, const uint8_t *gray, int S) {
     return true;
 }
 
+/* The cache floor (hour key): the NEWER of one synodic cycle back from
+ * newest_hour and the new-moon floor. "Cleared on each new moon, at most
+ * one synodic month of hourly frames" -- both caps in one place. */
+static int64_t cache_floor(int64_t newest_hour) {
+    int64_t floor_hour = (newest_hour * 3600 - SYNODIC_S) / 3600;
+    if (s_nm_hour >= 0 && s_nm_hour > floor_hour)
+        floor_hour = s_nm_hour;
+    return floor_hour;
+}
+
 void tfcache_evict(int64_t newest_hour) {
     if (!s_ready)
         return;
-    int64_t floor_hour = (newest_hour * 3600 - SYNODIC_S) / 3600;
+    int64_t floor_hour = cache_floor(newest_hour);
     int64_t t0 = esp_timer_get_time();
     DIR *d = opendir(s_dir);
     if (!d) {
@@ -669,6 +720,60 @@ void tfcache_evict(int64_t newest_hour) {
     closedir(d);
     s_st.evict_us += esp_timer_get_time() - t0;
     s_last_evict_hour = newest_hour;
+}
+
+void tfcache_set_new_moon_floor(int64_t hour) {
+    if (hour == s_nm_hour)
+        return; /* the value is stable within a cycle: the producers may
+                 * call it every hour, the meta rewrite only ever fires on
+                 * the new-moon crossing */
+    s_nm_hour = hour;
+    if (s_ready)
+        meta_write(s_dir, s_px, s_albedo_w, s_relief); /* persists the policy
+                                                        * across boots (the
+                                                        * line is not an
+                                                        * authoritative key) */
+    ESP_LOGI(TAG, "new-moon floor: hour %lld", (long long)hour);
+}
+
+static int cmp_hour(const void *a, const void *b) {
+    int64_t ha = *(const int64_t *)a, hb = *(const int64_t *)b;
+    return (ha > hb) - (ha < hb);
+}
+
+int tfcache_list_hours(int64_t *out, int max) {
+    if (!s_ready || !out || max <= 0)
+        return 0;
+    int n = 0;
+    int64_t newest = -1;
+    DIR *d = opendir(s_dir);
+    if (!d) {
+        tfcache_disable("dir gone");
+        return 0;
+    }
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        int64_t hour;
+        if (!parse_hour_name(e->d_name, &hour))
+            continue;
+        if (hour > newest)
+            newest = hour;
+        if (n < max)
+            out[n++] = hour;
+    }
+    closedir(d);
+    if (n == 0)
+        return 0;
+    /* Clamp to the floor once the newest key is known (a clock jump must
+     * never replay pre-new-moon / older-than-one-cycle survivors): the
+     * newest basis stands in for "now" on a boot without a clock. */
+    int64_t floor_hour = cache_floor(newest);
+    int kept = 0;
+    for (int i = 0; i < n; i++)
+        if (out[i] >= floor_hour)
+            out[kept++] = out[i];
+    qsort(out, (size_t)kept, sizeof(out[0]), cmp_hour);
+    return kept;
 }
 
 const tfcache_stats_t *tfcache_stats(void) { return &s_st; }

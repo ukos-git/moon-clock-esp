@@ -117,6 +117,13 @@ void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
 
 bool moon_ui_panel_repaint_pending(void) { return false; }
 
+/* The boot replay (moon_ui.h, UI_MOON_BOOT_REPLAY) is the AMOLED/P4 clocks'
+ * TF-card feature -- the knob has no SD socket and its boot already shows
+ * black until the first bake lands (knob_ui hides the disk until s_shown),
+ * so it is never "replaying": the shared actions.c ladder-re-arm sites
+ * (wake / WiFi hand-off) never defer to a presentation that cannot exist. */
+bool moon_ui_replaying(void) { return false; }
+
 void moon_ui_panel_dim_ramp(int to_pct) {
     if (to_pct < 0) {
         to_pct = 0;

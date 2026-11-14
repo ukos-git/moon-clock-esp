@@ -32,10 +32,13 @@ extern "C" {
  *   moon_ui_init()   -- PSRAM buffers + shared image descriptor + timers
  *   create_screens() -- each moon screen calls moon_ui_create_image(parent)
  *                       FIRST so the moon sits below the clock (z-order)
- *   moon_ui_start()  -- mark started and bake the CURRENT phase
- *                       directly: boot shows the static phase from the
- *                       first frame (the synodic boot sweep was removed
- *                       2026-11-13)
+ *   moon_ui_start()  -- mark started and hand the boot presentation to
+ *                       the core-1 replay producer (UI_MOON_BOOT_REPLAY):
+ *                       ascending TF hour frames, then the computed
+ *                       current phase as the final frame; no cache =
+ *                       black until it lands. With the replay off it
+ *                       bakes the CURRENT phase synchronously (boot is
+ *                       static from the first frame).
  */
 
 /** Allocate buffers, build the image descriptor, start the tick timer. */
@@ -54,8 +57,18 @@ void moon_ui_refresh(void);
 /** Bake + display the moon for the given UTC epoch. */
 void moon_ui_bake_now(int64_t utc_epoch);
 
-/** Start the moon: bake the current phase directly (boot is static). */
+/** Start the moon: boot replay producer (UI_MOON_BOOT_REPLAY) or, with
+ *  the replay off, a synchronous bake of the current phase (static boot). */
 void moon_ui_start(void);
+
+/**
+ * True while the boot replay owns the frame buffers and the idle->sleep
+ * ladder: frames pending, a producer baking, a frame owed its atomic
+ * show, or the end leg waiting for the tick. Callers that would re-arm
+ * idle monitoring (actions.c wake/sync paths) must skip while this is
+ * true -- the tick's replay end leg re-arms when the presentation ends.
+ */
+bool moon_ui_replaying(void);
 
 /**
  * Cheap day-change probe (call at most once per minute, e.g. from the clock

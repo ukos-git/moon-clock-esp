@@ -682,8 +682,10 @@ void action_roll_test_cb(lv_timer_t *timer) {
         s_ori_test_on = false;
         s_ori_test_done = true;
         /* The demo owns the idle lifecycle (its per-second tick holds
-         * the timer); only the stand-alone hook re-arms monitoring. */
-        if (!action_demo_active()) {
+         * the timer) and so does the boot replay while it presents
+         * (its tick end leg re-arms) -- only the stand-alone hook on a
+         * quiet UI re-arms monitoring. */
+        if (!action_demo_active() && !moon_ui_replaying()) {
             clock_idle_set_enabled(true);
             clock_idle_reset_timer();
         }
@@ -735,14 +737,18 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
                 loadScreen(SCREEN_ID_MODEM_SLEEP);
                 ui_tick();
             }
-            /* No boot animation can be interrupted by this any more --
-             * the sweeps retired family-wide (clocks 2026-11-13, the
-             * knob 2026-11-14), so the idle monitoring re-arms right
-             * here. (The P4's on-demand sync still runs ~30 s through
-             * the remote C6 and regularly overlaps boot; the knob's
-             * boot presentation holds its OWN ladder in knob_ui.) */
-            clock_idle_set_enabled(true);
-            clock_idle_reset_timer();
+            /* The idle monitoring re-arms right here UNLESS the boot
+             * replay is still presenting (UI_MOON_BOOT_REPLAY -- this
+             * very hand-off regularly overlaps boot, the P4's on-demand
+             * sync runs ~30 s through the remote C6): the replay holds
+             * the ladder itself and the tick's replay end leg re-arms.
+             * (The old sweeps retired family-wide -- clocks 2026-11-13,
+             * the knob 2026-11-14; the knob's boot presentation holds
+             * its OWN ladder in knob_ui.) */
+            if (!moon_ui_replaying()) {
+                clock_idle_set_enabled(true);
+                clock_idle_reset_timer();
+            }
             ESP_LOGI(TAG, "WiFi sync %s -> airplane screen", s_wifi_sync_ok ? "complete" : "failed");
         } else {
             ESP_LOGI(TAG, "WiFi sync done but device is asleep; airplane hand-off deferred");
@@ -1353,9 +1359,14 @@ void action_wake_screen(lv_event_t *e) {
         ESP_LOGD(TAG, "RTC countdown timer disabled");
     }
 
-    // Re-enable and restart idle monitoring for automatic sleep transitions
-    clock_idle_set_enabled(true);
-    clock_idle_reset_timer();
+    // Re-enable and restart idle monitoring for automatic sleep
+    // transitions -- UNLESS the boot replay is still presenting (a touch
+    // during boot wakes the screen mid-animation): the replay holds the
+    // ladder and its tick end leg re-arms when the presentation is over.
+    if (!moon_ui_replaying()) {
+        clock_idle_set_enabled(true);
+        clock_idle_reset_timer();
+    }
     g_idle_timer_active = true;
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);
@@ -1423,9 +1434,13 @@ void action_switch_to_airplane_screen(lv_event_t *e) {
         ESP_LOGD(TAG, "RTC countdown timer disabled");
     }
 
-    // Enable idle monitoring for automatic sleep transitions
-    clock_idle_set_enabled(true);
-    clock_idle_reset_timer();
+    // Enable idle monitoring for automatic sleep transitions -- unless
+    // the boot replay is still presenting (its end leg re-arms; see the
+    // wake-screen site).
+    if (!moon_ui_replaying()) {
+        clock_idle_set_enabled(true);
+        clock_idle_reset_timer();
+    }
     g_idle_timer_active = true;
     ESP_LOGI(TAG, "Idle monitoring enabled - will transition to light sleep after %d seconds",
              CONFIG_CLOCK_IDLE_TIMEOUT_SEC);

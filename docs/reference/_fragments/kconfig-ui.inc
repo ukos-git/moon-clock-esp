@@ -92,10 +92,13 @@ The hourly moon refresh & TF hour cache
      - Serve the hourly refresh frames from the TF hour cache: the
        producer asks the card first (a hit is a decode instead of a
        ~1.3–2.4 s bake) and write-through stores every hour it had to
-       compute. The card mounts **lazily on the first refresh** (boot
-       never touches the SD bus) and every card failure falls back
-       silently to the bake path. Depends on ``UI_MOON_HOURLY_ENABLE``
-       and ``UI_MOON_TFCACHE``.
+       compute. The card mounts **lazily on the first producer to run**
+       — with ``UI_MOON_BOOT_REPLAY`` on that is the boot replay task,
+       otherwise the first hourly refresh (boot never touches the SD
+       bus) — and every card failure falls back silently to the bake
+       path. The hourly producer also runs the cache-policy scan each
+       hour (new-moon floor + synodic cap). Depends on
+       ``UI_MOON_HOURLY_ENABLE`` and ``UI_MOON_TFCACHE``.
    * - ``UI_MOON_TFCACHE``
      - ``y``
      - TF hour cache: persist the hourly bakes on the TF card as small
@@ -110,15 +113,20 @@ The hourly moon refresh & TF hour cache
        to invalidate) and **self-describing**: a ``meta.txt`` pins the
        bake resolution (plus albedo width, relief, JPEG quality), any
        mismatch wipes and recreates the folder; old version folders are
-       deleted on sight and entries evicted past one synodic cycle.
-       Write-through: every hour the device computed is stored. Missing
-       card, failed mount, undecodable file, foreign filesystem or a
-       mid-run detach all fall back **silently** to baking on-device
-       (the card-less path); fetched frames go through the same
-       ``moon_gray565`` tint LUT, so fetch and compute are
-       pixel-identical by construction. The card mounts lazily on the
-       first refresh (boot never touches the SD bus), and the day's
-       sky-event occlusion is part of the cached bake epoch.
+       deleted on sight. The cache is **cleared on each new moon** and
+       cannot hold more than one synodic month of hourly frames: the
+       floor is the newer of (one synodic cycle back from the newest
+       hour) and (the last new moon, computed by the core-1 producers
+       via ``new_moon_epoch`` and persisted as a non-authoritative
+       ``meta.txt`` line). Write-through: every hour the device
+       computed is stored. Missing card, failed mount, undecodable
+       file, foreign filesystem or a mid-run detach all fall back
+       **silently** to baking on-device (the card-less path); fetched
+       frames go through the same ``moon_gray565`` tint LUT, so fetch
+       and compute are pixel-identical by construction. The card mounts
+       lazily on the first producer to run (the boot replay when
+       enabled, else the first hourly refresh), and the day's sky-event
+       occlusion is part of the cached bake epoch.
    * - ``UI_MOON_TFCACHE_JPEG_Q``
      - ``90``
      - Gray JPEG quality, 1–100 for the hour cache. The panel verdict
@@ -131,6 +139,35 @@ The hourly moon refresh & TF hour cache
        and encode/decode cost is resolution-bound, not quality-bound.
        ``meta.txt`` pins it — a change wipes and re-bakes the cache
        folder.
+   * - ``UI_MOON_BOOT_REPLAY``
+     - ``y``
+     - Boot animation: a core-1 task replays ALL stored TF hour frames
+       (ascending) and stops on the newest; the live-computed current
+       phase lands as the final frame right after. No usable cache (no
+       card, cold folder, version wipe) → the display stays black until
+       the current phase is computed. Frames are shown untinted
+       (neutral LUT) as ONE atomic whole-panel flush each,
+       drain-witnessed; the brightness never moves (no fade). The
+       idle→sleep ladder is held for the presentation and re-armed when
+       it ends; a screen switch or sleep entry aborts the animation
+       (the day-tick re-bakes later). Demo mode boots without it.
+       Depends on ``UI_MOON_HOURLY_ENABLE``, ``UI_MOON_HOURLY_TFCACHE``
+       and ``UI_MOON_TFCACHE`` (it rides their bounce buffer and
+       one-shot init). The knob has no SD socket — its boot is always
+       the black-until-first-frame path.
+   * - ``UI_MOON_REPLAY_FPS``
+     - ``8``
+     - Boot replay pacing floor (minimum dwell per frame), 2–20 fps.
+       The actual rate is what the 50 ms tick and the whole-panel flush
+       allow on top (~6 fps measured on the sweep-era TF replay);
+       higher values simply let the producer feed as fast as the panel
+       drains.
+   * - ``UI_MOON_REPLAY_BUDGET_MS``
+     - ``240000``
+     - Wall-clock budget for the whole replay animation, 20–600 s. On
+       overrun the animation stops where it is and the CURRENT phase is
+       still baked and shown — the budget cuts the animation, never the
+       moon.
 
 IMU and tilt coupling
 ----------------------

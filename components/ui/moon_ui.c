@@ -11,11 +11,16 @@
  *     its compositing machinery caused the clock-row flicker family
  *     and cost more than the burn-in duty it served.
  *
- * Boot shows the CURRENT phase statically: the synodic boot sweep (the
- * last 29.5 days played from the black screen, one atomic whole-frame
- * per tick) was removed 2026-11-13 -- the user retired the whole
- * animation stack. moon_ui_start bakes the current phase and the tick
- * displays it whole.
+ * Boot (UI_MOON_BOOT_REPLAY, the replay section): the core-1 replay
+ * producer plays ALL stored TF hour frames ascending on the boot black
+ * -- one atomic whole-frame show per tick, no fade -- and ends on the
+ * newest stored frame; the live-computed current phase lands as the
+ * final frame right after. With no usable cache the panel simply stays
+ * black until that now-frame lands. With the replay off, moon_ui_start
+ * bakes the current phase synchronously and the tick displays it whole
+ * (the synodic boot sweep of the pre-2026-11-13 era -- the last 29.5
+ * days computed on the fly -- stayed removed; the replay is pure
+ * playback of the hour cache, no computing).
  *
  * Display invariant (the "no top-to-bottom" rule): every frame the
  * pipeline produces -- orbit sweep frame, re-bake, the hourly refresh,
@@ -992,6 +997,47 @@ static bool s_tf_ready; /* tfcache_init ran once (producer; TF hour leg only) */
 #endif
 static int64_t s_last_hourly_ms; /* esp_timer ms of the last arm (TEST cadence) */
 
+/* Boot replay (UI_MOON_BOOT_REPLAY, the replay section below the hourly
+ * one): ALL stored TF hour frames play ascending as the boot animation
+ * and stop on the newest; the live-computed current phase lands as the
+ * final frame (user 2026-11-14). Same producer/consumer split as the
+ * hourly refresh -- the core-1 task publishes s_frame/s_rgb under
+ * s_rgb_mtx and NEVER touches the panel; the tick lands each published
+ * frame as ONE atomic whole-panel flush with its drain witness. No fade:
+ * the brightness never moves (the replay's black is the panel's boot
+ * black, not a dim). The flags compile unconditionally (cheap) so the
+ * gates and moon_ui_replaying() exist even with the feature off; the
+ * producer + spawn live under the Kconfig guard (and off for demo mode,
+ * whose scripted tour owns the display). FLAG OWNERSHIP:
+ * s_replay_baking is cleared ONLY by the producer itself (a paused tick
+ * could otherwise strand "replaying" forever and starve the day tick);
+ * s_replay_show/final/end are set by the producer and consumed by the
+ * tick (pause/screen-leave may clear them as "will never show");
+ * s_replay_presenting covers spawn..producer-exit. */
+#define REPLAY_FRAME_WAIT_MS                                                                                           \
+    2000                                  /* bounded show handshake: a paused tick must                                \
+                                           * never wedge the producer (the abort flag or this                          \
+                                           * bound releases it)                                     */
+static volatile bool s_replay_presenting; /* boot presentation owns the buffers + ladder */
+static volatile bool s_replay_baking;     /* core-1 producer running (it alone clears)    */
+static volatile bool s_replay_show;       /* a published frame awaits the tick's atomic show */
+static volatile bool s_replay_final;      /* the pending show is the FINAL (now-bake) frame  */
+static volatile bool s_replay_end;        /* producer exited normally: the tick re-arms the ladder */
+static volatile bool s_replay_abort;      /* pause / screen-left: stop animating, skip the final bake */
+#if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE
+static volatile int64_t s_replay_deadline_ms; /* esp_timer ms: the animation budget     */
+#endif
+static TaskHandle_t s_replay_task;
+
+/* True while the boot presentation owns the buffers and the power ladder:
+ * gates the hourly probe/spawn, the day tick, the orbit and every idle
+ * re-arm. Includes the pending shows/end so the minute path cannot slip
+ * a fade cycle (or strand the ladder re-arm) between the producer's exit
+ * and the tick's final show. */
+bool moon_ui_replaying(void) {
+    return s_replay_presenting || s_replay_baking || s_replay_show || s_replay_final || s_replay_end;
+}
+
 /* The LVGL task's handle, cached on the first tilt-monitor tick (which
  * runs on the LVGL task). The synchronous atomic displays (a whole
  * 466x466 lv_refr_now) need the 8 KB LVGL task stack; the boot path
@@ -1027,7 +1073,8 @@ static TaskHandle_t s_event_task;
  * the boot task) is guarded by moon_event_classify_here. */
 static bool moon_ev_scan_allowed(void) {
     const TaskHandle_t me = xTaskGetCurrentTaskHandle();
-    return me == s_orbit_task || me == s_event_task || me == s_rebake_task || me == s_hourly_task;
+    return me == s_orbit_task || me == s_event_task || me == s_rebake_task || me == s_hourly_task ||
+           me == s_replay_task;
 }
 
 static void moon_event_task(void *arg) {
@@ -1251,6 +1298,15 @@ static void moon_rebake_request(int64_t epoch) {
  * stale at the show. s_baked_hour / s_baked_event commit on SHOW, not on
  * produce, so a cycle that never shows leaves the next hour still due. */
 
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+/* The last NEW MOON at or before utc_epoch (defined in the replay section
+ * together with the cache policy it feeds). Forward-declared for the
+ * hourly producer's cache-policy leg below -- both legs (this and the
+ * replay's) sit under the same TF guard, so the function exists exactly
+ * where it has users. */
+static int64_t new_moon_epoch(int64_t utc_epoch);
+#endif
+
 /* The core-1 producer: produce the hour-centre frame into s_hourly_gray and
  * publish it. 12 KB stack (the bake's era chain + the allowed in-place day
  * scan), core 1 (IDLE1 unwatched), same shape as moon_rebake_task. A no-
@@ -1273,11 +1329,24 @@ static void moon_hourly_task(void *arg) {
 
     bool fetched = false;
 #if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
-    if (!s_tf_ready) { /* lazy: the card mounts on the first refresh, never at boot */
+    if (!s_tf_ready) { /* lazy: the card mounts on the first producer to run
+                        * (the boot replay when enabled; the hourly refresh
+                        * otherwise) -- never on the boot task itself */
         s_tf_ready = true;
         tfcache_init(MOON_PX, MOON_PX, MOON_ALB_W, moon_relief() != NULL);
         if (tfcache_ready())
             tfcache_fetch_buf_alloc();
+    }
+    if (tfcache_ready()) {
+        /* Cache policy every hour (user 2026-11-14): everything older
+         * than the last NEW MOON is cleared, on top of the
+         * one-synodic-month cap. The ephemeris scan runs HERE (core 1,
+         * yields every 32 evals, ~150 calls -- well inside the 5 s
+         * budget) so a board that never reboots still prunes at the
+         * new-moon crossing; the meta rewrite behind the setter fires
+         * only on the crossing itself. */
+        tfcache_set_new_moon_floor(new_moon_epoch(epoch) / 3600);
+        tfcache_evict(hour);
     }
     if (tfcache_ready() && tfcache_fetch(hour, s_hourly_gray, MOON_PX))
         fetched = true; /* gray8 is LUT-independent; the tint LUT above covers it */
@@ -1336,10 +1405,12 @@ static bool moon_hourly_probe(int64_t now) {
     if (!due)
         return false;
     /* Not while idle (light sleep), a moon-less screen is up, another
-     * pipeline owns s_frame/s_rgb, or a 0x51 ramp / screen-switch fade owns
-     * the panel. */
+     * pipeline owns s_frame/s_rgb (the boot replay presents: its producer
+     * rides the SAME s_hourly_gray bounce and the TF one-shot init -- two
+     * producers must never run at once), or a 0x51 ramp / screen-switch
+     * fade owns the panel. */
     if (!s_moon_screen || clock_is_idle() || s_orbit_baking || s_orbit_sweeping || s_rebake_baking || s_fade_pending ||
-        s_fade_busy)
+        s_fade_busy || moon_ui_replaying())
         return false;
     if (!s_hourly_gray) {
         /* Degraded (the PSRAM bounce never allocated): a plain deferred
@@ -1367,7 +1438,7 @@ static void moon_hourly_service(void) {
     if (s_hourly_start) {
         s_hourly_start = false;
         if (!s_hourly_baking && !s_hourly_done && !s_hourly_failed && !s_orbit_baking && !s_orbit_sweeping &&
-            !s_rebake_baking && s_moon_screen && !s_fade_pending && !s_fade_busy) {
+            !s_rebake_baking && s_moon_screen && !s_fade_pending && !s_fade_busy && !moon_ui_replaying()) {
             s_hourly_deadline_ms = esp_timer_get_time() / 1000 + HOURLY_BUDGET_MS;
             s_hourly_baking = true;
             s_fade_busy = true;    /* the dim ramp is the only 0x51 writer */
@@ -1395,6 +1466,233 @@ static void moon_hourly_service(void) {
         moon_hourly_finish(0);
     }
 }
+
+/* ---------------- boot replay of the TF hour cache (UI_MOON_BOOT_REPLAY) --
+ *
+ * The boot presentation (user 2026-11-14): "on bootup, during
+ * re-calculation of the current moon, all displays should show all
+ * previously calculated frames as an animation and stop at the last
+ * calculated frame that was stored on the TF card... If no cache is
+ * available, the display stays black until the current moon phase is
+ * calculated. The cache is cleared on each new moon and cannot hold more
+ * than one synodic month of hourly frames."
+ *
+ * Roles (the hourly split, reused): the tick leg in moon_tick_cb shows
+ * every published frame as ONE atomic whole-panel flush with its drain
+ * witness (no fade -- the brightness never moves; the replay's black is
+ * the panel's boot black) and re-arms the idle ladder on the end leg;
+ * the core-1 producer moon_boot_replay_task owns the card and the
+ * buffers. The producer and the hourly producer NEVER run at once (the
+ * probe + spawn gates hold off while moon_ui_replaying()) -- they share
+ * the s_hourly_gray bounce, the TF one-shot init, and tfcache's
+ * single-caller contract. The whole replay (idle hold included) is
+ * boot-only; wakes stay static. Demo mode boots without it (its scripted
+ * tour owns the display).
+ */
+
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+/* The last NEW MOON at or before utc_epoch -- restored 2026-11-14 for the
+ * cache policy (the original died with the boot sweep in c0034b4; the
+ * knob carries the verbatim logic as knob_moon_new_moon_epoch, the probe
+ * is host_sim/newmoon_test.c). Coarse 6 h grid backwards over at most one
+ * synodic month brackets the illumination minimum, the fine 20 min pass
+ * refines only the coarse minimum and its two neighbours (a full 20-min
+ * grid over 29.53 d would be ~2200 ephemeris calls). The 1e-6 slack keeps
+ * a flat/tied coarse step from drifting the fine pass to a neighbouring
+ * cycle's minimum. Returns < utc_epoch by construction. Yields every 32
+ * calls -- call on a core-1 pipeline task, never the LVGL task. */
+static int64_t new_moon_epoch(int64_t utc_epoch) {
+    moon_geom_t g;
+    int64_t best = utc_epoch - (int64_t)(29.53 * 86400);
+    float best_illum = 1.0f;
+    int n = 0;
+    for (int64_t e = utc_epoch - (int64_t)(6 * 3600); e >= utc_epoch - (int64_t)(29.53 * 86400); e -= 6 * 3600) {
+        if (++n >= 32) {
+            n = 0;
+            vTaskDelay(1);
+        }
+        /* moon_geometry() is void and no-ops on the (never-seen) ephemeris
+         * failure: preset illum so a failed call can never win. */
+        g.illum = 1.0f;
+        moon_geometry(e, &g);
+        if (g.illum < best_illum - 1e-6f) {
+            best_illum = g.illum;
+            best = e;
+        }
+    }
+    int64_t fine_best = best;
+    float fine_illum = best_illum;
+    n = 0;
+    for (int64_t e = best + 6 * 3600; e >= best - 6 * 3600; e -= 20 * 60) {
+        if (++n >= 32) {
+            n = 0;
+            vTaskDelay(1);
+        }
+        g.illum = 1.0f;
+        moon_geometry(e, &g);
+        if (g.illum < fine_illum - 1e-6f) {
+            fine_illum = g.illum;
+            fine_best = e;
+        }
+    }
+    return fine_best;
+}
+#endif /* TF cache policy users */
+
+/* The producer compiles only where it can be spawned (see moon_ui_start:
+ * the same guard) -- with the feature off or in demo mode it is gone. */
+#if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE
+#define REPLAY_MAX_HOURS 709 /* mirrors tfcache's TF_MAX_HOURS cap */
+
+/* The core-1 replay producer. 12 KB (the final bake's era chain + the
+ * whitelisted in-place day scan; the hour list lives in PSRAM, not on
+ * this stack), pinned core 1, the hourly/rebake priority. It NEVER
+ * touches the panel -- every frame goes out through s_rgb_mtx and the
+ * tick's atomic show. */
+static void moon_boot_replay_task(void *arg) {
+    (void)arg;
+    const int64_t t0 = esp_timer_get_time();
+    int64_t now = 0;
+    const bool have_time = (clock_get_utc_epoch(&now) == ESP_OK);
+    int shown = 0;
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+    if (!s_tf_ready) { /* first producer to run: the lazy mount moves to the
+                        * boot TASK's first moment -- this task; the boot
+                        * task itself still never touches the bus */
+        s_tf_ready = true;
+        tfcache_init(MOON_PX, MOON_PX, MOON_ALB_W, moon_relief() != NULL);
+        if (tfcache_ready())
+            tfcache_fetch_buf_alloc();
+    }
+    /* Prune BEFORE serving, on the persisted floor (the new-moon SCAN
+     * rides the final leg, below -- frame #1 must not queue behind ~150
+     * ephemeris calls). list_hours clamps to the same floor even without
+     * a clock (its newest-key basis). */
+    if (tfcache_ready() && have_time)
+        tfcache_evict(now / 3600);
+    int64_t *hours = heap_caps_malloc(REPLAY_MAX_HOURS * sizeof(int64_t), MALLOC_CAP_SPIRAM);
+    const int n = (tfcache_ready() && s_hourly_gray && hours) ? tfcache_list_hours(hours, REPLAY_MAX_HOURS) : 0;
+    if (n > 0) {
+        moon_gray565_set_event(NULL); /* neutral LUT: the stored grays are
+                                       * event-independent, and classifying
+                                       * a whole cycle would cost more than
+                                       * the animation is worth */
+        int64_t next_due_ms = esp_timer_get_time() / 1000;
+        const int64_t gap_ms = 1000 / (CONFIG_UI_MOON_REPLAY_FPS > 0 ? CONFIG_UI_MOON_REPLAY_FPS : 8);
+        for (int i = 0; i < n; i++) {
+            if (s_replay_abort)
+                break;
+            if (esp_timer_get_time() / 1000 > s_replay_deadline_ms) {
+                ESP_LOGW(TAG, "replay: %d ms budget hit at frame %d/%d; going straight to the now-frame",
+                         CONFIG_UI_MOON_REPLAY_BUDGET_MS, i, n);
+                break;
+            }
+            if (!tfcache_fetch(hours[i], s_hourly_gray, MOON_PX))
+                continue; /* healed miss (truncated/garbage file): skip it */
+            /* Pacing: the min dwell AND the previous frame shown (single
+             * in-flight, so the tick never races a publish with its
+             * lv_refr_now). Every wait is bounded -- a paused tick
+             * (sleep entry raised s_replay_abort) or a starved tick must
+             * never wedge this task; only IT clears s_replay_baking. */
+            const int64_t wait_t0 = esp_timer_get_time() / 1000;
+            bool timed_out = false;
+            while (s_replay_show || esp_timer_get_time() / 1000 < next_due_ms) {
+                if (s_replay_abort || esp_timer_get_time() / 1000 > s_replay_deadline_ms)
+                    break;
+                if (esp_timer_get_time() / 1000 - wait_t0 > REPLAY_FRAME_WAIT_MS) {
+                    timed_out = true;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            if (timed_out) { /* the tick never took the previous frame: stop
+                              * animating, the final leg still lands the
+                              * current phase */
+                ESP_LOGW(TAG, "replay: show handshake stalled at frame %d/%d; going to the now-frame", i, n);
+                break;
+            }
+            if (s_replay_abort)
+                break;
+            /* Publish: ONE guarded block replaces the whole frame (the
+             * hourly publish shape). NO s_orbit_epoch here -- replay
+             * frames are HISTORIC phases; only the final bake may move
+             * it (an orbit peek after an aborted replay must not re-bake
+             * a stored hour's phase). */
+            xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+            memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
+            for (int j = 0; j < MOON_PX * MOON_PX; j++)
+                s_rgb[j] = moon_gray565(s_frame[j]);
+            xSemaphoreGive(s_rgb_mtx);
+            s_frame_stale = false;
+            s_replay_show = true;
+            shown++;
+            next_due_ms = esp_timer_get_time() / 1000 + gap_ms;
+        }
+    }
+    free(hours);
+#endif
+    /* The final leg: the CURRENT phase, live-computed -- the animation
+     * ends when the recalculation lands (the user's "during
+     * re-calculation"). Bake into the bounce OUTSIDE s_rgb_mtx (the
+     * hourly shape: holding the mutex across the ~1.3-2.4 s bake would
+     * freeze the LVGL task on any touch that races it) and publish in
+     * one short guarded block. Bookkeeping commits HERE and only here:
+     * an aborted replay leaves s_baked_day = 0, so the minute day-tick
+     * queues the corrective re-bake for a frame left on a stored hour. */
+    bool final_landed = false;
+    if (!s_replay_abort && have_time && moon_albedo() != NULL && s_hourly_gray) {
+        moon_event_t ev;
+        moon_event_classify_here(now, &ev); /* core-1 pipeline task: the day
+                                             * scan may run in place
+                                             * (moon_ev_scan_allowed) */
+        moon_gray565_set_event(&ev);
+        const int ev_sig = moon_event_signature(&ev);
+        const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
+        moon_geom_t g;
+        moon_geometry(now, &g);
+        const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief();
+        moon_bake(&g, moon_albedo(), grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+                  MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
+        for (int i = 0; i < MOON_PX * MOON_PX; i++)
+            s_rgb[i] = moon_gray565(s_frame[i]);
+        xSemaphoreGive(s_rgb_mtx);
+        s_frame_stale = false;
+        s_orbit_epoch = now; /* orbit peeks re-bake this same phase */
+        s_orbit_baked = 0;   /* the static bake shows the default viewport */
+        s_baked_hour = now / 3600;
+        s_baked_event = ev_sig;
+        s_baked_day = now / 86400;
+#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
+        if (tfcache_ready()) { /* the new-moon scan rides the final leg (boot
+                                * latency): it prunes the card for the NEXT
+                                * boot and persists into meta.txt */
+            tfcache_set_new_moon_floor(new_moon_epoch(now) / 3600);
+            tfcache_evict(now / 3600);
+        }
+#endif
+        s_replay_final = true;
+        s_replay_show = true; /* the tick shows the finished frame atomically */
+        final_landed = true;
+    } else if (!s_replay_abort && have_time) {
+        /* Degraded (no PSRAM bounce or no albedo): today's behavior --
+         * the day-tick's deferred re-bake (or the hourly probe) takes
+         * the frame once the replay exits. */
+        s_frame_stale = true;
+    }
+    s_replay_baking = false;     /* the producer alone clears it (never the
+                                  * tick / pause -- a parked task must not
+                                  * strand "replaying" true) */
+    s_replay_presenting = false; /* spawn..exit, producer-owned */
+    s_replay_end = true;         /* the tick re-arms the idle ladder (once
+                                  * the pending show landed) */
+    ESP_LOGI(TAG, "boot replay: %d stored frame%s + %s in %lldms", shown, shown == 1 ? "" : "s",
+             final_landed ? "now-frame" : (s_replay_abort ? "aborted" : "no now-frame"),
+             (long long)((esp_timer_get_time() - t0) / 1000));
+    vTaskDelete(NULL);
+}
+#endif /* BOOT_REPLAY && !DEMO_MODE */
 
 /* Forward decl: defined in the orbit section below (the orbit pipeline
  * must be cancelled before a re-bake takes over s_frame/s_rgb). */
@@ -1513,10 +1811,13 @@ static void moon_orbit_start(void) {
  * meaningful once a static bake exists (s_orbit_epoch > 0, set by the
  * first bake) -- it bakes THE current phase at a peeked viewport. */
 static void moon_orbit_drain(void) {
-    /* The hourly producer owns s_frame/s_rgb while it is armed or baking --
-     * an orbit bake starting then would race the publish memcpy. */
+    /* The hourly producer owns s_frame/s_rgb while it is armed or baking,
+     * and the boot replay owns them from spawn until its last frame has
+     * shown (an orbit bake starting mid-replay would race the publish
+     * memcpy -- and an orbit peek on a half-shown animation is moot
+     * anyway: moon_ui_start cancelled the orbit for the boot). */
     if (!CONFIG_UI_MOON_ORBIT_ENABLE || !s_started || s_orbit_epoch <= 0 || s_orbit_baking || s_orbit_sweeping ||
-        s_hourly_baking || s_hourly_start)
+        s_hourly_baking || s_hourly_start || moon_ui_replaying())
         return;
     if (s_orbit_target == 0 || s_orbit_target == s_orbit_baked)
         return; /* default viewport, or the on-screen frame is this viewport */
@@ -1553,7 +1854,11 @@ static void moon_orbit_interrupt(void) {
     s_orbit_strip_shown = 0;
     s_orbit_pub = 0;
     s_orbit_target = 0; /* sleep shows the default viewport */
-    if (!clock_is_idle())
+    /* Never re-arm the ladder underneath the boot replay: moon_ui_start
+     * calls THIS on the boot path right before spawning the replay
+     * producer, and the replay holds the ladder itself until its end leg
+     * runs (moon_tick_cb). */
+    if (!clock_is_idle() && !moon_ui_replaying())
         clock_idle_set_enabled(true);
 }
 
@@ -1765,6 +2070,38 @@ static void moon_tick_cb(lv_timer_t *timer) {
     if (!s_ready || !s_started)
         return;
     moon_hourly_service(); /* once-per-hour: fade / produce / show legs (head, owns the 0x51) */
+    /* Boot replay show legs (the replay section): every frame the core-1
+     * producer published lands as ONE atomic whole-panel flush,
+     * drain-witnessed like every sanctioned show (a lost completion would
+     * otherwise pin the NEXT show ~2 s/strip -- with up to 709 shows per
+     * boot, witnessing only the last one is not enough). No fade: the
+     * brightness never moves. The end leg re-arms the idle ladder the
+     * presentation held (the orbit-completion leg below is the
+     * precedent); skipped while a moon-less screen is up -- settings/sleep
+     * own their ladder lifecycle and re-arm on their own way back. */
+    if (s_replay_show) {
+        s_replay_show = false;
+        /* final rides WITH the pending show (the producer sets it before
+         * show) and dies with it: consuming both here is what ends
+         * moon_ui_replaying() -- a stale final would strand the gates
+         * (hourly probe / day tick / orbit) shut for the boot. */
+        const bool final_frame = s_replay_final;
+        s_replay_final = false;
+        if (s_moon_screen && !s_fade_pending && !s_fade_busy && !panel_hold_live()) {
+            moon_invalidate_all();
+            xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+            lv_refr_now(NULL);
+            xSemaphoreGive(s_rgb_mtx);
+            moon_panel_drain_verify(final_frame ? "boot replay final" : "boot replay");
+        }
+    }
+    if (s_replay_end && !s_replay_show) { /* after the pending show landed */
+        s_replay_end = false;
+        if (s_moon_screen && !clock_is_idle()) {
+            clock_idle_set_enabled(true);
+            clock_idle_reset_timer();
+        }
+    }
     /* Deferred re-bake display leg: the core-1 bake task filled s_rgb
      * off the LVGL task (where moon_convert_to_rgb must not flush -- the
      * 3.5 KB stack rule), so the tick lands the finished frame as ONE
@@ -2021,8 +2358,39 @@ void moon_ui_start(void) {
     if (!s_ready || s_started)
         return;
     s_started = true;
-    int64_t now;
-    if (clock_get_utc_epoch(&now) != ESP_OK) {
+    int64_t now = 0;
+    const bool have_time = (clock_get_utc_epoch(&now) == ESP_OK);
+#if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE
+    /* Boot replay (UI_MOON_BOOT_REPLAY, the replay section): ALL stored
+     * TF hour frames play ascending on the panel's boot black and stop
+     * on the newest; the live-computed current phase lands as the final
+     * frame right after -- produced on core 1, so the boot task never
+     * bakes synchronously on this path. With no usable cache the panel
+     * simply stays black until that now-frame lands (the replay itself
+     * needs no clock -- it is pure storage playback; only the final bake
+     * does). The presentation holds the idle->sleep ladder (the boot
+     * re-armed it via action_wake_screen right before this call -- a 60 s
+     * idle timeout must not sleep into a minutes-long animation); the
+     * tick's end leg re-arms it when the presentation is over. */
+    moon_orbit_interrupt(); /* the replay producer owns the buffers */
+    s_replay_abort = false;
+    s_replay_deadline_ms = esp_timer_get_time() / 1000 + CONFIG_UI_MOON_REPLAY_BUDGET_MS;
+    s_replay_presenting = true;
+    if (!clock_is_idle())
+        clock_idle_set_enabled(false);
+    if (xTaskCreatePinnedToCore(moon_boot_replay_task, "moon_replay", 12288, NULL, configMAX_PRIORITIES - 3,
+                                &s_replay_task, 1) == pdPASS) {
+        lv_timer_resume(s_tick);
+        return;
+    }
+    /* Producer could not start: restore the ladder and fall through to
+     * the synchronous boot bake below (today's exact posture). */
+    ESP_LOGW(TAG, "boot replay task failed; baking the current phase inline");
+    s_replay_presenting = false;
+    if (!clock_is_idle())
+        clock_idle_set_enabled(true);
+#endif
+    if (!have_time) {
         /* No trustworthy time (RTC not set / no NTP): show nothing rather
          * than a wrong phase -- the moon starts on the black screen the
          * init cleared and STAYS black. The daily day-tick (re-bake)
@@ -2031,13 +2399,13 @@ void moon_ui_start(void) {
         lv_timer_resume(s_tick);
         return;
     }
-    /* Boot: bake the CURRENT phase directly (the synodic boot sweep was
-     * removed 2026-11-13 -- the home is the static phase from the first
-     * frame). The screen shows black until the bake lands and the tick
-     * displays it as one atomic frame; moon_bake_epoch records the phase
-     * for the orbit pipeline (s_orbit_epoch) and the day-tick
-     * (s_baked_day below, so the minute path does not queue a second
-     * bake). */
+    /* Boot (replay off / task-create fallback): bake the CURRENT phase
+     * directly (the synodic boot sweep was removed 2026-11-13 -- the home
+     * is the static phase from the first frame). The screen shows black
+     * until the bake lands and the tick displays it as one atomic frame;
+     * moon_bake_epoch records the phase for the orbit pipeline
+     * (s_orbit_epoch) and the day-tick (s_baked_day below, so the minute
+     * path does not queue a second bake). */
     moon_orbit_interrupt(); /* the boot bake owns the buffers */
     s_baked_day = now / 86400;
     moon_bake_epoch(now);
@@ -2074,13 +2442,16 @@ void moon_ui_day_tick(void) {
      * calendar day in moon_event.c (one ~350-step scan per day, not per
      * minute -- taken on the event worker / a pipeline task, never on
      * the LVGL task; see moon_event_classify_here). */
-    if (s_orbit_baking || s_orbit_sweeping || s_hourly_baking || s_hourly_start) {
-        /* A pipeline owns s_frame/s_rgb until it finishes; defer (do NOT
-         * advance s_baked_day) so the next tick re-tries and the bakes
-         * never race on the buffers. The guard sits BEFORE the classify
-         * probe on purpose: while a pipeline task runs, that task
-         * classifies its own epoch and warms the day cache -- the LVGL
-         * task never pays for the scan here (moon_event_classify_here). */
+    if (s_orbit_baking || s_orbit_sweeping || s_hourly_baking || s_hourly_start || moon_ui_replaying()) {
+        /* A pipeline owns s_frame/s_rgb until it finishes (the boot
+         * replay included -- its producer commits s_baked_day only when
+         * the now-frame lands, so deferring here costs nothing); defer
+         * (do NOT advance s_baked_day) so the next tick re-tries and the
+         * bakes never race on the buffers. The guard sits BEFORE the
+         * classify probe on purpose: while a pipeline task runs, that
+         * task classifies its own epoch and warms the day cache -- the
+         * LVGL task never pays for the scan here
+         * (moon_event_classify_here). */
         return;
     }
     moon_event_t ev;
@@ -2117,6 +2488,25 @@ void moon_ui_pause(bool pause) {
             s_hourly_start = s_hourly_done = s_hourly_failed = s_hourly_baking = false;
             moon_hourly_finish(0); /* restores brightness if we had dimmed */
             ESP_LOGI(TAG, "sleep entry mid-hourly: brightness restored, legs dropped");
+        }
+        /* A boot replay caught mid-flight by a sleep entry / the alarm
+         * screen: abort the animation and drop the un-shown frames (no
+         * brightness is owed -- the replay never fades). The producer is
+         * still parked on core 1 (fetch or the bounded show handshake):
+         * it observes the abort, skips its final bake (the wake's
+         * day-tick re-bake covers the stale stored frame via the
+         * untouched s_baked_day = 0), and it -- NOT us -- clears
+         * baking/presenting on exit. The ladder is owned by the sleep
+         * path from here; the wake re-arms it as always. */
+        if (moon_ui_replaying()) {
+            s_replay_abort = true;
+            s_replay_show = false;
+            s_replay_final = false;
+            /* s_replay_end stays as the producer left it: the tick's end
+             * leg re-arms only on a moon screen while not idle, so the
+             * sleep path is never re-armed underneath -- and a race with
+             * the wake's own re-arm is idempotent. */
+            ESP_LOGI(TAG, "sleep entry mid-replay: animation aborted (baking=%d)", (int)s_replay_baking);
         }
         /* Sleep entry (and the alarm screen): interrupt the orbit
          * (sleep shows the last baked viewport), then pause the tick.
@@ -2409,6 +2799,20 @@ void moon_ui_screen_switched(void) {
          * pipelines' display gate: rendering on a moon-less screen
          * would park on the withheld display handshake). */
         s_moon_screen = moon_screen_has_image();
+        /* Left the moon screen mid-replay (settings, an alarm hand-off):
+         * abort the animation and drop the un-shown frames -- showing a
+         * stored-hour frame on a non-moon screen is moot and would burn
+         * panel traffic. The producer observes the abort, skips its final
+         * bake (s_baked_day stays 0 -> the day-tick re-bakes the current
+         * phase once the user is home), and clears baking/presenting on
+         * exit; the end leg re-arms the ladder only if the moon screen
+         * is back up by then, else the airplane-screen entry does it. */
+        if (!s_moon_screen && moon_ui_replaying()) {
+            s_replay_abort = true;
+            s_replay_show = false;
+            s_replay_final = false;
+            ESP_LOGI(TAG, "screen left mid-replay: animation aborted (baking=%d)", (int)s_replay_baking);
+        }
     }
     if (!s_ready || !moon_on_lvgl() || s_orbit_baking) {
         if (s_fade_pending && s_panel_pct == 0) {
@@ -2484,4 +2888,6 @@ void moon_ui_dump_hang_context(void) {
              (int)s_panel_wrap);
     ESP_LOGE(TAG, "  flags: hourly start=%d baking=%d done=%d failed=%d faded=%d", (int)s_hourly_start,
              (int)s_hourly_baking, (int)s_hourly_done, (int)s_hourly_failed, (int)s_hourly_faded);
+    ESP_LOGE(TAG, "  flags: replay presenting=%d baking=%d show=%d final=%d end=%d abort=%d", (int)s_replay_presenting,
+             (int)s_replay_baking, (int)s_replay_show, (int)s_replay_final, (int)s_replay_end, (int)s_replay_abort);
 }

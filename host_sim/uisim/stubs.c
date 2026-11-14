@@ -461,6 +461,11 @@ void moon_ui_init(void) {}
 void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
 void moon_ui_day_tick(void) {} /* the manual time-entry commit re-bakes (device) */
 void moon_ui_start(void) {}
+bool moon_ui_replaying(void) {
+    return false;
+} /* no boot replay in the sim:
+   * the real screens bake the
+   * current phase directly */
 void moon_ui_fade_out(void) {}
 bool moon_ui_screen_is_moon(enum ScreensEnum id) {
     return id == SCREEN_ID_MODEM_SLEEP || id == SCREEN_ID_WIFI || id == SCREEN_ID_LIGHT_SLEEP ||

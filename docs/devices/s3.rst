@@ -45,8 +45,13 @@ initializes the SPI3 bus itself (the caller owns ``spi_bus_initialize``
 under the SDSPI contract) and attaches the card there — a missing card
 is a silent no-op and the hourly refresh just bakes on-device. The
 module survives the sweep it was built for: it now serves the
-**hourly refresh**, which mounts the card lazily on its first refresh
-(boot never touches the SD bus).
+**hourly refresh** and the **boot replay** (``UI_MOON_BOOT_REPLAY``,
+:doc:`the animation pipelines <../implementation/animations>`). The
+card mounts lazily on the first producer to run — with the boot replay
+on (the default) that is the replay task at boot, which plays the
+stored hour frames ascending and ends on the computed now-frame; with
+the replay off boot never touches the SD bus and the first hourly
+refresh mounts.
 
 .. code-block:: text
    :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)

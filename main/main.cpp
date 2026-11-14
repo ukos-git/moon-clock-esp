@@ -660,9 +660,13 @@ extern "C" void app_main(void) {
     // which at boot is before the UI appears, so it is never shown at boot
     // on the success path.
 
-    // Moon phase: start the moon -- bake the CURRENT phase directly and
-    // show it static from the first frame (the synodic boot sweep -- last
-    // new moon -> now, from a BLACK screen -- was removed 2026-11-13).
+    // Moon phase: start the moon. With UI_MOON_BOOT_REPLAY (S3/P4 with
+    // the TF hour cache) the core-1 replay producer plays all stored
+    // hour frames ascending on the boot black and ends on the live-
+    // computed current phase -- no cache, black until it lands. With the
+    // replay off (and at boot without a card) it bakes the CURRENT phase
+    // and shows it static from the first frame (the synodic boot sweep
+    // -- last new moon -> now, COMPUTED on the fly -- stayed removed).
     // Wakes from sleep show the current phase static (no
     // animation); light sleep is a static dim (panel to
     // UI_LIGHT_SLEEP_DIM_PCT, clock to UI_CLOCK_ALPHA_PCT) and the

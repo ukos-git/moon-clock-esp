@@ -79,20 +79,23 @@ is pinned to:
    * - ``main`` (app_main)
      - 0
      - no
-     - boot sequence (bakes the static current phase), deep-sleep
+     - boot sequence (spawns the boot replay; with the replay off it
+       bakes the static current phase itself), deep-sleep
        entry
    * - ``LVGL`` (adapter)
      - 0
      - yes (``task_pin_to_core 0``)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - bake tasks (orbit / rebake / hourly)
+   * - bake tasks (orbit / rebake / hourly / boot replay)
      - 1
      - **yes** (pinned, PSRAM-stack)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
-       ``moon_rebake`` re-bakes the static frame off the LVGL task and
+       ``moon_rebake`` re-bakes the static frame off the LVGL task,
        ``moon_hourly`` produces the once-per-hour frame (a bake or a TF
-       hour-cache fetch) — the tick displays each finished frame
+       hour-cache fetch) and ``moon_replay`` plays the stored hour
+       frames ascending before baking the final now-frame — the tick
+       displays each finished frame
        atomically
    * - ``panel_wdg``
      - 0

@@ -39,7 +39,11 @@ Enabling it
 One cycle of the clock tour takes roughly seven minutes. (It used to
 arm only once ``moon_ui_sweeping()`` was false — the boot sweep that
 gate waited for retired 2026-11-13, so the tour now arms on schedule;
-takes no longer span a boot sweep on the clocks.)
+takes no longer span a boot sweep on the clocks.) Demo mode also
+boots **without the TF boot replay** (``UI_MOON_BOOT_REPLAY`` is
+compiled out of the boot path while ``UI_DEMO_MODE`` is on): the
+scripted tour owns the display, and the moon starts static like with
+the replay off.
 
 The clock tour
 --------------

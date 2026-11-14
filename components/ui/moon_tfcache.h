@@ -27,15 +27,27 @@
  *     hour on-device (the card-less path, unchanged code).
  *   - Write-through: an hour the refresh had to compute is stored, so a
  *     later pass within the cycle decodes it.
- *   - One image per hour; adding an item evicts entries older than one
- *     synodic cycle from the newest cached hour.
+ *   - One image per hour. Eviction floor (tfcache_evict / the store's
+ *     auto-evict / list_hours): the NEWER of (a) one synodic cycle back
+ *     from the newest hour and (b) the NEW MOON floor the producers
+ *     supply -- "the cache is cleared on each new moon and cannot hold
+ *     more than one synodic month of hourly frames". The floor needs the
+ *     ephemeris (which this module does not link), so the producers
+ *     (moon_ui.c) compute it and hand it through
+ *     tfcache_set_new_moon_floor(); it also rides meta.txt (a
+ *     non-authoritative line -- it never invalidates the folder), so a
+ *     boot without a trustworthy clock still prunes/serves on the last
+ *     known new moon.
  *
- * Threading: fetch() and store() run on the hourly producer task (core 1,
- * a single caller -- there is no prefetch task any more); mount + scratch
- * buffers are set up once in tfcache_init, called lazily by that producer
- * on its first refresh (boot never touches the SD bus). All errors are
- * silent-by-design -- they flip s_ready and the refresh never blocks on the
- * card.
+ * Threading: fetch()/store()/list_hours()/evict() run on the core-1
+ * producer tasks -- the hourly refresh's producer and, when
+ * UI_MOON_BOOT_REPLAY is on, the boot replay producer. A single caller at
+ * a time by construction (the hourly probe/spawn legs hold off while the
+ * replay presents); there is no prefetch task any more. Mount + scratch
+ * buffers are set up once in tfcache_init, called lazily by the FIRST
+ * producer to run (the boot replay when enabled -- boot otherwise never
+ * touches the SD bus). All errors are silent-by-design -- they flip
+ * s_ready and the refresh never blocks on the card.
  */
 #pragma once
 
@@ -65,8 +77,10 @@ typedef struct {
  * version folder (wiping siblings and any meta-mismatched folder), probe
  * the gray encoder (falling back to 565/888 duplicate), and allocate the
  * codec scratch sized for bake_px (clamped to moon_px by the caller).
- * Call ONCE from the hourly producer's first refresh (after the clock is
- * fixed; boot never mounts the card).
+ * Call ONCE from the first core-1 producer to run (the boot replay task
+ * when UI_MOON_BOOT_REPLAY is on, else the hourly producer on its first
+ * refresh; with the replay off and no refresh yet, boot never mounts the
+ * card). Restores the new-moon floor persisted in meta.txt.
  * Never formats; never fails the caller -- !tfcache_ready() is normal. */
 esp_err_t tfcache_init(int bake_px, int moon_px, int albedo_w, bool relief);
 
@@ -94,10 +108,27 @@ bool tfcache_fetch(int64_t hour, uint8_t *gray_out, int S);
  * Records enc/write time. Called from the hourly producer task only. */
 bool tfcache_store(int64_t hour, const uint8_t *gray, int S);
 
-/* Evict files older than one synodic cycle relative to newest_hour
- * (hour * 3600). Cheap: runs a directory scan only when more than a day
- * of new hours accumulated since the last scan. */
+/* Evict files below the cache floor: the newer of one synodic cycle back
+ * from newest_hour (hour * 3600) and the new-moon floor set via
+ * tfcache_set_new_moon_floor() (also restored from meta.txt at init).
+ * Cheap: the store's auto-evict path runs a directory scan only when more
+ * than a day of new hours accumulated; the producers call it explicitly
+ * once per boot / per hour for the new-moon clearing. */
 void tfcache_evict(int64_t newest_hour);
+
+/* The NEW MOON at or before "now", as an hour key (epoch / 3600); -1 =
+ * no trustworthy clock. Persisted into meta.txt (non-authoritative line)
+ * and applied as a floor by evict()/list_hours(): everything the cache
+ * holds is at or after the last new moon, and at most one synodic cycle
+ * old. Call from a core-1 producer (the scan is ~150 ephemeris calls). */
+void tfcache_set_new_moon_floor(int64_t hour);
+
+/* Enumerate the cached hours into out[] ASCENDING, clamped to the same
+ * floor as evict() (a clock jump never replays pre-new-moon survivors).
+ * Returns the count (0 = cold folder; max is bounded by TF_MAX_HOURS
+ * internally -- size out[] for 709). Cheap: one FAT readdir + in-memory
+ * sort. Called from a core-1 producer task only. */
+int tfcache_list_hours(int64_t *out, int max);
 
 /* Turn the cache off for the rest of the boot (reason logged once). */
 void tfcache_disable(const char *reason);

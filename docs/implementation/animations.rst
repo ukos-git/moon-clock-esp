@@ -26,17 +26,23 @@ good."*), **the boot sweep** (the current synodic month played at
 boot), and **the dusk** (the light-sleep pole spin to the dark side —
 light sleep is a **static dim frame** now: panel to 25 %, clock to
 20 % alpha, and the deep-sleep countdown armed at the entry itself;
-:doc:`the clock and sleep machine <clock-sleep>`). The home now boots
-straight to the static current phase, sleeps the same way, and refreshes
-its moon once per hour (below). The home's moon is plain LVGL, shown
-static; see :doc:`the architecture <architecture>` for what the removals
-left of the exceptions list. The removed subsystems are summarized below
-as dated history (their full per-frame measurements live in the git
-history of this page). The TF card cache module outlived the sweep it
-was built for and now serves the hourly refresh as the **TF hour cache**
-(below); its sweep-era Kconfig keys (``UI_MOON_TFCACHE_FPS``,
-``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were retired with the config
-sweep.
+:doc:`the clock and sleep machine <clock-sleep>`). The home sleeps as a
+static dim and refreshes its moon once per hour (below). At boot it
+**replays**: every hour frame the TF card holds plays ascending on the
+boot black and stops on the newest, then the live-computed current
+phase lands as the final frame; with no card or an empty cache the home
+stays black until that frame lands (*The boot replay*, below). This is
+pure storage playback of the hour cache — not a return of the computed
+boot animation the user retired; with ``UI_MOON_BOOT_REPLAY=n`` the
+home boots straight to the static current phase again. The home's moon
+is plain LVGL, shown static; see :doc:`the architecture <architecture>`
+for what the removals left of the exceptions list. The removed
+subsystems are summarized below as dated history (their full per-frame
+measurements live in the git history of this page). The TF card cache
+module outlived the sweep it was built for and now serves the hourly
+refresh as the **TF hour cache** (below); its sweep-era Kconfig keys
+(``UI_MOON_TFCACHE_FPS``, ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were
+retired with the config sweep.
 
 **Burn-in is accepted.** With the rotation gone, the S3's AMOLED shows
 the moon in one place for weeks on end, so a faint burn-in of the moon
@@ -111,30 +117,115 @@ fetch), without waiting on a real hour boundary.
 The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
 .....................................................................
 
-The cache persists one small gray JPEG per HOUR of the synodic cycle
-(bounded to one cycle, ~709 files) under
+The cache persists one small gray JPEG per HOUR under
 ``/moon_cache/<calcver>_<target>_<px>/``; the folder name carries the
 calculation version, so a new bake build starts from an empty folder, and
 a self-describing ``meta.txt`` wipes/recreates the folder on any
-resolution mismatch (``moon_tfcache.c``). The producer mounts the card
-**lazily on the first refresh** — boot never touches the SD bus — and
-every card failure (missing card, failed mount, failed decode, a mid-run
-pull, a store error) flips ``tfcache_ready()`` false for the boot and the
-refresh silently bakes on-device (the card-less path). The fetched frame
-runs through the SAME ``moon_gray565()`` tint LUT as a baked frame, so
-cache and compute paths are pixel-identical by construction.
+resolution mismatch (``moon_tfcache.c``). Two rules bound the folder
+(the user's cache policy, 2026-11-14): nothing more than one synodic
+month of hourly keys survives (~709 files), **and** everything older
+than the last NEW MOON is cleared at that crossing. The floor needs the
+ephemeris, which this module does not link, so the core-1 producers
+compute it — ``new_moon_epoch`` (the restored two-pass illumination scan,
+*The boot sweep* below) hands the hour key through
+``tfcache_set_new_moon_floor()``, ``tfcache_evict()`` and
+``tfcache_list_hours()`` apply ``max(synodic-back, new-moon)``, and the
+floor rides ``meta.txt`` as a **non-authoritative** line (it never
+invalidates the folder), so even a boot without a trustworthy clock
+prunes and replays on the last known new moon. The hourly producer
+re-runs the scan + evict every hour, so a board that never reboots still
+prunes at the crossing.
+
+The producer mounts the card **lazily on the first producer to run** —
+the boot replay task when ``UI_MOON_BOOT_REPLAY`` is on (a card-less
+boot then pays ~1 s of mount probe before the black-to-now path lands),
+otherwise the first hourly refresh, in which case boot never touches the
+SD bus — and every card failure (missing card, failed mount, failed
+decode, a mid-run pull, a store error) flips ``tfcache_ready()`` false
+for the boot and the refresh silently bakes on-device (the card-less
+path). The fetched frame runs through the SAME ``moon_gray565()`` tint
+LUT as a baked frame, so cache and compute paths are pixel-identical by
+construction.
+
+The boot replay (``UI_MOON_BOOT_REPLAY`` + the TF keys)
+.......................................................
+
+The user's brief (2026-11-14): *"on bootup, during re-calculation of
+the current moon, all displays should show all previously calculated
+frames as an animation and stop at the last calculated frame that was
+stored on the TF card… If no cache is available, the display stays
+black until the current moon phase is calculated."*
+
+It is the hourly split reused (``components/ui/moon_ui.c``, the
+``replay`` section): a core-1 producer (``moon_boot_replay_task``,
+12 KB, the hourly/rebake priority) enumerates the cached hours
+ascending (``tfcache_list_hours``, the list in PSRAM), fetches each
+gray JPEG, converts it through the neutral tint LUT (the stored grays
+are event-independent; classifying 709 epochs would cost more than the
+animation is worth) and publishes ``s_frame`` + ``s_rgb`` in ONE
+``s_rgb_mtx`` block per frame — exactly the hourly publish shape. It
+never touches the panel. The **tick** lands every published frame as
+ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx``, each show
+**drain-witnessed** (up to ~709 shows per boot — witnessing only the
+last one would let a lost completion pin the next ~2 s per strip).
+No fade: the brightness never moves; the replay's black is the panel's
+boot black. Pacing is a floor (``UI_MOON_REPLAY_FPS``, min dwell per
+frame) plus a single in-flight frame (the producer waits for the tick
+to consume the show flag; every wait is bounded so a paused tick can
+never wedge it). ``UI_MOON_REPLAY_BUDGET_MS`` bounds the whole
+animation — overrun stops the **animation**, never the moon: the
+final leg still bakes and shows the current phase.
+
+The **final leg** is the "during re-calculation" half: the current
+phase is live-computed on the same task (classify + event LUT +
+``moon_bake`` into the hourly bounce **outside** the mutex, published
+in one short guarded block — the hourly shape again), commits the
+bookkeeping (``s_orbit_epoch`` / ``s_baked_hour`` / ``s_baked_event`` /
+``s_baked_day``) and rides the tick's last atomic show, drain-witnessed
+as ``boot replay final``. Stored frames never move
+``s_orbit_epoch`` — they are historic phases; only the final bake may.
+No card, cold folder, version wipe or no clock: the animation leg
+simply has nothing to show and the panel stays black until the final
+frame lands (or, without a trustworthy time, until the day-tick
+re-bakes after the clock syncs — the pre-replay black path). The
+**knob** has no SD socket, so it always takes that black path —
+already its boot posture (``knob_ui`` hides the disk until the first
+bake lands; :doc:`the knob display <knob-display>`). Demo mode boots
+without the replay (its scripted tour owns the display).
+
+Lifecycle holds (the boot presentation owns the screen for the length
+of the animation): the replay disables the idle→sleep ladder at spawn
+and the tick's **end leg** re-arms it when the presentation is over
+(every idle re-arm site in ``actions.c`` — boot wake, WiFi-sync
+hand-off, airplane switch, the test hooks — defers while
+``moon_ui_replaying()``); the hourly probe/spawn, the day-tick and the
+orbit gate on the same signal, so no fade cycle, corrective re-bake or
+orbit peek races the replay over ``s_frame`` / ``s_rgb`` / the card
+(tfcache's single-caller contract holds: the two producers never run
+at once). A sleep entry (``moon_ui_pause(true)``) or a screen switch
+away from the moon **aborts** the animation — the un-shown frames are
+dropped and the final bake is skipped (``s_baked_day`` stays 0, so the
+minute day-tick queues the corrective re-bake once the device is back
+on the home).
 
 The boot sweep (retired 2026-11-13)
 -----------------------------------
 
-Retired with the rest of the animation stack: ``moon_ui_start`` now bakes
-the CURRENT phase directly — no ``new_moon_epoch``, no bake task, no card
-replay on the clocks — and boot is one static frame, like every wake. The
-knob companion followed on 2026-11-14, retiring its own cold-boot sweep,
-so every board of the family boots to the single static frame
+Retired with the rest of the animation stack: the COMPUTED boot
+animation is gone — no per-frame bake task, no 1344-frame montage. With
+``UI_MOON_BOOT_REPLAY=n``, ``moon_ui_start`` bakes the CURRENT phase
+directly and boot is one static frame, like every wake. What returned
+on 2026-11-14 is a different animal: the boot replay (*above*) plays
+**stored** hour frames — pure playback, one JPEG decode per frame, no
+bake — and ends on the newest stored hour plus the computed now-frame,
+not on a computed montage endpoint. ``new_moon_epoch`` lives again in
+that service (the cache policy's new-moon floor, not a sweep span); the
+sweep itself is gone. The knob companion followed on 2026-11-14,
+retiring its own cold-boot sweep, and with no SD socket it boots to the
+single static frame — black until its first bake lands
 (:doc:`the knob display <knob-display>`). The subsystem as shipped is
-summarized here only as dated history; the code (``moon_sweep_task`` /
-``moon_sweep_interrupt`` / ``s_sweep_*`` / ``new_moon_epoch``) and its
+summarized here only as dated history; the sweep code
+(``moon_sweep_task`` / ``moon_sweep_interrupt`` / ``s_sweep_*``) and its
 Kconfig (``UI_MOON_ANIM_*``) are gone from the clock tree.
 
 What it did: at boot the moon replayed the **current synodic cycle** —
@@ -366,6 +457,11 @@ benchmark context in :doc:`performance <../verification/performance>`):
        measurement; hourly bench pending)
      - read ~55 ms + decode ~79 ms per hour + the two
        fade legs (fetch path carried; bench pending)
+   * - Boot replay, warm card (per-frame TF fetch + atomic show)
+     - pacing floor ``UI_MOON_REPLAY_FPS`` (8); the
+       sweep-era TF replay measured ~6 fps whole-panel
+       (flush-bound) — replay bench pending
+     - same shape; bench pending
    * - Screen-switch fade (0x51 ramp, no pixels)
      - 240 ms × 2 legs, 12 steps (~100 µs param each)
      - 240 ms × 2 legs, 12 steps
