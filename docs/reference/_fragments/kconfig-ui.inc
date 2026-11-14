@@ -78,15 +78,18 @@ The hourly moon refresh & TF hour cache
        re-bake pipelines or another ``0x51`` ramp own the buffers; a
        producer that misses its 5 s budget leaves the OLD frame (never
        a stranded black). The fade reuses the screen switch's rule —
-       the hardware brightness ramp is the sole sanctioned exception to
-       the atomic-flush invariant.
+       the hardware brightness ramp is one of the two sanctioned
+       exceptions to the atomic-flush invariant (the other is the bake
+       reveal below).
    * - ``UI_MOON_HOURLY_FADE_MS``
      - ``UI_SCREEN_SWITCH_FADE``
      - Each fade leg of the hourly refresh (down to black, back up),
        40–2000 ms, paced like the screen-switch fade with the same 12
-       steps. The produce pass runs while the panel sits black, so
-       raising this only lengthens the dark window (~1.3–2.4 s of bake
-       plus the two ramps).
+       steps. With ``UI_MOON_BAKE_REVEAL`` on, the fade-back is paid at
+       the bake's first completed strip, so raising this lengthens the
+       dark window by the fade itself (the bake is revealed underneath,
+       not hidden behind it); on a TF fetch hit the produce pass runs
+       while the panel sits black between the two ramps.
    * - ``UI_MOON_HOURLY_TFCACHE``
      - ``y``
      - Serve the hourly refresh frames from the TF hour cache: the
@@ -99,6 +102,22 @@ The hourly moon refresh & TF hour cache
        path. The hourly producer also runs the cache-policy scan each
        hour (new-moon floor + synodic cap). Depends on
        ``UI_MOON_HOURLY_ENABLE`` and ``UI_MOON_TFCACHE``.
+   * - ``UI_MOON_BAKE_REVEAL``
+     - ``y``
+     - Turns the black windows of the current-phase calculation (the
+       hourly cold-bake leg, the boot replay's final "now" bake) into
+       the calculation made visible: the producer bakes the PSRAM
+       bounce strip by strip and publishes a rows-completed watermark;
+       the tick displays each completed strip as ONE atomic band flush
+       over a moon square cleared to black — the moon draws itself
+       north to south at the ACTUAL bake rate. The hourly fade-back is
+       paid at the FIRST completed strip (dark for the fade window
+       only, never fade + bake). TF hits show atomically as before;
+       ``s_frame`` is never touched, so any abort heals the old frame
+       back whole. The second sanctioned exception — *atomicity-per-
+       state* (:doc:`the bake reveal <../implementation/bake-reveal>`).
+       Depends on ``UI_MOON_HOURLY_ENABLE``. Off: the old
+       black-until-computed posture everywhere.
    * - ``UI_MOON_TFCACHE``
      - ``y``
      - TF hour cache: persist the hourly bakes on the TF card as small

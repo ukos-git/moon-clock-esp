@@ -19,6 +19,18 @@ the page above):
        own-screen moon view (disk + caption) and keeps ``ui`` out of
        the runtime start — the plan's staged bring-up
        (:doc:`the knob display <../implementation/knob-display>`)
+   * - ``KNOB_UI_BAKE_REVEAL``
+     - ``y``
+     - Display the boot bake while it computes: the producer bakes row
+       by row into the back buffer over a black-cleared square and
+       publishes a rows watermark (the frame counter's fence
+       discipline); the swap task unhides the disk at the first
+       completed rows and lands each watermark as ONE atomic band
+       ``lv_refr_now`` — the moon draws itself north to south at the
+       ACTUAL bake rate. Boot only: day-tick re-bakes keep the
+       old-frame-then-atomic posture; a reveal that dies before
+       publishing re-hides the disk
+       (:doc:`the bake reveal <../implementation/bake-reveal>`)
    * - ``KNOB_MOON_TEST_EPOCH``
      - ``1794175200``
      - Frozen UTC instant for bench builds (used **only** under

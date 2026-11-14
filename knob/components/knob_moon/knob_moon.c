@@ -25,6 +25,7 @@
 #include "knob_moon.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -94,8 +95,16 @@ int knob_moon_classify_signature(int64_t utc_epoch) {
     return moon_event_signature(&ev);
 }
 
-bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
-                            int64_t *bake_ms_out) {
+/* The shared bake frame builder (both public bakes): guards, geometry,
+ * the armed event, the row loop, the LUT pass, the bench acceptance log.
+ * With pub_rows the bake is INTERLEAVED (bake row -> LUT row -> fence ->
+ * watermark) over a black-cleared square, so a consumer can display any
+ * completed prefix while the bake runs (the boot bake reveal, knob_ui's
+ * swap task); with pub_rows NULL this is exactly the two-phase posture
+ * the gate compares against. Row-by-row bake_rows with a vTaskDelay
+ * every 16 rows keeps the idle task + TWDT fed either way. */
+static bool bake_frame(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                       volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
     const uint8_t *alb = moon_albedo();
     const moon_grel_t *grel = moon_relief();
     if (!out || size <= 0 || !alb || !grel || !grel->pack) {
@@ -109,11 +118,44 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
     moon_geometry(utc_epoch, &g);
     const moon_bake_ev_t *bev = (s_ev_armed && moon_event_any(&s_ev)) ? &s_ev : NULL;
     const int64_t t0 = esp_timer_get_time();
-    for (int y = 0; y < size; y++) {
-        moon_bake_rows(&g, alb, grel, s_gray, size, radius, (float)cx, (float)cy, MOON_ALB_W, MOON_ALB_H, y, y + 1,
-                       /*dark_zero=*/1, /*dk_sup=*/0.0f, bev);
-        if ((y & 15) == 15) {
-            vTaskDelay(1); /* feed the idle task + TWDT (the clock bake's cadence) */
+    if (pub_rows) {
+        memset(out, 0, (size_t)size * size * sizeof(uint16_t)); /* the canvas:
+                                                                 * not-yet-baked
+                                                                 * rows are
+                                                                 * black */
+        *pub_rows = 0;
+        for (int y = 0; y < size; y++) {
+            moon_bake_rows(&g, alb, grel, s_gray, size, radius, (float)cx, (float)cy, MOON_ALB_W, MOON_ALB_H, y, y + 1,
+                           /*dark_zero=*/1, /*dk_sup=*/0.0f, bev);
+            const uint8_t *frow = &s_gray[(size_t)y * size];
+            uint16_t *rrow = &out[(size_t)y * size];
+            for (int x = 0; x < size; x++) {
+                rrow[x] = moon_gray565(frow[x]);
+            }
+            __atomic_thread_fence(__ATOMIC_SEQ_CST); /* the row is in out
+                                                      * before the watermark
+                                                      * (the s_pub fence shape) */
+            *pub_rows = (uint32_t)(y + 1);
+            if ((y & 15) == 15) {
+                vTaskDelay(1); /* feed the idle task + TWDT (the clock bake's cadence) */
+            }
+        }
+    } else {
+        for (int y = 0; y < size; y++) {
+            moon_bake_rows(&g, alb, grel, s_gray, size, radius, (float)cx, (float)cy, MOON_ALB_W, MOON_ALB_H, y, y + 1,
+                           /*dark_zero=*/1, /*dk_sup=*/0.0f, bev);
+            if ((y & 15) == 15) {
+                vTaskDelay(1); /* feed the idle task + TWDT (the clock bake's cadence) */
+            }
+        }
+        /* gray -> RGB565 through the armed LUT (what the identity rotate's
+         * gather reduces to). */
+        for (int y = 0; y < size; y++) {
+            const uint8_t *frow = &s_gray[(size_t)y * size];
+            uint16_t *rrow = &out[(size_t)y * size];
+            for (int x = 0; x < size; x++) {
+                rrow[x] = moon_gray565(frow[x]);
+            }
         }
     }
     /* Bench acceptance line (illum must match the day's published
@@ -122,20 +164,20 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
     ESP_LOGI(TAG, "bake %dx%d r=%.0f in %lld ms (illum %.1f%%, ss=(%.2f,%.2f), dist %.0f km)", size, size, radius,
              (long long)((esp_timer_get_time() - t0) / 1000), g.illum * 100.0, (double)g.subsolar_lon,
              (double)g.subsolar_lat, (double)g.distance_km);
-
-    /* gray -> RGB565 through the armed LUT (what the identity rotate's
-     * gather reduces to). */
-    for (int y = 0; y < size; y++) {
-        const uint8_t *frow = &s_gray[(size_t)y * size];
-        uint16_t *rrow = &out[(size_t)y * size];
-        for (int x = 0; x < size; x++) {
-            rrow[x] = moon_gray565(frow[x]);
-        }
-    }
     if (bake_ms_out) {
         *bake_ms_out = (esp_timer_get_time() - t0) / 1000;
     }
     return true;
+}
+
+bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                            int64_t *bake_ms_out) {
+    return bake_frame(out, size, radius, cx, cy, utc_epoch, NULL, bake_ms_out);
+}
+
+bool knob_moon_bake_display_reveal(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                   volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
+    return bake_frame(out, size, radius, cx, cy, utc_epoch, pub_rows, bake_ms_out);
 }
 
 /* The last NEW MOON at or before utc_epoch -- the clock's new_moon_epoch

@@ -63,18 +63,26 @@ system, build steps) **update the site** — do not let it drift:
 ## Hard invariants (violations ship visible bugs)
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
-  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). ONE sanctioned
-  exception: the hardware panel-brightness ramp (a 0x51/backlight ramp that
-  writes no pixels). Two flows ride it — the fade-to-black screen switch
+  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). TWO sanctioned
+  exceptions. (1) The hardware panel-brightness ramp (a 0x51/backlight ramp
+  that writes no pixels) — two flows ride it: the fade-to-black screen switch
   (`UI_SCREEN_SWITCH_FADE`) and the once-per-hour moon refresh
   (`UI_MOON_HOURLY_ENABLE`, which fades to black, lets a core-1 producer
   rebuild the frame off-panel, lands the finished frame as ONE atomic flush
-  while still black, then fades back). In both, the new frame's one atomic
-  flush runs while the panel is still black. (The burn-in spin's direct panel
-  write and the TF sweep cache's direct-write replay were further exceptions
-  until 2026-11-13, when the spin subsystem was removed entirely — the home
-  moon is plain LVGL, shown static; the TF module now serves the hourly refresh
-  as its hour cache.)
+  while still black, then fades back; on a TF-miss the rebuild is _revealed_
+  and the fade-back is paid at the first completed strip). In both, the new
+  frame's one atomic flush runs while the panel is still black. (2) The **bake
+  reveal** (`UI_MOON_BAKE_REVEAL` / `KNOB_UI_BAKE_REVEAL`, user decision
+  2026-11-14, `docs/implementation/bake-reveal`) — _atomicity-per-state_: a
+  computing frame shows as a designed sequence of consistent states (black
+  canvas → one completed strip band per 50 ms tick → healed old frame on any
+  abort), each state itself ONE atomic band `lv_refr_now` under `s_rgb_mtx`
+  with the drain witness; unbaked rows are black (never a half-old/half-new
+  composite), `s_frame` is never touched during a reveal. (The burn-in spin's
+  direct panel write and the TF sweep cache's direct-write replay were further
+  exceptions until 2026-11-13, when the spin subsystem was removed entirely —
+  the home moon is plain LVGL, shown static; the TF module now serves the
+  hourly refresh as its hour cache.)
 - AMOLED burn-in is an accepted trade-off, not an open bug: with the spin gone
   the S3 shows the moon statically and a faint burned-in moon is expected — the
   user's standing call (2026-11-14) is that it is a feature rather than a bug

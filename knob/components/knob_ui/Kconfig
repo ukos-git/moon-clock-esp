@@ -11,6 +11,26 @@ config KNOB_UI_ENABLE
         own-screen moon view (disk + caption) and components/ui is not
         added to the build at all -- the plan's staged bring-up.
 
+config KNOB_UI_BAKE_REVEAL
+    bool "Reveal the boot bake row by row while it computes"
+    default y
+    help
+        The knob's only black window is the boot first frame (no SD
+        socket: every boot computes, 991 ms measured 2026-11-14 — the
+        revealed bake runs ~2.05 s end to end, first rows visible ~50 ms
+        in). With y the boot bake is
+        DISPLAYED as it runs: knob_moon bakes row by row into the back
+        buffer over a black-cleared square and publishes a rows watermark
+        (the frame counter's fence discipline); the swap task unhides the
+        disk at the first completed rows and lands each watermark as ONE
+        atomic band lv_refr_now on the LVGL lock -- the moon draws itself
+        north to south at the ACTUAL bake rate (the bake is the
+        metronome). A reveal that dies before publishing re-hides the
+        disk (the honest "moon unavailable" posture). Day-tick re-bakes
+        keep the old-frame-then-atomic posture (not a black window). The
+        clocks' counterpart is UI_MOON_BAKE_REVEAL
+        (docs/implementation/bake-reveal).
+
 config KNOB_DIAG_FRAME_TRACE
     bool "Bench: log flush/swap/screen-switch boundaries"
     default n

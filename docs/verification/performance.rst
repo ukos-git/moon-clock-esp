@@ -288,6 +288,22 @@ path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 bake, the
 (~1.7–2.4 s), plus the **hourly refresh**'s two 240 ms hardware-brightness
 fade legs around that bake.
 
+The bake-reveal bench (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` +
+cold/warm boot captures, :doc:`the bake reveal
+<../implementation/bake-reveal>`) put measured numbers on the live
+paths: hourly warm TF hits land the frame in **185–235 ms** (after
+the ``new_moon_epoch_cached`` memoization — pre-fix the cache-policy
+leg re-ran the ~8.2 s ephemeris scan every cycle and blew the 5 s
+producer budget every time, a bench-#44 catch); a cold-cycle revealed
+bake measures **1975 ms** internals with the fade-back already paid at
+the first strip; the boot replay's revealed final leg is
+**2611–2615 ms** (20 band states); the knob's revealed boot bake runs
+**2028–2059 ms** against its **991 ms** non-revealed baseline — the
+visible-for-computation tax (band flushes consume real bake
+throughput). Drain witness across the reveal legs: ~5 in-place heals
+per boot leg, 0 site restarts, 0 ``PANEL IO STUCK``. P4: bench
+deferred (board off the bench this pass).
+
 The device CPU (one-core shares)
 --------------------------------
 

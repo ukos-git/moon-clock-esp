@@ -80,8 +80,10 @@ The device pipeline
 
 - **Atomic frame** — the invariant: every moon-pipeline frame hits
   the panel as ONE whole-panel ``lv_refr_now`` under ``s_rgb_mtx``;
-  the one sanctioned exception is the fade-to-black
-  (:doc:`the architecture <implementation/architecture>`).
+  the two sanctioned exceptions are the fade-to-black and the bake
+  reveal's atomicity-per-state
+  (:doc:`the architecture <implementation/architecture>` and :doc:`the
+  bake reveal <implementation/bake-reveal>`).
 - **s_rgb_mtx / s_panel_mtx** — the two locks: the *image* lock
   (bake/display of the moon buffer) and the *panel-io* lock
   (LVGL flushes, the 0x51 brightness)
@@ -113,9 +115,10 @@ The device pipeline
   TF hour frames ascending on the boot black and stops on the newest,
   then the live-computed current phase lands as the final frame (one
   drain-witnessed atomic whole-panel flush per frame, no fade, the
-  idle→sleep ladder held until the end leg). With no usable cache the
-  display stays black until the current phase is computed; the knob
-  (no SD socket) always takes that path
+  idle→sleep ladder held until the end leg; the final bake is
+  **revealed** while it computes — see *Bake reveal*). With no usable
+  cache the panel holds its boot black until the revealed final leg
+  starts drawing; the knob (no SD socket) always takes that path
   (:doc:`the animation pipelines <implementation/animations>`).
 - **Dusk** — the retired (2026-11-13) light-sleep entry: the
   constant-projection pole spin to the dark side (the shade map + the
@@ -133,9 +136,22 @@ The device pipeline
   frame at the **hour centre** (a TF hour-cache fetch, else a full bake),
   that frame lands as ONE atomic whole-panel flush while the panel is still
   black, then the brightness ramps back — the clock, alarm row and seconds
-  keep running through it. Replaces the retired boot sweep; the TF hour
+  keep running through it. On a cache miss the rebuild is **revealed**
+  instead (strip-by-strip atomic bands, fade-back at the first strip —
+  see *Bake reveal*). Replaces the retired boot sweep; the TF hour
   cache is its card-side fetch
   (:doc:`the animation pipelines <implementation/animations>`).
+- **Bake reveal** *(``UI_MOON_BAKE_REVEAL`` / ``KNOB_UI_BAKE_REVEAL``,
+  added 2026-11-14)* — displaying the moon's computation while it runs:
+  a computing frame goes to a black canvas and each completed strip
+  lands as ONE atomic band flush (watermark from the producer, 50 ms
+  tick consumer), so the moon draws itself north to south at the
+  actual bake rate — the second sanctioned exception to the atomic-flush
+  rule, as *atomicity-per-state*. Used by the hourly refresh's
+  cache-miss bake and the boot replay's final leg (clock), and by the
+  knob's boot bake (producer-interleaved, boot only); fetch hits never
+  arm it
+  (:doc:`the bake reveal <implementation/bake-reveal>`).
 - **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
   cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row
   strip fix, :doc:`the P4 port <implementation/p4-port>`).
@@ -145,8 +161,10 @@ The device pipeline
 - **Panel-io watchdog** — the ``panel_wdg`` task: a stuck panel-io
   (the lost-DMA-completion freeze, :doc:`the display pipeline <implementation/display>`) restarts the board
   after ``PANEL_IO_WATCHDOG_LIMIT_MS`` (3000 ms).
-- **Fade-to-black** — the sole sanctioned exception to the atomic-flush
-  rule: the CO5300's *hardware* brightness ramp (0x51, 12 steps, 240 ms)
+- **Fade-to-black** — one of the two sanctioned exceptions to the
+  atomic-flush
+  rule (the other is the *bake reveal*, above): the CO5300's *hardware*
+  brightness ramp (0x51, 12 steps, 240 ms)
   writes no pixels, and the new frame's one atomic flush runs while the
   panel is still black. Two flows ride it — the screen switch
   (``UI_SCREEN_SWITCH_FADE``) and the hourly refresh's two legs

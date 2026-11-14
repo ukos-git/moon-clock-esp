@@ -25,7 +25,12 @@
  * with the event passed. The cold-boot synodic sweep retired
  * 2026-11-14 (the clocks dropped their own 2026-11-13): cold boots and
  * wakes alike arm the STATIC current phase -- the clock's wake policy
- * is now the knob's whole display policy.
+ * is now the knob's whole display policy. Under KNOB_UI_BAKE_REVEAL the
+ * boot frame's ~790 ms stops being a black window: the producer's row
+ * watermark lets the swap task display the bake north to south AS it
+ * runs (one atomic band lv_refr_now per completed row, the clock's
+ * bake-reveal shape -- docs/implementation/bake-reveal); every other
+ * bake keeps the fill-then-atomic posture above.
  *
  * The companion mirror views (KEYBOARD/STEPPER, K4) were retired
  * 2026-11-08 with the companion approach; the dial stays initialized and
@@ -104,6 +109,28 @@ static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
 static SemaphoreHandle_t s_lvgl_mux;
 
+/* Bake reveal (KNOB_UI_BAKE_REVEAL -- the clock's reveal shape on the
+ * knob's seam, docs/implementation/bake-reveal): the boot first frame
+ * (the knob's only black window -- no SD socket, every boot computes,
+ * ~790 ms) is DISPLAYED as it bakes. The producer bakes row by row into
+ * the back buffer over a black-cleared square (knob_moon_bake_display_-
+ * reveal) and advances the rows watermark with the s_pub fence
+ * discipline; the swap task (the panel owner) unhides the disk at the
+ * first completed rows and lands each watermark as ONE atomic band
+ * lv_refr_now -- every displayed state one atomic flush, the moon draws
+ * itself north to south at the ACTUAL bake rate (the bake is the
+ * metronome, no animation outruns a row). Day-tick re-bakes keep the
+ * old-frame-then-atomic posture (not a black window). Ownership mirrors
+ * the handshake: active/pub producer-written (like s_pub),
+ * shown/displayed/prev swap-written (like s_front/s_applied). */
+#if CONFIG_KNOB_UI_BAKE_REVEAL
+static volatile bool s_reveal_active;
+static volatile uint32_t s_reveal_pub; /* rows fully baked+converted in the back buffer */
+static uint32_t s_reveal_shown;        /* rows the swap has displayed */
+static bool s_reveal_displayed;        /* the reveal unhid the disk (pending honest-state cleanup) */
+static bool s_reveal_prev;             /* swap-side edge detection */
+#endif
+
 /* ---- last-gasp black box (field-crash witness, task #27) ---------------
  * The 2026-11-11 TG0WDT panic reset drained the USB-CDC TX FIFO before
  * any backtrace flushed — the crash was physically unwitnessable (three
@@ -167,6 +194,13 @@ void knob_ui_gasp_boot_report(void) {
  * show one time on three boards. */
 #ifndef CONFIG_KNOB_TZ
 #define CONFIG_KNOB_TZ "UTC0"
+#endif
+
+/* #ifndef-seeded KNOB_UI_BAKE_REVEAL (repo invariant: a Kconfig "n"
+ * leaves the macro UNDEFINED). The boot first-frame bake reveal -- see
+ * the reveal flags below and docs/implementation/bake-reveal. */
+#ifndef CONFIG_KNOB_UI_BAKE_REVEAL
+#define CONFIG_KNOB_UI_BAKE_REVEAL 0
 #endif
 
 /* Time source (family seam, P0): the knob has no RTC, so "now" is the
@@ -301,15 +335,37 @@ static void wait_ack(void) {
 /**
  * @brief Bake the crisp current-phase frame into the back buffer (the
  *        armed event passes), stage the caption, publish.
- * caption NULL = caption stays.
+ * caption NULL = caption stays. reveal=true displays the bake AS it runs
+ * (the boot first frame under KNOB_UI_BAKE_REVEAL -- the swap task
+ * consumes the rows watermark); every other bake passes false and keeps
+ * the old-frame-then-atomic posture.
  */
-static bool bake_publish(int64_t epoch, const char *caption) {
+static bool bake_publish(int64_t epoch, const char *caption, bool reveal) {
     if (s_nomem) {
         return false;
     }
     const int back = 1 - s_front;
     knob_ui_gasp(KNOB_GASP_BAKE);
-    if (!knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_last_bake_ms)) {
+    bool ok;
+#if CONFIG_KNOB_UI_BAKE_REVEAL
+    if (reveal) {
+        s_reveal_pub = 0;
+        s_reveal_active = true; /* the per-row fences order the pixels ahead of
+                                 * the watermark (the s_pub fence shape) */
+        ok = knob_moon_bake_display_reveal(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_reveal_pub,
+                                           &s_last_bake_ms);
+        s_reveal_active = false; /* the swap wraps up / cleans up on its own poll */
+        /* Bench acceptance line (the reveal): the rows the swap could show
+         * (full size on a completed bake) + the bake time behind them. */
+        ESP_LOGI(TAG, "bake reveal: %u/%d rows in %lld ms (%s)", (unsigned)s_reveal_pub, MOON_SIZE,
+                 (long long)s_last_bake_ms, ok ? "ok" : "failed");
+    } else
+#endif
+    {
+        (void)reveal;
+        ok = knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_last_bake_ms);
+    }
+    if (!ok) {
         return false;
     }
     if (caption) {
@@ -370,7 +426,10 @@ static void static_once_body(void) {
     knob_moon_display_begin(now);
     char cap[40];
     time_caption(cap, sizeof(cap), now);
-    if (!bake_publish(now, cap)) {
+    /* The boot frame is THE revealed bake (the knob's black window --
+     * KNOB_UI_BAKE_REVEAL; the swap task shows it north to south as the
+     * rows complete). */
+    if (!bake_publish(now, cap, true)) {
         ESP_LOGE(TAG, "static bake failed");
         caption_unavailable();
     } else {
@@ -423,7 +482,7 @@ static void demo_tour(void) {
             knob_moon_display_begin(epoch);
             char cap[48];
             snprintf(cap, sizeof(cap), "demo %d/8 %s", k + 1, names[k]);
-            if (!bake_publish(epoch, cap)) {
+            if (!bake_publish(epoch, cap, false)) {
                 ESP_LOGE("DEMO", "phase %s bake failed", names[k]);
                 caption_unavailable();
             }
@@ -439,7 +498,7 @@ static void demo_tour(void) {
         knob_moon_display_begin(live);
         char cap[48];
         time_caption(cap, sizeof(cap), live);
-        if (!bake_publish(live, cap)) {
+        if (!bake_publish(live, cap, false)) {
             ESP_LOGE("DEMO", "now bake failed");
             caption_unavailable();
         }
@@ -482,7 +541,9 @@ static void moon_task(void *arg) {
             knob_moon_display_begin(now); /* re-arm the tint LUT + occlusion */
             char cap[40];
             time_caption(cap, sizeof(cap), now);
-            if (!bake_publish(now, cap)) {
+            if (!bake_publish(now, cap, false)) { /* the old frame stays up
+                                                   * during this bake -- not
+                                                   * a black window, no reveal */
                 ESP_LOGE(TAG, "day-tick bake failed");
                 caption_unavailable();
                 continue;
@@ -509,6 +570,13 @@ static void moon_task(void *arg) {
 
 /* ---- the swap task --------------------------------------------------- */
 
+static void hide_all_images(void); /* below; the reveal cleanup re-hides with it */
+
+/* The boot frame is THE revealed bake under KNOB_UI_BAKE_REVEAL (the
+ * reveal flags note): the producer advances s_reveal_pub row by row and
+ * the swap task below is the consumer -- one atomic band flush per
+ * newly completed watermark, on the lock, exactly like an apply. */
+
 /**
  * Applies published frames inside the LVGL lock: descriptor swap + one
  * atomic lv_refr_now (the clock's whole-panel posture; the producer may
@@ -519,6 +587,55 @@ static void moon_task(void *arg) {
 static void swap_task(void *arg) {
     (void)arg;
     for (;;) {
+        /* Bake reveal consumer (the reveal flags note): one atomic band
+         * lv_refr_now on the lock per newly completed watermark -- the
+         * disk points at the buffer being baked (its rows [0, pub) are
+         * complete RGB565; the rows above stay the black canvas until
+         * their watermark arrives). The real publish + apply follows when
+         * the bake ends; a reveal that dies UNPUBLISHED re-hides the disk
+         * (the honest "moon unavailable" posture). */
+#if CONFIG_KNOB_UI_BAKE_REVEAL
+        if (!s_nomem) {
+            if (s_reveal_active && !s_reveal_prev) { /* new reveal: reset OUR cursors */
+                s_reveal_shown = 0;
+                s_reveal_displayed = false;
+            }
+            s_reveal_prev = s_reveal_active;
+            if (s_reveal_active) {
+                uint32_t pub = s_reveal_pub;
+                __atomic_thread_fence(__ATOMIC_SEQ_CST); /* pair with the producer's row fences */
+                if (pub > s_reveal_shown) {
+                    if (pub > (uint32_t)MOON_SIZE) {
+                        pub = (uint32_t)MOON_SIZE;
+                    }
+                    lvgl_lock();
+                    s_moon_dsc.data = (const uint8_t *)s_buf[1 - s_front];
+                    if (!s_shown) {
+                        s_shown = true;
+                    }
+                    lv_area_t a = {.x1 = 0,
+                                   .y1 = (lv_coord_t)s_reveal_shown,
+                                   .x2 = (lv_coord_t)(MOON_SIZE - 1),
+                                   .y2 = (lv_coord_t)((int)pub - 1)};
+                    for (int i = 0; i < s_n_imgs; i++) {
+                        lv_obj_set_hidden(s_imgs[i], false);
+                        lv_obj_invalidate_area(s_imgs[i], &a);
+                    }
+                    knob_ui_gasp(KNOB_GASP_SWAP_REFR);
+                    lv_refr_now(NULL);
+                    lvgl_unlock();
+                    s_reveal_shown = pub;
+                    s_reveal_displayed = true;
+                }
+            } else if (s_reveal_displayed && s_pub == 0) {
+                lvgl_lock();
+                hide_all_images();
+                s_shown = false;
+                lvgl_unlock();
+                s_reveal_displayed = false;
+            }
+        }
+#endif
         if (s_applied != s_pub && !s_nomem) {
             /* Pair with the producer's publish fence: read the buffer/
              * caption only after observing the new counter. */
@@ -560,6 +677,11 @@ static void swap_task(void *arg) {
             lv_refr_now(NULL);
             s_front = back;
             s_applied = s_pub;
+#if CONFIG_KNOB_UI_BAKE_REVEAL
+            s_reveal_displayed = false; /* the revealed buffer IS the applied
+                                         * frame now -- the honest-state
+                                         * cleanup must not re-hide it */
+#endif
             lvgl_unlock();
             knob_ui_gasp(KNOB_GASP_SWAP_DONE);
             knob_ui_gasp_frames(s_pub, s_applied);

@@ -313,7 +313,9 @@ What the port did *not* touch
   ``components/moon``. The port is entirely in ``moon_ui.c`` (the
   display path), ``board_display.c`` (the seam), and the build files.
 - **The atomic invariant** — the P4 obeys the same rule (one atomic
-  whole-panel display; the one sanctioned exception, the fade). In
+  whole-panel display; the sanctioned exceptions: the fade, and the
+  bake reveal's band-atomic states — its 26-row bands,
+  :doc:`the bake reveal <bake-reveal>`). In
   the spin era the P4's two extra exceptions (the spin's direct write
   and the TF replay's) went per-strip (65 rows) rather than the S3's
   single window, but were still ``s_panel_mtx``-held, per-frame

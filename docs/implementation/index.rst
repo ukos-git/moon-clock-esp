@@ -11,6 +11,7 @@ The C core, the display pipeline, the animation system, the clock and sleep mach
    rotate-lut
    display
    animations
+   bake-reveal
    clock-sleep
    p4-port
    knob-display

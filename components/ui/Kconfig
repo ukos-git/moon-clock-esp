@@ -180,6 +180,29 @@ menu "UI Component Configuration"
             failure falls back silently to the bake path. See
             UI_MOON_TFCACHE for the folder / versioning rules.
 
+    config UI_MOON_BAKE_REVEAL
+        bool "Reveal the moon bake strip by strip while it computes"
+        depends on UI_MOON_HOURLY_ENABLE
+        default y
+        help
+            Turns the black windows of the current-phase calculation
+            (the hourly cold-bake leg, the boot replay's final "now"
+            bake) into the calculation made visible: the producer bakes
+            the PSRAM bounce strip by strip and publishes a
+            rows-completed watermark; the tick converts and displays
+            each completed strip as ONE atomic band flush over a moon
+            square cleared to black at reveal start -- the moon draws
+            itself north to south at the ACTUAL bake rate (the bake is
+            the metronome; no animation outruns a computed row). The
+            hourly fade choreography pays its fade-in back at the FIRST
+            completed strip, so the panel is dark for the fade window
+            only, never for fade + bake. TF hour-cache hits have
+            nothing to compute and show atomically as before. s_frame
+            is never touched during a reveal: any abort (failed cycle,
+            blown budget, sleep hand-off) heals the old frame back from
+            it. Docs: implementation/bake-reveal. Off: the old
+            black-until-computed posture everywhere.
+
     config TEST_HOURLY_FORCE_S
         int "Test: fire the hourly refresh every N seconds (0 = off)"
         default 0

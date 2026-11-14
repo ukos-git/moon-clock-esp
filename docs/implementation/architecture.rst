@@ -10,8 +10,10 @@ them:
 
 1. **One image buffer, one atomic flush.** Every moon-pipeline frame
    reaches the panel as a single whole-panel display under one
-   critical section. There is exactly one sanctioned exception,
-   documented here.
+   critical section. There are exactly two sanctioned exceptions,
+   documented here: the hardware brightness ramp (which writes no
+   pixels) and the bake reveal's *atomicity-per-state* (:doc:`the
+   bake reveal <bake-reveal>`).
 2. **The physics is portable.** The moon core — ephemeris, bake,
    relief, rotation, the LUT — is a dependency-free C library that
    compiles unchanged into the device *and* the host simulator.
@@ -185,7 +187,7 @@ screen top-to-bottom over about a second — the "wake artifact" the
 original design fought. The atomic rule is what makes a screen switch
 look like a screen switch.
 
-There is exactly **one sanctioned exception**, and it is a property
+There are exactly **two sanctioned exceptions**. The first is a property
 of the panel, not of LVGL: the **hardware brightness ramp** (CO5300
 ``0x51`` / the P4 backlight PWM), which writes no pixels. Two flows
 ride it:
@@ -205,8 +207,25 @@ ride it:
    switch's fade rule verbatim, and the clock, alarm row and seconds
    keep running through it (:doc:`the animation pipelines <animations>`).
 
+The second exception is a *reframing* of the rule rather than a bypass
+of it — the **bake reveal** (``UI_MOON_BAKE_REVEAL`` / the knob's
+``KNOB_UI_BAKE_REVEAL``, user decision 2026-11-14): a frame that is
+being *computed* is displayed as a designed sequence of consistent
+states — the black canvas, then one completed strip band per 50 ms
+tick, then the healed old frame on any abort — where **each state is
+itself one atomic whole-band ``lv_refr_now`` under ``s_rgb_mtx`` with
+the drain witness**. The rule forbids a frame torn MID-ROW by the
+async drain; between reveal states the panel always shows a complete,
+deliberately-chosen image, never the drain's partial work
+(*atomicity-per-state*). The unbaked area is black by the same
+decision (never a half-old/half-new composite), and the finished frame
+still lands as one atomic whole-panel flush afterwards, so the
+invariant's contract — commit-on-show, witness, "a consistent image
+is a theorem" — holds at every stable state (:doc:`the bake reveal
+<bake-reveal>`).
+
 (The burn-in spin's direct panel write and the TF sweep cache's
-direct-write replay were exceptions 2 and 3 until 2026-11-13, when
+direct-write replay were further exceptions until 2026-11-13, when
 the spin subsystem was removed entirely at the user's request —
 *"It does more things worse than good."* — and the boot sweep (the TF
 replay's producer) followed later the same day. The TF cache lives on
@@ -214,7 +233,9 @@ as the hourly refresh's hour cache, and every moon frame now rides the
 LVGL path.)
 
 Everything else that shows moon content obeys the rule: the boot and
-wake displays (one atomic flush of the current-phase bake) and the orbit
+wake displays (one atomic flush of the current-phase bake — at boot the
+reveal of that bake, where armed, is the band-atomic sequence of the
+second exception above) and the orbit
 sweep (one atomic flush of the whole converted frame). (The boot
 sweep's frames — card-less and warm TF replay alike — and the dusk's
 re-projected frames had obeyed it one flush per published frame until

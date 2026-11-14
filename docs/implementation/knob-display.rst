@@ -76,7 +76,13 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   atomic ``lv_refr_now`` under the main-injected LVGL mutex, with
   publish/apply ``seq_cst`` fences and an ack-before-reuse cap (a
   producer never rewrites a buffer the swap has not acknowledged,
-  5 s timeout);
+  5 s timeout). With ``KNOB_UI_BAKE_REVEAL`` (default y) the swap
+  *also* consumes the boot bake's rows watermark: the producer
+  interleaves bake + LUT-convert per row into the visible buffer
+  behind the black canvas, and every watermark advance is applied as
+  one atomic band flush — the moon draws itself at the bake rate
+  instead of the boot sitting black until the whole bake lands
+  (:doc:`the bake reveal <bake-reveal>`);
 - the descriptor declares plain ``LV_COLOR_FORMAT_RGB565`` and the
   draw unit byte-swaps into the ``RGB565_SWAPPED`` canvas — a purple
   wash on glass would be that swap misconfigured. The F1 fallback
@@ -87,8 +93,15 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
 Measured on the S3R8 (bench, 2026-11-08; the sweep-era numbers are
 dated history — the 128-px intermediates retired 2026-11-14): relief
 build 727 ms, first
-360-px bake ~790 ms, ~115–130 ms per 128-px sweep frame, 0 TWDT,
-~6.8 MB PSRAM free after assets + buffers. Re-measured 2026-11-11
+360-px bake ~790 ms (the K7b-era figure — superseded by the
+2026-11-14 re-measure below), ~115–130 ms per 128-px sweep frame, 0 TWDT,
+~6.8 MB PSRAM free after assets + buffers. Re-measured on the
+2026-11-14 reveal bench (same binary family): the non-revealed boot
+bake is **991 ms**, the revealed one **2028–2059 ms** end to end —
+the swap's band flushes (prio 7) preempt the producer (prio 5), so
+showing the bake costs it ~1.07 s, while the first rows become
+visible ~50 ms in instead of after ~1 s of black
+(:doc:`the bake reveal <bake-reveal>`). Re-measured 2026-11-11
 with the WDT posture above: the classify scan is **463 ephemeris
 evaluations in 24.6 s** (~53 ms each at ``-Og`` — the ~8 ms the first
 fix assumed was off ~7×), sweep frames bake at 132–141 ms, and a boot
@@ -179,7 +192,11 @@ The opening act
 
 Every boot and every wake presents the **static** current phase —
 one crisp 360-px bake, clocked by the same rule that keeps the
-battery honest. The cold-boot synodic sweep (1344 frames new moon →
+battery honest. The boot bake arrives **revealed**: over a black
+square the rows land band by band as the bake produces them
+(``KNOB_UI_BAKE_REVEAL``, boot only — wake and day-tick re-bakes keep
+the old-frame-then-atomic posture, so they have no black window to
+remove; :doc:`the bake reveal <bake-reveal>`). The cold-boot synodic sweep (1344 frames new moon →
 now at 128 px plus the crisp final frame, **314 s wall**, the
 never-black posture) retired 2026-11-14; the clocks dropped their
 own 2026-11-13, so the clock's wake policy is now the whole display

@@ -85,6 +85,24 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
                             int64_t *bake_ms_out);
 
 /**
+ * @brief The revealed bake (KNOB_UI_BAKE_REVEAL, docs/implementation/
+ *        bake-reveal): the SAME frame as bake_display (same rows, same
+ *        armed event, same bake log line) built VISIBLE-AS-IT-GOES.
+ *
+ * `out` is cleared to black first (the canvas: not-yet-baked rows are
+ * black), then each row is baked AND converted through the armed LUT
+ * before the rows-completed watermark advances -- a consumer may display
+ * any prefix [0, *pub_rows) at any time (fenced like the frame counter;
+ * the producer writes, the consumer only reads). The math and the final
+ * pixels are bake_display's; only the phase order changes.
+ *
+ * @param pub_rows    the watermark the producer advances (caller-owned,
+ *                    volatile, rows fully present in out)
+ */
+bool knob_moon_bake_display_reveal(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                   volatile uint32_t *pub_rows, int64_t *bake_ms_out);
+
+/**
  * @brief The last NEW MOON at or before utc_epoch: coarse 6 h then fine
  *        20 min illumination-minimum scan over one synodic month (the
  *        clock's new_moon_epoch, verbatim logic). ~hundreds of
