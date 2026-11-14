@@ -498,13 +498,18 @@ the cell ceiling); no reading leaves an empty pale-grey capsule.
 label, digits + % on the SSID font.) The cell moves on the minute
 scale, not the second. It *overlaps* the moon
 rather than making room for it: the shared home bakes the disk
-centred and full-square (r 180 at cy 180 — the clocks'
-``MOON_R = MOON_PX/2`` posture, set by the render seam via
-``knob_ui_set_disk_geom``), while the legacy own-screen view keeps
-the foot-band bake (r 150 at cy 168) whose 12 px below centre kept
-its bottom-edge caption row clear of the lunar limb (task #35,
-2026-11-13 — the user's verdict: the indicator overlaps, the moon
-fills). The reading lives in
+centred and *contained* — r 150 at cy 180, the lunar limb 17 px
+inside the seconds-arc ink (ink mid radius
+``(360 − 2*UI_PX(10))/2 = 173`` with the theme arc width 12 centred
+on it, so the ink spans 167..179; the clocks keep limb-to-ink gaps
+of 17 px (S3) / 14 px (P4)) — set by the render seam via
+``knob_ui_set_disk_geom`` (task #48, 2026-11-14 — the user's verdict:
+"the moon… should be inside the seconds arc, same as the p4 and the
+s3 amoled"). The brief full-square r 180 of the 2026-11-13 pass let
+the limb run past the arc. The legacy own-screen view keeps the
+foot-band bake (r 150 at cy 168) whose 12 px below centre kept its
+bottom-edge caption row clear of the lunar limb (task #35, 2026-11-13
+— the user's verdict: the indicator overlaps, the moon fills). The reading lives in
 ``knob/components/knob_battery``: ``adc_oneshot`` on **ADC1** ch
 ``KNOB_BATTERY_ADC_CHANNEL`` (GPIO 1; ADC2 is unusable with the radio
 on), 12 dB attenuation, the eFuse curve-fitting calibration with a

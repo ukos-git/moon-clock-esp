@@ -54,15 +54,21 @@
 
 static const char *TAG = "knob_ui";
 
-/* The disk: the full 360 px square (the round window crops the corners
- * itself). The LEGACY own-screen view (KNOB_UI_ENABLE=n) bakes r 150 at
+/* The disk: baked inside the full 360 px square (the round window
+ * crops the corners itself). The LEGACY own-screen view
+ * (KNOB_UI_ENABLE=n) bakes r 150 at
  * cy 168 — the 12 px below centre stay free of lunar limb for its
  * caption row at the bottom edge. The SHARED home (the shipped config)
- * rebakes through knob_ui_set_disk_geom(): the disk centres and fills
- * the square like the clocks' MOON_PX one, and the battery gauge and
- * the gated progress row simply OVERLAP it (task #35, 2026-11-13 —
- * "the battery indicator should overlap and the moon fill in
- * completely"). */
+ * rebakes through knob_ui_set_disk_geom(): r 150 at cy 180 -- centred,
+ * the limb 17 px inside the seconds arc ink, the same relationship the
+ * clocks keep between MOON_PX/2 and their arc (task #48, 2026-11-14 --
+ * the brief full-square r 180 let the limb run past the arc). The
+ * battery gauge and the gated progress row simply OVERLAP the black
+ * surround (task #35, 2026-11-13 —
+ * "the battery indicator should overlap"). Arc ink: mid radius
+ * (360 - 2*UI_PX(10))/2 = 173 with the theme arc width 12 (DPX-15 at
+ * dpi 130) centred on it -> ink 167..179; the clocks' limb-to-ink
+ * gaps are 17 px (S3) / 14 px (P4). */
 #define MOON_SIZE KNOB_LCD_H_RES
 #define MOON_CX (KNOB_LCD_H_RES / 2)
 static float s_moon_r = 150.0f; /* legacy default; the shared seam centres it */

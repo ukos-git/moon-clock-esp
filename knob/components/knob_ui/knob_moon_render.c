@@ -161,10 +161,20 @@ void moon_ui_fade_out(void) {
 void moon_ui_init(void) {
     s_ready = knob_ui_alloc_frames();
     /* The shared home has no bottom caption row to reserve (the clock
-     * row owns the daily text): centre the disk and let it fill the
-     * square like the clocks' MOON_PX one -- the battery gauge and the
-     * gated progress row overlay it (task #35). */
-    knob_ui_set_disk_geom(KNOB_LCD_H_RES / 2.0f, KNOB_LCD_H_RES / 2);
+     * row owns the daily text): centre the disk INSIDE the seconds arc,
+     * like the clocks' MOON_PX one (task #48, 2026-11-14 -- user: "the
+     * moon extends over the seconds arc. it should be inside the
+     * seconds arc, same as the p4 and the s3 amoled"). The home arc is
+     * a full-panel object with UI_PX(10) pad -> mid radius
+     * (360 - 2*7)/2 = 173; the theme arc width is the DPX-12 default
+     * (LV_DPX_CALC(130, 15)) with the stroke centred on the mid radius,
+     * so the ink spans 167..179. The clocks park the lunar limb 17 px
+     * (S3: limb 200 vs ink inner 217) / 14 px (P4: 325 vs 339) inside
+     * the ink -- r 150 at cy 180 reproduces the S3's 17 px relationship
+     * exactly, and the battery gauge / gated progress row simply
+     * overlap the frame's black surround (the #35 rule: never push the
+     * disk off centre). */
+    knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2);
     ESP_LOGI(TAG, "moon render seam %s (buffers %s)", s_ready ? "ready" : "DEGRADED",
              s_ready ? "up" : "failed (moon-less screens)");
 }

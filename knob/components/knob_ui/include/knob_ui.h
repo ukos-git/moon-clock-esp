@@ -100,8 +100,10 @@ void knob_ui_bind_caption(lv_obj_t *label);
  *         legacy own-screen view bakes r 150 at cy 168 — its bottom
  *         caption row owns the foot band. The SHARED home has no bottom
  *         caption (the clock row owns the daily text), so its render
- *         seam centres and fills the disk like the clocks' MOON_PX one
- *         and lets the battery gauge / progress row overlap it. Set
+ *         seam centres the disk at r 150 -- limb 17 px inside the
+ *         seconds arc ink, the clocks' MOON_PX/2-to-arc containment
+ *         (task #48, 2026-11-14) -- and lets the battery gauge /
+ *         progress row overlap the black surround. Set
  *         before the first bake (the seam does it in moon_ui_init). */
 void knob_ui_set_disk_geom(float r, int cy);
 
