@@ -75,6 +75,11 @@ system, build steps) **update the site** — do not let it drift:
   until 2026-11-13, when the spin subsystem was removed entirely — the home
   moon is plain LVGL, shown static; the TF module now serves the hourly refresh
   as its hour cache.)
+- AMOLED burn-in is an accepted trade-off, not an open bug: with the spin gone
+  the S3 shows the moon statically and a faint burned-in moon is expected — the
+  user's standing call (2026-11-14) is that it is a feature rather than a bug
+  (it will likely not disturb reading the display). Do not reintroduce
+  anti-burn-in machinery (spin, pixel-shift, …) without a fresh user decision.
 - `spiffs/wifi_credentials.txt` and `sdkconfig` are gitignored — never commit
   either; `spiffs/` edits are separate `spiffs:` commits.
 - The 16 MB board's PSRAM is NOT SPI-DMA-capable: display flush strips are

@@ -38,6 +38,15 @@ was built for and now serves the hourly refresh as the **TF hour cache**
 ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were retired with the config
 sweep.
 
+**Burn-in is accepted.** With the rotation gone, the S3's AMOLED shows
+the moon in one place for weeks on end, so a faint burn-in of the moon
+into the panel is *likely* over the device's life. As of 2026-11-14
+that is a settled product decision, not an oversight: the user counts
+a burned-in moon a **feature rather than a bug** — the ghost is the
+clock's own subject, and it will likely not disturb reading the
+display. Re-introducing any anti-burn-in machinery (a rotation, a
+pixel nudge, anything) needs a fresh decision from the user first.
+
 The remaining pipelines share one pipeline shape: a *bake task* (core 1) produces
 frames off screen into the shared PSRAM buffers; the *tick* (LVGL
 task, 50 ms) displays each published frame as **one atomic whole

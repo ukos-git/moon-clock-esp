@@ -91,6 +91,12 @@ The device pipeline
   written *directly* to the panel (LVGL bypassed for that frame).
   Retired entirely — the home moon is plain LVGL, shown static
   (:doc:`the architecture <implementation/architecture>`).
+- **Burn-in** *(accepted 2026-11-14)* — the AMOLED consequence of the
+  static home: with the spin retired, a faint ghost of the moon is
+  likely to settle into the S3 panel over weeks of always-on use — and
+  the user deliberately counts it a feature, not a bug: it will likely
+  not disturb reading the display
+  (:doc:`the animation pipelines <implementation/animations>`).
 - **Sweep** *(removed from the clocks 2026-11-13)* — the former boot
   animation: the last synodic month — card-less, 1344 tick-displayed
   frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF sweep cache, the

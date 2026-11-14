@@ -162,7 +162,13 @@ The board is powered from USB in this build (the bench stand has a
 coiled cable in the photos). The sleep machine (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) exists
 largely because an always-on AMOLED on a desk is a burn-in risk and a
 power draw; light sleep keeps the panel on but dims it, deep sleep
-turns the panel's backlight off entirely.
+turns the panel's backlight off entirely. The rotation that once spread
+the first risk was retired with the animation stack on 2026-11-13;
+what follows from it — the moon burning itself faintly into the panel
+over weeks of always-on display — is an accepted trade-off since
+2026-11-14: the user calls a burned-in moon a feature rather than a
+bug, since it will likely not disturb reading the display
+(:doc:`the animation pipelines <../implementation/animations>`).
 
 The custom shim
 ---------------
