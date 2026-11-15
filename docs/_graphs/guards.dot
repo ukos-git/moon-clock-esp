@@ -1,0 +1,202 @@
+// The guards, drawn: every synchronization object the app owns as a
+// node, every xSemaphoreTake / xEventGroupWaitBits / notify site as a
+// labelled ask edge, and every lock-free hand-off as a dashed one.
+// Every edge was read out of the live source before drawing
+// (comment-stripped greps — same discipline as task-roster.dot);
+// docs/tools/gen_perf_locks.py re-asserts the whole census at figure
+// time (SystemExit on any drift): 3 mutex creations, 2 event groups,
+// 1 task-notify pair, 4 SEQ_CST fences, ZERO xQueueCreate in app code.
+//   The clocks' two keys (moon_ui.c). Creations sit together at
+//     moon_ui.c:2553-2554 under the code's own ownership comment
+//     (:2546-2552): s_rgb_mtx is "a buffer mutex serializing every
+//     s_rgb / s_frame reader+writer (the orbit's row sweep, the static
+//     LUT convert, the re-bake pipeline)" and s_panel_mtx "a PANEL
+//     mutex serializing every panel write (LVGL's flush strips, the
+//     0x51 ramp steps, the drain probes) -- which reach the panel
+//     through the draw_bitmap wrapper installed below (every LVGL flush
+//     funnels through esp_lcd_panel_draw_bitmap, proven by the
+//     adapter's flush path)"; the wrapper lands at :2566
+//     (s_panel->draw_bitmap = moon_panel_draw_bitmap). All SEVENTEEN
+//     s_rgb_mtx takes are portMAX_DELAY ("a publish block never
+//     fails" — the block is a memcpy + gather or one lv_refr_now, so
+//     there is nothing to time out on). The NINE s_panel_mtx takes
+//     carry the whole timeout policy of the app: the wrapper itself
+//     :677 forever; the 0x51 legs — fade_ramp :2951 and
+//     moon_ui_panel_brightness_set :3075 — forever (their BSP delegate
+//     bsp_display_lock is the vendored :669 one-liner); the traffic
+//     hold's quiesce :519 bounded 500 ms (pdMS_TO_TICKS(500));
+//     moon_flush_wait_cb :443 bounded 2 s (FLUSH_WAIT_TIMEOUT_MS 2000)
+//     with its :444 comment "observed quiescence only" and witness arm
+//     :768; the drain verify :898 forever, rule 3 — the hold across
+//     the WHOLE submit+witness window, "no drain call site holds it --
+//     audited 2026-11-13" (:884), "healthy hold ~40 ms, full-anomaly
+//     hold ~620 ms" (:885-886), 9 call sites; and the watchdog's probe
+//     :2469 bounded 3 s (PANEL_IO_WATCHDOG_LIMIT_MS 3000). S3 builds
+//     all nine; the P4 builds EIGHT — moon_panel_drain_verify is
+//     #if !defined(CONFIG_BOARD_P4) with the P4 leg "(void)site;".
+//     Lock ORDER is one-way: no s_panel_mtx take ever nests an
+//     s_rgb_mtx take (the generator walks every take→give window);
+//     moon_ui_screen_switched :3119 is the both-keys case and takes
+//     them SEQUENTIALLY — panel :3155, give, then rgb :3184 —
+//     b_panel_t < b_panel_g < b_rgb_t. The drain's heal branch runs
+//     esp_lcd_panel_io_tx_param(io, -1, NULL, 0) at :957 ("runs the
+//     driver's own drain loop over ALL" queued descriptors, :943).
+//     panel_wdg is born in moon_ui_init at :2595 (4096 words, prio 3,
+//     pinned core 0 — "Low priority on core 0: it sleeps 3 s at a
+//     time"), its take is "the ONLY work" (:2460), and on timeout it
+//     names the holder through xSemaphoreGetMutexHolder and restarts
+//     under "PANEL IO STUCK" (:2489-2493).
+//   The knob's ONE key (amber). s_lvgl_mux is created in knob
+//     main.c:366 and handed into the seam at :435
+//     (knob_ui_set_lvgl_lock(s_lvgl_mux)); knob_ui.c owns the ONLY
+//     physical take :246 (portMAX_DELAY) inside a holder+depth wrapper
+//     :237 — "a FreeRTOS mutex is NOT recursively takable by its
+//     owner" (:230, the 2026-11-10 hub-tap TAP deadlock), so a same-
+//     task re-entry is s_lvgl_depth++ (:242-244) and an unlock from a
+//     non-owner logs and is ignored (:255-256). ELEVEN wrapper
+//     entries across four files: 6 inside knob_ui.c (swap legs
+//     :612/:632/:648, invalidate_all :761, show_no_time :827, caption
+//     :857), the painter's park loop main.c:158 held ACROSS
+//     lv_timer_handler (10–20 ms), the alarm wake :327, the dial
+//     commit knob_dial.c:100, and the seam's two legs
+//     knob_moon_render.c:255/:311 (refr + home dim). The knob builds
+//     NO panel key at all: moon_ui.c is excluded wholesale (component
+//     ui's CMakeLists empties UI_BOARD_SRCS under KNOB_BOARD) and the
+//     seam that answers moon_ui.h carries zero mutex tokens — its
+//     moon_ui_init is a shim (knob_moon_render.c:161).
+//   The lock-free hands-off (flags band). s_sntp_event_group
+//     (clock_sntp.c:140) sets SNTP_SYNC_BIT :121 and waits :180
+//     bounded BY CALLER — the clocks' boot fix and wake fix both pass
+//     CONFIG_CLOCK_NTP_TIMEOUT_MS 10000 (clock.c + actions.c), the
+//     knob's boot fix 20000 with a 2 s retry (main.c).
+//     s_wifi_event_group (wifi.c:284) sets CONNECTED :183 / FAIL :171
+//     and waits :329 for 8 s (WIFI_CONNECTION_TIMEOUT_MS). The FOUR
+//     SEQ_CST fences are the knob's row hand-off without any key:
+//     the producer's knob_moon.c:135 pairs with the swap reader's
+//     knob_ui.c:607 ("pair with the producer's row fences"), plus
+//     :380 and :643 on the swap side. The app's ONE task-notify pair
+//     is the day-scan doorbell: moon_event_classify_here rings
+//     xTaskNotifyGive(s_event_task) at moon_ui.c:1132 and
+//     moon_event_task blocks on ulTaskNotifyTake(pdTRUE,
+//     portMAX_DELAY) at :1106. xQueueCreate fires ZERO times in app
+//     code (the vendored BSP's trans queue is cited, not ours:
+//     CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH = 1 in the S3's generated
+//     header, used at the BSP's :412; the P4 header lacks the
+//     symbol).
+// The cadence over these guards per day is the silicon ladder, the
+// waits they buy are the patience ladder, and the counts themselves
+// are the guard ladder (verification/performance.rst); the crew that
+// holds them is :ref:the crew sketch (implementation/architecture.rst).
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph guards {
+    label="The guards, drawn — two keys with a one-way order on the clocks, one reentrant-wrapped key on the knob, and the hands-offs that need no key at all";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=11, style="rounded,filled",
+          shape=box, width=2.0, height=0.45,
+          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=9, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_clocks {
+        label="the clocks (S3 + P4, one moon_ui.c) — violet = xSemaphoreTake ask, timeout on the wire; red = the watchdog";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        srgb [label="s_rgb_mtx  (moon_ui.c:2553)\n17 takes, ALL portMAX_DELAY\n\"a buffer mutex serializing\nevery s_rgb / s_frame\nreader+writer\" (:2546)",
+              fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.6];
+        spanel [label="s_panel_mtx  (moon_ui.c:2554)\n9 takes S3 / 8 P4 — the whole\ntimeout policy of the app\n\"serializing every panel\nwrite\" (:2548)",
+                fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.6];
+        painter [label="LVGL painter — flush strips\nvia the draw_bitmap wrapper\n:677, installed :2566 (\"every\nLVGL flush funnels through\nesp_lcd_panel_draw_bitmap\")"];
+        ramp [label="0x51 ramp legs — fade_ramp\n:2951 + brightness_set :3075\n(BSP delegate :669)\n— the no-pixels exception"];
+        quiesce [label="traffic-hold quiesce\nmoon_ui_panel_traffic_hold_ext\n:519 — bounded 500 ms"];
+        witness [label="moon_flush_wait_cb :443 —\nbounded 2 s, \"observed\nquiescence only\" :444\n(witness arm :768)"];
+        switcher [label="moon_ui_screen_switched\n:3119 — BOTH keys,\nSEQUENTIALLY: panel :3155,\ngive, then rgb :3184"];
+        producers [label="core-1 producers + tick —\nbake/hourly/replay publish,\nLUT convert, atomic\nlv_refr_now show"];
+        drain [label="moon_panel_drain_verify :893\nrule 3: holds across the WHOLE\nsubmit+witness window — \"no\ndrain call site holds it --\naudited 2026-11-13\" (:884);\nhealthy ~40 ms / anomaly ~620 ms;\n9 sites; S3-only — P4: (void)site",
+                 fillcolor="#fdf7e6", color="#b07d10"];
+        heal [label="heal in place :957 —\ntx_param(io, -1) \"runs the\ndriver's own drain loop\nover ALL\" (:943); accepted+\nfrozen heals, rejected restarts",
+              style="rounded,filled,dashed"];
+        wdg [label="panel_wdg · p3 · core 0 :2595\nsleeps 3 s, ONE bounded 3 s\nprobe :2469 — \"the ONLY\nwork\"; names the holder via\nxSemaphoreGetMutexHolder",
+               fillcolor="#f8e7e7", color="#b91c1c"];
+    }
+
+    subgraph cluster_knob {
+        label="the knob — one mutex, wrapped (amber = wrapper entry / physical take)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#fbf7ec"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        mux [label="s_lvgl_mux  (main.c:366)\nwired at :435\nknob_ui_set_lvgl_lock —\nthe knob's ONLY mutex;\nno panel key exists",
+               fillcolor="#f6ecd6", color="#b07d10", penwidth=1.6];
+        wrapper [label="knob_ui.c wrapper :237 —\nholder+depth emulation:\n\"NOT recursively takable\"\n(:230, 2026-11-10 hub tap);\nsame-task re-take = depth++\n; non-owner unlock ignored",
+                   fillcolor="#f6ecd6", color="#b07d10"];
+        e_ku [label="6 inside knob_ui.c — swap\n:612/:632/:648, invalidate\n:761, no-time :827, caption :857"];
+        e_park [label="painter park :158 — held\nACROSS lv_timer_handler\n(10–20 ms)"];
+        e_wake [label="alarm wake main.c:327"];
+        e_dial [label="dial commit knob_dial.c:100"];
+        e_seam [label="seam refr + home dim\nknob_moon_render.c :255/:311"];
+    }
+
+    subgraph cluster_flags {
+        label="the hands-offs that need NO key (steel = event group; dashed = fence / notify)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        clock_tick [label="boot + wake fixes\n(clock.c, actions.c:\nCONFIG_CLOCK_NTP_TIMEOUT_MS;\nknob: 20000 + 2 s retry)"];
+        join [label="station join + FAIL\nevent handler"];
+        sntp [label="s_sntp_event_group\n(clock_sntp.c:140) — set\n:121, WaitBits :180 bounded\nBY CALLER: 10 s clocks /\n20 s knob / 2 s retry",
+                fillcolor="#dfe6f1", color="#5c7fb8"];
+        wifig [label="s_wifi_event_group\n(wifi.c:284) — CONNECTED\n:183 / FAIL :171, WaitBits\n:329, 8 s",
+                 fillcolor="#dfe6f1", color="#5c7fb8"];
+        fences [label="4 SEQ_CST fences — the knob's\nrow hand-off, key-free:\nproducer knob_moon.c:135\npairs swap reader :607\n(\"pair with the producer's\nrow fences\") + :380 + :643",
+                  style="rounded,filled,dashed"];
+        notify [label="the ONE task-notify pair —\nclassify_here rings :1132,\nmoon_event_task blocks\nulTaskNotifyTake :1106\n(the day-scan doorbell)",
+                  style="rounded,filled,dashed"];
+        zeroq [label="xQueueCreate: ZERO in app code\n— hands-offs ride fences,\nflags and one notify\n(asserted repo-wide)",
+                 style="rounded,filled,dashed"];
+        adapter [label="the adapter's LVGL mutex\n(VENDORED, cited never\nmodified) — the app takes it\nEXACTLY once: main.cpp:579\nbsp_display_lock(-1)",
+                   style="rounded,filled,dashed", fillcolor="#e8e8ea"];
+        bspq [label="BSP trans queue (VENDORED) —\nCONFIG_BSP_LCD_TRANS_QUEUE_DEPTH\n= 1, S3 header only (BSP :412):\nthe 32 KiB SPI DMA invariant",
+                style="rounded,filled,dashed", fillcolor="#e8e8ea"];
+    }
+
+    claims [label="the three claims this picture holds up:\n(1) the clocks answer contention with TWO keys and a ONE-WAY order —\nno s_panel_mtx take ever nests an s_rgb_mtx take (screen_switched takes\nthem sequentially) — plus a drain witness and a 3 s watchdog that turn\nthe lost-DMA-completion wedge into either an audited ~40 ms hold\n(75x headroom) or a holder-named restart; (2) the knob owns ONE mutex\nand wraps it in holder+depth emulation because a FreeRTOS mutex is\n\"NOT recursively takable by its owner\" — and builds no panel key at all\n(UI_BOARD_SRCS emptied under KNOB_BOARD); (3) zero queues: every\ncross-hand hand-off in app code is a SEQ_CST fence, an event-group\nflag, or a task notify",
+            shape=note, style="rounded,filled", fillcolor="#fdf7e6", color="#b07d10",
+            fontsize=10];
+
+    producers -> srgb [color="#7c3aed", label=" 17 sites, all forever —\n\"a publish block never fails\""];
+    painter -> spanel [color="#7c3aed", label=" portMAX_DELAY — the\nserialization point :677"];
+    ramp -> spanel [color="#7c3aed", label=" portMAX_DELAY (0x51 legs)"];
+    quiesce -> spanel [color="#7c3aed", label=" 500 ms bounded"];
+    witness -> spanel [color="#7c3aed", label=" 2 s bounded, then give"];
+    drain -> spanel [color="#7c3aed", label=" forever — rule 3 audited hold"];
+    switcher -> spanel [color="#7c3aed", label=" take :3155"];
+    switcher -> srgb [color="#7c3aed", label=" then rgb :3184 —\nb_panel_t < b_panel_g < b_rgb_t"];
+    spanel -> srgb [style=dashed, color="#8a8a8a",
+                    label=" ONE-WAY ORDER: never held\nacross an s_rgb_mtx take"];
+    drain -> heal [style=dashed, label=" accepted + silent completion\n→ healed in place"];
+    wdg -> spanel [color="#b91c1c", label=" 3 s bounded probe :2469\n— the ONLY work it does"];
+    wdg -> painter [style=dashed, color="#b91c1c", label=" \"PANEL IO STUCK ... task %s\"\nholder named, esp_restart"];
+
+    // ---- the knob's asks (amber) ----
+    e_ku -> wrapper [color="#b07d10", label=" entry"];
+    e_park -> wrapper [color="#b07d10", label=" entry"];
+    e_wake -> wrapper [color="#b07d10", label=" entry"];
+    e_dial -> wrapper [color="#b07d10", label=" entry"];
+    e_seam -> wrapper [color="#b07d10", label=" entry"];
+    wrapper -> mux [color="#b07d10", penwidth=1.6, label=" the ONE physical take :246\n(portMAX_DELAY)"];
+    wrapper -> wrapper [color="#b07d10", label=" self==holder && depth>0\n→ depth++ (re-entry)"];
+
+    // ---- the flags (steel asks, dashed key-free hands) ----
+    clock_tick -> sntp [color="#5c7fb8", label=" WaitBits(timeout) :180"];
+    join -> wifig [color="#5c7fb8", label=" WaitBits(CONNECTED|FAIL, 8 s) :329"];
+    fences -> notify [style=invis];
+    notify -> producers [style=dashed, color="#8a8a8a", label=" rings the day-scan\nworker, no key held"];
+    painter -> adapter [style=dashed, label=" boot build only :579\n(+ BSP delegates)"];
+    painter -> bspq [style=dashed, label=" one in-flight DMA\nto the chip (S3)"];
+    producers -> zeroq [style=invis];
+
+    { rank=sink; claims; }
+}

@@ -180,7 +180,11 @@ unlock from a non-owner logs an error and is ignored — and
 ``main.c``'s ``lvgl_lock``/``lvgl_unlock`` delegate to it. The
 clocks cannot hit this: their seam locks ``s_rgb_mtx``/``s_panel_mtx``,
 never the LVGL task's own mutex, and boot/wake ``loadScreen`` runs
-lock-free on other tasks.
+lock-free on other tasks. The full synchronization census that makes
+that sentence provable — the wrapper's eleven entries feeding its one
+physical take, the clocks' two keys, the four fences and zero queues —
+is :ref:`the guards sketch <guards-arch>`, counted bar-for-bar in
+:ref:`the guard ladder <guard-ladder-perf>`.
 
 ``KNOB_UI_ENABLE`` (the ``knob_ui`` Kconfig umbrella) gates the seam
 at **runtime**, not in CMake: the seam objects always link (the early

@@ -169,7 +169,11 @@ Who hands the pixels *to* this path — which leg fills which buffer and
 under which key before a strip ever reaches the wrapper — is the relay
 in ``docs/_graphs/buffers-relay.dot``
 (:doc:`the architecture <architecture>`); the strip staging and its
-witnesses stay here.
+witnesses stay here. The same three witnesses counted against every
+other guard the app owns — two keys on the clocks, one
+reentrant-wrapped key on the knob, zero queues anywhere — are
+:ref:`the guard ladder <guard-ladder-perf>`, and the whole guard
+family drawn as a node graph is :ref:`the guards sketch <guards-arch>`.
 
 The direct-write spin (history, removed 2026-11-13)
 ----------------------------------------------------

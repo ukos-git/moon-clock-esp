@@ -577,6 +577,8 @@ ladder cannot drift from the firmware.
    reveal tick lands at exactly the 20 Hz the bake-reveal design
    specifies. The generator is ``docs/tools/gen_perf_pacing.py``.
 
+.. _patience-ladder-perf:
+
 The patience ladder (how long a wait is allowed)
 ------------------------------------------------
 
@@ -853,8 +855,12 @@ generator is ``docs/tools/gen_perf_sched.py``; the same task set in
 prose is the task table of :doc:`the architecture
 <../implementation/architecture>`, the same task set *wired* — who
 spawns whom, who wakes whom, which chip each hand asks — is
-:ref:`the crew sketch <task-roster-arch>`, and the memory each row
-commits is :ref:`the static footprint <static-footprint-perf>` above.
+:ref:`the crew sketch <task-roster-arch>`, the memory each row
+commits is :ref:`the static footprint <static-footprint-perf>` above,
+and the locks those hands queue behind — two keys on the clocks, one
+reentrant-wrapped key on the knob, zero queues anywhere — are
+:ref:`the guard ladder <guard-ladder-perf>` and its twin
+:ref:`the guards sketch <guards-arch>`.
 
 .. figure:: ../_static/figs/perf_sched.png
    :alt: The FreeRTOS priority ladder of every shipped task on the clocks and the knob, and the same rows as headroom over each family's LVGL task
@@ -2158,6 +2164,114 @@ struck whom down (:ref:`the thirteen in one picture
 (:doc:`the round keyboard <../keyboard>`). The literature rows it
 converts are the HCI shelf of :doc:`the sources page
 <../reference/sources>`.
+
+.. _guard-ladder-perf:
+
+The guard ladder (how many locks stand between the hands)
+----------------------------------------------------------
+
+**The short version.** Every earlier ladder counts a hand doing
+something: the silicon ladder counts interrogations, the bus ladder
+counts bytes crossing a wire, the patience ladder counts allowed
+waits. None of them has counted the **contention machinery** — the
+objects that decide which hand goes first. This ladder counts them
+out of the live sources: the app owns exactly **three mutexes, two
+event groups, one task-notify pair and four SEQ_CST fences — and zero
+queues** (``xQueueCreate`` never fires outside the vendored BSP). The
+wait-site bars tell the sharper story: seventeen image-key takes all
+say ``portMAX_DELAY`` — a publish block is a memcpy plus a gather,
+never a bus, so there is nothing to time out on — while the panel key
+carries the **entire timeout policy of the app**: the 2 s flush-wait
+gate, the 500 ms quiesce, the drain verify's audited forever-hold,
+and the watchdog's single 3 s bounded probe. Against the healthy
+~40 ms drain the 3 s probe leaves **75× headroom**; even the
+full-anomaly ~620 ms hold leaves 4.8×.
+
+The graph is not hand-drawn; the generator **parses the whole census
+out of the live sources** — and its parsers are the gate, SystemExit-
+failing when a guard appears, vanishes, or changes its mind:
+
+* exactly **3** mutex-creation sites (``moon_ui.c:2553-2554`` and the
+  knob's ``main.c:366``) and ``xQueueCreate`` **zero** in app code —
+  the zero is an assertion, not an absence of evidence;
+* all **17** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
+  ``s_panel_mtx`` take-policy **multiset** matches exactly
+  ``[6x portMAX_DELAY, 2 s witness, 500 ms quiesce, 3 s probe]`` — a
+  new take or a retimed one stops the figure;
+* the **one-way lock order** is asserted per site: between every
+  panel-key take and its give no image-key take appears — the single
+  both-keys function ``moon_ui_screen_switched`` is checked for the
+  sequential order ``b_panel_t < b_panel_g < b_rgb_t`` instead;
+* the drain witness is pinned to the S3: ``moon_panel_drain_verify``
+  is one take inside ``#if !defined(CONFIG_BOARD_P4)`` with the P4 leg
+  ``(void)site;`` — the presence matrix bills the S3 **9** panel takes
+  and the P4 **8**, the same "same shared component bills zero,
+  compiled out" shape the write ladder draws for the RTC; the 9 drain
+  call sites and their site strings are enumerated;
+* the watchdog is pinned to its literals — the spawn line
+  ``"panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0``, the
+  ``xSemaphoreGetMutexHolder`` holder-naming, the "PANEL IO STUCK"
+  restart line, and the 2000/3000 ms defines;
+* the knob's mux is pinned to **one** ``xSemaphoreTake`` in
+  ``knob_ui.c`` behind the holder+depth wrapper ("NOT recursively
+  takable", the non-owner guard), with its **11 entries** recounted
+  across four files (6 internal, the park loop, the alarm wake, the
+  dial, the two seam legs), and its seam is asserted **mutex-free** —
+  the ``moon_ui_init`` shim carries no lock;
+* the two event groups are pinned to their waits (``WaitBits`` bounded
+  ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
+  ``clock.c`` + ``actions.c``, 20000/2000 on the knob; 8000 ms join);
+  four fences in two files; the notify pair at ``moon_ui.c:1106``/
+  ``:1132``;
+* the compiled-out facts come from the build, not the prose: four
+  ``UI_BOARD_SRCS`` entries emptied by ``if(KNOB_BOARD)``, the S3
+  header carrying ``CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH 1`` where the P4
+  header lacks the symbol, and the orbit gate unset in all three
+  ``sdkconfig.h`` files (the ghost leg stays a ghost).
+
+What the bars say: **the clocks hold two keys, the knob holds one,
+and nobody holds a queue**. The image key is the wide bar — seventeen
+sites, all forever — because the family's invariant (one atomic
+whole-panel ``lv_refr_now``) *requires* a publish block that cannot
+half-fail. The panel key is where every bounded wait in the firmware
+lives, and all of them exist for one reason: the lost-GPSPI-DMA-
+completion wedge, which the drain witness converts into an audited
+hold (75× headroom) and the watchdog into a holder-named restart.
+**Right:** the presence matrix is the compiled-truth view — the two
+clock keys are ``x`` on the knob because ``UI_BOARD_SRCS`` empties
+``moon_ui.c`` there; the knob's mux is ``x`` on the clocks because
+their seam takes the BSP's panel path, not the LVGL task's own mutex;
+the adapter mutex is one app take on each clock (``main.cpp:579``,
+boot build, ``-1``) and absent on the knob; and the three open circles
+on the ``xQueueCreate`` row are the figure's way of drawing "the
+family hands off on fences + flags".
+
+.. figure:: ../_static/figs/perf_locks.png
+   :alt: per-guard wait-site bars (solid forever, hatched bounded) and the guard-presence matrix across S3, P4 and knob
+   :figclass: align-center
+
+   The guard ladder. **Left:** one bar per synchronization object,
+   solid violet = ``portMAX_DELAY`` sites, hatched red = bounded
+   timeout, each note parsed from the call site; the red pair of notes
+   prices the watchdog's 75× headroom and the knob's 11-entries-on-1-
+   take wrapper. **Right:** the presence matrix — filled dot = built
+   and taken with the count above, open circle = zero with its parsed
+   reason, ``x`` = the guard is not built on this board (the knobs'
+   two ``x`` marks are ``moon_ui.c`` excluded wholesale; the P4's
+   panel-key count drops to 8 because the drain take is ``#if``'d
+   out).
+
+The generator is ``docs/tools/gen_perf_locks.py``. What this ladder
+does *not* count: how often the guards are asked is the **silicon
+ladder** (and the 33 ms indev beat prices the hands that queue behind
+them), the waits they *buy* are :ref:`the patience ladder
+<patience-ladder-perf>`, the priorities that decide who wakes first
+are :ref:`the scheduler ladder <scheduler-ladder-perf>`, the relay
+that sequences the two keys is :ref:`the guards sketch
+<guards-arch>` with its twin :ref:`the crew sketch <task-roster-arch>`,
+and the wedge these guards convert into bounded states is the witness
+family of :doc:`the display pipeline
+<../implementation/display>`.
 
 The performance decisions, ranked
 ---------------------------------

@@ -357,6 +357,25 @@ The relay in one picture
    :align: center
    :caption: The relay, drawn — every quote read out of ``components/ui/moon_ui.c`` (and the relief builder in ``components/moon/esp/moon_esp_assets.c``) at sketch time. Top left, the mill: the core-1 producers bake into the bounce lock-free (TF hour fetch or the ~1.3 s bake), and the boot/day-tick bake is the one shape that holds the image key across its whole sketch; the relief wall feeds both with one packed cell per bake pixel, built once at boot from one 2 MB partition read whose transient is freed ("steady-state relief memory is the one 4 MB packed array alone"). Centre, the four buckets and the two keys, each key labelled with the code's own ownership comment and its full list of holders; the painter then shows the published frame as one atomic ``lv_refr_now`` inside the image key with its drain witness — commit-on-show, and the owed hourly fade-in paid at the first completed strip — while the reveal leg band-converts bounce→``s_rgb``. The 0x51 ramp node exists only to show it rides the *panel* key: the strip staging, the accept-retry anatomy and the three witnesses on that key belong to ``docs/_graphs/flush-path.dot`` (:doc:`the display pipeline <display>`), and the core's data flow into the bounce to ``docs/_graphs/moon-core-flow.dot`` (:doc:`the C core <core-c>`); the knob's excluded relay is the footer. The same buckets counted in *pixels* — bake square, panel square, one DMA transaction — are :ref:`the pixel ladder <pixel-ladder-perf>`.
 
+.. _guards-arch:
+
+The guards in one picture
+-------------------------
+
+The relay above sequences the keys — who may hold which, when. This
+picture counts them: every synchronization object the app owns is a
+node, every take/wait site an edge with its timeout policy on the
+wire, and every lock-free hand-off a dashed one. The whole census is
+re-asserted at figure time by ``docs/tools/gen_perf_locks.py``, which
+exits with an error the moment any count drifts: **three** mutex
+creations, **two** event groups, **one** task-notify pair, **four**
+SEQ_CST fences, and **zero** ``xQueueCreate`` calls in app code.
+
+.. graphviz:: ../_graphs/guards.dot
+   :alt: The synchronization census — the clocks' two violet keys with every take's timeout on the edge and the one-way order between them, the knob's single amber reentrant-wrapped mutex with its eleven entries, and the key-free band of two event groups, four fences, one notify and zero queues
+   :align: center
+   :caption: The guards, drawn — every edge read out of the live source at sketch time (comment-stripped greps, the same discipline as ``docs/_graphs/task-roster.dot``). Left, the clocks' two keys exactly as ``moon_ui.c:2546-2552`` declares them, each violet ask edge carrying its timeout: all seventeen image-key takes are ``portMAX_DELAY`` ("a publish block never fails" — a publish block is a memcpy plus a gather, never a bus), while the nine panel-key takes are the entire timeout policy of the app — the 2 s flush-wait gate, the 500 ms quiesce, the 3 s watchdog probe, and the drain verify's audited forever-hold (the P4 compiles the drain take out with ``#if !defined(CONFIG_BOARD_P4)``, leaving eight). The dashed grey edge between the two keys is the one-way order: no panel-key take ever nests an image-key take, and ``moon_ui_screen_switched`` — the one both-keys case — takes them sequentially, panel :3155, give, then rgb :3184. The drain node is the wedge story: rule 3 holds the panel key across the whole submit+witness window ("no drain call site holds it -- audited 2026-11-13"), an accepted-but-silent completion heals in place via ``tx_param(io, -1)``, and the red watchdog is the last resort — one bounded probe, the holder named through ``xSemaphoreGetMutexHolder``, then ``esp_restart``. Centre, the band that needs no key: two event groups bounded by construction (the 10 s / 20 s / 2 s NTP fixes, the 8 s join), four SEQ_CST fences as the knob's key-free row hand-off, one task-notify pair as the day-scan doorbell, and the two vendored hands the app cites and never modifies — the adapter mutex (taken exactly once, ``main.cpp:579``) and the BSP's one-deep trans queue. Right, the knob's single mutex wrapped in holder+depth emulation because a FreeRTOS mutex is "NOT recursively takable by its owner" (:230, the 2026-11-10 hub-tap deadlock) — eleven wrapper entries across four files feeding one physical take, and no panel key at all, because ``moon_ui.c`` itself is excluded under ``KNOB_BOARD``. The same census counted as bars is :ref:`the guard ladder <guard-ladder-perf>`; the cadence with which these hands are asked is :ref:`the silicon ladder <silicon-ladder-perf>`; the crew that holds the keys is :ref:`the crew sketch <task-roster-arch>`; the relay that sequences the two keys is the section directly above.
+
 The atomic-frame invariant
 --------------------------
 

@@ -97,7 +97,12 @@ healed old frame on any abort — and every state is ONE atomic band
 ``lv_refr_now`` under ``s_rgb_mtx`` with the drain witness. The producer
 free-runs and bumps only a watermark; the tick converts at most one
 state per 50 ms; nothing on the path ever shows the async drain's
-partial work.
+partial work. That witness — its rule-3 hold across the whole
+submit+witness window, its audited ~40 ms healthy hold against the
+watchdog's 3 s bounded probe (75× headroom), and its heal-in-place
+versus budgeted-restart split — is one node in :ref:`the guards
+sketch <guards-arch>` and a policy note on
+:ref:`the guard ladder <guard-ladder-perf>`.
 
 .. raw:: html
 
