@@ -19,7 +19,7 @@
 #                            need >= 5248K -- the root CMakeLists guard
 #                            refuses a blob that overflows this row, naming
 #                            the KiB it needs.)
-# Total = 14428K.
+# Total = 14464K.
 # Name,        Type, SubType, Offset,   Size,    Flags
 nvs,           data, nvs,     ,         0x6000,
 phy_init,      data, phy,     ,         0x1000,

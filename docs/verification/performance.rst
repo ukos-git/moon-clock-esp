@@ -423,6 +423,58 @@ the producer's single budget constant (``HOURLY_BUDGET_MS``,
    generator is ``docs/tools/gen_perf_hourly.py`` (accepted captures
    quoted beside it; budget and fade are the device's own constants).
 
+The boot-path ladder
+--------------------
+
+The ladder above is the *steady state* — what the most frequent refresh
+costs once the device is running. The boot ladder is what the user
+waits for first, and the boot replay (``UI_MOON_BOOT_REPLAY``,
+:doc:`the animation pipelines <../implementation/animations>`) has
+exactly four cost paths. Its pacing constants are the device's own —
+the generator *parses the live* ``components/ui/Kconfig``, so figure
+and Kconfig cannot drift apart:
+
+- The replay producer paces at a floor of
+  ``1000 / UI_MOON_REPLAY_FPS`` = **125 ms/frame** (the default 8 fps);
+  the panel actually drains at the documented **~6 fps** (~167 ms/frame,
+  S3 — the sweep-era TF-replay throughput the Kconfig itself quotes).
+  The cache holds at most one synodic month of hourly keys — **709
+  files** — so a full warm playthrough is **89 s** at the floor and
+  **~118 s** at the observed rate: both well inside the default
+  **240 s** budget (``UI_MOON_REPLAY_BUDGET_MS``), which is what the
+  Kconfig's own claim ("a full cache at the default pacing lands well
+  inside the default 240 s") means in milliseconds. An overrun cuts the
+  *animation*, never the moon — the final leg still bakes the current
+  phase.
+- A card-less boot (no card, cold folder, or version wipe — a fresh
+  flash by design, :ref:`per-version keying <calcver-keying>`) pays the
+  ~**1 s** SD mount probe, then holds black until the revealed now-bake
+  lays its first ink, and lands the current phase at probe +
+  **2009–2615 ms**.
+- ``UI_MOON_BOOT_REPLAY=n`` (and demo mode) never touch the SD bus and
+  boot to the single static bake (**1300 ms**, the same accepted
+  capture as the per-variant table above).
+- The knob has no SD socket, so it *always* takes the black path —
+  **2028–2059 ms** revealed against its **991 ms** non-revealed
+  baseline — and pays no probe at all (there is no bus to probe).
+
+.. figure:: ../_static/figs/perf_boot.png
+   :alt: boot-path ladder — replay pacing and boot outcomes vs the 240 s budget
+   :figclass: align-center
+
+   The boot ladder. **Left:** the pacing arithmetic — the floor the
+   Kconfig sets (1000/8 = 125 ms, light) against the observed drain rate
+   the Kconfig quotes (~6 fps ≈ 167 ms, solid). **Right:** the four boot
+   paths on one log millisecond axis against the 240 s
+   ``UI_MOON_REPLAY_BUDGET_MS`` line (dashed red) — the probe, the
+   non-revealed static bake, the revealed now-bake (dotted, accepted
+   min–max), the full-cache animation at both paces (709 files × the
+   panel's own per-frame cost), and the knob's always-black pair
+   (violet). Solid non-revealed, dotted revealed. The generator is
+   ``docs/tools/gen_perf_boot.py`` (the pacing/budget constants parsed
+   from ``components/ui/Kconfig`` at figure time; the capture windows
+   quoted beside it).
+
 The device CPU (one-core shares)
 --------------------------------
 

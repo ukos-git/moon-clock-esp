@@ -3,16 +3,17 @@
 docs/ui/index.rst — the companion of gen_menu_geom.py (wheel keyboard +
 alarm-time band).
 
-The five roller-based settings screens — settings-time, pomodoro, and
-the near-identical single-roller family (light-sleep timeout,
-deep-sleep countdown, timezone, alarm sound) — drawn on all three
-family panels from the code's OWN arithmetic, the way gen_menu_geom.py
-does for the wheel: every box is ``UI_PX(x) = (x * panel) // 466`` of
-the screens.c constant, every offset the code's own
+The six roller-based settings screens — settings-time, pomodoro, the
+near-identical single-roller family (light-sleep timeout, deep-sleep
+countdown, timezone, alarm sound), and the Wi-Fi scan list — drawn on
+all three family panels from the code's OWN arithmetic, the way
+gen_menu_geom.py does for the wheel: every box is ``UI_PX(x) = (x *
+panel) // 466`` of the screens.c constant, every offset the code's own
 ``lv_obj_align(..., LV_ALIGN_CENTER, x, y)`` arguments (the sign sits
 OUTSIDE UI_PX in the code, so the figure mirrors C's truncation toward
-zero). All rollers are one visible row — the roller IS the value
-display; the boxes below are the widget rectangles.
+zero). The settings rollers are one visible row — the roller IS the
+value display; the boxes below are the widget rectangles. The Wi-Fi
+roller is the exception (three visible rows, four on the knob).
 
 settings-time (create_screen_settings_time):
   time row: two 140x110 boxes (96 px numbers font) at x -75/+75, y -30,
@@ -27,6 +28,18 @@ single-roller family (settings_create_sleep_screen / settings_tz /
   timezone 380x110 centred at 0 (wide for "Europe/Berlin");
   alarm sound 260x110 at x -70 + the 100x100 preview button at +150;
   tz/sound captions y -110.
+wifi (create_screen_settings_wifi — the family's ONE lv_roller):
+  wifi glyph y -150, "NETWORKS" title (32 px ssid face) y -84;
+  roller UI_PX(430) wide (knob 300) at (0, +18), NORMAL mode, entries
+  CENTRED, grey / SELECTED white, no highlight box, pad+border 0 —
+  so its height is lv_roller.c's (line_height + line_space) * row_cnt:
+  3 rows x the tier 48-baseline SSID line-height 51/77/39 = 153 (S3),
+  231 (P4); the knob's 4 rows x 39 = 156 (the taller list is why the
+  user asked for the roller on 360 px);
+  the roller and the centred SCANNING / NO APS FOUND placeholder label
+  share the exact y +18 band and are never visible together (the
+  placeholder owns the band while the roller is hidden — one-option
+  NORMAL rows pin to the window top, which read as "not centred").
 The bottom-centre exit button (90 px box, BOTTOM_MID -34 -> band top
 edge y 342) is the shared sub-screen furniture (settings_sub_screen_prepare).
 
@@ -69,6 +82,14 @@ CAP_SLEEP_Y, CAP_TZ_Y = -125, -110
 SLEEP_W, TZ_W, SOUND_W = 210, 380, 260           # single-roller widths
 SOUND_X, PREVIEW_X, PREVIEW_D = -70, 150, 100    # alarm-sound line
 EXIT_SIZE, EXIT_BOTTOM = 90, 34                  # sub-screen exit button
+# wifi (create_screen_settings_wifi)
+WIFI_GLYPH_Y, WIFI_TITLE_Y, WIFI_ROLL_Y = -150, -84, 18
+WIFI_W, WIFI_W_KNOB = 430, 300
+WIFI_ROWS, WIFI_ROWS_KNOB = 3, 4
+# the tier 48-baseline SSID face's .line_height as generated in
+# components/ui/fonts*/ui_font_montserrat_regular_48_ssid.c — the device
+# truth lv_roller.c:241 multiplies by the row count
+WIFI_LINE_H = {466: 51, 720: 77, 360: 39}
 
 
 def uipx(x: int, panel: int) -> int:
@@ -200,11 +221,66 @@ def draw_roller_family(ax, panel, annotate):
                 color=AMBER, ha="center", va="center", zorder=5)
 
 
+def draw_wifi(ax, panel, annotate):
+    """The scan list: ONE NORMAL-mode roller with the placeholder label
+    sharing its band — exactly one of the two is visible (the
+    placeholder owns the band while the roller is hidden)."""
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import Arc
+    R = lambda v: uipx(v, panel)
+    rows = WIFI_ROWS_KNOB if panel == 360 else WIFI_ROWS
+    w = WIFI_W_KNOB if panel == 360 else WIFI_W
+    lh = WIFI_LINE_H[panel]
+    cy = -smp(WIFI_ROLL_Y, panel)
+    h = rows * lh
+    # wifi glyph (solid face) at y -150: dot + three opening arcs
+    gy = -smp(WIFI_GLYPH_Y, panel)
+    ax.plot([0], [gy - R(16)], marker="o", markersize=max(1.6, R(4) / 12),
+            color=GRAY, zorder=4)
+    for k in (1, 2, 3):
+        ax.add_patch(Arc((0, gy - R(16)), R(16 * k), R(13 * k),
+                         theta1=35, theta2=145, color=GRAY,
+                         linewidth=1.0, zorder=4))
+    ax.text(0, -smp(WIFI_TITLE_Y, panel), "NETWORKS", fontsize=6.5,
+            color=GRAY, ha="center", va="center", zorder=5)
+    # the roller body + entry hairlines (rows stacked at line-height)
+    x, y = -R(w) / 2, cy - h / 2
+    ax.add_patch(Rectangle((x, y), R(w), h, facecolor=to_rgba(BLUE, 0.10),
+                           edgecolor=BLUE, linewidth=0.9, zorder=3))
+    for k in range(1, rows):
+        yy = y + k * lh
+        ax.plot([x, x + R(w)], [yy, yy], "-", color=LIGHT, linewidth=0.7,
+                zorder=4)
+    # window centre = cursor: the SELECTED entry goes white, no box
+    ax.add_patch(Rectangle((x, cy - lh / 2), R(w), lh, facecolor="none",
+                           edgecolor=AMBER, linewidth=1.1, zorder=4))
+    # the other state of the same band: centred placeholder label
+    ax.add_patch(Rectangle((-R(250) / 2, cy - lh / 2 - R(6)), R(250),
+                           lh + R(12), facecolor="none", edgecolor=GRAY,
+                           linestyle=(0, (4, 3)), linewidth=0.9, zorder=5))
+    ax.text(0, cy, "SCANNING", fontsize=6.2, color=GRAY, ha="center",
+            va="center", zorder=6)
+    exit_button(ax, panel, False)
+    if annotate:
+        # legend block above the glyph's top arc (S3 column only)
+        ly = uipx(186, panel)
+        for i, (txt, col) in enumerate((
+                ("roller 430 (knob 300) @ (0, +18) · rows 3 (knob 4)"
+                 " · h = rows × 51/77/39", BLUE),
+                ("centred: 14 chars + '+' uppercased · ' −54DBM'"
+                 " · cursor SELECTED white", AMBER),
+                ("dashed SCANNING/NO APS = roller hidden, same band (y +18)",
+                 GRAY))):
+            ax.text(0, ly + i * R(16), txt, fontsize=4.8, color=col,
+                    ha="center", va="center", zorder=5)
+
+
 def main() -> None:
-    fig, axes = plt.subplots(3, 3, figsize=(11.0, 11.0))
+    fig, axes = plt.subplots(4, 3, figsize=(11.0, 14.7))
     rows = ((draw_settings_time, "settings-time"),
             (draw_pomodoro, "pomodoro"),
-            (draw_roller_family, "single-roller family"))
+            (draw_roller_family, "single-roller family"),
+            (draw_wifi, "settings-wifi"))
     for row, (fn, title) in enumerate(rows):
         for col, (panel, size) in enumerate(PANELS):
             ax = axes[row][col]

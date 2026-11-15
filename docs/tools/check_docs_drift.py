@@ -29,6 +29,11 @@ Checks
    and, where ✓, the knob raw panel; — rows must not embed them).
 5. ``docs/verification/binary.rst`` current-size rows vs the bytes on
    disk (skipped, not failed, when a build tree is absent).
+6. every committed figure under ``docs/_graphs`` and
+   ``docs/_static/figs`` is embedded on at least one RST page — the
+   figure twin of the screenshot orphan scan in check 4 (the partition
+   layout strips sat in ``_graphs/`` referenced by no page until this
+   check existed).
 
 Exit 0 = no drift; exit 1 = drift (each line printed as ``DRIFT:``).
 
@@ -399,9 +404,28 @@ def check_binary_sizes() -> None:
                   f"that number appears nowhere on the page")
 
 
+def check_figure_orphans() -> None:
+    """Every committed figure/graph is embedded on at least one page.
+
+    The figure twin of the screenshot orphan scan in check_ui_matrix:
+    the three partition layout strips sat in ``_graphs/`` with no page
+    embedding them (same class as the ``img/nasa`` crops the answer-key
+    pass found). A figure nobody includes is not documentation — it is
+    a file with a ``.dot`` extension."""
+    pages = "\n".join(p.read_text() for p in DOCS.rglob("*.rst")
+                      if "_build" not in p.parts and ".venv" not in p.parts)
+    for d in (DOCS / "_graphs", DOCS / "_static" / "figs"):
+        for art in sorted(d.iterdir()):
+            if art.suffix.lower() not in (".dot", ".svg", ".png"):
+                continue
+            if art.name not in pages:
+                drift(f"{d.relative_to(DOCS) / art.name}: committed but "
+                      f"embedded on no page")
+
+
 def main() -> int:
     for fn in (check_kconfig, check_moon_consts, check_partitions,
-               check_ui_matrix, check_binary_sizes):
+               check_ui_matrix, check_binary_sizes, check_figure_orphans):
         fn()
     for d in drifts:
         print(f"DRIFT: {d}")

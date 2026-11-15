@@ -1,0 +1,53 @@
+// The clock demo tour (UI_DEMO_MODE): the phase machine of demo.c and
+// what actions.c suppresses while it runs.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph demo_tour {
+    label="The clock tour: demo.c's phase cycle — every tap is the REAL touch path; the alarm rings LAST (8cc3fe4)";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    rankdir=LR;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    arm    [label="arm\narmed on schedule (the boot-animation\ngate retired 2026-11-13), then the tour\ntakes over until reset",
+            fillcolor="#e8e8e4"];
+    moons  [label="moons\nthe five moon screens on a rotation:\nmodem-sleep, WiFi, light-sleep,\ndeep-sleep, alarm (s_moon_order)",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hub    [label="hub_walk\nscripted tap list: home → hub →\nevery icon → exits (dwell per step)",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wifi   [label="wifi\nhub WiFi icon → settings wifi →\nscan → the AP roller row",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wheel  [label="wheel\nthe keyboard drive + register tour\n(ABC + A, 123 + 1, back to abc)\nDISCARD only — never commits a credential",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    back   [label="back\nwifi exit → hub exit → home",
+            fillcolor="#e8e8e4"];
+    home   [label="home\nlands home; drains an owed\non-demand sync first",
+            fillcolor="#e8e8e4"];
+    roll   [label="roll\nthe synthetic tilt script\n(clock orientation roll)",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    sync   [label="sync\none bounded on-demand sync\n(home_drain_sync, 45 s cap)",
+            fillcolor="#e8e8e4"];
+    alarm  [label="alarm — LAST\nthe real ring script; dismiss is the\nreal action_wake_screen flow, then\nthe wake-sync drain closes the cycle",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    arm -> moons -> hub -> wifi -> wheel -> back -> home -> roll -> sync -> alarm;
+    alarm -> moons [color="#b07d10", fontcolor="#6b4e08", label="s_cycle++ · moon index reset —\nthe ring+wake stall window\nstays at the cycle's tail"];
+
+    subgraph cluster_suppress {
+        label="suppressed while the tour runs (actions.c gates on action_demo_active)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        idle [label="the idle lifecycle belongs to the tour —\nmonitor switched off at ARM, idle timer\nheld every second; monitors do not re-arm\n(boot replay shares that gate)"];
+        deep [label="the deep-sleep transition returns\nearly (and disarms the source countdown)"];
+        alarmgate [label="scheduled alarms dropped in\naction_alarm_triggered — the alarm\nphase rings deliberately via\naction_demo_allow_alarm(true)"];
+        handoff [label="sync-done airplane hand-off skipped\n— the flag stays unclaimed until the\ntour claims it (action_sync_demo_done)"];
+        hourly [label="the hourly sync trigger is skipped —\nno yanking the script away mid-take"];
+        fmt [label="the shared clock widget shows MM:SS\n(a live odometer for the recording)"];
+    }
+}

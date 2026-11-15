@@ -164,6 +164,8 @@ every N seconds while the home is active and not idle — acceptance for
 the fade/produce/show legs (cold card = miss + bake + store; warm card =
 fetch), without waiting on a real hour boundary.
 
+.. _calcver-keying:
+
 The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
 .....................................................................
 
@@ -237,7 +239,10 @@ frame) plus a single in-flight frame (the producer waits for the tick
 to consume the show flag; every wait is bounded so a paused tick can
 never wedge it). ``UI_MOON_REPLAY_BUDGET_MS`` bounds the whole
 animation — overrun stops the **animation**, never the moon: the
-final leg still bakes and shows the current phase.
+final leg still bakes and shows the current phase. The pacing
+arithmetic — the ``1000/REPLAY_FPS`` floor, the observed ~6 fps drain,
+the 709-file cap and the budget — is plotted in
+:doc:`the performance comparison <../verification/performance>`.
 
 The **final leg** is the "during re-calculation" half: the current
 phase is live-computed on the same task (classify + event LUT +
@@ -316,7 +321,7 @@ on 2026-11-14 is a different animal: the boot replay (*above*) plays
 bake — and ends on the newest stored hour plus the computed now-frame,
 not on a computed montage endpoint. ``new_moon_epoch`` lives again in
 that service (the cache policy's new-moon floor, not a sweep span); the
-sweep itself is gone. The knob companion followed on 2026-11-14,
+sweep itself is gone. The knob sibling followed on 2026-11-14,
 retiring its own cold-boot sweep, and with no SD socket it boots to the
 single static frame — its first bake revealed row by row over the boot
 black (:doc:`the bake reveal <bake-reveal>`, :doc:`the knob

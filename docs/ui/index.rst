@@ -203,8 +203,9 @@ Menu geometry, computed per variant
 -----------------------------------
 
 The menu surfaces that carry real *geometry* beyond the ring are the
-wheel keyboard, the alarm-time day band and the five roller screens
-(settings-time, pomodoro, and the single-roller family). Like the hub
+wheel keyboard, the alarm-time day band and the six roller screens
+(settings-time, pomodoro, the single-roller family, and the Wi-Fi scan
+list). Like the hub
 ring (:doc:`settings-hub <settings-hub>`), their layout is not
 hand-placed figures but pure ``UI_PX()`` arithmetic in
 :doc:`../code/index` (``components/ui/screens.c``) — so the figures
@@ -237,24 +238,38 @@ hub-ring companion is ``gen_hub_ring.py``, the dial-disk one
    1:1 numbers; P4 and knob scale every radius through ``UI_PX``.
 
 .. figure:: ../_static/figs/roller_screens.png
-   :alt: settings-time, pomodoro and the single-roller family geometry, computed per panel
+   :alt: settings-time, pomodoro, the single-roller family and the Wi-Fi scan list geometry, computed per panel
    :figclass: align-center
 
-   The roller family — every roller is one visible row (the roller *is*
-   the value display). Top: :doc:`settings-time <settings-time>` — the
+   The roller family — the settings rollers are one visible row (the
+   roller *is* the value display); the Wi-Fi roller is the exception.
+   Top: :doc:`settings-time <settings-time>` — the
    time row (two 140×110 boxes, 96 px font) at ±75/−30 with the `:` at
    centre, the date row (three 60×70 boxes, 48 px font) at ±75/0 with
-   the dots at ±37, caption at y −110. Middle:
+   the dots at ±37, caption at y −110. Second:
    :doc:`pomodoro <settings-pomodoro>` — the twin rollers at the home
    clock's glyph centres (−80/+70, −23, same pattern as the alarm-time
-   band's screen above), caption at y −100. Bottom: the
+   band's screen above), caption at y −100. Third: the
    single-roller family (:doc:`light-sleep <settings-light-sleep>` and
    :doc:`deep-sleep <settings-deep-sleep>` at 210, :doc:`timezone
    <settings-tz>` at 380, :doc:`alarm sound <settings-alarm-sound>` at
    260 plus the 100×100 preview button at +150) — all three shown
    true-centred at once for width comparison; each device screen shows
-   only its own roller. The exit button (90, −34) is the shared
-   sub-screen furniture on every one of these screens.
+   only its own roller. Bottom: the :doc:`Wi-Fi scan list
+   <settings-wifi>` — the family's ONE NORMAL-mode roller (the user's
+   2026-11-10 "make the network selection a lv_roller", 2026-11-11
+   family-wide): 430 wide (knob 300) at (0, +18), three visible rows
+   (the knob's four — the reason it was asked for at 360 px), its
+   height being lv_roller.c's ``rows × line-height`` of the tier's
+   SSID face (51/77/39 → 153/231/156). Entries are centred, truncated
+   to 14 chars + a '+' with the " −54DBM" tail, and the cursor is
+   simply the SELECTED white entry (amber frame, no box). The dashed
+   SCANNING / NO APS FOUND label shares the exact band and is the
+   roller's only co-occupant — the pair toggles, since a one-option
+   NORMAL roller pins its single row to the window top (which read as
+   "not centred", user 2026-11-11). The wifi glyph sits at y −150 and
+   the NETWORKS title (32 px face) at y −84. The exit button (90, −34)
+   is the shared sub-screen furniture on every one of these screens.
 
 .. toctree::
    :maxdepth: 2

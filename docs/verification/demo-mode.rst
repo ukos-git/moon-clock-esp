@@ -136,6 +136,11 @@ disarm the user's alarms). The tour's edits are bounded to the
 pomodoro/real-alarm entry screens, which only re-seed their rollers'
 current values.
 
+The whole cycle as one picture — ``demo.c``'s phase machine, its two
+safety rails, and the action-layer gates beneath it:
+
+.. graphviz:: ../_graphs/demo-tour.dot
+
 Suppression while the tour runs
 --------------------------------
 

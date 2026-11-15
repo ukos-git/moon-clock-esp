@@ -105,7 +105,7 @@ The device pipeline
   cycle's hour list replayed as the same tick-displayed frames —
   always ending on the live full-resolution final bake. Its COMPUTED
   animation stayed removed (every wake is static; with
-  ``UI_MOON_BOOT_REPLAY=n`` so is boot); the knob companion followed
+  ``UI_MOON_BOOT_REPLAY=n`` so is boot); the knob sibling followed
   on 2026-11-14, retiring its own cold-boot sweep. What returned on
   2026-11-14 is the **boot replay** — pure playback of stored frames,
   no per-frame bake

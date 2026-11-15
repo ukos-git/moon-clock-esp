@@ -13,7 +13,9 @@ font's and clipped the window to ~1.5 rows); and the clocks widen the
 roller to ``UI_PX(430)`` (the round panel's chord at the list's band)
 where the knob keeps its ``UI_PX(300)``. Visible rows: 4 on the knob,
 3 on the clocks (the bigger face, the same band between title and the
-bottom-centre exit).
+bottom-centre exit). The computed per-panel geometry — roller box,
+cursor row and the placeholder's shared band — is the bottom row of
+:doc:`the UI index <index>` (``docs/tools/gen_roller_screens.py``).
 
 .. figure:: ../img/screens/annot/settings-wifi_s3.png
    :alt: the network list — the S3 panel (466, annotated)

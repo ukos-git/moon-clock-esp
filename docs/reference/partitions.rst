@@ -13,14 +13,33 @@ keeps the default ``partitions.csv``. (The ``partition_table``
 component's project hook re-derives ``PARTITION_CSV_PATH`` from the
 Kconfig values, clobbering any plain ``set()`` in CMake —
 :doc:`the build system <build-system>`.) Consumers find every
-partition by *label*, not offset, so the two tables are otherwise
+partition by *label*, not offset, so the three tables are otherwise
 free to differ in size.
+
+Each table is shown twice: the row listing — kept honest against its
+CSV by :doc:`the drift gate <build-system>` — and the same rows as a
+layout strip in flash order.
+
+S3 — ``partitions.csv``
+-----------------------
 
 .. include:: _fragments/partitions-s3.inc
 
+.. graphviz:: ../_graphs/partition-s3.dot
+
+P4 — ``partitions_p4.csv``
+--------------------------
+
 .. include:: _fragments/partitions-p4.inc
 
+.. graphviz:: ../_graphs/partition-p4.dot
+
+knob — ``knob/partitions.csv``
+------------------------------
+
 .. include:: _fragments/partitions-knob.inc
+
+.. graphviz:: ../_graphs/partition-knob.dot
 
 The two data partitions in the build
 ------------------------------------

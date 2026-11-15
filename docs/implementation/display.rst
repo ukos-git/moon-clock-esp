@@ -400,6 +400,11 @@ release stamped 4000 ms tail → OFF with repaint queued — zero
 hook's own earlier "LVGL task wedges" reading was traced to a
 uint32 countdown underflow in the test hook, not to the panel path).
 
+The lifecycle as one picture — arm on the kickoff, release on the
+radio session, the screen itself touching neither end:
+
+.. graphviz:: ../_graphs/scan-panel-hold.dot
+
 The class's fifth member sits *above* the seam, where no hold can
 reach it: LVGL's own flush wait. ``wait_for_flushing`` is a
 non-yielding ``while (disp->flushing);`` spin on whichever task enters
