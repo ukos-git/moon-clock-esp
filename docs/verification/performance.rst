@@ -1969,6 +1969,100 @@ these legs), what one interrogation costs on the panel bus is
    leg × board — filled dots carry the count, open dots mark the
    parsed zeros, ``×`` marks the legs the board does not build at all.
 
+.. _certainty-ladder-perf:
+
+The certainty ladder (what each of the thirteen costs the finger, and buys against error)
+------------------------------------------------------------------------------------------
+
+**The short version.** Every ladder above prices the machine that
+shipped — the tap ladder priced the wheel that won the study. None has
+priced the **twelve counterfactuals**: what the methods the round
+keyboard lab rejected or deferred would have cost the finger and
+bought against error, on the corpus's published numbers. The ladder
+makes the study's own trade visible — **certainty over speed** — as
+one ratio: the wheel's wall-clock entry bill (the report's own
+back-of-envelope, 16 characters in 30–60 s ⇒ **16–32 CPM**) pays
+roughly **6.5×** against the corpus's fastest published class (watch
+trace, 29–33 WPM ⇒ 145–165 CPM) and roughly **4.0×** against watch
+QWERTY tap (18–20 WPM ⇒ 90–100 CPM), and buys the one property no
+measured method has — a double-entry that is structurally impossible
+(release-only commit). Every bar is parsed at figure time from three
+tracked sources: the dated record
+(``docs/research/circular-keyboard-alternatives.md`` — the 18–20/14–15
+pair, the trace 29–33, the Crownboard 2.3 %/0.53 % pair, the
+37,370-volunteer 36.2 WPM/2.3 % phone anchor, the CHI 2025 dwell
+ceiling, the in-car "> 94 % for all methods", the 0.7–1.5 s motion
+pair and its wall-clock pair, the A–M table whose verdict cells colour
+the bars); the operable record (the lab's ``CARDS``/``OFF`` tables,
+ranked and classed, their Speed rows re-checked against the report's
+own numbers, the widget timings ``const T = 700`` / ``< 400`` /
+``>= 400`` / ``/ 1000`` re-read, the ring geometry
+``LARC = 360 / 26`` re-derived into the 27.7°/41.5° spans); and the
+shipped wheel (``WHEEL_SHARE``, the twelve groups name-for-name, the
+25/25 registers, and the in-tree 400 ms dwell
+``CONFIG_LV_INDEV_DEF_LONG_PRESS_TIME`` seeding ``lv_indev.c``). The
+fidelity notes the docs pages owe the frozen mocks are asserted
+**together** with the firmware's pairing comment — the lab card and
+widget still draw ⊗/trash while ``screens.c`` records the 2026-11-08
+move to check-commit/xmark-discard, and the ladder refuses to draw
+while the RST notes and the firmware comment disagree about it.
+
+What the bars say. The wheel's bar is a wall-clock band with two
+hatched ghosts that are never summed into it: its own **motion-only
+floor** (0.7–1.5 s per commit before aim and settle ⇒ 40–86 CPM — what
+real glass *could* lift it toward, which is exactly the pending
+device check) and the phone anchor (36.2 WPM ⇒ 181 CPM, the 2D
+ceiling when a panel can host a QWERTY — the finding-7 counter-
+evidence, which this 35 mm disk cannot). An open circle marks the
+report's own **"4–8 CPM" slip**: it implies 7.5–15 s per commit and
+follows from neither of the report's own pairs (both pages now carry
+the corrected arithmetic, and the parser dies if the gloss ever
+becomes consistent upstream). The three SHIPs each trade a different
+piece of the certainty: multi-tap keeps the 30° target but drops the
+live preview (40–60 CPM, strictly between the wheel's bill and the
+tap band); dwell keeps the preview and pays the CHI 2025 **ceiling**
+(100 CPM — drawn inside the watch-tap band, asserted); auto-scan keeps
+the certainty but serialises on the scan **floor** (60 CPM) and carries
+the corpus's best measured errors (0.53–2.3 %, Crownboard). The right
+panel prices the error side: the wheel's diamond is a **structural
+zero** (double-entry impossible; no real-glass benchmark exists —
+the honest cell is the italic, not a number), QWERTY carries its
+14–15 % WER band, and every method the corpus never measured is an
+open circle with its parsed reason — including the IMU twist ("a
+twist *is* a roll change") and the T9 decode ("passwords defeat the
+word list"). The in-car study's "> 94 %" accuracy note is the panel's
+footer, not a row: accuracy was never the differentiator — the dial's
+case is glance and distraction. And the two context ghosts (phone 2.3
+%, handwriting 25 % WER) are never summed into a row's evidence.
+
+.. figure:: ../_static/figs/perf_certainty.png
+   :alt: the thirteen keyboard methods on two log axes — characters per minute per method on the left with hatched ghosts for the motion floor and the phone anchor, published error percentages on the right with the wheel's structural zero and open circles for every parsed no-number row
+   :figclass: align-center
+
+   The certainty ladder. **Left:** characters per minute per method on
+   one log axis, bar colour = the recorded verdict (KEEP blue, SHIP
+   green, HOLD amber, REJECT red, EXPERIMENTAL violet, v2 BOARD teal,
+   INFEASIBLE grey), range bars for measured bands, an edge tick for
+   the scan floor and the dwell ceiling, open dotted stubs with italic
+   reasons for the zero rows, and three ghosts that are never summed
+   in — the wheel's 40–86 CPM motion floor, the phone's 181 CPM, and
+   the report's 4–8 CPM slip as an open circle. **Right:** the same
+   thirteen on published accuracy evidence (log %) — filled dots and
+   bars for measured figures, the wheel's diamond for the structural
+   zero, open circles with parsed reasons where the corpus never
+   measured, grey ``×`` for the off-hardware cards.
+
+The generator is ``docs/tools/gen_perf_certainty.py``. What this
+ladder does NOT count: the shipped wheel's per-tap bill and the 63/64
+cap pair (:ref:`the tap ladder <taps-ladder-perf>`), what the wheel's
+150 objects cost at boot (:ref:`the assembly ladder
+<assembly-ladder-perf>`), who vouched for whom and which constraint
+struck whom down (:ref:`the thirteen in one picture
+<thirteen-sketch-lab>`), and the wheel's own commit machine
+(:doc:`the round keyboard <../keyboard>`). The literature rows it
+converts are the HCI shelf of :doc:`the sources page
+<../reference/sources>`.
+
 The performance decisions, ranked
 ---------------------------------
 

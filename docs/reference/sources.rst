@@ -63,6 +63,12 @@ The HCI literature (the keyboard's citations, :doc:`the round keyboard <../keybo
 - The full source list (37 entries, with URLs) is at the end of
   ``docs/research/circular-keyboard-alternatives.md``.
 
+Who each of these vouched for, and which hardware constraint struck
+whom down, is drawn in :ref:`the thirteen in one picture
+<thirteen-sketch-lab>`; their speed and error figures, converted to
+characters per minute and recomputed at figure time, are
+:ref:`the certainty ladder <certainty-ladder-perf>`.
+
 The tools the numbers came from
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

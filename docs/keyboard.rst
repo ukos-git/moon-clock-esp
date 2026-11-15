@@ -11,7 +11,10 @@ functionality, every geometry decision, the LVGL gotchas it cost, and
 the uisim verification. The full alternatives study — the 13
 considered methods, each in its own operable 1:1 widget with its pros
 and cons — is :doc:`the round keyboard lab <keyboard-lab>`; this page
-carries only the one that won.
+carries only the one that won. The study's whole field — who vouched
+for each method, which constraint struck whom down, and what the wheel
+*kept* — is drawn in one picture at
+:ref:`the thirteen in one picture <thirteen-sketch-lab>`.
 
 The design goal
 ---------------
@@ -34,9 +37,15 @@ a deliberate commit is the only family left.
 The operable wheel
 ------------------
 
-The widget below is the shipped wheel at true 1:1 scale — the same
-SVG geometry as the lab's panel #1 (the 466×466 panel, the AMOLED
-palette), operable in the browser: press a sector, sweep, release.
+The widget below is the shipped wheel's *interaction* at true 1:1
+scale — the same SVG geometry as the lab's panel #1 (the 466×466
+panel, the AMOLED palette), operable in the browser: press a sector,
+sweep, release. One fidelity note before you press: its bottom band is
+**frozen at the 2026-11-02 proposal** — ⊗ commit, trash discard, the
+lab's pairing — while the firmware has drawn the house circle-**check**
+COMMIT and circle-**xmark** DISCARD since 2026-11-08
+(``screens.c:1806``; the uisim captures further down are the real
+thing).
 
 .. raw:: html
 
@@ -154,7 +163,10 @@ upper) because it matters for passwords. The whole keyboard's cost
 against the password — taps to enter *N* characters, the 63/64 cap
 pair, all parsed at figure time — is plotted as :ref:`the tap ladder
 <taps-ladder-perf>` in :doc:`the performance page
-<verification/performance>`.
+<verification/performance>`. What the twelve counterfactuals the lab
+weighed would have cost the same finger — the corpus's published speed
+and error, converted and computed at figure time — is
+:ref:`the certainty ladder <certainty-ladder-perf>` on the same page.
 
 Bottom band — commit / discard
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

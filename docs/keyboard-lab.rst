@@ -103,6 +103,32 @@ The load-bearing findings:
    enough to make a compact QWERTY worth a real benchmark on a future
    board — noted, not done.)
 
+.. _thirteen-sketch-lab:
+
+The thirteen in one picture
+---------------------------
+
+The sections below walk the methods one at a time; the sketch is the
+field they live in — drawn straight out of the three tracked sources
+this page must agree with: the research report's comparison table
+(``docs/research/circular-keyboard-alternatives.md``), the lab's own
+``CARDS``/``OFF`` tables
+(``docs/_static/keyboard/round-keyboard-lab.html``), and the shipped
+wheel (``components/ui/screens.c``). Steel-blue arrows are the
+literature vouching for a method — venue, year and headline number on
+the wire, not in the node. Dashed red arrows are a hardware constraint
+striking a method down, the reason on the wire. The violet dashed
+arrows are what the shipped wheel *kept* from the alternatives it
+rejected: multi-tap's coarse press, the glide's double-entry mode made
+structurally impossible, the dwell's 400 ms hedge (the in-tree
+``LONG_PRESSED`` the centre back-hold already runs). Every verdict
+colour is the recorded verdict; the three claims under the graph are
+the page's own. The same facts computed — each published WPM and every
+back-of-envelope second converted to characters per minute at figure
+time — is :ref:`the certainty ladder <certainty-ladder-perf>`.
+
+.. graphviz:: _graphs/keyboard-lab.dot
+
 The operable lab — every panel in its own widget
 ------------------------------------------------
 
@@ -151,7 +177,11 @@ to their letter groups (every letter owns an equal 360/26 of the
 ring), a reveal that on touch-down shows only the pressed sector's
 options on one radius, a DTMF-style centre preview of the selected
 letter, and release-only commit. Four 60° shift keys on the top arc,
-⊗ commit and trash discard in the bottom 120°, centre tap = backspace.
+⊗ commit and trash discard in the bottom 120° (the mock's pairing,
+frozen at the proposal — the firmware has since paired the
+circle-**check** with COMMIT and the circle-**xmark** with DISCARD,
+2026-11-08, ``screens.c:1806``; see :doc:`the round keyboard
+<keyboard>` for the shipped bottom band), centre tap = backspace.
 
 **Pros.** Coarse targets — the 27.7°/41.5° sectors are well above a
 fingertip; the reveal's equal-share boxes make the pick unambiguous;
@@ -161,8 +191,14 @@ grouping is fixed across all four registers so the finger's sector
 boundaries never move; a few hundred LOC over the existing ring
 geometry.
 
-**Cons.** The slowest absolute entry of the operable panels (0.7–1.5
-s/char, estimated 4–8 CPM — the "certainty over speed" price); the
+**Cons.** The slowest absolute entry of the operable panels (the
+"certainty over speed" price) — and the report prices it two ways that
+do not meet: its wall-clock pair, a 16-character password in 30–60 s,
+is **16–32 CPM**, while the 0.7–1.5 s it gives per commit *motion*
+alone implies a **40–86 CPM** floor; the lab card's "4–8 CPM" gloss
+follows from neither (it would mean 7.5–15 s per commit) and is quoted
+here only as the report's own — the arithmetic is re-derived, bars and
+all, on :ref:`the certainty ladder <certainty-ladder-perf>`); the
 sweep's feel on the CST9217's real glass is the pending device check;
 while pressed, the entry text is replaced by the preview (it re-
 appears on release).
