@@ -37,3 +37,6 @@ docs/tools/scratch/
 # bench recording takes (video.mp4 + serial logs + frames + montages;
 # the harness itself in bench/record_demo.py IS tracked)
 bench/recordings/
+
+# resident crash-catch daemon logs (live files, not evidence)
+.debug-sleep/crashlog/
