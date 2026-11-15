@@ -54,14 +54,18 @@ system, build steps) **update the site** — do not let it drift:
    and `--target p4` and `--target knob` (the gate exits 2 on a stale sim
    binary built against the other target's texture).
 3. If the change alters an animation, regenerate the videos:
-   `python3 docs/gen_media.py` (needs `host_sim/.venv`, PIL, ffmpeg).
+   `python3 docs/gen_media.py` (needs `host_sim/.venv`, PIL, ffmpeg; the fade
+   film is pinned to the S3 466 uisim set — run `host_sim/uisim/build.sh run`
+   first, or run the `media` builder with `MEDIA_VIDEOS=1`, which does exactly
+   that in the right pipeline slot).
 4. Verify clean: `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`
    must finish with **0 warnings** (the `moonmedia` staleness check warns at
-   build time if a committed screenshot is missing or older than its render
-   inputs), and `docs/.venv/bin/python docs/tools/check_docs_drift.py` must
-   exit **0** — it is the drift gate for the hand-kept-in-sync single-sourced
-   fragments (Kconfig/consts/partitions), the UI reachability matrix and its
-   screenshots, and the binary-size rows. Commit docs with the code change.
+   build time if a committed screenshot or film is missing or older than its
+   render inputs), and `docs/.venv/bin/python docs/tools/check_docs_drift.py`
+   must exit **0** — it is the drift gate for the hand-kept-in-sync
+   single-sourced fragments (Kconfig/consts/partitions), the UI reachability
+   matrix and its screenshots, and the binary-size rows. Commit docs with the
+   code change.
 
 ## Hard invariants (violations ship visible bugs)
 

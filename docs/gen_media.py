@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate the docs media: the fade-to-black screen-switch film (from uisim
-screenshots) plus the NASA gate reference frames.
+screenshots).
 
 The only animation left on the home is the fade-to-black screen switch (the
 spin / boot-sweep / dusk films were retired with their subsystems
@@ -11,7 +11,13 @@ Outputs (committed):
                             settings hub: fade out, load, fade in -- the
                             UI_SCREEN_SWITCH_FADE legs, one whole-panel
                             flush per step)
-  docs/img/nasa/            sample NASA SVS 5415 reference frames
+
+The committed docs/img/nasa/ set is NOT generated here -- it is curated
+verification art from docs/tools/gen_nasa_quarters.py + the gate's
+nasa_figs.py (the 33946fe answer-key pass). This script's old
+glob-and-rename copy of that step wrote differently-named frames no page
+embeds while clear()-ing the curated ones the pages do embed; /qa
+2026-11-15 detonated it on a film regen, so the step is gone.
 
 Frame PNGs land in docs/img/frames/ (gitignored). Needs: uisim screenshots
 (host_sim/uisim/build.sh run), PIL, ffmpeg.
@@ -29,7 +35,6 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 FR = REPO / "docs" / "img" / "frames"
 OUT = REPO / "docs" / "img"
 UISIM = REPO / "host_sim" / "uisim" / "out"
-NASA = REPO / "assets" / "images" / "moon" / "final_400x400"
 
 
 def run(cmd):
@@ -66,14 +71,24 @@ def main():
     #    leg is screen * (1 - s/12) and of the IN leg screen * (s/12) --
     #    exactly a linear blend toward/away from black, which is what we
     #    synthesize here (12 steps = FADE_STEPS; held frames pad the film
-    #    to a readable 8 fps). The device's orientation pipeline rotates
-    #    every screen +90 deg CW (the base mount offset), so both frames
-    #    are rotated the same way first.
+    #    to a readable 8 fps). The frames go in exactly as uisim renders
+    #    them -- upright, like every docs screenshot. The old uniform
+    #    -90 deg mount compensation retired with the orientation pipeline
+    #    it compensated; keeping it now would bake BOTH ends sideways
+    #    (/qa 2026-11-15: the committed film predated that retirement
+    #    and shipped its outgoing screen baked in sideways).
     print("== fade-to-black switch ==")
     frm = Image.open(UISIM / "modem_sleep.png").convert("RGB")
     to = Image.open(UISIM / "settings_hub.png").convert("RGB")
-    frm = frm.rotate(-90, expand=False)
-    to = to.rotate(-90, expand=False)
+    # out/ is shared by all three uisim panels -- the LAST --panel run
+    # wins. The film is pinned to the S3 466 set (the fade's board of
+    # origin; the moonmedia builder runs this step while out/ still
+    # holds the S3 frames). A mixed or wrong-panel out/ fails here
+    # instead of silently baking the wrong film.
+    if frm.size != to.size or to.size != (466, 466):
+        sys.exit("uisim out/ is not the S3 466 set (modem_sleep "
+                 f"{frm.size}, settings_hub {to.size}) -- run "
+                 "`host_sim/uisim/build.sh run` (default panel) first")
     W, H = to.size
 
     def scale(img, f):
@@ -101,17 +116,6 @@ def main():
         to.save(d / f"sim.{k:04d}.png")
         k += 1
     encode("fade", 8, d / "sim.%04d.png", OUT / "fade.mp4", size=W)
-
-    # 2. NASA sample frames (the gate's reference set; a few for the docs).
-    print("== NASA sample frames ==")
-    nd = OUT / "nasa"
-    clear(nd)
-    frames = sorted(NASA.glob("moon.*.png"))
-    pick = [0, len(frames) // 4, len(frames) // 2, 3 * len(frames) // 4, len(frames) - 1]
-    for idx in pick:
-        dst = nd / f"nasa_{idx:05d}.png"
-        shutil.copy(frames[idx], dst)
-        print(f"  {dst.name} <- {frames[idx].name}")
 
     print(f"done in {(datetime.datetime.now(datetime.timezone.utc) - t0).total_seconds():.0f} s")
 

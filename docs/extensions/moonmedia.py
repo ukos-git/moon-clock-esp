@@ -18,8 +18,10 @@ Two jobs:
 
 * a ``builder-inited`` staleness check for the normal builds: every
   committed screenshot (``docs/img/screens{,/p4,/knob}/*.png``), annotated
-  callout (``docs/img/screens/annot/*.png``) and device composite
-  (``docs/_static/photos/sim_*.png``) must EXIST and must not be OLDER
+  callout (``docs/img/screens/annot/*.png``), device composite
+  (``docs/_static/photos/sim_*.png``) and film (``docs/img/*.mp4``,
+  vs ``docs/gen_media.py`` + the uisim inputs) must EXIST and must not
+  be OLDER
   than the tracked sources it was rendered from (the UI sources, the
   font dirs, the uisim build inputs, the per-board moon texture). The
   docs must not silently show a stale UI — a drifted source trips a
@@ -191,6 +193,15 @@ def _stale_check(app):
     if photos_dir.is_dir():
         for png in sorted(photos_dir.glob("sim_*.png")):
             jobs.append((png, inputs))
+    # the committed films (docs/img/*.mp4): rendered by docs/gen_media.py
+    # from the uisim frames — the same staleness rule the screenshots
+    # live under. Regression: ISSUE-002 — found by /qa on 2026-11-15:
+    # fade.mp4 predated the orientation-pipeline retirement and shipped
+    # one end baked in sideways, with no gate noticing (its mtime sat
+    # untouched since 2026-11-07 while its inputs moved on).
+    gen_media = _DOCS / "gen_media.py"
+    for name in VIDEOS:
+        jobs.append((_DOCS / "img" / name, inputs + [gen_media]))
 
     problems: list[str] = []
     for out, deps in jobs:
@@ -298,6 +309,17 @@ def _media_pipeline(app) -> None:
     print("moonmedia: device composites (the S3 466 set)")
     _run([PY, "docs/tools/composite_dark.py"], "composite_dark.py")
 
+    # The mp4 set runs HERE, while out/ still holds the S3 466 frames:
+    # gen_media reads out/ directly and its film is pinned to that set.
+    # The old tail position ran after the P4/knob builds had replaced
+    # out/ (/qa 2026-11-15: the canonical builder would have fed the
+    # film knob frames; the pinned 466 check now catches that anyway).
+    if os.environ.get("MEDIA_VIDEOS"):
+        print("moonmedia: mp4 set (the S3 466 frames, before out/ moves on)")
+        _run([PY, "docs/gen_media.py"], "gen_media.py")
+    else:
+        print("moonmedia: skipping the mp4 set (set MEDIA_VIDEOS=1 to include it)")
+
     print("moonmedia: uisim P4 (720) — base screens")
     _run(["bash", "host_sim/uisim/build.sh", "run", "--panel", "720"], "build.sh run --panel 720")
     print("moonmedia: uisim P4 (720) — --wheel capture")
@@ -314,12 +336,6 @@ def _media_pipeline(app) -> None:
 
     print("moonmedia: annotations (both clock panels)")
     _annotate_all()
-
-    if os.environ.get("MEDIA_VIDEOS"):
-        print("moonmedia: mp4 set")
-        _run([PY, "docs/gen_media.py"], "gen_media.py")
-    else:
-        print("moonmedia: skipping the mp4 set (set MEDIA_VIDEOS=1 to include it)")
 
     print("moonmedia: done.")
 
