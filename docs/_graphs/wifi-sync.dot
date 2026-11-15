@@ -1,0 +1,64 @@
+// The transient WiFi screen's lifecycle: who shows it, what the
+// background task does off the UI task, and the one poll that drops
+// it back to airplane. Every edge verified in components/ui/actions.c
+// (action_start_wifi_sync :793, wifi_sync_task_fn :71, the ui-tick
+// hand-off :733, the hourly gate :940, the wake tail) and
+// components/ui/screens.c (tick_screen_wifi).
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wifi_sync {
+    label="The transient WiFi screen: three starters, one radio session on its own task, one UI-tick poll does the hand-off — the screen is never menu-reachable";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_starters {
+        label="the three starters (no menu entry exists — the screen is sync-transient)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        hourly [label="the HOURLY GATE (actions.c ~:940, minute tick):\nminute == 0 && !clock_is_idle() && !demo &&\n!connected && clock_sntp_needs_sync()\n(CLOCK_NTP_SYNC_INTERVAL_HOURS) &&\non the AIRPLANE screen — \"at rest\" only:\nnever wake a sleeper for a 30 s radio fetch,\nnever yank a settings session",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        wakep [label="the WAKE PATH (clocks): action_wake_screen\nends in action_start_wifi_sync when the RTC\nis due — the screen switch to WiFi rides the\nsame task, the sync itself never does"];
+        kb [label="the WHEEL KEYBOARD commit:\ncredentials written (wifi_credentials_write),\nthen the sync — the knob reaches the screen\nonly through these legs, never its\nbackground boot SNTP join (boot_arm_task\nshows nothing)"];
+    }
+
+    start [label="action_start_wifi_sync (:793) — re-entry\nguard s_wifi_sync_running; clock_idle_set_enabled\n(false) (no sleep transition may race the sync\ntask's init with its deinit); loadScreen(WIFI)\n+ ui_tick; moon_ui_panel_dim_ramp(100) (the\nboth-moon switch has no fade-in to un-dim);\nmoon_ui_panel_traffic_hold(true) BEFORE the\nstorm; kickoff spawns the task (6144 B, prio 10)",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    shown [label="the WiFi screen is up: moon (SHARED image with\nairplane — the switch is the atomic flush),\nclock widget reparented, seconds arc, and the\nwifi glyph grey = still connecting;\ntick_screen_wifi flips it WHITE on\nwifi_manager_is_connected() — a state compare,\nnot a per-tick style set",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    task [label="wifi_sync_task_fn ON ITS OWN TASK — the\n1.7 s wake-freeze fix: heap probe (task #29\nleak watch), wifi_manager_init, and\nonly if clock_sntp_needs_sync() the SNTP with\nCONFIG_CLOCK_NTP_TIMEOUT_MS (10 s) bound — an\nNTP failure keeps the RTC time and still lands\nairplane (both outcomes leave the screen)",
+           fillcolor="#efece4"];
+
+    airplane [label="airplane NOW inside the task: an ASSOCIATED\nstation keeps waking the modem for DTIM beacons\n(~300 ms) and that RX churn steals QSPI DMA\ncompletions on the S3 AMOLED (task #29) — so\nwifi_manager_deinit immediately, EXCEPT when\ninit deferred to an in-flight scan\n(ESP_ERR_INVALID_STATE: the scan owns the radio\n— ce26a83); then traffic hold released, the\ntail drains, the repaint rides the next tick",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    poll [label="the UI-tick hand-off (:733): !running && done &&\n!demo — the only thing that leaves the screen,\nno poller thread; the DONE flag is claimed here"];
+
+    idle_defer [label="...but asleep after the handshake: hand-off\nDEFERRED — the done flag is NOT claimed, the\nnext wake re-triggers the sync",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    demo_defer [label="...but demo mode: the flag stays UNCLAIMED\n(the demo's own SYNC phase takes it through\naction_sync_demo_done; the screen is handed off\nwhen the demo ends)",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    home [label="back on the airplane screen: loadScreen\n(MODEM_SLEEP) — one atomic flush (shared moon,\nno re-bake) + ui_tick; the idle ladder\nre-arms UNLESS moon_ui_replaying() (the boot\nreplay holds it and the tick's end leg re-arms\n— the P4's sync runs ~30 s through the boot)",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    hourly -> start [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    wakep -> start [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    kb -> start [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    start -> shown;
+    start -> task [style=dashed, label="spawns"];
+    task -> airplane [style=dashed];
+    task -> poll [style=dashed, label="done flags,\ntask deletes itself"];
+    shown -> poll [style=dashed, label="the 10 ms tick polls"];
+    poll -> idle_defer [color="#b07d10", fontcolor="#6b4e08", label="clock_is_idle()"];
+    poll -> demo_defer [color="#b07d10", fontcolor="#6b4e08", label="action_demo_active()"];
+    poll -> home [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="awake: drop the WiFi screen"];
+}

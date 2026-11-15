@@ -70,10 +70,11 @@ static const char *TAG = "knob_ui";
  * the brief full-square r 180 let the limb run past the arc). The
  * battery gauge and the gated progress row simply OVERLAP the black
  * surround (task #35, 2026-11-13 —
- * "the battery indicator should overlap"). Arc ink: mid radius
- * (360 - 2*UI_PX(10))/2 = 173 with the theme arc width 12 (DPX-15 at
- * dpi 130) centred on it -> ink 167..179; the clocks' limb-to-ink
- * gaps are 17 px (S3) / 14 px (P4). */
+ * "the battery indicator should overlap"). Arc ink: get_center's
+ * radius (360 - 2*UI_PX(10))/2 = 173 is the theme stroke's OUTER edge
+ * -- lv_draw_sw_arc bands INWARD from it -- so the 12 px stroke
+ * (DPX-15 at dpi 130) inks 162..173; the clocks' limb-to-ink gaps are
+ * 12 px (S3) / 9 px (P4). */
 #define MOON_SIZE KNOB_LCD_H_RES
 #define MOON_CX (KNOB_LCD_H_RES / 2)
 static float s_moon_r = 150.0f; /* legacy default; the shared seam centres it */

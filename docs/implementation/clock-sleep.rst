@@ -574,6 +574,34 @@ wakes on a sustained move *away from it* — the "the clock woke itself"
 bug class, fixed at the signal level rather than with a sleep
 debounce.
 
+The sleep ladder: awake → light → deep
+--------------------------------------
+
+**The short version.** Sleep is a ladder with two rungs and an
+independent countdown per rung. The idle timeout
+(``settings_idle_timeout_sec``, ``CLOCK_IDLE_TIMEOUT_SEC`` default
+60 s) drops the awake device onto the light-sleep screen — radio
+down, UI tick slowed to ``UI_LIGHT_SLEEP_TICK_MS`` (100 ms), the
+clock container at ``UI_CLOCK_ALPHA_PCT`` (20 %) over the 0x51 panel
+ramp to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %). The light-sleep **entry** is what
+arms the deep-sleep countdown (``settings_deep_sleep_countdown_sec``,
+``UI_DEEP_SLEEP_COUNTDOWN_SEC`` default 60 s) — sleep depth follows
+the RTC timer, never an animation (the retired dusk spin's ladder
+survived as exactly that line). The deep rung has two guards: demo
+mode refuses the transition and disarms the source, and the P4 with
+a pending alarm **stays on the lighter rung** (its deep state is
+app-level — no ``esp_deep_sleep`` — so the software one-shot could
+otherwise ring from the dark; the S3 needs no such guard, its
+PCF85063A ALM pin wakes the deep state for real). The knob runs the
+same ladder with hardware rungs: LEDC backlight dim (GPIO 47) for
+light sleep, ``esp_deep_sleep_start`` with an RTC TIMER wake for the
+deep one (:doc:`knob display <knob-display>`).
+
+The entry order, the arm-at-entry, both guards and the one wake tail
+that climbs back — drawn from the code:
+
+.. graphviz:: ../_graphs/sleep-entry.dot
+
 The wake paths
 --------------
 

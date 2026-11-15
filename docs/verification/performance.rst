@@ -506,6 +506,42 @@ ladder cannot drift from the firmware.
    reveal tick lands at exactly the 20 Hz the bake-reveal design
    specifies. The generator is ``docs/tools/gen_perf_pacing.py``.
 
+The brightness ladder (ramp vs single write)
+--------------------------------------------
+
+The third axis the sleep machine lives on is neither work nor
+frequency but the **panel's hardware brightness**: every state the
+display settles in is written through the one 0x51 family (the
+sanctioned ramp exception in :doc:`the display pipeline
+<../implementation/display>`), and the reader who knows the two
+rhythm families knows the whole sleep cost model. Same house rule as
+the pacing ladder — every value **parsed from the live sources** at
+figure time, including the ``UI_MOON_HOURLY_FADE_MS →
+UI_SCREEN_SWITCH_FADE`` symbol indirection:
+
+.. figure:: ../_static/figs/perf_dim.png
+   :alt: the brightness timeline with its 0x51 ramp steps, and time-to-target per transition on a log axis
+   :figclass: align-center
+
+   The brightness ladder. **Left:** the timeline awake → light sleep →
+   deep sleep → wake, plus the hourly refresh riding the same family
+   — the dim to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %) and the wake ramp
+   back are ``UI_SCREEN_SWITCH_FADE`` (240 ms) in ``FADE_STEPS`` (12)
+   discrete 0x51 writes 20 ms apart (dots on the ramps); the
+   light-sleep clock is *not* a panel write at all — it is the clock
+   container's ``UI_CLOCK_ALPHA_PCT`` (20 %) LVGL style opacity over
+   the already-dimmed panel; the deep entry is a SINGLE 0x51
+   (``moon_ui_panel_brightness_set(0)``, ~100 µs — one transaction per
+   ``fade_ramp``'s own comment, annotated not measured), and the two
+   hourly legs bracket the produce window whose duration is the
+   hourly-refresh figure's story, above. The dim ramp starts from the panel's
+   *tracked* level (``s_panel_pct``), which is the #34 rule: a
+   re-entry never flashes brighter first. **Right:** time-to-target per
+   transition on one log axis — the three ramps share the parsed 240
+   ms, the two single writes sit at the one-transaction floor, a
+   2400×-spread that is the design: brightness animates, pixels never
+   half-move. The generator is ``docs/tools/gen_perf_dim.py``.
+
 The device CPU (one-core shares)
 --------------------------------
 

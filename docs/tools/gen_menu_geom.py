@@ -19,14 +19,19 @@ Wheel keyboard (screens.c WHEEL_* defines + the design comment):
   (r cos a, -r sin a) in the y-up figure.
 
 Alarm-time screen (screens.c ALARM_TIME_* defines + the screen builder):
-  object 2(R+W) -> outer R = UI_PX(223), width UI_PX(10) (inner 213) —
-  the home seconds-arc ring · day handles (34 px circles) at r UI_PX(218)
-  on ALARM_DAY_ANG(d) = 181 + 30 d (d = Mon..Sun) · the dark track and
-  the re-seeded indicator run 181..1 (the 360/0 wrap) · the two time
-  rollers (140x110 boxes, the 96 px numbers font) centred at x −80/+70,
-  y −23 — the home clock's glyph centres — with the `:` at x −10 · the
-  "Mo-Fr" range summary at y −100 (NO date row on this screen: the
-  DD.MM.YY row lives on the settings-time screen, see
+  a PAD-0 466x466 arc — get_center's r = panel/2 is the stroke's OUTER
+  edge and the UI_PX(10) stroke is inked INWARD from it (band
+  224..233 at 466, TOUCHING the round rim — probed rows 0..9 of the
+  committed settings-alarm-time screenshots; NOT the home seconds
+  arc's pad-inset outer-223 ring, though the same thin-grey visual
+  language) · day handles (34 px circles) at r UI_PX(218) — centred
+  10 px under the band midline, so the disc pokes through both ink
+  edges — on ALARM_DAY_ANG(d) = 181 + 30 d (d = Mon..Sun) · the dark
+  track and the re-seeded indicator run 181..1 (the 360/0 wrap) · the
+  two time rollers (140x110 boxes, the 96 px numbers font) centred at
+  x −80/+70, y −23 — the home clock's glyph centres — with the `:` at
+  x −10 · the "Mo-Fr" range summary at y −100 (NO date row on this
+  screen: the DD.MM.YY row lives on the settings-time screen, see
   gen_roller_screens.py) · the bottom-centre exit button.
 
 Alarm-rules screen (create_screen_settings_alarm): the master
@@ -77,7 +82,7 @@ WHEEL_MODE_LO, WHEEL_MODE_HI = 84, 144
 WHEEL_MODE_MID, WHEEL_CENTRE_R = 114, 55
 SECTORS = [2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 3, 2]  # [ab][cd][ef]...[wy], sum 26
 SHARE = 360.0 / 26
-ALARM_R_OUT, ALARM_W, ALARM_HANDLE_R = 223, 10, 218
+ALARM_W, ALARM_HANDLE_R = 10, 218  # band width (UI_PX); handle centre radius
 ALARM_HANDLE_D = 34      # the day-handle circle's diameter (UI_PX(34))
 ALARM_ROLLER_W, ALARM_ROLLER_H = 140, 110  # the time rollers (96 px font)
 ALARM_HOUR_X, ALARM_MIN_X = -80, 70        # rollers' centres (home glyph centres)
@@ -213,7 +218,12 @@ def draw_wheel(ax, panel, annotate):
 
 def draw_alarm_band(ax, panel, annotate):
     R = lambda v: uipx(v, panel)
-    r_out, w = R(ALARM_R_OUT), max(R(ALARM_W), 2)
+    # pad-0 full-panel arc: get_center's r = panel/2 is the OUTER ink
+    # edge and the UI_PX(10) stroke is inked INWARD from it — the band
+    # reaches the rim (unlike the home seconds arc, pad UI_PX(10),
+    # outer 223)
+    w = max(R(ALARM_W), 2)
+    r_out = panel / 2
     # the dark full track 181..1 (the 360/0 wrap) and the indicator sample
     arc(ax, r_out - w / 2, w, 181, 361, LIGHT, alpha=0.9)
     arc(ax, r_out - w / 2, w, 181, 301, BLUE, alpha=0.85)  # Mon..Fri sample
@@ -246,10 +256,10 @@ def draw_alarm_band(ax, panel, annotate):
         ax.text(lx, ly, days[d], fontsize=6.0, color=GRAY,
                 ha="center", va="center", zorder=5)
     if annotate:
-        for r, label, a in ((ALARM_R_OUT, "223 outer", 236),
-                            (ALARM_HANDLE_R, "218 midline", 254),
-                            (ALARM_R_OUT - ALARM_W, "w = 10", 128)):
-            x, y = pt(R(r), a)
+        for r, label, a in ((panel / 2, "outer = panel/2", 243),
+                            (ALARM_HANDLE_R, "218 handles", 257),
+                            (panel / 2 - R(ALARM_W), "w = 10", 128)):
+            x, y = pt(r if r == panel / 2 else R(r), a)
             ax.text(x, y, label, fontsize=5.6, color=GRAY, ha="center",
                     va="center", zorder=5)
         x, y = pt(R(ALARM_HANDLE_R) - R(30), 181 + 30 * 2)

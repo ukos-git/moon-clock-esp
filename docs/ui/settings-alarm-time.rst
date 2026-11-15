@@ -1,7 +1,7 @@
 The real alarm (time + days)
 ============================
 
-The real alarm: the time rollers (minutes in **5-minute steps** — 10:03 is not a wake-up time) and the **day-range arc**. The arc is the upper half-circle (Monday left, Sunday right) — the same thin outer ring as the home screen's seconds arc (outer radius 223, 10 px from the panel edge; it clears the exit button's band). Day d (0 = Mon) sits at 181 + 30d degrees — the +1° offset keeps every stored arc angle off the 360/0 wrap edge. The dark track (``LV_PART_MAIN``) spans the whole arc; the moon-colour INDICATOR spans the two **draggable day handles** (the vendored arc is single-knob, so the range endpoints are plain objects on the ring, the arc itself non-clickable): a press snaps the handle to the nearest day under the touch point. The "Mo-Fr" range summary above the time carries the day meaning (the day letters are gone), so the ring can own the outer band.
+The real alarm: the time rollers (minutes in **5-minute steps** — 10:03 is not a wake-up time) and the **day-range arc**. The arc is the upper half-circle (Monday left, Sunday right) — a thin ring *right at the rim*: a pad-0 466×466 object, so get_center's radius is the panel half and the ``UI_PX(10)`` stroke is inked INWARD from it to 224..233 (it touches the round edge — unlike the home seconds arc, whose ``UI_PX(10)`` pad insets the stroke's outer edge to 223; it clears the exit button's band by a mile). Day d (0 = Mon) sits at 181 + 30d degrees — the +1° offset keeps every stored arc angle off the 360/0 wrap edge. The dark track (``LV_PART_MAIN``) spans the whole arc; the moon-colour INDICATOR spans the two **draggable day handles** (the vendored arc is single-knob, so the range endpoints are plain objects on the ring, the arc itself non-clickable): a press snaps the handle to the nearest day under the touch point. The "Mo-Fr" range summary above the time carries the day meaning (the day letters are gone), so the ring can own the outer band.
 
 .. figure:: ../img/screens/annot/settings-alarm-time_s3.png
    :alt: the real alarm (time + days) — the S3 panel (466, annotated)
@@ -35,12 +35,12 @@ Elements
 
    * - 1
      - Day arc — a press snaps to a day
-     - The upper half-circle track (r 213..223); the indicator (the moon grey) spans the handles. The arc is non-clickable — the presses land on the handles; a press anywhere snaps to the nearest day under the finger.
+     - The upper half-circle track (r 224..233 — the stroke inked inward from the panel half, touching the rim); the indicator (the moon grey) spans the handles. The arc is non-clickable — the presses land on the handles; a press anywhere snaps to the nearest day under the finger.
      - ``alarm_time_point_to_day`` (the inverse-transform idiom), ``event_handler_cb_settings_alarm_time_handle``
 
    * - 2
      - Range start handle (Mon)
-     - The range's start endpoint (the 34 px knob on the ring's midline, r 218). Press + drag moves the start; the press locks to the finger (``PRESS_LOCK``).
+     - The range's start endpoint (the 34 px knob centred at r 218 — 10 px under the band's midline, so the disc pokes through both ink edges and stays visible on track and range). Press + drag moves the start; the press locks to the finger (``PRESS_LOCK``).
      - ``event_handler_cb_settings_alarm_time_handle`` (idx 0)
 
    * - 3

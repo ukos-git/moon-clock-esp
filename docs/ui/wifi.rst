@@ -57,3 +57,8 @@ Elements
      - Tap anywhere
      - Opens the settings hub (same root handler as the airplane screen).
      - ``event_handler_cb_home_tap``
+
+The whole lifecycle — the three starters, what runs off the UI task,
+and the one poll that drops the screen — drawn from the code:
+
+.. graphviz:: ../_graphs/wifi-sync.dot

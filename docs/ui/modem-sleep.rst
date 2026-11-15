@@ -59,13 +59,13 @@ Elements
      - ``refresh_alarm_display`` (:cfile:`components/ui/actions.c`), ``clock_alarm_get_next_scheduled`` (the ``clock`` component)
 
 The three variants' disk geometry side by side — the seconds arc's
-pad (``UI_PX(10)``, the 12 px stroke centred on the mid radius),
-where the ink lands, and the moon disk's limb gap inside it, all
-computed with the exact ``UI_PX`` integer arithmetic
-(``docs/tools/gen_disk_geom.py``):
+pad (``UI_PX(10)``; get_center's radius is the stroke's *outer* edge
+and the 12 px stroke is inked INWARD from it), where the ink lands,
+and the moon disk's limb gap inside it, all computed with the exact
+``UI_PX`` integer arithmetic (``docs/tools/gen_disk_geom.py``):
 
 .. figure:: ../_static/figs/disk_geom.png
-   :alt: Per-variant disk geometry — S3, P4 and knob panels with the seconds arc ink band (S3 217..229, P4 339..351, knob 167..179), the limb-to-ink gaps of 17, 14 and 17 px, and the disk diameters as percent of panel
+   :alt: Per-variant disk geometry — S3, P4 and knob panels with the seconds arc ink band (S3 212..223, P4 334..345, knob 162..173), the limb-to-ink gaps of 12, 9 and 12 px, and the disk diameters as percent of panel
    :align: center
    :width: 100%
 

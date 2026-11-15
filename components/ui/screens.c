@@ -1001,21 +1001,24 @@ void tick_screen_settings_pomodoro() {}
  * contiguous). Minutes are multiples of 5 -- 10:03 is not a wake-up
  * time. */
 
-/* The ring matches the home screen's seconds arc: a THIN ring pushed
- * to the outer edge (outer radius 223, 10 px from the panel edge),
- * the day-range as the moon-colour indicator over a dark track. The
- * day letters that used to crowd the outer margin are gone (the
- * range summary "Mo-Fr" above the time carries the day meaning), so
- * the ring can own that outer band.
- * lv_arc maps object size 2(R + W) -> outer radius R, inner R - W
- * (get_center: radius = obj width/2 - arc_width). The home seconds
- * arc is a 466x466 object at (0,0), width 10 -> outer 223, inner 213;
- * this is that exact ring. */
+/* The ring is pushed right to the outer edge, the day-range as the
+ * moon-colour indicator over a dark track. The day letters that used
+ * to crowd the outer margin are gone (the range summary "Mo-Fr" above
+ * the time carries the day meaning), so the ring can own that outer
+ * band. It shares the home seconds arc's thin-grey visual language
+ * but is NOT the same ring: the home arc is a 466x466 object with pad
+ * UI_PX(10), whose get_center radius (w - pads)/2 = 223 is the
+ * stroke's OUTER edge -- lv_draw_sw_arc bands INWARD from it, so the
+ * theme's 12 px stroke inks 212..223, 10 px off the rim. This band
+ * zeroes all four pads, so get_center returns the panel half itself
+ * and the UI_PX(10) stroke inks straight to the round rim (224..233
+ * at 466; probed rows 0..9 in the committed screenshots). */
 #define ALARM_TIME_ARC_CX (UI_PANEL_PX / 2)
 #define ALARM_TIME_ARC_CY (UI_PANEL_PX / 2)
-#define ALARM_TIME_ARC_R UI_PX(223)    /* the ring's OUTER radius (home-seconds-arc match) */
-#define ALARM_TIME_ARC_WIDTH UI_PX(10) /* the ring width (home-seconds-arc match) */
-#define ALARM_TIME_HANDLE_R UI_PX(218) /* the day handles' radius (the ring midline) */
+#define ALARM_TIME_ARC_WIDTH UI_PX(10) /* stroke width, inked INWARD from panel/2 */
+/* The handles sit centred 10 px under the band midline (228.5 at 466):
+ * the 34 px disc spans 201..235, poking through both ink edges. */
+#define ALARM_TIME_HANDLE_R UI_PX(218) /* the day handles' centre radius */
 
 #define ALARM_DAY_ANG(d) (181 + 30 * (d)) /* 0 = Monday .. 6 = Sunday */
 
@@ -1226,9 +1229,11 @@ void create_screen_settings_alarm_time() {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The day-range band: the upper half-circle (Monday left, Sunday
-     * right), the same thin outer ring as the home screen's seconds
-     * arc (a 466x466 object at (0,0); its ring reaches r 223, 10 px
-     * from the panel edge -- it clears the exit button by a mile).
+     * right), a thin ring RIGHT AT the rim (a 466x466 object at (0,0)
+     * with zeroed pads -> get_center radius panel/2, the UI_PX(10)
+     * stroke inked INWARD: 224..233 at 466 -- rows 0..9 of the
+     * committed screenshots; unlike the home seconds arc, which the
+     * pad insets to outer 223; it clears the exit button by a mile).
      * Track = the theme's dark (the home track's colour, no explicit
      * MAIN arc_color needed), the range = the moon colour (the
      * seconds indicator's SETTINGS_GREY). */
@@ -1287,8 +1292,9 @@ void create_screen_settings_alarm_time() {
      * centre y 210, the clock label's centre): hours 0-23, minutes in
      * x5 steps, a `:` between them -- the clock's "HH:MM" look, same
      * margins. The 110 px tall rollers span y 155..265 -- inside the
-     * arc's hole (ring inner edge r 146 -> y 87..379 at x 0) and clear
-     * of the exit band (top edge y 342). */
+     * band's hole (its inner ink edge sits at r 224 -> y 9 at the
+     * top) and clear of the exit band (settings_create_exit_button
+     * floors the UI_PX(90) call at a 96 px box: top edge y 336). */
     char hours[512];
     int pos = 0;
     for (int h = 0; h < 24; h++) {

@@ -220,7 +220,8 @@ ALARM_TIME_* defines and ``ALARM_DAY_ANG(d) = 181 + 30d``, the
 rollers' create-call arguments; LVGL angles, 0 = right, 90 = down).
 The generators are ``docs/tools/gen_menu_geom.py`` and
 ``gen_roller_screens.py``; the hub-ring companion is
-``gen_hub_ring.py``, the dial-disk one ``gen_disk_geom.py``.
+``gen_hub_ring.py``, the dial-disk one ``gen_disk_geom.py``, the
+home-family one ``gen_home_screens.py``.
 
 .. figure:: ../_static/figs/menu_geom.png
    :alt: wheel keyboard, alarm-rules triangle and alarm-time band geometry, computed per panel
@@ -235,9 +236,11 @@ The generators are ``docs/tools/gen_menu_geom.py`` and
    (±130, +130) (left solid stopwatch opens pomodoro, right regular
    alarm-clock opens alarm-time); the disks are the tier's FA icon
    face (96/148/74 px, the same ink gen_hub_ring.py draws). Bottom
-   row: the :doc:`alarm-time day band <settings-alarm-time>` — outer
-   r 223, width 10 (the home seconds-arc ring), the seven 34 px day
-   handles on the r 218 midline, the dark track and indicator running
+   row: the :doc:`alarm-time day band <settings-alarm-time>` — a pad-0
+   band whose outer ink edge is the panel half itself (the width-10
+   stroke inked INWARD, 224..233 at 466 — it touches the round rim,
+   unlike the pad-inset home seconds arc at outer 223), the seven
+   34 px day handles centred at r 218, the dark track and indicator running
    181..1 through the 360/0 wrap (sample shown: Mon–Fri), and the
    screen's own content: the two 140×110 time rollers at the home
    clock's glyph centres (−80/+70, −23), the "Mo–Fr" range summary at
@@ -282,6 +285,36 @@ The generators are ``docs/tools/gen_menu_geom.py`` and
    ``UI_PX(90)`` floored by ``settings_create_exit_button`` to the
    96 px box, BOTTOM_MID −34 — is the shared sub-screen furniture on
    every one of these screens.
+
+.. figure:: ../_static/figs/home_screens.png
+   :alt: the five moon-family screens computed per variant — object sets, clock cells, arc band, glyph anchors
+   :figclass: align-center
+
+   The **home family** — the five moon screens × the three variants,
+   drawn from the builders' own object sets (``create_screen_*`` in
+   ``components/ui/screens.c``; generator
+   ``docs/tools/gen_home_screens.py``). Rows top→bottom:
+   :doc:`modem-sleep <modem-sleep>` (moon disk + shared clock widget +
+   the seconds arc — gray band inked inward from get_center's outer
+   edge, 212..223 / 334..345 / 162..173, the
+   :doc:`disk-geometry <modem-sleep>` family), :doc:`wifi <wifi>`
+   (same plus the wifi connection glyph — solid FA face),
+   :doc:`light-sleep <light-sleep>` (moon + clock at the container's
+   ``UI_CLOCK_ALPHA_PCT`` 20 % over the 0x51-dimmed panel, no arc, no
+   glyph; the knob cell is marked — it dims its real backlight instead),
+   :doc:`deep-sleep <deep-sleep>` (moon + sleep glyph — the clock
+   container carries ``LV_OBJ_FLAG_HIDDEN`` (``actions.c``) and the
+   backlight is off; the knob deep-sleeps for real instead), and
+   :doc:`alarm <alarm>` (clock + alarm glyph in the REGULAR weight,
+   no moon). The clock widget (layout contract 2) sits at byte-
+   identical absolute geometry on all five — the boxes are one
+   ``--clockprobe`` run: S3 cells 136/30/136 at x 72/218/258 in the
+   322×71 row with the dotted 322×34 alarm row under it, P4 210/46/210
+   in 488×108, knob 105/23/105 in 253×55 (the ``UI_PX``-scaled
+   ``lv_obj`` cells with the theme card's pad-row gap 10/11/10). The
+   amber dashed boxes are the indicator labels anchored top-left at
+   (``UI_PX(185)``, ``UI_PX(320)``, ``LV_SIZE_CONTENT`` = the tier's
+   FA icon face 96/148/74).
 
 .. toctree::
    :maxdepth: 2

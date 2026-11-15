@@ -1,0 +1,59 @@
+// The sleep-entry ladder: awake -> light sleep -> deep sleep, with the
+// two guards that keep the device in the lighter state and the single
+// shared wake tail. Every edge verified in components/clock/clock_idle.c,
+// settings_store.c, main/main.cpp (:625/:629) and components/ui/actions.c
+// (action_switch_to_light_sleep_screen :1476, action_switch_to_deep_sleep_screen
+// :1185). The exit side — which doors wake it and what the tail does —
+// is docs/_graphs/wake-doors.dot.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph sleep_entry {
+    label="The sleep-entry ladder: the idle timeout enters light sleep (which ARMS the deep countdown at entry), the countdown expiry enters deep sleep — guarded by demo mode and, on the P4, a pending alarm";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    awake [label="awake — the airplane home (modem-sleep)\nidle monitor ON (clock_idle.c, 1 s poll),\nUI tick 10 ms + seconds timer running,\npanel 100 %, WiFi up",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    idle_fire [label="the idle timeout fires (main.cpp:625\nregisters action_switch_to_light_sleep_screen\nas the clock_idle callback) — the period is\nsettings_idle_timeout_sec (CLOCK_IDLE_TIMEOUT_SEC,\ndefault 60 s, 60..1800), any tap/tilt resets it"];
+
+    light_entry [label="action_switch_to_light_sleep_screen (actions.c):\ng_asleep = true; wifi_manager_deinit (the radio\nDOWN — the airplane half of the name); UI tick\n10 ms → UI_LIGHT_SLEEP_TICK_MS (100); seconds\ntimer PAUSED; idle monitor OFF; moon_ui_pause(true)\n(moon static); THEN the deep countdown is armed —\nclock_timer_enable(settings_deep_sleep_countdown_sec,\n1 Hz) AT ENTRY (the retired dusk spin's ladder\nsurvived as exactly this: sleep depth follows\nthe clock, never an animation)",
+               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    light_screen [label="light sleep — the light-sleep screen:\nthe clock container at UI_CLOCK_ALPHA_PCT (20 %)\nover the 0x51 panel ramp to UI_LIGHT_SLEEP_DIM_PCT\n(25 %); moon static; RTC countdown ticking in\nthe PCF85063A timer (S3) / esp_timer (P4)",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    countdown [label="countdown expiry — main.cpp:629 dispatches\naction_switch_to_deep_sleep_screen on the\nLVGL task (settings_deep_sleep_countdown_sec,\nUI_DEEP_SLEEP_COUNTDOWN_SEC, default 60 s, 60..1800 —\nthe settings-deep-sleep picker writes it)"];
+
+    demo_guard [label="guard 1 — demo mode: refuse the transition AND\nclock_timer_disable (a dead-black panel\nmid-recording would ruin the take)",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    p4_guard [label="guard 2 — the P4 with a PENDING alarm:\nthe deep state is app-level (no esp_deep_sleep —\nthe crystal keeps running), so the software\none-shot could still ring from the dark; the\nuser's power decision keeps the device in the\nLIGHTER state — return, the light screen stays,\nthe one-shot stays armed. The S3 needs no such\nguard: its PCF85063A ALM wakes real deep sleep",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    deep_entry [label="action_switch_to_deep_sleep_screen (actions.c):\ng_asleep = true; WiFi deinit (belt and braces);\nmoon_ui_pause(true); clock_timer_disable (the\ncountdown is spent); loadScreen(DEEP_SLEEP)",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    deep_screen [label="deep sleep — the deep-sleep screen:\nthe clock container carries LV_OBJ_FLAG_HIDDEN\n(re-applied EVERY entry, so a wake-to-other-\nscreens can't leak visible digits) + moon +\nsleep glyph; moon_ui_panel_brightness_set(0) —\nthe backlight is OFF (g_backlight_off); the\nRTC clock update is gated on it",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    wake [label="the wake (shared tail, action_wake_screen):\nbacklight relight if g_backlight_off, clock\ncontainer back to LV_OPA_COVER, tick 10 ms +\nseconds timer resumed, clock_timer_disable,\nidle re-arm ONLY when !moon_ui_replaying() —\nsee docs/_graphs/wake-doors.dot for the three\ndoors (touch / tilt / alarm)",
+          fillcolor="#efece4"];
+
+    awake -> idle_fire [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="timeout elapses, no activity"];
+    idle_fire -> light_entry;
+    light_entry -> light_screen [label="loadScreen — the switch is one\natomic flush (no fade: the dim is the transition)"];
+    light_screen -> countdown [style=dashed, label="RTC timer 1 Hz"];
+    countdown -> demo_guard;
+    demo_guard -> p4_guard [label="not demo"];
+    demo_guard -> light_screen [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="demo: refuse + disarm"];
+    p4_guard -> deep_entry [label="no pending alarm\n(or the S3)"];
+    p4_guard -> light_screen [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="alarm pending —\nstay in the lighter state"];
+    deep_entry -> deep_screen;
+    light_screen -> wake [color="#2b5fb0", penwidth=1.6, style=dashed];
+    deep_screen -> wake [color="#2b5fb0", penwidth=1.6, style=dashed];
+    wake -> awake [color="#2b5fb0", penwidth=1.6];
+}

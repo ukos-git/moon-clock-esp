@@ -550,11 +550,12 @@ the cell ceiling); no reading leaves an empty pale-grey capsule.
 label, digits + % on the SSID font.) The cell moves on the minute
 scale, not the second. It *overlaps* the moon
 rather than making room for it: the shared home bakes the disk
-centred and *contained* — r 150 at cy 180, the lunar limb 17 px
-inside the seconds-arc ink (ink mid radius
-``(360 − 2*UI_PX(10))/2 = 173`` with the theme arc width 12 centred
-on it, so the ink spans 167..179; the clocks keep limb-to-ink gaps
-of 17 px (S3) / 14 px (P4)) — set by the render seam via
+centred and *contained* — r 150 at cy 180, the lunar limb 12 px
+inside the seconds-arc ink (get_center's radius
+``(360 − 2*UI_PX(10))/2 = 173`` is the stroke's *outer* edge and the
+theme's 12 px stroke is inked INWARD from it, so the ink spans
+162..173; the clocks keep limb-to-ink gaps of 12 px (S3) / 9 px
+(P4)) — set by the render seam via
 ``knob_ui_set_disk_geom`` (task #48, 2026-11-14 — the user's verdict:
 "the moon… should be inside the seconds arc, same as the p4 and the
 s3 amoled"). The brief full-square r 180 of the 2026-11-13 pass let

@@ -5,20 +5,25 @@ docs/implementation/display.rst.
 Every radius is the code's own arithmetic, not a hand placement:
 
 * seconds arc: a full-panel ``lv_arc`` with pad UI_PX(10) on all four
-  sides (create_screen_modem_sleep, components/ui/screens.c), so the
-  indicator MID radius is (panel - 2*UI_PX(10)) / 2; the theme stroke
-  is width 12 (DPX-15 at dpi 130) centred on the mid radius, so the
-  INK spans mid-6 .. mid+6 (the knob's seam comment carries the same
-  derivation: (360 - 2*7)/2 = 173 -> ink 167..179).
+  sides (create_screen_modem_sleep, components/ui/screens.c).
+  lv_arc's get_center (widgets/arc/lv_arc.c) takes r = (min(w, h) -
+  pads) / 2 as the OUTER stroke edge, and lv_draw_sw_arc builds the
+  band mask INWARD from it (area_out = the coords, area_in inset by
+  the stroke width), so the theme's 12 px stroke (LV_DPX_CALC(130,
+  15)) inks r-11 .. r — NOT centred on r. Probed along the
+  top-centre column of the committed modem-sleep PNGs: S3 rows
+  10..21 (ink 212..223), P4 15..26 (334..345), knob 7..18
+  (162..173).
 * moon limb: MOON_PX/2 centred — 200 (S3, MOON_PX 400) / 325 (P4,
   MOON_PX 650) / 150 (knob, knob_ui_set_disk_geom(150.0f, 180),
   components/knob — the shared seam centres the disk; the LEGACY
   own-screen view baked r 150 at cy 168 for its caption row).
 * the containment rule (task #48, 2026-11-14): the limb sits INSIDE
-  the arc ink on every board — 17 px (S3), 14 px (P4), 17 px (knob,
-  reproducing the S3's relationship exactly). The battery gauge and
-  the gated progress row OVERLAP the black surround instead — they
-  never push the disk off centre (task #35 rule).
+  the arc ink on every board — 12 px (S3), 9 px (P4), 12 px (knob,
+  reproducing the S3's ink-inner-to-limb relationship exactly). The
+  battery gauge and the gated progress row OVERLAP the black
+  surround instead — they never push the disk off centre (task #35
+  rule).
 
 UI_PX() integer division is reproduced exactly (gen_hub_ring.py's
 uipx). Palette follows gen_perf_figs.py: blue #2b5fb0 (moon disk),
@@ -53,7 +58,8 @@ VARIANTS = {
     "knob": dict(panel=360, limb=150, cy=180, title="knob — 360 px",
                  note="seam r 150 · cy 180"),
 }
-ARC_W = 12  # theme stroke width (LV_DPX_CALC(130, 15) -> 12), centred on mid
+ARC_W = 12  # theme stroke width (LV_DPX_CALC(130, 15) -> 12), inked INWARD
+            # from get_center's r (the OUTER stroke edge), never centred
 
 
 def uipx(x: int, panel: int) -> int:
@@ -76,8 +82,9 @@ def main() -> None:
     for ax, cfg in zip(axes, VARIANTS.values()):
         panel = cfg["panel"]
         pad = uipx(10, panel)
-        mid = (panel - 2 * pad) / 2
-        ink_in, ink_out = mid - ARC_W / 2, mid + ARC_W / 2
+        # get_center's r IS the outer stroke edge; the stroke inks INWARD
+        outer = (panel - 2 * pad) // 2
+        ink_in, ink_out = outer - ARC_W + 1, outer  # discrete inked rows
         limb = cfg["limb"]
         gap = round(ink_in - limb)
 
@@ -87,10 +94,11 @@ def main() -> None:
         # round window (panel edge) — gray, the product housing
         circle(ax, panel / 2, color=LGRAY, linewidth=1.0, zorder=1)
 
-        # seconds-arc ink band: stroke width 12 centred on the mid radius
+        # seconds-arc ink band: stroke width 12 INWARD from get_center's r
         for r, a in ((ink_in, 0.9), (ink_out, 0.9)):
             circle(ax, r, color=GRAY, linewidth=1.0, alpha=a, zorder=2)
-        circle(ax, mid, color=GRAY, linewidth=ARC_W, alpha=0.55, zorder=2)
+        circle(ax, outer - ARC_W / 2, color=GRAY, linewidth=ARC_W, alpha=0.55,
+               zorder=2)
 
         # the bake disk, centred (cy == panel/2 everywhere today)
         circle(ax, limb, fill=True, color=BLUE, alpha=0.28, zorder=3)
@@ -110,8 +118,8 @@ def main() -> None:
         pct = 2 * limb / panel * 100
         ax.text(0, -panel / 2 + 4, f"disk {2 * limb} px = {pct:.1f}% of panel",
                 ha="center", va="bottom", fontsize=6.5, color="#3c3c3c", zorder=6)
-        ax.set_title(cfg["title"] + f"\narc pad {pad} · mid {mid:.0f} · ink "
-                     f"{ink_in:.0f}..{ink_out:.0f}",
+        ax.set_title(cfg["title"] + f"\narc pad {pad} · outer {outer} · ink "
+                     f"{ink_in}..{ink_out}",
                      fontsize=8.5, color="#3c3c3c", pad=6)
 
     fig.tight_layout()
