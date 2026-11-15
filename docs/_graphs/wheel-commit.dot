@@ -1,0 +1,164 @@
+// The round keyboard's hit-test/commit machine, one picture. Every edge
+// verified in components/ui/screens.c: the inverse-transform hit-test
+// wheel_point_to_slot :1915, the sweep handler event_handler_cb_wheel_sweep
+// :2221 (PRESSED sticky reveal, PRESSING clamp, RELEASED commit, CANCEL
+// heal), set_hot :2034 / set_revealed :2062, the register arc
+// event_handler_cb_wheel_mode :2260 + set_mode :2109, the three keys
+// :2311/:2332/:2352, the build create_screen_settings_wifi_password :2466
+// (annuli, angles, the bar-built icons :2719/:2756), the knob press
+// partition :2635, the demo drive :2375-:2450. The centre long-press ages
+// through LVGL's default LV_LONG_PRESSED_TIME 400 ms (uisim holds 600 ms,
+// host_sim/uisim/main.c:758).
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wheel_commit {
+    label="The round keyboard: one invisible press band, a sticky-sector reveal, commit ONLY on release — press and zone-crossing never add a character";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_rest {
+        label="at rest — every widget pre-built once at boot; a press only toggles text / colour / angle";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525252";
+        fontsize=13;
+
+        catch [label="the press target: ONE transparent lv_arc, annulus r 140..233
+(pad 0, arc_width WHEEL_C-140, full-360 bg), ADV_HITTEST + PRESS_LOCK
+(:2508) — without ADV_HITTEST lv_arc falls back to a bounding-box test
+and the LAST-created arc wins (the gotcha that ate a day)",
+               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        ring [label="26 at-rest letters r 168 (32 px SSID font — the 48 px
+font is a digits subset), each owning SHARE = 360/26 deg; 12 fixed
+frequency sectors [ab cd ef gh il jkq mn op rs tu vxz wy] span
+n-SHARE — same boundaries in all four registers (:1876)",
+              fillcolor="#efece4"];
+        modearc [label="the register track, ONE arc: MAIN 150..390 (#222222)
++ INDICATOR the lit 60-degree key (150+60m..210+60m); the INDICATOR's
+own pad pinned to 0 — the track-pad-on-indicator fix dropped the radius
+and clamped the width into pie wedges from the centre (:2619)",
+                 fillcolor="#efece4"];
+        keys [label="bottom 120-degree band: bar-built circle-CHECK commit
+(LVGL 31.5..88.5, icon LVGL 60, r 114 — the FA subset has no
+circle-check code point, the glyph is built not typed :2719) + bar-built
+circle-xmark discard (91.5..148.5, icon 120 :2756); centre 110 px tap
+box r ~55 — never overlaps the band, so a hold cannot start a letter",
+              fillcolor="#efece4"];
+    }
+
+    subgraph cluster_sweep {
+        label="the sweep machine — the catch's LV_EVENT_* handler (:2221)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#eef2f8";
+        color="#2b5fb0";
+        fontsize=13; fontcolor="#1e3f70";
+
+        pressed [label="PRESSED -> wheel_point_to_slot (:1915): the indev point
+first rides lv_obj_transform_point INVERSE over the screen root (the 90
+deg orientation roll — the alarm_time_point_to_day idiom), then band
+test 140..WHEEL_C, then atan2 theta names the sector and
+floor(Delta-ANGLE/SHARE) names the box — the EXACT box, no
+nearest-centre tie-break",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        revealed [label="set_revealed(true, sec) (:2062): ONLY the pressed
+sector's 76 px non-rounded boxes (r 150..226) + its in-sector dividers +
+its reveal letters r 209 appear; the sector's at-rest twins HIDE (no
+double letter); the other sectors' boxes stay hidden",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        hot [label="set_hot (:2034): the lit box INVERTS (white 0xF2F3F5
+fill, near-black 0x101115 letter); centre shows the single letter +
+\"release commits\" (32 px SSID, y -6; the hint is a SIBLING of the
+110 px box — a child would clip); unlit sectors' at-rest letters dim to
+0x555555",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        pressing [label="PRESSING: recompute the slot, then CLAMP to the
+sticky sector's [lo..hi] (:2239) — sliding across a sector boundary
+sweeps over the pressed sector's boxes, it never re-keys the set",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        released [label="RELEASED: re-test the band; IN-band -> add_slot(hot)
+bounds-checked WHEEL_PW_MAX 63 (:2213; one below the Wi-Fi side's 64,
+which wifi.c rejects at >= 64); ALWAYS heal: set_revealed(false) + the
+running entry (last 6 chars, \"...\" prefix, \"....\" empty :1968)",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        cancel [label="CANCEL: heal only — no character is added",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    subgraph cluster_keys {
+        label="the four other touchables (one PRESSED each)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525252";
+        fontsize=13;
+
+        modepress [label="register arc PRESSED (:2260): rel = theta-150 (wrapped);
+inside the 240-degree span the EXACT 60-degree key k = rel/60 wins
+(not the nearest label) -> set_mode (:2109): no-op when unchanged,
+re-string the slots, CLEAR the 25th slot of the 25-char digit/symbol
+registers (the stray Z after a register switch)",
+                   fillcolor="#efece4"];
+        commitpress [label="COMMIT PRESSED (:2311): empty -> log + ignore; else
+wifi_credentials_write(ssid, pw) -> action_start_wifi_sync() — past
+this node the picture belongs to wifi-sync.dot",
+                     fillcolor="#efece4"];
+        discardpress [label="DISCARD PRESSED (:2332): entry non-empty -> CLEAR it
+(the zero-input exit doubles as the X: an EMPTY entry EXITS to the WiFi
+list)",
+                      fillcolor="#efece4"];
+        centerpress [label="centre box (:2352): SHORT_CLICKED -> BACKSPACE;
+LONG_PRESSED -> back to the WiFi list, no write no sync — v2's only
+in-ring exit (v1's in-ring X is gone); ages through LVGL's default
+LV_LONG_PRESSED_TIME 400 ms (uisim drives a 600 ms hold to prove it)",
+                     fillcolor="#efece4"];
+    }
+
+    subgraph cluster_amber {
+        label="shared with the other machines (drawn there, named here)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f6f1e2";
+        color="#b07d10";
+        fontsize=13; fontcolor="#6b4e08";
+
+        knobpath [label="CONFIG_BOARD_KNOB only (:2635): the catch is moved in
+Z-ORDER just above the mode arc — at 360 px the arc's annulus answered
+presses on the INNER half of the letter band as \"mode 3\"/\"mode 0\"
+and a register rebuild ended in a task-WDT reset (bench 2026-11-11)",
+                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+        resync [label="the global 2 s press orientation re-sync (actions.c:230,
+the indev callback :357) fires on long sweeps too — pose-stability
+gated, transform-aware, cannot move the letter under the finger
+(stated, not suppressed)",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+        demoptr [label="demo mode (:2375): demo.c injects a SECOND virtual
+pointer through the real touch path; the wheel only exposes its
+geometry (letters aimed at the band middle (140+WHEEL_C)/2, keys at
+r 114) so the tour taps never duplicate the layout",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    }
+
+    catch -> pressed [label="touch-down", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    pressed -> revealed [color="#2b5fb0", penwidth=1.6];
+    revealed -> hot [color="#2b5fb0", penwidth=1.6];
+    hot -> pressing [style=dashed, label="finger moves"];
+    pressing -> hot [style=dashed, label="re-clamp"];
+    hot -> released [color="#2b5fb0", penwidth=1.6, label="finger lifts"];
+    released -> ring [style=dashed, label="heal: boxes hide,\nat-rest twins return"];
+    released -> cancel [style=invis];
+    cancel -> ring [style=dashed];
+    modearc -> modepress [label="PRESSED"];
+    keys -> commitpress;
+    keys -> discardpress;
+    keys -> centerpress;
+    modepress -> ring [style=dashed, label="26 slots re-string"];
+    commitpress -> modepress [style=dashed, label="screen refresh resets\nto lowercase"];
+
+    footer [label="NOT drawn here: who READS the finger — the 33 ms LVGL indev timer, CST9217 IRQ vs\nGT911 polling — is input-chain.dot; everything AFTER credentials_write is wifi-sync.dot;\nthe hub-ring path INTO this screen is the reachability matrix in ui/index",
+            shape=plaintext, fillcolor=none, color=none, fontsize=10];
+}

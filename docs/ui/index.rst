@@ -275,6 +275,11 @@ change, and how the knob's dedicated encoder path alone beats the
 shared 33 ms read timer — is plotted as the response ladder in
 :doc:`the performance page <../verification/performance>`.
 
+What the *widget* builds on top of these reads is a different
+machine: the round keyboard's exact-box hit-test, sticky-sector
+reveal and commit-only-on-release is drawn in
+:doc:`the round keyboard <../keyboard>`.
+
 .. _menu-geometry:
 
 Menu geometry, computed per variant

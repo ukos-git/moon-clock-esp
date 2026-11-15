@@ -2,7 +2,9 @@ The round keyboard
 ==================
 
 The product has exactly one text-entry surface: entering a Wi-Fi
-password (8–64 arbitrary characters) on a 466×466 panel that is a ~35 mm
+password (the wheel caps the entry at 63 characters — one below the
+Wi-Fi side's 64-byte ceiling, the bound ``wifi.c`` actually enforces)
+on a 466×466 panel that is a ~35 mm
 disk. This page is the design record of the wheel that shipped — the
 **v2 12-sector hybrid** (approved and implemented 2026-11-02): its
 functionality, every geometry decision, the LVGL gotchas it cost, and
@@ -48,6 +50,24 @@ it live with "release commits"), release to commit. The top arc
 switches registers (abc / ABC / 123 / #$); the bottom band is ✔
 circle-check to accept and ⊗ circle-xmark to discard; a tap in the
 centre backspaces.
+
+The machine in one picture
+--------------------------
+
+The page below describes each part; the sketch is the machine they form,
+drawn straight out of ``components/ui/screens.c`` (the sweep handler at
+``:2221``, the inverse-transform hit-test at ``:1915``, the keys at
+``:2311``/:2332/:2352``). The shape to hold in mind before any section:
+ONE invisible press arc feeds ONE sticky-sector reveal, and the ONLY
+moment a character is added is RELEASED-with-the-finger-still-in-band —
+press and zone-crossing never write to the entry, which is what makes a
+slow sweep double-entry-proof. Who *reads* the finger (the 33 ms LVGL
+indev timer, the CST9217 IRQ versus the GT911's pure polling) belongs to
+:ref:`the input chain <input-chain-ui>`; what happens after the
+commit key writes the credentials belongs to
+:doc:`the Wi-Fi sync machine <ui/wifi>`.
+
+.. graphviz:: _graphs/wheel-commit.dot
 
 The screen itself
 -----------------
@@ -111,7 +131,7 @@ While pressed the lit letter is shown in the centre (32 px SSID font
 — the 48 px font is the digits-only subset, no letters) + "release
 commits"; on release the character commits and the full running entry
 re-appears, **unmasked** (the user is physically present): the last 6
-characters with a ``…`` prefix when longer, ``....`` when empty.
+characters with a ``...`` prefix when longer, ``....`` when empty.
 
 Register/shift arc
 ^^^^^^^^^^^^^^^^^^
@@ -121,7 +141,7 @@ the top 240° arc (r 84–144, LVGL 150°–390° with a 360/0 wrap; the
 active key lit at ``150 + 60·m … 210 + 60·m``, the key labels at LVGL
 180/240/300/360° r 114). A press resolves to the **exact 60° sector
 under the finger** (not the nearest key) and re-strings the 26 slots
-(digits: ``0123456789#@._-+*?!/&%:;`` — 25 slots; symbols:
+(digits: ``0123456789#@._-+*?!/&%:;,`` — 25 slots; symbols:
 ``#$%&@!_=<>[]{}~^:,/?*+-.'`` — 25 slots). Case is separate (lower/
 upper) because it matters for passwords.
 

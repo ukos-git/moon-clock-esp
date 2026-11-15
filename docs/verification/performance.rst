@@ -907,6 +907,64 @@ and how — is :ref:`the input chain <input-chain-ui>`; the
    new measured: the knob's chain beats the beat, everything else
    rides it, and the human holds tower 61× over it by design.
 
+The bus ladder (how many bytes cross the wire)
+----------------------------------------------
+
+**The short version.** The remaining resource after work, frequency,
+patience, brightness, memory, loudness, priority and human latency is
+**bytes** — what one panel update actually pushes across the display
+bus. Nine rows, three per board: the full RGB565 frame the atomic
+``lv_refr_now`` crosses (S3 434,312 B, P4 1,036,800 B, knob 259,200 B),
+the hourly disk-only flush (``MOON_PX``² × 2 B — 320,000 B against the
+P4's 845,000, and *no such row* on the knob, which has no SD socket),
+and the ONE DMA transaction the bus really sees (23,300 / 72,000 /
+21,600 B). Right panel: the raw wire floor the QSPI x4 panels pay —
+4 lanes × parsed 40 MHz ÷ 8 = 20 MB/s, giving the S3's whole panel
+21.7 ms and the knob's 13.0 ms against the 33 ms beat parsed and
+asserted equal in all three generated headers. The P4 row is
+deliberately **not plotted**: its MIPI-DSI lane rate lives in the
+target-gated XC BSP that is absent from the shared
+``managed_components/`` tree, and inventing a number there would be
+the one way to make this figure lie.
+
+The figure's real content is the *cap line*. Both QSPI boards'
+transactions land under the family's 32 KiB SPI-DMA cap
+(``SPI_LL_DMA_MAX_BIT_LEN = 1<<18``, the vendored BSP's own comment at
+``esp32_s3_touch_amoled_1_75.c:522``) and do so **exactly**: the S3's
+``max_transfer_sz`` is the literal ``BSP_LCD_H_RES * 25 *
+BSP_LCD_BITS_PER_PIXEL / 8`` (``:501``) with ``buffer_height`` the same
+25 (``:530`` — the generator asserts the two parses agree, which *is*
+the "one strip = one buffer = one QSPI transfer" fact of the NO_MEM
+fix), and the knob's ``max_transfer_sz`` formula (``knob_board_display.c:243``)
+carries the clock board's lesson in its own comment. The P4's 72,000 B
+DPI transaction — the cited 50-row buffer (``moon_ui.c:193``, hatched)
+— towers over the line: a cap its bus never has, which is exactly why
+its 130-row strip height is "a pacing choice, not a hard limit"
+(``moon_ui.c:191``'s own words). Every parsed constant carries its
+``file:line`` as a bar annotation; the per-transaction command overhead
+the raw floor excludes is the vendored BSP's own "*only* the
+per-transaction command overhead goes up slightly". The bytes the
+*hour cache* occupies on the card are the footprint figure above —
+this one counts only the bytes that *move*. The staging geometry the
+transaction rows describe is drawn in
+:doc:`the display path <../implementation/display>`
+(``docs/tools/gen_perf_bus.py`` draws both panels; the strip anatomy
+shares its constants with ``gen_strip_staging.py``).
+
+.. figure:: ../_static/figs/perf_bus.png
+   :alt: bytes per panel refresh for all three boards — full frame, hourly disk flush, one DMA transaction — against the 32 KiB SPI-DMA cap, and the raw QSPI wire time of one full frame against the 33 ms LVGL beat
+   :figclass: align-center
+
+   The bus ladder. **Left:** the three rows per board in KiB —
+   blue the full atomic frame, violet the hourly disk-only flush, teal
+   one DMA transaction — with the 32 KiB SPI-DMA cap as a dashed rule
+   both QSPI transactions fit under exactly and the P4's DPI
+   transaction deliberately does not; hatched = cited (the absent XC
+   BSP), italic = the knob's honest *no such leg*. **Right:** the raw
+   wire floor (bytes ÷ lanes·pclk/8, derived, nothing new measured)
+   against the 33 ms beat — the S3 spends two-thirds of one read-timer
+   beat on its whole panel, the knob a third.
+
 The performance decisions, ranked
 ---------------------------------
 

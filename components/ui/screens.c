@@ -1901,7 +1901,7 @@ static lv_obj_t *s_wheel_dividers[12];        /* the sector hairlines (r 150..22
 static lv_obj_t *s_wheel_box_dividers[12][2]; /* the in-sector box hairlines */
 static lv_obj_t *s_wheel_mode_arc;            /* the 240-degree register track + lit key */
 static lv_obj_t *s_wheel_mode_keys[4];
-static lv_obj_t *s_wheel_commit;    /* the house circle-xmark commit key */
+static lv_obj_t *s_wheel_commit;    /* the house circle-check commit key */
 static lv_obj_t *s_wheel_discard;   /* the circle-xmark discard key */
 static lv_obj_t *s_wheel_center;    /* the centre tap box */
 static lv_obj_t *s_wheel_pw_label;  /* the running entry / centre preview */
@@ -2291,7 +2291,7 @@ static void event_handler_cb_wheel_mode(lv_event_t *e) {
     }
 }
 
-/* Persist the entry and start the sync (the house circle-xmark COMMIT key). */
+/* Persist the entry and start the sync (the house circle-check COMMIT key). */
 static void settings_wheel_commit_password(void) {
     if (s_wheel_pw_len == 0) {
         ESP_LOGW("settings_wheel", "commit: empty password ignored");
@@ -2344,9 +2344,11 @@ static void event_handler_cb_wheel_discard(lv_event_t *e) {
     ESP_LOGW("settings_wheel", "discarded (pw cleared)");
 }
 
-/* The centre: a plain tap BACKSPACES (v2 -- the 400 ms long-press is
- * the ONLY way back to the WiFi list: v2 dropped v1's in-ring exit, the
- * circle-xmark glyph is now the commit key, and the centre box (r ~55)
+/* The centre: a plain tap BACKSPACES (v2 -- on the centre box the 400 ms
+ * long-press is the ONLY exit (the empty-entry X doubles as the other
+ * exit, see the discard handler): v2 dropped v1's in-ring exit, the
+ * circle-xmark glyph is now the discard key (the circle-check commits),
+ * and the centre box (r ~55)
  * never overlaps the sweep band (r 140..233), so the hold cannot start
  * a letter -- it is a navigation gesture, like v1's centre long-press). */
 static void event_handler_cb_wheel_center(lv_event_t *e) {

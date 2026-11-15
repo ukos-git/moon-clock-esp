@@ -151,6 +151,11 @@ constants the code uses):
    The moon disk's rows are the only pixels that stage; the black
    surround never enters a strip.
 
+What these transactions weigh on each bus — bytes per refresh against
+the 32 KiB SPI-DMA cap and the raw wire time one full panel costs the
+QSPI x4 wire against the 33 ms beat — is charted as the bus ladder in
+:doc:`the performance page <../verification/performance>`.
+
 The whole path in one picture — who may produce a panel state (the
 atomic rule and its two sanctioned exceptions), how a strip travels
 (PSRAM draw buffer, byte-order swap, the vtable wrapper, 25-row DMA
