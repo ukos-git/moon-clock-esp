@@ -1,0 +1,105 @@
+// The population the UI index owns but never drew: what boots, what
+// stays, and what a visit pays. This sketch deliberately draws NO
+// navigation edge — who-may-visit-whom is the mermaid graph above it
+// in docs/ui/index.rst and the tap ladder's BFS; the switch's fade
+// internals are docs/_graphs/screen-switch.dot; the object-cost in
+// bytes is the static footprint on verification/performance.rst.
+// What is priced HERE is the population and its lifecycle: 16 detached
+// roots, 255 objects (256 on the P4), built once, never destroyed.
+// Every edge and quote verified against components/ui/ui.c (EEZ twin
+// :12-23, loadScreen :51-75 with the both-moon fade test :57,
+// lv_scr_load :63, ui_clock_attach_to :69, moon_ui_screen_switched :74,
+// ui_init :77 with create_screens() :78 and loadScreen(MODEM_SLEEP) :84,
+// ui_tick :87) and components/ui/screens.c (moon_screen_prepare :41-45,
+// the 1368 build-once comment, settings_screen_refresh_for :730,
+// hub ring[] :594-603 with its CONFIG_BOARD_P4 leg, WHEEL_N_SECTORS
+// :1863, ui_clock_attach_to :3826, tick_screen_funcs[] :3872,
+// create_screens :3894, the knob's P2 dial block :3918-4301) plus
+// components/ui/moon_ui.c (moon_ui_create_image's lv_image_create :2627).
+// The per-screen counts themselves are parsed, not recalled —
+// docs/tools/gen_perf_assembly.py re-derives every number below and
+// SystemExits when a screen, ticker or registry entry drifts; this
+// figure is its narrative twin.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph screen_population {
+    label="The population in one picture: ui_init assembles 16 detached roots (255 objects, 256 on the P4) BEFORE the first loadScreen, and loadScreen never destroys — a screen visit pays zero creations, one entry refresh at most, and only the current screen ever ticks";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=17;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_boot {
+        label="boot — ui_init runs the whole city into existence, in this order, before any finger touches anything";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        uiinit [label="ui_init() — ui.c:77\ncreate_screens() at :78, THEN\nloadScreen(SCREEN_ID_MODEM_SLEEP)\nat :84: every object of the city\nexists before the first frame is\never shown",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        createfn [label="create_screens() — screens.c:3894\ncalls exactly the 16 create_screen_*\nin enum order; EACH creator roots at\nexactly ONE detached lv_obj_create(0)\n— layout contract 1 (the figure of\nthe twin parser dies on a second\nroot or a missing creator)",
+                    fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        eez [label="the EEZ_FOR_LVGL twin — ui.c:12-23\nnever-shipped ui_init/ui_tick\nstand-ins; the census above and the\nparser both price the SHIPPED\nbranch only",
+               style="rounded,filled,dashed", color="#9a9a9a", fontcolor="#6b6b6b"];
+    }
+
+    subgraph cluster_city {
+        label="the hidden city — 255 objects under 16 detached roots (P4: 256); the awake user sees 17 of them (< 7 %)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        root4 [label="the 4 moon roots — modem-sleep 17\n(including the clock widget), wifi 5,\nlight-sleep 3, deep-sleep 4; these\nare the ONLY moon_screen_prepare\ncall sites (screens.c:41)",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        moonimg [label="ONE moon image, four roots\nmoon_ui_create_image\n(moon_ui.c:2627) — 's_images[]\nstays at the four moon screens';\nthe 11 settings screens + alarm\nare moon-less by design",
+                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+        clockw [label="the ONE clock widget —\ncreate_user_widget_clock called\nexactly ONCE (layout contract 2),\n13 of the home's 17; ui_clock_attach_to\n(screens.c:3826) REPARENTS it onto\nevery moon root — 'computed, not\nrendered' for settings screens",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        hubn [label="settings-hub 9 — 6 ring[] labels\n(screens.c:594-603) + exit + root;\nthe #if defined(CONFIG_BOARD_P4)\nleg adds a 7th (clock icon →\nsettings-time): the ONLY per-board\ndelta in the whole bill",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        wheeln [label="settings-wifi-password — 150 =\n59 % of the entire bill: 42 arcs +\n49 containers + 59 labels from the\n12-sector loop (WHEEL_N_SECTORS\n:1863) and the 26 letters × 2.\nNOT a roller: the round keyboard\nis hand-assembled",
+                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
+        restn [label="the other 10 screens — 3 to 12\nobjects each (alarm view lightest\nat 3; settings-time 12, P4-reachable\nonly); ALL 14 lv_roller instances\nlive here, none in the wheel",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    }
+
+    subgraph cluster_visit {
+        label="a visit — the build-once bill: zero creations, zero destructions";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        visitn [label="loadScreen(old→new) — ui.c:51\nlv_scr_load swaps roots (:63),\nthen ui_clock_attach_to (:69) and\nmoon_ui_screen_switched (:74) land\nthe atomic frame. NO creator call\nsits inside it — the twin parser\nDIES on any *_create( here. 'The\nwidgets are created once (loadScreen\nnever destroys them)' :1368",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        refreshn [label="settings_screen_refresh_for —\nscreens.c:730, exactly 10 cases:\nthe 10 sub-screens pay an entry\nREFRESH (rollers re-seed from\nmodel state), never a rebuild",
+                    fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+        tickn [label="ui_tick — ui.c:87 → tick_screen_funcs[current]\n(screens.c:3872, the 16 tickers in\nenum order): only the CURRENT screen\nticks; the fifteen off-screen roots\ntick ZERO times, every frame",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        faden [label="the switch rides the 0x51 fade-to-black\n(UI_SCREEN_SWITCH_FADE) — internals in\nscreen-switch.dot; the both-moon test\n(ui.c:57) skips the fade between moon\nroots, 'a fade with nothing to fade'",
+                  style="rounded,filled,dashed", color="#9a9a9a", fontcolor="#6b6b6b"];
+    }
+
+    knobn [label="the knob adds NO widgets: its P2 dial block\n(screens.c:3918-4301) contains ZERO lv_*_create —\nthe dial cursor only RESTYLES existing objects",
+             style="rounded,filled,dashed", color="#7c3aed", fontcolor="#5b21b6"];
+
+    uiinit -> createfn [label=":78 — before the first loadScreen", color="#2b5fb0", fontcolor="#1e3f70"];
+    uiinit -> visitn [label=":84 — the first load is the airplane home, built already", color="#2b5fb0", fontcolor="#1e3f70"];
+    createfn -> root4 [color="#525c78"];
+    createfn -> hubn [color="#525c78"];
+    createfn -> wheeln [label="150 of the 255 hang\noff this one creator", color="#b07d10", fontcolor="#6b4e08"];
+    createfn -> restn [color="#525c78"];
+    root4 -> moonimg [label="the moon class:\n4 sites, 4 roots,\n1 image", color="#b07d10", fontcolor="#6b4e08"];
+    root4 -> clockw [label="reparented across\nswitches (:69)", color="#2b5fb0", fontcolor="#1e3f70"];
+    visitn -> refreshn [label="the 10 sub-screens only —\nthe price of a visit", color="#b07d10", fontcolor="#6b4e08"];
+    visitn -> tickn [label="per frame", color="#2b5fb0", fontcolor="#1e3f70"];
+    visitn -> faden [style=dashed, color="#9a9a9a"];
+    knobn -> createfn [style=dashed, color="#7c3aed", fontcolor="#5b21b6",
+                       label="the knob build adds no 17th creator —\nthe dial restyles, never creates"];
+}

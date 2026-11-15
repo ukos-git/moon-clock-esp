@@ -206,6 +206,67 @@ The rules the graph encodes:
 - The alarm screen has no entry either — the alarm scheduler shows
   it; a touch dismisses it.
 
+.. _screen-population-ui:
+
+The population in one picture (built once, visited free)
+--------------------------------------------------------
+
+The navigation graph above says *which screens exist and who may open
+whom*. This picture draws what is **alive** while those edges are
+walked: the build-once population. ``ui_init`` (``ui.c:77``) runs
+``create_screens()`` — all sixteen ``create_screen_*`` in enum order,
+each rooted at exactly one detached ``lv_obj_create(0)`` — and only
+*then* loads the airplane home (``ui.c:84``): **every object of the
+city exists before the first frame is ever shown.** The city is 255
+object instances under 16 roots (256 on the P4 — the hub's 7th
+``ring[]`` label is the whole per-board delta), and the code's own
+contract sits at ``screens.c:1368``: *"The widgets are created once
+(loadScreen never destroys them), so the pointers live here."* The
+awake user sees 17 of the 255; a visit creates nothing, destroys
+nothing, and at most pays an entry refresh.
+
+.. graphviz:: ../_graphs/screen-population.dot
+   :align: center
+   :alt: The boot cluster (ui_init, create_screens, the dashed EEZ twin) feeding the hidden city — the four moon roots sharing one amber moon image, the single clock widget, the hub with its P4-only seventh ring label, the amber wheel at 150, the ten small screens — and the visit cluster: loadScreen with no creator call, the ten-case entry refresh, the current-screen-only tick dispatch, the dashed fade pointer, and the dashed violet knob node whose dial block creates nothing.
+   :caption: The population and its lifecycle. Blue nodes are shipped code with their lines cited; amber prices concentration (the wheel's 150 objects, the one shared moon image, the ten entry refreshes); dashed legs are the never-compiled EEZ twin, the fade owned by another sketch, and the knob's dial block — zero creations. Navigation edges are deliberately absent: they are the mermaid graph above. The arithmetic (per-screen bars, per-board totals) is parsed live by ``docs/tools/gen_perf_assembly.py``, whose SystemExit-failing parsers are this sketch's twin.
+
+The rules the graph encodes:
+
+- **Built once, before the first frame.** ``create_screens()``
+  (``screens.c:3894``) runs inside ``ui_init`` *before* the first
+  ``loadScreen``; each of the 16 creators owns exactly one detached
+  root (layout contract 1).
+- **Never destroyed.** ``loadScreen`` (``ui.c:51``) contains no
+  creator call and no destroy — the twin parser refuses to draw if a
+  ``*_create(`` ever appears inside it. A switch swaps roots,
+  reparents the ONE clock widget (``ui_clock_attach_to``,
+  ``screens.c:3826``, "computed, not rendered" for settings screens),
+  and lands the atomic frame.
+- **The bill is concentrated, not spread.** One screen — the round
+  keyboard — assembles 150 of the 255 (59 %), and it is not a
+  roller: the family's 14 ``lv_roller`` instances all live on the
+  list screens. The four sleep-state roots share the ONE moon image
+  (``s_images[]`` stays at the four, ``screens.c:48``).
+- **Only the current screen ticks.** ``ui_tick`` (``ui.c:87``)
+  dispatches through ``tick_screen_funcs[]`` (``screens.c:3872``) to
+  the loaded screen alone; the fifteen off-screen roots do no work
+  per frame. The 10 sub-screens additionally pay one entry REFRESH
+  (``settings_screen_refresh_for``, ``screens.c:730``, exactly 10
+  cases — rollers re-seed, nothing rebuilds).
+- **The knob adds no widgets.** Its P2 dial block
+  (``screens.c:3918-4301``) contains zero ``lv_*_create`` calls — the
+  dial cursor only restyles existing objects. The dial's *input* path
+  is its own story, :ref:`below <input-chain-ui>`.
+
+What this picture deliberately omits: the navigation edges (the
+mermaid graph above; the tap costs at :ref:`the tap ladder
+<taps-ladder-perf>`), the fade mechanics of a switch
+(``docs/_graphs/screen-switch.dot``), and the RAM the 255 objects
+cost (the static footprint on :doc:`the performance page
+<../verification/performance>`). The object *counts* and the
+build-once invariants, re-derived from the sources at figure time,
+are :ref:`the assembly ladder <assembly-ladder-perf>`.
+
 .. _input-chain-ui:
 
 How the finger and the dial reach the widget

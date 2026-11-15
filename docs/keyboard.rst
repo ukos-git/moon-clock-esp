@@ -98,7 +98,14 @@ the 12 frequency-grouped sectors (``[ab][cd][ef][gh]``,
 is **fixed across all four registers**, so sector boundaries never
 move when the register changes — the muscle memory of the press
 position survives the ``abc → 123`` switch. (The digit/symbol
-registers are shorter than 26; their groups fill in order.)
+registers are shorter than 26; their groups fill in order.) The
+keyboard is also the family's most expensive screen to *build*: its
+150 objects — 42 arcs + 49 containers + 59 labels, from the
+``WHEEL_N_SECTORS`` loop and the 26 letters drawn twice — are **59 %
+of the entire 255-object population**, assembled once at boot by
+``create_screens()`` and never destroyed (the wheel is not an
+``lv_roller``; the bill and the build-once invariants are parsed live
+in :ref:`the assembly ladder <assembly-ladder-perf>`).
 
 The reveal
 ^^^^^^^^^^

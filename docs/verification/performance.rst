@@ -1653,6 +1653,112 @@ checked against is :doc:`the UI index <../ui/index>`; the knob's
 dial-click path is :doc:`the knob display
 <../implementation/knob-display>`.
 
+.. _assembly-ladder-perf:
+
+The assembly ladder (how many objects every screen assembles — and what a visit pays)
+--------------------------------------------------------------------------------------
+
+**The short version.** Every ladder above prices *work*: the tap
+ladder prices the finger's labour, the bus and pixel ladders price
+movement, the static footprint prices bytes, the work ladder prices
+milliseconds. None of them has priced the **population** — the LVGL
+objects that exist at boot, before a finger has touched anything.
+This ladder counts it out of ``screens.c``: sixteen detached roots
+and **255 object instances** (256 on the P4), assembled exactly once
+by ``create_screens()`` (``screens.c:3894``) inside ``ui_init``
+(``ui.c:77``) *before* the first ``loadScreen`` — and then prices the
+build-once model that makes visiting them free. The code's own
+comment is the contract, at ``screens.c:1368``: *"The widgets are
+created once (loadScreen never destroys them), so the pointers live
+here."* The awake home **shows 17** objects; the other 238 are the
+hidden city. A screen visit costs **zero creations and zero
+destructions** — ``loadScreen`` (``ui.c:51``) swaps roots, and the
+sub-screens pay only an entry REFRESH.
+
+The graph is not hand-drawn; the generator **parses the census out of
+the live sources** — and its parsers double as docs-side twins of the
+UI's structural rules, SystemExit-failing when a screen, a ticker or
+a registry entry appears or vanishes:
+
+* the 16 ``SCREEN_ID_*`` ids in enum order (``screens.h``); exactly
+  one ``create_screen_*`` per id, each rooted at exactly **one
+  detached** ``lv_obj_create(0)`` (layout contract 1) — bodies are
+  brace-matched, not regex-sliced;
+* ``create_screens()`` calls exactly those 16 creators in enum order,
+  and ``ui_init`` runs it *before* ``loadScreen(SCREEN_ID_MODEM_SLEEP)``
+  — every object exists before the first frame;
+* ``loadScreen`` contains **no creator call at all** — the build-once
+  claim is asserted, not quoted: add a ``*_create(`` inside it and
+  the figure refuses to draw;
+* exactly 16 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
+  (``screens.c:3872``) in enum order — ``ui_tick`` (``ui.c:87``)
+  dispatches **only the current screen**, so the fifteen off-screen
+  roots tick zero times;
+* helper bodies are resolved **transitively** (the exit button is
+  container + glyph, the hub icon is one label, the roller helper is
+  one roller), and ``create_user_widget_clock`` — the ONE clock
+  widget, called exactly once, from the airplane creator (layout
+  contract 2, ``ui_clock_attach_to`` reparents it onto every moon
+  root, ``screens.c:3826``) — counts toward the home;
+* object creation inside a loop is priced by the parsed bound —
+  ``WHEEL_N_SECTORS`` 12 (``screens.c:1863``), literal bounds, and
+  the hub's ``sizeof(ring)`` loop at the parsed 6/7 ring table — and
+  **any loop bound the generator cannot model is a SystemExit**: a
+  loop nobody modelled cannot ship a bar;
+* the structural tables re-derive the tap ladder's own: exactly 9
+  ``settings_sub_screen_prepare`` exits, exactly 10 cases in
+  ``settings_screen_refresh_for`` (``screens.c:730`` — the 10
+  sub-screens, no more), exactly **4** ``moon_screen_prepare`` call
+  sites (``screens.c:41``, the airplane/wifi/light/deep roots that
+  share the ONE moon image via ``moon_ui_create_image``,
+  ``moon_ui.c:2627``), and **zero** creations in the knob's P2 dial
+  block — the dial cursor only restyles existing objects.
+
+What the bars say: **the wheel is the bill**. One screen — entered
+once per provisioning — assembles **150 of the 255 objects (59 %)**:
+42 arcs + 49 containers + 59 labels, dominated by the 12-sector loop
+(36 box arcs, 24 box dividers, 12 sector dividers) and the 26 letters
+drawn twice (52 in/out labels). The wheel is also *not* a roller —
+the round keyboard is hand-assembled from arcs and boxes; the
+family's 14 ``lv_roller`` instances all live on the list screens.
+Everything else is small: the home 17 (13 of them the shared clock
+widget), the hub 9 (6 of them ring labels), the lightest screen the
+alarm view at 3. The awake user of a home screen sees 17 of the 255 —
+**under seven percent of the city is ever on screen at once** — and
+that is exactly what the build-once model buys: paying for the whole
+city once at boot beats building and tearing down a screen per visit,
+because the visit then pays *nothing*. **Right:** the three
+panels carry identical bills because there is exactly one
+``screens.c``; the only per-board delta the parser finds is the hub's
+7th ``ring[]`` label (the P4's clock entry, the same
+``#if defined(CONFIG_BOARD_P4)`` the tap ladder walks), making the
+P4's city 256. The ledger box states the lifecycle the parsers
+proved: 0 created / 0 destroyed per visit, entry refresh on the 10
+sub-screens, tick dispatch to the current screen only, four roots
+sharing one moon image.
+
+.. figure:: ../_static/figs/perf_assembly.png
+   :alt: per-screen object budgets as stacked class bars, and the identical per-board totals of 255/256/255
+   :figclass: align-center
+
+   The assembly ladder. **Left:** every screen's object budget, one
+   stacked bar each (containers slate, labels blue, arcs vermillion,
+   rollers violet, the shared moon image amber), sorted; loop-bound
+   multipliers are parsed at figure time, so the wheel's 150 is
+   arithmetic over the parsed loop, not a hand count. **Right:** the
+   per-board totals — identical shared bars in each board's identity
+   colour, the hub-ring labels the only delta (6/7/6), and the
+   build-once ledger beside them.
+
+The generator is ``docs/tools/gen_perf_assembly.py``. What this
+ladder does *not* count: the bytes each object costs is the **static
+footprint** above, the taps to reach any bar are :ref:`the tap ladder
+<taps-ladder-perf>`, and what the LVGL pool charges when a *bake*
+out-funds the population is the render-path story of :doc:`the
+architecture <../implementation/architecture>`; the population's
+navigation — who may visit whom — is the reachability matrix of
+:doc:`the UI index <../ui/index>`.
+
 The performance decisions, ranked
 ---------------------------------
 

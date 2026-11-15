@@ -451,7 +451,12 @@ side lives in ``components/ui/screens.c`` behind
 ``screens_dial_step`` / ``screens_dial_commit``) — a symbol only the
 knob's board-shim ``choice BOARD`` defines, so in the clocks' builds
 the block is not preprocessed at all and their UI is structurally
-untouched.
+untouched. And even in the knob's *own* build the block adds no
+objects: between ``screens.c:3918`` and its ``#endif`` at :4301 there
+is not one ``lv_*_create`` — the dial cursor only **restyles** the
+existing shared population (the 255-object build-once city it
+restyles is counted in :ref:`the assembly ladder
+<assembly-ladder-perf>`).
 
 The **commit never duplicates handler logic**: it re-sends the very
 event the touch path already handles. Icons, the alarm glyphs, exit
