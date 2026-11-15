@@ -267,6 +267,80 @@ cost (the static footprint on :doc:`the performance page
 build-once invariants, re-derived from the sources at figure time,
 are :ref:`the assembly ladder <assembly-ladder-perf>`.
 
+.. _type-family-ui:
+
+The type in one picture (seven faces, three tiers, two choosers)
+----------------------------------------------------------------
+
+The population sketch counts the objects; this one draws what paints
+them. Every glyph on every screen comes from **seven faces** — two
+Montserrat weights for the digits, two full-ASCII SSID faces, a
+hand-tuned 12-glyph weekday face, and two Font Awesome icon faces —
+baked **three times**, once per panel density: ``fonts/``
+(96/48/32 px on the 466 S3), ``fonts_p4/`` (148/74/50 on the 720 P4),
+``fonts_knob/`` (74/37/25 on the 360 knob). The 21 files carry
+**identical ``lv_font_t`` symbol names**, so the swap is a directory
+choice: ``components/ui/CMakeLists.txt``'s ``FONT_DIR`` ladder picks
+one tier per board (``KNOB_BOARD`` / ``CONFIG_BOARD_P4`` / default),
+``host_sim/uisim/build.sh --panel`` mirrors it for the screenshots,
+and ``fonts.h`` plus every consumer are unchanged. A repo-wide grep
+for ``&ui_font_`` hits exactly two files — ``screens.c`` (43
+references) and ``styles.c`` (4): the knob's and the clocks' other
+sources never ask for a font directly, they ride ``screens.c``.
+
+.. graphviz:: ../_graphs/type-family.dot
+   :align: center
+   :alt: The seven faces (two digit faces, two ASCII SSID faces, the weekday face, two icon faces) feeding the three tier directories with per-panel px on every bake edge; the two choosers (CMake FONT_DIR, uisim --panel) arming the tiers; screens.c and styles.c asking per-face counts; the wheel drawing its 52 letters on the SSID face; the hub ring table with its P4-only clock; the dashed foundry with the four source faces and lv_font_conv; and the three claims.
+   :caption: The type family. Steel edges bake a face into a tier at its parsed px; blue edges are the parsed compile-time asks; amber arms a tier through a chooser; the red strike marks the one inherited-and-never-drawn glyph (the knob's clock U+F017, baked from the P4's icon Opts). The arithmetic — every glyph count, raster byte total and ask count re-derived from the 21 files and the two asker files with SystemExit-failing parsers — is :ref:`the glyph ladder <glyph-ladder-perf>`.
+
+The rules the graph encodes:
+
+- **One name per face, three bakes.** All 21 files share the seven
+  symbol names; ``fonts.h`` declares each exactly once. The CMake
+  comment's claim — identical symbols so "``fonts.h`` and every
+  consumer are unchanged" — is the seam's contract, and the ladder's
+  parsers assert it (a face appearing in one tier only, or a name
+  drifting between tiers, kills the figure).
+- **Each face carries exactly what the firmware can ask.** The two
+  SSID faces cover the whole printable range 32-126 because an SSID
+  is arbitrary (95 glyphs each); the weekday face
+  (``montserrat_regular_32_range``) is a 12-codepoint hand-picked set
+  — ``- F M S T W a e h o r u`` — which is *exactly* the alphabet of
+  the two weekday tables (``s_day_abbr`` ``actions.c:986``,
+  ``ALARM_DAY_ABBR`` ``screens.c:1033``) spelling "Mo", "Mo-Fr",
+  "Fr-Mo"; the wheel's four registers
+  (``s_wheel_sets``, ``screens.c:1868-1873``) stay inside the SSID
+  face's 95 by construction.
+- **The icons are per-board, and one glyph proves it.** The hub's
+  ring (``screens.c:594-603``) carries six entries on every board and
+  a seventh — the clock, U+F017, into settings-time — only under
+  ``#if defined(CONFIG_BOARD_P4)``. Correspondingly the *regular*
+  icon face carries 2 codepoints in the S3 tier and 3 in the P4 and
+  knob tiers: the knob was baked from the P4's icon Opts, so it
+  carries the clock glyph and never draws it. Moon-weight is the
+  ring's own trick: "Moon weight distinguishes the two sleep screens"
+  (regular light / solid deep). The solid face's stopwatch define
+  keeps a charset war story in place: *"was U+F9F2, absent -> a box"*
+  (``screens.c:87``).
+- **The font is ink; the wheel is a consumer like any other.** The
+  round keyboard's 26+26 sector letters and its password preview all
+  draw on the 32 px SSID face — "both 32 px (the SSID font)"
+  (``screens.c:2582``) — so the character face is named for Wi-Fi and
+  paints the wheel's alphabet.
+- **Provenance lives in the file.** All 21 carry an ``lv_font_conv``
+  header (Size/Bpp/Opts — the file's own birth certificate), every
+  bake is ``--bpp 4 --no-compress``; the four source faces live under
+  ``assets/fonts/`` (the Fontawesome shelf holds six more siblings
+  that no tier bakes).
+
+What this picture deliberately omits: the raster *bill* per panel
+(glyph counts, bitmap bytes — :ref:`the glyph ladder
+<glyph-ladder-perf>`), the binary budget the tiers land inside
+(:doc:`the binary page <../verification/binary>`), and the per-panel
+font statements themselves, which the board pages keep in sync with
+the files: :doc:`S3 <../devices/s3>`, :doc:`P4 <../devices/p4>`,
+:doc:`knob <../devices/knob>`.
+
 .. _input-chain-ui:
 
 How the finger and the dial reach the widget

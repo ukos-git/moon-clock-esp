@@ -13,8 +13,11 @@ extern const lv_font_t ui_font_fontawesome7_regular_96_icons;
 extern const lv_font_t ui_font_fontawesome7_solid_96_icons;
 extern const lv_font_t ui_font_montserrat_regular_32_ssid;
 extern const lv_font_t ui_font_montserrat_regular_32_range;
-/* Knob tier only (fonts_knob/, 37 px baked under the 48 baseline name,
- * same ASCII 32-126 as the 32_ssid): the Wi-Fi roller's large entries. */
+/* The Wi-Fi roller's large entries (roller MAIN/SELECTED + the
+ * placeholder label, screens.c:1684-1685/:1732 — family-wide, all three
+ * tiers bake this face). The knob tier joined last: 37 px under the 48
+ * baseline name since 2026-11-10, because the 32 px rows read too small
+ * on the 1.8" (docs/devices/knob.rst). */
 extern const lv_font_t ui_font_montserrat_regular_48_ssid;
 
 #ifdef __cplusplus

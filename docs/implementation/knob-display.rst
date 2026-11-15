@@ -117,7 +117,11 @@ the six core TUs (``ui.c``, ``screens.c``, ``images.c``, ``styles.c``,
 (74/37/25 px = the S3's 96/48/32 baselines scaled by 360/466 — the
 six file names keep the baseline sizes exactly like ``fonts_p4/``'s,
 the baked sizes live in the files; same ``lv_font_conv`` provenance,
-identical symbol names so ``fonts.h`` never changes). The four AMOLED/board-coupled
+identical symbol names so ``fonts.h`` never changes; the regular
+icon face is the one Opts exception — baked from the P4's set, so
+the knob carries the clock U+F017 it never draws,
+:ref:`the type sketch <type-family-ui>`, :ref:`the glyph ladder
+<glyph-ladder-perf>`). The four AMOLED/board-coupled
 TUs (``moon_ui.c``, ``moon_tfcache.c``, ``alarm_audio.c``,
 ``demo.c``) drop out of the knob's SRCS, and the knob answers their
 public headers from its own components:

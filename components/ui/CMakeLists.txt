@@ -3,7 +3,13 @@ file(GLOB_RECURSE IMAGE_SOURCES "images/*.c")
 # fonts_p4/ the P4's 720 px set (148/74/50) regenerated at the panel ratio
 # from the SAME source Opts — the lv_font_t symbol names are identical, so
 # fonts.h and every consumer are unchanged. fonts_knob/ is the knob's 360 px
-# tier (74/37/25, same Opts scaled by 360/466).
+# tier (74/37/25, same Opts scaled by 360/466). The one exception to
+# "SAME source Opts": the regular icon face carries the clock 61463
+# (U+F017) only in the 720/360 tiers -- it is the P4 hub ring's 7th
+# entry (screens.c's #if CONFIG_BOARD_P4), so the knob inherited that
+# glyph from the P4 bake and never draws it. The other six faces are
+# charset-identical across tiers; docs/tools/gen_perf_glyphs.py asserts
+# all of it at figure time.
 # The branch keys are PROJECT variables (KNOB_BOARD is set in
 # knob/CMakeLists.txt before project()), deliberately NOT CONFIG_ symbols:
 # the component manager's early requirements pass (build.cmake's

@@ -1,0 +1,221 @@
+// The type family, in one picture: the seven faces every panel shows
+// through, the three per-panel tiers that bake them, the two choosers
+// that swap a tier in, and the two files that ask for them. Every edge
+// was read out of the live source before drawing (comment-stripped
+// greps — the api-surface.dot discipline), and the same numbers are
+// re-derived with SystemExit-failing parsers by
+// docs/tools/gen_perf_glyphs.py at figure time:
+//   The seven faces (components/ui/fonts.h externs exactly these seven
+//     lv_font_t symbols; every tier ships all seven files under the
+//     SAME names): montserrat_bold_96_numbers carries 12 glyphs
+//     (Opts "--symbols - --range 48-58" — digits, ':' from the range,
+//     '-'; U+ set verified against the file's /* U+XXXX */ annotations
+//     — the home clock's HH:MM ink); montserrat_regular_48_numbers
+//     carries 13 (Opts "--symbols=-. --range 48-58") — the
+//     settings-time DATE editor's face: three day/month/year rollers
+//     (screens.c:2996-3004) + the two "." separators
+//     (settings_time_separator, "." literals :2998/:3002); the two
+//     SSID faces (32/48) carry the full printable
+//     range, Opts "-r 32-126", 95 glyphs; montserrat_regular_32_range
+//     is a hand-tuned 12-glyph weekday alphabet, Opts "-r
+//     45,70,77,83,84,87,97,101,104,111,114,117" = '-' F M S T W a e h
+//     o r u — exactly the alphabet the two weekday tables can spell
+//     (s_day_abbr[7] actions.c:986 {"Su","Mo","Tu","We","Th","Fr",
+//     "Sa"} + ALARM_DAY_ABBR[7] screens.c:1033, the "Mo-Fr"/"Fr-Mo"
+//     range summary of screens.c:1337); the solid icon face carries 6
+//     (Opts range 61480,61527,61612,61830,61931,62194 = speaker
+//     U+F028, xmark U+F057, globe U+F0AC, moon U+F186, wifi U+F1EB,
+//     stopwatch U+F2F2); the regular icon face carries 2 on the S3
+//     (62286,61830 = alarm U+F34E, moon U+F186) and 3 on the P4 and
+//     knob (62286,61830,61463 — the clock U+F017 joins: the P4 ring's
+//     7th entry).
+//   The three tiers (components/ui/CMakeLists.txt:1-21): fonts/ is the
+//     S3's 466 px set (96/48/32), fonts_p4/ the P4's 720 px set
+//     (148/74/50), fonts_knob/ the knob's 360 px set (74/37/25) — all
+//     three carry the identical symbol names so fonts.h and every
+//     consumer are unchanged (the CMakeLists comment's own words).
+//     Six of the seven faces share their Opts charset across tiers
+//     byte-for-byte (only --size differs); the regular icon face is
+//     the exception the comment predates: its 720/360 ranges added
+//     61463 for the P4-only clock entry, and the knob tier was baked
+//     from that P4 Opts — so the knob carries the clock glyph and
+//     never draws it (the ring's clock entry is #if defined
+//     (CONFIG_BOARD_P4), screens.c:595-597).
+//   The choosers: the device swap is components/ui/CMakeLists.txt's
+//     FONT_DIR ladder — if(KNOB_BOARD) fonts_knob / elseif
+//     (CONFIG_BOARD_P4) fonts_p4 / else fonts, keyed on PROJECT
+//     variables deliberately (the comment: the early requirements
+//     pass reads neither project vars nor CONFIG_ symbols; harmless —
+//     SRCS are consumed by the target pass). The host swap is
+//     host_sim/uisim/build.sh:51-69 — --panel 466 → fonts/, 720 →
+//     fonts_p4/ (+ -DCONFIG_BOARD_P4=1), 360 → fonts_knob/ (+
+//     -DCONFIG_BOARD_KNOB=1), "the symbol names are identical,
+//     screens.c is shared".
+//   The consumers (a repo-wide grep for "&ui_font_" finds exactly two
+//     files): screens.c 43 references + styles.c 4 — the knob's and
+//     main's sources ask NOTHING directly; they ride screens.c.
+//     Per face: bold96 12 (11+1), 48-numbers 6 (5+1), 48-SSID 3
+//     (Wi-Fi roller MAIN+SELECTED screens.c:1684-1685 + placeholder
+//     :1732), 32-SSID 14 (wheel pw label + the 26+26 sector letters
+//     "both 32 px (the SSID font)" screens.c:2582-2596 + the Wi-Fi
+//     text rows), 32-range 2 (screens.c:1337 range summary + :3490
+//     alarm-row weekday prefix), solid 5 (4 screens + 1 style
+//     installer), regular 5 (3 ring entries + the weight-routing
+//     comparison screens.c:157 + 1 style installer). styles.c's two
+//     installers add_style_label_icon_regular/:126 / _solid/:154 set
+//     the font onto the icon style.
+//   The hub ring (screens.c:594-603): six unconditional entries —
+//     alarm (regular), light sleep moon (regular), deep sleep moon
+//     (SOLID — "Moon weight distinguishes the two sleep screens"),
+//     wifi, globe, speaker (solid) — plus the P4-only 7th, clock
+//     (regular) → settings-time. The xmark U+F057 exit button and the
+//     stopwatch U+F2F2 join from the same solid face; the stopwatch's
+//     define carries the charset war story: "was \xEF\xA7\xB2 =
+//     U+F9F2, absent -> a box" (screens.c:87).
+//   The foundry: lv_font_conv provenance headers in all 21 files —
+//     "Size/Bpp 4/Opts", every file --no-compress at Bpp 4 (raw 4 bpp
+//     bitmaps); the four source faces live in assets/fonts/
+//     (Montserrat-Regular.ttf, Montserrat-Bold.ttf, Font Awesome 7
+//     Free-Regular-400.otf, Font Awesome 7 Free-Solid-900.otf) — the
+//     Fontawesome shelf also holds five FA5 and one FA7-Brands
+//     siblings no tier bakes.
+// The population sketch above counts the OBJECTS these faces paint;
+// the glyph ladder (verification/performance.rst) counts the GLYPHS
+// and prices the rasters; the binary budget the tiers land inside is
+// verification/binary.rst. Rendered inline as SVG by
+// sphinx.ext.graphviz (dot on PATH).
+digraph type_family {
+    label="The type family in one picture — seven faces, three tiers, two choosers, two askers; per-panel px beside every bake edge";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=11, style="rounded,filled",
+          shape=box, width=2.1, height=0.5,
+          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=9, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_faces {
+        label="the seven faces (fonts.h externs exactly these seven symbols; per-tier px on the bake edges)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        f_num96 [label="montserrat bold \"96 numbers\"\n12 glyphs: 0-9 · : (from -r 48-58)\n· - (from --symbols)", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        f_num48 [label="montserrat regular \"48 numbers\"\n13 glyphs: 0-9 · : · - · .\n— the date editor: dd.mm.yyyy\nrollers + two \".\" separators", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        f_ssid48 [label="montserrat regular \"48 SSID\"\n95 glyphs: printable ASCII\n- 32-126 (Wi-Fi arbitrary)", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        f_ssid32 [label="montserrat regular \"32 SSID\"\n95 glyphs: printable ASCII\n— the wheel's alphabet", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        f_range32 [label="montserrat regular \"32 range\"\n12 glyphs: - F M S T W a e h o r u\n= the weekday-range alphabet", fillcolor="#f6ecd6"];
+        f_solid [label="Font Awesome 7 solid \"96 icons\"\n6: speaker xmark globe\nmoon wifi stopwatch", fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.6];
+        f_regular [label="Font Awesome 7 regular \"96 icons\"\nS3 2: moon alarm · P4/knob 3\n+ clock (U+F017)", fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.6];
+    }
+
+    subgraph cluster_tiers {
+        label="the three tiers — one directory per panel, identical symbol names (CMake swaps the dir, nobody edits a name)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        t_s3 [label="fonts/\nS3 466 px tier\n96/48/32", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        t_p4 [label="fonts_p4/\nP4 720 px tier\n148/74/50", fillcolor="#fbe3d8", color="#c2410c", penwidth=1.6];
+        t_knob [label="fonts_knob/\nknob 360 px tier\n74/37/25", fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.6];
+    }
+
+    subgraph cluster_choosers {
+        label="the two choosers (amber = which tier is in force)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#fdf7e6"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        cmake [label="components/ui/CMakeLists.txt\nFONT_DIR ladder — PROJECT\nvars by design: the early\nrequirements pass sees\nneither vars nor CONFIG_", fillcolor="#fdf7e6"];
+        uisim [label="host_sim/uisim/build.sh\n--panel N: 466 → fonts/\n720 → fonts_p4/ (+BOARD_P4)\n360 → fonts_knob/ (+BOARD_KNOB)", fillcolor="#fdf7e6"];
+    }
+
+    subgraph cluster_asks {
+        label="the askers (a repo-wide grep for &ui_font_ hits EXACTLY these two files)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        screens [label="screens.c — 43 &ui_font_\nreferences: clock+alarm\ndigits, Wi-Fi text, the\ntext rows of every list", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        styles  [label="styles.c — 4: the two icon\nstyle installers + bold96\n+ 48-numbers", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
+        wheel   [label="the wheel (inside screens.c):\n26+26 sector letters + pw\nlabel — \"both 32 px (the\nSSID font)\" (:2582 comment)", fillcolor="#e9e4f8"];
+        ring    [label="the hub ring table (:594-603):\n6 entries + P4-only 7th\nclock (#if CONFIG_BOARD_P4)", fillcolor="#e9e4f8"];
+        days    [label="the two weekday tables\ns_day_abbr actions.c:986\n+ ALARM_DAY_ABBR :1033 —\nspell \"Mo-Fr\", \"Fr-Mo\"", fillcolor="#f6ecd6"];
+        knobx   [label="knob + main sources:\nZERO &ui_font_ asks —\nthey ride screens.c",
+                 style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+    }
+
+    subgraph cluster_foundry {
+        label="the foundry (dashed = provenance, not runtime)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f3f1f5"; color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+
+        srcs [label="assets/fonts/ — Montserrat\nRegular+Bold .ttf, FA7\nFree-Regular-400 +\nFree-Solid-900 .otf (shelf\ncarries 6 siblings unbaked)", fillcolor="#e8ddf6", style="rounded,filled,dashed"];
+        conv [label="lv_font_conv — Bpp 4,\n--no-compress in all 21;\nSize/Bpp/Opts header is\nthe file's own birth cert", fillcolor="#f2f2f2", style="rounded,filled,dashed"];
+    }
+
+    claims [label="the three claims this picture holds up: (1) 21 files = 7 faces × 3 tiers with IDENTICAL lv_font_t symbols — the tier swap is a CMake directory choice, fonts.h and every consumer are unchanged; (2) the ONLY per-board font asymmetry is the clock U+F017: carried in the P4+knob regular sets, asked only by the P4 ring's 7th entry — the knob inherited the glyph from the P4 Opts and never draws it; (3) each face carries exactly what the firmware can ask: full printable ASCII for SSIDs (arbitrary by nature), and the weekday face's 12 codepoints are the full alphabet of the two weekday tables — the wheel's registers stay inside the SSID face's 95 by construction (s_wheel_sets is printable ASCII, screens.c:1866).",
+            shape=note, style="rounded,filled", fillcolor="#fdf7e6", color="#b07d10",
+            fontsize=10, width=7.6];
+
+    // ---- bake edges (steel: this face compiles into this tier at this px) ----
+    f_num96   -> t_s3   [label=" 96"];
+    f_num96   -> t_p4   [label=" 148"];
+    f_num96   -> t_knob [label=" 74"];
+    f_num48   -> t_s3   [label=" 48"];
+    f_num48   -> t_p4   [label=" 74"];
+    f_num48   -> t_knob [label=" 37"];
+    f_ssid48  -> t_s3   [label=" 48"];
+    f_ssid48  -> t_p4   [label=" 74"];
+    f_ssid48  -> t_knob [label=" 37"];
+    f_ssid32  -> t_s3   [label=" 32"];
+    f_ssid32  -> t_p4   [label=" 50"];
+    f_ssid32  -> t_knob [label=" 25"];
+    f_range32 -> t_s3   [label=" 32"];
+    f_range32 -> t_p4   [label=" 50"];
+    f_range32 -> t_knob [label=" 25"];
+    f_solid   -> t_s3   [label=" 96"];
+    f_solid   -> t_p4   [label=" 148"];
+    f_solid   -> t_knob [label=" 74"];
+    f_regular -> t_s3   [label=" 96 · 2 glyphs"];
+    f_regular -> t_p4   [label=" 148 · 3"];
+    f_regular -> t_knob [label=" 74 · 3 (1 dead)"];
+
+    // ---- inheritance (amber dashed: P4 Opts seed; red strike: the dead carry) ----
+    t_p4   -> t_s3   [style=dashed, color="#b07d10", label=" same Opts 6/7 faces,\nsize ×panel ratio"];
+    t_knob -> t_p4   [style=dashed, color="#b91c1c", label=" regular baked from the\nP4 Opts — inherits f017"];
+
+    // ---- chooser edges (amber) ----
+    cmake -> t_s3   [color="#b07d10", label=" else"];
+    cmake -> t_p4   [color="#b07d10", label=" elseif CONFIG_BOARD_P4"];
+    cmake -> t_knob [color="#b07d10", label=" if KNOB_BOARD"];
+    uisim -> t_s3   [color="#b07d10", label=" --panel 466", style=dashed];
+    uisim -> t_p4   [color="#b07d10", label=" --panel 720", style=dashed];
+    uisim -> t_knob [color="#b07d10", label=" --panel 360", style=dashed];
+
+    // ---- ask edges (blue: compile-time requests, counts parsed at figure time) ----
+    screens -> f_num96   [color="#2b5fb0", label=" 11"];
+    screens -> f_num48   [color="#2b5fb0", label=" 5"];
+    screens -> f_ssid48  [color="#2b5fb0", label=" 3 (roller MAIN+\nSELECTED+placeholder)"];
+    screens -> f_ssid32  [color="#2b5fb0", label=" 14"];
+    screens -> f_range32 [color="#2b5fb0", label=" 2"];
+    screens -> f_solid   [color="#2b5fb0", label=" 4 = the ring's solid\nentries (deep moon, wifi,\nglobe, speaker)"];
+    screens -> f_regular [color="#2b5fb0", label=" 4 (ring 3 + the\nweight comparison :157)"];
+    styles  -> f_num96   [color="#2b5fb0", label=" 1"];
+    styles  -> f_num48   [color="#2b5fb0", label=" 1"];
+    styles  -> f_solid   [color="#2b5fb0", label=" installer :141 — the\nxmark exit + icon ink"];
+    styles  -> f_regular [color="#2b5fb0", label=" installer :113"];
+    wheel   -> f_ssid32  [color="#7c3aed", label=" 52 letters + pw"];
+    ring    -> f_regular [color="#7c3aed", label=" alarm+moon(+clock P4)"];
+    ring    -> f_solid   [color="#7c3aed", label=" moon+wifi+globe+speaker"];
+    days    -> f_range32 [color="#b07d10", label=" the alphabet this face\nmust cover (:1036 comment)"];
+    knobx   -> screens   [style=dashed];
+
+    // ---- foundry (violet dashed) ----
+    srcs -> conv [color="#7c3aed", style=dashed];
+    conv -> t_s3   [color="#7c3aed", style=dashed, label=" bakes 7"];
+    conv -> t_p4   [color="#7c3aed", style=dashed, label=" bakes 7"];
+    conv -> t_knob [color="#7c3aed", style=dashed, label=" bakes 7"];
+
+    { rank=sink; claims; }
+}

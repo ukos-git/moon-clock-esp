@@ -156,7 +156,10 @@ scale with the panel (S3 byte-identical at 466, via a stash control).
 The P4 gets its own font subset (``fonts_p4/``: 148/74/50 px) with
 **identical ``lv_font_t`` symbols** (``CMake``'s ``FONT_DIR`` on
 ``CONFIG_BOARD_P4``) so the UI code references the same font names on
-both boards.
+both boards — six of the seven faces re-bake the S3's Opts verbatim,
+the seventh (regular icons) adds the clock U+F017 for this board's
+7th ring entry: :ref:`the type sketch <type-family-ui>`, priced by
+:ref:`the glyph ladder <glyph-ladder-perf>`.
 
 The P4's display path: the strips are *smaller*, not larger
 -----------------------------------------------------------

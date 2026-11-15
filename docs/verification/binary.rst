@@ -213,7 +213,9 @@ The project's policy for the S3 (the binding budget):
    under the comfort mark: the chronology above is the record of how
    it got there, not a number to sandbag. A build that lands at 90 %
    of the ceiling is the signal that the next feature (a new screen,
-   a new font subset, a new animation) will *hit* the ceiling — the
+   a new font subset, a new animation — the font bill is priced
+   glyph-by-glyph at :ref:`the glyph ladder <glyph-ladder-perf>`)
+   will *hit* the ceiling — the
    same situation the 1,451,472 B production build was in — and rule
    3 is the answer, not a code shrink under protest.
 3. **Widen the partition, not the chip.** The 16 MB chip has ~11 MB

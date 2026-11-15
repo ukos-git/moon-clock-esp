@@ -284,7 +284,11 @@ family's **shared home screen** — split-flap HH:MM pair cells, colon,
 alarm row and seconds arc from ``screens.c``'s
 ``create_user_widget_clock``, laid out at 360 px through ``UI_PX()``
 with the generated ``fonts_knob/`` tier (74/37/25 px = the S3's
-96/48/32 baselines scaled by 360/466). The earlier K7 caption row
+96/48/32 baselines scaled by 360/466 — 236 glyphs at the smallest
+bill, 44 KiB, and the one face that is not a pure baseline re-bake:
+the regular icon set inherits the P4's clock glyph it never draws,
+:ref:`the type sketch <type-family-ui>`, :ref:`the glyph ladder
+<glyph-ladder-perf>`). The earlier K7 caption row
 ("Nov 8 17:29" through ``KNOB_TZ``) still carries the display in the
 legacy own-screen build (``KNOB_UI_ENABLE=n``) — with P2 shipped the
 shared TZ screen owns the zone on the family app and ``KNOB_TZ``

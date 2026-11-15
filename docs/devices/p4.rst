@@ -150,8 +150,12 @@ milestone labels used in the project's tracking):
   ``screens.c`` (S3 stays byte-identical at 466 via the
   ``--panel``-aware build); the P4 fonts (148/74/50 px) carry
   identical ``lv_font_t`` symbols selected by CMake on
-  ``CONFIG_BOARD_P4``; the keep-mask (burn-in spin's UI mask) was
-  re-derived on the upscaled arc.
+  ``CONFIG_BOARD_P4`` (236 glyphs, 213 KiB of raster — the
+  ``fonts_p4/`` tier also carries the clock icon U+F017 the S3's
+  regular set lacks, because the P4 hub ring's 7th entry asks for
+  it: :ref:`the type sketch <type-family-ui>`,
+  :ref:`the glyph ladder <glyph-ladder-perf>`); the keep-mask
+  (burn-in spin's UI mask) was re-derived on the upscaled arc.
 
 M5 (clock degradation + manual time entry on P4) is the remaining
 open firmware item as of this writing; the M6 docs milestone is the

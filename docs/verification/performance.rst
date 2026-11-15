@@ -1894,6 +1894,102 @@ architecture <../implementation/architecture>`; the population's
 navigation — who may visit whom — is the reachability matrix of
 :doc:`the UI index <../ui/index>`.
 
+.. _glyph-ladder-perf:
+
+The glyph ladder (how many glyphs every panel carries — and what the rasters cost)
+-----------------------------------------------------------------------------------
+
+**The short version.** The assembly ladder counted the objects; this
+one counts the **ink**. Every word the UI speaks comes from **seven
+faces** baked **three times** — ``components/ui/fonts/`` (96/48/32 px,
+the S3), ``fonts_p4/`` (148/74/50, the P4), ``fonts_knob/`` (74/37/25,
+the knob) — 21 ``lv_font_conv`` files with identical ``lv_font_t``
+symbol names, so the tier is a CMake directory choice and no consumer
+ever mentions a panel. This ladder prices what the 21 files carry:
+**235 glyphs and 81 KiB of raw 4 bpp raster on the S3, 236 and 213
+KiB on the P4, 236 and 44 KiB on the knob** — the same copy, three
+densities — and what the firmware statically asks them to paint. The
+bill is not recalled: every number is parsed from the 21 files and
+the two asker files (``screens.c`` + ``styles.c`` — a repo-wide scan
+for ``&ui_font_`` finds no other file) with SystemExit-failing
+parsers:
+
+* **identity across tiers**: all 21 headers parse to ``Bpp 4`` +
+  ``--no-compress`` with ``--size`` matching the ``Size:`` line, and
+  six of the seven faces share their Opts charset **byte-equal**
+  across tiers (only ``--size`` differs) — a charset drifting between
+  tiers kills the figure;
+* the px triples (96/48/32 · 148/74/50 · 74/37/25) are asserted
+  **against the board pages** — ``devices/p4.rst`` and
+  ``devices/knob.rst`` must still carry the literals the files bake;
+* **carried sets** come from the files' own ``/* U+XXXX */``
+  annotations: digits ``0-9 : -`` (12), digits ``+ .`` (13), the two
+  SSID faces the full printable 0x20–0x7E (95 each), the weekday face
+  **derived from the two weekday tables themselves** (``s_day_abbr``
+  ``actions.c:986`` + ``ALARM_DAY_ABBR`` ``screens.c:1033`` plus
+  ``-``) and asserted EQUAL to the 12 baked codepoints both ways,
+  and the icon faces from the decoded UTF-8 of the ``GLYPH_*``
+  defines (escape bytes vs their own ``U+XXXX`` comments);
+* **asked ⊆ carried**: the ring's per-board glyph sets, the xmark and
+  the stopwatch draw inside the solid/regular sets, and every
+  character of the wheel's four ``s_wheel_sets`` registers (88
+  distinct) sits inside the 32 SSID face's 95 — an escaping register
+  char is a SystemExit (the charset bug the stopwatch define still
+  mourns: *"was U+F9F2, absent -> a box"*, ``screens.c:87``);
+* **ask counts**: ``screens.c`` 43 + ``styles.c`` 4 references, per
+  face exactly 12/6/17/3/2/5/5 across the seven faces (the digits
+  faces are the workhorses, the weekday face is two labels), and the
+  repo-wide scan refuses to draw if a third asker appears — the knob
+  and the clocks' main ask **nothing**; they ride ``screens.c``.
+
+What the bars say: **the P4 pays for pixels, the knob for ink** — the
+P4's tier costs **2.6×** the S3's where the pure density square
+(720/466)² would predict 2.39×, and the knob pays **54 %** of the
+S3's bill where (360/466)² predicts 60 %: 4 bpp rasters track the
+square of density but not by the letter (per-glyph box rounding at
+bake time), and the P4/knob regular icon set additionally carries
+one glyph the S3 never asked for. The same-face pairs read as
+constant-projection: the 48 SSID face costs 34.0 / 78.4 / 20.4 KiB
+at 48 / 74 / 37 px. **Right:** carried-vs-asked per face — the
+weekday face is **12 = 12** (the alphabet of "Mo-Fr", nothing
+carried that the tables can't spell), the solid icons **6 = 6**, and
+the 32 SSID face holds its 88 register chars inside 95; the digits
+and 48 SSID faces carry no static stub because their content is
+runtime-formatted (italic, honest). The one strike the ladder draws
+in red: the **knob's regular icon set carries the clock U+F017 and
+never draws it** — the ring's clock entry is
+``#if defined(CONFIG_BOARD_P4)`` code, but the knob's tier was baked
+from the P4's icon Opts, so it inherited the glyph (the parsed
+per-board asked sets are S3 2 · P4 3 · knob 2 against carried 2 · 3 ·
+3).
+
+.. figure:: ../_static/figs/perf_glyphs.png
+   :alt: Left, grouped raster-byte bars for the seven faces across the three tiers; right, carried-vs-statically-asked glyph counts per face and per-board totals 235/236/236 glyphs at 81/213/44 KiB
+   :figclass: align-center
+
+   The glyph ladder. **Left:** every bake's raster bytes (4 bpp,
+   ``--no-compress``) on a log axis — one three-bar group per face
+   (S3 blue, P4 vermillion, knob violet), px on the wire; the same
+   face at three densities is the comparison the board pages assert
+   in prose. **Right:** carried glyphs (steel dot) against the
+   statically-asked sets (open circles: weekday tables, wheel
+   registers, icon asks), runtime-formatted faces marked with an
+   italic stub, and the per-board totals at half scale with true
+   counts in the bars. The knob's inherited-and-never-drawn clock
+   glyph is the only red annotation.
+
+The generator is ``docs/tools/gen_perf_glyphs.py`` — its parsers are
+the figure-time twin of :ref:`the type sketch <type-family-ui>`. What
+this ladder does *not* price: the objects these faces paint
+(:ref:`the assembly ladder <assembly-ladder-perf>`), the RAM the
+fonts cost at runtime (the static footprint above), and the factory
+partition the rasters land inside — that budget is
+:doc:`the binary page <binary>` (whose chronology already named the
+keyboard's widened font as a size event). The per-board font
+statements themselves stay with the board pages: :doc:`S3
+<../devices/s3>`, :doc:`P4 <../devices/p4>`, :doc:`knob
+<../devices/knob>`.
+
 .. _silicon-ladder-perf:
 
 The silicon ladder (how often each chip is asked)
