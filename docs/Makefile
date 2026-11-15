@@ -1,11 +1,15 @@
 # Moon Phase Clock documentation build targets.
 #
-# From the repo root:  make -C docs html / media
+# Run from anywhere:   make -C docs html / media
+# (paths anchor to this file's own directory, so `make -C docs` works —
+#  plain relative-to-cwd paths break the moment -C chdirs into docs/)
 
-DOCS     := docs
-VENV     := docs/.venv
+SELF     := $(lastword $(MAKEFILE_LIST))
+HERE     := $(abspath $(dir $(SELF)))
+DOCS     := $(HERE)
+VENV     := $(HERE)/.venv
 SPHINX   := $(VENV)/bin/sphinx-build
-BUILD    := docs/_build
+BUILD    := $(HERE)/_build
 
 .PHONY: html media clean
 
