@@ -18,8 +18,77 @@ while the display's bake gains higher dark-side contrast, a soft
 terminator, and a warm tint calibrated to the measured color balance of
 the reference frames.
 
+The short version
+-----------------
+
+The previous page ended with a dark side that was *correct*. This page
+is the one place in the project that deliberately asks for more than
+correct: the user's standing direction — quoted above — is "better
+than NASA", and what came out of it is exactly three small changes to
+what the panel shows:
+
+1. **Brighten the night half.** The computed dark side was right but
+   visibly too dim — about half as visible as the reference frames'
+   dark side, which reads as a silhouette rather than a moon in
+   shadow. One constant doubled its level, measured against the
+   references rather than eyeballed.
+2. **Soften the day/night line.** The model switched from night to day
+   within a single pixel — a razor edge no moon photo has. A narrow
+   blend band at the line now fades one value into the other.
+3. **Warm the colors a half-step.** The reference frames read slightly
+   warm — a touch more red than blue. The renderer was neutral; the
+   panel's final gray-to-color conversion now carries that same
+   measured warmth instead.
+
+The safety net is the design's spine: all three changes live in the
+*display* path only, and the image gate runs without them (its
+``--neutral`` mode), so every physics number on the rest of the site is
+provably untouched — the page closes with that proof. Everything the
+three changes touch — the backlit surface, the tone LUT, the gray→RGB565
+step — is built on :doc:`the dark side <darkside>` and :doc:`the
+lighting model <lighting>`.
+
+Vocabulary
+----------
+
+Ten terms carry the page (the full definitions live in the
+:doc:`glossary <../glossary>`):
+
+- **Artistic pass** — this page's three display-only changes (the
+  dark-side level, the terminator softness, the warm tint),
+  deliberately outside the gate's physics path.
+- **Image gate** — the host check that scores the simulator's renders
+  against NASA's reference frames (:doc:`the image gate
+  <../verification/image-gate>`); the arbiter of *physics*.
+- **``--neutral``** — the gate's run mode: neutral LUT, physics dark
+  side, so no artistic constant ever enters a validation number.
+- **Byte-identical** — producing the same output bytes as a previous
+  run; the strongest available proof that the pass cannot affect the
+  gate.
+- **Backlit / K** — the previous page's model and its single dimming
+  constant ``MOON_NIGHT_BACKLIT_K``; this pass moves exactly that one
+  number (0.10 → 0.20).
+- **Mean level** — the average gray value over a region: the "how
+  visible" of a surface, and the measurement that settled the K
+  decision.
+- **Terminator** — the day/night boundary line on the visible disk.
+- **Smoothstep** — the S-shaped blend curve: pinned at 0 below the
+  band and 1 above it, eased through the middle by 3t² − 2t³ so it
+  joins the flat ends without a kink.
+- **Warm tint** — color biased toward red/yellow instead of neutral
+  gray; applied here only at the pipeline's last step, never in the
+  lighting.
+- **RGB565** — the panel's 16-bit color format: 5 red bits, 6 green,
+  5 blue. The pipeline's last step maps each gray byte to one of these
+  words.
+
 The three changes
 -----------------
+
+**The short version.** The same three decisions in their exact units:
+two constants inside the bake, one character change inside the final
+gray→RGB565 table. Each gets its own section below — this is the
+one-screen version.
 
 1. **The dark-side level doubles** — ``MOON_NIGHT_BACKLIT_K`` goes
    0.10 → **0.20** (peak gray 25 → ~51), calibrated so the dark side's
@@ -38,6 +107,13 @@ that earns the gate is provably unchanged.
 
 Why the dark side was too dark
 ------------------------------
+
+**The short version.** Nothing here was eyeballed. Two moons are
+compared by one number — the *mean level*, the average gray of the
+unlit half — and at the old constant the dark side sat at about half
+the reference frames' value, which reads as a silhouette instead of a
+moon in shadow. The fix doubles one constant; the table below is the
+calibration measurement, sim against reference at four moon phases.
 
 The computed backlit dark side (:doc:`the dark side <darkside>`) is *correct* — but
 "correct" at :math:`K = 0.10` meant the unlit surface peaked at gray
@@ -94,6 +170,14 @@ as visible.
 The soft terminator
 -------------------
 
+**The short version.** The hard model makes the day/night line a
+cliff: one pixel the value is the night side's, the next it jumps to
+the *dimmest value the lit side is allowed to have* — a cutout edge.
+Real moon photos carry a few-pixel ramp there instead. The fix computes
+*both* values for every pixel near the line and blends them along an
+S-curve; a little way off the line, the blend degenerates to the old,
+unmodified values.
+
 At the exact terminator (:math:`lns = 0`), the hard model steps from the
 backlit night value straight to the LUT's lit-side floor. On a real moon
 photo the terminator is a soft ramp — the Sun's angular diameter,
@@ -126,6 +210,22 @@ narrow **smoothstep** over a band of width ``MOON_TERM_SOFT`` (0.03
        return;
    }
 
+What those lines do, one by one: the opening ``if`` is the display-only
+gate — the blend exists *only* in the bake that ships (backlit *and* no
+dusk bound), and everyone else falls through to the original hard path
+below it. ``idx`` is the lit side's raw brightness (paint times
+lighting) rounded to a table slot and clamped into the LUT's 0–255
+range; ``litv`` is then what a *lit* pixel would show — the tone LUT's
+entry plus the faint earthshine. ``darkv`` is what a *night* pixel
+would show: the previous page's backlit function. ``t`` is the position
+across the blend band — pinned to 0 on the far night side, 1 on the far
+lit side, and between them the fraction of the way from one edge to the
+other. The next line bends that fraction into the S-curve, and
+``darkv + (litv - darkv) * t`` is the weighted average the S-curve
+drives: all night at t = 0, all lit at t = 1, a smooth mix in between.
+The last line rounds to a byte like every other write in the bake, and
+``return`` skips the hard path entirely.
+
 The gating is deliberate: the blend runs **only** in the display bake
 (:math:`dark_zero = 1` *and* :math:`dk_sup = 0`). The gate
 (:math:`dark_zero = 0`) and the dusk's map path
@@ -136,6 +236,13 @@ sleep-screen endpoint stayed untouched by the soft edge.
 
 The warm tint
 -------------
+
+**The short version.** The reference frames are measurably warm —
+slightly more red than blue — and that warmth is a *camera* choice, not
+moon physics: a physically rendered moon is gray. So the pass does not
+touch the lighting at all; it biases the pipeline's very last step,
+where each gray byte becomes a panel color word, and calibrates the
+bias against the reference's measured balance.
 
 The reference frames are not neutral gray. Their lit regions carry a
 measured warm balance — red above green above blue — a "yellow taint"
@@ -173,6 +280,23 @@ balance of the reference's lit regions (~1.07):
        if (on != g565_warm) { g565_warm = on; g565_build(); }
    }
 
+What those lines do, one by one: the loop runs once over all 256 gray
+levels — the table is built once and then read once per pixel.
+``r5``/``g6``/``b5`` are the neutral conversion: gray ``g`` scaled into
+the panel's three bit-fields, with the ``+ 127`` before the ``/ 255``
+being round-to-nearest for integer division. Green uses all six of its
+bits, and a comment in ``moon_render.c`` warns why that matters:
+writing the 5-bit value into the 6-bit green field caps green at about
+half and renders every gray magenta/pink on the panel. The
+``if (g565_warm)`` branch is the pass itself: the red multiplier moves
+from 31 to 32 (the ×1.038) and blue from 31 to 29 (the ×0.933), each
+capped at the 5-bit maximum so the brightest grays saturate red rather
+than overflow the field. The pack line then drops the three fields at
+their RGB565 offsets — red in the top 5 bits, green in the middle 6,
+blue in the low 5. Below the loop, ``moon_gray565_set_warm`` is the
+switch: flipping it rebuilds the table, and the gate's ``--neutral``
+path is what calls it with 0.
+
 Measured on a full-ish frame through this LUT, the lit-region red/blue
 balance is **1.104** (R−G +4.2, G−B +7.9), bracketing the reference's
 ~1.07 — warm enough to read as the reference's moon, not so warm that it
@@ -203,6 +327,13 @@ reads as a tungsten lamp. The neutral LUT is retained behind
 The gate stays byte-identical
 -----------------------------
 
+**The short version.** "The physics didn't change" has to be more than
+a promise — so it is checked the hardest way possible: run the gate
+exactly as before and its output is the *same bytes* as before the
+pass, the same PASS line with the same MAE and SSIM numbers. All three
+constants sit behind switches the gate never flips, so the validation
+literally cannot observe them.
+
 Because every artistic constant is display-gated, the image gate (run
 with ``--neutral``) produces **byte-identical** output to the pre-pass
 run — the same PASS with the same numbers:
@@ -225,6 +356,10 @@ two-constant design: **physics is validated, art is measured.**
 
 What the pass is not
 --------------------
+
+**The short version.** Three ways to misread the page, each worth
+closing off: this is not new lighting physics, not a filter painted on
+afterwards, and not part of what the gate certifies.
 
 - It is not a different lighting model. The displaced-normal Lambert,
   the relief gradient, and the albedo are exactly the validated ones.
