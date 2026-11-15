@@ -1,0 +1,48 @@
+// THE CONSTRAINT SET opened (report lines 12/16/250-251 + the
+// keyboard.rst design goal): six hardware/task constraints and what
+// each strikes down — dashed red strikes with the reason on the wire,
+// the budget's dotted grey price tags on the three SHIPs. Full
+// numbers in the page caption. The thirteen in black boxes is
+// docs/_graphs/keyboard-lab.dot (this page); the vouches are
+// keyboard-lab-corpus.dot; verdicts and keeps are
+// keyboard-lab-methods.dot. FONTS: 12 pt = the page's 16 px body
+// text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph keyboard_lab_constraints {
+    rankdir=LR;
+    label="The constraints opened — what each one strikes down";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#eceff1",
+          color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=12, color="#b91c1c", fontcolor="#7f1d1d",
+          style=dashed, penwidth=1.3];
+
+    {   rank=same;
+        disk [label="35 mm disk —\n4x4 QWERTY is\n0.75 mm per key"];
+        touch [label="CST9217 —\nno haptics"];
+        nosensors [label="no mic · no\ncamera · no NFC"];
+        imu [label="QMI8658C — the\n90 deg roll tracker\nalready runs"];
+        task [label="8-64 ARBITRARY\nchars — no word\nmodel can own it"];
+        stack [label="ESP32-S3 + LVGL\n9.6 — a few 100s\nLOC over the wheel",
+               fillcolor="#f2f2ef"];
+    }
+    qwerty [label="6 QWERTY 6x6 —\nbelow a fingertip",
+            fillcolor="#f8d7d7", color="#b91c1c", fontcolor="#7f1d1d"];
+    twist [label="8 twist — a twist\nIS a roll change",
+            fillcolor="#e9ddf8", color="#7c3aed", fontcolor="#4c1d95"];
+    offtrio [label="voice · OCR ·\nhandoff — INFEASIBLE,\nno sensor to drive one",
+             style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
+    dict [label="7 glide · T9 decode —\nnothing heals an\nover-swipe",
+          fillcolor="#f8d7d7", color="#b91c1c", fontcolor="#7f1d1d"];
+    cost [label="the three SHIPs —\n100s of LOC · tens of\nLOC · scan only",
+          style="rounded,filled,dotted", fillcolor="#f2f2f2"];
+
+    disk -> qwerty [label="0.75 mm vs\n8-10 mm"];
+    imu -> twist [label="disqualifying"];
+    nosensors -> offtrio [];
+    task -> dict [label="passwords defeat\nthe word list"];
+    stack -> cost [style=dotted, color="#8a8a8a", fontcolor="#374151"];
+}

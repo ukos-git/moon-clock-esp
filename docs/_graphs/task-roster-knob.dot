@@ -1,0 +1,66 @@
+// THE KNOB crew opened: the renderer is the foreground — knob_lvgl
+// out-priorities everything the boot spawns (10 > 7 > 5). Every edge
+// read out of the live source before drawing (knob/main/main.c and the
+// knob's components): app_main starts knob_lvgl (p10, 8 KiB, unpinned —
+// painter, indev and the 1300 ms software clock tick in one task);
+// start_tasks spawns knob_moon (p5, core 1, 12 KiB PSRAM,
+// "unregistered from TWDT", knob_ui.c:701) and knob_swap (p7, 8 KiB,
+// "a watchdog on it is a feature" — registered); encoder_init spawns
+// knob_enc (p5, 3 KiB — asks the dial every 3 ms NOMINAL, 10 ms
+// EFFECTIVE under the 100 Hz tick clamp); dial_start spawns knob_dial
+// (p5, 4 KiB, 20 ms step + dim consumer); power_init spawns knob_power
+// (p4, 3 KiB, 500 ms sleep ladder, EXT0 dial · EXT1 tap on GPIO 9);
+// a one-shot knob_boot (p6, 4 KiB) waits for NTP and arms. The dashed
+// arrows are the hand-offs: the producer marks its back buffer, the
+// swapper publishes, the encoder forwards count deltas. The knob has NO
+// IMU (the imu shim answers ready=false) and NO RTC — the 1300 ms tick
+// is software-synthesized (knob/main/main.c:492-493). The crew in black
+// boxes is docs/_graphs/task-roster.dot (this page); what these hands
+// ask of the silicon is docs/_graphs/task-roster-chips.dot; the panel
+// side is docs/implementation/knob-display. FONTS: 12 pt = the page's
+// 16 px body text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph task_roster_knob {
+    rankdir=LR;
+    label="The knob's crew — the painter out-priorities the crew (10 > 7 > 5)";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.7];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    kmain [label="app_main (knob) —\n2 ms lvgl_tick esp_timer",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    klvgl [label="knob_lvgl · p10 · 8 KiB\nunpinned — painter, indev,\n1300 ms clock tick",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    kmoon [label="knob_moon · p5 · core 1 ·\n12 KiB PSRAM — \"unregistered\nfrom TWDT\"",
+           fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    kswap [label="knob_swap · p7 · 8 KiB\n\"a watchdog on it is a feature\"",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    kenc [label="knob_enc · p5 · 3 KiB —\ndial 3 ms nom / 10 ms eff",
+          fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    kdial [label="knob_dial · p5 · 4 KiB · 20 ms\nstep + dim consumer",
+           fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    ksup [label="knob_power · p4 · 3 KiB · 500 ms\nEXT0 dial · EXT1 tap (GPIO 9)",
+          fillcolor="#f2f2f2"];
+    kboot [label="knob_boot · p6 · 4 KiB\none-shot — waits NTP, arms",
+           fillcolor="#f2f2f2"];
+
+    kmain -> klvgl [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    kmain -> kboot [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    kmain -> kenc [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                   label="encoder_init"];
+    kmain -> kdial [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                    label="dial_start"];
+    kmain -> ksup [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                   label="power_init"];
+    kmain -> kmoon [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                    label="start_tasks"];
+    kmain -> kswap [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                    label="start_tasks"];
+    kmoon -> kswap [style=dashed, constraint=false, label="back-buffer\nwatermark"];
+    kswap -> klvgl [style=dashed, constraint=false, label="publishes"];
+    kenc -> kdial [style=dashed, constraint=false, label="count delta"];
+}

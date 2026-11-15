@@ -1,0 +1,67 @@
+// THE TWELVE MODULES opened: the intra-package import arrows, each one
+// a "from .X import ..." line read comment-stripped from the source.
+// constants.py imports nothing (from __future__ only — the hub every
+// consumer reaches); astro -> constants; sphere is the numpy-only leaf
+// (ZERO intra-package imports); textures -> constants; renderer ->
+// constants + sphere (disk_grid, equirect_bilinear) + astro (Geometry);
+// animation -> constants + astro (geometry) + renderer (tonemap,
+// to_uint8, render) + textures (load_textures); calibrate -> astro
+// (body_basis, body_lonlat :16) ONLY; register -> nothing intra-package
+// (numpy + skimage .registration :13 + scipy.ndimage.shift :28/:34);
+// metrics -> nothing intra-package (numpy + skimage
+// .structural_similarity :15); validate -> constants + astro +
+// renderer (REF_*, earthshine :12-14) + register (register_shift) +
+// metrics (disk_metrics) + textures + scipy.ndimage.uniform_filter1d
+// :133; assets -> constants + astro + renderer + register + metrics +
+// sphere (disk_grid) + textures (load_albedo, load_height) — the widest
+// import set in the tree. The package is lazy: __init__.py carries no
+// imports; the entry points are the modules themselves. The layout
+// stacks four columns left to right (importers, the shader, the
+// imported leaves, the hub) — the LR column rule that keeps the hub's
+// fan-out inside the column. The sealed version is python-surface.dot
+// (this page); the third-party pulls are python-surface-deps.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph python_surface_imports {
+    rankdir=LR;
+    label="The twelve modules opened — who imports whom inside";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.22, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dfe6f1",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#2b5fb0", penwidth=1.3];
+
+    assetsmod [label="assets\nwidest set — 7",
+               fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    validate [label="validate\nNASA prototype", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    animation [label="animation\nsynodic sweep", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    calibrate [label="calibrate\nprints only", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    renderer [label="renderer\nthe shader"];
+
+    sphere [label="sphere\nnumpy leaf"];
+    astro [label="astro\nGeometry"];
+    textures [label="textures\n16-bit LROC"];
+    register [label="register\nshift helper"];
+    metrics [label="metrics\nMAE · SSIM"];
+
+    constants [label="constants\nTHE HUB", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    { rank=same; assetsmod; validate; animation; calibrate; }
+    { rank=same; renderer; }
+    { rank=same; sphere; astro; textures; register; metrics; }
+
+    astro -> constants;
+    textures -> constants;
+    renderer -> constants; renderer -> sphere; renderer -> astro;
+    animation -> constants; animation -> astro; animation -> renderer; animation -> textures;
+    calibrate -> astro [color="#8a8a8a"];
+    validate -> constants; validate -> astro; validate -> renderer;
+    validate -> register; validate -> metrics; validate -> textures;
+    assetsmod -> constants; assetsmod -> astro; assetsmod -> renderer;
+    assetsmod -> register; assetsmod -> metrics; assetsmod -> sphere;
+    assetsmod -> textures;
+}

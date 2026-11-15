@@ -1,107 +1,36 @@
-// How the finger and the dial reach a widget — the clocks' ONE BSP-owned
-// POINTER indev with three co-located listeners vs the knob's own polled
-// touch + pulse-pair encoder tasks, and the demo's second indev. Every
-// edge verified in main/main.cpp, the vendored BSP
-// components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c,
-// components/clock/clock_idle.c, components/ui/actions.c,
-// components/ui/screens.c, components/ui/demo.c, knob/main/main.c,
-// knob/components/knob_board/knob_board_touch.c,
-// knob/components/knob_board/knob_board_encoder.c,
-// knob/components/knob_ui/knob_dial.c, knob/components/knob_ui/knob_ui.c,
-// knob/components/knob_power/knob_power.c, and
-// managed_components/lvgl__lvgl/src/indev/lv_indev.c. The wake side of
-// both inputs (the idle door, the EXT0/EXT1 pads) is
-// docs/_graphs/wake-doors.dot and the sleep pages; the pose pipeline
-// behind the 2 s press is docs/_graphs/tilt-pipeline.dot; the pins live
-// in the wiring sketches (s3/p4/knob-wiring.dot).
+// The input chain as a BLACK-BOX OVERVIEW: the clocks' BSP-owned
+// single POINTER indev and the knob's two owned tasks both land on
+// the SAME hit-test, and the demo injects through a second indev.
+// No chip chains, no listener guards, no pin tables on this figure:
+// the boxes open into their own sketches on this page
+// (input-chain-clocks.dot, input-chain-knob.dot). The wake side is
+// docs/_graphs/wake-doors.dot; the pose pipeline behind the 2 s
+// press is docs/_graphs/tilt-pipeline.dot; the pins live in the
+// wiring sketches (s3/p4/knob-wiring.dot). FONTS: 12 pt everywhere =
+// the page's 16 px body text at 1:1, kept inside the content column
+// so object{max-width:100%} never scales it down.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph input_chain {
-    label="The input chain: the clocks read ONE BSP-created POINTER indev (three guarded listeners co-locate on it); the knob owns its touch and dial in its own tasks — the demo taps through a SECOND indev so hit-testing stays real";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=LR;
+    label="The input chain in black boxes — two families, one hit-test";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_clocks {
-        label="the clocks (S3 + P4) — the BSP owns the one real POINTER indev";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
+    clocks [label="THE CLOCKS — the BSP owns\nthe ONE POINTER indev, read\n33 ms, three guarded listeners",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    knob [label="THE KNOB — our own tasks:\npolled touch + pulse-pair dial,\ndial task 20 ms, reentrant lock",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
+    demo [label="THE DEMO — a SECOND indev\ninjects real hit-tested taps\nwhile the BSP one stays live",
+          style="rounded,filled,dashed", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    hit [label="lv_timer_handler hit-tests —\nLV_EVENT_CLICKED on the widget,\nall in the LVGL task",
+         fillcolor="#efece4", color="#525252"];
 
-        boot [label="appboot: main.cpp calls bsp_display_start()\n:572 on the S3 and bsp_display_start_with_config()\n:570 on the P4 (XC BSP 3.0.1, target-gated in\nmain/idf_component.yml); bsp_display_unlock\nfollows the registrations below"];
-        s3dev [label="S3: bsp_display_indev_init (BSP :555) →\nbsp_touch_new (:443) →\nesp_lcd_touch_new_i2c_cst9217 (:470) →\nbsp_lv_adapter_register_touch (:562) —\nCST9217 on the shared I2C, INT = GPIO 11 /\nRST = GPIO 40 (BSP header :56–:57), the\ndefault cfg's mirror_x/mirror_y apply\n(BSP :573); INT ≠ NC so the adapter runs\nIRQ MODE — the ISR only signals a semaphore",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        p4dev [label="P4: GT911 over I2C, pure POLLED — RST/INT = NC\non the 4C so the adapter's IRQ mode stays off\n(pins in docs/_graphs/p4-wiring.dot); the XC\nBSP registers the POINTER indev through the\nsame adapter entry (registry dep 3.0.1)",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        readtimer [label="the ONE POINTER indev, read by LVGL's own\nread timer — lv_timer_create(..., LV_DEF_REFR_PERIOD)\n(lv_indev.c:105) = 33 ms on every board\n(CONFIG_LV_DEF_REFR_PERIOD = 33 in all three\nlive sdkconfigs); the BSP's staging comment\nnames the same 33 ms",
-                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_knob {
-        label="the knob — our own tasks own both inputs";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        cst [label="CST816S @ 0x15 (SDA 11 · SCL 12 · INT 9 · RST 10):\nhard-reset pulse, normal-mode write once, then\n7-byte polls from reg 0 — contact count at [2],\nx/y nibble-joined (knob_board_touch.c); the INT\nline is wired but POLLED anyway (vendor style)"];
-        ownindev [label="our own touch_read_cb (knob/main/main.c:83)\n→ lv_indev_create POINTER (:388) — the one\ndifference from the clocks: WE supply the\nread callback; every press also calls\nknob_power_notify_activity (K7e: touch is\nactivity) and the ok/err heartbeat probe logs\na dead chip vs a silent panel vs a live one",
-                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        enc [label="EC1 dial A = GPIO 8 · B = GPIO 7, 10K pull-ups —\nNOT quadrature: an UP/DOWN PULSE PAIR, one\nchannel pulses per detent and WHICH channel is\nthe direction (bench + vendor 2026-11-08);\nenc_task (knob_board_encoder.c:58) polls 3 ms,\nvendor process_knob_channel shape: LOW samples\nonly re-arm, the detent fires on the debounced\nRISE (2 ticks), the count moves under portMUX"];
-        tickfloor [label="the tick-safe floor: at the knob's 100 Hz\nsystick pdMS_TO_TICKS(3) == 0 and vTaskDelay(0)\ndoes NOT yield — the priority-5 poller then\nbusy-spins, starves IDLE0 and the task WDT\naborts the boot (bench 2026-11-11:\n\"CPU 0: knob_enc\" died at t ≈ 6.4 s); one tick\n= 10 ms, detents are ≥ 30 ms apart anyway",
-                     fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        dialtask [label="dial_task 20 ms (knob_dial.c:81): consumes the\nencoder count ONE detent at a time; off home →\nactivity reported BEFORE the lock (a contended\ndial must never delay the un-dim), then\nknob_ui_lvgl_lock → screens_dial_step → unlock",
-                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        homedim [label="on home the dial is BRIGHTNESS, not input\n(user 2026-11-10): CW/CCW ±5 % steps through\nmoon_ui_panel_brightness_set, floored at the\nladder's own dim rung — DIAL_DIM_MIN_PCT from\nCONFIG_KNOB_DIM_DUTY 64 = 25 %; a home turn is\nNOT ladder activity, only BRIGHTENING from a\ndark panel is (wake intent)",
-                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        tapcommit [label="tap-to-commit: a background CLICKED lands on\nthe screen root (LVGL's no-target fallback) →\nscreens_dial_commit (knob_dial.c:38), already\ninside the LVGL task's lock; knob_dial_start\nre-adds CLICKABLE to every settings root\nknob-side only (LVGL 9 needs CLICKABLE to make\na press TARGET at all) — moon roots excluded,\ntheir tap opens the hub"];
-    }
-
-    subgraph cluster_listeners {
-        label="the one indev, three co-located listeners — every lv_indev_add_event_cb on lv_indev_get_next(NULL), each with its own guard";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        idlel [label="clock_idle_init registers indev_read_cb on\nPRESSED + PRESSING (clock_idle.c:70/:71): a\nPRESSED always resets the idle timer; ONLY\nwhile IDLE it funnels clock_trigger_idle_wake —\nthat one-way door is docs/_graphs/wake-doors.dot",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        resil [label="action_register_orientation_touch\n(actions.c:382) on PRESSED + RELEASED: a press\n≥ ORI_RESYNC_PRESS_MS 2000 (:230) sets\ns_ori_resync_req, actioned only while the pose\nis stable AND on-axis — the pipeline is\ndocs/_graphs/tilt-pipeline.dot",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        alarml [label="action_register_alarm_touch (actions.c:1169)\non PRESSED: g_alarm_active && !clock_is_idle()\n→ action_wake_screen dismisses the ring — the\nawake bypass of the idle door (same sketch)",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        vt [label="the demo's SECOND POINTER indev (demo.c:797,\nvt_read_cb :97): a real hit-tested tap — press\n90 + release 60 = TAP_TOTAL_MS 150 (< 400 ms\nlong-press gate → SHORT_CLICKED) — injected\nwhile the BSP indev stays live for the human;\ncreated AFTER the three registrations bound to\nthe first indev, so it never steals their target",
-             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    clicked [label="lv_timer_handler hit-tests → LV_EVENT_CLICKED on the widget:\nhome-family root → the hub (screens.c:113 event_handler_cb_home_tap,\nonly while !clock_is_idle() — the wake tap never opens the hub, a\ndeliberate second tap); hub icon → its screen (:166); explicit widgets\n(wheel keys, rollers, exit buttons) own the rest. The knobs of the\nwhole chain: the wake handler and every CLICKED handler run in the\nLVGL task, indev events land in lv_timer_handler — no atomics needed",
-             fillcolor="#efece4"];
-
-    relock [label="the knob's reentrant lock knob_ui_lvgl_lock (knob_ui.c:225–:266):\nholder + depth, a same-task take is a depth bump — a FreeRTOS mutex\nis NOT recursively takable by its owner, so the plain take self-deadlocked\non the first tap when a CLICKED handler re-took it (loadScreen → seam);\nthe dial task and the indev path meet at exactly this wrapper",
-            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    boot -> s3dev [label="esp32s3"];
-    boot -> p4dev [label="esp32p4"];
-    s3dev -> readtimer;
-    p4dev -> readtimer;
-    readtimer -> idlel [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="PRESSED /\nPRESSING"];
-    readtimer -> resil [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="PRESSED /\nRELEASED"];
-    readtimer -> alarml [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="PRESSED"];
-    readtimer -> clicked [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="hit-test"];
-    vt -> clicked [style=dashed, label="injected tap,\nreal hit-test"];
-    cst -> ownindev;
-    ownindev -> clicked [label="hit-test"];
-    enc -> tickfloor [style=dashed];
-    enc -> dialtask [label="count"];
-    dialtask -> homedim [color="#b07d10", fontcolor="#6b4e08", label="on home"];
-    dialtask -> clicked [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="off home:\nscreens_dial_step"];
-    ownindev -> tapcommit [style=dashed, label="root CLICKED"];
-    dialtask -> relock [style=dashed];
-    ownindev -> relock [style=dashed];
+    clocks -> hit [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    knob -> hit [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    demo -> hit [style=dashed];
 }

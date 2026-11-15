@@ -1,0 +1,54 @@
+// The three projects, opened (verified before drawing):
+//   The root CMakeLists is the CLOCK project: S3 is the default
+//   target; the P4 is a sibling build (-D IDF_TARGET=esp32p4 -B
+//   build/p4) whose target block EXCLUDE_COMPONENTS the vendored S3
+//   BSP (manifest targets: [esp32s3]) 'out of the P4 build AND of the
+//   component manager's local-manifest list' (:16-21), and pins
+//   DEPENDENCIES_LOCK dependencies.lock.p4 BEFORE project() (:27-28,
+//   'which runs the component manager', :24-26); the tracked root
+//   dependencies.lock stays the S3's.
+//   knob/CMakeLists.txt is the SIBLING project (Waveshare
+//   ESP32-S3-Knob-Touch-LCD-1.8): own build dir (-C knob -B
+//   ../build/knob — OUTSIDE the repo), own gitignored lock
+//   dependencies.lock.knob (:47) and sdkconfig. set(KNOB_BOARD ON)
+//   sits at :23, BEFORE project(knob) (:49) — the file's own comment:
+//   'A PROJECT variable, not a CONFIG_ symbol: the component manager
+//   resolves requirements BEFORE Kconfig runs, and CONFIG_ variables
+//   are unset in that first pass' (:20-22).
+// The sealed version is build-seam.dot; the passes are
+// build-seam-passes.dot, the shims build-seam-shims.dot, the guards
+// build-seam-guards.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph build_seam_projects {
+    rankdir=TB;
+    label="The projects — a clock at the root, a knob beside it, three locks";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    rootp [label="the root — the CLOCK\nproject, S3 default;\nits lock stays S3's",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    p4sib [label="the P4 sibling —\n-B build/p4, own\nlock dependencies.\nlock.p4"];
+    excl [label="EXCLUDE_COMPONENTS\nthe vendored S3 BSP\n(manifest targets:\n[esp32s3])"];
+    lockpin [label="DEPENDENCIES_LOCK\npinned BEFORE\nproject() :27-28",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    knobp [label="the knob — build dir\nOUTSIDE the repo,\ngitignored lock +\nsdkconfig",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    knb [label="set(KNOB_BOARD ON)\n:23 — BEFORE\nproject(knob) :49",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    mgr [label="the component\nmanager runs inside\nproject() — before\nany CONFIG_ exists",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    rootp -> p4sib;
+    p4sib -> excl;
+    p4sib -> lockpin;
+    lockpin -> mgr [style=dashed, color="#b07d10"];
+    knobp -> knb;
+    knb -> mgr [style=dashed, color="#b07d10"];
+}

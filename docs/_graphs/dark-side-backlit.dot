@@ -1,0 +1,45 @@
+// MOON_BACKLIT_NIGHT opened — the three-factor product
+// (moon_bake.c:220-227). Every quoted line verified in code before
+// drawing:
+//   l = −lns, clipped to 0..1 (:221-224) — the sign flip IS the model:
+//   the more the Sun rejects a patch, the more directly it faces the
+//   anti-solar lamp at −S.
+//   out = A · l · K, K = MOON_NIGHT_BACKLIT_K = 0.20f (:226, :185) —
+//   peak 255·K ≈ 51; LINEAR on purpose: the tone LUT's shadow lift
+//   (bin 1 → 27) would over-brighten a faint side and break the
+//   peak=255·K contract.
+//   The free sliver kill: a SUN-LIT pixel (lns > 0) drawn backlit
+//   clips to exactly 0 — pure black. Fight no lighting, re-classify
+//   the pixel as night and black falls out.
+//   The body-frame constancy that makes one shade map enough: the
+//   color is a function of the surface direction + the epoch's fixed S
+//   only (the retired dusk's cheap spin stood on this).
+// The sealed version is dark-side.dot (this page); the blend that
+// calls this is dark-side-branch.dot; the dead caller is
+// dark-side-night.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph dark_side_backlit {
+    rankdir=LR;
+    label="moon_backlit_night — A · l · K, linear on purpose";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    anti [label="l = −lns, clipped —\nthe sign flip IS\nthe model"];
+    black [label="sliver kill — sun-\nlit & backlit clips\nto exactly 0"];
+    body [label="body-frame\nconstancy — one\nstatic shade map", fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    why [label="why not the LUT —\nits shadow lift\nbreaks the peak"];
+    prod [label="out = A · l · K,\nK = 0.20; peak\n255·K ≈ 51, LINEAR", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    { rank=same; anti; black; body; why; }
+    anti -> prod;
+    black -> prod;
+    body -> prod [color="#b07d10", style=dotted];
+    why -> prod [style=dotted];
+}

@@ -1,0 +1,41 @@
+// The ON-DEMAND band opened: the three self-deleting one-shots the
+// clocks spawn when asked. Every edge read out of the live source
+// before drawing: the WiFi screen load arms the panel traffic hold and
+// kicks off wifi_sync (components/ui/actions.c:817, "on-demand sync";
+// 6144 words, prio 10, unpinned — "6144: wifi_manager_init + the SNTP
+// stack run here", vTaskDelete(NULL) at the fn tail); wifi.c:551
+// wifi_scan_begin spawns wifi_scan (6144, prio 5, self-deletes);
+// alarm_audio.c:319/:348 spawn play_task (6144, prio 4) from ring_start
+// and the settings preview, one at a time. wifi_sync sets the done flag
+// that "the wake handler (action_wake_screen) consumes (clears)"
+// (actions.c:46 comment). The crew in black boxes is
+// docs/_graphs/task-roster.dot (this page); the clocks' resident crew
+// is docs/_graphs/task-roster-clocks.dot; what each hand asks of which
+// chip is docs/_graphs/task-roster-chips.dot. FONTS: 12 pt = the page's
+// 16 px body text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph task_roster_ondemand {
+    rankdir=LR;
+    label="On demand — three one-shots that delete themselves";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    wload [label="WiFi screen load\n(actions.c:817 — hold\narmed first)"];
+    ring [label="alarm ring / settings\npreview — one at a time"];
+    wsync [label="wifi_sync · p10 · unpinned · 6 KiB\n\"the SNTP stack run here\"\nself-deletes",
+           fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    wscan [label="wifi_scan · p5 · 6 KiB\nself-deletes (wifi.c:551)",
+           fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    play [label="play_task · p4 · 6 KiB\nself-deletes (:319/:348)",
+          fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+
+    wload -> wsync [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="kickoff"];
+    wload -> wscan [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    ring -> play [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    wsync -> wload [style=dashed, constraint=false];
+}

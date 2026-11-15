@@ -1,176 +1,40 @@
-// The thirteen text-entry methods of the round-keyboard study in one
-// picture: who vouched for each method (steel), which hardware constraint
-// struck it down (dashed red), what the three SHIPs cost in firmware
-// (dotted grey), and what the shipped wheel KEPT from the alternatives it
-// rejected (violet). Every node and edge was read out of the three tracked
-// sources before drawing — the same discipline as task-roster.dot — and
-// docs/tools/gen_perf_certainty.py re-asserts the same relations at figure
-// time, so the sketch cannot silently drift:
-//   docs/research/circular-keyboard-alternatives.md (dated record, 2026-11-01):
-//     line 12 the constraint list ("CST9217 capacitive touch, no haptics, no
-//     microphone, no camera, no NFC"); line 16 the task ("8–64 arbitrary
-//     chars"); lines 43/83 C-QWERTY 2020 ("a soft keyboard whose keys run"
-//     around the bezel — finding 1); lines 90-95 COMPASS CHI 2017 (the
-//     hot-sector idea, "last-typed sector hottest"); lines 47-48 WrisText
-//     CHI 2018 / Crownboard CHI 2023 / RingByte UIST 2025 ("a small number
-//     of large angular sectors"); line 185 RingByte UIST 2025; finding 13
-//     (T9-class big keys + multi-tap, MacKenzie CHI 2000); finding 14 (dwell
-//     tops out ~20 WPM, CHI 2025); findings 4/6 (Crownboard 2.3 %/0.53 %;
-//     SAGE tap 18–20 WPM · 14–15 % WER, trace 29–33 WPM, handwriting 25 %
-//     WER); line 148 the in-car study ("> 94 % accuracy" for all methods,
-//     the dial's case is glance/distraction); finding 7 (T9VR / Sector
-//     Input — 2D pointing wins WHEN a QWERTY fits, which the 35 mm disk
-//     cannot do); lines 250-251 (4×4 grid "≈ 0.75 mm per key — 10× below
-//     the ~8–10 mm fingertip"); the comparison table A–M whose verdict cells
-//     colour the method nodes (G/H infeasible, I "rejected now" — the lab
-//     cards it INFEASIBLE NOW, both spellings kept).
-//   docs/_static/keyboard/round-keyboard-lab.html (the operable record):
-//     CARDS ranks 1..9 with chip classes keep/ship/ship/ship-setting/hold/
-//     rej/rej-primary/exp/v2 + the OFF trio + the T9 card (13 total); the
-//     device timings the widgets really run: const T = 700 (multi-tap
-//     window), the dwell checks < 400 / >= 400, the scan step
-//     Math.floor((t - t0) / 1000) % 12; the ring geometry
-//     "const C = 233, LARC = 360 / 26"; the Cost rows behind the dotted
-//     edges ("few hundred LOC · 2–4 KB", "tens of LOC", "low — scan only,
-//     no decoder"); the frozen mock bottom band ("⊗ commit", "trash-can
-//     discard").
-//   components/ui/screens.c (the shipped wheel): WHEEL_SHARE (360.0f /
-//     26.0f), WHEEL_N_SECTORS 12, the twelve frequency groups, WHEEL_PW_MAX
-//     63, and the pairing record at :1806 ("the earlier xmark-on-commit /
-//     trash-on-discard pairing is" gone — the keys are the house
-//     circle-check commit and circle-xmark discard, 2026-11-08).
-// The wheel's own machine (handlers, hit-test, keys) is wheel-commit.dot on
-// keyboard.rst; what each of these thirteen would cost the finger in
-// characters per minute — every WPM and every back-of-envelope second
-// converted at figure time — is the certainty ladder
-// (docs/tools/gen_perf_certainty.py, verification/performance.rst); the
-// shipped wheel alone is priced per tap by the tap ladder there.
+// The round-keyboard study as a BLACK-BOX OVERVIEW: the corpus, the
+// constraint set, the thirteen methods, and the one ship. No
+// per-method verdicts, no venue numbers, no strike reasons on this
+// figure: the boxes open into their own sketches on this page
+// (keyboard-lab-corpus.dot, keyboard-lab-constraints.dot,
+// keyboard-lab-methods.dot). The three tracked sources this page
+// must agree with: docs/research/circular-keyboard-alternatives.md
+// (report of 2026-11-01, 37 sources), the lab's own CARDS/OFF tables
+// (docs/_static/keyboard/round-keyboard-lab.html), and the shipped
+// wheel (components/ui/screens.c); docs/tools/gen_perf_certainty.py
+// re-asserts the same relations at figure time. The wheel's own
+// machine is wheel-commit.dot on keyboard.rst; the WPM arithmetic is
+// the certainty ladder (verification/performance.rst). FONTS: 12 pt
+// everywhere = the page's 16 px body text at 1:1, kept inside the
+// content column so object{max-width:100%} never scales it down.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph keyboard_lab {
-    label="The thirteen in one picture — who vouched for each method, which constraint struck it down, and what the shipped wheel kept";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=11, style="rounded,filled",
-          shape=box, width=1.9, height=0.45,
-          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=9, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The thirteen in black boxes — corpus, constraints, methods, the ship";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_constraints {
-        label="the hardware + task constraint (report lines 12/16/250-251, keyboard.rst “The design goal”) — dashed red = strikes a method down, the reason on the wire";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f7f7f5"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
+    corpus [label="THE CORPUS — 37 sources,\nvenue + year + headline\nnumber behind every vouch",
+            fillcolor="#faf8f3", color="#525252"];
+    constraints [label="SIX CONSTRAINTS — disk ·\ntouch · no sensors · IMU ·\ntask · firmware budget",
+                 fillcolor="#eceff1", color="#525252"];
+    methods [label="THIRTEEN METHODS — nine\noperable at the device's own\ntimings, four off-hw cards",
+             fillcolor="#f6f9fd", color="#525252", penwidth=1.6];
+    wheel [label="THE SHIP — sweep wheel v2\nwith what it KEPT from the\nrejects marked on the edges",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
 
-        disk [label="466 px over a ~35 mm disk\n4×4 QWERTY ≈ 0.75 mm per key\nvs an 8–10 mm fingertip",
-              fillcolor="#eceff1", color="#525252"];
-        touch [label="CST9217 — capacitive,\nNO haptics", fillcolor="#eceff1", color="#525252"];
-        nosensors [label="no mic · no camera ·\nno NFC", fillcolor="#eceff1", color="#525252"];
-        imu [label="QMI8658C — the 90° roll\ntracker already samples\nthe wrist", fillcolor="#eceff1", color="#525252"];
-        task [label="the task: 8–64 ARBITRARY\nchars, rare + one-handed —\nno word model can own it", fillcolor="#eceff1", color="#525252"];
-        stack [label="ESP32-S3 + LVGL 9.6 — the\nbudget is a few hundred LOC\nover the wheel's ring", fillcolor="#eceff1", color="#525252"];
-    }
-
-    subgraph cluster_corpus {
-        label="the corpus (report of 2026-11-01, 37 sources) — solid steel = vouches; venue · year · headline number on the wire";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-
-        cqwerty [label="C-QWERTY 2020 — a ring of\nkeys on a round smartwatch\n(finding 1)", shape=ellipse, fillcolor="#faf8f3"];
-        compass [label="COMPASS CHI 2017 — circular\nmulti-cursor; “last-typed\nsector hottest”", shape=ellipse, fillcolor="#faf8f3"];
-        wristext [label="WrisText CHI 2018 —\nwrist whirl", shape=ellipse, fillcolor="#faf8f3"];
-        crown [label="Crownboard CHI 2023 — 8-zone\ncrown scan; errors 2.3 % /\n0.53 % (best in corpus)", shape=ellipse, fillcolor="#faf8f3"];
-        ringbyte [label="RingByte UIST 2025 — rotating\nring + neural decode", shape=ellipse, fillcolor="#faf8f3"];
-        tapswipe [label="Tap'nSwipe IJHCI 2025 — 9×4\nswipe beats QWERTY accuracy", shape=ellipse, fillcolor="#faf8f3"];
-        sage [label="SAGE 2019 — watch tap\n18–20 WPM · 14–15 % WER ·\ntrace 29–33 WPM · hand\nwriting 25 % WER", shape=ellipse, fillcolor="#faf8f3"];
-        dwell25 [label="dwell ceiling ~20 WPM\n(CHI 2025)", shape=ellipse, fillcolor="#faf8f3"];
-        incor [label="in-car CHI 2017 — > 94 %\naccuracy for ALL methods;\nthe dial's case is glance", shape=ellipse, fillcolor="#faf8f3"];
-        small [label="WatchWriter · FingerText —\nthe rescues assume wrist\n+ fingers", shape=ellipse, fillcolor="#faf8f3"];
-        t9 [label="T9 / MacKenzie CHI 2000 —\nbig keys keep multi-tap\nalive (finding 13)", shape=ellipse, fillcolor="#faf8f3"];
-        t9vr [label="T9VR · Sector Input — direct\n2D wins WHEN a QWERTY fits\n(finding 7: at 35 mm it can't)", shape=ellipse, fillcolor="#faf8f3"];
-    }
-
-    subgraph cluster_operable {
-        label="the nine operable panels (lab ?only=1..9 — the device's own timings run them: multi-tap T = 700 ms · dwell 400 ms · scan 1 s) — fill = recorded verdict";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-
-        wheel [label="1 · sweep wheel v2 — 12 hybrid\ncoarse press · sticky reveal ·\ncentre preview · RELEASE commits\n(mock still draws ⊗/trash — the\ndevice pairs check COMMIT /\nxmark DISCARD since 2026-11-08)",
-                 fillcolor="#dbe7f6", color="#2b5fb0", penwidth=1.6];
-        multitap [label="2 · 12-sector DTMF multi-tap\n30° target · timeout absorbs\njitter · no preview between\npresses (its own risk)",
-                    fillcolor="#dff0dc", color="#2e7d32"];
-        dwell [label="3 · hold-to-commit dwell\nlive preview · pays the\n~20 WPM ceiling",
-                 fillcolor="#dff0dc", color="#2e7d32"];
-        scan [label="4 · auto-scan, Crownboard-style\n1 s serial scan period ·\nSHIP as a setting",
-                 fillcolor="#dff0dc", color="#2e7d32"];
-        swipe [label="5 · 9×4 swipe sectors\nHOLD — duplicates multi-tap\nand the sweep's own motion",
-                  fillcolor="#faeecd", color="#b07d10"];
-        qwerty [label="6 · fitted QWERTY 6×6\nkeys well below a fingertip\non 35 mm",
-                  fillcolor="#f8d7d7", color="#b91c1c"];
-        glide [label="7 · ring glide / one-stroke\ntrace speed rides on a\ndictionary it cannot have",
-                  fillcolor="#f8d7d7", color="#b91c1c"];
-        twist [label="8 · IMU twist (wrist whirl)\nEXPERIMENTAL at best",
-                 fillcolor="#e9ddf8", color="#7c3aed"];
-        encoder [label="9 · physical encoder + haptic\ndetents — the right v2 BOARD\nupgrade (out of firmware)",
-                   fillcolor="#d7eef2", color="#0e7490"];
-    }
-
-    subgraph cluster_offhw {
-        label="the four off-hardware cards — no sensor to drive a widget";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f2f2f2"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-
-        voice [label="Voice — INFEASIBLE", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
-        ocr [label="Camera / OCR — INFEASIBLE", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
-        handoff [label="QR / NFC / BLE handoff —\nINFEASIBLE NOW (the report:\n“rejected now”)", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
-        t9dec [label="T9 dictionary decode —\nREJECTED · task fit", fillcolor="#f8d7d7", color="#b91c1c"];
-    }
-
-    /* — the literature vouching (solid steel) — */
-    edge [color="#2b5fb0"];
-    cqwerty -> wheel  [label="the ring-of-keys form factor\nis published"];
-    compass -> wheel  [label="coarse sectors + the hot-\nlast-sector idea"];
-    ringbyte -> wheel [label="rotate + commit — the decoder\nis what it cannot afford"];
-    t9 -> multitap    [label="big keys keep multi-tap alive"];
-    dwell25 -> dwell  [label="ceiling ~20 WPM → fallback,\nnot primary"];
-    crown -> scan     [label="0.53–2.3 % · scan + press"];
-    crown -> encoder  [label="2.3 % class · rotate + press"];
-    incor -> encoder  [label="the certainty / glance story"];
-    tapswipe -> swipe [label="9×4 beats QWERTY accuracy\non small watches"];
-    sage -> qwerty    [label="tap 18–20 WPM · 14–15 % WER"];
-    sage -> glide     [label="trace 29–33 WPM — measured\non QWERTY + dictionary"];
-    small -> qwerty   [label="decoders assume wrist + fingers"];
-    wristext -> twist [label="the wrist-whirl family"];
-    t9vr -> qwerty    [label="counter-evidence: 2D wins only\nwhere a QWERTY fits — it doesn't"];
-
-    /* — the constraints striking down (dashed red) — */
-    edge [color="#b91c1c", style="dashed"];
-    disk -> qwerty     [label="0.75 mm keys vs an 8–10 mm\nfingertip"];
-    imu -> twist       [label="a twist IS a roll change —\ndisqualifying"];
-    nosensors -> voice [label="no microphone"];
-    nosensors -> ocr   [label="no camera to point"];
-    nosensors -> handoff [label="no NFC · no camera to read\n— app + GATT for once a network"];
-    task -> glide      [label="arbitrary strings — nothing to\nheal an over-swipe"];
-    task -> t9dec      [label="passwords defeat the word list"];
-
-    /* — what the three SHIPs cost in firmware (dotted grey) — */
-    edge [color="#8a8a8a", style="dotted"];
-    stack -> multitap [label="few hundred LOC · 2–4 KB"];
-    stack -> dwell    [label="tens of LOC"];
-    stack -> scan     [label="scan only, no decoder"];
-
-    /* — what the shipped wheel KEPT (violet dashed) — */
-    edge [color="#7c3aed", style="dashed", penwidth=1.4];
-    multitap -> wheel [label="kept: the coarse press sector +\nthe DTMF centre preview"];
-    glide -> wheel    [label="kept: its double-entry mode — by\nmaking it structurally impossible"];
-    dwell -> wheel    [label="kept: the 400 ms hedge, as the\ncentre back-hold (LONG_PRESSED)"];
-    edge [color="#b07d10", style="dashed"];
-    swipe -> wheel    [label="HOLD — it duplicates multi-tap\nplus the sweep's own motion"];
-
-    claims [shape=box, style="rounded,filled", fillcolor="#f6f1e2",
-            color="#8a8a8a", fontcolor="#1c2128", margin="0.3",
-            label="Three claims:\l(1) all thirteen live on ONE committed page — nine 466×466 SVG widgets running the device's own timings (multi-tap 700 ms · dwell 400 ms · scan 1 s) plus four text cards; the page's prose is the record, the widgets are the reference.\l(2) nothing has been measured ON THIS PANEL: every speed is a corpus number (wrist or phone) or the report's own back-of-envelope — and its “4–8 CPM” gloss contradicts its own seconds (its wall-clock pair is 16–32 CPM); the certainty ladder draws the arithmetic, not the gloss.\l(3) every SHIP is pure firmware over the wheel's existing plumbing; the corpus's best-supported method — the physical encoder — is a hardware revision."];
-    { rank=sink; claims; }
+    corpus -> methods [color="#2b5fb0", fontcolor="#1e3f70"];
+    constraints -> methods [style=dashed, color="#b91c1c", fontcolor="#7f1d1d"];
+    methods -> wheel [style=dashed, color="#7c3aed", fontcolor="#4c1d95"];
 }

@@ -49,10 +49,48 @@ of it: they shell out to the compiled binaries instead. The sketch
 draws every import edge, every artifact and every consumer with its
 line numbers.
 
+The sketch is the house pattern: one black-box overview of the five
+sealed boxes, then one detail sketch per box — the import ledger, the
+third-party pulls, the artifacts and their firmware ends, and the five
+importers module by module.
+
 .. graphviz:: ../_graphs/python-surface.dot
    :align: center
-   :alt: Twelve module nodes with intra-package import arrows pointing at constants, astro, sphere, textures, renderer, register and metrics; a dashed third-party cluster (astropy, numpy, tifffile, PIL, skimage, scipy, the subprocessed ffmpeg, the never-imported imageio); an artifacts cluster (the per-target blob and manifest, the generated moon_consts.h, the fitted LUT, the sweep mp4); and the consumer cluster — check_gate.py importing six modules, perf_measure.py four, the three docs figure tools, and the dashed pair that shells out instead.
-   :caption: The Python side as the repo actually uses it. Arrows inside the package read "imports" (every ``from .X`` line comment-stripped first); blue edges are imports a shipped gate, number or figure depends on; dashed legs are the never-imported pair (``render_demo.py`` runs the ``moon_sim`` binary, ``gen_media.py`` stitches uisim PNGs with ffmpeg) and the transitive ``imageio`` pin. ``assets.py`` is both the widest importer (seven modules) and the only module whose output the devices carry. The C half of the same interface is :ref:`the surface in one picture <c-api-surface>`; the gate's dataflow is image-gate.dot; the pipeline flow is assets-pipeline.dot.
+   :alt: Five sealed boxes in a column — THE CONSUMERS, THE PACKAGE, THIRD PARTIES, WHAT IT WRITES and THE FIRMWARE ENDS — joined by blue import and write edges, with dashed legs to the third parties and the firmware ends.
+   :caption: The Python side as the repo actually uses it — the black-box pass, no internals. Five tracked files import the package; two more import NOTHING and shell out instead (``render_demo.py`` runs the ``moon_sim`` binary, ``gen_media.py`` stitches uisim PNGs with ffmpeg). The three claims the family holds up: float64 prototype vs float32 C port — the gate measures their residual (~1 gray floor); ``EPHEMERIS "builtin"`` is the SAME ``eraEpv00`` + ``eraMoon98`` the C core vendors; and the 21× the performance page quotes (2.25 ms vs 47.6 ms @ 400 px) is THIS package's render path vs the C core's. The C half of the same interface is :ref:`the surface in one picture <c-api-surface>`; the gate's dataflow is image-gate.dot; the pipeline flow is assets-pipeline.dot; the compile/flash story is build-seam.dot.
+
+**The package** opens first — every arrow is a comment-stripped
+``from .X import`` line, and the arrows themselves are the ledger:
+
+.. graphviz:: ../_graphs/python-surface-imports.dot
+   :align: center
+   :alt: Four stacked columns — the four importers (assets, validate, animation, calibrate), the shader, the five imported leaves (sphere, astro, textures, register, metrics) and the amber hub constants — crossed by the intra-package import arrows.
+   :caption: The import ledger, read line by line out of the source. ``constants`` imports nothing (``from __future__`` only) yet nothing imports it more — the hub every validation path reaches, and the values the nodes name (``POLE_RA_ICRF`` 269.839977, ``SYNODIC_DAYS`` 29.530589, the ``REF_*`` display constants 400/199.3/199.3/199.5) live only there. The package is lazy: ``__init__.py`` carries no imports and the entry points are the modules themselves (``python -m moon.calibrate``, ``python -m moon.animation``, ``python -m moon.assets``). ``astro`` → constants; ``sphere`` is the numpy-only leaf (ZERO intra-package imports); ``textures`` → constants; ``renderer`` → constants + sphere (``disk_grid``, ``equirect_bilinear``) + astro (``Geometry``); ``animation`` → constants + astro (``geometry``) + renderer (``tonemap``, ``to_uint8``, ``render``) + textures (``load_textures``); ``calibrate`` → astro (``body_basis``, ``body_lonlat`` :16) ONLY; ``register`` and ``metrics`` are standalone leaves (numpy + skimage/scipy only); ``validate`` → six modules (plus ``register_shift``, ``disk_metrics``, ``earthshine`` :12-14, ``scipy.ndimage.uniform_filter1d`` :133); ``assets`` → seven — the widest import set in the tree, and the only module whose output the devices carry.
+
+**The third parties** — which module pulls which pin (the full pin list
+is the package's ``requirements.txt``; the Dependencies section below
+owns it):
+
+.. graphviz:: ../_graphs/python-surface-deps.dot
+   :align: center
+   :alt: Module column on the left (astro, textures, animation, validate, register, metrics, assets and an all-twelve ghost) fanning dashed to the pin column on the right — astropy, numpy, tifffile, PIL, scikit-image, scipy.ndimage, the subprocessed ffmpeg, the never-imported imageio.
+   :caption: Six things are imported directly, the amber nodes. ``astropy`` lives where the ephemeris lives (``get_body_barycentric`` + ``Time`` + units — and ``calibrate``/``validate`` reach ``astropy.time.Time`` too); its PyERFA builtin path runs ``eraEpv00`` + ``eraMoon98``, the same models the C core vendors. ``numpy`` — all twelve. ``tifffile`` has exactly one user, ``textures`` (the 16-bit LROC load). PIL writes the PNGs in ``animation``/``validate``/``assets``; scikit-image is ``register``'s phase cross-correlation (:13) and ``metrics``' ``structural_similarity`` (:15); ``scipy.ndimage`` is ``register``'s shift (:28/:34) and ``validate``'s ``uniform_filter1d`` (:133). The two dashed oddities are not pins the package uses: ``ffmpeg`` is SUBPROCESSED by ``make_mp4`` (libx264, yuv420p, crf 20) — a tool, not a dependency — and ``imageio`` sits in the pin list with ZERO ``import imageio`` in the package: scikit-image's transitive pin, nothing more. The package's own venv is ``assets/images/moon/.venv``; ``host_sim/.venv`` runs the gate against the same tree.
+
+**What it writes** — the writers, their artifacts, and where the
+artifacts land:
+
+.. graphviz:: ../_graphs/python-surface-products.dot
+   :align: center
+   :alt: Three writer boxes (assets.py, validate.py, animation.py) fanning to four amber artifacts — the asset blob and manifest, the generated header, the fitted LUT with its diff PNGs, the sweep frames and mp4 — and two dashed legs from the blob and the header into the firmware box.
+   :caption: The artifact ledger. ``assets.gen_assets_c`` writes ``out/<t>/moon_assets.bin`` (+ ``albedo.bin``/``dem.bin`` and the manifest; 2,470,400 / 4,194,304 / 897,536 B for s3 / p4 / knob — the storage ladder owns those bytes) and ``gen_consts_header`` writes ``components/moon/generated/<t>/moon_consts.h``, the header the FIRMWARE compiles (pole, W0, the DEM range, the sizes); the entry point is ``python -m moon.assets --target s3 p4 knob``, choices from ``constants.TARGETS``. ``validate`` writes the fitted LUT file + the render/ref/diff PNGs (:203-206) and prints "paste into constants.py as TONE_LUT" (:170); ``calibrate`` PRINTS the pole + prime-meridian fit (:231-240) — neither module ever rewrites ``constants.py`` by itself. ``animation.make_frames`` → ``anim.NNN.png``, ``make_mp4`` → ``moon_anim.mp4``. The root CMakeLists' FATAL_ERROR trio referees both firmware ends (build-seam.dot and assets-pipeline.dot own that story).
+
+**The consumers** — the repo-wide grep for ``from moon.`` / ``import
+moon`` leaves exactly these:
+
+.. graphviz:: ../_graphs/python-surface-consumers.dot
+   :align: center
+   :alt: Consumer column (check_gate.py, perf_measure.py, the three figure tools, the dashed import-nothing pair) fanning blue to the module column — assets, constants, astro, metrics, register, validate, animation, textures.
+   :caption: ``host_sim/check_gate.py`` :53-59 is the deep consumer — SIX modules: assets, constants, astro, metrics (``to_gray`` + ``disk_metrics``), register (``register_shift``), validate (``_iso`` + ``select_frames``); it drives the C leg through the ``moon_sim`` BINARY (``--list frames.txt --size 400 --neutral``), bakes per-target textures from ``constants.TARGETS`` (:104-106) and renders the Python leg with ``assets.render_from_assets`` (:147). ``docs/tools/perf_measure.py`` :152-155 imports astro, animation (``render_frame`` — the 47.6 ms at 400 px the performance page quotes), textures, constants. The three figure tools take one module each: ``docs/nasa_figs.py`` :35 (``register_shift``), ``docs/tools/gen_nasa_quarters.py`` :45 (``astro.geometry``), ``docs/tools/gen_moonjs.py`` :41 (``constants``). The dashed pair imports NOTHING: ``render_demo.py`` runs ``host_sim/build/moon_sim`` (:26/:61) and ``gen_media.py`` stitches ``host_sim/uisim/out`` PNGs with ffmpeg (:31/:47).
 
 Dependencies
 ------------

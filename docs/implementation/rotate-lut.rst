@@ -439,8 +439,8 @@ guarantees are tested.
   cache's replay tint (``moon_tfcache`` runs the fetched frame
   through the *same* LUT as a computed one) and the knob's companion
   (``knob_moon``). The producers set the event tint before
-  publishing (``moon_ui.c:1446`` the boot bake, ``:1563`` the hourly
-  producer at the hour-centre epoch, ``:1916`` the reveal); boot
+  publishing (``moon_ui.c:1536`` the boot bake, ``:1653`` the hourly
+  producer at the hour-centre epoch, ``:2006`` the reveal); boot
   replay deliberately resets it — ``set_event(NULL)`` at ``:1844``,
   because the stored grays are "event-independent, and classifying a
   whole cycle would cost more than the animation is worth"
@@ -458,7 +458,29 @@ device path, the producers set the event tint at publish time, and
 the TF card — which stores GRAY — never decides the color of a
 frame.
 
+The family is the house pattern: one black-box overview of the
+ownership story, then two detail sketches — the gather with its trig
+pair and host-only customers, the dictionary with its three builds and
+its live users.
+
 .. graphviz:: ../_graphs/rotate-lut.dot
+   :align: center
+   :alt: Six sealed boxes — THE TRIG PAIR, the teal THE GATHER, the amber THE TINT SWITCHES, the blue THE DICTIONARY and THE LIVE CUSTOMERS, and the dashed THE BYTE-ORDER BOUNDARY — joined by blue, teal-less and amber legs into the dictionary.
+   :caption: The last mile as an ownership picture — the black-box pass. Teal vs blue is the retirement line: ``moon_rotate`` is compiled into the device images but called only from ``host_sim``, while the dictionary sits under every device path, the producers set the event tint at publish time, and the TF card — which stores GRAY — never decides the color of a frame. The internals open in the two sketches below; the three claims come after them; the panel boundary belongs to :doc:`the display pipeline <display>` (flush-path.dot).
+
+**The gather** — the trig pair and ``moon_rotate_range``:
+
+.. graphviz:: ../_graphs/rotate-lut-gather.dot
+   :align: center
+   :alt: A vertical chain — 4-px unroll, the inverse map, the round step, the two-comparison bounds test, the fused LUT read — fed by the teal gate and bench boxes (above which the dashed retired spin hangs) and by the trig triple sin_tab, moon_sin15, moon_cos15; the dotted incremental-update node feeds the round step.
+   :caption: The gather's numbers, line-referenced: ``sin_tab[NQ+1]``, NQ 1024 — 1025 int32 (8 KB) built once lazily (:13-15, "1025-entry quarter-symmetric table" :1); int32 on purpose — ``cos 0 = 32768`` wrapped to ``-32768`` in int16 "would wrap ... and mirror the disk" (:6-7); ``moon_sin15`` folds any angle with ``red16`` into ``[0, 4·NQ)`` (:28-33) then unpacks the quadrant — q1 walks the table BACKWARDS (``NQ − idx``), q2 negates, q3 mirrors and negates (:40-49) — and ``moon_cos15`` is one line (:52): cosine is sine a quarter turn ahead; the linear step lands ~18 bits of angle, sub-pixel per frame. The gather (:130-163, ~8 ms for 400×400): the 4-px unroll (:136-139) "keeps up to 4 PSRAM frame loads in flight so the gather is not latency-bound" (:137-138) — bandwidth-bound, the relief cache's lesson at 4 M; the inverse map ``fx = dx·c15 + dy·s15``, ``fy = dy·c15 − dx·s15`` ("p = R(−theta) s", Q15.15) is paid per GROUP of 4 (:144-145) with ``|dx|, |dy| < 234, max |fx| ~ 1.6e9 fits int32`` (:147-148); the floor/round pair (:149-152) is an arithmetic shift plus a bit-and and a compare for the nearest-neighbour sample; the whole bounds test is two comparisons — ``(unsigned)ix < (unsigned)frame_size`` (:153-156), a negative becomes huge so one ``<`` catches below-zero AND past-edge, and out-of-frame keeps ``gval = 0`` — "Out of frame = black", no disk mask (header :6); the LUT read is fused into the same instruction stream (:157); and one destination pixel over is ONE fixed rotation step (:158-159) — "exact integer math" (:137), no multiply returns, no drift along the row. The rotation's only customers: ``main.c:97`` (the gate's render_one, whole 400 px square per PNG, angle from ``rot_deg``) and ``bench.c:119`` (the timing loop); the dashed spin — 8 fps off one baked frame, the only device caller ever — retired 2026-11-13 (16cd5c3..59ceeef), "the product decision outlived its justification".
+
+**The dictionary** — ``g565_build``, the two switches, the live users:
+
+.. graphviz:: ../_graphs/rotate-lut-dict.dot
+   :align: center
+   :alt: Two stacked columns — the blue live users (converts, the TF card, the knob, the producers, the replay) on the left; the amber build ladder set_event, set_warm, event branch, warm branch, neutral base in the middle; the blue pack box on the right.
+   :caption: The build ledger (:34-69): neutral base (:41-43) ``r5 = (g·31+127)/255``, ``g6 = (g·63+127)/255``, ``b5 = r5`` — the round-to-nearest idiom, and ``b5 = r5`` is what "gray" MEANS: neutrality is structural; the pink bug this prevents, verbatim (:37-39) — the 5-bit value in the 6-bit green field "caps green at 31/63 (~49%) and renders every gray as magenta/pink". Warm branch (:44-50): ``r5 = (g·32+127)/255``, ``b5 = (g·29+127)/255`` capped at 31 — R ×1.038, B ×0.933 calibrated to NASA's lit-region RGB (164,160,153), R/B = 1.07 (:15-21): "a warm moon reads as a real moon photo against the AMOLED's true black" — the SHIPPED default (:26). Sky-event branch (:51-64): the pre-calculated multipliers ride the WARM base — blood 1.15/0.55/0.42 (:91-95), harvest 1.10/0.92/0.62, blue 0.92/1.00/1.12, super/micro ×1.08/×0.92 (:96-114), each round(+0.5) and capped (31/63/31). Pack (:66) ``(r5 << 11) | (g6 << 5) | b5`` — "the panel's format made literal"; the build is lazy, on first call (:124-128). The switches: ``set_warm`` (:71-76) rebuilds only when the flag CHANGES; ``set_event`` (:88-122) — "the device calls this once per day; an event-less day is a no-op" (:86-87). The live users: the converts at ``moon_ui.c`` :1213/:1323/:1625/:2043 — "every displayed frame goes through ``moon_gray565``"; the producers' ``set_event(&ev)`` at :1446/:1563 (hour-centre epoch)/:1916; boot replay's ``set_event(NULL)`` (:1844) and the TF card's :18-21 quote are the tint-on-show pair; the knob converts through "the EXACT LUT table the identity ``moon_rotate`` consults" (:9-13) and sets the event tint at begin :83.
 
 Three claims the picture is drawn to make. First, teal vs blue is the
 retirement line: ``moon_rotate`` is compiled into the device images
@@ -474,7 +496,7 @@ number. Third, tint is applied on show, not on store: the TF hour
 cache keeps gray frames and the show path supplies the same LUT the
 compute path used ("pixel-identical by construction",
 ``moon_tfcache.c:18-21``), boot replay opts out to neutral
-(``moon_ui.c:1844``), and the knob's bake is the identity gather —
+(``moon_ui.c:1934``), and the knob's bake is the identity gather —
 ``cos(0) = 32768`` in Q15.15 — which is what makes its frames
 pixel-identical to the host rotation path "by construction, not
 hope" (``knob_moon.c:9-13``).

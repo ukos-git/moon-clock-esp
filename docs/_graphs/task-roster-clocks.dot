@@ -1,0 +1,81 @@
+// The CLOCKS crew opened (S3 + P4, one source): every xTaskCreate* site
+// as a blue spawn arrow, every hand-back to the tick as a dashed arrow,
+// the two shipped-out ghosts dashed grey; the spawning call is named
+// inside each node. Every edge read out of the live source before
+// drawing (comment-stripped greps):
+//   boot spawns (main/main.cpp app_main): bsp_display_start runs the
+//     adapter's LVGL task (main.cpp:558-572 P4 branch, S3 falls through
+//     bsp_display_start); the S3 BSP pins it itself, cfg->lv_adapter_cfg.
+//     task_core_id = 0 at esp32_s3_touch_amoled_1_75.c:590 with the
+//     code's own reason ("The adapter default (core -1, no affinity)
+//     lets FreeRTOS park it on core 1, where the moon bake producer ...
+//     is pinned"); the P4 branch overrides ONLY task_stack_size = 12288,
+//     so the P4 painter keeps ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID (-1).
+//   moon_ui_init spawns panel_wdg ("panel_wdg" 4096, prio 3, core 0 —
+//     "Low priority on core 0: it sleeps 3 s at a time") and the
+//     classify worker ("moon_event" 12288, MAX_PRIORITIES-4, core 1,
+//     MALLOC_CAP_SPIRAM — "IDLE1 is not WDT-watched, so its 15-20 s
+//     scan can never trip the watchdog"); moon_ui_start spawns
+//     moon_replay (12288, MAX-3, core 1) under #if UI_MOON_BOOT_REPLAY
+//     && !UI_DEMO_MODE with the code's own inline-bake fall-through.
+//   Tick spawns (LVGL task): moon_hourly_service at the tick head
+//     (:2451) spawns moon_hourly at hour*3600+1800; moon_rebake_request
+//     spawns moon_rebake from THREE tick callers — degraded hourly
+//     probe :1754, moon_ui_day_tick :2854, wake path :2928. moon_orbit
+//     is a GHOST: UI_MOON_ORBIT_ENABLE unset in BOTH sdkconfigs
+//     (:2380 / :2511). hang_watch (main.cpp:748) is the TEST_HANG_WATCH
+//     ghost, never shipped.
+//   Wakes (dashed, all back into the painter): the producers publish
+//     into the shared PSRAM buffers and the tick's done leg shows each
+//     finished frame as ONE atomic whole-panel flush (hourly — done
+//     flag; rebake — published frame; replay — strip watermarks); the
+//     classify worker warms the day the tick later reads.
+// The priority ladder is the scheduler ladder
+// (verification/performance.rst); the same crew's cadence over the
+// chips is docs/_graphs/task-roster-chips.dot (this page); the crew in
+// black boxes is docs/_graphs/task-roster.dot (this page). FONTS: 12 pt
+// = the page's 16 px body text at 1:1 — kept inside the column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph task_roster_clocks {
+    rankdir=LR;
+    label="The clocks' crew — spawns, hand-backs, two ghosts";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    app_main [label="app_main — boots the\nradio + clock FIRST",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    lvgl [label="LVGL worker · p6 · 8 KiB\nP4 12 KiB — via\nbsp_display_start",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    wdg [label="panel_wdg · p3 · core 0\n4 KiB — moon_ui_init\n\"sleeps 3 s at a time\"",
+         fillcolor="#f8e7e7", color="#b91c1c", fontcolor="#7f1d1d"];
+    event [label="moon_event · p21 · core 1\n12 KiB PSRAM — ui_init\n\"IDLE1 not WDT-watched\"",
+           fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    replay [label="moon_replay · p22 · core 1\n12 KiB — moon_ui_start\n#if BOOT_REPLAY",
+            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    hourly [label="moon_hourly · p22 · core 1\n12 KiB — tick probe,\nhour*3600+1800",
+            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    rebake [label="moon_rebake · p22 · core 1\n12 KiB — three tick callers",
+            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    orbit [label="moon_orbit — GHOST\ngate off in both sdkconfigs",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+    hang [label="hang_watch — GHOST\nnever shipped",
+          style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+
+    app_main -> lvgl [color="#2b5fb0", penwidth=1.6];
+    app_main -> wdg [color="#2b5fb0", penwidth=1.6];
+    app_main -> event [color="#2b5fb0", penwidth=1.6];
+    app_main -> replay [color="#2b5fb0", penwidth=1.6];
+    app_main -> hang [style=dashed];
+    lvgl -> hourly [color="#2b5fb0", penwidth=1.6, constraint=false];
+    lvgl -> rebake [color="#2b5fb0", penwidth=1.6, constraint=false];
+    lvgl -> orbit [style=dashed, constraint=false];
+    hourly -> lvgl [style=dashed, constraint=false];
+    rebake -> lvgl [style=dashed, constraint=false];
+    replay -> lvgl [style=dashed, constraint=false];
+    event -> lvgl [style=dashed, constraint=false];
+}

@@ -1,218 +1,53 @@
-// The crew, wired: every shipped FreeRTOS task as a node, every
-// xTaskCreate* edge as a spawn arrow, every producer->tick handshake as a
-// wake arrow, and every periodic chip interrogation as an amber arrow.
-// Every edge was read out of the live source before drawing
-// (comment-stripped greps — same discipline as api-surface.dot):
-//   Boot spawns (main/main.cpp app_main): the panel comes up AFTER the
-//     blocking wifi_manager_init + clock_init (bringup-boot-sync.dot's "Airplane
-//     before the panel ever wakes up"); bsp_display_start / _with_config
-//     runs the esp_lv_adapter's LVGL task (main.cpp:558-572 P4 branch,
-//     S3 falls through bsp_display_start). The S3 BSP pins that task
-//     itself: cfg->lv_adapter_cfg.task_core_id = 0 at
-//     components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c:590
-//     with the code's own reason ("The adapter default (core -1, no
-//     affinity) lets FreeRTOS park it on core 1, where the moon bake
-//     producer ... is pinned"); the P4 branch overrides ONLY
-//     task_stack_size = 12288, so the P4 painter keeps the adapter
-//     default ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID (-1) — per-board truth,
-//     drawn on the painter node.
-//   moon_ui_init (components/ui/moon_ui.c tail) spawns panel_wdg
-//     (xTaskCreatePinnedToCore "panel_wdg" 4096, prio 3, core 0 — "Low
-//     priority on core 0: it sleeps 3 s at a time") and the classify
-//     worker (xTaskCreatePinnedToCoreWithCaps "moon_event" 12288,
-//     MAX_PRIORITIES-4, core 1, MALLOC_CAP_SPIRAM — "IDLE1 is not
-//     WDT-watched, so its 15-20 s scan can never trip the watchdog").
-//   moon_ui_start spawns moon_replay (12288, MAX-3, core 1) under
-//     #if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE (=y both
-//     clocks; sdkconfig :2358 / sdkconfig.p4 :2489) — with the code's own
-//     fall-through "baking the current phase inline" when the producer
-//     fails to start.
-//   Tick spawns (LVGL task): moon_hourly_service (called at the head of
-//     moon_tick_cb; called at the tick head, :2361; probe gates on hour
-//     != s_baked_hour or CONFIG_TEST_HOURLY_FORCE_S) spawns moon_hourly
-//     (12288, MAX-3, core 1) at the hour centre hour*3600+1800;
-//     moon_rebake_request spawns moon_rebake (12288, MAX-3, core 1) from
-//     THREE tick-side callers: the degraded hourly probe :1664 (the PSRAM
-//     bounce never allocated), moon_ui_day_tick :2764 (new day or
-//     sky-event signature change), the wake path :2838 (frame mid-bake
-//     at sleep). moon_orbit is a GHOST:
-//     moon_orbit_drain gates on CONFIG_UI_MOON_ORBIT_ENABLE, unset in
-//     BOTH sdkconfig (:2379) and sdkconfig.p4 (:2510) — drawn dashed.
-//   On-demand spawns: actions.c:817 (WiFi screen load, "on-demand sync")
-//     arms the panel traffic hold then wifi_sync_kickoff spawns wifi_sync
-//     (6144, prio 10, unpinned — "6144: wifi_manager_init + the SNTP
-//     stack run here"); wifi.c:551 wifi_scan_begin spawns wifi_scan
-//     (6144, prio 5); alarm_audio.c:319/:348 spawn play_task (6144,
-//     prio 4) from ring_start and preview. All self-delete
-//     (vTaskDelete(NULL) at the fn tails). hang_watch (main.cpp:748,
-//     6144, prio 5) sits under #if CONFIG_TEST_HANG_WATCH — dashed test
-//     hook, never shipped.
-//   Wake edges (dashed): the hourly/rebake/replay producers publish into
-//     the shared PSRAM buffers and the tick's done leg "show[s] it as ONE
-//     atomic whole-panel flush" / "the tick displays each finished frame
-//     atomically" (moon_ui.c comments); the classify worker warms the day
-//     that moon_event_classify_here later reads; wifi_sync sets the done
-//     flag that "the wake handler (action_wake_screen) consumes (clears)"
-//     (actions.c:46 comment). panel_wdg's only outward edge is the
-//     esp_restart it owes on a wedged panel key.
-//   Chip interrogations (amber): the LVGL indev layer reads the touch
-//     chip every LV_DEF_REFR_PERIOD = 33 ms (lv_indev.c:105 read_timer;
-//     =33 in all three sdkconfigs); the 1 Hz lv_timer tilt monitor asks
-//     the QMI8658C (chip streams at 1000 Hz ODR — one ask per 1000 asks);
-//     the clock tick reads PCF85063A @0x51 + the TCA9554's INT pin
-//     (EXIO_RTC_INT_PIN = PIN_NUM_3) every RTC_POLL_INTERVAL_MS 1300
-//     (main.cpp:30; the P4 leg is compiled out by
-//     CONFIG_CLOCK_USE_PCF85063A=n); the hourly producer interrogates the
-//     microSD (S3 GPSPI3 sdspi, P4 4-bit SDMMC); play_task streams the
-//     ES8311; the P4's boot/on-demand sync crosses the SDIO to the
-//     remote C6. The knob: knob_enc polls the EC1 quadrature dial every
-//     ENC_POLL_MS 3 (knob_board_encoder.c:32) but the knob runs
-//     CONFIG_FREERTOS_HZ=100, so pdMS_TO_TICKS(3) = 0 and the clamp
-//     (poll < 1 ? 1 : poll) lands it at ONE tick = 10 ms; knob_lvgl's
-//     indev polls the CST816S @0x15 at 33 ms (the INT line GPIO 9 is
-//     wired but unused there — it is the EXT1 tap-wake instead); the
-//     battery lv_timer asks the ADC every 60 s (knob_battery_ui.c:204);
-//     the knob has NO IMU (the imu shim answers ready=false) and NO RTC
-//     (the 1300 ms tick is software-synthesized, "RTC_POLL_INTERVAL_MS on
-//     the clocks is 1300", knob/main/main.c:492-493). The adapter
-//     default the P4 inherits is ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID
-//     (-1) "(-1 for no affinity)" —
-//     managed_components/espressif__esp_lvgl_adapter/include/esp_lv_adapter.h:104/:117
-//     (vendored: public API cited, never modified).
-// The priority ladder over this same crew is the scheduler ladder
-// (verification/performance.rst); the crew's resident stack bytes are the
-// static footprint there; the crew's cadence over the chips is the
-// silicon ladder next to those two. Stacks are internal-RAM debt by
-// definition — pvPortMalloc is heap_caps_malloc(MALLOC_CAP_INTERNAL |
-// MALLOC_CAP_8BIT) (~/esp/esp-idf/components/freertos/heap_idf.c:43,:47)
-// — and only two tasks ride PSRAM: moon_event and knob_moon, the two
-// xTaskCreatePinnedToCoreWithCaps call sites with MALLOC_CAP_SPIRAM.
+// The crew as a BLACK-BOX OVERVIEW: five sealed boxes — the boot, the
+// painter, the core-1 mill, the on-demand one-shots and the knob crew —
+// plus the silicon they all interrogate. No internals on this figure:
+// every box opens into its own detail sketch on this page
+// (task-roster-clocks.dot, task-roster-ondemand.dot,
+// task-roster-knob.dot, task-roster-chips.dot). Arrow colours are the
+// legend: blue = xTaskCreate* spawn, dashed grey = hand-back (done
+// flag, published frame, watermark), amber = periodic chip ask.
+// FONTS: 12 pt everywhere = the page's 16 px body text at 1:1, and the
+// graph is kept inside the content column so object{max-width:100%}
+// never scales it down — smaller text was the old figure's failure.
+// Provenance of every edge (comment-stripped greps, same discipline as
+// api-surface.dot) lives in the per-sketch comments and the captions.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph task_roster {
-    label="The crew, wired — who spawns whom on which core, who wakes whom, and which chip each hand asks";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=11, style="rounded,filled",
-          shape=box, width=1.9, height=0.45,
-          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=9, color="#8a8a8a", penwidth=1.3];
+    rankdir=LR;
+    label="The crew in black boxes — spawns, wakes, and the silicon asks";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_clocks {
-        label="the clocks (S3 + P4, one source) — blue = xTaskCreate* spawn; label names the creator";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
+    boot [label="app_main — radio + clock\nBEFORE the panel",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    painter [label="THE PAINTER · LVGL task\nvia bsp_display_start\np6 · 8 KiB · per-board core",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    mill [label="THE MILL · core-1 producers\nhourly · rebake · replay\nnever concurrent",
+          fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.8];
+    shots [label="ON-DEMAND ONE-SHOTS\nwifi_sync · wifi_scan ·\nplay_task — self-delete",
+           fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    knob [label="THE KNOB CREW\nknob_lvgl · _moon · _swap\n+ encoder, dial, power",
+          fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    chips [label="THE SILICON\npanels · touch · IMU · RTC\ncard · codec · C6\ndial · ADC",
+           shape=box, style="rounded,filled", fillcolor="#eef0ee", color="#5c7fb8", fontcolor="#27405e"];
 
-        app_main [label="app_main — boots the radio +\nclock BEFORE the panel, then\nbsp_display_start", fillcolor="#f6f1e2"];
-        hang_watch [label="hang_watch 6 KiB · p5\n(#if CONFIG_TEST_HANG_WATCH\n— never shipped)",
-                    style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        lvgl [label="LVGL worker · p6 · 8 KiB\n(P4 12 KiB, main.cpp:565)\ncore: S3 = 0 (BSP :590)\nvs P4 = -1 unpinned",
-              fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
-        panel_wdg [label="panel_wdg · p3 · core 0 · 4 KiB\n\"sleeps 3 s at a time\"\n(moon_ui_init)", fillcolor="#f8e7e7", color="#b91c1c"];
-        event_w [label="moon_event · p21 · core 1\n12 KiB PSRAM (WithCaps)\n\"IDLE1 is not WDT-watched\"\n(moon_ui_init)", fillcolor="#e8ddf6"];
-        replay [label="moon_replay · p22 · core 1 ·\n12 KiB (moon_ui_start,\n#if BOOT_REPLAY — else the\nboot bakes inline)", fillcolor="#e8ddf6"];
-        hourly [label="moon_hourly · p22 · core 1 ·\n12 KiB — spawned at the hour\ncentre hour*3600+1800", fillcolor="#e8ddf6"];
-        rebake [label="moon_rebake · p22 · core 1 ·\n12 KiB — day tick / wake /\"?\" +\ndegraded hourly", fillcolor="#e8ddf6"];
-        orbit [label="moon_orbit — GHOST: drains only\nwith UI_MOON_ORBIT_ENABLE,\nunset both sdkconfigs",
-                style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        wsync [label="wifi_sync · p10 · unpinned ·\n6 KiB self-deletes — \"wifi_manager_init\n+ the SNTP stack run here\"", fillcolor="#d7ecef"];
-        wscan [label="wifi_scan · p5 · 6 KiB\nself-deletes (wifi_scan_begin)", fillcolor="#d7ecef"];
-        play [label="play_task · p4 · 6 KiB\nself-deletes (ring_start +\npreview, one at a time)", fillcolor="#f2f2f2"];
-    }
-
-    subgraph cluster_knob {
-        label="the knob — the renderer is the foreground (10 > 7 > 5)";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-
-        kmain [label="app_main (knob) — 2 ms lvgl_tick\nesp_timer", fillcolor="#f6f1e2"];
-        kboot [label="knob_boot · p6 · 4 KiB\none-shot (waits NTP, arms)", fillcolor="#f2f2f2"];
-        klvgl [label="knob_lvgl · p10 · 8 KiB\nunpinned — painter, indev,\nclock tick 1300 ms", fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6];
-        kmoon [label="knob_moon · p5 · core 1 ·\n12 KiB PSRAM — \"unregistered\nfrom TWDT\" (knob_ui.c:701)", fillcolor="#e8ddf6"];
-        kswap [label="knob_swap · p7 · 8 KiB\n\"a watchdog on it is a\nfeature\" — registered", fillcolor="#dfe6f1"];
-        kenc [label="knob_enc · p5 · 3 KiB — asks\nthe dial every 3 ms NOMINAL,\n10 ms EFFECTIVE (100 Hz\nclamp poll<1?1:poll)", fillcolor="#f6ecd6"];
-        kdial [label="knob_dial · p5 · 4 KiB · 20 ms\nstep + dim consumer", fillcolor="#f6ecd6"];
-        ksup [label="knob_power · p4 · 3 KiB · 500 ms\nsleep ladder; EXT0 dial ·\nEXT1 tap (GPIO 9)", fillcolor="#f2f2f2"];
-    }
-
-    subgraph cluster_chips {
-        label="the silicon each hand interrogates (amber = periodic ask; the cadence ladder numbers them)";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-
-        panel_s3 [label="CO5300 (QSPI)\nCO5300+SH8601+JD9365\nare the three panels", fillcolor="#dfe6f1"];
-        panel_p4 [label="JD9365 (MIPI-DSI)", fillcolor="#dfe6f1"];
-        panel_kn [label="SH8601 (QSPI)", fillcolor="#dfe6f1"];
-        touch_s3 [label="CST9217 — indev poll 33 ms", fillcolor="#d7ecef"];
-        touch_p4 [label="GT911 @0x5D/0x14 — 33 ms", fillcolor="#d7ecef"];
-        touch_kn [label="CST816S @0x15 — 33 ms\n(INT GPIO 9 = EXT1 wake,\nnot a poll)", fillcolor="#d7ecef"];
-        imu [label="QMI8658C @0x6A/0x6B —\nstreams 1000 Hz, firmware\nasks 1 Hz (tilt monitor)", fillcolor="#d7ecef"];
-        rtc [label="PCF85063A @0x51 behind\nTCA9554 INT (P3) — 1.3 s poll\n(P4: compiled out)", fillcolor="#d7ecef"];
-        codec [label="ES8311 — I2C control +\nI2S stream (rings only)", fillcolor="#d7ecef"];
-        card [label="microSD — S3 SPI3 sdspi /\nP4 SDMMC 4-bit; hour centre\n+ boot replay + eviction", fillcolor="#e8e8ea"];
-        c6 [label="ESP32-C6 — remote radio\nover SDIO (P4 only)", fillcolor="#e0d7f0"];
-        dial_ec [label="EC1 dial — GPIO quadrature\n(10 ms effective poll)", fillcolor="#f6ecd6"];
-        adc [label="battery ADC1_CH0 (GPIO 1)\n— asked every 60 s", fillcolor="#f6ecd6"];
-    }
-
-    claims [label="the three claims this picture holds up: (1) the painter's affinity is PER BOARD — the S3 BSP pins it to core 0 with its own comment, the P4 passes the adapter default through; (2) every stack is internal-RAM debt (pvPortMalloc = MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT, heap_idf.c:43) except the two WithCaps PSRAM riders, moon_event and knob_moon; (3) the static crew never exits, every dynamic member self-deletes — and the two dashed ghosts are gated off in the shipped configs",
-            shape=note, style="rounded,filled", fillcolor="#fdf7e6", color="#b07d10",
-            fontsize=10, width=7.2];
-
-    // ---- spawns (blue) ----
-    app_main -> lvgl [color="#2b5fb0", label=" bsp_display_start"];
-    app_main -> hang_watch [color="#8a8a8a", style=dashed, label=" test hook"];
-    app_main -> panel_wdg [color="#2b5fb0", label=" moon_ui_init"];
-    app_main -> event_w [color="#2b5fb0", label=" moon_ui_init"];
-    app_main -> replay [color="#2b5fb0", label=" moon_ui_start"];
-    lvgl -> hourly [color="#2b5fb0", label=" tick probe → spawn"];
-    lvgl -> rebake [color="#2b5fb0", label=" day tick / wake / degraded hourly"];
-    lvgl -> orbit [color="#8a8a8a", style=dashed, label=" gate n"];
-    wload [label="WiFi screen load\n(actions.c:817, hold armed)", shape=box, style="rounded,filled", fillcolor="#f2f2f2"];
-    wload -> wsync [color="#2b5fb0", label=" kickoff"];
-    wload -> wscan [color="#2b5fb0", label=" wifi_scan_begin"];
-    ring [label="alarm ring / settings\npreview (one at a time)", shape=box, style="rounded,filled", fillcolor="#f2f2f2"];
-    ring -> play [color="#2b5fb0"];
-
-    kmain -> klvgl [color="#2b5fb0"];
-    kmain -> kboot [color="#2b5fb0"];
-    kmain -> kenc [color="#2b5fb0", label=" encoder_init"];
-    kmain -> ksup [color="#2b5fb0", label=" power_init"];
-    kmain -> kdial [color="#2b5fb0", label=" dial_start"];
-    kmain -> kmoon [color="#2b5fb0", label=" start_tasks"];
-    kmain -> kswap [color="#2b5fb0", label=" start_tasks"];
-
-    // ---- wakes (dashed gray) ----
-    hourly -> lvgl [style=dashed, label=" done flag — tick shows ONE\natomic flush while black"];
-    rebake -> lvgl [style=dashed, label=" published frame"];
-    replay -> lvgl [style=dashed, label=" strip watermarks"];
-    event_w -> lvgl [style=dashed, label=" warms the day"];
-    wsync -> lvgl [style=dashed, label=" done flag — wake handler\nconsumes (clears) it"];
-    panel_wdg -> lvgl [style=dashed, color="#b91c1c", label=" esp_restart on a\nwedged panel key"];
-    kmoon -> kswap [style=dashed, label=" back buffer watermark"];
-    kswap -> klvgl [style=dashed, label=" publishes"];
-    kenc -> kdial [style=dashed, label=" count delta"];
-
-    // ---- interrogations (amber) ----
-    lvgl -> panel_s3 [color="#b07d10", label=" flush"];
-    lvgl -> panel_p4 [color="#b07d10", label=" flush"];
-    lvgl -> touch_s3 [color="#b07d10", label=" indev 33 ms"];
-    lvgl -> touch_p4 [color="#b07d10", label=" indev 33 ms"];
-    lvgl -> imu [color="#b07d10", label=" tilt lv_timer 1 Hz"];
-    lvgl -> rtc [color="#b07d10", label=" clock tick 1.3 s"];
-    hourly -> card [color="#b07d10", label=" hour cache"];
-    replay -> card [color="#b07d10", label=" boot replay"];
-    play -> codec [color="#b07d10", label=" I2S"];
-    wsync -> c6 [color="#b07d10", style=dashed, label=" P4: over SDIO"];
-    klvgl -> panel_kn [color="#b07d10", label=" flush"];
-    klvgl -> touch_kn [color="#b07d10", label=" indev 33 ms"];
-    klvgl -> adc [color="#b07d10", label=" 60 s lv_timer"];
-    kenc -> dial_ec [color="#b07d10", label=" 3 ms nom / 10 ms eff"];
-
-    // anchors
-    { rank=same; wload; ring; }
-    { rank=sink; claims; }
-    claims -> wload [style=invis];
+    boot -> painter [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    boot -> mill [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                  label="moon_ui_init/_start"];
+    mill -> painter [style=dashed, constraint=false, label="done flags"];
+    painter -> mill [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                     constraint=false, label="spawns"];
+    boot -> shots [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                   label="on demand"];
+    shots -> painter [style=dashed, constraint=false, label="done flag"];
+    boot -> knob [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    painter -> chips [color="#b07d10", fontcolor="#6b4e08", constraint=false,
+                      label="33ms · 1Hz · 1.3s"];
+    mill -> chips [color="#b07d10", fontcolor="#6b4e08", constraint=false, label="card at the hour"];
+    knob -> chips [color="#b07d10", fontcolor="#6b4e08", constraint=false, label="dial · ADC"];
 }

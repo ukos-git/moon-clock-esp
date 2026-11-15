@@ -1,0 +1,59 @@
+// THE PAINTER'S THREE LEGS opened (the 50 ms tick, MOON_TICK_MS :186,
+// armed :2634): every quote verified in components/ui/moon_ui.c before
+// drawing. The done legs read the producer flags (:1794-1801 →
+// moon_hourly_finish :3067-3101; rebake/replay :2474-34), call
+// moon_invalidate_all (:1154) then ONE atomic whole-panel lv_refr_now
+// INSIDE the image key, then the drain witness ("hourly fade-in",
+// "rebake", "boot replay", "orbit batch"); commit-on-show —
+// s_baked_hour/event set only after the flush landed (:3073-74); the
+// owed 0→100 fade_ramp rides the same key rule, the FIRST completed
+// strip usually paid it first (:1437-38). The reveal leg
+// (UI_MOON_BAKE_REVEAL) converts bounce→s_rgb ONE band per tick
+// (10 rows S3 / 13 P4, :1214-16) and shows the band as one atomic band
+// flush under the image key — never a half-old/half-new composite
+// (:1399-1400). The 0x51 hardware ramp writes NO pixels (:3255-68): "the
+// flush strips take the panel mutex in the draw_bitmap wrapper (per
+// strip — taking it here as well would self-deadlock)". The buckets and
+// the keys in black boxes are docs/_graphs/buffers-relay.dot (this
+// page); the asks with their timeouts are docs/_graphs/guards-keys.dot;
+// the staging/witness anatomy is docs/_graphs/flush-path.dot
+// (display.rst). FONTS: 12 pt = the page's 16 px body text at 1:1 —
+// kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph buffers_relay_painter {
+    rankdir=TB;
+    label="The painter's three legs — the done legs, the reveal bands, and the no-pixels ramp";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    done [label="THE DONE LEGS — flags → invalidate_all →
+ONE atomic lv_refr_now under the image key,
+drain witness · COMMIT-ON-SHOW (:3073-74)",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    reveal [label="THE REVEAL LEG — one band per tick (10 rows
+S3 / 13 P4): gather + band flush under the
+image key — never a half-old composite",
+            fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
+    fade [label="THE NO-PIXELS LEG — the 0x51 ramp writes
+NO pixels; the atomic flush lands while the
+panel is STILL BLACK (:3255-68)",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    keyrgb [label="the IMAGE key\ns_rgb_mtx",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    keypanel [label="the PANEL key — s_panel_mtx: the\ndraw_bitmap wrapper takes it per\nstrip → staged strips → DMA → panel",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    done -> reveal [style=invis];
+    reveal -> fade [style=invis];
+    fade -> keyrgb [style=invis];
+    done -> keyrgb [color="#b07d10", fontcolor="#6b4e08", label="held for\nthe flush"];
+    reveal -> keyrgb [color="#b07d10", fontcolor="#6b4e08", label="per band"];
+    fade -> keypanel [style=dashed, color="#b07d10", fontcolor="#6b4e08",
+                      label="0x51 steps"];
+    keyrgb -> keypanel [style=invis];
+}

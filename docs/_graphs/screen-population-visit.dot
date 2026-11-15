@@ -1,0 +1,35 @@
+// A VISIT opened: what a screen switch costs — which is nothing.
+// loadScreen contains no creator call (the twin parser dies if one
+// ever appears), the ten sub-screens pay at most an entry refresh,
+// and only the current screen's ticker runs per frame. Every line
+// ref and quote sits in the page caption; the counts are re-derived
+// by docs/tools/gen_perf_assembly.py. The population in black boxes
+// is docs/_graphs/screen-population.dot (this page); the city is
+// screen-population-city.dot; the fade is docs/_graphs/screen-switch
+// .dot. FONTS: 12 pt = the page's 16 px body text at 1:1 — kept
+// inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph screen_population_visit {
+    rankdir=TB;
+    label="A visit opened — zero creations, zero destructions";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    load [label="loadScreen: swap,\nattach, atomic show\n— ZERO creators",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    refresh [label="exactly 10 cases —\nrollers re-seed,\nnothing rebuilds",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    tick [label="ui_tick dispatches\nthe 16 tickers —\nonly CURRENT ticks",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    fade [label="0x51 fade-to-black —\nmoon→moon skips\n(screen-switch.dot)",
+          style="rounded,filled,dashed", color="#9a9a9a", fontcolor="#6b6b6b"];
+
+    load -> refresh [color="#b07d10", fontcolor="#6b4e08"];
+    load -> tick [color="#2b5fb0", fontcolor="#1e3f70"];
+    load -> fade [style=dashed, color="#9a9a9a", constraint=false];
+}

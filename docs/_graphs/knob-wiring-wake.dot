@@ -1,0 +1,43 @@
+// The knob is the family's only REAL deep sleeper (drawn once; the
+// wake/doory arbitration lives in docs/implementation/clock-sleep and
+// docs/implementation/knob-display):
+//   real esp_deep_sleep_start, armed with the INTERNAL RTC TIMER —
+//   no RTC IC on this board, so the alarm is a timer and can NEVER
+//   ring early; the fixed-rule ladder decides the one armed hour.
+//   Wake inputs:
+//     EXT0   = dial-A GPIO 8, active-LOW — the primary;
+//     EXT1   = CST816S INT GPIO 9, ANY_LOW (KNOB_TOUCH_WAKE);
+//     TIMER  = the next fixed alarm rule (KNOB_ALARM_TIMER_WAKE).
+//   The EC1 caveat: it pulses ONE channel per detent, so a detent
+//   that pulses only B (GPIO 7) does NOT wake — the next detent
+//   does. (The S3's poll-only path is s3-wiring-wake.dot; the P4
+//   has no hardware wake at all, p4-wiring-wake.dot.)
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_wiring_wake {
+    rankdir=LR;
+    label="The knob's wake inputs — real deep sleep, armed by rule";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.32, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    ext0 [label="EXT0 — dial-A\n8, active-LOW"];
+    ext1 [label="EXT1 — CST816S\nINT 9, ANY_LOW"];
+    tm [label="TIMER — next\nalarm rule, never\nan early ring"];
+    core [label="real deep sleep\n— esp_deep_sleep\n_start", fillcolor="#e4efe7",
+          color="#3a7d5c", fontcolor="#1f5c40", penwidth=1.6];
+    caveat [label="ONE channel per\ndetent — a B-only\npulse does NOT\nwake; next does",
+            fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18",
+            style="rounded,filled,dashed"];
+
+    ext0 -> core [color="#3a7d5c"];
+    ext1 -> core [color="#3a7d5c"];
+    tm -> core [color="#3a7d5c"];
+    ext0 -> caveat [style=dashed, color="#b5643a"];
+    { rank=sink; core; }
+}

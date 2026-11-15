@@ -108,26 +108,45 @@ The load-bearing findings:
 The thirteen in one picture
 ---------------------------
 
-The sections below walk the methods one at a time; the sketch is the
+The sections below walk the methods one at a time; the figures are the
 field they live in — drawn straight out of the three tracked sources
 this page must agree with: the research report's comparison table
 (``docs/research/circular-keyboard-alternatives.md``), the lab's own
 ``CARDS``/``OFF`` tables
 (``docs/_static/keyboard/round-keyboard-lab.html``), and the shipped
-wheel (``components/ui/screens.c``). Steel-blue arrows are the
-literature vouching for a method — venue, year and headline number on
-the wire, not in the node. Dashed red arrows are a hardware constraint
-striking a method down, the reason on the wire. The violet dashed
-arrows are what the shipped wheel *kept* from the alternatives it
-rejected: multi-tap's coarse press, the glide's double-entry mode made
-structurally impossible, the dwell's 400 ms hedge (the in-tree
-``LONG_PRESSED`` the centre back-hold already runs). Every verdict
-colour is the recorded verdict; the three claims under the graph are
-the page's own. The same facts computed — each published WPM and every
+wheel (``components/ui/screens.c``). The family is the house pattern:
+one black-box overview, then one detail sketch per sealed box — the
+corpus (steel-blue arrows: the literature vouching for a method), the
+constraints (dashed red: a hardware constraint striking a method
+down, the reason on the wire; dotted grey: what the three SHIPs cost
+the firmware), and the thirteen methods (every colour the recorded
+verdict; violet dashed: what the shipped wheel *kept* from the
+alternatives it rejected — multi-tap's coarse press, the glide's
+double-entry mode made structurally impossible, the dwell's 400 ms
+hedge, the in-tree ``LONG_PRESSED`` the centre back-hold already
+runs). The same facts computed — each published WPM and every
 back-of-envelope second converted to characters per minute at figure
 time — is :ref:`the certainty ladder <certainty-ladder-perf>`.
 
 .. graphviz:: _graphs/keyboard-lab.dot
+   :align: center
+   :alt: The keyboard study in black boxes — the corpus and the six constraints feeding the sealed thirteen methods, which feed the sealed sweep wheel v2 with the keeps marked on the edge.
+   :caption: The thirteen in black boxes — the field, sealed. Three claims hold it up, and they are the page's own: (1) all thirteen live on ONE committed page — nine 466×466 SVG widgets running the device's own timings (multi-tap 700 ms · dwell 400 ms · scan 1 s) plus four text cards; the page's prose is the record, the widgets are the reference. (2) Nothing has been measured ON THIS PANEL: every speed is a corpus number (wrist or phone) or the report's own back-of-envelope — and its "4-8 CPM" gloss contradicts its own seconds (its wall-clock pair is 16-32 CPM); the certainty ladder draws the arithmetic, not the gloss. (3) Every SHIP is pure firmware over the wheel's existing plumbing; the corpus's best-supported method — the physical encoder — is a hardware revision. The constraint list is the report's own (line 12: "CST9217 capacitive touch, no haptics, no microphone, no camera, no NFC"), the task is line 16 ("8-64 arbitrary chars"), and the size math is lines 250-251: a 4×4 grid puts "≈ 0.75 mm per key — 10× below the ~8-10 mm fingertip".
+
+.. graphviz:: _graphs/keyboard-lab-corpus.dot
+   :align: center
+   :alt: The corpus opened — twelve reported studies in a column, steel arrows fanning to the nine operable methods coloured by verdict.
+   :caption: The corpus opened (report of 2026-11-01, 37 sources). The headline numbers the nodes give up to save width: C-QWERTY 2020 is finding 1 — "a soft keyboard whose keys run" around the bezel; COMPASS CHI 2017 brought the hot-sector idea ("last-typed sector hottest"); WrisText CHI 2018 / Crownboard CHI 2023 / RingByte UIST 2025 stand for "a small number of large angular sectors" (lines 47-48, 185); Crownboard's 2.3 % / 0.53 % errors are the corpus's best (findings 4/6) and vouch both for auto-scan (scan + press) and for the encoder card; Tap'nSwipe IJHCI 2025's 9×4 swipe beats QWERTY accuracy on small watches; SAGE 2019 carries tap 18-20 WPM · 14-15 % WER, trace 29-33 WPM, handwriting 25 % WER; the dwell ceiling ~20 WPM (CHI 2025) demotes dwell to fallback; the in-car CHI 2017 study found "> 94 % accuracy" for ALL methods — the dial's case is glance/distraction; WatchWriter/FingerText's rescues assume wrist + fingers; T9-class big keys keep multi-tap alive (finding 13, MacKenzie CHI 2000); T9VR/Sector Input are finding 7 — direct 2D pointing wins WHEN a QWERTY fits, which the 35 mm disk cannot do. The comparison table's verdict cells colour the methods (G/H infeasible, I "rejected now" — the lab cards it INFEASIBLE NOW, both spellings kept).
+
+.. graphviz:: _graphs/keyboard-lab-constraints.dot
+   :align: center
+   :alt: The constraints opened — the six hardware and task constraints in a column, dashed red strikes landing on QWERTY, twist, the sensor-less trio and the dictionary pair, with the firmware budget's dotted price on the three SHIPs.
+   :caption: The constraints opened (report lines 12/16/250-251, ``keyboard.rst`` "The design goal"). The 35 mm disk: a 4×4 QWERTY at "≈ 0.75 mm per key" against an 8-10 mm fingertip strikes down the fitted grid. The QMI8658C disqualifies the twist card because a wrist twist IS a roll change — the roll the clock already tracks for the 90° step. "No microphone / no camera / no NFC" leaves voice, OCR and the QR/NFC/BLE handoff with no sensor to drive a widget. The arbitrary-char task (8-64, rare, one-handed) defeats the dictionary pair: nothing heals an over-swipe, and passwords defeat the word list. The firmware budget prices the three SHIPs in the lab's own Cost rows: multi-tap "few hundred LOC · 2-4 KB", dwell "tens of LOC", scan "low — scan only, no decoder" — all over the wheel's existing ring geometry (``WHEEL_SHARE`` 360.0f / 26.0f, ``WHEEL_N_SECTORS`` 12, the twelve frequency groups, ``WHEEL_PW_MAX`` 63; the lab mock's own ring runs ``const C = 233, LARC = 360 / 26``).
+
+.. graphviz:: _graphs/keyboard-lab-methods.dot
+   :align: center
+   :alt: The methods opened — the twelve non-wheel cards in a column coloured by recorded verdict, the violet dashed keeps from multi-tap, dwell and glide plus the amber HOLD from swipe all landing on the sealed sweep wheel v2.
+   :caption: The methods opened — fill colour is the lab's recorded verdict (CARDS ranks 1..9 with chips keep/ship/ship/ship-setting/hold/rej/rej-primary/exp/v2, plus the OFF trio and the T9 card — 13 total), and the widgets run the device's own timings: multi-tap ``const T = 700`` ms, the dwell checks ``< 400 / >= 400``, the scan step ``Math.floor((t - t0) / 1000) % 12``. The pairing record on the ship: "the earlier xmark-on-commit / trash-on-discard pairing is" gone — the keys are the house circle-check commit and circle-xmark discard, 2026-11-08 (``screens.c:1806``); the frozen mock's bottom band still shows the older "commit"/"trash-can discard" pair. The wheel's own machine (handlers, hit-test, keys) is ``wheel-commit.dot`` on :doc:`keyboard <keyboard>`; what each of these would cost the finger in characters per minute is :ref:`the certainty ladder <certainty-ladder-perf>`.
 
 The operable lab — every panel in its own widget
 ------------------------------------------------

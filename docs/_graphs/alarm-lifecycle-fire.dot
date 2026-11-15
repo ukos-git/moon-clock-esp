@@ -1,0 +1,72 @@
+// The two fire paths and the one poll (verified before drawing):
+//   S3 — the PCF85063A ALM pin (AF set) drives TCA9554 INT -> EXIO3
+//   (IO_EXPANDER_PIN_NUM_3); the same line is the deep-sleep wake
+//   source. clock_handle_interrupts (S3 branch):
+//   clock_is_interrupt_pending -> clock_get_interrupts;
+//   CLOCK_INT_ALARM -> clock_trigger_alarm_triggered -> clear AF ->
+//   clock_alarm_schedule_next(now).
+//   P4 — clock_alarm_arm_esp_timer (from schedule_next, P4-only):
+//   esp_timer_start_once; the cb sets s_alarm_fired_flag on the
+//   esp_timer task — nothing UI happens there. The P4 branch reads
+//   the flag OR a wall-clock backup check (now >= next — catches a
+//   one-shot a time SET left stale), GATED on
+//   clock_sntp_time_trusted() so an unsynced 2026 clock can never
+//   fire a phantom -> trigger -> stop one-shot -> schedule_next.
+//   The ONE poll both boards share:
+//   lv_timer_create(clock_rtc_interrupt_handler_cb,
+//   RTC_POLL_INTERVAL_MS = 1300) — main.cpp; the clock_cb.c
+//   dispatchers call the registered actions DIRECTLY, i.e. in the
+//   LVGL task.
+//   action_alarm_triggered (actions.c, LVGL task): backlight relight
+//   (a deep-sleep ring lights the panel), g_alarm_active,
+//   alarm_audio_ring_start (ES8311 gradual ramp; the knob is the
+//   codec-less silent board), g_asleep = true (dismissing it IS a
+//   wake event), tick -> 10 ms, moon_ui_pause(true) (no baking for a
+//   screen that shows no moon), clock_timer_disable,
+//   clock_idle_reset_timer (no auto-sleep while ringing),
+//   loadScreen(SCREEN_ID_ALARM).
+//   Touch dismisses — alarm_indev_read_cb (LV_EVENT_PRESSED,
+//   action_register_alarm_touch): fires on every press regardless of
+//   hit-test, but only while g_alarm_active AND !clock_is_idle();
+//   the asleep press is consumed by the idle-wake cb (registered
+//   earlier, runs first) -> action_wake_screen stops the ring and
+//   clears g_alarm_active. The next fire is already re-scheduled by
+//   the poll's schedule_next — the dismiss only ends the show.
+// The sealed version is alarm-lifecycle.dot; the write side is
+// alarm-lifecycle-write.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph alarm_lifecycle_fire {
+    rankdir=TB;
+    label="The two fires — hardware pin vs gated one-shot, one poll";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.32, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    alm [label="S3 — ALM pin sets\nAF → TCA9554 INT\n→ EXIO3, pin 3"];
+    one [label="P4 — one-shot cb\nsets a flag; no UI\non the timer task"];
+    p3 [label="S3 branch — read,\ntrigger, clear AF,\nre-schedule",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    p4 [label="P4 branch — flag\nor wall check,\nGATED trusted",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    poll [label="the ONE poll —\n1300 ms lv_timer",
+          fillcolor="#efece4", penwidth=1.6];
+    act [label="the ring — relight,\nramp audio, tick\n10 ms, no baking",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dis [label="dismiss — press while\nactive, not idle;\nends the show only",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    next [label="next fire already\narmed by the poll",
+          style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    poll -> p3;
+    poll -> p4;
+    p3 -> act [color="#2b5fb0", penwidth=1.6];
+    p4 -> act [color="#2b5fb0", penwidth=1.6];
+    act -> dis;
+    dis -> next [style=dashed, color="#b07d10"];
+}

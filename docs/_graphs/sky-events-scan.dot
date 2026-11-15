@@ -1,0 +1,54 @@
+// The scan and the classifier, opened (components/moon/core/
+// moon_event.c — the host sim runs the SAME code; verified before
+// drawing):
+//   full_moments (the ONLY expensive step — cached PER CALENDAR DAY
+//   by full_moments_cached :211): 6 h coarse grid over [t−45 d,
+//   t+15 d] (~600 se_dot evals, always >= 2 full moons), every strict
+//   grid peak refined by se_argmax (+/-6 h at 10 min, 73 samples),
+//   peaks gated S·E > 0.9 (a new-moon window edge never counts),
+//   F = nearest peak, F_prev = the one before it (the blue test). The
+//   comment's own cap: up to ~600 evals; the KNOB-ONLY s_scan_evals
+//   INFO line (:192, under the CONFIG_BOARD_KNOB ifdef) prints the
+//   true cost once a day.
+//   moon_event_classify(epoch) :221 — geometry + the F cache, then
+//   five flags (RULES in c-api.rst): is_full = |epoch−F| <= 18 h ->
+//   harvest (civil Sep 22..Oct 23); blue (F_prev shares F's month);
+//   super < 357 500 km / micro > 405 500 km MEASURED AT F (one extra
+//   eval); BLOOD is tested ALWAYS, even off-full — an eclipse can
+//   start hours before the window opens: center inside the penumbra
+//   (off < rp), umbra axis triple carried for the bake.
+//   The knob has NO worker — CONFIG_BOARD_KNOB compiles a 20 ms
+//   WALL-CLOCK yield budget INTO BOTH SCAN LOOPS (:26-31, :101, :148):
+//   bench 2026-11-11 — "yield every 32 evals" (assuming ~8 ms each)
+//   still starved IDLE1 past the 5 s WDT, and the argmax's 73
+//   back-to-back samples never yielded AT ALL; the budget is right
+//   whatever the true eval cost. "full_moments scan: N evals in T
+//   ms" once a day is the bench's proof.
+// The sealed version is sky-events.dot; the consumers are
+// sky-events-consumers.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph sky_events_scan {
+    rankdir=TB;
+    label="The day scan — a cached 6 h grid, refined peaks, five flags";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    grid [label="full_moments — 6 h\ngrid, [−45 d, +15 d],\n~600 se_dot evals",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    refine [label="se_argmax — ±6 h at\n10 min, 73 samples;\npeaks need S·E > 0.9"];
+    cls [label="classify — five flags\non F, F_prev + one\ndistance eval",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    yield [label="the knob's 20 ms\nyield budget, IN\nboth scan loops",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    grid -> refine;
+    refine -> cls;
+    yield -> grid [style=dashed, color="#b07d10"];
+}

@@ -1,0 +1,42 @@
+// THE THREE TIERS opened: the three directories with their per-panel
+// px rungs, the two choosers that arm one at build time, and the one
+// inheritance story (the knob's regular-icon bake inherits the P4's
+// clock glyph). The full Opts matrices and the identical-symbols
+// contract are in the page caption; the parsed px rungs are
+// re-derived by docs/tools/gen_perf_glyphs.py. The tiers in black
+// boxes are docs/_graphs/type-family.dot (this page); the faces open
+// in type-family-faces.dot; the askers in type-family-asks.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph type_family_tiers {
+    rankdir=LR;
+    label="The three tiers opened — one directory per panel, one chooser in force";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    cmake [label="the device chooser —\nCMake FONT_DIR ladder\nPROJECT vars by design",
+           fillcolor="#fdf7e6", color="#b07d10", fontcolor="#6b4e08"];
+    uisim [label="the host chooser —\nuisim --panel N mirrors\nit for the screenshots",
+           fillcolor="#fdf7e6", color="#b07d10", fontcolor="#6b4e08"];
+    t_s3 [label="fonts/ — S3 466 px\n96 · 48 · 32 · icons 96",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    t_p4 [label="fonts_p4/ — P4 720 px\n148 · 74 · 50 · icons 148",
+          fillcolor="#fbe3d8", color="#c2410c", fontcolor="#7c2410", penwidth=1.6];
+    t_knob [label="fonts_knob/ — knob 360 px\n74 · 37 · 25 · icons 74",
+            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];
+
+    cmake -> t_s3 [color="#b07d10", fontcolor="#6b4e08", label="else"];
+    cmake -> t_p4 [color="#b07d10", fontcolor="#6b4e08", label="P4"];
+    cmake -> t_knob [color="#b07d10", fontcolor="#6b4e08", label="KNOB"];
+    uisim -> t_s3 [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="466"];
+    uisim -> t_p4 [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="720"];
+    uisim -> t_knob [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="360"];
+    t_p4 -> t_s3 [style=dashed, color="#b07d10", fontcolor="#6b4e08", constraint=false];
+    t_knob -> t_p4 [style=dashed, color="#b91c1c", fontcolor="#7f1d1d", constraint=false];
+}

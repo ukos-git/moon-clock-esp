@@ -1,102 +1,47 @@
-// The flush path end to end: who may produce a panel state (s_rgb_mtx,
-// the atomic rule + its two sanctioned exceptions), how a strip travels
-// (PSRAM draw buffer -> staged internal-RAM DMA copy, 25-row strips),
-// who serializes the bus (s_panel_mtx for EVERY writer), and the three
-// witnesses guarding it (flush-wait gate, panel-io watchdog, drain
-// verify with its heal/restart split). Every edge verified in
-// components/ui/moon_ui.c (wait cb :438, watchdog :589-, drain verify
-// :898-, wrapper comment :594-, strip math :124) and the vendored BSP
+// The flush path as a black box — the whole journey in five sealed
+// boxes. The numbers (25-row strips, 23.3 KiB, 32 KiB DMA cap, 23,300
+// B, depth-1 queue, 2 s / 3 s caps, the witness timings, the heal/
+// restart split) live in the detail sketches and their headers:
+//   flush-path-strip.dot     the strip's journey with every byte count
+//   flush-path-witness.dot   the three witnesses and the heal/restart
+//                            split
+// Every edge verified in components/ui/moon_ui.c (wait cb :445,
+// watchdog :596-, drain verify :919-, wrapper comment :601-, strip
+// math :124) and the vendored BSP
 // components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c
-// (:493-:530). The lost-completion root cause in IDF is drawn in
-// docs/implementation/display.rst's prose; the hourly fade flow is
-// docs/_graphs/tf-hour-cache.dot's territory.
+// (:493-:530). The lost-completion root cause in IDF is the prose of
+// this page; the hourly fade flow is docs/_graphs/tf-hour-cache.dot's
+// territory; who fills which buffer before a strip reaches the
+// wrapper is buffers-relay.dot (architecture).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph flush_path {
-    label="The flush path: states are produced under s_rgb_mtx (one atomic whole-panel lv_refr_now), every panel WRITE is serialized on s_panel_mtx, and each strip is staged from PSRAM into a 23.3 KiB internal-RAM DMA copy";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The flush path — one rule, one bus lock, three witnesses";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_producers {
-        label="who may produce a panel state — s_rgb_mtx (guards s_rgb + s_frame while baking)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
+    rule [label="THE RULE — ONE atomic\nlv_refr_now under\ns_rgb_mtx",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    exc [label="THE TWO EXCEPTIONS —\nthe 0x51 fade, the\nbake reveal",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    lvgl [label="THE LVGL DRAW PATH —\nflush_cb, byte swap,\nthe vtable wrapper"];
+    bsp [label="THE BSP + SPI DRIVER —\n25-row strips staged\nin internal RAM",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wit [label="THE THREE WITNESSES —\n2 s gate · 3 s watchdog\n· drain verify",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    panel [label="QSPI DMA → CO5300\n→ the AMOLED panel",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
 
-        rule [label="THE RULE: every moon-pipeline frame hits the panel\nas ONE atomic whole-panel lv_refr_now under\ns_rgb_mtx (moon_ui_screen_switched) — never\na half-old/half-new composite",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        fade [label="exception 1 — the 0x51 hardware brightness ramp\n(writes NO pixels): the fade-to-black screen\nswitch (UI_SCREEN_SWITCH_FADE) and the once-\nper-hour moon refresh (UI_MOON_HOURLY_ENABLE,\nproducer rebuilds off-panel while black). In\nboth, the new frame's ONE atomic flush lands\nwhile the panel is still black, then fades back",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        reveal [label="exception 2 — the bake reveal (UI_MOON_BAKE_REVEAL /\nKNOB_UI_BAKE_REVEAL): a computing frame shows\nas designed CONSISTENT STATES — black canvas →\none completed strip band per 50 ms tick →\nhealed old frame on any abort. Each state is\nitself ONE atomic band lv_refr_now under\ns_rgb_mtx WITH the drain witness; unbaked rows\nare black; s_frame is never touched mid-reveal",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_lvgl {
-        label="the LVGL draw path";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        flushcb [label="LVGL flush_cb: the draw buffer lives in octal\nPSRAM — NOT DMA-capable for SPI2_HOST\n(esp_ptr_dma_capable false below SOC_DMA_LOW)\neverything must be staged before it flies"];
-        swap [label="adapter bridge (ESP_LV_ADAPTER_PANEL_IF_OTHER)\nlv_draw_sw_rgb565_swap on the flush buffer →\nbytes arrive in PANEL order"];
-        wrapper [label="the draw_bitmap wrapper (installed on the\npanel vtable at init) — LVGL flushes, drain\nprobes and 0x51 ramp steps ALL reach the\npanel here, under s_panel_mtx; the accept\nretry absorbs the P4 DPI panel's async-DMA2D\nESP_ERR_INVALID_STATE rejects (the S3's QSPI\nwrites synchronously, first attempt wins)",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_bsp {
-        label="the vendored BSP + SPI driver — the numbers that constrain it";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        strips [label="buffer_height 25 rows → 466×25×2 = 23.3 KiB\nstrips; a 50-row strip's 32 KiB first chunk\nexceeds the largest DMA-capable internal\nblock (~31 KiB) and EVERY full-panel flush\nfails ESP_ERR_NO_MEM (\"the 50-row failure\" —\nhardware invariant, not tuning)",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        stage [label="esp_driver_spi stages each strip into an\ninternal-RAM DMA copy (S3 SPI DMA cap\n32 KiB = SPI_LL_DMA_MAX_BIT_LEN); the vendored\nBSP's max_transfer_sz 23,300 B keeps even the\ndirect writes inside the proven chunk size"];
-        queue [label="queue DEPTH 1 — the depth-1 pool\ndescriptor (trans_pool[0]) carries the\nper-transaction completion flag; this is\nthe slot the lost-completion family\nrecycles under the ISR"];
-        dma [label="QSPI DMA → CO5300 → AMOLED panel",
-             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_guards {
-        label="the three witnesses on s_panel_mtx (every panel write: strips, 0x51 ramps, probes)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        waitcb [label="moon_flush_wait_cb (2 s cap): a FREE s_panel_mtx\nmeans the flush PHYSICALLY landed (draw_wait\nconsumes the trans-done inside it) — LVGL's\nnon-yielding wait_for_flushing spin is gone;\nhealthy paths never even enter this callback;\ntimeout logs and lets LVGL proceed — the true\nstall belongs to the watchdog"];
-        wdg [label="panel-io watchdog (3000 ms): a legitimate\nhold is a strip ~10 ms / a whole-panel flush\n<500 ms, so a hold over the limit can ONLY\nmean the bus lock's REQ/PEND bit was never\ncleared — lost DMA completion froze dev_wait\nportMAX_DELAY with no mutex holder, silent\nand WDT-blind; the watchdog restarts: a clean\nreboot instead of a dead screen",
-               fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        drain [label="moon_panel_drain_verify (S3/knob; #if !P4):\nholds s_panel_mtx across the WHOLE submit+\nwitness window (no call site holds it — audited\n2026-11-13); last-row drain write, 20 ms\nlead-in (a strip DMAs in ~10 ms), witness on\ns_panel_done_cnt; healthy hold ~40 ms, full\nanomaly ~620 ms — fractions of the 3 s + 3 s",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        heal [label="the accepted-but-silent probe: ret_queue\ndelivery and post_cb run back-to-back in the\nISR, so no callback = the en_trans_done_cb\nflag was EATEN (stale ret_queue double-post →\ninflight bookkeeping runs ahead → unconditional\npool[0] memset); a no-op tx_param(-1) runs the\nDRIVER's own drain loop and re-arms the queue\nIN PLACE",
-               fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        restart [label="the probe not even accepted = wedged queue:\nbudgeted site restart (drain_recovery);\nif heal is rejected too, the watchdog's\n3 s + 3 s restart is the honest fallback",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    rule -> flushcb [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="one atomic lv_refr_now"];
-    fade -> flushcb [color="#b07d10", fontcolor="#6b4e08", label="while black"];
-    reveal -> flushcb [color="#b07d10", fontcolor="#6b4e08", label="one band per state"];
-    flushcb -> swap;
-    swap -> wrapper;
-    wrapper -> strips [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="s_panel_mtx held"];
-    strips -> stage;
-    stage -> queue;
-    queue -> dma [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
-    wrapper -> waitcb [style=dashed];
-    wrapper -> wdg [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="hold > 3 s =\nbus stuck"];
-    wrapper -> drain [style=dashed, color="#2b5fb0", fontcolor="#1e3f70", label="reveal bands +\nrefresh shows"];
-    drain -> heal [color="#b07d10", fontcolor="#6b4e08", label="accepted, silent"];
-    drain -> restart [color="#b07d10", fontcolor="#6b4e08", label="rejected"];
+    rule -> lvgl [color="#2b5fb0", penwidth=1.6];
+    exc -> lvgl [color="#b07d10"];
+    lvgl -> bsp;
+    bsp -> panel [color="#2b5fb0", penwidth=1.6];
+    lvgl -> wit [style=dashed];
 }

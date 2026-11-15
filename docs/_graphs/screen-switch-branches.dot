@@ -1,0 +1,51 @@
+// The three branches of moon_ui_screen_switched (moon_ui.c:3119;
+// verified before drawing). Entry bookkeeping first:
+//   s_moon_screen = moon_screen_has_image() (the pipelines' display
+//   gate); leaving the moon mid-replay ABORTS the replay (show/final/
+//   end dropped — the producer skips its final bake, the day-tick
+//   re-bakes when the user is home).
+//   (1) starved-fade-in rescue (the #34 branch): the bake guard won
+//   the race (boot bake set s_orbit_baking between fade_out and here)
+//   — the fade-out RAMP LANDED (s_panel_pct == 0) and the new screen
+//   paints WITHOUT the fade-in. Rescue: raw bsp_display_brightness_
+//   set(100) under s_panel_mtx, IGNORING the hold — stranding a BLACK
+//   panel with a live app outranks one 0x51 riding the storm bus (the
+//   wake path makes the same write). Log: "fade-in starved by the
+//   bake guard". P4 bench, 2026-11-13: pitch black, app fully alive.
+//   (2) the fade-in leg (s_fade_pending && FADE > 0): clear pending;
+//   the new screen's ONE atomic whole-panel lv_refr_now runs while the
+//   panel is STILL BLACK (the invariant's atomic display, off the
+//   visible path); drain witness "switch fade-in"; then
+//   fade_ramp(0 -> 100, 240 ms) — the fully rendered screen comes up
+//   at once; s_fade_busy = false.
+//   (3) plain atomic switch (the both-moon case, the self-guarded
+//   no-fade case, FADE = 0): ONE atomic whole-panel lv_refr_now under
+//   s_rgb_mtx; drain witness "screen switch".
+// The sealed version is screen-switch.dot; the fade-out leg is
+// screen-switch-fade.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph screen_switch_branches {
+    rankdir=LR;
+    label="The three branches — every visible frame lands atomic";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    switched [label="screen_switched —\ngate, abort replay,\nthen ONE branch",
+              fillcolor="#efece4", penwidth=1.6];
+    starved [label="starved fade-in —\nthe #34 rescue:\nraw 100 % anyway",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    fadein [label="the fade-in leg —\natomic while BLACK,\nthen 0→100",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    plain [label="plain atomic — both-\nmoon, no-fade, FADE\n= 0, witness names it"];
+
+    switched -> starved [color="#b07d10"];
+    switched -> fadein [color="#2b5fb0", penwidth=1.6];
+    switched -> plain;
+}

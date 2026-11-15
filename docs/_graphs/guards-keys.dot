@@ -1,0 +1,67 @@
+// THE CLOCKS' TWO KEYS opened (S3 + P4, one moon_ui.c): every
+// xSemaphoreTake site as an ask edge carrying its timeout on the wire,
+// the one-way order between the keys, the drain witness and the red
+// watchdog. Creations sit together at moon_ui.c:2643-2644 under the
+// code's own ownership comment (:2636-2642); the draw_bitmap wrapper
+// lands at :2656. All SEVENTEEN s_rgb_mtx takes are portMAX_DELAY
+// ("a publish block never fails"). The NINE s_panel_mtx takes carry the
+// whole timeout policy of the app: wrapper :684 forever; the 0x51 legs
+// fade_ramp :3041 + brightness_set :3165 forever; the traffic-hold
+// quiesce :526 bounded 500 ms; moon_flush_wait_cb :450 bounded 2 s
+// ("observed quiescence only" :451); the drain verify :919 forever —
+// rule 3 holds across the WHOLE submit+witness window ("no drain call
+// site holds it -- audited 2026-11-13" :891; the hold now ~50 ms -- one
+// grace + heal, the NORMAL path :901-913; S3 nine takes, P4 EIGHT — drain_verify is
+// #if !defined(CONFIG_BOARD_P4)); watchdog probe :2559 bounded 3 s.
+// moon_ui_screen_switched :3209 is the both-keys case and takes them
+// SEQUENTIALLY — panel :3245, give, then rgb :3274; no panel take ever
+// nests an rgb take. The heal branch runs tx_param(io, -1) at :978
+// ("runs the driver's own drain loop over ALL" :964). panel_wdg is born
+// at :2685 (prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at
+// a time"), its take is "the ONLY work" (:2550), and on timeout it
+// names the holder through xSemaphoreGetMutexHolder and restarts under
+// "PANEL IO STUCK" (:2579-2583). The guards in black boxes is
+// docs/_graphs/guards.dot (this page); the knob's single key is
+// docs/_graphs/guards-knob.dot; the key-free band is
+// docs/_graphs/guards-flags.dot. The strip staging and the witnesses
+// belong to docs/_graphs/flush-path.dot (display.rst). FONTS: 12 pt =
+// the page's 16 px body text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph guards_keys {
+    rankdir=LR;
+    label="The clocks' two keys — every ask with its timeout, and the one-way order";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.8];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#7c3aed", penwidth=1.2, fontcolor="#4c1d95"];
+
+    tick [label="tick — publish ·\ngather · show"];
+    bootbake [label="boot / day-tick bake"];
+    switcher [label="screen_switched"];
+    ramp [label="0x51 legs :3041/:3165"];
+    quiesce [label="traffic hold :526"];
+    fwait [label="flush-wait :450"];
+    drain [label="drain verify :919"];
+    wrapper [label="wrapper :684"];
+    wdg [label="panel_wdg probe :2559", fillcolor="#f8e7e7", color="#b91c1c", fontcolor="#7f1d1d"];
+
+    srgb [label="s_rgb_mtx (:2643)\nIMAGE key — 17 takes\nALL portMAX_DELAY",
+          fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.8];
+    spanel [label="s_panel_mtx (:2644)\nPANEL key — 9 S3 / 8 P4",
+            fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.8];
+
+    tick -> srgb [label="forever"];
+    bootbake -> srgb [];
+    switcher -> spanel [label=":3245"];
+    switcher -> srgb [label="then :3274"];
+    ramp -> spanel [label="forever"];
+    quiesce -> spanel [label="500 ms"];
+    fwait -> spanel [label="2 s"];
+    drain -> spanel [label="audited hold"];
+    wrapper -> spanel [];
+    wdg -> spanel [color="#b91c1c", fontcolor="#7f1d1d", label="3 s probe"];
+    spanel -> srgb [style=dashed, constraint=false, color="#8a8a8a", fontcolor="#374151"];
+}

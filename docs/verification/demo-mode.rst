@@ -565,3 +565,21 @@ Zero drain restarts; the ``RTC_NOINIT`` budget went unused. (The
 pre-existing ~30 s ``IDLE1``/``moon_sweep`` task-WDT bite storm during
 the boot sweep predates this work and is unaffected — it never
 aborts.)
+
+**Follow-up (2026-11-15) — the ladder's healthy path never existed,
+and the bake-reveal trace proved it.** The reveal pacing investigation
+(:doc:`../implementation/bake-reveal`) instrumented every displayed
+reveal state and found the witness billing a flat **~641 ms** each:
+every probe that follows a multi-strip ``lv_refr_now`` freezes its own
+completion — 6/6 on the reveal legs, consistent with capture 7's own
+boot logs ("strips 19/19 per frame, probe 0/2") and with capture 11's
+6 heals / 0 restarts. The accepted-probe branch was therefore the
+*only* branch ever taken, and the two-probe ladder just delayed the
+inevitable heal by two 300 ms poll windows. The witness now grants one
+30 ms grace (a genuinely delivered completion lands in ~1–10 ms) and
+heals directly — ~53 ms per site; the second probe (its
+depth-1-accept-as-proof role moot, the heal being the driver's own
+drain loop) is gone. The two detectable shapes and their treatments
+above are unchanged; the 20-row reveal, meanwhile, showed exactly two
+visible collapsed bands behind a 641-ms toll per state — the tuning
+(40/50 one-strip states) is measured in the bake-reveal page.

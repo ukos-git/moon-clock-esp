@@ -1,0 +1,74 @@
+// THE GATHER opened — the trig pair (moon_fixp.c) and moon_rotate_range
+// (moon_render.c:130-163), with the rotation's ONLY customers. Every
+// quoted line verified in code before drawing:
+//   moon_fixp.c: :1 "1025-entry quarter-symmetric table", :6-7 the
+//     int32 "would wrap to -32768 and mirror the disk" warning, :13 NQ
+//     1024, :15 sin_tab[NQ+1], :20-21 double sin * 32768 + 0.5, :28-33
+//     red16, :40-49 the quadrant fold (q1 walks the table BACKWARDS,
+//     NQ − idx; q2 negates; q3 mirrors and negates), :52 cos = sin
+//     advanced a quarter; the linear step lands ~18 bits of angle,
+//     sub-pixel per frame.
+//   moon_render.c:130-163: 4-px unroll (:136-139) "keeps up to 4 PSRAM
+//     frame loads in flight so the gather is not latency-bound"
+//     (:137-138) — bandwidth-bound, the relief cache's lesson at 4 M;
+//     inverse map paid per GROUP of 4 (:144-145) fx = dx·c15 + dy·s15,
+//     fy = dy·c15 − dx·s15, "p = R(−theta) s", Q15.15; "|dx|, |dy| <
+//     234, max |fx| ~ 1.6e9 fits int32" (:147-148); shift floor +
+//     round-half-up (:149-152) (fx >> 15, then (fx & 32767) > 16383);
+//     unsigned-test bounds (:153-156), out-of-frame keeps gval = 0 —
+//     "Out of frame = black", no disk mask (header :6); fused LUT read
+//     row[x0+k] = g565[gval] (:157); incremental update fx += c15,
+//     fy -= s15 (:158-159) — "exact integer math" (:137), no multiply
+//     returns, no drift along the row. ~8 ms for 400×400.
+//   The only customers: host_sim/main.c:97 (the gate's render_one:
+//     moon_rotate(frame, ..., moon_cos15(th), moon_sin15(th)), the
+//     whole 400 px square per rendered PNG, angle from rot_deg) and
+//     host_sim/bench.c:119 (the same call in the timing loop). The
+//     burn-in spin — the only device caller moon_rotate ever had,
+//     8 fps off one baked frame — retired 2026-11-13 (16cd5c3..59ceeef):
+//     "the product decision outlived its justification".
+// The sealed version is rotate-lut.dot; the dictionary is
+// rotate-lut-dict.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph rotate_lut_gather {
+    rankdir=TB;
+    label="The gather opened — a quarter turn stored, no drift";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    spin [label="the burn-in spin —\nRETIRED 11-13, the\nonly device caller", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    mainrot [label="main.c:97 — the\ngate's render_one", fillcolor="#d9e8e4", color="#0f766e", fontcolor="#0b5750"];
+    bench [label="bench.c:119 — the\ntiming loop", fillcolor="#d9e8e4", color="#0f766e", fontcolor="#0b5750"];
+
+    qtab [label="sin_tab[NQ+1] —\n1025 int32, 8 KB,\nbuilt once lazily"];
+    fold [label="moon_sin15 — red16,\nthen quadrant\nunpacking mirrors"];
+    cos15 [label="moon_cos15 — one\nline: sine a quarter\nahead"];
+
+    unroll [label="4 px per iteration —\n4 PSRAM loads in\nflight"];
+    invmap [label="the inverse map per\nGROUP of 4 — Q15.15\np = R(−theta) s"];
+    rnd [label="shift = floor, then\nbit-and + compare =\nround-to-nearest"];
+    test [label="bounds in TWO\nunsigned compares —\nout of frame black"];
+    fused [label="row[x0+k] =\ng565[gval] — LUT read\nfused into the stream", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    inc [label="fx += c15; fy -= s15\n— one step per px,\nno drift on the row"];
+
+    spin -> mainrot [style=dashed, color="#0f766e"];
+    spin -> bench [style=dashed, color="#0f766e"];
+    qtab -> fold;
+    fold -> cos15;
+    fold -> mainrot [color="#0f766e"];
+    cos15 -> mainrot [color="#0f766e"];
+    mainrot -> unroll [color="#0f766e"];
+    bench -> unroll [color="#0f766e"];
+    unroll -> invmap;
+    invmap -> rnd;
+    rnd -> test;
+    test -> fused;
+    inc -> rnd [style=dotted];
+}

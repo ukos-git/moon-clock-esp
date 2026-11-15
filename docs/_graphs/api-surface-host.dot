@@ -1,0 +1,60 @@
+// THE HOST TOOLS opened: the three linked tools and the two tracked-
+// but-never-linked probes (teal edges; the gate and the bench link the
+// EXACT core source list — the sharing ladder checks the set
+// equality). Verified in code before drawing:
+//   host_sim/main.c (the gate): geometry :146, bake :168 with the
+//     gate's dark_zero 0 / dk_sup 0.0 posture, rotate :97 +
+//     cos15/sin15 :97, set_event :162, classify :161, set_warm(0) :219
+//     (the --neutral gate posture), seam :134/:135.
+//   host_sim/bench.c (the bench): set_warm(0) :68, geometry :81, seam
+//     :85/:91, bake :111, rotate :119 — and the ONLY external callers
+//     of the dusk pair: shade_map_build :125, reproject :129 (the A/B
+//     timing).
+//   host_sim/uisim/stubs.c (the sim's home moon): geometry :444, bake
+//     :445 with the seam inline (the file header: "bakes the REAL
+//     current-phase moon ... dark_zero = 1 like the device static/wake
+//     frame"), gray565 :448 — the sim's home moon is this one function.
+//   host_sim/dark_test.c ("Throwaway ... Not part of the gate",
+//     geometry :45, bake :55) and host_sim/newmoon_test.c (geometry
+//     :40) — headers carry their hand-typed cc lines;
+//     host_sim/CMakeLists.txt links exactly moon_sim + moon_bench.
+// The sealed version is api-surface.dot (this page); the device
+// callers are api-surface-device.dot; the census is
+// api-surface-headers.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph api_surface_host {
+    rankdir=LR;
+    label="The host tools opened — who links the exact core list";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#d7ecef",
+          color="#0e7490", fontcolor="#155e75", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#0f766e", penwidth=1.3];
+
+    simmain [label="main.c — the\ngate", penwidth=1.6];
+    benchc [label="bench.c — the\nbench", penwidth=1.6];
+    stubs [label="uisim/stubs.c —\nthe sim's home\nmoon", penwidth=1.6];
+    probes [label="dark_test +\nnewmoon_test —\nlinked by nobody", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280", fontcolor="#374151"];
+
+    geom [label="geometry", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];
+    bake [label="bake — the gate's\n0 / 0.0 posture", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];
+    rot [label="rotate + trig —\nno device caller", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280", fontcolor="#374151"];
+    lut [label="the tone trio —\nset_warm(0)", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];
+    evclass [label="classify", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];
+    dusk [label="the dusk pair —\nONLY callers here", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280", fontcolor="#374151"];
+    host_be [label="the host\nbackend", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    { rank=same; simmain; benchc; stubs; probes; }
+
+    simmain -> geom; simmain -> bake; simmain -> rot [style=dashed];
+    simmain -> lut; simmain -> evclass; simmain -> host_be;
+    benchc -> bake; benchc -> rot [style=dashed]; benchc -> lut;
+    benchc -> dusk [style=dashed]; benchc -> host_be;
+    stubs -> bake; stubs -> lut; stubs -> host_be;
+    probes -> geom [color="#8a8a8a", style=dashed];
+    probes -> bake [color="#8a8a8a", style=dashed];
+}

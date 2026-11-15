@@ -1,97 +1,55 @@
-// The wall clock's chain of trust: three time bases, one fixer, one
-// trust flag, and the consumers the flag gates. Every edge verified in
-// components/clock/clock.c (:94 init, :113 pcf85063a_init, :121 expander,
-// :149 sntp init, :155 boot NTP, :257 epoch, :271 validate, :294 set),
-// components/clock/clock_sntp.c (:35 flag, :52/:75 15-min snapshot, :88
-// restore, :96 junk floor, :109-122 sync cb, :134-137 TZ, :219/:227
-// fallback chain, :268 needs_sync), components/clock/clock_interrupt.c
-// (:165-172 minute tick + snapshot, :183 fire gate), components/clock/
-// clock_tz.c (:63-117 apply), components/ui/screens.c (:2890-2911 manual
-// commit, :3646-3658 unsynced dim), components/ui/moon_ui.c (:2654 start),
+// The wall clock's chain of trust as a black box — three bases feed
+// one system clock; SNTP (or a manual commit) is the only raiser of
+// the trust flag; a never-fixed clock can show the moon on the S3 but
+// never a wrong moon on the P4/knob, and never ring an alarm.
+// The internals, with every verified line reference, are in the
+// detail sketches:
+//   time-chain-bases.dot  the three bases + the fallback chain
+//   time-chain-trust.dot  the fixers, the trust flag, the gated
+//                         consumers, the asymmetry note
+// Every edge verified in components/clock/clock.c (:94 init, :113
+// pcf85063a_init, :121 expander, :149 sntp init, :155 boot NTP, :257
+// epoch, :271 validate, :294 set), components/clock/clock_sntp.c (:35
+// flag, :52/:75 15-min snapshot, :88 restore, :96 junk floor,
+// :109-122 sync cb, :134-137 TZ, :219/:227 fallback chain, :268
+// needs_sync), components/clock/clock_interrupt.c (:165-172 minute
+// tick + snapshot, :183 fire gate), components/clock/clock_tz.c
+// (:63-117 apply), components/ui/screens.c (:2890-2911 manual commit,
+// :3646-3658 unsynced dim), components/ui/moon_ui.c (:2744 start),
 // knob/main/main.c (:210-245 wall-arms, :278-292 rule gate), knob/
 // components/knob_power/knob_power.c (:56 plausibility floor, :196
 // pre-sleep save) and main/main.cpp (:508 settings before clock_init,
-// :512 enable_ntp_sync, :532-541 airplane before the panel, :681 the poll).
-// The alarm internals around the S3's AF flag and the P4 one-shot are
-// docs/_graphs/alarm-lifecycle.dot; the sync STARTERS and their radio
-// plumbing are docs/_graphs/wifi-sync.dot.
+// :512 enable_ntp_sync, :532-541 airplane before the panel, :681 the
+// poll). The alarm internals around the S3's AF flag and the P4
+// one-shot are docs/_graphs/alarm-lifecycle.dot; the sync STARTERS and
+// their radio plumbing are docs/_graphs/wifi-sync.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph time_chain {
-    label="The wall clock's chain of trust: three bases feed one system clock; SNTP (or a manual commit) is the only raiser of the trust flag; a never-fixed clock can show the moon on the S3 but never a wrong moon on the P4/knob, and never ring an alarm";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The chain of trust — bases, fixers, one door, gated consumers";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_bases {
-        label="the three time bases (clock.c gates on CLOCK_USE_PCF85063A)";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
+    bases [label="THE THREE BASES — S3\nPCF85063A · P4/knob\nNVS snapshot",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    fixers [label="THE ONLY TRUST\nRAISERS — boot NTP,\nSNTP cb, manual",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    sysclock [label="THE SYSTEM CLOCK —\ntime(), TZ from the\nstore, set BEFORE use",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    door [label="THE MOON'S ONE DOOR —\nclock_get_utc_epoch:\nvalidate or reject",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    cons [label="THE GATED CONSUMERS\n— the bake, the alarm,\nthe dim label",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
 
-        s3_base [label="S3 — PCF85063A on the shared BSP I2C\n(bus handle from bsp_i2c_get_handle, addr 0x51\n— the RTC's own address, not the panel's 0x51\nbrightness command); INT → TCA9554 EXIO3\n(clock.c:121/:128). The chip holds LOCAL\ndigits, battery-backed across reboots — the\nsame register the alarm disarm rule owns.\nSelf-trusting by design: the trust flag is\ncompiled out of its consumers here",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        p4_base [label="P4 — no PCF, no expander: the system clock\nover the internal RTC timer + SNTP\n(clock.c:134-138; the curated pin is the\nexternal 32k crystal — see the prose note on\nthe stale bench pin). NVS \"clock\"/\"epoch\"\nsnapshot (clock_sntp.c): saved on EVERY SNTP\nfix (forced) and every 15 min from the minute\ntick (CLOCK_NVS_SAVE_INTERVAL_SEC 900); a full\npower loss kills the crystal domain, the\nsnapshot is the only cross-power-loss memory",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        knob_base [label="knob — no RTC at all: the same NVS snapshot\ndiscipline, plus a pre-sleep save on every\ndeep-sleep entry (knob_power.c:196) and a\none-time ADOPT + promote of the pre-seam\n\"knob_time\" namespace (main.c:220-223).\nThe battery-powered honesty rule: the\nrestored instant is LAST KNOWN, never trusted",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        fallback [label="the fallback chain (clock_sntp.c:219-243):\nnow < 1609459200 (pre-2021 = junk)? try the\nNVS restore (2021+ or nothing) → still junk?\nthe DEFAULT 2026-01-24 12:00. Both floors are\nparsed, not invented: 1609459200 here, the\nknob's rule gate uses its own 1600000000\n(knob_power.c:56)",
-                    fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_fixer {
-        label="the fixers — the ONLY raisers of s_time_trusted (clock_sntp.c:35)";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        boot_ntp [label="boot NTP — SYNCHRONOUS inside clock_init\n(enable_ntp_sync = wifi up at main.cpp:512,\ntimeout CLOCK_NTP_TIMEOUT_MS 10 s) — done\nBEFORE the panel wakes (wifi_manager_deinit\nfollows at :541: an associated modem's DTIM\nbeacon steals QSPI DMA completions, task #29);\nthe success path writes the RTC (S3) and lands\nthe home screen with a fresh clock",
-                    fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        sntp_cb [label="sntp_sync_time_cb (clock_sntp.c:109):\ns_time_trusted = true; the just-synced epoch\nis force-snapshotted (non-PCF builds); the\nevent bit releases the waiter. needs_sync()\n(CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS, 1 h)\nis what re-arms the hourly gate",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        manual [label="manual entry (P4 only — the hub's clock icon):\nthe settings-time commit runs clock_set_time +\nclock_sntp_set_time_trusted(true) +\nmoon_ui_day_tick (screens.c:2901-2904) — a\nuser-entered time IS trusted, and the rejected\npath logs \"manual time … rejected\"",
-                  fillcolor="#efece4"];
-    }
-
-    sysclock [label="the system clock (time()) — TZ set from the\nstore BEFORE any moon use: clock_sntp_init\nsetenv(\"TZ\", clock_tz_string_for_index) +\ntzset (clock_sntp.c:134-137, the default is\nEurope/Berlin = CLOCK_DEFAULT_TIMEZONE);\nthe runtime TZ change (clock_tz.c:63) rewites\nthe S3's RTC local digits epoch-consistently\n(mktime BEFORE the env change) or re-derives\nthe P4's, then re-arms the alarm scheduler",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    epoch_door [label="clock_get_utc_epoch (clock.c:257) — the ONE\ndoor the moon walks through: clock_get_time\n(I2C read on the S3, time() on the P4/knob) →\nvalidate_time (:271: year 2000..2099 + field\nranges) → ESP_ERR_INVALID_STATE on any\nimplausible answer → mktime reads the digits\nas LOCAL (TZ/DST) → UTC epoch. \"Show nothing\nrather than a wrong phase\" is the reject's\npurpose (the function's own comment)",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    moon_consumers [label="the moon, on every clock_get_utc_epoch site:\nmoon_ui_start (:2654) — no time → the panel\nstays BLACK (\"a blank RTC leaves the moon\nblack until a trustworthy time exists\",\nmain.cpp:675); boot replay's final leg, the\ncore-1 event scan, the day tick, the wake\nstale re-bake — each skips or defers on the\nreject, never bakes from the default 2026 date",
-                      fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    knob_gate [label="the knob's arming rule (main.c:239): the\nstatic phase arms on the wall bool — \"a\nrestore happened\" — NOT on the raw clock's\nplausibility (the trust flag stays down until\nan SNTP fix, so a factory-default clock never\nshows a silently-wrong moon); the late fix\nforce-rebakes. The deep-sleep alarm leg adds\nits own floor: the rule fires only at\nnow >= 1600000000",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    alarm_gate [label="the P4 alarm gate (clock_interrupt.c:183):\nthe one-shot only SETS a flag on its own task;\nthe shared 1300 ms poll fires only when\nclock_sntp_time_trusted() AND (the flag OR\nnow >= next_epoch) — the default/unsynced\n2026-01-24 12:00 can never ring a phantom.\nThe S3 needs no such gate: its AF flag is\nhardware (alarm-lifecycle.dot)",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    ui_dim [label="the P4 unsynced dim (screens.c:3646-3658, compiled\nout on the S3): the time label sits at\nLV_OPA_50 while !trusted and brightens on the\nnext tick after the flag flips — an\napproximate value READS as approximate",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    asym_note [label="the asymmetry the flag makes visible: the S3\nTRUSTS ITS CHIP (the PCF is the time base;\nvalidate_time is the only gate), the P4 and\nknob TRUST THE LAST FIX (restored digits are\nplausible-but-untrusted by design). Same moon,\nsame scheduler, opposite defaults — which is\nwhy the manual-entry screen exists only for\nthe P4 (settings-time.rst)",
-                fillcolor="#efece4", style="dashed"];
-
-    s3_base -> sysclock [label="the RTC digits are the\nclock (S3)"];
-    p4_base -> sysclock [label="time() + NVS\nrestore path"];
-    knob_base -> sysclock [label="time() + NVS\nrestore path"];
-    fallback -> sysclock [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="settimeofday —\nNOT trusted"];
-    boot_ntp -> sntp_cb [label="the event bit"];
-    sntp_cb -> sysclock [color="#2b5fb0", penwidth=1.6, label="settimeofday\n(the SNTP callback)"];
-    sntp_cb -> p4_base [color="#2b5fb0", style=dashed, label="force the snapshot"];
-    manual -> sysclock [label="clock_set_time", style=dashed];
-    manual -> sntp_cb [color="#2b5fb0", penwidth=1.6, label="the other\ntrust setter", style=dashed];
-    sysclock -> epoch_door;
-    s3_base -> epoch_door [style=invis];
-    epoch_door -> moon_consumers [label="ESP_OK → the bake;\nINVALID_STATE → skip"];
-    epoch_door -> knob_gate [color="#b07d10", fontcolor="#6b4e08"];
-    sntp_cb -> alarm_gate [color="#2b5fb0", penwidth=1.6, label="trusted"];
-    sntp_cb -> ui_dim [color="#2b5fb0", penwidth=1.6, style=dashed, label="flag flip →\nbrightens on tick"];
-    alarm_gate -> asym_note [style=invis];
-    sntp_cb -> asym_note [style=invis];
+    bases -> sysclock;
+    fixers -> sysclock [color="#2b5fb0", penwidth=1.6];
+    sysclock -> door;
+    door -> cons;
 }

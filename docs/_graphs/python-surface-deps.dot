@@ -1,0 +1,64 @@
+// THE THIRD PARTIES opened: which module pulls which pin (the import
+// lines, comment-stripped). astropy is imported where the ephemeris
+// lives — astro, and calibrate/validate reach astropy.time.Time too;
+// PyERFA's builtin path runs eraEpv00 + eraMoon98, the SAME models the
+// C core vendors. numpy is imported by all twelve. tifffile is the
+// package's ONLY in textures (the 16-bit LROC load). PIL writes the
+// PNGs in animation/validate/assets. scikit-image is register's
+// phase_cross_correlation (:13) and metrics' structural_similarity
+// (:15); scipy.ndimage is register's shift (:28/:34) and validate's
+// uniform_filter1d (:133). ffmpeg is not a pin at all — make_mp4
+// SUBPROCESSES it (libx264, yuv420p, crf 20). imageio sits in
+// requirements.txt with ZERO "import imageio" in the package: it is
+// scikit-image's transitive pin. The full pin list is the package's
+// requirements.txt; matplotlib-free. The sealed version is
+// python-surface.dot; the import arrows inside are
+// python-surface-imports.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph python_surface_deps {
+    rankdir=LR;
+    label="The third parties opened — which module pulls which pin";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dfe6f1",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3,
+          style=dashed];
+
+    m_astro [label="astro"];
+    m_textures [label="textures"];
+    m_animation [label="animation"];
+    m_validate [label="validate"];
+    m_register [label="register"];
+    m_metrics [label="metrics"];
+    m_assets [label="assets"];
+    m_all [label="all twelve", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    d_astropy [label="astropy — PyERFA\neraEpv00 + eraMoon98", fillcolor="#f6f1e2", color="#b07d10"];
+    d_numpy [label="numpy", fillcolor="#f6f1e2", color="#b07d10"];
+    d_tiff [label="tifffile — here\nonly", fillcolor="#f6f1e2", color="#b07d10"];
+    d_pil [label="PIL — the PNG\nwrites", fillcolor="#f6f1e2", color="#b07d10"];
+    d_sk [label="scikit-image", fillcolor="#f6f1e2", color="#b07d10"];
+    d_scipy [label="scipy.ndimage", fillcolor="#f6f1e2", color="#b07d10"];
+    d_ffmpeg [label="ffmpeg — SUBPROCESSED\nby make_mp4", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#b07d10"];
+    d_imageio [label="imageio — imported\nby NO module", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    { rank=same; m_astro; m_textures; m_animation; m_validate; m_register; m_metrics; m_assets; m_all; }
+    { rank=same; d_astropy; d_numpy; d_tiff; d_pil; d_sk; d_scipy; d_ffmpeg; d_imageio; }
+
+    m_astro -> d_astropy;
+    m_all -> d_numpy [color="#b07d10"];
+    m_textures -> d_tiff [color="#b07d10"];
+    m_animation -> d_pil;
+    m_validate -> d_pil;
+    m_validate -> d_scipy;
+    m_register -> d_sk;
+    m_metrics -> d_sk;
+    m_assets -> d_pil;
+    m_animation -> d_ffmpeg [color="#b07d10", penwidth=1.6];
+    m_all -> d_imageio [style=invis];
+}

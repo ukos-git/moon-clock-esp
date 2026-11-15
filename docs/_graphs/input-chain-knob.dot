@@ -1,0 +1,48 @@
+// THE KNOB'S INPUT BOX opened: our own tasks own both inputs — the
+// polled CST816S touch with its own indev, and the EC1 pulse-pair
+// dial behind its poller and dial task. Every edge verified in
+// knob/main/main.c, knob/components/knob_board/knob_board_touch.c,
+// knob_board_encoder.c, knob/components/knob_ui/knob_dial.c,
+// knob_ui.c and knob/components/knob_power/knob_power.c; the pin
+// numbers, cadences, bench stories and line refs live in the page
+// caption. The chain in black boxes is docs/_graphs/input-chain.dot
+// (this page); the clocks side is input-chain-clocks.dot. The
+// on-home/off-home split is colour-coded (amber dim legs, blue
+// input legs) — the facts are in the caption. FONTS: 12 pt = the
+// page's 16 px body text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph input_chain_knob {
+    rankdir=TB;
+    label="The knob opened — our own touch task and dial task, one lock";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    cst [label="CST816S polled\nnibble x/y"];
+    enc [label="EC1: pulse pair,\nnot quadrature"];
+    ownindev [label="our read_cb →\nown POINTER"];
+    tickfloor [label="tick-safe floor\n3 ms = 1 tick",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    dialtask [label="dial_task 20 ms\none detent"];
+    tapcommit [label="root CLICKED →\ndial_commit"];
+    hit [label="hit-test →\nCLICKED",
+         fillcolor="#efece4", color="#525252"];
+    homedim [label="home turn: dim\n±5 %, not input",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    relock [label="reentrant\nlock",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    cst -> ownindev;
+    enc -> tickfloor [style=dashed];
+    enc -> dialtask;
+    ownindev -> tapcommit [style=dashed];
+    ownindev -> hit [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dialtask -> homedim [color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    dialtask -> hit [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dialtask -> relock [style=dashed];
+    ownindev -> relock [style=dashed, constraint=false];
+}

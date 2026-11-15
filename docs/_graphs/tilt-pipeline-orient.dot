@@ -1,0 +1,75 @@
+// Consumer B — the 90° orientation pipeline (actions.c; 10 Hz;
+// verified before drawing):
+//   screen_orientation_apply is called EVERY UI tick (10 ms awake)
+//   but samples only through the 100 ms gate (ORI_SAMPLE_MS) ->
+//   10 Hz; the tilt monitor's own 1 Hz timer does NOT feed this
+//   consumer.
+//   int4 quantization (ORI_Q_SCALE 8 — 1 level = 1/8 g, clamped
+//   +/-1 g) of x/y; flat gate: |g_xy| < 0.25 g leaves the in-plane
+//   pose UNDEFINED — last orientation, window and reference all
+//   frozen.
+//   1 s running mean (ORI_WINDOW 10) is the 1 Hz low-pass; STABLE =
+//   the filtered mean holds within ONE int4 level for
+//   ORI_STABLE_SAMPLES 15 (~1.5 s) — the home anchor may seed and
+//   re-anchor only on a stable pose.
+//   integer dot/cross quadrant (no atan2, no floats in the decision)
+//   -> step in {0, 90, 180, 270} deg CW-positive; the step is
+//   decided BEFORE the reference re-tracks, and re-tracking happens
+//   only while SETTLED and step == 0 — the fast 180 flip cannot adopt
+//   its transient pose as home (the "clock woke up sideways" bug
+//   class).
+//   sustained confirmation: the step must be produced by ORI_WINDOW
+//   (10) consecutive samples (~1 s) before it applies — a single
+//   transient or I2C glitch is diluted out; a deliberate move costs
+//   at most ~1 s of latency.
+//   v10 = ORI_BASE_V10 - step x 10 (sign flipped by
+//   UI_CLOCK_ROLL_SIGN; base 900 = +90 deg if BOARD_P4, else 1800 =
+//   +180 deg — the panel-mount offset); ori_apply_v10 pushes LVGL
+//   transform_rotation to ALL 16 screen roots, pivot centre; the
+//   rotated root's layer is panel-sized RGB565 (~0.4 MB @466,
+//   ~1.0 MB @720) from the CLIB malloc -> PSRAM (the 64 KB LVGL pool
+//   cannot hold it); hit test inverse-maps through the transform,
+//   step 0 = direct draw, zero cost.
+//   the 2 s press re-sync — PRESSED stamps, RELEASED at >= 2000 ms
+//   asks for it (action_register_orientation_touch); ACTIONED only if
+//   stable AND on-axis (|dot|^2 >= 3|cross|^2 — the 2026-10-30
+//   "flipping does not reliably work" fix: a palm released mid-flip
+//   is dropped); re-anchors home and pushes the base orientation.
+// Consumer C (the orbit) stays in the sealed overview — its OFF-by-
+// default verdict is in the overview's caption. The settled verdict
+// comes from tilt-pipeline-monitor.dot; the sealed version is
+// tilt-pipeline.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph tilt_pipeline_orient {
+    rankdir=TB;
+    label="The 10 Hz orientation pipeline — quantize, mean, quadrant, confirm";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    gate [label="called every 10 ms —\nsampled at 100 ms;\ntrue rate 10 Hz"];
+    quant [label="int4 quantize x/y;\nunder 0.25 g the\npose is UNDEFINED"];
+    win [label="1 s running mean;\nSTABLE = one level\nheld ~1.5 s"];
+    quad [label="integer dot/cross —\nstep ∈ {0, 90, 180,\n270}°, no atan2"];
+    conf [label="10 consecutive agree-\ning samples (~1 s)\nbefore a step acts"];
+    apply [label="v10 = base − step×10\n→ rotate ALL 16 roots\nabout the centre",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    resync [label="2 s press re-sync —\nstable AND on-axis\nbefore action",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    settled [label="the settled verdict —\nre-anchor only\nsettled, step 0",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    gate -> quant;
+    quant -> win;
+    win -> quad;
+    quad -> conf;
+    conf -> apply [color="#2b5fb0", penwidth=1.6];
+    settled -> quad [style=dashed, color="#b07d10"];
+    resync -> apply [style=dashed, color="#b07d10"];
+}

@@ -1,0 +1,68 @@
+// THE CONTRACT census opened: what each header exports and where the
+// definitions live (all verified in code before drawing).
+//   components/moon/include/moon.h — moon_geometry :58, moon_bake :108,
+//     moon_bake_rows :118, moon_shade_map_rows :169, moon_shade_map_build
+//     :175, moon_reproject_rows :199, moon_reproject :201, moon_relief_row
+//     :211, moon_relief_build :220, moon_rotate :225, moon_rotate_rows
+//     :232, moon_gray565 :238, moon_gray565_set_warm :243,
+//     moon_gray565_set_event :258, moon_sin15 :261, moon_cos15 :262.
+//   moon_event.h — classify :119, any :124, signature :132, occ :143
+//     (any/signature/occ are STATIC INLINE in the header: "the bake hot
+//     path and the host tools share it without a link dependency"
+//     :100-102). moon_assets.h — moon_albedo :23, moon_relief :29,
+//     moon_deinit :32.
+//   Definition sites: moon_geometry = moon_astro.c:80 (eraEpv00 +
+//     eraMoon98); the bake family = moon_bake.c (bake_rows :538, bake
+//     :572 delegating to rows at :574, relief_row :267, relief_build
+//     :317 calling it per row at :322, shade_map_rows :676,
+//     shade_map_build :773 wrapping rows at :776, reproject_rows :872,
+//     reproject :903 wrapping rows at :905, the blood occlusion via
+//     inline occ at :450 and :735); the LUT trio + rotate =
+//     moon_render.c (set_warm :71, set_event :88, gray565 :124, rotate
+//     :165 and rotate_rows :172 building the LUT lazily via
+//     g565_build :167/:174 and delegating to moon_rotate_range);
+//     moon_fixp.c (sin15 :35, cos15 :52); moon_event.c:221 (classify).
+//   The dashed islands: the *_rows siblings have ZERO external callers
+//     (only their whole-frame wrappers :776/:905 and moon_rotate_range);
+//     the dusk pair's only callers anywhere are bench.c:125/:129; the
+//     rotation has no device caller since the spin's removal;
+//     moon_deinit is defined TWICE (esp :138, host :44 — "the cache
+//     lives for the simulator's process") and called nowhere.
+// The sealed version is api-surface.dot (this page); blue callers are
+// api-surface-device.dot, teal ones api-surface-host.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph api_surface_headers {
+    rankdir=LR;
+    label="The contract opened — what the three headers export";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.28, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dfe6f1",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    h_moon [label="moon.h — 16\nentries :58-:262", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    h_event [label="moon_event.h —\n4 entries :119", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    h_assets [label="moon_assets.h —\n3 entries", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    geom [label="geometry —\neraEpv00 +\neraMoon98"];
+    bakefam [label="bake + bake_rows\n— the pair"];
+    relief [label="relief_build\n(+ its own row)"];
+    lut [label="the tone trio —\ngray565 · set_warm\n· set_event"];
+    rot [label="rotate + the\ntrig pair", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    rowsib [label="three *_rows\nsiblings — no\nexternal caller", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    dusk [label="the dusk pair —\nbench-only", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    evclass [label="classify —\ninline trio rides\nin the header"];
+    deinit [label="moon_deinit —\ncalled nowhere", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    esp_be [label="device backend", fillcolor="#f6f1e2", color="#b07d10"];
+    host_be [label="host backend", fillcolor="#f6f1e2", color="#b07d10"];
+
+    h_moon -> geom; h_moon -> bakefam; h_moon -> relief; h_moon -> lut;
+    h_moon -> rot [style=dashed]; h_moon -> rowsib [style=dashed];
+    h_moon -> dusk [style=dashed];
+    h_event -> evclass;
+    h_assets -> esp_be; h_assets -> host_be; h_assets -> deinit [style=dashed];
+}

@@ -1,0 +1,43 @@
+// THE SEVEN FACES opened: each face with its parsed glyph inventory
+// and what it inks. Every count re-derived at figure time by
+// docs/tools/gen_perf_glyphs.py (SystemExit on drift); the full Opts
+// strings, codepoint lists and per-face ask counts live in this
+// file's provenance notes and the page caption. The faces in black
+// boxes are docs/_graphs/type-family.dot (this page); the tiers and
+// choosers open in type-family-tiers.dot; the askers in
+// type-family-asks.dot. FONTS: 12 pt = the page's 16 px body text at
+// 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph type_family_faces {
+    rankdir=LR;
+    label="The seven faces opened — what each one carries and what it inks";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    {   rank=same;
+        f_num96 [label="bold 96 numbers\n12 glyphs\nthe home clock",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        f_num48 [label="regular 48 numbers\n13 — adds the dot\nthe date editor",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        f_ssid48 [label="regular 48 SSID\n95 printable\nWi-Fi arbitrary",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        f_ssid32 [label="regular 32 SSID\n95 printable\nthe wheel's alphabet",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        f_range32 [label="regular 32 range\n12 weekday letters\nhand-picked, exact",
+                   fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    }
+    {   rank=same;
+        f_solid [label="FA7 solid icons\n6 — speaker xmark\nglobe moon wifi\nstopwatch",
+                 fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];
+        f_regular [label="FA7 regular icons\nS3 2 · P4+knob 3\nthe clock is the delta",
+                   fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];
+    }
+
+    f_range32 -> f_solid [style=invis];
+    f_range32 -> f_regular [style=invis];
+}

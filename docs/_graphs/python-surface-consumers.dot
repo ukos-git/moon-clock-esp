@@ -1,0 +1,64 @@
+// THE CONSUMERS opened: the repo-wide grep for "from moon." / "import
+// moon" leaves exactly five tracked importers, plus the pair that
+// deliberately imports NOTHING. host_sim/check_gate.py :53-59 imports
+// SIX modules — assets, constants, astro, metrics (to_gray +
+// disk_metrics), register (register_shift), validate (_iso +
+// select_frames); it drives the C leg through the moon_sim BINARY
+// (--list frames.txt --size 400 --neutral), bakes per-target textures
+// from constants.TARGETS (:104-106) and renders the Python leg with
+// assets.render_from_assets (:147). docs/tools/perf_measure.py
+// :152-155 imports astro (geometry), animation (render_frame — the
+// 47.6 ms at 400 px the performance page quotes), textures
+// (load_textures), constants. docs/nasa_figs.py :35 imports
+// register_shift; docs/tools/gen_nasa_quarters.py :45 astro.geometry;
+// docs/tools/gen_moonjs.py :41 constants. host_sim/render_demo.py
+// runs host_sim/build/moon_sim (:26/:61) and docs/gen_media.py stitches
+// host_sim/uisim/out PNGs with ffmpeg (:31/:47) — both import nothing
+// from the package. The sealed version is python-surface.dot; the
+// gate's dataflow is image-gate.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph python_surface_consumers {
+    rankdir=LR;
+    label="The consumers opened — five importers, module by module";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#2b5fb0", penwidth=1.3];
+
+    gate [label="check_gate.py —\nSIX modules", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    measure [label="perf_measure.py —\nrender_frame", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    figures [label="three figure\ntools", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    shells [label="render_demo +\ngen_media —\nimport NOTHING", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    c_assets [label="assets"];
+    c_constants [label="constants", fillcolor="#f6f1e2", color="#b07d10"];
+    c_astro [label="astro"];
+    c_metrics [label="metrics"];
+    c_register [label="register"];
+    c_validate [label="validate"];
+    c_animation [label="animation"];
+    c_textures [label="textures"];
+
+    { rank=same; gate; measure; figures; shells; }
+    { rank=same; c_assets; c_constants; c_astro; c_metrics; c_register; c_validate; c_animation; c_textures; }
+
+    gate -> c_assets;
+    gate -> c_constants;
+    gate -> c_astro;
+    gate -> c_metrics;
+    gate -> c_register;
+    gate -> c_validate;
+    measure -> c_animation;
+    measure -> c_astro;
+    measure -> c_textures;
+    measure -> c_constants;
+    figures -> c_register;
+    figures -> c_astro;
+    figures -> c_constants;
+    shells -> c_constants [style=invis];
+}

@@ -1,85 +1,44 @@
-// The alarm lifecycle end to end: rule write -> arming -> per-board fire
-// -> the LVGL action -> the touch dismiss. Every edge verified in
-// components/clock/clock_alarm_scheduler.c, clock_interrupt.c, clock_cb.c,
-// main/main.cpp and components/ui/actions.c.
+// The alarm lifecycle as a black box — one scheduler writes both
+// boards' arms (the S3's ALM pin, the P4's esp_timer one-shot), both
+// lands converge on action_alarm_triggered in the LVGL task. Every
+// edge verified in components/clock/clock_alarm_scheduler.c,
+// clock_interrupt.c, clock_cb.c, main/main.cpp and components/ui/
+// actions.c; the internals live in the detail sketches:
+//   alarm-lifecycle-write.dot  the rule setters, the file, the
+//                              zero-rules disarm invariant, the row
+//   alarm-lifecycle-fire.dot   the two fire paths and the shared poll
+// The wake doors around a ring (and the dismiss bypass) are
+// docs/_graphs/wake-doors.dot; the trust gate in front of the P4 poll
+// is time-chain-trust.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph alarm_lifecycle {
-    label="The alarm lifecycle: one scheduler writes both boards' arms — the S3's ALM pin and the P4's esp_timer one-shot — and both lands converge on action_alarm_triggered in the LVGL task";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The alarm lifecycle — file to ring in six sealed steps";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_write {
-        label="the rule write (clock_alarm_scheduler.c) — a full rewrite, then a reload";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
+    write [label="THE RULE WRITE — the\nscheduler rewrites\nalarm.txt whole",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    arm [label="ARMING — zero rules\ndisarm BOTH arms;\n≥ 1 arms the board",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    fire [label="THE TWO FIRES — S3\nALM pin polled; P4\nsoftware one-shot"];
+    pollstep [label="THE SHARED POLL — one\n1300 ms lv_timer,\nboth branches",
+              fillcolor="#efece4"];
+    act [label="THE RING — action_\nalarm_triggered on\nthe LVGL task",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dis [label="THE DISMISS — touch\nends the show; the\nnext fire is armed",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
-        writers [label="clock_alarm_set_pomodoro_interval (*/N * * * *)\nclock_alarm_set_clock_alarm (M H * * dow)\nclock_alarm_deactivate_all (\"# no alarms\")\n— exactly one rule kind exists (entries are\nmutually exclusive), from the alarm-rules screen",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        file [label="clock_alarm_scheduler_write:\n/spiffs/alarm.txt rewritten whole —\nthe file IS the rule set (reloaded on boot,\nthe PCF85063A/esp_timer armed from it)"];
-        sched [label="clock_alarm_schedule_next(current)\n— the single arming funnel, also run after\nevery fire (fire-then-reschedule, both boards)",
-               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        zero [label="ZERO-RULES branch (count == 0):\nclock_clear_alarm + disarm_esp_timer —\nthe disarm invariant: the battery-backed ALM\nregister survives reboots, an un-erased stale\ntime fires a phantom alarm at the wrong minute",
-              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-        arm [label="cache the next time → clock_set_alarm →\nclock_enable_alarm(true) — S3: the PCF85063A\nALM registers + AIE;\nP4: the same call is a validated no-op and\nthe esp_timer one-shot carries the fire",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        rowupd [label="clock_trigger_alarm_update →\nhome-screen alarm row (the OFF half of\nthe rule-write path fires it too, so a\ndeactivate-all shows --:-- immediately)"];
-    }
-
-    subgraph cluster_s3 {
-        label="S3 fire — a hardware interrupt, polled";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        alm [label="PCF85063A ALM pin (AF set) →\nTCA9554 INT → EXIO3 (IO_EXPANDER_PIN_NUM_3);\nalso the deep-sleep wake source"];
-        polls3 [label="clock_handle_interrupts (S3 branch):\nclock_is_interrupt_pending → clock_get_interrupts;\nCLOCK_INT_ALARM → clock_trigger_alarm_triggered\n→ clear AF → clock_alarm_schedule_next(now)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-    }
-
-    subgraph cluster_p4 {
-        label="P4 fire — a software one-shot, gated";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        oneshot [label="clock_alarm_arm_esp_timer (schedule_next,\nP4-only): esp_timer_start_once → the cb sets\ns_alarm_fired_flag on the esp_timer task —\nnothing UI happens there"];
-        pollp4 [label="clock_handle_interrupts (P4 branch):\nflag OR wall-clock backup check (now >= next —\ncatches a one-shot a time SET left stale),\nGATED clock_sntp_time_trusted so an unsynced\n2026 clock can never fire a phantom → trigger\n→ stop one-shot → schedule_next",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-    }
-
-    poll [label="the ONE poll both boards share:\nlv_timer_create(clock_rtc_interrupt_handler_cb,\nRTC_POLL_INTERVAL_MS = 1300) — main.cpp; the\nclock_cb.c dispatchers call the registered\nactions DIRECTLY, i.e. in the LVGL task",
-          fillcolor="#efece4"];
-
-    action [label="action_alarm_triggered (actions.c, LVGL task):\nbacklight relight (a deep-sleep ring lights the panel),\ng_alarm_active, alarm_audio_ring_start (ES8311 gradual\nramp; the knob is the codec-less silent board),\ng_asleep = true (dismissing it IS a wake event),\ntick → 10 ms, moon_ui_pause(true) (no baking for a\nscreen that shows no moon), clock_timer_disable,\nclock_idle_reset_timer (no auto-sleep while ringing),\nloadScreen(SCREEN_ID_ALARM)",
-            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    dismiss [label="touch dismisses — alarm_indev_read_cb\n(LV_EVENT_PRESSED, action_register_alarm_touch):\nfires on every press regardless of hit-test, but only\nwhile g_alarm_active AND !clock_is_idle(); the asleep\npress is consumed by the idle-wake cb (registered\nearlier, runs first) → action_wake_screen stops the\nring and clears g_alarm_active",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    writers -> file -> sched;
-    sched -> zero [color="#b07d10", penwidth=1.6, fontcolor="#6b4e08", label="0 rules"];
-    sched -> arm [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label=">= 1 rule"];
-    arm -> rowupd;
-    zero -> rowupd [style=dashed];
-    arm -> alm [color="#2b5fb0", label="AIE set"];
-    arm -> oneshot [color="#b07d10", fontcolor="#6b4e08", label="P4 only"];
-    alm -> polls3 [label="EXIO3 pending,\nread by the poll"];
-    oneshot -> pollp4 [label="flag set on the\nesp_timer task"];
-    poll -> polls3 [color="#2b5fb0", fontcolor="#1e3f70", label="S3 branch"];
-    poll -> pollp4 [color="#b07d10", fontcolor="#6b4e08", label="P4 branch"];
-    polls3 -> action [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="clock_cb.c dispatch\n(main.cpp registers\naction_alarm_triggered)"];
-    pollp4 -> action [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="same dispatcher,\nsame task"];
-    action -> dismiss [label="ring + screen up"];
-    dismiss -> sched [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="next fire already re-scheduled\nby the poll's schedule_next —\nthe dismiss only ends the show"];
+    write -> arm;
+    arm -> fire;
+    fire -> pollstep;
+    pollstep -> act [color="#2b5fb0", penwidth=1.6];
+    act -> dis;
 }

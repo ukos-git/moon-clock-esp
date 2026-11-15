@@ -1,0 +1,48 @@
+// The shared tail, opened — action_wake_screen (actions.c, LVGL task;
+// verified before drawing):
+//   alarm_audio_ring_stop FIRST — every dismiss path runs through
+//   here; backlight relight if g_backlight_off; clock alpha restored.
+//   g_asleep is CONSUMED — the stale-alarm branch: was_asleep && WiFi
+//   off -> a normal wake, never hijacked by the alarm story.
+//   tick 10 ms + seconds timer resumed; clock_timer_disable;
+//   moon_ui_pause(false) + moon_ui_day_tick (re-bake only if the day
+//   rolled over).
+//   The boot-replay HOLD: idle re-arm runs only when
+//   moon_ui_replaying() is false — a touch during the boot
+//   presentation wakes the SCREEN, but the replay's tick end leg
+//   re-arms the ladder when the animation is over.
+//   Then the airplane screen OR the on-demand sync: radio off the UI
+//   task — action_start_wifi_sync -> background task (stack 6144)
+//   runs wifi_manager_init + SNTP; the UI tick upgrades the WiFi
+//   screen to airplane on the done flag (the 1.7 s wake-freeze fix,
+//   wifi-sync.dot on the ui/wifi page owns the starters).
+// The sealed version is wake-doors.dot; the guards are
+// wake-doors-doors.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wake_doors_tail {
+    rankdir=TB;
+    label="The tail — ring stop, relight, the consumed asleep flag";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    wake [label="action_wake_screen\n— the LVGL-task tail",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    steps [label="ring stop · relight ·\nalpha · tick 10 ms ·\ntimers spent"];
+    stale [label="asleep CONSUMED —\nthe stale-alarm\nbranch, no hijack",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    hold2 [label="the replay HOLD —\nno idle re-arm\nwhile replaying",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    sync2 [label="airplane screen OR\nthe on-demand sync\n— background task"];
+
+    wake -> steps;
+    steps -> stale;
+    stale -> hold2;
+    hold2 -> sync2;
+}

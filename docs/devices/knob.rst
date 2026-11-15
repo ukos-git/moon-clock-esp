@@ -113,18 +113,40 @@ corrects: the vendor demo drives the panel with
 schematic's LEDA/LEDK nets show a **backlit LCD** (the product
 name's "LCD" is literal, not an AMOLED).
 
-The schematic below traces the app MCU to each component it drives
-and keeps the board's two silences visible: the inter-MCU UART and
-the audio/mic/SD/haptics block are dashed — the firmware uses
-neither — and the green box is the wake-up story that makes the knob
-the family's only *real* deep sleeper: no RTC IC, so the alarm is an
-internal-RTC TIMER (never an early ring), and the wake inputs are
-the dial's A channel (EXT0), the touch INT (EXT1) and that TIMER.
+The overview below seals the app MCU's side into one box per driven
+thing and keeps the board's two silences visible (dashed grey): the
+untouched peripherals and the U4WDH peer across the idle inter-MCU
+UART. The four sketches after it open the display chain, the
+hand-driven inputs, the untouched block with the peer, and the green
+wake-up story that makes the knob the family's only *real* deep
+sleeper: no RTC IC, so the alarm is an internal-RTC TIMER (never an
+early ring), and the wake inputs are the dial's A channel (EXT0), the
+touch INT (EXT1) and that TIMER.
 
 .. graphviz:: ../_graphs/knob-wiring.dot
-   :alt: Knob board component wiring schematic
+   :alt: Knob board component wiring overview
    :align: center
-   :caption: The knob's component wiring — QSPI (SH8601 round LCD + GPIO 47 backlight PWM), I²C (CST816S touch, DRV2605 haptics — unused), the EC1 dial, the battery ADC; the U4WDH peer on its own with the inter-MCU UART unused.
+   :caption: The overview — the app MCU drives five things (SH8601 over QSPI x4, the GPIO 47 backlight PWM, the I²C touch, the EC1 dial, the battery ADC) and ignores two (the dashed peripherals, the dashed U4WDH peer); the green callout is the wake story the last sketch opens.
+
+.. graphviz:: ../_graphs/knob-wiring-display.dot
+   :alt: Knob display chain
+   :align: center
+   :caption: The display chain — QSPI x4 CLK 13, CS 14, D0–D3 15–18, RST 21 to the SH8601 (RGB565; LEDA on 3V3, TE not wired — a backlit LCD, the product name's "LCD" is literal); backlight PWM GPIO 47 drives an AO3400A PMOS, and LEDC is the only dimmer — no 0x51 register like the S3's CO5300.
+
+.. graphviz:: ../_graphs/knob-wiring-io.dot
+   :alt: Knob inputs — touch, dial, battery
+   :align: center
+   :caption: The inputs — CST816S at 0x15 on I²C SDA GPIO11 / SCL GPIO12 with 5K1 pull-ups (INT 9, RST 10; polled, the INT otherwise unused); the EC1 dial A GPIO 8 / B GPIO 7 with 10K pull-ups, one channel per detent, decoded by a 3 ms software poll; the battery "voltage" on GPIO 1 (ADC1_CH0) behind a 10K/10K divider with the top rail drawn 5V — placeholder calibration until the multimeter verdict lands; the DRV2605 haptics (LRA) sits on the bus, dashed — never driven.
+
+.. graphviz:: ../_graphs/knob-wiring-unused.dot
+   :alt: Knob untouched peripherals and the U4WDH peer
+   :align: center
+   :caption: Wired but untouched — PDM mic (CLK 45, DATA 46), SDMMC (CMD 3, CLK 4, D0–D3 5/6/42/2 — pins, no socket), I²S to the CH445P mux → PCM5100APWR DAC, native USB D+/D− 19/20 (the 303a:1001 flash path); and the ESP32-U4WDH across the dashed inter-MCU UART (TX 38 / RX 48 ↔ 23 / 18) — a classic-ESP32 peer at dual 240 MHz with 4 MB flash, its own EC2 (A 19 / B 22), its own I²S (25/26/27) and the CH340-family bridge U10 (1a86:7523) on its UART0, the working USB side in one plug orientation. The two *factory* demos talk over that UART; this firmware never does.
+
+.. graphviz:: ../_graphs/knob-wiring-wake.dot
+   :alt: Knob deep-sleep wake inputs
+   :align: center
+   :caption: The wake inputs — real ``esp_deep_sleep_start`` armed with the internal RTC TIMER (no RTC IC, so the alarm is a timer and can never ring early); EXT0 dial-A GPIO 8 active-LOW is the primary, EXT1 the CST816S INT GPIO 9 ANY_LOW (``KNOB_TOUCH_WAKE``), TIMER the next fixed alarm rule (``KNOB_ALARM_TIMER_WAKE``); a detent that pulses only B (GPIO 7) does not wake — the next detent does.
 
 The U4WDH box is deliberately drawn as a **peer, not a peripheral**:
 it runs factory firmware, owns its encoder and the CH340-family USB

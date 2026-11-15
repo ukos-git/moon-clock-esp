@@ -1,0 +1,40 @@
+// THE SHIPPED BRANCH opened — dark_zero && dk_sup == 0 (moon_bake.c
+// :479): both sides computed, then ONE write, returning before the
+// is_night test is ever evaluated. Every quoted line verified in code
+// before drawing: litv = TONE_LUT[idx] + es(d) (:485); darkv =
+// moon_backlit_night(A, lns) (:486); t = smoothstep over lns ∈
+// ±MOON_TERM_SOFT (0.03 ≈ 6 px each side at the 400 px disk, :193 —
+// "NASA adds a gaussian blur at the boundary"); out = darkv +
+// (litv − darkv)·t (:487-493). The three display bake sites pass this
+// branch: moon_ui.c:1288 the hourly strip, :1545 the boot bake, :2125
+// the bake-reveal strip — all dark_zero=1, dk_sup=0. The blend's WHY —
+// the cutout-edge report behind the soft terminator — is
+// science/art-pass.rst. The sealed version is dark-side.dot (this
+// page); the night side it calls is dark-side-backlit.dot; the test it
+// skips is dark-side-night.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph dark_side_branch {
+    rankdir=TB;
+    label="The shipped blend — both sides computed, one write";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    sites [label="THE THREE DISPLAY\nSITES — hourly :1249\n· boot :1455 · :2035", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    litv [label="litv = TONE_LUT\n+ es(d) (:485)"];
+    darkv [label="darkv =\nmoon_backlit_night\n(A, lns) (:486)", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    t [label="t = smoothstep over\nlns ∈ ±SOFT 0.03 —\n≈ 6 px each side"];
+    out [label="out = darkv +\n(litv − darkv)·t —\nthe return skips\nis_night", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+
+    sites -> litv [color="#2b5fb0"];
+    sites -> darkv [color="#2b5fb0"];
+    litv -> out;
+    darkv -> out;
+    t -> out;
+}

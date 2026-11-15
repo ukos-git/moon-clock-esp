@@ -1,0 +1,64 @@
+// The fade-out leg, opened (moon_ui.c:3019 fade_out, :2946 fade_ramp;
+// verified before drawing):
+//   moon_ui_fade_out is self-guarded: !s_ready || !moon_on_lvgl() ||
+//   FADE<=0 || s_orbit_baking -> RETURN WITHOUT PENDING (the switch
+//   paints plain). Otherwise s_fade_pending = true (the fade-in is
+//   owed EITHER way) and s_fade_busy = true (the other 0x51 writers
+//   hold off).
+//   from = s_panel_pct — the TRACKED level, so after the light-sleep
+//   dim the ramp starts at 25 % (a hard-coded 100 would flash the
+//   panel brighter).
+//   fade_ramp(from -> 0, UI_SCREEN_SWITCH_FADE = 240 ms), FADE_STEPS
+//   = 12 — each step ONE 0x51 SPI param transaction (~100 µs) under
+//   s_panel_mtx + a 20 ms wait.
+//   panel_hold_live() (the scan storm) -> DROP ALL STEPS: the panel
+//   stays at its tracked level; s_panel_pct untouched is the truthful
+//   bookkeeping.
+//   The loadScreen both-moon test (ui.c:51): fade every switch
+//   EXCEPT old != new && is_moon(old) && is_moon(new) — airplane /
+//   WiFi / the sleep screens share the one moon image: dimming it
+//   would be a fade with nothing to fade (moon_ui_screen_is_moon
+//   walks s_moon_roots, :3078).
+//   The reparent: lv_scr_load + ui_clock_attach_to(screenId) — the
+//   ONE shared clock widget reparents onto the new root and refreshes
+//   from the RTC while the panel is BLACK, so the wake shows the
+//   current minute in its one frame.
+// The 0x51 rule (exception 1): the brightness ramp writes NO pixels —
+// the CO5300 scales everything on screen at once. s_fade_busy is the
+// 0x51 writers' multiplex: the hourly legs (bake-reveal.dot) and the
+// light-sleep dim queue behind it, and moon_ui_panel_brightness_set
+// (the wake / deep-sleep / boot callers) rides under the same rule —
+// a 0x51 queued behind a strip that never completes would park its
+// writer forever (the settings-entry freeze). The old overlay fade
+// charged a full-screen lv_refr_now per step (~175 ms of QSPI strips
+// each) and read as a top-to-bottom CRAWL — that is why the ramp
+// replaced it.
+// The sealed version is screen-switch.dot; the branches are
+// screen-switch-branches.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph screen_switch_fade {
+    rankdir=TB;
+    label="The fade-out leg — self-guarded, tracked, storm-droppable";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    guard [label="the self-guard — no\nmoon, FADE ≤ 0, or\nbaking: paint plain"];
+    owed [label="pending is OWED —\nbusy flags the 0x51\nwriters' multiplex",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    ramp [label="the ramp — 240 ms,\n12 steps, ~100 µs\nper 0x51 + 20 ms"];
+    from [label="from = the TRACKED\ncent — a dim starts\nits ramp at 25 %"];
+    drop [label="storm live → DROP\nall steps; the panel\nkeeps its level",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    guard -> owed;
+    owed -> ramp;
+    from -> ramp;
+    ramp -> drop [style=dashed, color="#b07d10"];
+}

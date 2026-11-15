@@ -50,18 +50,43 @@ The surface in one picture
 --------------------------
 
 **The short version.** The core exports **23 entries across three
-headers** — and the shipped tree calls 17 of them. The sketch draws
-every caller with its line numbers: the device's two files
-(``moon_ui.c``, ``knob_moon.c``) in blue, the host tools in teal, and
-the six entries nobody outside the core ever calls as dashed
-islands — the four internal ``*_rows`` helpers, the dusk pair's
+headers** — and the shipped tree calls 17 of them. The family is the
+house pattern: one black-box overview, then one detail sketch per
+sealed box — the contract census, the device callers in blue
+(``moon_ui.c``, ``knob_moon.c``), the host tools in teal — and the six
+entries nobody outside the core ever calls drawn as dashed islands in
+the census: the four internal ``*_rows`` helpers, the dusk pair's
 retired siblings, and ``moon_deinit``, defined in both backends and
 called by no one.
 
 .. graphviz:: ../_graphs/api-surface.dot
    :align: center
-   :alt: Three header nodes feeding the definition cluster — geometry, the bake/rows pair, the relief builder, the tone dictionary, the event classifier, the dashed rotation and dusk pair, the dashed rows siblings, the dashed deinit — with the device cluster (moon_ui.c and its amber core-1 classify guard, knob_moon.c) and the host cluster (main.c, bench.c, uisim/stubs.c, the dashed never-linked probes) hanging call edges with line numbers onto them, and the two asset backends bridging the seam to the relief builder.
-   :caption: The core's public surface as the family actually uses it. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the rotation since 2026-11-13, the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``). Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call.
+   :alt: Five sealed boxes — THE DEVICE CALLERS and THE HOST TOOLS side by side above THE CONTRACT (three headers, 23 entries), which hangs over THE DEFINITIONS and the amber THE ASSET SEAM box — joined by blue, teal and dashed legs.
+   :caption: The core's public surface as the family actually uses it — the black-box pass, no internals. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the rotation since 2026-11-13, the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``). Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call. The boxes open below; the three claims that follow are checkable at the cited line.
+
+**The contract** opens into the census — the three headers, their 23
+entries, and where each definition lives:
+
+.. graphviz:: ../_graphs/api-surface-headers.dot
+   :align: center
+   :alt: Three amber header nodes (moon.h 16 entries, moon_event.h 4, moon_assets.h 3) fanning grey right to eleven entry boxes — geometry, the bake pair, the relief builder, the tone trio, the dashed rotation, the dashed rows siblings, the dashed dusk pair, the event classifier, the dashed deinit, and the two backend boxes.
+   :caption: ``moon.h`` — 16 entries (:58-:262): float32 in, 8-bit out, Q15.15 for the rotation, and every pixel-passing function ships a ``*_rows`` sibling. ``moon_event.h`` — 4 entries (classify :119; ``any``/``signature``/``occ`` are static INLINE at :124/:132/:143 — "the bake hot path and the host tools share it without a link dependency" :100-102). ``moon_assets.h`` — 3 entries (:23/:29/:32): one seam, two backends, and the bake's caller never sees who answers. The definitions sit behind them: geometry at ``moon_astro.c``:80 (the cheap ``eraEpv00`` + ``eraMoon98`` ephemeris); the bake family in ``moon_bake.c`` (``bake`` :572 delegating the full square to ``bake_rows(0,size)`` at :574; ``relief_build`` :317 calling ``relief_row`` per row at :322; ``shade_map_build`` :773 and ``reproject`` :903 wrapping their rows at :776/:905; the blood occlusion via inline ``occ`` at :450/:735); the tone trio + rotation in ``moon_render.c`` (``gray565`` :124, ``set_warm`` :71, ``set_event`` :88 — ``set_warm(0)`` wins over ``set_event`` :29-31; the first rotate call builds the LUT lazily at :167 and delegates to ``moon_rotate_range``); the trig pair at ``moon_fixp.c``:35/:52; classify at ``moon_event.c``:221. The dashed islands are the third claim below.
+
+**The device callers** — blue edges are paths a shipped frame took;
+amber prices the guard:
+
+.. graphviz:: ../_graphs/api-surface-device.dot
+   :align: center
+   :alt: moon_ui.c and knob_moon.c on the left, the amber classify_here guard beside the clock, fanning blue to the entry boxes — geometry, whole bake, bake_rows, the tone trio, classify, the amber device backend.
+   :caption: The first claim's line numbers beyond the bullets below: ``bake_rows``' two sites are the hourly bounce :1248 and the orbit rows :2034, both ``dark_zero`` 1; ``set_event`` runs four times on the clock (producers :1446/:1563/:1916 plus the replay's ``set_event(NULL)`` :1844); the seam reads sit at :1430/:1435 with the eager warmup at :2530 (the "moon assets unavailable" guard). The knob file is the same shape compressed — its event trio runs ``any`` :119 and ``signature`` :85/:95 alongside classify :82/:94, its seam reads are :55/:56, and its row bakes are ``dark_zero`` 1 like the clock's. Neither device file calls ``moon_rotate`` or ``moon_gray565_set_warm`` — warm is the shipped default and the identity gather is by construction.
+
+**The host tools** — teal edges; the gate and the bench link the EXACT
+core source list (the sharing ladder checks the set equality):
+
+.. graphviz:: ../_graphs/api-surface-host.dot
+   :align: center
+   :alt: Four host boxes (main.c, bench.c, uisim/stubs.c, the dashed never-linked probes) fanning teal to the entry boxes — geometry, bake, the dashed rotation, the tone trio, classify, the dashed dusk pair, the amber host backend.
+   :caption: ``main.c`` drives the gate's posture (``bake`` :168 with ``dark_zero`` 0 / ``dk_sup`` 0.0, ``set_warm(0)`` :219 — the ``--neutral`` stance, classify :161, seam :134/:135); ``bench.c`` runs the A/B timing (``set_warm(0)`` :68, ``bake`` :111, ``rotate`` :119) and is the dusk pair's ONLY caller (:125/:129); ``uisim/stubs.c`` is the sim's whole home moon — geometry :444, bake :445 with the seam inline, ``gray565`` :448 — the file header calls it "bakes the REAL current-phase moon … ``dark_zero`` = 1 like the device static/wake frame".
 
 Three claims the picture makes, each checkable at the cited line:
 

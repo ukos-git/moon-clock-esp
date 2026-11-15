@@ -11,15 +11,16 @@ The current binaries
 --------------------
 
 Measured from the build trees (2026-11-15): the S3/P4 trees were
-configured at HEAD ``830adbd``, the knob's sibling tree at
+configured at HEAD ``830adbd`` and built, flashed and boot-verified
+from the bake-reveal pacing change of this commit (the reveal band
+heights, the drain witness, the bench trace option — the sizes below
+are those bench binaries). The knob's sibling tree is unchanged at
 ``7bc7e8f-dirty`` (uncommitted docs files were in the tree at
 configure time). Until the first commitizen bump there is no
 ``version`` line in ``.cz.toml``, so each binary embeds the
 git-describe short hash as the TF-cache calcver string (the root
 ``CMakeLists`` comment and :doc:`the build system <../reference/build-system>`);
-the commits since these builds are docs/host-sim-only, and the
-firmware delta to the current HEAD is that embedded string alone —
-constant length, so the sizes below carry to HEAD unchanged. The
+docs-only commits after these builds do not move a size. The
 knob row is the exception to that last clause: it is a rebuild
 carrying the minute-tick enable (``knob/main/main.c``, the
 alarm-screen clock fix of 2026-11-15 — one call, one log line and
@@ -38,14 +39,14 @@ the repo, never ``build/knob``):
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,706,992 B (0x1a0bf0)
+     - 1,707,120 B (0x1a0c70)
      - 2,097,152 B (2048 K)
-     - 390,160 B (19 %)
+     - 390,032 B (19 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,859,488 B (0x1c5fa0)
+     - 1,859,616 B (0x1c6020)
      - 9,437,184 B (9216 K)
-     - 7,577,696 B (80 %)
+     - 7,577,568 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
      - 1,555,888 B (0x17bdb0)

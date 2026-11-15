@@ -1,71 +1,42 @@
-// The sky-events chain: who pays for the day scan, and who consumes its
-// answer. Every edge verified in components/moon/core/moon_event.c
-// (full_moments :138, se_argmax :101, classify :221, the CONFIG_BOARD_KNOB
-// yield budget :21-32) and components/ui/moon_ui.c (moon_event_task :1103,
-// spawn :2614, moon_event_classify_here :1122, moon_ev_scan_allowed :1097,
-// the minute day-tick probe :2707+). The classification RULES (the ±18 h
-// moment test, the census-pinned super/micro bounds, the eclipse cone) are
+// The sky-events chain as a black box: who pays for the day scan, and
+// who consumes its answer. The internals are in the detail sketches:
+//   sky-events-scan.dot        full_moments, se_argmax, classify, the
+//                              knob's yield budget
+//   sky-events-consumers.dot   the tint LUT, the eclipse bite, the
+//                              minute probe's decision
+// Every edge verified in components/moon/core/moon_event.c
+// (full_moments :138, se_argmax :101, classify :221, the
+// CONFIG_BOARD_KNOB yield budget :21-32) and components/ui/moon_ui.c
+// (moon_event_task :1103, spawn :2614, moon_event_classify_here
+// :1122, moon_ev_scan_allowed :1097, the minute day-tick probe
+// :2707+). The classification RULES (the ±18 h moment test, the
+// census-pinned super/micro bounds, the eclipse cone) are
 // single-sourced in reference/c-api.rst and only named here.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph sky_events {
-    label="The sky-events chain: one ~600-evaluation day scan per calendar day, paid for on core 1 (worker or pipeline task, never the LVGL task); its five flags tint the LUT, arm the eclipse bite, and drive the minute probe's re-bake decision";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The sky events — a day scan paid on core 1, three consumers";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_classify {
-        label="core — components/moon/core/moon_event.c (host sim runs the SAME code)";
-        fontsize=13; color="#2b5fb0"; fontcolor="#1e3f70"; penwidth=1.4; style="rounded";
+    here [label="classify_here — the\nONLY gate every call\nwalks through",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    worker [label="THE WORKER — core 1,\n12 KiB SPIRAM stack,\nunder the bake prio"];
+    scan [label="THE DAY SCAN — ~600\nevals, cached per day,\nNEVER on LVGL",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    cons [label="THE THREE USES —\ntint LUT · eclipse\nbite · minute probe",
+          fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
 
-        scan [label="full_moments (the ONLY expensive step — cached PER\nCALENDAR DAY by full_moments_cached :211): 6 h\ncoarse grid over [t−45 d, t+15 d] (~600 se_dot\nevals, always ≥ 2 full moons), every strict grid\npeak refined by se_argmax (±6 h at 10 min, 73\nsamples), peaks gated S·E > 0.9 (a new-moon\nwindow edge never counts), F = nearest peak,\nF_prev = the one before it (the blue test).\nThe comment's own cap: up to ~600 evals; the\nKNOB-ONLY s_scan_evals INFO line (:192, under the\nCONFIG_BOARD_KNOB ifdef) prints the true cost once a day",
-               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        classify [label="moon_event_classify(epoch) :221 — geometry + the\nF cache, then five flags (RULES in c-api.rst):\nis_full = |epoch−F| ≤ 18 h → harvest (civil Sep\n22..Oct 23) · blue (F_prev shares F's month) ·\nsuper < 357 500 km / micro > 405 500 km MEASURED\nAT F (one extra eval) · BLOOD is tested ALWAYS,\neven off-full — an eclipse can start hours before\nthe window opens: center inside the penumbra\n(off < rp), umbra axis triple carried for the bake",
-                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        knob_yield [label="the knob has NO worker — CONFIG_BOARD_KNOB compiles\na 20 ms WALL-CLOCK yield budget INTO BOTH SCAN\nLOOPS (:26-31, :101, :148): bench 2026-11-11 —\n\"yield every 32 evals\" (assuming ~8 ms each)\nstill starved IDLE1 past the 5 s WDT, and the\nargmax's 73 back-to-back samples never yielded\nAT ALL; the budget is right whatever the true\neval cost. \"full_moments scan: N evals in T ms\"\nonce a day is the bench's proof",
-                     fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_offload {
-        label="clock offload — components/ui/moon_ui.c (215176b: the day scan once froze the clock 18:34↔35 and storm-printed IDLE0 WDTs on the LVGL task)";
-        fontsize=13; color="#2b5fb0"; fontcolor="#1e3f70"; penwidth=1.4; style="rounded";
-
-        tick [label="the minute day-tick (moon_ui_day_tick :2707+, on the\nLVGL task): the pipeline-busy guard runs BEFORE\nthe classify on purpose — a running core-1\npipeline task classifies its own epoch and warms\nthe day cache here for free. classify_here\nreturns FALSE on a cold day: the tick RETURNS\n(no probe, no bake decision this minute)",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-
-        here [label="moon_event_classify_here :1122 — the ONLY gate every\ncaller passes:\nmoon_ev_scan_allowed :1097 (task handle ∈\n{orbit, event, rebake, hourly, replay}) →\nclassify IN PLACE + warm the day;\nelse cold day → ask the worker + return a\nZEROED ev (a plain untinted bake — byte-identical\nto an all-false classify; the one wrong-looking\nframe SELF-HEALS because the next minute probe\nsees the signature change); warm day → the cheap\npath (geometry evals only, no scan)",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        worker [label="the worker — moon_event_task :1103 (spawn\n:2614): core 1 (IDLE1 unwatched — the 15–20 s\nscan can never trip a watchdog), 12 KiB era-chain\nstack in SPIRAM, prio MAX−4 (BELOW the bake tasks:\na hungry bake outranks a warm-up), plain\nnotify-take loop: re-reads s_ev_want_day and\nsets s_ev_warm_day ONLY if the day is still the\none wanted. A torn 64-bit read of the core's\nday cache is DESIGNED FOR: worst case one extra\nre-bake, self-correcting",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_consume {
-        label="consumers — the answer's three uses";
-        fontsize=13; color="#3a6b35"; fontcolor="#2c4f29"; penwidth=1.4; style="rounded";
-
-        lut [label="the tint LUT — every core-1 producer calls\nmoon_gray565_set_event(&ev) before its bake\n(moon_render.c :88): the (pre-calculated) event\nmultipliers compose OVER the warm base; set_warm(0)\nwins over set_event — the neutral GATE LUT is\nnever tinted (the image gate stays byte-identical)",
-              fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
-
-        occ [label="the eclipse bite — bev = moon_event_any(&ev) ?\n&ev : NULL into the bake: per-pixel, the lit\nLambert × (1 − 0.85 × moon_event_occ) — 1 fully\nin the umbra, 0 outside the penumbra, linear\nbetween (the partial \"bite\"); it rides the\nhour-centre bake, so the hourly refresh tracks\nthe bite's drift across the disk by itself",
-              fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
-
-        probe [label="the minute probe's decision — signature\n(5-bit OR) ≠ s_baked_event → moon_rebake_request\n(blood turns ON entering the shadow, OFF at exit);\nif the hourly probe takes the hour, IT subsumes\nthe re-bake. s_baked_event commits ON SHOW — a\ncycle that never shows stays due and self-heals",
-                 fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
-    }
-
-    scan -> classify [color="#2b5fb0", penwidth=1.6, label="F, F_prev (per-day cache)"];
-    knob_yield -> scan [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="vTaskDelay(1) on the budget"];
-    tick -> here [color="#2b5fb0", penwidth=1.6];
-    here -> scan [color="#2b5fb0", penwidth=1.6, label="allowed task: scan IN PLACE\n(producer warms the day)"];
-    here -> worker [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="cold day on the LVGL task:\nnotify, return zeroed ev"];
-    worker -> scan [color="#2b5fb0", penwidth=1.6, label="the scan, on core 1"];
-    classify -> lut [color="#3a6b35", fontcolor="#2c4f29"];
-    classify -> occ [color="#3a6b35", fontcolor="#2c4f29"];
-    classify -> probe [color="#3a6b35", fontcolor="#2c4f29"];
-    here -> probe [style=dashed, label="warm-day answer"];
+    here -> scan [color="#2b5fb0", penwidth=1.6];
+    here -> worker [style=dashed, color="#b07d10"];
+    worker -> scan [color="#2b5fb0", penwidth=1.6];
+    scan -> cons [color="#3a6b35"];
+    here -> cons [style=dashed, color="#3a6b35"];
 }

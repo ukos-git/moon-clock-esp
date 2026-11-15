@@ -1,0 +1,63 @@
+// THE HARD NIGHT TEST opened — the path the GATE takes (and the dusk
+// took while it lived), never a shipping display bake while dk_sup is
+// 0. Every quoted line verified in code before drawing:
+//   int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f)
+//   : (lns <= 0.0f);  (moon_bake.c:496, verbatim).
+//   night & dark_zero (:501): the backlit write — only ever used with
+//   dk_sup > 0, so DEAD since the dusk retired (dk_sup =
+//   √(1−(E·S)²), the comment's own endpoint formula :377 — the pole
+//   spin never changes view latitude).
+//   night & !dark_zero (:505): TONE_LUT[0] + es(d) — the validated
+//   earthshine side; still reads albedo A and never uses it ("one dead
+//   load", header :50-53).
+//   lit side (:517): TONE_LUT[idx] + es(d) — the tone LUT's domain,
+//   the lighting page's endpoint; es(d) adds zero at d ≥ 0.
+//   The isolation promise (moon.h:101-102): dark_zero = 0 is
+//   BYTE-IDENTICAL to the old earthshine bake for every d — the gate's
+//   numbers certify lit-side physics however the product's dark side
+//   is tuned.
+//   The caller knobs (moon.h:82-102, signature :109): the image gate
+//   runs dark_zero = 0, dk_sup = 0 (host_sim/main.c:168; g_darkzero
+//   default 0 :50 — --darkzero opts in to the product); every shipping
+//   display bake runs dark_zero = 1, dk_sup = 0.
+//   The dusk-era erosion, inert: the shade map writes the backlit side
+//   for d < dk_sup + MOON_DK_MARGIN (0.010, :208) at :743 — the
+//   re-project samples NEAREST-NEIGHBOR and a dark pixel's cell can be
+//   up to (pi/map_w + pi/(2*map_h)) ≈ 0.0073 away in d (:197-199), so
+//   the margin makes the wrong cell UNREACHABLE, not merely unlikely.
+// The sealed version is dark-side.dot (this page); the blend the
+// display takes is dark-side-branch.dot; the write behind nback is
+// dark-side-backlit.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph dark_side_night {
+    rankdir=TB;
+    label="The hard night test — the gate's path, the dusk's while it lived";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    gate [label="the image gate —\ndark_zero 0, dk 0", fillcolor="#f2f2ef"];
+    dusk [label="the dusk — RETIRED;\ndk_sup = bound", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    isnight [label="is_night — ternary\nat :496, verbatim\nin the caption", fillcolor="#efece4", penwidth=1.6];
+
+    nback [label="backlit write\n:501 — dead since\nthe dusk", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    ngate [label="earthshine :505 —\nTONE_LUT[0] +\nes(d)", fillcolor="#efece4"];
+    lit [label="lit side :517 —\nTONE_LUT[idx]\n+ es(d)", fillcolor="#efece4"];
+    byte [label="ISOLATION — 0 is\nBYTE-IDENTICAL to\nthe old bake", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    margin [label="dk_sup margin\n0.010 — wrong NN\ncell UNREACHABLE", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    gate -> isnight [color="#2b5fb0"];
+    dusk -> isnight [style=dashed];
+    dusk -> margin [style=dashed];
+    isnight -> nback;
+    isnight -> ngate;
+    isnight -> lit;
+    margin -> nback [style=dashed];
+    ngate -> byte [color="#2b5fb0", style=dotted];
+}

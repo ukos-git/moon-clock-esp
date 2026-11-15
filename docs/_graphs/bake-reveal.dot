@@ -26,7 +26,7 @@ digraph bake_reveal {
         arm [label="producer arms the reveal — moon_reveal_bake(owner) :1230\nsets pub/shown/clear/stop under s_rgb_mtx.\nOwners: REVEAL_HOURLY (moon_hourly_task's\ncold-bake leg :1607 — a TF fetch HIT never\narms) and REVEAL_REPLAY_FINAL (the boot\nreplay's final \"now\" leg :1929, abort_flag\n= &s_replay_abort — the sleep hand-off's own)",
                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
 
-        bake_loop [label="core-1 strip loop :1242 — moon_bake_rows into the\ns_hourly_gray bounce, one MOON_REVEAL_ROWS\nchunk (S3 20 rows → 20 states / P4 26 → 25,\n#error pins divisibility), watermark\ns_reveal_pub = y1 UNDER s_rgb_mtx (the orbit\nrule), vTaskDelay(1) per chunk; then ONE\nbounded catch-up wait (1500 ms) for the tick\nto land the tail, owner → REVEAL_NONE :1269.\nNEVER touches the panel, NEVER s_frame",
+        bake_loop [label="core-1 strip loop :1278 — moon_bake_rows into the\ns_hourly_gray bounce, one MOON_REVEAL_ROWS\nchunk (S3 10 rows → 40 states / P4 13 → 50,\n#error pins divisibility), watermark\ns_reveal_pub = y1 UNDER s_rgb_mtx (the orbit\nrule), vTaskDelay(1) per chunk; then ONE\nbounded catch-up wait (2500 ms) for the tick\nto land the tail, owner → REVEAL_NONE :1313.\nNEVER touches the panel, NEVER s_frame",
                      fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
 
         hourly_fade [label="the hourly start leg (moon_hourly_service :1682):\nfade_ramp(panel→0, UI_MOON_HOURLY_FADE_MS),\ns_hourly_faded = true (the #34 owed-exactly-\nonce rule), 5 s producer budget\n(HOURLY_BUDGET_MS :1687), spawn pinned core 1",

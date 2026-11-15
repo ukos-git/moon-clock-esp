@@ -340,10 +340,24 @@ Four facts carry the chain — all of them the code's own:
   **before** the env change) or re-derives the P4's, then re-arms the
   scheduler.
 
-The whole chain — three bases, the fallback floors, the fixers, the
-epoch door and what the flag gates — drawn from the code:
+The whole chain, first sealed and then opened — three bases, the
+fallback floors, the fixers, the epoch door and what the flag gates —
+drawn from the code:
 
 .. graphviz:: ../_graphs/time-chain.dot
+   :alt: The chain of trust overview
+   :align: center
+   :caption: The overview — three bases feed one system clock, and only the fixers raise the trust flag; TZ comes from the store BEFORE any moon use (``clock_sntp.c:134-137``, the default Europe/Berlin = ``CLOCK_DEFAULT_TIMEZONE``). The moon walks exactly one door, ``clock_get_utc_epoch`` (``clock.c:257``): ``clock_get_time`` (I²C read on the S3, ``time()`` on the P4/knob) → ``validate_time`` (:271, year 2000..2099 + field ranges) → ``ESP_ERR_INVALID_STATE`` on any implausible answer → ``mktime`` reads the digits as LOCAL (TZ/DST) → UTC epoch — "show nothing rather than a wrong phase" is the reject's own comment. Every ``clock_get_utc_epoch`` site obeys it: ``moon_ui_start`` (``moon_ui.c:2654``) with no time leaves the panel BLACK ("a blank RTC leaves the moon black until a trustworthy time exists", ``main.cpp:675``), and boot replay's final leg, the core-1 event scan, the day tick and the wake stale re-bake each skip or defer on the reject — never a bake from the default 2026 date.
+
+.. graphviz:: ../_graphs/time-chain-bases.dot
+   :alt: The three time bases and the fallback chain
+   :align: center
+   :caption: The bases — the S3's PCF85063A sits on the shared BSP I²C at addr 0x51 (the RTC's OWN address, not the panel's 0x51 brightness command) with INT on TCA9554 EXIO3 (``clock.c:121/:128``); it holds LOCAL digits, battery-backed, self-trusting by design (the flag is compiled out of its consumers). The P4 runs the system clock over the internal RTC timer + SNTP (the curated pin is the external 32k crystal — see the bench note below) with the NVS ``clock``/``epoch`` snapshot saved on every SNTP fix and every 15 min from the minute tick (``CLOCK_NVS_SAVE_INTERVAL_SEC`` 900) — the only cross-power-loss memory once the crystal domain dies. The knob has no RTC: same NVS discipline plus a pre-sleep save on every deep-sleep entry (``knob_power.c:196``) and a one-time ADOPT + promote of the pre-seam ``knob_time`` namespace (``main.c:220-223``) — the restored instant is LAST KNOWN, never trusted. The fallback chain (``clock_sntp.c:219-243``): now < 1609459200 (pre-2021 = junk) → NVS restore (2021+ or nothing) → the DEFAULT 2026-01-24 12:00; both floors are parsed, not invented (the knob's rule gate uses its own 1600000000, ``knob_power.c:56``), and the fallback's ``settimeofday`` does NOT raise the trust flag.
+
+.. graphviz:: ../_graphs/time-chain-trust.dot
+   :alt: The trust raisers and what the flag gates
+   :align: center
+   :caption: The trust raisers — boot NTP is SYNCHRONOUS inside ``clock_init`` (``enable_ntp_sync`` at ``main.cpp:512``, timeout ``CLOCK_NTP_TIMEOUT_MS`` 10 s) and lands BEFORE the panel wakes (``wifi_manager_deinit`` follows at :541 — an associated modem's DTIM beacon steals QSPI DMA completions, task #29); the success path writes the S3's RTC and brings up home with a fresh clock. ``sntp_sync_time_cb`` (``clock_sntp.c:109``) raises the flag, force-snapshots the epoch (non-PCF builds) and releases the waiter; ``needs_sync()`` (``CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS``, 1 h) re-arms the hourly gate. Manual entry exists for the P4 only (the hub's clock icon): the commit runs ``clock_set_time`` + ``clock_sntp_set_time_trusted(true)`` + ``moon_ui_day_tick`` (``screens.c:2901-2904``) — a user-entered time IS trusted, the rejected path logs "manual time … rejected". The flag-gated legs: the knob arms its static phase on the wall bool ("a restore happened") rather than raw plausibility, and the P4's ring needs ``clock_sntp_time_trusted()`` AND (the one-shot flag OR ``now >= next_epoch``) so the default 2026-01-24 can never phantom-ring (``clock_interrupt.c:183``).
 
 One honest bench note on the P4's clock source. The curated
 ``sdkconfig.defaults.esp32p4`` pins ``CONFIG_RTC_CLK_SRC_EXT_CRYS=y``
@@ -619,10 +633,24 @@ shows the alarm screen for a rule that no longer exists. The disarm
 on zero rules is the invariant; the headless device is the test that
 proves it (a phantom wake never comes back to the desk).
 
-The whole chain — the rule write, both boards' arms, the shared
-1300 ms poll, and the action it lands in — drawn from the code:
+The whole chain, first sealed and then opened at both ends — the rule
+write, both boards' arms, the shared 1300 ms poll, and the action it
+lands in — drawn from the code:
 
 .. graphviz:: ../_graphs/alarm-lifecycle.dot
+   :alt: The alarm lifecycle overview
+   :align: center
+   :caption: The overview — one scheduler writes both boards' arms (the S3's ALM pin, the P4's ``esp_timer`` one-shot) and both lands converge on ``action_alarm_triggered`` in the LVGL task; the next fire is re-armed by the poll, so a dismiss only ends the show.
+
+.. graphviz:: ../_graphs/alarm-lifecycle-write.dot
+   :alt: The alarm rule write
+   :align: center
+   :caption: The write — ``clock_alarm_set_pomodoro_interval`` (``*/N * * * *``), ``clock_alarm_set_clock_alarm`` (``M H * * dow``) and ``clock_alarm_deactivate_all`` ("# no alarms") all go through ``clock_alarm_scheduler_write``, which rewrites ``/spiffs/alarm.txt`` WHOLE — the file IS the rule set, reloaded on boot and armed from it (entries are mutually exclusive: exactly one rule kind exists). ``clock_alarm_schedule_next(current)`` is the single arming funnel, also run after every fire; the zero-rules branch runs ``clock_clear_alarm`` + ``disarm_esp_timer`` (the disarm invariant above), the ≥1 branch caches the next time and lands ``clock_set_alarm`` + ``clock_enable_alarm(true)`` — S3: PCF85063A ALM registers + AIE; P4: the same call is a validated no-op and the one-shot carries the fire. ``clock_trigger_alarm_update`` feeds the home row — the OFF half of the write path fires it too, so a deactivate-all shows ``--:--`` immediately.
+
+.. graphviz:: ../_graphs/alarm-lifecycle-fire.dot
+   :alt: The alarm fire paths and the shared poll
+   :align: center
+   :caption: The fires — on the S3 the ALM pin sets AF and drives TCA9554 INT to EXIO3 (``IO_EXPANDER_PIN_NUM_3``, the same line the deep-sleep wake rides); ``clock_handle_interrupts`` reads the interrupts, triggers, clears AF and re-schedules. On the P4 the one-shot's callback only sets a flag on the esp_timer task (nothing UI there); the poll branch accepts flag OR wall-clock backup check (``now >= next`` catches a one-shot a time SET left stale), gated on the trust flag, then stops the one-shot and re-schedules. Both branches run inside the ONE shared poll — ``lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS = 1300)`` — whose ``clock_cb.c`` dispatchers call the registered actions DIRECTLY, in the LVGL task. The ring: backlight relight, ``g_alarm_active``, ``alarm_audio_ring_start`` (ES8311 gradual ramp; the knob is the codec-less silent board), ``g_asleep = true`` (dismissing it IS a wake event), tick → 10 ms, ``moon_ui_pause(true)`` (no baking for a screen that shows no moon), ``clock_timer_disable``, ``clock_idle_reset_timer`` (no auto-sleep while ringing), ``loadScreen(SCREEN_ID_ALARM)``. The dismiss: ``alarm_indev_read_cb`` fires on every press regardless of hit-test but only while ``g_alarm_active`` AND ``!clock_is_idle()`` — the asleep press is consumed by the earlier-registered idle-wake cb instead.
 
 The interval (pomodoro) rule's settings-side half — the three-glyph
 entry screen, the twin-roller screen whose RELEASED handler *is* the
@@ -669,13 +697,26 @@ wakes on a sustained move *away from it* — the "the clock woke itself"
 bug class, fixed at the signal level rather than with a sleep
 debounce.
 
-The full chain — one read path, two consumers on two clocks (the
-monitor's 1 Hz timer versus the orientation pipeline's 100 ms gate on
-the UI tick), the settled state as the single edge between them, and
-the 2 s press re-sync with its stability and on-axis gates — drawn
-from the code:
+The full chain, first sealed and then opened per consumer — one read
+path, two consumers on two clocks (the monitor's 1 Hz timer versus
+the orientation pipeline's 100 ms gate on the UI tick), the settled
+state as the single edge between them, and the 2 s press re-sync with
+its stability and on-axis gates — drawn from the code:
 
 .. graphviz:: ../_graphs/tilt-pipeline.dot
+   :alt: The tilt chain overview
+   :align: center
+   :caption: The overview — the QMI8658C on the shared I²C (0x6A/0x6B) serves ONE burst-read path; ``imu_is_ready()`` gates every consumer, and the knob ships ``imu_stub.c`` (ready=false) AND excludes ``moon_ui.c`` entirely — its UI sits at the base orientation and tilt never wakes it. One sample is ``|g|``-banded: outside 0.5..1.5 g it is a shake or drop and gets DROPPED (a NACK-stuck bus logs the first and every 20th consecutive failure). The third consumer, the moon's out-of-plane orbit (``moon_imu_tick``, ``moon_ui.c:2162``, asin(−gz) → low-pass, dead-zone, clamp, quantize → re-bake), is OFF by default: ``UI_MOON_ORBIT_ENABLE`` is ``n`` because the ~2 s relief-DEM re-bake cannot be served at the tilt cadence on the S3 — orientation is the tilt's only UI coupling.
+
+.. graphviz:: ../_graphs/tilt-pipeline-monitor.dot
+   :alt: The 1 Hz activity/wake monitor
+   :align: center
+   :caption: The 1 Hz monitor — ``moon_tilt_monitor_cb`` runs its OWN 1 s ``lv_timer`` (``moon_ui.c:2588``), deliberately NOT the moon tick (which is PAUSED in sleep while the wake must run there; with ``CONFIG_UI_IMU_ENABLE=n`` the timer survives only to cache the LVGL task handle). A fast EMA (α 0.5) gives ``s_pose_g`` unit-normalized (the FIRST sample seeds both EMAs — zero departure); departure is ``acos(dot)`` between pose and settled reference in degrees, never a raw sample delta (the p90 ~3.3° at-rest noise floor is why raw deltas fired "woke right after sleep entry"). Below ``UI_IMU_ACTIVITY_DEG`` (5°) the pose is SETTLED and the slow EMA (α 0.2) absorbs it into the reference — only while settled, so the ~0.4–0.7°/s at-rest drift is tracked, not fought (the ceiling bar ×α/(1−α) = 1.25°/s; α 0.1 sat AT its ceiling on a hot board). The TWO BARS are per-state thresholds on the same departure: awake the 5° activity bar holds the idle timer; asleep the deliberate-pick-up bar ``UI_IMU_WAKE_DEG`` (20°) cannot be cleared by table vibration or drift — the asleep 5..20° band is neither. A streak of 2 consecutive qualifying samples gates both bars, and the 1 Hz call site is the ≤1/s rate cap on ``clock_idle_notify_tilt_activity`` (``clock_idle.c:92``), which always resets the idle stamp and, when asleep, opens the tilt door of ``wake-doors.dot``.
+
+.. graphviz:: ../_graphs/tilt-pipeline-orient.dot
+   :alt: The 10 Hz orientation pipeline
+   :align: center
+   :caption: The orientation pipeline — ``screen_orientation_apply`` runs every 10 ms UI tick but samples only through the 100 ms gate (``ORI_SAMPLE_MS``) → 10 Hz; the monitor's 1 Hz timer does not feed it. x/y are int4-quantized (``ORI_Q_SCALE`` 8, one level = 1/8 g, clamped ±1 g) and a flat gate below 0.25 g leaves the in-plane pose UNDEFINED — orientation, window and reference frozen. The 1 s running mean (``ORI_WINDOW`` 10) is the 1 Hz low-pass; STABLE means the filtered mean holds within ONE int4 level for ``ORI_STABLE_SAMPLES`` 15 (~1.5 s). An integer dot/cross quadrant decides step ∈ {0, 90, 180, 270}° CW-positive with no atan2 and no floats, decided BEFORE the reference re-tracks — and re-tracking happens only while SETTLED and step 0, so a fast 180° flip cannot adopt its transient pose as home (the "clock woke up sideways" bug class). The step must be produced by 10 consecutive samples (~1 s) before it applies; a deliberate move costs at most ~1 s. ``v10 = ORI_BASE_V10 − step×10`` (sign via ``UI_CLOCK_ROLL_SIGN``; base 900 = +90° on the P4, else 1800 = +180° — the panel-mount offset), and ``ori_apply_v10`` pushes LVGL ``transform_rotation`` to ALL 16 screen roots, pivot centre — the rotated root's panel-sized RGB565 layer (~0.4 MB @466, ~1.0 MB @720) comes from the CLIB malloc → PSRAM (the 64 KB LVGL pool cannot hold it); hit test inverse-maps through the transform, step 0 draws direct at zero cost. The 2 s press re-sync (``action_register_orientation_touch``) is ACTIONED only if stable AND on-axis (``|dot|² ≥ 3|cross|²`` — the 2026-10-30 "flipping does not reliably work" fix: a palm released mid-flip is dropped), and it re-anchors home and pushes the base orientation.
 
 The sleep ladder: awake → light → deep
 --------------------------------------
@@ -701,9 +742,18 @@ light sleep, ``esp_deep_sleep_start`` with an RTC TIMER wake for the
 deep one (:doc:`knob display <knob-display>`).
 
 The entry order, the arm-at-entry, both guards and the one wake tail
-that climbs back — drawn from the code:
+that climbs back — first sealed, then the guard ladder opened — drawn
+from the code:
 
 .. graphviz:: ../_graphs/sleep-entry.dot
+   :alt: The sleep-entry ladder overview
+   :align: center
+   :caption: The ladder — the idle timeout fires ``action_switch_to_light_sleep_screen`` (``main.cpp:625`` registers it; the period is ``settings_idle_timeout_sec``, ``CLOCK_IDLE_TIMEOUT_SEC``, default 60 s, 60..1800, reset by any tap or tilt). The light entry: ``g_asleep`` true, ``wifi_manager_deinit`` (the radio DOWN — the airplane half of the name), UI tick 10 ms → ``UI_LIGHT_SLEEP_TICK_MS`` (100), seconds timer PAUSED, idle monitor OFF, ``moon_ui_pause(true)`` (moon static) — and THEN the deep countdown is armed (``clock_timer_enable(settings_deep_sleep_countdown_sec, 1 Hz)`` AT ENTRY): the retired dusk spin's ladder survived as exactly this, sleep depth follows the clock, never an animation. The light screen shows the clock container at ``UI_CLOCK_ALPHA_PCT`` (20 %) over the 0x51 ramp to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), the RTC countdown ticking in the PCF85063A timer (S3) / ``esp_timer`` (P4). The deep entry hides the clock container (``LV_OBJ_FLAG_HIDDEN``, re-applied EVERY entry so a wake-to-other-screens can't leak visible digits), pauses the moon, disables the spent countdown and sets ``moon_ui_panel_brightness_set(0)`` — the backlight is OFF (``g_backlight_off``), and the RTC clock update is gated on it.
+
+.. graphviz:: ../_graphs/sleep-entry-guards.dot
+   :alt: The sleep-entry guard ladder
+   :align: center
+   :caption: The guards — ``main.cpp:629`` dispatches ``action_switch_to_deep_sleep_screen`` on the LVGL task when ``settings_deep_sleep_countdown_sec`` (``UI_DEEP_SLEEP_COUNTDOWN_SEC``, default 60 s, 60..1800 — the settings-deep-sleep picker writes it) expires; demo mode refuses the transition AND calls ``clock_timer_disable`` (a dead-black panel mid-recording would ruin the take), and the P4 with a pending alarm returns to the light screen instead — its deep state is app-level (the crystal keeps running), so the software one-shot could otherwise ring from the dark, and the user's power decision keeps the device in the lighter state with the one-shot still armed.
 
 The wake paths
 --------------
@@ -739,9 +789,23 @@ resets the idle timer, which is exactly the one-way door the
 callback's comment documents). How the finger and the dial get to
 these doors in the first place — the one BSP-owned indev with its
 three co-located listeners and the knob's own polled read paths — is
-:ref:`input-chain-ui <input-chain-ui>`:
+:ref:`input-chain-ui <input-chain-ui>`. The sketch is the overview
+plus the two opened ends:
 
 .. graphviz:: ../_graphs/wake-doors.dot
+   :alt: The wake doors overview
+   :align: center
+   :caption: The overview — the three doors funnel through ``clock_trigger_idle_wake`` (``clock_cb.c``; ``main.cpp`` registers the idle-wake callback as ``action_wake_screen`` via ``clock_register_idle_wake_callback``); only the alarm-screen dismiss skips the funnel and lands on the tail directly.
+
+.. graphviz:: ../_graphs/wake-doors-doors.dot
+   :alt: The per-door wake guards
+   :align: center
+   :caption: The guards — the touch door is ``indev_read_cb`` (LV_EVENT_PRESSED/PRESSING, registered by ``clock_idle_init``, ``clock_idle.c:70/:71``): PRESSED while IDLE triggers the wake, while AWAKE the same tap only RESETS the idle timer — that asymmetry is the one-way door. The tilt door wakes only on DEPARTURE from the settled-pose EMA (two per-state bars — 5° activity awake, 20° ``UI_IMU_WAKE_DEG`` asleep — held for a 2-sample streak, ≤1/s from the 1 Hz call site); raw deltas are the "the clock woke itself" bug class, and the full chain is ``tilt-pipeline.dot``. The alarm door: ``action_alarm_triggered`` sets ``g_asleep = true`` (the ring screen counts as asleep), and while AWAKE at that screen the idle door cannot fire — ``alarm_indev_read_cb`` is the second indev cb that dismisses anyway (``g_alarm_active && !clock_is_idle()`` → ``action_wake_screen`` on the same press).
+
+.. graphviz:: ../_graphs/wake-doors-tail.dot
+   :alt: The shared wake tail
+   :align: center
+   :caption: The tail — ``action_wake_screen`` (``actions.c``, LVGL task) stops the ring FIRST (every dismiss path runs through here), relights the backlight if ``g_backlight_off``, restores the clock alpha, CONSUMES ``g_asleep`` (the stale-alarm branch: was_asleep && WiFi off → a normal wake, never hijacked), resumes the 10 ms tick and seconds timer, disables the countdown, un-pauses the moon and runs ``moon_ui_day_tick`` (re-bake only if the day rolled over), then lands the airplane screen OR the on-demand sync — the radio off the UI task via a background task (stack 6144) running ``wifi_manager_init`` + SNTP, with the UI tick upgrading the WiFi screen to airplane on the done flag (the 1.7 s wake-freeze fix; ``wifi-sync.dot`` owns the starters). The idle re-arm runs only when ``!moon_ui_replaying()`` — a touch during the boot presentation wakes the SCREEN, and the replay's tick end leg re-arms the ladder when the animation is over.
 
 .. figure:: ../img/screens/alarm.png
    :alt: The alarm screen

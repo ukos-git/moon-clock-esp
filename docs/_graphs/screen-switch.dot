@@ -1,67 +1,47 @@
-// The screen-switch fade machine: loadScreen's both-moon decision, the
-// 0x51 fade-out, and the three branches of moon_ui_screen_switched
-// (starved-fade-in rescue / fade-in leg / plain atomic). Every edge
-// verified in components/ui/ui.c (loadScreen :51 — the both-moon test
-// and ui_clock_attach_to while black) and components/ui/moon_ui.c
-// (moon_ui_screen_is_moon :3078, moon_ui_fade_out :3019, fade_ramp
-// :2946, moon_ui_screen_switched :3119 — the #34 rescue branch, the
-// while-black atomic flush, the drain witnesses). The hourly refresh
-// rides the SAME fade_ramp on its own pair of legs — that flow is
-// docs/_graphs/bake-reveal.dot; the light-sleep dim is the same ramp
-// to a floor (docs/_graphs/sleep-entry.dot).
+// The screen-switch fade machine as a black box: loadScreen's
+// both-moon decision at the top, the 0x51 fade-out, the while-black
+// reparent, and the one branch that lands the frame. The numbers and
+// the branch internals are in the detail sketches:
+//   screen-switch-fade.dot      the self-guards, the owed fade-in, the
+//                               12-step ramp, the storm drop rule
+//   screen-switch-branches.dot  the three branches of
+//                               moon_ui_screen_switched
+// Every edge verified in components/ui/ui.c (loadScreen :51 — the
+// both-moon test and ui_clock_attach_to while black) and
+// components/ui/moon_ui.c (moon_ui_screen_is_moon :3078,
+// moon_ui_fade_out :3019, fade_ramp :2946, moon_ui_screen_switched
+// :3119 — the #34 rescue branch, the while-black atomic flush, the
+// drain witnesses). The hourly refresh rides the SAME fade_ramp on
+// its own pair of legs — that flow is docs/_graphs/bake-reveal.dot;
+// the light-sleep dim is the same ramp to a floor
+// (docs/_graphs/sleep-entry.dot).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph screen_switch {
-    label="The screen-switch fade: one 0x51 decision at the top, three branches at the bottom — the new frame ALWAYS lands as ONE atomic whole-panel flush under s_rgb_mtx";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.9, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The screen switch — one 0x51 decision, three atomic branches";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    load [label="loadScreen(screenId) (ui.c:51, LVGL task)\nthe BOTH-MOON test: fade every switch except\noldId != screenId && is_moon(old) && is_moon(new)\n— airplane / WiFi / the sleep screens share the one\nmoon image: dimming it would be a fade with nothing\nto fade (moon_ui_screen_is_moon walks s_moon_roots)",
-          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dec [label="loadScreen — the\nBOTH-MOON test:\nfade, or paint plain",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    fade [label="FADE OUT — the 0x51\ndim to black; the\nfade-in is owed",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    rep [label="REPARENT WHILE\nBLACK — the shared\nclock joins the root"];
+    branch [label="THE BRANCH — ONE of\nthree; every frame is\nONE atomic flush",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    rulebox [label="THE 0x51 RULE — it\nwrites NO pixels; its\nwriters queue behind",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
-    fadeout [label="moon_ui_fade_out (moon_ui.c:3019) — self-guarded:\n!s_ready || !moon_on_lvgl() || FADE<=0 || s_orbit_baking\n→ RETURN WITHOUT PENDING (the switch paints plain).\nOtherwise s_fade_pending = true (the fade-in is owed\neither way) and s_fade_busy = true (the other 0x51\nwriters hold off); from = s_panel_pct — the TRACKED\nlevel, so after the light-sleep dim the ramp starts at\n25 % (a hard-coded 100 would flash the panel brighter)",
-             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    ramp [label="fade_ramp(from → 0, UI_SCREEN_SWITCH_FADE = 240 ms)\nFADE_STEPS = 12 — each step ONE 0x51 SPI param\ntransaction (~100 µs) under s_panel_mtx + a 20 ms wait.\npanel_hold_live() (the scan storm) → DROP ALL STEPS:\nthe panel stays at its tracked level, s_panel_pct\nuntouched is the truthful bookkeeping",
-            fillcolor="#efece4"];
-
-    reparent [label="lv_scr_load + ui_clock_attach_to(screenId):\nthe ONE shared clock widget reparents onto the new\nroot and refreshes from the RTC — the panel is still\nBLACK here, so the whole update is invisible, and the\nswitch (the wake in particular) shows the current\nminute in its one frame",
-               fillcolor="#efece4"];
-
-    switched [label="moon_ui_screen_switched (moon_ui.c:3119):\ns_moon_screen = moon_screen_has_image() (the pipelines'\ndisplay gate); leaving the moon mid-replay aborts the\nreplay (show/final/end dropped — the producer skips\nits final bake, the day-tick re-bakes when the user\nis home). Then ONE of three branches:"];
-
-    subgraph cluster_branches {
-        label="the three branches — every visible frame lands as ONE atomic whole-panel lv_refr_now under s_rgb_mtx";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        starved [label="starved-fade-in rescue (the #34 branch):\nthe bake guard won the race (boot bake set\ns_orbit_baking between fade_out and here) — the\nfade-out RAMP LANDED (s_panel_pct == 0) and the\nnew screen paints WITHOUT the fade-in. Rescue:\nraw bsp_display_brightness_set(100) under\ns_panel_mtx, IGNORING the hold — stranding a BLACK\npanel with a live app outranks one 0x51 riding the\nstorm bus (the wake path makes the same write).\nLog: \"fade-in starved by the bake guard\".\nP4 bench, 2026-11-13: pitch black, app fully alive",
-                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
-
-        fadein [label="the fade-in leg (s_fade_pending && FADE > 0):\nclear pending; the new screen's ONE atomic whole-panel\nlv_refr_now runs while the panel is STILL BLACK (the\ninvariant's atomic display, off the visible path);\ndrain witness \"switch fade-in\"; then\nfade_ramp(0 → 100, 240 ms) — the fully rendered\nscreen comes up at once; s_fade_busy = false",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        plain [label="plain atomic switch (the both-moon case, the\nself-guarded no-fade case, FADE = 0):\nONE atomic whole-panel lv_refr_now under\ns_rgb_mtx; drain witness \"screen switch\"",
-                fillcolor="#efece4"];
-    }
-
-    rule [label="the 0x51 rule (invariant exception 1): the brightness ramp writes NO pixels —\nthe CO5300 scales everything on screen at once. s_fade_busy is the 0x51 writers'\nmultiplex: the hourly legs (bake-reveal.dot) and the light-sleep dim ramp queue\nbehind it, and moon_ui_panel_brightness_set (the wake / deep-sleep / boot callers)\nrides it under the same rule — a 0x51 queued behind a strip that never completes\nwould park its writer forever (the settings-entry freeze). The old overlay fade\ncharged a full-screen lv_refr_now per step (~175 ms of QSPI strips each) and\nread as a top-to-bottom CRAWL — that is why the ramp replaced it",
-            shape=note, fillcolor="#e8e8e4", color="#525252", penwidth=1.2,
-            fontcolor="#1e3f70"];
-
-    load -> fadeout [color="#2b5fb0", penwidth=1.6, label="not the both-moon switch"];
-    load -> reparent [style=dashed, label="both-moon, or fade_out\nself-guards: no fade"];
-    fadeout -> ramp [label="from > 0"];
-    ramp -> reparent;
-    reparent -> switched;
-    switched -> starved [color="#b07d10", fontcolor="#6b4e08", label="!ready || !on_lvgl\n|| s_orbit_baking"];
-    switched -> fadein [color="#2b5fb0", penwidth=1.6, label="pending && FADE > 0"];
-    switched -> plain [label="else"];
-    ramp -> rule [style=dashed, arrowhead=none, label="the 0x51 rule"];
+    dec -> fade [color="#2b5fb0", penwidth=1.6];
+    dec -> rep [style=dashed];
+    fade -> rep;
+    rep -> branch;
+    fade -> rulebox [style=dashed, color="#b07d10"];
 }

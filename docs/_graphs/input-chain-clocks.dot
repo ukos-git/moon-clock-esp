@@ -1,0 +1,45 @@
+// THE CLOCKS' INPUT BOX opened (S3 + P4): the BSP-created POINTER
+// indev from boot to the three co-located listeners. Every edge
+// verified in main/main.cpp, the vendored BSP
+// components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c
+// and managed_components/lvgl__lvgl/src/indev/lv_indev.c; the guard
+// line refs, chip chains and pin numbers live in the page caption.
+// The chain in black boxes is docs/_graphs/input-chain.dot (this
+// page); the knob side is input-chain-knob.dot; the wake side of the
+// idle listener is wake-doors.dot and the 2 s press is
+// tilt-pipeline.dot. FONTS: 12 pt = the page's 16 px body text at
+// 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph input_chain_clocks {
+    rankdir=TB;
+    label="The clocks opened — one BSP indev, three guarded listeners";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    boot [label="app_main —\nbsp_display_start\n(+ unlock)"];
+    s3dev [label="S3 — CST9217\nINT line wired:\nIRQ mode, ISR just\nsignals a semaphore",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    p4dev [label="P4 — GT911\nINT = NC, pure\npolled",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    readtimer [label="the ONE POINTER indev —\nLVGL's read timer,\n33 ms on every board",
+               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    idlel [label="idle door — resets\nalways, wakes only\nfrom IDLE",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    resil [label="2 s press — acts\nonly stable AND\non-axis",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    alarml [label="alarm dismiss —\nonly while ringing\nand awake",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    boot -> s3dev [label="esp32s3"];
+    boot -> p4dev [label="esp32p4"];
+    s3dev -> readtimer;
+    p4dev -> readtimer;
+    readtimer -> idlel [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    readtimer -> resil [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    readtimer -> alarml [color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+}

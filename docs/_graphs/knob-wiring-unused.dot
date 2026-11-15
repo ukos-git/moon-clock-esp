@@ -1,0 +1,45 @@
+// The knob's other half, drawn because its ABSENCE is the story
+// (vendor schematic; "untouched" = wired, present, never driven by
+// this firmware):
+//   PDM mic: CLK 45, DATA 46.
+//   SDMMC: CMD 3, CLK 4, D0-D3 5/6/42/2 — the board has the pins, no
+//   socket; the TF hour cache the S3/P4 use does not exist here.
+//   Audio: I2S to a CH445P mux -> PCM5100APWR DAC.
+//   Native USB: D+/D- 19/20 = the 303a:1001 flash path.
+//   The inter-MCU UART (TX 38 / RX 48 <-> 23 / 18) is dashed: the
+//   two FACTORY demos talk over it; this firmware never does.
+//   ESP32-U4WDH is a PEER, not a peripheral: classic-ESP32 core,
+//   dual 240 MHz, 4 MB flash, its own EC2 (A 19 / B 22) and its own
+//   I2S (25/26/27), and the CH340-family bridge U10 (1a86:7523) on
+//   its UART0 = the working USB side in one plug orientation. It
+//   runs factory firmware.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_wiring_unused {
+    rankdir=LR;
+    label="Wired but untouched — and the U4WDH peer across an idle UART";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2f2",
+          color="#6b7280", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#b0b0ac", penwidth=1.3];
+
+    s3 [label="ESP32-S3R8", fillcolor="#efece4", color="#525252",
+        fontcolor="#000000", penwidth=1.6];
+    pdm [label="PDM mic — CLK 45\n· DATA 46"];
+    sd [label="SDMMC — CMD 3 ·\nCLK 4 · D0-3\n5/6/42/2"];
+    aud [label="I²S → CH445P\nmux → PCM5100\nAPWR DAC"];
+    usb [label="USB D+/D- 19/20\n= 303a:1001\nflash path"];
+    uart [label="inter-MCU UART —\nTX 38/RX 48 ↔\n23/18 — unused"];
+    u4 [label="U4WDH peer —\ndual 240 MHz ·\nEC2 A19/B22 ·\nI²S 25–27", style="rounded,filled,dashed"];
+
+    s3 -> pdm [style=dashed];
+    s3 -> sd [style=dashed];
+    s3 -> aud [style=dashed];
+    s3 -> usb [style=dashed];
+    s3 -> uart [style=dashed];
+    uart -> u4 [style=dashed];
+}

@@ -1,0 +1,51 @@
+// WHAT THE PACKAGE WRITES opened: the three writers, their artifacts,
+// and the two firmware ends the artifacts land in. assets.gen_assets_c
+// -> out/<t>/moon_assets.bin (+ albedo.bin/dem.bin and the manifest;
+// 2,470,400 / 4,194,304 / 897,536 B for s3 / p4 / knob — the storage
+// ladder owns those bytes); assets.gen_consts_header ->
+// components/moon/generated/<t>/moon_consts.h, the header the firmware
+// COMPILES (pole, W0, the DEM range, the sizes); the entry point is
+// python -m moon.assets --target s3 p4 knob, choices from
+// constants.TARGETS. validate writes the fitted LUT file + the
+// render/ref/diff PNGs (:203-206) and prints "paste into constants.py
+// as TONE_LUT" (:170); calibrate PRINTS the pole + prime-meridian fit
+// (:231-240) — neither module ever rewrites constants.py by itself.
+// animation.make_frames -> anim.NNN.png + make_mp4 -> moon_anim.mp4
+// via SUBPROCESSED ffmpeg (libx264, yuv420p, crf 20). The root
+// CMakeLists' FATAL_ERROR trio referees both firmware ends
+// (build-seam.dot, assets-pipeline.dot own that story). The sealed
+// version is python-surface.dot; the importers are
+// python-surface-consumers.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph python_surface_products {
+    rankdir=LR;
+    label="What the package writes — writers, artifacts, firmware ends";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dfe6f1",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    w_assets [label="assets.py —\ngen_assets_c +\ngen_consts_header",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    w_validate [label="validate.py —\nthe LUT fit", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+    w_animation [label="animation.py —\nthe sweep", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    blob [label="moon_assets.bin\n+ manifest", fillcolor="#f6f1e2", color="#b07d10"];
+    consts_h [label="generated/<t>/\nmoon_consts.h", fillcolor="#f6f1e2", color="#b07d10"];
+    lut_out [label="fitted LUT +\nrender/ref/diff PNGs", fillcolor="#f6f1e2", color="#b07d10"];
+    sweep [label="anim.NNN.png +\nmoon_anim.mp4", fillcolor="#f6f1e2", color="#b07d10"];
+
+    fw [label="THREE FIRMWARES\nheader in ·\nblob flashed", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    w_assets -> blob [color="#2b5fb0", penwidth=1.6];
+    w_assets -> consts_h [color="#2b5fb0", penwidth=1.6];
+    w_validate -> lut_out;
+    w_animation -> sweep;
+    blob -> fw [style=dashed];
+    consts_h -> fw [style=dashed];
+}

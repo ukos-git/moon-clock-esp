@@ -1,0 +1,71 @@
+// THE SILICON opened: which hand interrogates which chip, at which
+// cadence (the cadence ladder numbers them — verification/performance.
+// rst). Every edge read out of the live source before drawing: the LVGL
+// indev layer reads the touch chip every LV_DEF_REFR_PERIOD = 33 ms
+// (lv_indev.c:105 read_timer; =33 in all three sdkconfigs); the 1 Hz
+// lv_timer tilt monitor asks the QMI8658C (chip streams at 1000 Hz ODR
+// — one ask per 1000 asks); the clock tick reads PCF85063A @0x51 + the
+// TCA9554's INT pin (EXIO_RTC_INT_PIN = PIN_NUM_3) every
+// RTC_POLL_INTERVAL_MS 1300 (main.cpp:30; the P4 leg is compiled out by
+// CLOCK_USE_PCF85063A=n); the hourly/replay producers interrogate the
+// microSD (S3 GPSPI3 sdspi, P4 4-bit SDMMC); play_task streams the
+// ES8311; the P4's sync crosses the SDIO to the remote C6. The knob:
+// knob_enc polls the EC1 quadrature dial every ENC_POLL_MS 3
+// (knob_board_encoder.c:32) but FREERTOS_HZ=100 makes pdMS_TO_TICKS(3)
+// = 0, so the clamp (poll < 1 ? 1 : poll) lands it at ONE tick = 10 ms;
+// knob_lvgl's indev polls the CST816S @0x15 at 33 ms (the INT line GPIO
+// 9 is wired but unused there — it is the EXT1 tap-wake instead); the
+// battery lv_timer asks the ADC every 60 s (knob_battery_ui.c:204);
+// the knob has NO IMU (the imu shim answers ready=false) and NO RTC
+// (the 1300 ms tick is software-synthesized, knob/main/main.c:492-493).
+// The crew in black boxes is docs/_graphs/task-roster.dot (this page);
+// the crews themselves are docs/_graphs/task-roster-clocks.dot and
+// task-roster-knob.dot. FONTS: 12 pt = the page's 16 px body text at
+// 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph task_roster_chips {
+    rankdir=LR;
+    label="The silicon — every periodic ask with its cadence on the wire";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.8];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#b07d10", penwidth=1.3, fontcolor="#6b4e08"];
+
+    lvgl [label="the painter\n(clock crew)", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    mill [label="the mill\nhourly · replay", fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    shot1 [label="wifi_sync", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    shot2 [label="play_task", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    klvgl [label="knob_lvgl", fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    kenc [label="knob_enc", fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+
+    co5300 [label="CO5300 · QSPI", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    jd9365 [label="JD9365 · MIPI-DSI", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    sh8601 [label="SH8601 · QSPI", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    cst9217 [label="CST9217 touch", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    gt911 [label="GT911 @0x5D/0x14", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    cst816 [label="CST816S @0x15\nINT GPIO 9 = EXT1 wake", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    imu [label="QMI8658C @0x6A/0x6B\nstreams 1000 Hz", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    rtc [label="PCF85063A @0x51\nbehind the TCA9554 INT", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    card [label="microSD\nS3 sdspi · P4 SDMMC", fillcolor="#e8e8ea", color="#525252"];
+    es8311 [label="ES8311 — I2C + I2S", fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
+    c6 [label="ESP32-C6 — remote radio", fillcolor="#e0d7f0", color="#7c3aed", fontcolor="#4c1d95"];
+    ec1 [label="EC1 dial — quadrature", fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    adc [label="battery ADC1_CH0", fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+
+    lvgl -> co5300 [label="flush"];
+    lvgl -> jd9365 [label="flush"];
+    lvgl -> cst9217 [label="indev 33 ms"];
+    lvgl -> gt911 [label="indev 33 ms"];
+    lvgl -> imu [label="1 Hz vs 1000 Hz"];
+    lvgl -> rtc [label="1.3 s poll (S3)"];
+    mill -> card [label="hour cache · replay"];
+    shot1 -> c6 [style=dashed, label="P4 only, over SDIO"];
+    shot2 -> es8311 [label="I2S"];
+    klvgl -> sh8601 [label="flush"];
+    klvgl -> cst816 [label="indev 33 ms"];
+    klvgl -> adc [label="every 60 s"];
+    kenc -> ec1 [label="3 ms nominal,\n10 ms effective"];
+}

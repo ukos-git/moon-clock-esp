@@ -1,0 +1,62 @@
+// THE DEVICE CALLERS opened: the only two files the shipped devices
+// run moon from, and every site they call (blue edges are paths a
+// shipped frame took; amber prices the day-scan guard). Verified in
+// code before drawing (comment-stripped greps):
+//   components/ui/moon_ui.c: geometry six sites (boot bake :1516,
+//     hourly producer :1684, replay warmup :2010, orbit :2107, plus the
+//     new-moon scan :1852/:1867); whole bake three (:1544 boot, :1699
+//     hourly producer, :2022 orbit batch); bake_rows two (hourly bounce
+//     :1287, orbit rows :2124, both dark_zero 1); gray565 EIGHT convert
+//     sites in four roles — canonical convert moon_convert_to_rgb
+//     :1458, publishes :1715/:1982/:2037 (after the s_hourly_gray ->
+//     s_frame memcpy), heals :1242 (moon_reveal_restore) and :1363
+//     (designed exit), row converts :1402 (reveal band) and :2133
+//     (orbit rows); set_event four (producers :1536/:1653/:2006 + the
+//     replay's set_event(NULL) :1934); classify is NEVER called
+//     directly on the LVGL task — the static wrapper
+//     moon_event_classify_here :1136-1150 routes cold day scans to
+//     core 1 (worker :1126, day tick :2699); seam reads :1520/:1525,
+//     eager warmup :2620 ("moon assets unavailable" guard).
+//   knob/components/knob_moon/knob_moon.c (the knob's whole moon
+//     caller): geometry :118, bake_rows row-by-row :128/:145
+//     (dark_zero 1), gray565 per row :133/:157, set_event :83,
+//     classify :82/:94, any :119, signature :85/:95, seam :55/:56 —
+//     its header comment :9-13 calls the bake path the identity
+//     moon_rotate "by construction, not hope".
+//   Neither device file calls moon_rotate or moon_gray565_set_warm —
+//     warm is the shipped default.
+// The sealed version is api-surface.dot (this page); the host tools
+// are api-surface-host.dot; the contract census is
+// api-surface-headers.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph api_surface_device {
+    rankdir=LR;
+    label="The device callers opened — every call the shipped frames make";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dfe6f1",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#2b5fb0", penwidth=1.3];
+
+    ui [label="moon_ui.c", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    knob [label="knob_moon.c", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    guard [label="the classify_here\nguard — never the\nLVGL task", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    geom [label="geometry — ×6\non the clock"];
+    bake [label="whole bake — ×3"];
+    bakerows [label="bake_rows — ×2;\nknob: one row\nper lock"];
+    lut [label="the tone trio —\n8 converts, ×4\nevent"];
+    evclass [label="classify"];
+    esp_be [label="the device\nbackend", fillcolor="#f6f1e2", color="#b07d10"];
+
+    ui -> geom; ui -> bake; ui -> bakerows; ui -> lut;
+    ui -> guard [color="#b07d10", penwidth=1.6];
+    ui -> esp_be;
+    guard -> evclass [color="#b07d10"];
+    knob -> geom; knob -> bakerows; knob -> lut;
+    knob -> evclass; knob -> esp_be;
+}

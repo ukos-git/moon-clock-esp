@@ -257,6 +257,13 @@ static const char *TAG = "moon_ui";
 #ifndef CONFIG_UI_MOON_BAKE_REVEAL
 #define CONFIG_UI_MOON_BAKE_REVEAL 0
 #endif
+/* Reveal pacing instrumentation (the TEST_BAKE_REVEAL_TRACE test hook, the
+ * reveal section): producer-strip / displayed-band / gated-tick lines. The
+ * 0 fallback follows the n-undefined rule; everything it gates compiles
+ * out when off. */
+#ifndef CONFIG_TEST_BAKE_REVEAL_TRACE
+#define CONFIG_TEST_BAKE_REVEAL_TRACE 0
+#endif
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
 #endif
@@ -881,91 +888,97 @@ static void drain_recovery(const char *site, int probe, const char *why) {
  *    and only there; the RTC-FAST mirror + throttled ISR log (capture 9)
  *    proved the callback side, not the poller, is dead. So the drain
  *    now holds s_panel_mtx across the WHOLE submit+witness window (no
- *    drain call site holds it -- audited 2026-11-13); healthy hold
- *    ~40 ms, full-anomaly hold ~620 ms, both a fraction of the 3 s +
- *    3 s panel watchdog. Serialization still does NOT prevent the loss
+ *    drain call site holds it -- audited 2026-11-13); the hold is a few
+ *    tens of ms (bench note below), a fraction of the 3 s + 3 s panel
+ *    watchdog. Serialization still does NOT prevent the loss
  *    (it lives inside the GPSPI/io driver -- see the heal branch), but
  *    it makes the witness AIRTIGHT: with the queue exclusive, an
  *    accepted probe whose own completion stays silent is the driver
  *    eating its flag -- healed in place; a probe that cannot even be
  *    accepted is a wedged queue -- restarted at the site (budget
- *    above). Healthy cost: one row write + ~10 ms. */
+ *    above).
+ *
+ *    The anomaly is the NORMAL case, not the rare one (bench
+ *    2026-11-15, bake-reveal trace): every probe that follows a
+ *    multi-strip lv_refr_now freezes its own completion -- 6/6 on the
+ *    reveal legs, and the capture-7-era boot logs already carried
+ *    "strips 19/19 per frame, probe 0/2". The old ladder burned two
+ *    300 ms poll windows (a de-facto ~640 ms per verified flush) before
+ *    the same heal; the witness now grants ONE 30 ms grace (a genuinely
+ *    delivered completion lands within ~1-10 ms, per the arm-row test)
+ *    and heals straight away -- ~50 ms. The second probe's
+ *    disambiguation (a depth-1 accept as proof the first completed) is
+ *    moot: the heal is the driver's own drain loop, a safe no-op over
+ *    bookkeeping that in fact completed; a merely-LATE completion is
+ *    reaped by that loop instead of ending in a false "swallowed" log. */
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
     static DRAM_ATTR uint16_t s_drain_row[BSP_LCD_H_RES];
     if (panel_hold_live())
         return;                                 /* rule 2: the preceding flush never reached the bus */
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY); /* rule 3, see audit note above */
-    for (int probe = 0; probe < 2; probe++) {
-        /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
-         * free by the time the probe reaches it (attempt-0 accept). */
-        vTaskDelay(pdMS_TO_TICKS(20));
-        /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
-         * (s_orig_draw) on this handle -- a NULL here is a core-0
-         * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
-         * is what the first drain-verify build did on its very first dusk
-         * frame. The direct-write seam always passes the real handle.
-         * strict: see rule 2 -- no phantom accepts under a late hold. */
-        esp_err_t drain = moon_panel_draw_bitmap_locked(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES,
-                                                        s_drain_row, true);
-        if (drain != ESP_OK) {
-            drain_recovery(site, probe, "the pending write never released the depth-1 queue");
-            xSemaphoreGive(s_panel_mtx); /* only reached on budget exhaustion */
-            return;
-        }
-        if (!s_panel_witness) {
-            xSemaphoreGive(s_panel_mtx);
-            return; /* witness not armed: accept-only, the capture-4 behaviour */
-        }
-        const uint32_t c0 = s_panel_done_cnt;
-        for (int i = 0; i < 30 && s_panel_done_cnt == c0; i++)
-            vTaskDelay(pdMS_TO_TICKS(10));
-        if (s_panel_done_cnt != c0) {
-            xSemaphoreGive(s_panel_mtx);
-            return; /* this probe's own completion was witnessed */
-        }
-        if (probe == 1) {
-            /* The queue-exclusive probe was accepted yet its own callback
-             * stayed silent. The driver's own arithmetic then pins the
-             * loss: ret_queue delivery and post_cb run back-to-back in the
-             * ISR (spi_master.c, spi_intr: post then send), so "no
-             * callback" cannot mean "no completion" -- what died is the
-             * per-transaction en_trans_done_cb flag, memset by the io
-             * driver's unconditional pool[0] recycle
-             * (esp_lcd_panel_io_spi.c:224) whenever a stale ret_queue
-             * entry (the polling-command double-post -- the GPSPI ISR has
-             * no host->polling guard) let the inflight bookkeeping run
-             * ahead. That is the lost-trans-done family, and it lives
-             * below anything the public API can reach: co5300's per-draw
-             * CASET/RASET/RAMWR polling is the trigger, IDF-internal the
-             * bug. Recover IN PLACE instead of restarting: the stale
-             * entries are just the io's bookkeeping -- a no-op
-             * tx_param(-1) runs the driver's own drain loop over ALL
-             * inflight entries and re-arms the flush queue clean. (If a
-             * completion were ever truly undelivered that call parks in
-             * get_trans_result under the panel mutex and the panel
-             * watchdog restarts in 3 s + 3 s -- the honest fallback for
-             * a wedge, with the log below naming the site.) */
-            const moon_panel_io_spi_view_t *v = (const moon_panel_io_spi_view_t *)board_panel_io();
-            ESP_LOGW(TAG,
-                     "drain verify after %s: completion swallowed (counter frozen at %lu; slot %s "
-                     "(fn %p ctx %p, mine %p), last accepted %s); healing the flush-queue bookkeeping",
-                     site, (unsigned long)c0,
-                     (v && v->on_color_trans_done == moon_panel_trans_done_cb) ? "MINE" : "STOLEN",
-                     v ? (const void *)v->on_color_trans_done : NULL, v ? v->user_ctx : NULL,
-                     (const void *)moon_panel_trans_done_cb, s_last_accept_desc);
-            esp_err_t heal = esp_lcd_panel_io_tx_param(board_panel_io(), -1, NULL, 0);
-            if (heal != ESP_OK) {
-                drain_recovery(site, probe, "completion swallowed AND the heal was rejected");
-            }
-            xSemaphoreGive(s_panel_mtx);
-            return;
-        }
-        /* else: ambiguous silence -- retry once; with the queue exclusive
-         * this should be the µs race (done landing between submit and
-         * snapshot) at worst, and the second probe's ACCEPT is itself the
-         * proof that the first completed (depth-1 FIFO). */
+    /* One probe, one short grace, straight to the heal (see the header
+     * note: post-flush probes swallow deterministically). */
+    /* 20 ms lead-in: a strip DMAs in ~10 ms, so a healthy queue is
+     * free by the time the probe reaches it (attempt-0 accept). */
+    vTaskDelay(pdMS_TO_TICKS(20));
+    /* s_panel, NOT NULL: the wait loop calls the real draw_bitmap
+     * (s_orig_draw) on this handle -- a NULL here is a core-0
+     * LoadProhibited (EXCVADDR 0x2c, the co5300 panel ops deref), which
+     * is what the first drain-verify build did on its very first dusk
+     * frame. The direct-write seam always passes the real handle.
+     * strict: see rule 2 -- no phantom accepts under a late hold. */
+    esp_err_t drain =
+        moon_panel_draw_bitmap_locked(s_panel, 0, BSP_LCD_H_RES - 1, BSP_LCD_H_RES, BSP_LCD_H_RES, s_drain_row, true);
+    if (drain != ESP_OK) {
+        drain_recovery(site, 0, "the pending write never released the depth-1 queue");
+        xSemaphoreGive(s_panel_mtx); /* only reached on budget exhaustion */
+        return;
     }
+    if (!s_panel_witness) {
+        xSemaphoreGive(s_panel_mtx);
+        return; /* witness not armed: accept-only, the capture-4 behaviour */
+    }
+    const uint32_t c0 = s_panel_done_cnt;
+    for (int i = 0; i < 3 && s_panel_done_cnt == c0; i++)
+        vTaskDelay(pdMS_TO_TICKS(10));
+    if (s_panel_done_cnt != c0) {
+        xSemaphoreGive(s_panel_mtx);
+        return; /* this probe's own completion was witnessed */
+    }
+    /* The queue-exclusive probe was accepted yet its own callback
+     * stayed silent. The driver's own arithmetic then pins the
+     * loss: ret_queue delivery and post_cb run back-to-back in the
+     * ISR (spi_master.c, spi_intr: post then send), so "no
+     * callback" cannot mean "no completion" -- what died is the
+     * per-transaction en_trans_done_cb flag, memset by the io
+     * driver's unconditional pool[0] recycle
+     * (esp_lcd_panel_io_spi.c:224) whenever a stale ret_queue
+     * entry (the polling-command double-post -- the GPSPI ISR has
+     * no host->polling guard) let the inflight bookkeeping run
+     * ahead. That is the lost-trans-done family, and it lives
+     * below anything the public API can reach: co5300's per-draw
+     * CASET/RASET/RAMWR polling is the trigger, IDF-internal the
+     * bug. Recover IN PLACE instead of restarting: the stale
+     * entries are just the io's bookkeeping -- a no-op
+     * tx_param(-1) runs the driver's own drain loop over ALL
+     * inflight entries and re-arms the flush queue clean. (If a
+     * completion were ever truly undelivered that call parks in
+     * get_trans_result under the panel mutex and the panel
+     * watchdog restarts in 3 s + 3 s -- the honest fallback for
+     * a wedge, with the log below naming the site.) */
+    const moon_panel_io_spi_view_t *v = (const moon_panel_io_spi_view_t *)board_panel_io();
+    ESP_LOGW(TAG,
+             "drain verify after %s: completion swallowed (counter frozen at %lu; slot %s "
+             "(fn %p ctx %p, mine %p), last accepted %s); healing the flush-queue bookkeeping",
+             site, (unsigned long)c0, (v && v->on_color_trans_done == moon_panel_trans_done_cb) ? "MINE" : "STOLEN",
+             v ? (const void *)v->on_color_trans_done : NULL, v ? v->user_ctx : NULL,
+             (const void *)moon_panel_trans_done_cb, s_last_accept_desc);
+    esp_err_t heal = esp_lcd_panel_io_tx_param(board_panel_io(), -1, NULL, 0);
+    if (heal != ESP_OK) {
+        drain_recovery(site, 0, "completion swallowed AND the heal was rejected");
+    }
+    xSemaphoreGive(s_panel_mtx);
 #else
     (void)site;
 #endif
@@ -1176,27 +1189,43 @@ static void moon_invalidate_all(void) {
  * flags compile unconditionally (cheap) so the hang-context dump shows
  * them even with the feature off. */
 enum { REVEAL_NONE = 0, REVEAL_HOURLY, REVEAL_REPLAY_FINAL };
-static volatile int s_reveal_owner;      /* whose bake is being revealed */
-static volatile uint32_t s_reveal_pub;   /* rows fully baked into the bounce */
-static volatile uint32_t s_reveal_shown; /* rows the tick has displayed */
-static volatile bool s_reveal_clear;     /* the black canvas is not shown yet */
-static volatile bool s_reveal_dirty;     /* s_rgb holds reveal pixels: an abort must heal */
-static volatile bool s_reveal_stop;      /* finish/pause asked the producer to stop */
-/* Reveal strip height: 20 states on either panel (20 rows x 20 on the S3
- * 400, 26 x 25 on the P4 650). Small enough that the 50 ms tick remains
- * the visible rate limiter against the bake (a strip completes in ~65-95
- * ms), large enough that each band flush stays a fraction of a panel
- * write -- LVGL still drains through the BSP's own buffer strips, so the
- * S3's 32 KiB SPI-DMA cap is untouched. */
+static volatile int s_reveal_owner;            /* whose bake is being revealed */
+static volatile uint32_t s_reveal_pub;         /* rows fully baked into the bounce */
+static volatile uint32_t s_reveal_shown;       /* rows the tick has displayed */
+static volatile bool s_reveal_clear;           /* the black canvas is not shown yet */
+static volatile bool s_reveal_dirty;           /* s_rgb holds reveal pixels: an abort must heal */
+static volatile bool s_reveal_stop;            /* finish/pause asked the producer to stop */
+static volatile int64_t s_reveal_last_show_ms; /* tick's last shown state (ms); the producer stamps
+                                                * it at ARM so the first bands drip, not collapse */
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+static volatile int64_t s_trace_arm_us; /* producer's arm stamp (the trace's t0) */
+#endif
+/* Reveal strip height: 40 states on the S3 400 (40 x 10), 50 on the P4
+ * 650 (50 x 13) -- the user's 2026-11-15 call ("I currently only see
+ * two... we can add more"): with the drain witness paid in ~50 ms
+ * (bench-proven, the drain-verify note) and one strip per tick, every
+ * strip lands as its own state; the strip height only sets how fine
+ * those states are. The S3 band payload (10 rows x 400 px x 2 B = 8
+ * KiB) stays well under the 23,300 B strip cap; LVGL still drains
+ * through the BSP's own buffer strips, so the 32 KiB SPI-DMA cap is
+ * untouched. */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_REVEAL_ROWS 26
+#define MOON_REVEAL_ROWS 13
 #else
-#define MOON_REVEAL_ROWS 20
+#define MOON_REVEAL_ROWS 10
 #endif
 #if (MOON_PX % MOON_REVEAL_ROWS) != 0
 #error "MOON_PX must be a multiple of MOON_REVEAL_ROWS"
 #endif
-#define REVEAL_CATCHUP_WAIT_MS 1500 /* bounded wait for the tick to land the tail */
+#define REVEAL_CATCHUP_WAIT_MS                                                                                         \
+    2500 /* bounded wait for the tick to land the tail (one strip per                                                  \
+          * tick paces the tail at ~50 ms/strip: ~40 strips of drip                                                    \
+          * need ~2 s -- the old bound would truncate a full reveal                                                    \
+          * into the heal path) */
+#define REVEAL_PACE_WINDOW_MS                                                                                          \
+    400 /* tick "in rhythm" = showed a state this recently: drip ONE strip per tick (the brief);                       \
+         * longer = the tick was parked (a gate) -> resume collapses to the watermark instead of                       \
+         * dripping strips a parked viewer never saw */
 
 #if CONFIG_UI_MOON_BAKE_REVEAL
 
@@ -1236,8 +1265,15 @@ static void moon_reveal_bake(int owner, const moon_geom_t *g, const uint8_t *alb
     s_reveal_dirty = false;
     s_reveal_clear = true;
     s_reveal_stop = false;
+    s_reveal_last_show_ms = esp_timer_get_time() / 1000; /* "in rhythm" from the first tick */
     xSemaphoreGive(s_rgb_mtx);
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    ESP_LOGI(TAG, "reveal trace: ARM owner %d (%d px / %d rows)", owner, MOON_PX, MOON_REVEAL_ROWS);
+#endif
     const int64_t t0 = esp_timer_get_time();
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    s_trace_arm_us = t0;
+#endif
     int y = 0;
     while (y < MOON_PX) {
         if (s_reveal_stop || (abort_flag && *abort_flag))
@@ -1245,6 +1281,9 @@ static void moon_reveal_bake(int owner, const moon_geom_t *g, const uint8_t *alb
         int y1 = y + MOON_REVEAL_ROWS;
         if (y1 > MOON_PX)
             y1 = MOON_PX;
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+        const int64_t strip_t0 = esp_timer_get_time();
+#endif
         moon_bake_rows(g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                        MOON_ALB_W, MOON_ALB_H, y, y1, /*dark_zero=*/1, /*dk_sup=*/0.0f, bev);
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
@@ -1252,6 +1291,11 @@ static void moon_reveal_bake(int owner, const moon_geom_t *g, const uint8_t *alb
                                       * the tick's row reads (the orbit rule) */
         xSemaphoreGive(s_rgb_mtx);
         y = y1;
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+        ESP_LOGI(TAG, "reveal trace: strip ->%d baked %lld ms +%lld ms (owner %d)", y,
+                 (long long)((esp_timer_get_time() - strip_t0) / 1000), (long long)((esp_timer_get_time() - t0) / 1000),
+                 owner);
+#endif
         vTaskDelay(1); /* every strip: IDLE1 + TWDT oxygen (the orbit/knob bake cadence) */
     }
     /* Let the tick land the tail (bounded -- a parked or starved tick
@@ -1285,9 +1329,30 @@ static void moon_bake_reveal_service(void) {
      * heals / resumes when the panel frees (dirty persists until then).
      * s_fade_busy is DELIBERATELY not a gate: during the hourly the
      * reveal leg IS the 0x51 writer that pays the owed fade-in. */
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    /* Same five gates, read once so the gated dump can name them (all
+     * cheap flag reads; the hold's expiry self-heal is time-driven
+     * anyway). bits: 1 screen, 2 hold, 4 idle, 8 fade, 16 sweep. */
+    const int gates = (!s_moon_screen) | (panel_hold_live() << 1) | (clock_is_idle() << 2) | (s_fade_pending << 3) |
+                      (s_orbit_sweeping << 4);
+    if (gates) {
+        static int64_t s_trace_gate_ms; /* tick context only */
+        const int64_t now_ms = esp_timer_get_time() / 1000;
+        if (s_reveal_owner != REVEAL_NONE && now_ms - s_trace_gate_ms >= 1000) {
+            s_trace_gate_ms = now_ms;
+            ESP_LOGI(TAG, "reveal trace: GATED 0x%02x pub=%u shown=%u +%lld ms", gates, (unsigned)s_reveal_pub,
+                     (unsigned)s_reveal_shown, (long long)((esp_timer_get_time() - s_trace_arm_us) / 1000));
+        }
+        return;
+    }
+#else
     if (!s_moon_screen || panel_hold_live() || clock_is_idle() || s_fade_pending || s_orbit_sweeping)
         return;
+#endif
     int state = 0; /* 1 = canvas shown, 2 = strip band shown, 3 = heal */
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    uint32_t trace_from = 0; /* band's first row (the trace line) */
+#endif
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     if (s_reveal_owner == REVEAL_NONE) {
         if (s_reveal_dirty) { /* backstop heal: finish/pause already cover the
@@ -1312,10 +1377,24 @@ static void moon_bake_reveal_service(void) {
         lv_refr_now(NULL);
         state = 1;
     } else {
+        /* The brief's "one completed strip band per 50 ms tick": while the
+         * tick is in rhythm it advances by ONE strip, so every computed
+         * strip becomes its own visible state (the producer is free-run:
+         * the watermark would outrun the panel and collapse strips). The
+         * watermark only wins right after a park (the tick showed nothing
+         * for REVEAL_PACE_WINDOW_MS -- gated by hold/idle/fade/sweep):
+         * stale strips are not worth dripping to a viewer who never saw
+         * the recent ones. */
         uint32_t to = s_reveal_pub;
         if (to > (uint32_t)MOON_PX)
             to = (uint32_t)MOON_PX;
+        if (to > s_reveal_shown + (uint32_t)MOON_REVEAL_ROWS &&
+            esp_timer_get_time() / 1000 - s_reveal_last_show_ms <= REVEAL_PACE_WINDOW_MS)
+            to = s_reveal_shown + (uint32_t)MOON_REVEAL_ROWS;
         if (to > s_reveal_shown) {
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+            trace_from = s_reveal_shown;
+#endif
             for (uint32_t r = s_reveal_shown; r < to; r++) {
                 const uint8_t *frow = &s_hourly_gray[(size_t)r * MOON_PX];
                 uint16_t *rrow = &s_rgb[(size_t)r * MOON_PX];
@@ -1331,13 +1410,24 @@ static void moon_bake_reveal_service(void) {
             s_reveal_shown = to;
             s_reveal_dirty = true;
             lv_refr_now(NULL);
+            s_reveal_last_show_ms = esp_timer_get_time() / 1000;
             state = 2;
         }
     }
     xSemaphoreGive(s_rgb_mtx);
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    const int64_t pre_drain_us = esp_timer_get_time();
+#endif
     if (state)
         moon_panel_drain_verify(state == 1 ? "bake reveal clear"
                                            : (state == 3 ? "bake reveal restore" : "bake reveal"));
+#if CONFIG_TEST_BAKE_REVEAL_TRACE
+    if (state)
+        ESP_LOGI(TAG, "reveal trace: %s rows %u..%u +%lld ms (witness %lld ms)",
+                 state == 1 ? "CANVAS" : (state == 3 ? "HEAL " : "band "), (unsigned)trace_from,
+                 (unsigned)s_reveal_shown, (long long)((esp_timer_get_time() - s_trace_arm_us) / 1000),
+                 (long long)((esp_timer_get_time() - pre_drain_us) / 1000));
+#endif
     /* Hourly choreography (user decision 2026-11-14): the brightness ramp
      * back starts with the FIRST computed strip instead of after the whole
      * bake -- the dark window is the fade, not fade + bake. The owed

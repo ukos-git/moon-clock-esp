@@ -1,0 +1,51 @@
+// The arm side of the scan hold (task #30) — the ordering rule and
+// the repro, verified in code before drawing:
+//   settings_wifi_screen_refresh calls scan_panel_hold_arm() BEFORE
+//   wifi_scan_begin — the storm starts when the scan task reaches
+//   esp_wifi_init, not when the screen opens.
+//   Leaving mid-scan (password -> list -> home) deliberately does NOT
+//   cut the guard — the user's path lands the home switch's atomic
+//   flush INSIDE the running storm. The first cut of the fix released
+//   from the settings screen's own tick and from loadScreen, which
+//   re-opened the drop exactly on the user's path.
+//   The scan task: esp_wifi_init firmware-load + the active scan —
+//   the completion-thief (bench repro, 2026-11-12: ~400 co5300 write
+//   failures + 2 silently DROPPED strips over the clock row
+//   y 176..214 / 214..252 in ~3 s).
+//   The guard: moon_ui_panel_traffic_hold_ext — REFCOUNTED, 45 s cap
+//   (covers the 0-AP four-retry worst case); list re-entry while a
+//   hold is live EXTENDS the cap instead of double-guarding.
+//   While held, panel writers are stubbed and flush_cb answers READY
+//   — the drop is permanent: nothing re-invalidates those strips.
+// The sealed version is scan-panel-hold.dot; the release side is
+// scan-panel-hold-release.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph scan_hold_arm {
+    rankdir=TB;
+    label="Arming — the guard starts with the scan, never with the screen";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    arm [label="screen refresh —\narm BEFORE the scan\nkickoff",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    leave [label="leaving mid-scan —\ndeliberately keeps\nthe guard",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    storm [label="esp_wifi_init load\n+ the active scan —\nthe thief",
+           fillcolor="#efece4"];
+    guard [label="the refcounted hold\n— 45 s cap, re-\nentry extends",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    repro [label="the repro — ~400\nwrite failures, 2\nstrips dropped",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    arm -> guard;
+    arm -> storm;
+    leave -> guard [style=dashed, color="#b07d10"];
+    storm -> repro;
+}

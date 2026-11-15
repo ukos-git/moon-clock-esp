@@ -1,0 +1,54 @@
+// THE PER-PIXEL INPUTS opened — the shared model every caller pays
+// for, and the two amber shared machines. Every quoted line verified
+// in code before drawing (components/moon/core/moon_bake.c):
+//   d = r_body·S (:7) — the base-sphere cosine, drives earthshine;
+//   lns = (d − gs)/√(1+glon²+glat²) (:434) — the displaced-normal
+//   SOLAR Lambert, negative = the Sun rejects this ground;
+//   L = clip(lns, 0, 1) (:436) — the lit-side brightness in;
+//   A = albedo NN tap (:459-470) — nearest texel, +0.5 round, every
+//   IN-DISK pixel now: the dark side needs it as much as the lit one;
+//   es(d) = a·x + b·x² + c·x³, x = max(−d, 0) (:143-146) —
+//   "Phase-independent earthshine" (:142), zero on every d ≥ 0, so the
+//   lit-side addition is a no-op.
+//   Shared machines: blood moon (sky-events.dot owns the classifier) —
+//   if bev->blood, L *= 1 − 0.85·occ BEFORE the LUT (:448-452), lit
+//   side only: "the backlit night side (lns, unmodified) is untouched";
+//   body-frame constancy — the backlit color is a function of the
+//   surface direction + the epoch's fixed S only, the camera basis
+//   selects WHICH pixels exist, never their color; one static shade
+//   map, only the projection rotates.
+// The sealed version is dark-side.dot (this page); the blend is
+// dark-side-branch.dot; the night test is dark-side-night.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph dark_side_inputs {
+    rankdir=LR;
+    label="The per-pixel inputs — what every bake pays for";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    d [label="d = r_body·S —\nbase-sphere cosine"];
+    lns [label="lns — normal's\nSOLAR Lambert"];
+    A [label="A — albedo NN tap,\nin-disk EVERY px"];
+    es [label="es(d) — cubic\nearthshine, 0 on\nd ≥ 0"];
+    L [label="L = clip(lns,0,1) —\nlit brightness in"];
+    blood [label="blood pre-tint —\nL *= 1 − 0.85·occ,\nLIT side only", fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    body [label="body-frame\nconstancy — camera\npicks pixels only", fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    blend [label="THE BLEND —\nboth sides, one\nwrite", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    { rank=same; d; lns; A; body; }
+    blood -> L [color="#b07d10", style=dashed];
+    lns -> L;
+    lns -> blend;
+    A -> blend;
+    es -> blend;
+    L -> blend;
+    body -> blend [color="#b07d10", style=dotted];
+    d -> es;
+}

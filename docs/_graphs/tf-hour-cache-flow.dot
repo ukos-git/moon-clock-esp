@@ -1,0 +1,60 @@
+// The two producers, opened (components/ui/moon_ui.c + moon_tfcache.c;
+// verified before drawing). They run on core 1 and are ONE caller at a
+// time BY CONSTRUCTION — the boot replay producer presents first, and
+// while it does, the hourly probe/spawn holds off; two producers are
+// never concurrent.
+//   The hourly producer: fetch the hour -> HIT: tint the LUT and
+//   publish in 185-235 ms (the frame lands inside the fade's black
+//   window; see bake-reveal.dot); MISS: bake, then WRITE-THROUGH
+//   store so the next hour-centre fetch hits. It re-runs the new-moon
+//   scan + evict every hour.
+//   The boot replay producer (UI_MOON_BOOT_REPLAY): list_hours
+//   ASCENDING, per hour fetch + NEUTRAL tint + publish — the stored
+//   frames replay as ascending time on the boot black — then the
+//   revealed now-bake FINAL leg (the tick clears show+final together;
+//   a stale final would strand replaying() forever).
+//   The mount is LAZY: init runs once, driven by the FIRST producer —
+//   a card-less boot pays one ~1 s probe, then never again; the codec
+//   scratch stays resident after that (the decode out-buffer is the
+//   task #38 lazy allocation, so a missing card never starves the
+//   slot floor).
+//   tfcache_ready() FALSE is the NORMAL posture, silent by design:
+//   missing card / failed mount / bad decode / card pulled mid-run —
+//   the refresh simply bakes every hour, exactly like a board with no
+//   card slot (the knob).
+// The sealed version is tf-hour-cache.dot; the card's contents are
+// tf-hour-cache-card.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph tfcache_flow {
+    rankdir=TB;
+    label="The producers — replay first, hourly behind it, card optional";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    replay [label="the boot replay —\nlist_hours ascending,\nneutral tint, publish",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hold [label="replay presents ⇒\nhourly probe/spawn\nHOLDS OFF",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    hourly [label="the hourly producer —\nHIT: tint + publish,\n185–235 ms",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hit [label="then the revealed\nnow-bake FINAL leg —\ncommit on show"];
+    miss [label="MISS — bake, then\nWRITE-THROUGH store;\nnext fetch hits"];
+    mount [label="lazy mount — first\nproducer pays the\n~1 s probe once"];
+    ready [label="not ready = NORMAL —\nsilent, bake every\nhour like a knob",
+           fillcolor="#f2f2f2", color="#6b7280", style="rounded,filled,dashed"];
+
+    replay -> hold [style=dashed, color="#b07d10"];
+    hold -> hourly [style=dashed, color="#b07d10"];
+    hourly -> hit;
+    hourly -> miss;
+    hourly -> mount [style=dashed];
+    replay -> mount [style=dashed];
+    mount -> ready [style=dashed];
+}

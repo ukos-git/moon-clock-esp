@@ -1,0 +1,37 @@
+// The S3's wake-up problem, drawn once (the wiring detail that
+// constrains the sleep machine — docs/implementation/clock-sleep):
+//   The PCF85063A's ALM output lands on the TCA9554 expander's pin 3.
+//   A RUNNING CPU polls that expander at 1.3 s (lv_timer) — so the
+//   alarm still fires, because the product's "deep sleep" is
+//   app-level (backlight off, CPU still running).
+//   The line is NOT wired to any ESP wake input: a true
+//   esp_deep_sleep_start could never be rung by a timer or alarm on
+//   this board. Contrast p4-wiring-wake.dot (no RTC at all) and
+//   knob-wiring-wake.dot (the family's only real deep sleeper).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph s3_wiring_wake {
+    rankdir=LR;
+    label="The S3's alarm never reaches a wake input";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    pcf [label="PCF85063A —\nthe ALM output", fillcolor="#f6e7dc",
+         color="#b5643a", fontcolor="#8a3d18"];
+    tca [label="TCA9554 —\npin 3"];
+    cpu [label="the RUNNING CPU\n— lv_timer polls\nthe expander 1.3 s", fillcolor="#efece4"];
+    nowake [label="NOT wired to any\nESP wake input —\napp-level sleep",
+            fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18",
+            style="rounded,filled,dashed"];
+
+    pcf -> tca [label="ALM line", color="#b5643a", penwidth=2.2, style=bold,
+                fontcolor="#8a3d18"];
+    tca -> cpu [color="#b5643a", fontcolor="#8a3d18"];
+    tca -> nowake [style=dashed, color="#b5643a"];
+}

@@ -1,224 +1,46 @@
-// The Python side in one picture: the twelve-module package at
-// assets/images/moon/moon/, who imports whom inside it, what each module
-// WRITES, and every tracked consumer in the repo. Every edge read out of
-// the source before drawing (comment-stripped greps — same discipline as
-// api-surface.dot):
-//   Intra-package imports (each "from .X import ..." line, all twelve
-//     modules): constants imports nothing (from __future__ only — the
-//     hub every consumer reaches); astro -> constants; sphere -> nothing
-//     (numpy-only leaf); textures -> constants; renderer -> constants +
-//     sphere (disk_grid, equirect_bilinear) + astro (Geometry);
-//     animation -> constants + astro (geometry) + renderer (tonemap,
-//     to_uint8, render) + textures (load_textures); calibrate -> astro
-//     (body_basis, body_lonlat :16) ONLY (plus astropy Time inside
-//     main); register -> nothing intra-package (numpy + skimage
-//     .registration :13 + scipy.ndimage.shift :28/:34); metrics ->
-//     nothing intra-package (numpy + skimage .structural_similarity :15);
-//     validate -> constants + astro + renderer (REF_*, earthshine :12-14)
-//     + register (register_shift) + metrics (disk_metrics) + textures +
-//     scipy.ndimage.uniform_filter1d :133; assets -> constants + astro +
-//     renderer + register + metrics + sphere (disk_grid) + textures
-//     (load_albedo, load_height) — the widest import set in the tree.
-//   Third-party pulls: astropy (astro: get_body_barycentric + Time +
-//     units — and calibrate/validate reach Time too), numpy (all twelve),
-//     tifffile (textures ONLY — the 16-bit LROC load), PIL Image
-//     (animation/validate/assets), skimage (register + metrics + the two
-//     validate consumers), scipy (register :28/:34, validate :133 — the
-//     pin list's imageio has ZERO "import imageio" in the package: it is
-//     scikit-image's transitive pin, nothing more).
-//   Artifacts and their writers: assets.gen_assets_c -> out/<t>/
-//     moon_assets.bin (+ albedo.bin/dem.bin, the manifest; 2,470,400 /
-//     4,194,304 / 897,536 B — the storage ladder owns those bytes),
-//     assets.gen_consts_header -> components/moon/generated/<t>/
-//     moon_consts.h (the header the firmware COMPILES); entry point
-//     python -m moon.assets --target s3 p4 knob (choices from
-//     constants.TARGETS). validate writes the fitted LUT file + the
-//     render/ref/diff PNGs (:203-206) and prints "paste into constants.py
-//     as TONE_LUT" (:170); calibrate PRINTS the pole + prime-meridian fit
-//     (:231-240) — neither module ever rewrites constants.py by itself.
-//     animation.make_frames -> anim.NNN.png + make_mp4 -> moon_anim.mp4
-//     via SUBPROCESSED ffmpeg (libx264, yuv420p, crf 20) — imageio not
-//     touched.
-//   Tracked consumers (repo-wide grep for "from moon." / "import moon"):
-//     host_sim/check_gate.py :53-59 imports SIX modules — assets,
-//       constants, astro, metrics (to_gray + disk_metrics), register
-//       (register_shift), validate (_iso + select_frames); it drives the
-//       C leg through the moon_sim BINARY (--list frames.txt --size 400
-//       --neutral), bakes per-target textures from constants.TARGETS
-//       (:104-106) and renders the Python leg with
-//       assets.render_from_assets (:147).
-//     docs/tools/perf_measure.py :152-155 (astro geometry, animation
-//       render_frame — the 47.6 ms at 400 px the performance page quotes
-//       — textures load_textures, constants).
-//     docs/nasa_figs.py :35 (register_shift); docs/tools/
-//       gen_nasa_quarters.py :45 (astro.geometry); docs/tools/
-//       gen_moonjs.py :41 (constants).
-//     host_sim/render_demo.py and docs/gen_media.py NEVER import the
-//       package: the demo driver runs host_sim/build/moon_sim (:26/:61),
-//       the docs films stitch host_sim/uisim/out PNGs with ffmpeg (:31/
-//       :47) — both dashed, the "shells out, does not import" pair.
-//   Firmware ends: components/moon/generated/<s3|p4|knob>/moon_consts.h
-//     compiled into the core; out/<t>/moon_assets.bin flashed into the
-//     moon_assets partition; the root CMakeLists' FATAL_ERROR trio
-//     referees both (build-seam.dot, assets-pipeline.dot own that story).
-// The C half of the same interface is api-surface.dot; the gate's dataflow
-// is image-gate.dot; the pipeline flow through assets.py is
-// assets-pipeline.dot. This sketch draws only IMPORTS, ARTIFACTS and
-// CONSUMERS of the Python package.
+// THE PYTHON SIDE in one picture — the black-box pass: what the
+// twelve-module package at assets/images/moon/moon/ is sealed into,
+// and the four relationships the repo keeps honest (five tracked files
+// import it; two more deliberately do not; it writes the artifacts the
+// firmware compiles and flashes; six third parties are imported and
+// one pin is never touched). Every relationship was read out of the
+// source before drawing (comment-stripped greps — same discipline as
+// api-surface.dot); the internals live in the detail sketches, one per
+// sealed box:
+//   python-surface-imports.dot    the intra-package import arrows
+//   python-surface-deps.dot       which module pulls which third party
+//   python-surface-products.dot   writers -> artifacts -> firmware ends
+//   python-surface-consumers.dot  the five importers, module by module
+// The C half of the same interface is api-surface.dot; the gate's
+// dataflow is image-gate.dot; the pipeline flow through assets.py is
+// assets-pipeline.dot; the compile/flash story is build-seam.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph python_surface {
-    label="The Python side in one picture — twelve modules, what they write, and the five tracked files that import them";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=2.0, height=0.5,
-          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The Python side in one picture — modules, products, consumers";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.65];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_pkg {
-        label="the package (assets/images/moon/moon/) — twelve modules; arrow A -> B reads \"A imports B\"; __init__.py is empty (the lazy package: import the module you need)";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
+    consumers [label="THE CONSUMERS — five files\nimport the package; two more\nimport nothing, they shell out",
+               fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    pkg [label="THE PACKAGE — twelve modules\nconstants.py is the hub;\nassets.py imports seven",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    deps [label="THIRD PARTIES — six imported\n+ ffmpeg subprocessed; the\nimageio pin is never imported",
+          fillcolor="#eceff1"];
+    prods [label="WHAT IT WRITES — the asset blob,\nthe compiled header, the fitted\nLUT, the sweep frames + mp4",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    fw [label="THE FIRMWARE ENDS — the header\ncompiled into the core, the blob\nflashed into moon_assets",
+        fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
-        constants [label="constants.py — the hub: NOTHING\nimports it more; the single source\nof truth (TARGETS, HEADER_PATHS,\nPOLE_RA_ICRF 269.839977, TONE_LUT,\nEPHEMERIS \"builtin\")",
-                   fillcolor="#f6f1e2", color="#b07d10"];
-        astro [label="astro.py — UTC -> Geometry\n(PyERFA get_body_barycentric\n+ Time, astropy only here)",
-               fillcolor="#dfe6f1"];
-        sphere [label="sphere.py — disk_grid,\nequirect_bilinear, tangent_normal\n(numpy leaf: ZERO intra-package\nimports)", fillcolor="#dfe6f1"];
-        textures [label="textures.py — the 16-bit LROC\nload (tifffile, the package's ONLY\ntifffile user; load_albedo/\nload_height)", fillcolor="#dfe6f1"];
-        renderer [label="renderer.py — the per-pixel\nshader (the C core's exact math,\nvectorized; the REF_* display\nconstants 400/199.3/199.3/199.5)",
-                  fillcolor="#dfe6f1"];
-        register [label="register.py — register_shift\n(skimage.registration :13 +\nscipy.ndimage.shift :28/:34);\nno-op on the aligned path",
-                  fillcolor="#dfe6f1"];
-        metrics [label="metrics.py — to_gray +\ndisk_metrics (MAE/MSE/SSIM,\nskimage.metrics :15)",
-                 fillcolor="#dfe6f1"];
-        animation [label="animation.py — the synodic sweep\n(SYNODIC_DAYS 29.530589;\nmake_frames + make_mp4 -> ffmpeg\nSUBPROCESS, not imageio)",
-                   style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        calibrate [label="calibrate.py — the one-time body\nframe fit; PRINTS pole+meridian\n(:231-240), imports only astro;\nwrites nothing",
-                    style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        validate [label="validate.py — the prototype's\nNASA gate (selects from\nmooninfo_2025.json, checks the\ntolerances, fits the LUT, runs\nMAE/SSIM; scipy.ndimage :133)",
-                   style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        assetsmod [label="assets.py — the device derivation\n(widest import set in the tree;\nbake_albedo/bake_dem,\ngen_consts_header + gen_assets_c,\nrender_from_assets — the GATE's\nPython leg)",
-                    fillcolor="#dfe6f1", color="#2b5fb0"];
-    }
-
-    subgraph cluster_deps {
-        label="third parties — dashed means the pin exists but the package never imports it";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        astropy [label="astropy (PyERFA builtin:\neraEpv00 + eraMoon98 — the same\nmodels the C core VENDORS)",
-                 fillcolor="#f6f1e2"];
-        numpy [label="numpy", fillcolor="#f6f1e2"];
-        tifffile_d [label="tifffile (textures only)", fillcolor="#f6f1e2"];
-        pil [label="PIL (animation, validate,\nassets — the PNG writes)", fillcolor="#f6f1e2"];
-        skimage [label="scikit-image (registration,\nstructural_similarity)", fillcolor="#f6f1e2"];
-        scipy [label="scipy.ndimage (register :28/:34,\nvalidate :133)", fillcolor="#f6f1e2"];
-        ffmpeg [label="ffmpeg — SUBPROCESSED by\nmake_mp4 (libx264 yuv420p crf 20):\na tool, not a pin",
-                style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-        imageio [label="imageio — pinned by scikit-image,\nimported by NO module\n(\"NO USAGE in package\")",
-                 style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-    }
-
-    subgraph cluster_products {
-        label="what the package WRITES (artifacts; the bytes live in the storage ladder)";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        blob [label="out/<t>/moon_assets.bin + manifest\n(albedo then DEM; 2,470,400 / 4,194,304 /\n897,536 B — s3 / p4 / knob)",
-                fillcolor="#dfe6f1"];
-        consts_h [label="components/moon/generated/<t>/\nmoon_consts.h — the header the\nFIRMWARE compiles (pole, W0, the\nDEM range, the sizes)",
-                   fillcolor="#dfe6f1"];
-        lut_out [label="the fitted 256-entry LUT file +\nrender/ref/diff PNGs (validate);\nTONE_LUT itself is PASTED into\nconstants.py by hand (:170)",
-                  fillcolor="#dfe6f1"];
-        sweep [label="anim.NNN.png + moon_anim.mp4\n(moon.animation's own sweep, the\nretired boot film's host twin)",
-                fillcolor="#dfe6f1"];
-    }
-
-    subgraph cluster_consumers {
-        label="the tracked consumers — blue edges are imports a shipped doc/gate/number depends on";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        gate [label="host_sim/check_gate.py — the deep\nconsumer: SIX modules (:53-59);\nC leg = the moon_sim BINARY\n(--neutral --size 400), Python leg\n= assets.render_from_assets (:147)",
-               fillcolor="#dfe6f1", color="#2b5fb0"];
-        measure [label="docs/tools/perf_measure.py — the\nsix-engine comparator; the Python\nengine row IS moon.animation.\nrender_frame (:152-155)",
-                 fillcolor="#dfe6f1", color="#2b5fb0"];
-        figures [label="docs/nasa_figs.py :35 (register),\ndocs/tools/gen_nasa_quarters.py :45\n(astro), docs/tools/gen_moonjs.py\n:41 (constants)",
-                 fillcolor="#dfe6f1"];
-        shells [label="host_sim/render_demo.py ->\nhost_sim/build/moon_sim (:26/:61)\ndocs/gen_media.py -> uisim/out PNGs\n+ ffmpeg (:31/:47) — import NOTHING\nfrom the package",
-                 style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-    }
-
-    subgraph cluster_firm {
-        label="the firmware ends (device); the compile/flash story is build-seam.dot";
-        labeljust="l";
-        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        fw [label="the three firmwares: generated/<t>/\nmoon_consts.h compiled into the\ncore; moon_assets.bin flashed into\nthe moon_assets partition; the\nCMakeLists' FATAL_ERROR trio referees",
-             fillcolor="#f6f1e2"];
-    }
-
-    claims [label="the three claims this picture holds up: (1) float64 prototype vs float32 C port — the gate measures their residual (~1 gray floor); (2) EPHEMERIS \"builtin\" is the SAME eraEpv00 + eraMoon98 the C core vendors; (3) the 21x the performance page quotes (2.25 ms vs 47.6 ms @ 400 px) is THIS package's render path vs the C core's",
-            shape=note, style="rounded,filled", fillcolor="#fdf7e6", color="#b07d10",
-            fontsize=11, width=6.5];
-
-    // intra-package imports
-    astro -> constants;
-    textures -> constants;
-    renderer -> constants; renderer -> sphere; renderer -> astro;
-    animation -> constants; animation -> astro; animation -> renderer; animation -> textures;
-    calibrate -> astro [color="#8a8a8a"];
-    validate -> constants; validate -> astro; validate -> renderer;
-    validate -> register; validate -> metrics; validate -> textures;
-    assetsmod -> constants; assetsmod -> astro; assetsmod -> renderer;
-    assetsmod -> register; assetsmod -> metrics; assetsmod -> sphere;
-    assetsmod -> textures;
-
-    // third-party pulls
-    astro -> astropy [color="#8a8a8a", style=dashed];
-    astro -> numpy [color="#8a8a8a", style=dashed];
-    textures -> tifffile_d [color="#8a8a8a", style=dashed];
-    animation -> pil [color="#8a8a8a", style=dashed];
-    animation -> ffmpeg [color="#b07d10", style=dashed, label=" subprocess"];
-    validate -> pil [color="#8a8a8a", style=dashed];
-    validate -> scipy [color="#8a8a8a", style=dashed];
-    register -> skimage [color="#8a8a8a", style=dashed];
-    metrics -> skimage [color="#8a8a8a", style=dashed];
-    assetsmod -> pil [color="#8a8a8a", style=dashed];
-
-    // artifacts
-    assetsmod -> blob [color="#2b5fb0", label=" gen_assets_c"];
-    assetsmod -> consts_h [color="#2b5fb0", label=" gen_consts_header"];
-    validate -> lut_out [color="#2b5fb0"];
-    animation -> sweep [color="#2b5fb0"];
-
-    // consumers (blue = the imports that matter)
-    gate -> assetsmod [color="#2b5fb0"];
-    gate -> constants [color="#2b5fb0"];
-    gate -> astro [color="#2b5fb0"];
-    gate -> metrics [color="#2b5fb0"];
-    gate -> register [color="#2b5fb0"];
-    gate -> validate [color="#2b5fb0", label=" _iso + select_frames", fontsize=9];
-    measure -> animation [color="#2b5fb0", label=" render_frame", fontsize=9];
-    measure -> astro [color="#2b5fb0"];
-    measure -> textures [color="#2b5fb0"];
-    measure -> constants [color="#2b5fb0"];
-    figures -> register [color="#2b5fb0"];
-    figures -> astro [color="#2b5fb0"];
-    figures -> constants [color="#2b5fb0"];
-    shells -> gate [style=invis];
-
-    // firmware ends
-    blob -> fw [color="#8a8a8a", style=dashed, label=" flashed"];
-    consts_h -> fw [color="#8a8a8a", style=dashed, label=" compiled"];
-
-    // claims anchor
-    claims -> gate [style=invis];
-    { rank=sink; claims; }
+    consumers -> pkg [color="#2b5fb0", penwidth=1.6];
+    pkg -> deps [style=dashed];
+    pkg -> prods [color="#2b5fb0", penwidth=1.6];
+    prods -> fw [style=dashed];
 }

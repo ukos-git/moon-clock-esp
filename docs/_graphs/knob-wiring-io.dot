@@ -1,0 +1,40 @@
+// The knob's hand-driven inputs, opened (vendor schematic):
+//   CST816S touch @ 0x15 on I2C SDA GPIO11 / SCL GPIO12, 5K1
+//   pull-ups; INT 9 and RST 10 exist but the driver POLLS - the INT
+//   is otherwise unused (except as the EXT1 wake input, see
+//   knob-wiring-wake.dot).
+//   The dial is an EC1 mechanical encoder: A = GPIO 8, B = GPIO 7,
+//   10K pull-ups, UP/DOWN pulse pair with ONE channel per detent,
+//   decoded by software poll on a 3 ms tick.
+//   The battery "voltage" is GPIO 1 (ADC1_CH0) behind a 10K/10K
+//   divider, top rail drawn 5V - placeholder calibration until the
+//   multimeter verdict lands (docs/implementation/knob-display owns
+//   the gauge).
+//   DRV2605 haptics (LRA motor) sits on the same bus, greyed: the
+//   firmware never uses it.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_wiring_io {
+    rankdir=LR;
+    label="The knob's inputs — touch, dial, battery, (unused) haptics";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    s3 [label="ESP32-S3R8", fillcolor="#efece4", penwidth=1.6];
+    cst [label="CST816S @ 0x15\n— INT 9 · RST 10\n· 5K1, polled"];
+    dial [label="EC1 — A 8 · B 7\n· 10K pull-ups —\n1 ch per detent"];
+    batt [label="GPIO 1 ADC1_CH0\n— 10K/10K, top\nrail 5V (provisional)"];
+    drv [label="DRV2605 haptics\n(LRA) — unused",
+         style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
+
+    s3 -> cst [label="I²C 11/12"];
+    s3 -> dial [label="3 ms poll"];
+    s3 -> batt [label="ADC"];
+    s3 -> drv [style=dashed, color="#b0b0ac"];
+}

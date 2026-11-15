@@ -156,14 +156,27 @@ the 32 KiB SPI-DMA cap and the raw wire time one full panel costs the
 QSPI x4 wire against the 33 ms beat — is charted as the bus ladder in
 :doc:`the performance page <../verification/performance>`.
 
-The whole path in one picture — who may produce a panel state (the
-atomic rule and its two sanctioned exceptions), how a strip travels
-(PSRAM draw buffer, byte-order swap, the vtable wrapper, 25-row DMA
-staging), and the three witnesses on ``s_panel_mtx`` (the 2 s
-flush-wait gate, the 3 s watchdog, the drain verify with its
+The whole path, first sealed and then opened — who may produce a panel
+state (the atomic rule and its two sanctioned exceptions), how a strip
+travels (PSRAM draw buffer, byte-order swap, the vtable wrapper,
+25-row DMA staging), and the three witnesses on ``s_panel_mtx`` (the
+2 s flush-wait gate, the 3 s watchdog, the drain verify with its
 in-place-heal versus budgeted-restart split) — drawn from the code:
 
 .. graphviz:: ../_graphs/flush-path.dot
+   :alt: The flush path overview — rule, exceptions, draw path, BSP, witnesses
+   :align: center
+   :caption: The overview — the rule: every moon-pipeline frame hits the panel as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx`` (``moon_ui_screen_switched``), never a half-old/half-new composite. The two exceptions: the 0x51 hardware brightness ramp that writes NO pixels (the fade-to-black screen switch ``UI_SCREEN_SWITCH_FADE`` and the once-per-hour refresh ``UI_MOON_HOURLY_ENABLE``, whose producer rebuilds off-panel while black — the new frame's ONE atomic flush lands while the panel is still black, then fades back) and the bake reveal (``UI_MOON_BAKE_REVEAL`` / ``KNOB_UI_BAKE_REVEAL``: a computing frame shows as designed CONSISTENT STATES — black canvas → one completed strip band per 50 ms tick → healed old frame on any abort; each state is itself ONE atomic band under ``s_rgb_mtx`` WITH the drain witness, unbaked rows are black, ``s_frame`` is never touched mid-reveal).
+
+.. graphviz:: ../_graphs/flush-path-strip.dot
+   :alt: One strip's journey from PSRAM to panel
+   :align: center
+   :caption: One strip — the buffer is octal PSRAM (``esp_ptr_dma_capable`` false below ``SOC_DMA_LOW``, so nothing flies unstaged); the ``ESP_LV_ADAPTER_PANEL_IF_OTHER`` bridge runs ``lv_draw_sw_rgb565_swap`` so bytes arrive in panel order; the vtable wrapper takes LVGL flushes, drain probes and 0x51 ramp steps alike under ``s_panel_mtx``, its accept retry absorbing the P4 DPI panel's async-DMA2D ``ESP_ERR_INVALID_STATE`` rejects (the S3's QSPI writes synchronously, first attempt wins); ``buffer_height`` 25 rows = 466×25×2 = 23.3 KiB — a 50-row strip's 32 KiB first chunk exceeds the largest DMA-capable internal block (~31 KiB) and EVERY full-panel flush fails ``ESP_ERR_NO_MEM`` (the 50-row failure: hardware invariant, not tuning); staging obeys the 32 KiB ``SPI_LL_DMA_MAX_BIT_LEN`` cap and the vendored BSP's ``max_transfer_sz`` 23,300 B; queue DEPTH 1, because the depth-1 ``trans_pool[0]`` descriptor carries the per-transaction completion flag — the very slot the lost-completion family recycles under the ISR.
+
+.. graphviz:: ../_graphs/flush-path-witness.dot
+   :alt: The three witnesses on s_panel_mtx
+   :align: center
+   :caption: The witnesses — a legitimate hold is a strip ~10 ms or a whole-panel flush <500 ms, so the 3000 ms watchdog limit can ONLY be crossed when the bus lock's REQ/PEND bit was never cleared: a lost DMA completion freezes ``dev_wait`` at ``portMAX_DELAY`` with no mutex holder, silent and WDT-blind, and the watchdog trades the dead screen for a logged clean reboot. The drain verify (S3/knob, ``#if !P4``) holds ``s_panel_mtx`` across the WHOLE submit+witness window — no call site holds it, audited 2026-11-13 — with a last-row drain write, a 20 ms lead-in (a strip DMAs in ~10 ms) and a witness on ``s_panel_done_cnt``: healthy hold ~40 ms, full anomaly ~620 ms, fractions of the 3 s + 3 s. Accepted-but-silent means the ISR's ``en_trans_done_cb`` flag was EATEN (stale ``ret_queue`` double-post → inflight bookkeeping runs ahead → unconditional ``pool[0]`` memset) — a no-op ``tx_param(-1)`` runs the driver's own drain loop and re-arms the queue IN PLACE; not even accepted means a wedged queue and the budgeted site restart ``drain_recovery``.
 
 Who hands the pixels *to* this path — which leg fills which buffer and
 under which key before a strip ever reaches the wrapper — is the relay
@@ -428,10 +441,24 @@ release stamped 4000 ms tail → OFF with repaint queued — zero
 hook's own earlier "LVGL task wedges" reading was traced to a
 uint32 countdown underflow in the test hook, not to the panel path).
 
-The lifecycle as one picture — arm on the kickoff, release on the
-radio session, the screen itself touching neither end:
+The lifecycle, first sealed and then opened at each end — arm on the
+kickoff, release on the radio session, the screen itself touching
+neither end:
 
 .. graphviz:: ../_graphs/scan-panel-hold.dot
+   :alt: The scan hold lifecycle overview
+   :align: center
+   :caption: The overview — the settings screen ARMS the refcounted hold (45 s cap, re-entry extends rather than double-guarding) and starts the scan task, the completion-thief; while held, panel writers are stubbed and ``flush_cb`` answers READY; the generic ui tick owns the release, and the release repaints the whole screen, wherever the user went meanwhile.
+
+.. graphviz:: ../_graphs/scan-panel-hold-arm.dot
+   :alt: The scan hold arm side
+   :align: center
+   :caption: Arming — ``settings_wifi_screen_refresh`` calls ``scan_panel_hold_arm()`` BEFORE ``wifi_scan_begin``, because the storm starts when the scan task reaches ``esp_wifi_init``; leaving mid-scan deliberately does NOT cut the guard, since the user's path lands the home switch's atomic flush INSIDE the running storm (the first cut of the fix released from the screen's own tick and from ``loadScreen`` and re-opened the drop exactly there). Bench repro 2026-11-12: ~400 ``co5300`` write failures plus 2 silently DROPPED strips over the clock row (y 176..214 / 214..252) in ~3 s.
+
+.. graphviz:: ../_graphs/scan-panel-hold-release.dot
+   :alt: The scan hold release side
+   :align: center
+   :caption: Releasing — ``screens_wifi_scan_hold_poll`` is registered BEFORE the repaint poll so one tick sees the release stamp; the guard drops only when ``wifi_scan_in_progress`` is false, with the sync path's proven 4 s ``esp_wifi_stop``/deinit teardown tail; the release queues ``moon_ui_panel_repaint_pending`` → ``lv_obj_invalidate(active)``, healing every strip the storm ate.
 
 The class's fifth member sits *above* the seam, where no hold can
 reach it: LVGL's own flush wait. ``wait_for_flushing`` is a
@@ -586,12 +613,18 @@ so a hold beginning mid-drain can never phantom-accept; and
 **serialization** — the drain holds ``s_panel_mtx`` across the whole
 submit+witness window (no drain call site holds it — audited), making
 the probe's transaction the only io traffic while its completion is
-pending. Healthy hold ≈ 40 ms, full-anomaly hold ≈ 620 ms — a fraction
-of the panel watchdog's 3 s + 3 s. With the queue exclusive, the
-depth-1 FIFO argument finally holds: the snapshot after the accept
-means only the probe is in flight, any increment proves its own done,
-and the second probe (accepted ⇒ the first completed) breaks the µs
-race between them. Serialization still does not PREVENT the loss — it
+pending. One probe, one 30 ms grace, then the heal — a measured ~53 ms
+hold (bench 2026-11-15), a fraction of the panel watchdog's 3 s + 3 s.
+With the queue exclusive, the depth-1 FIFO argument holds: the
+snapshot after the accept means only the probe is in flight, and an
+increment proves its own done. The bench truth is that the increment
+never comes behind a multi-strip flush — every post-flush probe loses
+its own completion to the recycle race — so the heal is the NORMAL
+path, and the witness was rebuilt around that (a two-probe ladder with
+two 300 ms poll windows once billed ~641 ms per verified flush; the
+trace that caught it is in :doc:`the bake reveal <bake-reveal>`).
+A merely-LATE completion is reaped by the heal's own drain loop, at
+worst logging a false "swallowed". Serialization still does not PREVENT the loss — it
 makes the witness airtight, which is what lets the two shapes be
 treated differently: a probe that cannot even be accepted is a WEDGED
 queue → restart at the site, with the panel still dark, before the
@@ -619,7 +652,7 @@ accepted write was, a loss surfaced at the flush site in the dark,
 never as the freeze-then-crash in the user's face; the plain static
 wake display carries the class's normal post-flush probe today.
 Healthy cost: one row write and ~10 ms per probe
-site. The boot-time arm test (``moon_panel_witness_arm``) demands the
+site; the de-facto post-flush cost (via the heal) is ~53 ms. The boot-time arm test (``moon_panel_witness_arm``) demands the
 arm row's **own** completion under the same serialized, strict
 discipline — capture 6 had proved the old "any ambient increment
 counts" test worthless — and failure leaves the drain accept-only with
@@ -643,8 +676,8 @@ either an in-place heal or a bounded restart, never a silent wedge:
      ACC -- "rejected — WEDGED queue" --> RST["restart AT THE SITE, budgeted — RTC_NOINIT magic, 3 per boot"]
      RST --> DEGRADE["budget spent — degrade to a working clock instead of a restart storm"]
      ACC -- "accepted" --> INC{"probe's own completion incremented the counter?"}
-     INC -- "yes — healthy, ~40 ms" --> DONE["show proceeds — the frame is provably on the panel"]
-     INC -- "frozen — driver ate the completion flag" --> HEAL["heal IN PLACE — no-op tx_param(-1) runs the driver's own drain loop, slot MINE logged"]
+     INC -- "yes — witnessed in the 30 ms grace, ~10 ms" --> DONE["show proceeds — the frame is provably on the panel"]
+     INC -- "frozen — driver ate the flag (the NORMAL path behind a multi-strip flush)" --> HEAL["heal IN PLACE — no-op tx_param(-1) runs the driver's own drain loop, slot MINE logged, ~53 ms total"]
      HEAL --> PARK{"heal parks in get_trans_result — truly undelivered completion?"}
      PARK -- "no — queue re-armed" --> DONE
      PARK -- "yes" --> WDG["panel watchdog restarts in 3 s + 3 s — the honest fallback"]

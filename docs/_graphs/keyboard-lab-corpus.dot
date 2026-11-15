@@ -1,0 +1,61 @@
+// THE CORPUS opened: the twelve reported studies and what each one
+// vouches for among the operable methods (solid steel arrows, as the
+// report's comparison table assigns them). Venue-year on every node,
+// the headline numbers in the page caption — the report is
+// docs/research/circular-keyboard-alternatives.md (2026-11-01), and
+// docs/tools/gen_perf_certainty.py re-asserts these same relations
+// at figure time. The thirteen in black boxes is
+// docs/_graphs/keyboard-lab.dot (this page); the strikes are
+// keyboard-lab-constraints.dot; verdicts and keeps are
+// keyboard-lab-methods.dot. FONTS: 12 pt = the page's 16 px body
+// text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph keyboard_lab_corpus {
+    rankdir=LR;
+    label="The corpus opened — who vouched for which method";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#faf8f3",
+          color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=12, color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.3];
+
+    cqwerty [label="C-QWERTY 2020 —\nring of keys"];
+    compass [label="COMPASS 2017 —\nhottest sector"];
+    wristext [label="WrisText 2018 —\nwrist whirl"];
+    crown [label="Crownboard 2023 —\ncrown scan"];
+    ringbyte [label="RingByte 2025 —\nring + decoder"];
+    tapswipe [label="Tap'nSwipe 2025 —\n9x4 swipe"];
+    sage [label="SAGE 2019 —\ntap and trace"];
+    dwell25 [label="dwell ceiling —\nCHI 2025"];
+    incor [label="in-car 2017 —\nglance study"];
+    small [label="WatchWriter —\nFingerText"];
+    t9 [label="T9 — MacKenzie\n2000 big keys"];
+    t9vr [label="T9VR · Sector —\n2D pointing"];
+
+    wheel [label="1 sweep wheel", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    multitap [label="2 multi-tap", fillcolor="#dff0dc", color="#2e7d32"];
+    dwell [label="3 dwell", fillcolor="#dff0dc", color="#2e7d32"];
+    scan [label="4 auto-scan", fillcolor="#dff0dc", color="#2e7d32"];
+    swipe [label="5 swipe", fillcolor="#faeecd", color="#b07d10"];
+    qwerty [label="6 QWERTY", fillcolor="#f8d7d7", color="#b91c1c"];
+    glide [label="7 glide", fillcolor="#f8d7d7", color="#b91c1c"];
+    twist [label="8 twist", fillcolor="#e9ddf8", color="#7c3aed"];
+    encoder [label="9 dial+haptics", fillcolor="#d7eef2", color="#0e7490"];
+
+    cqwerty -> wheel;
+    compass -> wheel;
+    ringbyte -> wheel;
+    t9 -> multitap;
+    dwell25 -> dwell;
+    crown -> scan;
+    crown -> encoder;
+    incor -> encoder;
+    tapswipe -> swipe;
+    sage -> qwerty;
+    sage -> glide;
+    small -> qwerty;
+    wristext -> twist;
+    t9vr -> qwerty;
+}

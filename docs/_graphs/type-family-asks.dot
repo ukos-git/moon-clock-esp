@@ -1,0 +1,54 @@
+// THE ASKERS opened: a repo-wide grep for &ui_font_ hits EXACTLY two
+// files — screens.c (43 references) and styles.c (4) — plus the
+// consumers that live INSIDE screens.c (the wheel, the hub ring, the
+// two weekday tables). The knob's and main's sources ask NOTHING
+// directly; they ride screens.c. Edge counts are parsed at figure
+// time by docs/tools/gen_perf_glyphs.py; face-group names match
+// type-family-faces.dot. The askers in black boxes are
+// docs/_graphs/type-family.dot (this page). FONTS: 12 pt = the page's
+// 16 px body text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph type_family_asks {
+    rankdir=LR;
+    label="The askers opened — every &ui_font_ request and its per-face count";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.7];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.3];
+
+    screens [label="screens.c — 43 asks",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    styles [label="styles.c — 4 asks +\nthe two icon installers",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    wheel [label="the wheel — 26+26 sector\nletters + the pw label",
+           fillcolor="#e9e4f8", color="#7c3aed", fontcolor="#4c1d95"];
+    ring [label="the hub ring table —\n6 entries + P4-only 7th",
+          fillcolor="#e9e4f8", color="#7c3aed", fontcolor="#4c1d95"];
+    days [label="the two weekday tables —\nMo-Fr · Fr-Mo summaries",
+          fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
+    knobx [label="knob + main — ZERO asks,\nthey ride screens.c",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+
+    g_digits [label="the two digit faces"];
+    g_ssid [label="the two SSID faces"];
+    g_range [label="the weekday face"];
+    g_solid [label="the solid icon face"];
+    g_regular [label="the regular icon face"];
+
+    screens -> g_digits [label="11 + 5"];
+    screens -> g_ssid [label="3 + 14"];
+    screens -> g_range [label="2"];
+    screens -> g_solid [label="4"];
+    screens -> g_regular [label="4"];
+    styles -> g_digits [label="1 + 1"];
+    styles -> g_solid [label="installer"];
+    styles -> g_regular [label="installer"];
+    wheel -> g_ssid [color="#7c3aed", fontcolor="#4c1d95", label="52 + pw"];
+    ring -> g_solid [color="#7c3aed", fontcolor="#4c1d95", label="4 entries"];
+    ring -> g_regular [color="#7c3aed", fontcolor="#4c1d95", label="alarm+moon"];
+    days -> g_range [color="#b07d10", fontcolor="#6b4e08", label="the alphabet"];
+    knobx -> screens [style=dashed, color="#8a8a8a", fontcolor="#374151", constraint=false];
+}

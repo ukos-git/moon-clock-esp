@@ -1,0 +1,57 @@
+// The rule write, opened (clock_alarm_scheduler.c; verified before
+// drawing):
+//   The setters: clock_alarm_set_pomodoro_interval (*/N * * * *),
+//   clock_alarm_set_clock_alarm (M H * * dow),
+//   clock_alarm_deactivate_all ("# no alarms") — exactly one rule
+//   kind exists (entries are mutually exclusive), from the
+//   alarm-rules screen.
+//   clock_alarm_scheduler_write: /spiffs/alarm.txt rewritten WHOLE —
+//   the file IS the rule set (reloaded on boot, the PCF85063A /
+//   esp_timer armed from it).
+//   clock_alarm_schedule_next(current) — the single arming funnel,
+//   also run after every fire (fire-then-reschedule, both boards).
+//   ZERO-RULES branch (count == 0): clock_clear_alarm +
+//   disarm_esp_timer — the disarm invariant: the battery-backed ALM
+//   register survives reboots, an un-erased stale time fires a
+//   phantom alarm at the wrong minute.
+//   >= 1 rule: cache the next time -> clock_set_alarm ->
+//   clock_enable_alarm(true) — S3: the PCF85063A ALM registers + AIE;
+//   P4: the same call is a validated no-op and the esp_timer one-shot
+//   carries the fire.
+//   clock_trigger_alarm_update -> home-screen alarm row (the OFF half
+//   of the rule-write path fires it too, so a deactivate-all shows
+//   --:-- immediately).
+// The sealed version is alarm-lifecycle.dot; the fire paths are
+// alarm-lifecycle-fire.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph alarm_lifecycle_write {
+    rankdir=TB;
+    label="The rule write — one file, one funnel, one disarm invariant";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    writers [label="the setters — pome-\ndoro */N · clock M H\ndow · deactivate-all",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    file [label="alarm.txt — rewritten\nwhole; the file IS\nthe rule set"];
+    sched [label="schedule_next — the\nsingle arming funnel,\nfire-then-reschedule",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    zero [label="ZERO-RULES — clear\n+ disarm; the ALM\nregister survives",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    armb [label="cache → set_alarm →\nenable — S3 AIE; P4\nvalidated no-op",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    rowupd [label="trigger_alarm_update\n— the home row; the\nOFF half fires too"];
+
+    writers -> file;
+    file -> sched;
+    sched -> zero [color="#b07d10", penwidth=1.6];
+    sched -> armb [color="#2b5fb0", penwidth=1.6];
+    armb -> rowupd;
+    zero -> rowupd [style=dashed];
+}

@@ -11,14 +11,25 @@ battery.
 
 The whole product is one small board: the panel, the touch, the motion
 sensor, and the real-time clock all share the ESP32-S3's QSPI, I²C, and
-I²S buses. The schematic below traces those buses from the SoC to each
-component and calls out the one wiring detail that constrains the sleep
-machine — the RTC's alarm line never reaches a wake input.
+I²S buses. The overview below seals each bus into one box; the two
+sketches after it open the bus bars (every GPIO number) and trace the
+one wiring detail that constrains the sleep machine — the RTC's alarm
+line never reaches a wake input.
 
 .. graphviz:: ../_graphs/s3-wiring.dot
-   :alt: S3 component wiring schematic
+   :alt: S3 component wiring overview
    :align: center
-   :caption: The S3 board's component wiring — QSPI (CO5300 AMOLED), I²C (touch, IMU, TCA9554 expander, PCF85063A RTC), I²S (ES8311 codec).
+   :caption: The overview — one sealed box per bus: QSPI (CO5300 AMOLED), I²C (touch, IMU, TCA9554 expander, PCF85063A RTC), I²S (ES8311 codec), plus the flash budget and the PSRAM's DMA caveat; the orange callout is the wake story the last sketch opens.
+
+.. graphviz:: ../_graphs/s3-wiring-bus.dot
+   :alt: S3 bus pin map
+   :align: center
+   :caption: The buses pin by pin — QSPI CS 12, PCLK 38, D0–D3 4–7, RST 39 to the CO5300 (RGB565, no alpha, brightness register 0x51); I²C SCL GPIO14 / SDA GPIO15 with CST9217, QMI8658C, the TCA9554 8-bit expander and the 32.768 kHz PCF85063A; I²S SCLK 9, MCLK 42, LCLK 45, DOUT 8 to the ES8311; the bold orange ALM line lands on the expander.
+
+.. graphviz:: ../_graphs/s3-wiring-wake.dot
+   :alt: S3 alarm wake path
+   :align: center
+   :caption: The alarm's whole journey — PCF85063A ALM → TCA9554 pin 3, read by a running CPU; the path stops at software, because no wire reaches an ESP wake input.
 
 The orange path is the wake-up caveat: the RTC's ALM output lands on the
 TCA9554 expander's pin 3, which a running CPU polls at 1.3 s — it is

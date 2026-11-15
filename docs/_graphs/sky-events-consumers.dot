@@ -1,0 +1,65 @@
+// The consumers, opened — the answer's three uses (verified before
+// drawing):
+//   The tint LUT — every core-1 producer calls moon_gray565_set_event
+//   (&ev) before its bake (moon_render.c :88): the (pre-calculated)
+//   event multipliers compose OVER the warm base; set_warm(0) wins
+//   over set_event — the neutral GATE LUT is never tinted (the image
+//   gate stays byte-identical).
+//   The eclipse bite — bev = moon_event_any(&ev) ? &ev : NULL into
+//   the bake: per-pixel, the lit Lambert x (1 - 0.85 x
+//   moon_event_occ) — 1 fully in the umbra, 0 outside the penumbra,
+//   linear between (the partial "bite"); it rides the hour-centre
+//   bake, so the hourly refresh tracks the bite's drift across the
+//   disk by itself.
+//   The minute probe's decision — signature (5-bit OR) !=
+//   s_baked_event -> moon_rebake_request (blood turns ON entering the
+//   shadow, OFF at exit); if the hourly probe takes the hour, IT
+//   subsumes the re-bake. s_baked_event commits ON SHOW — a cycle
+//   that never shows stays due and self-heals.
+// And the two entry legs the sealed graph folds into classify_here
+// (moon_ui.c:1122 / :1097 / :2707+):
+//   The minute day-tick runs the pipeline-busy guard BEFORE the
+//   classify on purpose — a running core-1 pipeline task classifies
+//   its own epoch and warms the day cache for free; classify_here
+//   returns FALSE on a cold day and the tick RETURNS (no probe, no
+//   bake decision this minute).
+//   moon_ev_scan_allowed (task handle in {orbit, event, rebake,
+//   hourly, replay}) -> classify IN PLACE + warm the day; else cold
+//   day -> ask the worker and return a ZEROED ev (a plain untinted
+//   bake — byte-identical to an all-false classify; the one
+//   wrong-looking frame SELF-HEALS because the next minute probe sees
+//   the signature change); warm day -> the cheap path (geometry evals
+//   only, no scan).
+//   The worker (moon_event_task :1103, spawn :2614) is core 1 (IDLE1
+//   unwatched — the 15-20 s scan can never trip a watchdog), 12 KiB
+//   era-chain stack in SPIRAM, prio MAX-4 (BELOW the bake tasks: a
+//   hungry bake outranks a warm-up), plain notify-take loop: re-reads
+//   s_ev_want_day and sets s_ev_warm_day ONLY if the day is still the
+//   one wanted. A torn 64-bit read of the core's day cache is
+//   DESIGNED FOR: worst case one extra re-bake, self-correcting.
+// The sealed version is sky-events.dot; the scan is
+// sky-events-scan.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph sky_events_consumers {
+    rankdir=TB;
+    label="The three uses of the five flags — tint, bite, re-bake";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#3a6b35", fontcolor="#2c4f29", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    flags [label="the five flags +\nthe umbra axis, per\nminute-probe answer",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    lut [label="the tint LUT —\nset_event OVER the\nwarm base; gate stays"];
+    bite [label="the eclipse bite —\nLambert × (1 − 0.85\n× occ), per-pixel"];
+    probe [label="the minute probe —\n5-bit signature, ON\nentering, OFF at exit"];
+
+    flags -> lut;
+    flags -> bite;
+    flags -> probe;
+}

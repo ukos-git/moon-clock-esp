@@ -1,116 +1,61 @@
-// The relay the architecture page states in prose: who may touch which
-// buffer, under which key, in which order. Every edge and quote verified
-// in components/ui/moon_ui.c (buffers :273-275/:1017, keys :308/:316, tick
-// :186/:2544, bounce reveal-bake :1245-53/:1320-21, convert :1365-79, whole
-// bake block :1452-57, producer :1547-1631, done legs :1704-11, show legs
-// :2384-44, watchdog :581-89/:2469, wrapper :592-683, fade-in :3165-78,
-// fade_ramp :2946-59) and components/moon/esp/moon_esp_assets.c (relief
-// :92-115). The strip staging, accept-retry anatomy and the three witnesses
-// on the panel key belong to docs/_graphs/flush-path.dot (display.rst); the
-// core's data flow into the bounce belongs to docs/_graphs/moon-core-flow.dot
-// (core-c.rst) — cross-refs kept reciprocal there too.
+// The relay as a BLACK-BOX OVERVIEW: the expensive bake leg runs
+// OUTSIDE both keys (into the bounce), publish is one brief image-key
+// block, the show is one atomic lv_refr_now, and every panel write
+// rides the panel key. No holder lists, no line numbers on this
+// figure — the painter's three legs open into
+// docs/_graphs/buffers-relay-painter.dot (this page); the asks with
+// their timeouts are docs/_graphs/guards-keys.dot; the strip staging,
+// accept-retry anatomy and the witnesses belong to
+// docs/_graphs/flush-path.dot (display.rst); the core's data flow into
+// the bounce to docs/_graphs/moon-core-flow.dot (core-c.rst) —
+// cross-refs kept reciprocal there too. Provenance of every quote (all
+// in components/ui/moon_ui.c unless named): buffers :280-282/:1031,
+// keys :315/:323, tick :186/:2634, bounce reveal-bake :1281-92/:1399-1400,
+// convert :1455-69, whole bake :1542-47, producer :1637-1721, done legs
+// :1794-1801, show legs :2474-34, watchdog :588-96/:2559, wrapper
+// :599-690, fade-in :3255-68, fade_ramp :3036-49; relief
+// moon_esp_assets.c :92-115. FONTS: 12 pt everywhere = the page's 16 px
+// body text at 1:1, kept inside the content column so
+// object{max-width:100%} never scales it down.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph buffers_relay {
-    label="The relay in one picture: the expensive bake leg runs OUTSIDE both keys (into the bounce), publish is one brief image-key block, the show is one atomic lv_refr_now inside it, and every panel write — strips, probes, 0x51 steps — rides the panel key";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=17;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.9, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The relay — the costly leg lock-free, publish one keyed block, the show one atomic flush";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_mill {
-        label="the mill (core 1) — CPU-bound producers, NEVER concurrent (the replay gate holds the hourly probe)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
+    mill [label="THE MILL · core-1 producers\nthe TF hour fetch or the ~1.3 s bake\n— runs into the bounce, NO keys",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    relief [label="the relief wall — 4 MB,\none packed cell per bake pixel",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    bounce [label="s_hourly_gray — the bounce\nthe desk no key guards",
+            fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
+    bootbake [label="the OTHER shape — the boot /\nday-tick bake: WHOLE bake inside\nthe image key",
+              style="rounded,filled,dashed"];
+    sframe [label="s_frame — the COMPLETE\ngray frame (160 KB)"];
+    srgb [label="s_rgb — RGB565 (320 KB)\nthe ONLY buffer the screen reads",
+          fillcolor="#fbeae5", color="#c2410c", fontcolor="#7c2410", penwidth=1.6];
+    show [label="THE SHOW — one atomic\nlv_refr_now under the IMAGE key",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wrapper [label="the draw_bitmap wrapper — every\nstrip takes the PANEL key",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    panel [label="staged internal-RAM strips\n→ QSPI/DSI DMA → panel"];
 
-        producer [label="core-1 producers — moon_hourly_task /\nmoon_rebake_task / boot replay: '12 KB stack,\ncore 1 (IDLE1 unwatched), same shape' (:1547-50).\nThe costly leg — TF hour fetch (:1589) or the\n~1.3 s bake (:1609, write-through store :1614) —\nruns into the bounce OUTSIDE both keys:\nno image lock, no panel lock, no panel traffic",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-        bootbake [label="the OTHER publish shape — moon_bake_epoch\n(boot + day-tick re-bake, on the 3.5 KB main task):\nthe WHOLE bake runs INSIDE the image key\n(:1452-57 'replaces the WHOLE frame … in one\nguarded block'), then moon_convert_to_rgb gathers\nunder the key and does NOT flush — on the 3.5 KB\nstack a synchronous whole-panel lv_refr_now would\noverflow, so the LVGL task paints it async (the\ncode's own '3.5 KB stack rule' :984, :1371-77)",
-                  fillcolor="#efece4"];
-    }
-
-    subgraph cluster_buckets {
-        label="the buckets (PSRAM, MALLOC_CAP_SPIRAM) — four allocations";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        bounce [label="s_hourly_gray — PSRAM MOON_PX² gray8\n(:1017 'fetch/bake bounce') — the producers'\ndesk: the expensive leg is invisible to both\nkeys here; s_frame is NEVER touched during a\nreveal, only the bounce is (:1167)",
-                fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
-        sframe [label="s_frame — uint8 MOON_PX² (:273)\n160 KB at the 400 px disk — the COMPLETE\ngray frame: written only by the whole-bake\nblock (:1454) and the publish memcpy (:1623);\nread by the LUT convert and the heal paths",
-                fillcolor="#f2f2ef"];
-        srgb [label="s_rgb — uint16 MOON_PX² (:274)\n320 KB RGB565 — s_dsc.data (:275):\nthe ONLY buffer the screen ever reads",
-                fillcolor="#fbeae5", color="#c2410c", fontcolor="#7c2410", penwidth=1.6];
-        relief [label="the relief wall — ONE packed uint16 per DEM\ncell, W·H·2 B = 4 MB (moon_esp_assets.c:106-115),\nbuilt ONCE at boot by moon_relief_build from ONE\n2 MB esp_partition_read ('vs ~4 s for 1024 row\nreads'); the transient is freed — 'steady-state\nrelief memory is the one 4 MB packed array alone'\n(:92-99); every bake reads ONE cell per pixel",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_keys {
-        label="the two keys — one for the image, one for the panel's wires";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        key_rgb [label="s_rgb_mtx (:308, the code's own comment:\n'guards s_rgb (+ s_frame while baking)') —\nthe IMAGE key. Holders: the whole boot bake\n(:1452), the publish block (:1621), every\nmoon_gray565 gather (:1367/:1625/:1321), the\nwatermark bumps (:1250-53), and EVERY atomic\nwhole-panel lv_refr_now. NON-REENTRANT —\n:1376 converts inline precisely because the\nconvert already holds it",
-                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
-        key_panel [label="s_panel_mtx (:316: 'every panel write:\nflush strips, 0x51 ramps, probes') — the\nPANEL key. Holders: the draw_bitmap wrapper\n(one take PER STRIP), the drain probes, every\n0x51 step (fade_ramp takes it per step\n:2949-52). 'Held only inside a write (a strip\n~10 ms, the boot or whole-panel refresh flush\n<500 ms)' (:581-84) — the fact the 3 s panel-io\nwatchdog prices (:589, :2469)",
-                    fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
-    }
-
-    subgraph cluster_painter {
-        label="the painter (LVGL task, core 0) — the 50 ms tick (MOON_TICK_MS :186, armed :2544)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        doneleg [label="the done legs read the producer's flags\n(s_hourly_done :1704-11 → moon_hourly_finish\n:2977-3011; rebake/replay legs :2384-44):\nmoon_invalidate_all (:1140 — the moon images)\nthen ONE atomic whole-panel lv_refr_now INSIDE\nthe image key, then the drain witness ('hourly\nfade-in', 'rebake', 'boot replay', 'orbit\nbatch'). Commit-on-show: s_baked_hour/event\nset only after the flush landed (:2983-84);\nthe owed 0→100 fade_ramp rides the same key\nrule — with the reveal on, the FIRST completed\nstrip usually paid it first (:1347-48)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-        revealleg [label="the reveal leg (UI_MOON_BAKE_REVEAL): converts\nbounce→s_rgb ONE band per tick (20 rows S3 /\n26 P4, :1192-94) and shows the band as one\natomic band flush under the image key —\nnever a half-old/half-new composite (:1320-21)",
-                   fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
-        fadeside [label="the 0x51 hardware ramp (writes NO pixels):\nthe fade-to-black switch + the hourly fade.\nThe new frame's ONE atomic flush lands while\nthe panel is STILL BLACK (:3165-78) — 'the flush\nstrips take the panel mutex in the draw_bitmap\nwrapper (per strip — taking it here as well\nwould self-deadlock)'",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_panel {
-        label="the panel boundary — one lock at the wires";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525c78";
-        fontsize=13; fontcolor="#1e3f70";
-
-        wrapper [label="the draw_bitmap wrapper, installed on the\npanel vtable at init (:592-600, :665-83): LVGL's\nflushes, the drain probes and the 0x51 steps\nALL reach the panel here, 'serialized on ONE\nlock at the panel boundary'; the accept-retry\ndraw_wait (:617) absorbs the P4 DPI panel's\nasync-DMA2D rejects — 'Callers must hold\ns_panel_mtx' (:604)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-        dma [label="staged internal-RAM strips → QSPI DMA →\npanel (the 25-row / 23,300 B staging anatomy,\nthe flush-wait gate, the watchdog and the\ndrain witness: docs/_graphs/flush-path.dot,\ndocs/implementation/display.rst)"];
-    }
-
-    knobnote [label="the knob: UI_BOARD_SRCS is emptied for KNOB_BOARD\n(components/ui/CMakeLists.txt:31-35) — moon_ui.c's relay\nis EXCLUDED; knob_moon_render.c implements moon_ui.h over\nthe knob_ui producer core (double buffer s_buf[2], 2×360²×2)",
-              fillcolor="#efece4", color="#8a8a8a", fontsize=10];
-
-    producer -> bounce [label="the expensive leg, LOCK-FREE", color="#b5643a", fontcolor="#8a3d18"];
-    relief -> producer [color="#b07d10", label="one packed cell\nper bake pixel"];
-    bounce -> sframe [label="publish: ONE image-key block —\nmemcpy + gray565 gather (:1621-26)\n'no flush here (the tick shows it)'", color="#2b5fb0"];
-    bounce -> srgb [label="reveal band gather (image key)", style=dashed, color="#b5643a"];
-    bootbake -> sframe [label="whole bake INSIDE the image key", color="#b07d10"];
-    sframe -> srgb [label="LUT convert (image key):\nmoon_gray565 gather (:1366-68)", color="#2b5fb0"];
-    srgb -> wrapper [label="lv_refr_now drains\nstrips per strip"];
-    doneleg -> wrapper [label="the flush's strips take the\nPANEL key in the wrapper (:3174)"];
-    doneleg -> srgb [style=dotted, label="shows s_rgb through\ns_dsc.data", color="#c2410c"];
-    revealleg -> srgb [style=dashed, color="#b5643a"];
-    fadeside -> key_panel [style=dashed, color="#b07d10", label="one 0x51 step\nper ramp tick"];
-    wrapper -> dma;
-    producer -> doneleg [style=dotted, label="done flags (volatile bools)"];
-    key_rgb -> sframe [style=dotted, color="#b07d10"];
-    key_rgb -> srgb [style=dotted, color="#b07d10"];
-    key_panel -> wrapper [style=dotted, color="#b07d10"];
+    relief -> mill [color="#b07d10", fontcolor="#6b4e08", label="built once at boot"];
+    mill -> bounce [color="#b5643a", fontcolor="#8a3d18", label="the expensive leg,\nLOCK-FREE"];
+    bootbake -> sframe [color="#b07d10", fontcolor="#6b4e08"];
+    bounce -> sframe [color="#2b5fb0", fontcolor="#1e3f70",
+                      label="PUBLISH — one brief\nimage-key block"];
+    sframe -> srgb [color="#2b5fb0", fontcolor="#1e3f70", label="LUT convert"];
+    bounce -> srgb [style=dashed, color="#b5643a", fontcolor="#8a3d18",
+                    label="reveal bands"];
+    srgb -> show [style=dotted, color="#c2410c", fontcolor="#7c2410",
+                  label="s_dsc.data"];
+    show -> wrapper [label="strips, one by one"];
+    wrapper -> panel;
 }

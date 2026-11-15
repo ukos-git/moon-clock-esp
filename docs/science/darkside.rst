@@ -122,12 +122,47 @@ cutout-edge report and the "NASA adds a gaussian blur at the boundary"
 quote — belongs to the artistic pass (:doc:`the artistic pass <art-pass>`,
 "The soft terminator").
 
+The family is the house pattern: one black-box overview of the branch
+anatomy, then four detail sketches — the per-pixel inputs, the shipped
+blend, the hard night test, the backlit color.
+
 .. graphviz:: ../_graphs/dark-side.dot
+   :align: center
+   :alt: Six sealed boxes — THE PER-PIXEL INPUTS and THE CALLERS' KNOBS above THE SHIPPED BRANCH and THE HARD NIGHT TEST, with MOON_BACKLIT_NIGHT and the dashed THE MAP-BUILD EROSION at the bottom.
+   :caption: The dark branch as an anatomy picture — the black-box pass. The branch *every shipping display bake takes* is neither night branch: it computes both sides and smoothstep-blends them, returning before ``is_night`` is ever evaluated (``moon_bake.c:479-493``); the hard test is the gate's path (and, until the retirement, the dusk's). The blend's *why* — the cutout-edge report and the "NASA adds a gaussian blur at the boundary" quote — belongs to :doc:`the artistic pass <art-pass>`, "The soft terminator". The boxes open below; the three claims come after them.
+
+**The per-pixel inputs** — the shared model every caller pays for:
+
+.. graphviz:: ../_graphs/dark-side-inputs.dot
+   :align: center
+   :alt: Input boxes d, lns, A and the amber blood and body-frame notes on the left, es and L in the middle, all flowing right into the blue THE BLEND box.
+   :caption: The inputs, verbatim: :math:`d = r_{body}·S` (``moon_bake.c:7``) drives earthshine; :math:`\lns = (d − gs)/√(1+glon²+glat²)` (:434) is the displaced-normal SOLAR Lambert — negative means the Sun rejects this ground; :math:`L = \mathrm{clip}(\lns, 0, 1)` (:436) is the lit-side brightness in; :math:`A` is the albedo nearest-neighbour tap (:459-470, +0.5 round) read for every IN-DISK pixel — the dark side needs it as much as the lit one; :math:`es(d) = a·x + b·x² + c·x³` with :math:`x = \max(−d, 0)` (:143-146) is "Phase-independent earthshine" (:142), zero on every :math:`d ≥ 0`, so the lit-side addition is a no-op. The amber shared machines: the blood pre-tint rides the LIT side only (:448-452) — "the backlit night side (``lns``, unmodified) is untouched" — and the body-frame constancy (the color is a function of surface direction + the epoch's fixed ``S`` only, one static shade map, only the projection rotates) is what the retired dusk's cheap spin stood on. The classifier is ``docs/_graphs/sky-events.dot``; the camera basis that picks WHICH pixels exist is ``geometry-chain.dot``.
+
+**The shipped blend** — both sides, one write, no test:
+
+.. graphviz:: ../_graphs/dark-side-branch.dot
+   :align: center
+   :alt: The blue three-display-sites box over litv, darkv and the smoothstep t box, all three flowing into the blue out box whose return skips is_night.
+   :caption: The blend (:479-493), line by line: ``litv = TONE_LUT[idx] + es(d)`` (:485); ``darkv = moon_backlit_night(A, lns)`` (:486); ``t`` = smoothstep over :math:`\lns ∈ ±\texttt{MOON\_TERM\_SOFT}` — 0.03 ≈ 6 px each side at the 400 px disk (:193) — "NASA adds a gaussian blur at the boundary"; ``out = darkv + (litv − darkv)·t`` (:487-493). All three display bake sites (``moon_ui.c``:1249 the hourly strip, :1455 the boot bake, :2035 the bake-reveal strip) pass ``dark_zero=1, dk_sup=0`` and return here.
+
+**The hard night test** — the gate's path:
+
+.. graphviz:: ../_graphs/dark-side-night.dot
+   :align: center
+   :alt: The gate and the dashed retired dusk boxes feeding the is_night node, which fans to the dashed backlit write, the earthshine branch and the lit side; the blue ISOLATION note hangs under earthshine and the dashed dk_sup margin note feeds the backlit write.
+   :caption: The test, verbatim (:496): ``int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);``. The three outcomes: night & ``dark_zero`` (:501) is the backlit write — only ever used with ``dk_sup > 0``, so dead since the dusk retired (whose bound was ``dk_sup = √(1−(E·S)²)``, the comment's own endpoint formula :377 — the pole spin never changes view latitude); night & ``!dark_zero`` (:505) is the validated earthshine side ``TONE_LUT[0] + es(d)``, which still reads albedo ``A`` and never uses it (the header's own "one dead load", :50-53); the lit side (:517) ``TONE_LUT[idx] + es(d)`` is the tone LUT's domain, :doc:`the lighting page's <lighting>` endpoint. The caller knobs are the flag contract (``moon.h``:82-102, signature :109): the gate runs ``dark_zero = 0, dk_sup = 0`` (``host_sim/main.c:168``; ``g_darkzero`` default 0 :50 — ``--darkzero`` opts in to the product). The inert dashed pair is dusk-era machinery kept so the shade-map model stays one code path: the erosion at :743 writes the backlit side for ``d < dk_sup + MOON_DK_MARGIN`` (0.010, :208) because the re-project samples NEAREST-NEIGHBOR and a dark pixel's cell can be up to ``(pi/map_w + pi/(2*map_h)) ≈ 0.0073`` away in ``d`` (:197-199) — the margin makes the wrong cell UNREACHABLE, not merely unlikely.
+
+**The backlit color** — the three-factor product:
+
+.. graphviz:: ../_graphs/dark-side-backlit.dot
+   :align: center
+   :alt: Four source boxes — the sign-flipped l, the sliver kill, the amber body-frame note, the why-not-the-LUT note — stacked left and flowing into the blue out = A · l · K box.
+   :caption: ``moon_backlit_night`` (:220-227): :math:`l = −\lns` clipped to 0..1 (:221-224) — the sign flip IS the model: the more the Sun rejects a patch, the more directly it faces the anti-solar lamp at :math:`-S`; ``out = A · l · K``, ``K = MOON_NIGHT_BACKLIT_K = 0.20f`` (:226, :185) — peak ``255·K ≈ 51``; LINEAR on purpose: the tone LUT's shadow lift (bin 1 → 27) would over-brighten a faint side and break the peak=255·K contract. The free sliver kill: a SUN-LIT pixel (:math:`\lns > 0`) drawn backlit clips to exactly 0 — pure black; fight no lighting, re-classify the pixel as night and black falls out.
 
 Three claims the picture is drawn to make. First, the device's night
 side never reaches the hard test while ``dk_sup`` is 0: the three
-display bake sites (``moon_ui.c:1249`` the hourly strip, ``:1455`` the
-boot bake, ``:2035`` the bake-reveal strip) all pass ``dark_zero=1,
+display bake sites (``moon_ui.c:1288`` the hourly strip, ``:1545`` the
+boot bake, ``:2125`` the bake-reveal strip) all pass ``dark_zero=1,
 dk_sup=0`` and return from the blend. Second, the gate's isolation is
 structural, not stylistic — ``dark_zero=0`` is *byte-identical* to the
 old earthshine bake for every :math:`d` (``moon.h:101-102``), so the

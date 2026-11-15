@@ -461,6 +461,19 @@ menu "UI Component Configuration"
             load, earthshine, tonemap). Temporary profiling aid; off by
             default and visually wrong (flat terminator).
 
+    config TEST_BAKE_REVEAL_TRACE
+        bool "Test: log every bake-reveal band, producer strip and gated tick"
+        default n
+        help
+            Test hook: the bake-reveal pacing evidence (docs/implementation/
+            bake-reveal). One line per displayed state (rows + ms since the
+            arm + drain-witness ms), one per producer strip (the bake rate
+            the reveal rides) and one per second while the tick is gated
+            (naming the active gate: traffic hold / idle / fade pending /
+            sweep / screen). Counts the states a viewer can actually see
+            versus the states the bake computed. Bench diagnostic only;
+            off by default (the code compiles out entirely).
+
     config UI_IMU_ENABLE
         bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"
         default y

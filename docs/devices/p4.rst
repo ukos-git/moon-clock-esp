@@ -30,15 +30,27 @@ Component wiring
 
 Like the S3, the 4C is a single board: the panel, the touch, and the
 Wi-Fi all hang off the P4's peripheral buses, plus the ES8311 audio
-codec. The schematic below traces them and shows the key difference
-from the S3 in the wake-up story — **the board carries no RTC IC and
-no IO expander**, so ``board_io_expander_init()`` returns ``NULL`` and
-the only wake source is a software ``esp_timer`` one-shot.
+codec. The overview below seals each bus into one box; the two
+sketches after it open the bus bars (every GPIO number) and show the
+key difference from the S3 in the wake-up story — **the board carries
+no RTC IC and no IO expander**, so ``board_io_expander_init()``
+returns ``NULL`` and the only wake source is a software ``esp_timer``
+one-shot.
 
 .. graphviz:: ../_graphs/p4-wiring.dot
-   :alt: P4 component wiring schematic
+   :alt: P4 component wiring overview
    :align: center
-   :caption: The P4 4C's component wiring — MIPI-DSI (JD9365 IPS), I²C (GT911 touch), SDIO (ESP32-C6 Wi-Fi via esp_hosted), I²S (ES8311 codec).
+   :caption: The overview — one sealed box per bus: MIPI-DSI (JD9365 IPS), I²C (GT911 touch), SDIO (ESP32-C6 Wi-Fi via esp_hosted), I²S (ES8311 codec), plus the 32 MB flash budget and the 200 MHz PSRAM the DPI FIFO feeds; the green callout is the wake story the last sketch opens.
+
+.. graphviz:: ../_graphs/p4-wiring-bus.dot
+   :alt: P4 bus pin map
+   :align: center
+   :caption: The buses pin by pin — MIPI-DSI 2 data lanes at 1500 Mb/s, RGB888, to the JD9365 (backlight GPIO 26, RST GPIO 27); I²C SCL GPIO8 / SDA GPIO7 to the GT911, whose RST/INT sit at NC so the driver polls; SDIO to the ESP32-C6 (esp_hosted 1.4.7, esp_wifi_remote 0.14.5); I²S SCLK 12, MCLK 13, LCLK 10, DOUT 9 to the ES8311.
+
+.. graphviz:: ../_graphs/p4-wiring-wake.dot
+   :alt: P4 wake story
+   :align: center
+   :caption: The wake story — with no RTC and a NULL expander, only an esp_timer one-shot (a running CPU) can wake the board, so a pending alarm keeps the device in light sleep instead of the deep state.
 
 The green box is the wake-up caveat: with no RTC and no expander, an
 alarm can only be caught by a running CPU's ``esp_timer`` one-shot, so

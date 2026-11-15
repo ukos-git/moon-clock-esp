@@ -1,163 +1,45 @@
-// The shader's dark branch: the per-pixel inputs, the caller's two
-// knobs, the shipped blend path, the hard night test the gate (and the
-// retired dusk) still share, and the backlit color itself. Every quoted
-// line verified in code before drawing: components/moon/core/moon_bake.c
-// (d :7, lns :434, L :436, backlit K :185, TERM_SOFT :193, blend branch
-// :479-493, is_night :496, backlit write :501, gate night :505, lit side
-// :517, moon_backlit_night :220-227, DK_MARGIN :208 with the NN-jump
-// bound :197-199, shade-map margin test :743, blood pre-tint :448-452),
-// components/moon/include/moon.h (the flag contract :82-102, the
-// signature :109) and the callers host_sim/main.c:50-51/:168 and
-// components/ui/moon_ui.c:1249/:1455/:2035. The lit-side half of the
-// same pixel is science/lighting.rst (lighting_*.svg); the blend's WHY
-// is science/art-pass.rst "The soft terminator"; the blood classifier is
-// sky-events.dot; the camera basis that decides WHICH pixels exist is
-// geometry-chain.dot.
+// The shader's dark branch — the black-box pass: the per-pixel inputs,
+// the caller's two knobs, the shipped blend path, the hard night test
+// the gate (and the retired dusk) still share, and the backlit color
+// itself. Every quoted line verified in code and preserved in the
+// detail sketches' headers:
+//   dark-side-inputs.dot  the five per-pixel inputs + the shared machines
+//   dark-side-branch.dot  the shipped smoothstep blend, pixel by pixel
+//   dark-side-night.dot   the hard is_night test and its three outcomes
+//   dark-side-backlit.dot moon_backlit_night's three-factor product
+// The lit-side half of the same pixel is science/lighting.rst
+// (lighting_*.svg); the blend's WHY is science/art-pass.rst "The soft
+// terminator"; the blood classifier is sky-events.dot; the camera
+// basis that decides WHICH pixels exist is geometry-chain.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph dark_side {
-    label="The dark branch: one bake, two customers, two knobs — and the branch every shipping display bake actually takes returns BEFORE the famous is_night test";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.9, height=0.5,
-          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The dark branch — two knobs, the blend, the night test";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.25, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_inputs {
-        label="the per-pixel inputs — the shared model every caller pays for";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
+    inputs [label="THE PER-PIXEL\nINPUTS — d, lns, the\nalbedo tap, earthshine"];
+    callers [label="THE CALLERS' KNOBS —\ndark_zero, dk_sup:\ngate 0/0 · display 1/0"];
+    shipped [label="THE SHIPPED BRANCH —\nboth sides, ONE\nsmoothstep write",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hard [label="THE HARD NIGHT TEST —\nis_night's three\noutcomes"];
+    backlit [label="MOON_BACKLIT_NIGHT —\nA · l · K, K = 0.20,\nLINEAR on purpose"];
+    map [label="THE MAP-BUILD\nEROSION — the dusk's\ndk_sup margin, inert",
+         style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280"];
 
-        d [label="d = r_body·S (moon_bake.c:7)\nthe base-sphere cosine — drives earthshine",
-           fillcolor="#efece4"];
-        lns [label="lns = (d − gs)/√(1+glon²+glat²) (:434)\nthe displaced-normal SOLAR Lambert;\nnegative = the Sun rejects this ground",
-             fillcolor="#efece4"];
-        L [label="L = clip(lns, 0, 1) (:436)\nthe lit-side brightness in",
-           fillcolor="#efece4"];
-        A [label="A = albedo NN tap (:459-470)\nnearest texel, +0.5 round;\nevery IN-DISK pixel now — the dark\nside needs it as much as the lit one",
-             fillcolor="#efece4"];
-        es [label="es(d) = a·x + b·x² + c·x³, x = max(−d, 0)\n(:143-146) — \"Phase-independent earthshine\"\n(:142); zero on every d ≥ 0, so the\nlit-side addition at :517 is a no-op",
-              fillcolor="#efece4"];
-    }
-
-    subgraph cluster_callers {
-        label="the caller picks the night half (moon.h:109)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        gate [label="the image gate:\ndark_zero = 0, dk_sup = 0\n(host_sim/main.c:168, g_darkzero\ndefault 0 :50 — --darkzero opts in\nto the product)",
-              fillcolor="#efece4"];
-        display [label="every shipping display bake:\ndark_zero = 1, dk_sup = 0\n(moon_ui.c:1249 hourly strip, :1455\nboot bake, :2035 bake-reveal strip)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
-                  penwidth=1.6];
-        dusk [label="the dusk (RETIRED 2026-11-13):\ndark_zero = 1, dk_sup = √(1−(E·S)²)\n(the comment's own endpoint formula, :377)\n— the pole spin never changes view latitude",
-              style="rounded,filled,dashed", fillcolor="#f2f2f2"];
-    }
-
-    subgraph cluster_shared {
-        label="the amber shared machines";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f7f1e2";
-        color="#b07d10";
-        fontsize=14; fontcolor="#8a5f0a";
-
-        blood [label="blood moon (sky-events.dot owns the\nclassifier): if bev->blood, L *= 1 −\n0.85·occ BEFORE the LUT (:448-452).\nLit side only — \"the backlit night\nside (lns, unmodified) is untouched\"",
-                 fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
-        body [label="body-frame constancy: the backlit color is a\nfunction of the surface direction + the epoch's\nfixed S only — the camera basis selects WHICH\npixels exist, never their color. One static shade\nmap; only the projection rotates.",
-              fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
-    }
-
-    subgraph cluster_shipped {
-        label="the shipped branch — dark_zero && dk_sup == 0 (moon_bake.c:479)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#eef2f8";
-        color="#2b5fb0";
-        fontsize=14; fontcolor="#1e3f70";
-
-        blend [label="both sides computed, then ONE write:\nlitv = TONE_LUT[idx] + es(d) (:485)\ndarkv = moon_backlit_night(A, lns) (:486)\nt = smoothstep over lns ∈ ±MOON_TERM_SOFT\n(0.03 ≈ 6 px each side at the 400 px disk,\n:193 — \"NASA adds a gaussian blur at the\nboundary\"), out = darkv + (litv − darkv)·t\n(:487-493) — the return skips is_night entirely",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
-                penwidth=1.6];
-    }
-
-    subgraph cluster_hard {
-        label="the hard night test — reached by the gate (and the retired dusk)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        isnight [label="int is_night = c->dark_zero ? (d < c->dk_sup)\n|| (lns <= 0.0f) : (lns <= 0.0f);  (:496, verbatim)",
-                 fillcolor="#efece4"];
-        nback [label="night & dark_zero (:501): the backlit\nsurface — only ever used with dk_sup > 0,\nso dead since the dusk retired",
-                 style="rounded,filled,dashed"];
-        ngate [label="night & !dark_zero (:505):\nTONE_LUT[0] + es(d) — the validated\nearthshine side; still reads albedo A\nand never uses it (\"one dead load\",\nheader :50-53)",
-                 fillcolor="#efece4"];
-        lit [label="lit side (:517): TONE_LUT[idx] + es(d) —\nthe tone LUT's domain, the lighting page's\nendpoint; es(d) adds zero at d ≥ 0",
-               fillcolor="#efece4"];
-        byte [label="the isolation promise (moon.h:101-102):\ndark_zero = 0 is BYTE-IDENTICAL to the old\nearthshine bake for every d — the gate's\nnumbers certify lit-side physics however\nthe product's dark side is tuned",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
-                penwidth=1.6];
-    }
-
-    subgraph cluster_color {
-        label="moon_backlit_night — the three-factor product (:220-227)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        anti [label="l = −lns, clipped to 0..1 (:221-224):\nthe sign flip IS the model — the more the\nSun rejects a patch, the more directly it\nfaces the anti-solar lamp at −S",
-                fillcolor="#efece4"];
-        prod [label="out = A · l · K, K = MOON_NIGHT_BACKLIT_K\n= 0.20f (:226, :185) — peak 255·K ≈ 51;\nLINEAR on purpose: the tone LUT's shadow\nlift (bin 1 → 27) would over-brighten a\nfaint side and break the peak=255·K contract",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
-                penwidth=1.6];
-        black [label="the free sliver kill: a SUN-LIT pixel\n(lns > 0) drawn backlit clips to exactly 0 —\npure black. Fight no lighting, re-classify\nthe pixel as night and black falls out",
-                 fillcolor="#efece4"];
-    }
-
-    subgraph cluster_map {
-        label="the map-build erosion — dusk-era machinery, inert (dashed)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        margin [label="the shade map writes the backlit side for\nd < dk_sup + MOON_DK_MARGIN (0.010, :208)\n(:743) — the re-project samples NEAREST-\nNEIGHBOR, and a dark pixel's cell can be up\nto (pi/map_w + pi/(2*map_h)) ≈ 0.0073 away\nin d (:197-199), so the margin makes the\nwrong cell UNREACHABLE, not merely unlikely",
-                  style="rounded,filled,dashed"];
-    }
-
-    d -> isnight;
-    lns -> L;
-    lns -> blend;
-    lns -> anti;
-    A -> blend;
-    A -> prod;
-    es -> blend;
-    es -> ngate;
-    L -> blend;
-    blood -> L [color="#b07d10", style=dashed];
-    gate -> isnight [color="#2b5fb0"];
-    display -> blend [color="#2b5fb0", penwidth=1.8];
-    dusk -> margin [style=dashed];
-    dusk -> isnight [style=dashed];
-    isnight -> nback;
-    isnight -> ngate;
-    isnight -> lit;
-    prod -> blend;
-    prod -> nback [style=dashed];
-    black -> nback [style=dashed];
-    ngate -> byte [color="#2b5fb0", style=dotted];
-    body -> prod [color="#b07d10", style=dotted];
-    margin -> nback [style=dashed];
+    callers -> shipped [color="#2b5fb0", penwidth=1.8];
+    callers -> hard;
+    inputs -> shipped;
+    inputs -> hard;
+    shipped -> backlit [style=dotted];
+    hard -> backlit [style=dashed];
+    callers -> map [style=dashed];
+    { rank=sink; backlit; map; }
 }

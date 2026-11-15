@@ -1,76 +1,44 @@
-digraph P4 {
-    label="Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (4C) — component wiring";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=20;
-    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+// The P4 4C as a black box — one sealed box per bus, the SoC on its
+// own. Pin numbers live in the detail sketches, never here:
+//   p4-wiring-bus.dot   DSI lanes, I2C pins, SDIO stack, I2S pins
+//   p4-wiring-wake.dot  the wake story: no RTC IC, no IO expander
+//                       (board_io_expander_init() -> NULL), the
+//                       esp_timer one-shot, the light-sleep rule
+//                       while an alarm is pending
+// PSRAM note kept for provenance: 200 MHz; the DPI FIFO wants 103-row
+// spin strips (underruns at 206) — the spin retired 2026-11-13, the
+// number survives in implementation/display.rst history.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph p4_wiring {
+    rankdir=LR;
+    label="Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (4C) — the buses";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.26, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_soc {
-        label="ESP32-P4 SoC";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525252";
-        fontsize=14; fontcolor="#3c3c3c";
-        p4 [label="ESP32-P4\nRISC-V quad-core · 400 MHz\n32 MB flash + PSRAM (200 MHz)", fillcolor="#e8e8e4"];
-    }
+    p4 [label="ESP32-P4 — quad\nRISC-V 400 MHz", fillcolor="#efece4", penwidth=1.6];
+    dsi [label="MIPI-DSI —\nJD9365 720×720\nIPS RGB888", fillcolor="#efece4"];
+    i2c [label="I²C — GT911\ntouch, polled"];
+    sdio [label="SDIO — ESP32-C6\nremote Wi-Fi"];
+    i2s [label="I²S — ES8311\ncodec, speaker\n+ mic", fillcolor="#efeef2"];
+    mem [label="32 MB flash —\nfactory 9 MB"];
+    psram [label="PSRAM 200 MHz\n— DPI FIFO"];
+    wake [label="no RTC IC · no\nexpander — an\nesp_timer wakes",
+          fillcolor="#e4efe7", color="#3a7d5c", fontcolor="#1f5c40",
+          style="rounded,filled,dashed"];
 
-    subgraph cluster_dsi {
-        label="MIPI-DSI display bus  (2 data lanes · 1500 Mb/s)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-        jd9365 [label="JD9365 · 720×720 IPS\nRGB888 · backlight GPIO 26\nRST GPIO 27", fillcolor="#efece4"];
-    }
-
-    subgraph cluster_i2c {
-        label="I²C bus  ·  SCL = GPIO8 · SDA = GPIO7";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#eef0ee";
-        color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-        gt911 [label="GT911\ncapacitive touch\n(RST/INT = NC → polled)", fillcolor="#eef0ee"];
-    }
-
-    subgraph cluster_sdio {
-        label="SDIO  ·  remote Wi-Fi (esp_hosted)";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#eef0ee";
-        color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-        c6 [label="ESP32-C6\nWi-Fi chip\nesp_hosted 1.4.7\nesp_wifi_remote 0.14.5", fillcolor="#eef0ee"];
-    }
-
-    subgraph cluster_i2s {
-        label="I²S audio bus";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f1eff3";
-        color="#8a8a8a";
-        fontsize=13; fontcolor="#6e6e6e";
-        es8311 [label="ES8311\ncodec · speaker + mic", fillcolor="#efeef2"];
-    }
-
-    flash [label="32 MB flash\n(factory 9 MB)", fillcolor="#eef0ee"];
-    psram [label="PSRAM @ 200 MHz\nDPI FIFO: 103-row spin strips\n(underruns at 206)", fillcolor="#efece4"];
-
-    /* the wake-up story on the P4: no hardware RTC wake at all */
-    sw_wake [label="No RTC IC · no IO expander\nboard_io_expander_init() → NULL\n\nwake = software esp_timer one-shot\nwhile an alarm is pending the device\nstays in LIGHT sleep (no deep-sleep wake)",
-              fillcolor="#e4efe7", color="#3a7d5c", penwidth=2.2,
-              fontcolor="#1f5c40", fontsize=12];
-
-    p4  -> flash   [label=""];
-    p4  -> psram   [label=""];
-    p4  -> jd9365  [label="MIPI-DSI · RGB888", dir=both];
-    p4  -> gt911   [label="I²C (polled)", dir=both];
-    p4  -> c6      [label="SDIO (esp_hosted)", dir=both];
-    p4  -> es8311  [label="I²S · SCLK 12, MCLK 13, LCLK 10, DOUT 9", dir=both];
-
-    p4 -> sw_wake [label="esp_timer one-shot", style=dashed, color="#3a7d5c", fontcolor="#1f5c40"];
+    p4 -> dsi;
+    p4 -> i2c;
+    p4 -> sdio;
+    p4 -> i2s;
+    p4 -> mem;
+    p4 -> psram;
+    p4 -> wake [color="#3a7d5c", style=dashed];
+    { rank=sink; mem; psram; wake; }
 }

@@ -1,0 +1,44 @@
+// The P4's four buses opened — per the Waveshare 4C documentation:
+//   MIPI-DSI  2 data lanes at 1500 Mb/s, RGB888 -> JD9365 720x720
+//             round IPS; backlight GPIO 26, RST GPIO 27.
+//   I2C       SCL GPIO8, SDA GPIO7 -> GT911 touch; RST/INT wired to
+//             NC, so the driver POLLS it.
+//   SDIO      the remote Wi-Fi: ESP32-C6 over esp_hosted 1.4.7 with
+//             esp_wifi_remote 0.14.5 (the C6 owns the radio; the P4
+//             never speaks Wi-Fi itself).
+//   I2S       SCLK 12, MCLK 13, LCLK 10, DOUT 9 -> ES8311 codec.
+// The onboard microSD is on its own 4-bit SDMMC host (CLK 43, CMD 44,
+// D0-D3) - a separate section on this page, not drawn here.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph p4_wiring_bus {
+    rankdir=LR;
+    label="The 4C's buses, pin by pin — per the 4C docs";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    p4 [label="ESP32-P4", fillcolor="#efece4", penwidth=1.6];
+    bdsi [label="MIPI-DSI —\n2 lanes · 1500 Mb/s"];
+    bi2c [label="I²C — SCL 8 ·\nSDA 7"];
+    bsdio [label="SDIO — esp_hosted"];
+    bi2s [label="I²S — SCLK 12 ·\nMCLK 13 · LCLK 10\n· DOUT 9", fillcolor="#efeef2"];
+    jd [label="JD9365 — BL 26\nRST 27", fillcolor="#efece4"];
+    gt [label="GT911 — RST/INT\nNC, therefore\npolled"];
+    c6 [label="ESP32-C6 —\nesp_hosted 1.4.7\nwifi_remote 0.14.5"];
+    es [label="ES8311 codec"];
+
+    p4 -> bdsi;
+    bdsi -> jd;
+    p4 -> bi2c;
+    bi2c -> gt;
+    p4 -> bsdio;
+    bsdio -> c6;
+    p4 -> bi2s;
+    bi2s -> es;
+}

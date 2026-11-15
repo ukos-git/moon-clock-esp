@@ -1,0 +1,66 @@
+// The three witnesses on s_panel_mtx and the drain's two outcomes
+// (every timing verified in code before drawing; moon_ui.c):
+//   moon_flush_wait_cb (:445, 2 s cap): a FREE s_panel_mtx means the
+//   flush PHYSICALLY landed (moon_panel_draw_wait consumes the
+//   trans-done inside it) — LVGL's non-yielding wait_for_flushing
+//   spin is gone; healthy paths never even enter this callback; the
+//   timeout logs and lets LVGL proceed — the true stall belongs to
+//   the watchdog.
+//   panel-io watchdog (:596-, 3000 ms): a legitimate hold is a strip
+//   ~10 ms / a whole-panel flush <500 ms, so a hold over the limit
+//   can ONLY mean the bus lock's REQ/PEND bit was never cleared —
+//   lost DMA completion froze dev_wait portMAX_DELAY with no mutex
+//   holder, silent and WDT-blind; the watchdog restarts: a clean
+//   reboot instead of a dead screen.
+//   moon_panel_drain_verify (:919-, S3; #if !P4 — the
+//   knob never links moon_ui.c): holds
+//   s_panel_mtx across the WHOLE submit+witness window (no call site
+//   holds it — audited 2026-11-13); last-row drain write, 20 ms
+//   lead-in (a strip DMAs in ~10 ms), witness on s_panel_done_cnt;
+//   witness = ONE 30 ms grace on
+//   s_panel_done_cnt, then the heal; behind a multi-strip flush the
+//   swallow is deterministic, so the heal (~50 ms) is the NORMAL
+//   path — a fraction of the 3 s + 3 s.
+//   The accepted-but-silent probe (heal): ret_queue delivery and
+//   post_cb run back-to-back in the ISR, so no callback = the
+//   en_trans_done_cb flag was EATEN (stale ret_queue double-post ->
+//   inflight bookkeeping runs ahead -> unconditional pool[0]
+//   memset); a no-op tx_param(-1) runs the DRIVER's own drain loop
+//   and re-arms the queue IN PLACE.
+//   The probe not even accepted = wedged queue: budgeted site
+//   restart (drain_recovery); if heal is rejected too, the
+//   watchdog's 3 s + 3 s restart is the honest fallback.
+// The sealed version is flush-path.dot; the strip itself is
+// flush-path-strip.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph flush_path_witness {
+    rankdir=LR;
+    label="The witnesses — who says the bus is alive, and what heals it";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.28, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    wrap [label="the wrapper —\nevery panel write\non s_panel_mtx",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    waitcb [label="flush-wait gate —\n2 s cap; free mutex\n= flush landed"];
+    wdg [label="panel-io watchdog\n— 3000 ms; over\nit = bus stuck",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    drain [label="drain verify —\nsubmit + witness,\nwhole window held",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    heal [label="accepted, silent →\nheal in place,\ntx_param(-1)",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    restart [label="rejected → budgeted\nrestart; watchdog\nis the fallback",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    wrap -> waitcb [style=dashed];
+    wrap -> wdg [style=dashed, color="#b07d10"];
+    wrap -> drain [style=dashed, color="#2b5fb0"];
+    drain -> heal [color="#b07d10"];
+    drain -> restart [color="#b07d10"];
+}

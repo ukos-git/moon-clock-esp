@@ -1,0 +1,56 @@
+// What sits ON the card (components/moon/tfcache/moon_tfcache.c;
+// verified before drawing):
+//   The folder is /moon_cache/<calcver>_<target>_<bakepx>/ — one
+//   synodic cycle of hourly keys is ≈ 709 files. The hour key is
+//   hour·3600 + 1800 (the HOUR CENTRE): the gray JPEG at MOON_PX is
+//   stable across boots AND boards — one card seeded by one boot
+//   serves every later boot and even the sibling board.
+//   The calcver half of the name is set at CMake CONFIGURE from the
+//   repo version (commitizen's "version = ..." line in .cz.toml,
+//   falling back to git describe until the first bump) — so a
+//   deliberate version bump starts from an EMPTY folder BY DESIGN,
+//   while plain commits leave the card alone.
+//   meta.txt is self-describing: bake px, albedo width, relief, JPEG
+//   quality — any MISMATCH wipes and recreates the folder. Its
+//   new-moon floor line is NON-AUTHORITATIVE: it never invalidates
+//   the folder, so even a boot without a trustworthy clock prunes and
+//   replays on the last known new moon.
+//   The bounded window: the floor is the NEWER of one synodic back
+//   from the newest hour and the new-moon floor (the cache does not
+//   link the ephemeris, so the core-1 producers supply it via
+//   tfcache_set_new_moon_floor); list_hours / store / evict all agree
+//   on the same window, so a board that never reboots still prunes at
+//   the crossing.
+// The sealed version is tf-hour-cache.dot; the producers are
+// tf-hour-cache-flow.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph tfcache_card {
+    rankdir=TB;
+    label="On the card — hour-centre keys, self-describing meta, bounded window";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.32, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    name [label="the folder name —\n<calcver>_<target>_\n<bakepx>",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    meta [label="meta.txt — bake px,\nalbedo W, relief, q",
+          fillcolor="#efece4"];
+    floor [label="the floor — newer of\nsynodic-back, new\nmoon; never wipes",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    hour [label="one image per HOUR —\nkey = hour·3600 +\n1800, gray JPEG",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wipe [label="mismatch ⇒ WIPE the\nfolder; the floor line\nnever does",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    win [label="≈ 709 files = one\nsynodic cycle — list,\nstore, evict agree"];
+
+    name -> hour;
+    meta -> wipe [style=dashed, color="#b07d10"];
+    hour -> win;
+    floor -> win [color="#b07d10"];
+}

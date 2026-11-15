@@ -1,0 +1,38 @@
+// The 4C's wake-up story (the key difference from the S3, drawn once;
+// the sleep machine itself is docs/implementation/clock-sleep):
+//   The board carries NO RTC IC and NO IO expander — the vendored
+//   board_io_expander_init() returns NULL. There is no hardware wake
+//   path at all: the only wake source is a software esp_timer
+//   one-shot, which needs a running CPU.
+//   Consequence shipped: while an alarm is pending the device
+//   deliberately stays in LIGHT sleep (dim panel) instead of the
+//   deep state (backlight off) — a deep-sleep wake does not exist
+//   on this board.
+//   Contrast s3-wiring-wake.dot (poll-only alarm) and
+//   knob-wiring-wake.dot (the family's only real deep sleeper).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph p4_wiring_wake {
+    rankdir=LR;
+    label="The 4C has no hardware wake path at all";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    fact [label="no RTC IC · no IO\nexpander — the\nexpander is NULL"];
+    timer [label="wake = software\nesp_timer\none-shot", fillcolor="#e4efe7",
+           color="#3a7d5c", fontcolor="#1f5c40"];
+    lsleep [label="alarm pending →\nLIGHT sleep, the\ndeep state waits", fillcolor="#e4efe7",
+            color="#3a7d5c", fontcolor="#1f5c40"];
+    p4 [label="ESP32-P4", fillcolor="#efece4", penwidth=1.6];
+
+    fact -> timer [color="#3a7d5c"];
+    timer -> p4;
+    fact -> lsleep [color="#3a7d5c", constraint=false];
+    lsleep -> p4;
+}

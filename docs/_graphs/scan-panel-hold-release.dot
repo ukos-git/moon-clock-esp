@@ -1,0 +1,43 @@
+// The release side of the scan hold (task #30) — the generic ui tick
+// owns the release, verified in code before drawing:
+//   screens_wifi_scan_hold_poll is registered BEFORE the repaint
+//   poll, so the release's stamp is seen by the same tick's expiry
+//   check.
+//   The poll watches wifi_scan_in_progress; the guard releases only
+//   when the radio session is REALLY over — with the sync path's
+//   proven 4 s esp_wifi_stop/deinit teardown tail.
+//   The release's whole-screen repaint: moon_ui_panel_repaint_pending
+//   -> lv_obj_invalidate(active) heals everything the storm ate,
+//   wherever the user went meanwhile.
+//   The first cut of the fix released from the settings screen's own
+//   tick and from loadScreen — which re-opened the drop exactly on
+//   the user's path (atomic flush into the live storm, no pending
+//   repaint to heal it). Hence: the SCREEN touches neither end.
+// The sealed version is scan-panel-hold.dot; the arm side is
+// scan-panel-hold-arm.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph scan_hold_release {
+    rankdir=TB;
+    label="Releasing — the tick watches the radio, then heals the screen";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    radio [label="the scan task —\nwifi_scan_in_progress\nis the watched flag"];
+    poll [label="the tick's hold-poll\n— registered first, so\none tick sees it all",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    release [label="release only when\nthe session is over\n— 4 s teardown tail",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    heal [label="repaint pending →\ninvalidate(active)\n— heals the eaten\nstrips",
+          fillcolor="#efece4"];
+
+    radio -> poll [style=dashed];
+    poll -> release;
+    release -> heal;
+}

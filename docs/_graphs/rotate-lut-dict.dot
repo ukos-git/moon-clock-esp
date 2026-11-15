@@ -1,0 +1,91 @@
+// THE DICTIONARY opened — g565_build (moon_render.c:34-69), the two
+// rebuild entry points, and every live user of gray565. Every quoted
+// line verified in code before drawing:
+//   g565_build (:34-69): neutral base (:41-43) r5 = (g·31+127)/255,
+//     g6 = (g·63+127)/255, b5 = r5 — the round-to-nearest idiom;
+//     b5 = r5 is what "gray" MEANS, neutrality is structural; the pink
+//     bug it prevents (:37-39): the 5-bit value in the 6-bit green
+//     field "caps green at 31/63 (~49%) and renders every gray as
+//     magenta/pink". Warm branch (:44-50): r5 = (g·32+127)/255, b5 =
+//     (g·29+127)/255 capped at 31 — R ×1.038, B ×0.933 calibrated to
+//     NASA's lit-region RGB (164,160,153), R/B = 1.07 (:15-21): "a
+//     warm moon reads as a real moon photo against the AMOLED's true
+//     black" — the SHIPPED default (:26). Sky-event branch (:51-64):
+//     the pre-calculated multipliers ride the WARM base — blood
+//     1.15/0.55/0.42 (:91-95), harvest 1.10/0.92/0.62, blue
+//     0.92/1.00/1.12, super/micro ×1.08/×0.92 (:96-114), each
+//     round(+0.5) and capped (31/63/31). Pack (:66): (r5<<11)|(g6<<5)|
+//     b5 — LVGL-native RGB565, "the panel's format made literal".
+//     Lazy build on first call (:124-128).
+//   set_warm (:71-76): rebuilds only when the flag CHANGES; set_warm(0)
+//     is the gate's --neutral path (:21-23) — "the display tint never
+//     enters the gate numbers". set_event (:88-122): "They compose
+//     multiplicatively (harvest + super, ...), so one call per day
+//     covers all of the instant's events" (:84-85); "the device calls
+//     this once per day; an event-less day is a no-op" (:86-87);
+//     set_warm(0) WINS over set_event — the neutral gate LUT is never
+//     tinted (:29-31).
+//   The live users: components/ui/moon_ui.c s_rgb[i] =
+//     moon_gray565(s_frame[i]) — the bounce convert :1242, the reveal
+//     band's row :1402, the publish block :1715, the hourly/orbit rows
+//     :2133 — "every displayed frame goes through moon_gray565"; the
+//     producers SET the tint before publishing — set_event(&ev) at the
+//     boot bake :1536, the hourly producer :1653 (hour-centre epoch),
+//     the reveal :2006; boot replay runs NEUTRAL on purpose (:1934):
+//     set_event(NULL) — "the stored grays are event-independent, and
+//     classifying a whole cycle would cost more than the animation is
+//     worth" (:1845-1847); the TF hour cache (moon_tfcache.c:18-21):
+//     "The fetched frame goes through the SAME moon_gray565() tint LUT
+//     as a baked frame ... so cache and compute paths are
+//     pixel-identical by construction" — the card stores GRAY, the
+//     tint is applied on show; the knob (knob_moon.c:9-13): its bake
+//     converts "through moon_gray565. That is the EXACT LUT table the
+//     identity moon_rotate consults (cos(0) = 32768 ... an identity
+//     gather)" — pixel-identical to the rotate path "by construction,
+//     not hope" (:13); set_event at begin :83.
+// The sealed version is rotate-lut.dot; the gather is
+// rotate-lut-gather.dot. Layout: two stacked columns — the users left,
+// the three-build ladder right (its chain edges are constraint=false
+// so they stay in one column).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph rotate_lut_dict {
+    rankdir=LR;
+    label="The dictionary opened — three builds deep, tint on show";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#efece4",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    uiconv [label="moon_ui.c converts\n— bounce, reveal,\npublish, rows", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    tfc [label="the TF card —\nstores GRAY, tints\non show", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    knobm [label="the knob — identity\ngather \"by\nconstruction\"", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    prod [label="producers set the\ntint before\npublishing", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    replay [label="boot replay —\nset_event(NULL)", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    setevent [label="set_event(ev) —\none call per day;\nno-op without", fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    setwarm [label="set_warm(on) —\nrebuilds only on\nflag change", fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    eventb [label="event branch —\nmultipliers ride\nthe WARM base", fillcolor="#f7f1e2", color="#b07d10", fontcolor="#8a5f0a"];
+    warmb [label="warm branch —\nR ×1.038, B ×0.933;\nthe SHIPPED default", fillcolor="#f7f1e2", color="#b07d10", fontcolor="#8a5f0a"];
+    neutral [label="neutral base —\nb5 = r5, what\n\"gray\" MEANS"];
+
+    pack [label="(r5<<11)|(g6<<5)|\nb5 — LVGL-native\nRGB565", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    { rank=same; uiconv; tfc; knobm; prod; replay; }
+    { rank=same; setevent; setwarm; eventb; warmb; neutral; }
+
+    prod -> setevent [color="#2b5fb0"];
+    replay -> setwarm [style=dotted];
+    setevent -> eventb [color="#b07d10", style=dotted, constraint=false];
+    setwarm -> neutral [color="#b07d10", constraint=false];
+    eventb -> warmb [color="#b07d10", style=dotted, constraint=false];
+    warmb -> neutral [color="#b07d10", style=dotted, constraint=false];
+    neutral -> pack;
+    uiconv -> pack [color="#2b5fb0", penwidth=1.6];
+    tfc -> pack [color="#2b5fb0"];
+    knobm -> pack [color="#2b5fb0"];
+}

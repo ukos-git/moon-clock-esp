@@ -383,3 +383,11 @@ All default off (``0`` = off, except the two bools default ``n``).
      - Bake without the relief gradient cache (``L = clip(d, 0, 1)``)
        to measure the relief path's share of the bake cost. Visually
        wrong (flat terminator) — profiling aid only.
+   * - ``TEST_BAKE_REVEAL_TRACE``
+     - bool
+     - Log every bake-reveal band, producer strip and gated tick (rows
+       + ms since the arm + drain-witness ms per displayed state; one
+       line per producer strip; one gated dump per second naming the
+       active gate). Bench pacing diagnostic for the reveal
+       (``docs/implementation/bake-reveal``); the code compiles out
+       when off.

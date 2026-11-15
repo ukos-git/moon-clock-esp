@@ -1,0 +1,59 @@
+// One strip's journey, opened — the numbers that constrain it
+// (all verified in code before drawing):
+//   The LVGL draw buffer lives in octal PSRAM — NOT DMA-capable for
+//   SPI2_HOST (esp_ptr_dma_capable false below SOC_DMA_LOW), so
+//   everything must be staged before it flies.
+//   Adapter bridge ESP_LV_ADAPTER_PANEL_IF_OTHER:
+//   lv_draw_sw_rgb565_swap on the flush buffer -> bytes arrive in
+//   PANEL order.
+//   The draw_bitmap wrapper (installed on the panel vtable at init):
+//   LVGL flushes, drain probes and 0x51 ramp steps ALL reach the
+//   panel here, under s_panel_mtx. The accept retry absorbs the P4
+//   DPI panel's async-DMA2D ESP_ERR_INVALID_STATE rejects (the S3's
+//   QSPI writes synchronously, first attempt wins).
+//   buffer_height 25 rows -> 466x25x2 = 23.3 KiB strips; a 50-row
+//   strip's 32 KiB first chunk exceeds the largest DMA-capable
+//   internal block (~31 KiB) and EVERY full-panel flush fails
+//   ESP_ERR_NO_MEM ("the 50-row failure" — hardware invariant, not
+//   tuning; strip math moon_ui.c:124, BSP :493-:530).
+//   esp_driver_spi stages each strip into an internal-RAM DMA copy
+//   (S3 SPI DMA cap 32 KiB = SPI_LL_DMA_MAX_BIT_LEN); the vendored
+//   BSP's max_transfer_sz 23,300 B keeps even the direct writes
+//   inside the proven chunk size.
+//   Queue DEPTH 1 — the depth-1 pool descriptor (trans_pool[0])
+//   carries the per-transaction completion flag; this is the slot
+//   the lost-completion family recycles under the ISR.
+// The sealed version is flush-path.dot; the witnesses on the wrapper
+// are flush-path-witness.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph flush_path_strip {
+    rankdir=TB;
+    label="One strip's journey — PSRAM canvas to lit pixel";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    buf [label="the draw buffer —\noctal PSRAM, not\nSPI-DMA-capable"];
+    swap [label="rgb565_swap on the\nflush buffer — panel\nbyte order"];
+    wrap [label="the vtable wrapper —\nevery writer under\ns_panel_mtx",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    strip [label="25-row strips —\n466×25×2 =\n23.3 KiB",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    stage [label="staged in internal\nRAM — 32 KiB DMA\ncap, max 23,300 B"];
+    queue [label="queue DEPTH 1 —\ntrans_pool[0] holds\nthe done flag"];
+    dma [label="QSPI DMA → CO5300\n→ the AMOLED panel",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    buf -> swap;
+    swap -> wrap;
+    wrap -> strip [color="#2b5fb0", penwidth=1.6];
+    strip -> stage;
+    stage -> queue;
+    queue -> dma [color="#2b5fb0", penwidth=1.6];
+}

@@ -95,12 +95,16 @@ The state machine, as displayed
 states — the black canvas, one completed strip band per 50 ms tick, the
 healed old frame on any abort — and every state is ONE atomic band
 ``lv_refr_now`` under ``s_rgb_mtx`` with the drain witness. The producer
-free-runs and bumps only a watermark; the tick converts at most one
-state per 50 ms; nothing on the path ever shows the async drain's
-partial work. That witness — its rule-3 hold across the whole
-submit+witness window, its audited ~40 ms healthy hold against the
-watchdog's 3 s bounded probe (75× headroom), and its heal-in-place
-versus budgeted-restart split — is one node in :ref:`the guards
+free-runs and bumps only a watermark; while the tick is in rhythm it
+advances by exactly one strip per tick (the pacing rule below), so
+every computed strip becomes its own visible state; nothing on the path
+ever shows the async drain's partial work. That witness — its rule-3
+hold across the whole submit+witness window, its measured ~53 ms hold
+against the watchdog's 3 s bounded probe (≈55× headroom, bench
+2026-11-15: a probe that follows a multi-strip flush never witnesses
+its own completion, so the ladder is one short grace plus heal-in-place,
+not two 300 ms poll windows), and its heal-in-place versus
+budgeted-restart split — is one node in :ref:`the guards
 sketch <guards-arch>` and a policy note on
 :ref:`the guard ladder <guard-ladder-perf>`.
 
@@ -111,7 +115,7 @@ sketch <guards-arch>` and a policy note on
      [*] --> ARMED: producer arms the owner (hourly cold leg / replay final leg)
      ARMED --> CANVAS: first tick lands the black canvas — ONE atomic band flush
      CANVAS --> BANDS: first completed strip — the hourly leg pays the owed fade-in here
-     BANDS --> BANDS: one band per 50 ms tick — rows shown..pub through moon_gray565
+     BANDS --> BANDS: one band per 50 ms tick — one strip (rows shown..shown+ROWS) in rhythm, else the watermark
      BANDS --> GATED: traffic hold / fade pending — the watermark keeps advancing
      GATED --> BANDS: the gate opens — one larger catch-up band
      BANDS --> DONE: bake complete (pub == rows)
@@ -156,6 +160,7 @@ Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
    static volatile bool s_reveal_clear;     /* the black canvas is not shown yet */
    static volatile bool s_reveal_dirty;     /* s_rgb holds reveal pixels: an abort must heal */
    static volatile bool s_reveal_stop;      /* finish/pause asked the producer to stop */
+   static volatile int64_t s_reveal_last_show_ms; /* tick's last shown state (the pacing rule's rhythm stamp) */
 
 * **Producers** — ``moon_hourly_task``'s cold-bake leg and
   ``moon_boot_replay_task``'s final "now" leg — replace the single
@@ -173,23 +178,32 @@ Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
   ``moon_hourly_service`` in ``moon_tick_cb``) converts one state per
   50 ms tick: first the black canvas (``memset`` the square's
   ``s_rgb`` + full invalidate), then one band per tick — rows
-  ``[shown, pub)`` gray→RGB565 through ``moon_gray565`` into ``s_rgb``
+  ``[shown, to)`` gray→RGB565 through ``moon_gray565`` into ``s_rgb``
   and ``lv_obj_invalidate_area`` of exactly that band on every moon
   image — each landed as ONE ``lv_refr_now`` under ``s_rgb_mtx`` with
   ``moon_panel_drain_verify``. A band flush at the chosen heights is
-  ≤ one QSPI strip's payload (S3: 400×20×2 = 16 KB < the 23,300 B
+  ≤ one QSPI strip's payload (S3: 400×10×2 = 8 KB < the 23,300 B
   strip cap), so one band is one strip transaction.
-* **Band height** — ``MOON_REVEAL_ROWS``: 20 rows on the S3
-  (400 px / 20 = 20 states), 26 on the P4 (650 px / 26 = 25 states);
-  a ``#error`` guard pins the divisibility. There is no artificial
-  FPS cap: at the ~2 s S3 bake the producer lands ~10 rows/50 ms tick,
-  so the 50 ms tick and the bake rate co-pace (~20 visible states);
-  on a bursty producer the tick simply shows larger catch-up bands
-  (one atomic state per tick regardless).
+* **Band height and pacing** — ``MOON_REVEAL_ROWS``: 10 rows on the S3
+  (400 px / 10 = **40 strip states**), 13 on the P4 (650 px / 13 =
+  **50 strip states**); a ``#error`` guard pins the divisibility. The
+  user's 2026-11-15 call ("I currently only see two... we can add
+  more") halved the strip height — the old 20/26-row bands with the
+  then-640 ms witness showed only ~4 states before the bake
+  outran the panel. The tick's step rule makes every strip count:
+  while the tick is IN RHYTHM (it showed a state within
+  ``REVEAL_PACE_WINDOW_MS`` = 400 ms) it advances by exactly ONE
+  strip, the brief's "one completed strip band per 50 ms tick"; only
+  a resume from a park (the watermark has run far ahead while a gate
+  held the tick) collapses to the watermark, because dripping strips
+  a parked viewer never saw is not a designed state. Bench
+  (boot replay, card-less, 2026-11-15): 40 band lines, each exactly
+  ``shown..shown+10``, steady ~80 ms cadence, canvas at +355 ms.
 * **The producer NEVER blocks on the display.** The chunk loop
-  free-runs; a single bounded wait (1500 ms) at the very end lets the
-  tick land the tail before the normal publish + atomic show (a parked
-  or gated tick never wedges the producer — the done legs show
+  free-runs; a single bounded wait (2500 ms — sized for a full
+  one-strip-per-tick drip: ~40 strips × ~50 ms) at the very end lets
+  the tick land the tail before the normal publish + atomic show (a
+  parked or gated tick never wedges the producer — the done legs show
   atomically regardless, and the heal paths cover every aborted
   state). An early per-chunk wait variant was rejected on the bench:
   during a traffic hold the gated tick starved it chunk after chunk
@@ -323,8 +337,9 @@ Cost analysis — display integrated with computation
 The reveal ADDS display work during what used to be dead time, and the
 numbers say what that costs:
 
-* **QSPI/LVGL**: ~20 band flushes per revealed bake (S3), each ≤ one
-  25-row strip's payload plus one ``lv_refr_now`` bookkeeping pass.
+* **QSPI/LVGL**: ~41 band flushes per revealed bake (S3: canvas + 40
+  strips), each ≤ one 25-row strip's payload plus one ``lv_refr_now``
+  bookkeeping pass.
   This is the cost the pre-reveal posture paid ALL AT ONCE in the
   final atomic show (~19 full-width strips) — the total bytes to the
   panel are comparable (the bands sum to the square); what changes is
@@ -335,9 +350,14 @@ numbers say what that costs:
   family measurably more often (co5300's per-draw CASET/RASET/RAMWR
   polling is the trigger, and the bands multiply the flush windows).
   The 2026-11-14 bench observed ~5 in-place heals during a boot-reveal
-  leg (~12 % of band states), ALL healed by the designed no-op
-  ``tx_param(-1)`` bookkeeping heal — 0 site restarts, 0
-  ``PANEL IO STUCK``, the same healthy recovery capture 11 established.
+  leg — but the 2026-11-15 trace showed the true rate: **every probe
+  that follows a multi-strip flush loses its own completion** (42/42
+  heals on a revealed boot leg), so the heal is the NORMAL path, not
+  the anomaly — and the old two-probe ladder therefore billed a flat
+  ~641 ms per displayed state, the pacing killer the tuning removed.
+  All heals are the designed no-op ``tx_param(-1)`` bookkeeping heal —
+  0 site restarts, 0 ``PANEL IO STUCK``, the same healthy recovery
+  capture 11 established; the witness now costs ~53 ms.
 * **The knob pays the visible-for-computation tax the clearest**: the
   same binary family measured **991 ms** bake with the reveal off
   vs **~2.05 s** with it on — the swap task's per-band
@@ -355,8 +375,9 @@ numbers say what that costs:
 Measured bench numbers (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` runs + cold/warm boot captures)
 ...................................................................................................
 
-S3 AMOLED (466 panel, 400 disk, 20-row bands) — card in slot, fresh
-per-version cache folder (a new flash caches from start by design):
+S3 AMOLED (466 panel, 400 disk, 20-row bands — the pre-tuning geometry,
+see the re-measurement below) — card in slot, fresh per-version cache
+folder (a new flash caches from start by design):
 
 .. list-table::
    :header-rows: 1
@@ -405,12 +426,57 @@ Knob (360 disk, row-interleaved, boot-only reveal):
      - first rows visible ~50 ms in; the swap's band flushes cost the
        bake ~1.07 s (see cost analysis)
 
-P4 (720 panel, 650 disk, 26-row bands): **bench deferred** — the 4C
-was not on the bench for this pass. The bake baseline stands at ~2.4 s
+P4 (720 panel, 650 disk): **bench deferred** on 2026-11-14 — the 4C
+was not on the bench for that pass (the hourly/reveal bench remains an
+open item with the rest of #44). The bake baseline stood at ~2.4 s
 (the 2048-albedo floor); the reveal's shape and gates are the shared
-code, so its numbers are expected to mirror the S3's scaled by the
-bake rate. Flag: hourly/reveal bench for the P4 is an open item with
-the rest of #44.
+code, so its numbers mirror the S3's scaled by the bake rate.
+
+Pacing re-measurement (2026-11-15, 10/13-row bands, fast witness, ``CONFIG_TEST_BAKE_REVEAL_TRACE`` runs)
+...........................................................................................................
+
+The user's report that motivated the tuning — "I currently only see
+two" intermediate results, with a long wait before the first — measured
+out exactly: the OLD config showed 4 designed states per boot-reveal
+(canvas + 3 collapsed bands + heal), because every displayed state paid
+a **~641 ms** drain witness (the two-probe ladder always reached its
+heal: a probe following a multi-strip flush never witnesses its own
+completion) while the producer published a strip every ~50-80 ms, so
+~9 strips collapsed into each displayed band.
+
+After the retune (one strip per tick + single-grace witness + halved
+strip height), the card-less boot replay's "now" leg on the bench:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 28 32
+
+   * - Flow
+     - Measured
+     - Notes
+   * - S3 boot replay final leg, revealed bake
+     - **40 band states, each exactly one 10-row strip** (trace lines
+       ``0..10`` … ``390..400``), canvas at **+355 ms**, steady ~80 ms
+       cadence, ``400/400 rows … shown 400`` in **3200 ms** (non-trace
+       build; 3770 ms with the trace lines in)
+     - producer: 40 strips at ~10 ms first / ~25-58 ms steady; the
+       tick keeps pace THROUGH the whole bake — the tail wait never
+       fired (no ``catch-up wait expired``)
+   * - S3 drain witness, revealed boot leg
+     - **~52-59 ms per displayed state** (42 heals: canvas + 40 bands
+       + heal), 0 restarts, 0 stuck
+     - the deterministic heal path IS the witness now; 30 ms grace +
+       ``tx_param(-1)`` bookkeeping drain (see the drain-verify note)
+   * - P4 boot replay final leg, revealed bake
+     - **650/650 rows in 2662 ms, shown 650** (50 strip states at
+       13-row bands)
+     - the witness is compiled out on the P4 (no GPSPI family);
+       pacing there is pure tick + bake rate — the shared one-strip
+       rule still pins the granularity
+
+Both legs ran on the bench flash of this change (S3 ``0x1a0c70``, P4
+``0x1c6020``); the S3 hourly cold/reveal numbers above still describe
+the old geometry, the mechanism is unchanged.
 
 The bench's regression catch — the 8.2 s per-cycle new-moon scan
 ................................................................

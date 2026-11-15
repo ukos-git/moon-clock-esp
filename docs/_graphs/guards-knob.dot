@@ -1,0 +1,49 @@
+// THE KNOB'S ONE KEY opened: a single mutex with ELEVEN wrapper
+// entries feeding ONE physical take. s_lvgl_mux is created in knob
+// main.c:366 and handed into the seam at :435 (knob_ui_set_lvgl_lock);
+// knob_ui.c owns the ONLY physical take :246 (portMAX_DELAY) inside a
+// holder+depth wrapper :237 — "a FreeRTOS mutex is NOT recursively
+// takable by its owner" (:230, the 2026-11-10 hub-tap TAP deadlock), so
+// a same-task re-entry is s_lvgl_depth++ (:242-244) and an unlock from
+// a non-owner logs and is ignored (:255-256). The eleven entries,
+// across four files: 6 inside knob_ui.c (swap legs :612/:632/:648,
+// invalidate_all :761, show_no_time :827, caption :857), the painter's
+// park loop main.c:158 held ACROSS lv_timer_handler (10–20 ms), the
+// alarm wake :327, the dial commit knob_dial.c:100, and the seam's two
+// legs knob_moon_render.c:255/:311 (refr + home dim). The knob builds
+// NO panel key at all: moon_ui.c is excluded wholesale (component ui's
+// CMakeLists empties UI_BOARD_SRCS under KNOB_BOARD) and the seam that
+// answers moon_ui.h carries zero mutex tokens — its moon_ui_init is a
+// shim (knob_moon_render.c:161). The guards in black boxes is
+// docs/_graphs/guards.dot (this page); the clocks' two keys are
+// docs/_graphs/guards-keys.dot; the key-free band is
+// docs/_graphs/guards-flags.dot. FONTS: 12 pt = the page's 16 px body
+// text at 1:1 — kept inside the content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph guards_knob {
+    rankdir=TB;
+    label="The knob's single key — eleven entries, one physical take";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#b07d10", penwidth=1.3, fontcolor="#6b4e08"];
+
+    e_ku [label="6 legs in knob_ui.c — swap ·\ninvalidate · no-time · caption"];
+    e_park [label="painter park :158 — held\nACROSS lv_timer_handler"];
+    e_mixed [label="alarm wake · dial commit ·\nseam refr + dim"];
+    wrapper [label="wrapper :237 — holder+depth:\nre-entry = depth++ (:242),\nnon-owner unlock ignored (:255)",
+             fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    mux [label="s_lvgl_mux (main.c:366) — the ONLY\nmutex; ONE physical take :246\nportMAX_DELAY (wired :435)",
+         fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
+
+    e_ku -> e_park [style=invis];
+    e_park -> e_mixed [style=invis];
+    e_ku -> wrapper [label="entry"];
+    e_park -> wrapper [label="entry"];
+    e_mixed -> wrapper [label="entry"];
+    wrapper -> mux [penwidth=1.6, label="the ONE physical take"];
+    wrapper -> wrapper [label="depth++"];
+}

@@ -1,0 +1,66 @@
+// Consumer A — the activity/wake monitor (moon_ui.c; 1 Hz, NEVER
+// paused; verified before drawing):
+//   moon_tilt_monitor_cb runs on its OWN 1 s lv_timer (:2678) —
+//   deliberately NOT the moon tick (the moon tick is PAUSED in sleep
+//   and the wake must run there); CONFIG_UI_IMU_ENABLE=n: the timer
+//   survives only to cache the LVGL task handle.
+//   Fast EMA (alpha 0.5) of the raw g -> s_pose_g, unit-normalized:
+//   the current pose with per-sample noise suppressed; the FIRST
+//   sample seeds both EMAs (zero departure).
+//   departure = acos(dot) between pose and settled reference, in
+//   degrees — NOT the delta of two raw samples (the p90 ~3.3 deg
+//   at-rest noise floor is why raw deltas fired "woke right after
+//   sleep entry").
+//   departure < UI_IMU_ACTIVITY_DEG (5 deg): SETTLED — the slow EMA
+//   (alpha 0.2) absorbs the pose into the reference (only while
+//   settled, so the ~0.4-0.7 deg/s at-rest drift is tracked, not
+//   fought; ceiling bar x alpha/(1-alpha) = 1.25 deg/s — alpha 0.1
+//   sat AT its ceiling on a hot board); streak reset.
+//   The TWO BARS are per-STATE thresholds on the same departure —
+//   awake: the activity bar (5 deg, holds the idle timer while the
+//   user manipulates the ball); asleep: the deliberate-pick-up wake
+//   bar UI_IMU_WAKE_DEG (20 deg) — table vibration and drift cannot
+//   clear it; the asleep 5..20 deg band is neither.
+//   A STREAK of two consecutive qualifying samples gates both bars
+//   (one residual spike cannot fire); the 1 Hz call site is the
+//   <= 1/s rate cap on notify.
+//   clock_idle_notify_tilt_activity (clock_idle.c:92): resets the
+//   idle activity stamp ALWAYS; if asleep, also
+//   clock_trigger_idle_wake() — the tilt door of wake-doors.dot.
+//   moon_ui_tilt_settled() exports the settled verdict for the
+//   orientation anchor (tilt-pipeline-orient.dot).
+// The sealed version is tilt-pipeline.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph tilt_pipeline_monitor {
+    rankdir=TB;
+    label="The 1 Hz monitor — EMAs, departure, two bars, a streak";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    mon [label="its own 1 s timer —\nNEVER the moon tick\n(pauses in sleep)",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    fast [label="fast EMA α 0.5 →\ns_pose_g unit-norm;\nfirst sample seeds"];
+    dep [label="departure = acos\nof the dot, degrees\n— not a raw delta"];
+    settle [label="settled below 5° —\nslow EMA α 0.2 ab-\nsorbs; streak reset"];
+    bars [label="the TWO BARS — awake\n5° activity; asleep\n20° pick-up wake",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    streak [label="streak of 2 gates\nboth bars; 1 Hz call\n= the rate cap"];
+    sink [label="notify_tilt_activity\n— stamp reset; if\nasleep, the door"];
+    flag [label="moon_ui_tilt_\nsettled() — the\nexported verdict",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    mon -> fast;
+    fast -> dep;
+    dep -> settle;
+    dep -> bars [color="#2b5fb0", penwidth=1.6];
+    bars -> streak;
+    streak -> sink [color="#2b5fb0", penwidth=1.6];
+    settle -> flag [style=dashed, color="#b07d10"];
+}

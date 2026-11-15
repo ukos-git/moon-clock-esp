@@ -1,0 +1,53 @@
+// The three time bases + the fallback chain, opened (clock.c gates on
+// CLOCK_USE_PCF85063A; verified before drawing):
+//   S3 — PCF85063A on the shared BSP I2C (bus handle from
+//   bsp_i2c_get_handle, addr 0x51 — the RTC's OWN address, not the
+//   panel's 0x51 brightness command); INT -> TCA9554 EXIO3
+//   (clock.c:121/:128). The chip holds LOCAL digits, battery-backed
+//   across reboots — the same register the alarm disarm rule owns.
+//   Self-trusting by design: the trust flag is compiled out of its
+//   consumers here.
+//   P4 — no PCF, no expander: the system clock over the internal RTC
+//   timer + SNTP (clock.c:134-138; the curated pin is the external
+//   32k crystal — see the prose note on the stale bench pin). NVS
+//   "clock"/"epoch" snapshot (clock_sntp.c): saved on EVERY SNTP fix
+//   (forced) and every 15 min from the minute tick
+//   (CLOCK_NVS_SAVE_INTERVAL_SEC 900); a full power loss kills the
+//   crystal domain, the snapshot is the only cross-power-loss memory.
+//   knob — no RTC at all: the same NVS snapshot discipline, plus a
+//   pre-sleep save on every deep-sleep entry (knob_power.c:196) and a
+//   one-time ADOPT + promote of the pre-seam "knob_time" namespace
+//   (main.c:220-223). The battery-powered honesty rule: the restored
+//   instant is LAST KNOWN, never trusted.
+//   The fallback chain (clock_sntp.c:219-243): now < 1609459200
+//   (pre-2021 = junk)? try the NVS restore (2021+ or nothing) ->
+//   still junk? the DEFAULT 2026-01-24 12:00. Both floors are parsed,
+//   not invented: 1609459200 here, the knob's rule gate uses its own
+//   1600000000 (knob_power.c:56). The fallback settimeofday does NOT
+//   raise the trust flag.
+// The sealed version is time-chain.dot; the fixers and the flag's
+// consumers are time-chain-trust.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph time_chain_bases {
+    rankdir=TB;
+    label="The three time bases — and the chain that fills a junk clock";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#dbe7f6",
+          color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    s3b [label="S3 — PCF85063A on\nI²C, addr 0x51; INT\n→ TCA9554 EXIO3"];
+    p4b [label="P4 — internal RTC +\nSNTP; NVS snapshot\non every fix"];
+    knb [label="knob — no RTC; NVS +\npre-sleep save each\ndeep-sleep entry"];
+    fb [label="the fallback chain —\njunk → NVS restore →\ndefault 2026-01-24",
+        fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    s3b -> p4b [style=invis];
+    p4b -> knb [style=invis];
+    knb -> fb [style=invis];
+}

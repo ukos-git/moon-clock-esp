@@ -1,0 +1,43 @@
+// THE HIDDEN CITY opened: where the 255 objects live and which few
+// the awake user ever sees. The per-screen object counts are parsed,
+// not recalled — docs/tools/gen_perf_assembly.py re-derives every
+// number and SystemExits on drift; the concentration facts (the
+// wheel's 150, the shared moon image, the ONE reparented clock
+// widget) carry their line refs in the page caption. The population
+// in black boxes is docs/_graphs/screen-population.dot (this page);
+// the visit mechanics are screen-population-visit.dot. FONTS: 12 pt
+// = the page's 16 px body text at 1:1 — kept inside the content
+// column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph screen_population_city {
+    rankdir=TB;
+    label="The hidden city opened — where the 255 objects live";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#525c78", penwidth=1.3];
+
+    createfn [label="create_screens\n16 creators, one\ndetached root each",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    root4 [label="4 moons\n17+5+3+4",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    hubn [label="hub — 9\n6+exit+root",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    wheeln [label="wheel — 150\n59 % of bill",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
+    restn [label="10 screens\n3-12 each"];
+    moonimg [label="ONE moon image\nfor all four",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    clockw [label="ONE clock —\nreparented",
+            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    createfn -> root4;
+    createfn -> hubn;
+    createfn -> wheeln [color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    createfn -> restn;
+    root4 -> moonimg [color="#b07d10", fontcolor="#6b4e08"];
+    root4 -> clockw [color="#2b5fb0", fontcolor="#1e3f70"];
+}

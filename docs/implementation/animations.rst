@@ -171,12 +171,24 @@ fetch), without waiting on a real hour boundary.
 The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
 .....................................................................
 
-The anatomy in one picture — what a warm hour is, where the folder's
-key comes from, who may touch the card (never both producers at
-once), and why a missing card is a normal path rather than an error:
+The anatomy as a sealed overview plus two detail sketches — what a
+warm hour is, where the folder's key comes from, who may touch the
+card (never both producers at once), and why a missing card is a
+normal path rather than an error:
 
 .. graphviz:: ../_graphs/tf-hour-cache.dot
-   :alt: The TF hour cache anatomy — folder keyed by calcver/target/bakepx with self-describing meta.txt, the two core-1 producers single-caller by construction, lazy first-producer mount, the eviction floor as the newer of synodic-back and the producer-supplied new-moon floor, tfcache_ready false as the normal card-less posture
+   :alt: The TF hour cache sealed — folder keyed by calcver/target/bakepx, the card with one gray JPEG per hour and a bounded ≈709-file window, the two core-1 producers single-caller by construction, the lazy first-producer mount, tfcache_ready false as the normal card-less posture
+   :caption: The sealed view — the folder key, the card, the two core-1 producers (never concurrent), the lazy mount whose first producer pays the ~1 s card-less probe once, and ``tfcache_ready()`` false as the NORMAL, silent posture (missing card, failed mount, bad decode, card pulled mid-run — the refresh just bakes every hour, exactly like the knob's card-less path).
+   :align: center
+
+.. graphviz:: ../_graphs/tf-hour-cache-card.dot
+   :alt: The card opened — folder named calcver underscore target underscore bakepx, one hour-centre gray JPEG per hour stable across boots and boards, meta.txt whose resolution mismatch wipes the folder while its non-authoritative new-moon floor line never does, the bounded ≈709-file window agreed by list, store and evict
+   :caption: On the card — the folder ``/moon_cache/<calcver>_<target>_<bakepx>/``, the hour key at ``hour·3600 + 1800`` making the gray JPEG stable across boots AND boards (one card serves them all), ``meta.txt`` whose resolution mismatch wipes and recreates the folder while its NON-authoritative floor line never does, and the bounded window — the floor is the newer of one synodic back and the new-moon floor the producers supply, and ``list_hours`` / store / evict all agree on it (``moon_tfcache.c``).
+   :align: center
+
+.. graphviz:: ../_graphs/tf-hour-cache-flow.dot
+   :alt: The producers opened — the boot replay listing hours ascending and presenting first, the hourly probe holding off while it does, a fetch HIT tinting and publishing in 185–235 ms, a MISS baking then write-through storing, the lazy once-only mount and the not-ready normal posture
+   :caption: The producers — the boot replay lists hours ASCENDING, presents first, and the hourly probe/spawn holds off while it does (two core-1 producers, never concurrent); a fetch HIT tints the LUT and publishes in 185–235 ms inside the fade's black window, a MISS bakes then WRITE-THROUGH stores so the next fetch hits, and the replay ends in its revealed now-bake FINAL leg that commits on show; init runs once, driven by the FIRST producer — a card-less boot pays one ~1 s probe and the scratch stays resident (the decode out-buffer remains lazy, task #38).
    :align: center
 
 The cache persists one small gray JPEG per HOUR under
@@ -419,6 +431,19 @@ core's 23 entries — is the surface sketch in :doc:`the C API
 <../reference/c-api>`; its amber guard node is exactly this wrapper.
 
 .. graphviz:: ../_graphs/sky-events.dot
+   :alt: The sky-events chain sealed — classify_here as the only gate every caller walks, the core-1 worker, the once-a-day scan cached per calendar day and never on LVGL, and the three consumers: tint LUT, eclipse bite, minute probe
+   :caption: The sealed view — every caller walks ``moon_event_classify_here`` (:1122); the five core-1 pipeline tasks (``moon_ev_scan_allowed``, :1097) may classify IN PLACE and warm the day, every other caller on a cold day hands the scan to the worker and gets a ZEROED event — a plain untinted bake that self-heals the next minute when the probe sees the signature change. The minute day-tick runs the pipeline-busy guard BEFORE the classify on purpose (:2707+): a running pipeline task classifies its own epoch and warms the day for free, and on a cold day ``classify_here`` returns FALSE and the tick simply returns. The worker (:1103, spawn :2614) is core-1 and IDLE1-unwatched (the 15–20 s scan can never trip a watchdog), carries a 12 KiB era-chain SPIRAM stack at priority MAX−4 so a hungry bake outranks a warm-up, and its notify-take loop re-checks ``s_ev_want_day`` before warming — a torn 64-bit read of the day cache is designed for (worst case: one extra re-bake).
+   :align: center
+
+.. graphviz:: ../_graphs/sky-events-scan.dot
+   :alt: The day scan opened — full_moments' 6 h grid over the minus-45 to plus-15 day window, about 600 se_dot evals cached per calendar day, se_argmax refining each peak at plus-minus 6 h in 10 min steps with peaks gated S·E greater than 0.9, classify's five flags on F and F_prev, and the knob's 20 ms yield budget compiled into both scan loops
+   :caption: The scan — ``full_moments`` (:138) sweeps a 6 h grid over [−45 d, +15 d], up to ~600 ``se_dot`` evaluations, cached per calendar day (:211); ``se_argmax`` (:101) refines each strict peak at ±6 h in 10 min steps (73 samples); a peak needs S·E > 0.9, F is the nearest one and F_prev the one before it (the blue test); the five flags ride ``classify`` (:221) — the ±18 h moment test, the shared-month blue test, super/micro MEASURED at F (357 500 / 405 500 km), BLOOD tested ALWAYS since an eclipse can start hours before the window opens. The knob has no worker, so the 20 ms wall-clock yield budget is compiled INTO both scan loops (:26-31, :101, :148) — the bench of 2026-11-11 proved a fixed every-32-evals yield still starves IDLE1.
+   :align: center
+
+.. graphviz:: ../_graphs/sky-events-consumers.dot
+   :alt: The consumers opened — the event tint LUT composed over the warm base with the neutral gate LUT never tinted, the per-pixel eclipse bite riding the hour-centre bake, and the minute probe's 5-bit signature deciding the re-bake with the commit on show
+   :caption: The three uses — every core-1 producer calls ``moon_gray565_set_event(&ev)`` before its bake (``moon_render.c`` :88), the event multipliers compose OVER the warm base and ``set_warm(0)`` wins over ``set_event``, so the neutral GATE LUT stays untinted and the image gate byte-identical; the bite is per-pixel lit Lambert × (1 − 0.85 × ``moon_event_occ``) — 1 fully in the umbra, 0 outside the penumbra, linear between — and it rides the hour-centre bake, so the hourly refresh tracks its drift across the disk by itself; the minute probe compares the 5-bit signature against ``s_baked_event`` — blood ON entering the shadow, OFF at exit — and commits only ON SHOW, so a cycle that never shows stays due and self-heals; when the hourly probe takes the hour, IT subsumes the re-bake.
+   :align: center
 
 Wakes: the deferred re-bake (live)
 ..................................
@@ -519,13 +544,24 @@ The fade-to-black screen switch, filmed from the bake (``fade.mp4``, from the ba
 Every screen switch (except the both-moon switch — airplane / WiFi /
 the sleep screens share the one moon image) dims the **panel's own
 hardware brightness** (0x51) to 0, switches the screen while the
-panel is still black, and ramps back. The whole machine — the
-both-moon decision, the ramp, and the three branches of
-``moon_ui_screen_switched`` including the starved-fade-in rescue —
-as one picture:
+panel is still black, and ramps back. The machine as a sealed
+overview plus the two legs opened — the fade-out, and the three
+branches of ``moon_ui_screen_switched`` including the starved-fade-in
+rescue:
 
 .. graphviz:: ../_graphs/screen-switch.dot
-   :alt: The screen-switch fade machine — loadScreen's both-moon decision, the 0x51 fade-out ramp from the tracked level, the clock-widget reparent while black, and the three branches of moon_ui_screen_switched: the #34 starved-fade-in rescue (amber), the while-black atomic flush plus fade-in ramp, and the plain atomic switch
+   :alt: The screen-switch fade machine sealed — loadScreen's both-moon decision, the self-guarded 0x51 fade-out ramp from the tracked level, the clock-widget reparent while black, and the three branches of moon_ui_screen_switched: the #34 starved-fade-in rescue (amber), the while-black atomic flush plus fade-in ramp, and the plain atomic switch
+   :caption: The sealed view — ``loadScreen``'s both-moon test (``ui.c`` :51: fade every switch EXCEPT old ≠ new with both sides showing the moon — ``moon_ui_screen_is_moon`` walks ``s_moon_roots``, :3078 — because airplane / WiFi / the sleep screens share the one moon image: dimming it would be a fade with nothing to fade), then the self-guarded fade-out, the reparent while black, and the one branch taken (``moon_ui.c`` :3119).
+   :align: center
+
+.. graphviz:: ../_graphs/screen-switch-fade.dot
+   :alt: The fade-out leg opened — the self-guard that paints plain without pending, the owed fade-in flagging the 0x51 writers' multiplex, the ramp starting from the tracked cent (25 % after the light-sleep dim), and the scan-storm rule that drops every step
+   :caption: The fade-out leg — ``moon_ui_fade_out`` (:3019) is self-guarded (no moon, FADE ≤ 0, or baking: paint plain WITHOUT pending), but once it commits, the fade-in is OWED either way and ``s_fade_busy`` is the 0x51 writers' multiplex — the hourly legs and the light-sleep dim queue behind it, because a 0x51 queued behind a strip that never completes would park its writer forever (the settings-entry freeze). The ramp starts at the TRACKED level ``s_panel_pct``, so after the light-sleep dim it fades from 25 %, and ``panel_hold_live()`` drops ALL steps, leaving the panel at its truthful tracked cent. The old overlay fade charged a full-screen ``lv_refr_now`` per step (~175 ms of QSPI strips each) and read as a top-to-bottom CRAWL — that is why the ramp replaced it.
+   :align: center
+
+.. graphviz:: ../_graphs/screen-switch-branches.dot
+   :alt: The three branches opened — entry bookkeeping with the replay abort, the #34 starved fade-in rescue landing raw 100 percent under the panel mutex ignoring the hold, the fade-in leg's atomic flush while still black then the ramp to 100, and the plain atomic switch with its drain witness
+   :caption: The three branches — entry bookkeeping first: the pipelines' display gate ``s_moon_screen``, and leaving the moon mid-replay ABORTS the replay; the #34 starved branch fires when the bake guard won the race after the fade-out RAMP LANDED (tracked 0) — a raw ``bsp_display_brightness_set(100)`` under ``s_panel_mtx`` IGNORING the radio hold (stranding a black panel with a live app outranks one 0x51 riding the storm bus; the P4 bench of 2026-11-13: pitch black, app fully alive), logged as ``fade-in starved by the bake guard``; the fade-in leg lands the new screen as ONE atomic whole-panel ``lv_refr_now`` while the panel is STILL BLACK (drain witness "switch fade-in") and only then ramps 0→100, so the fully rendered screen appears at once; the plain branch is the invariant's atomic switch under ``s_rgb_mtx``, witness "screen switch" — and the shared clock widget reparents onto the new root and refreshes from the RTC during the black window, so the wake's one frame shows the current minute.
    :align: center
 
 .. code-block:: c

@@ -1,0 +1,62 @@
+// THE THIRTEEN METHODS opened: the nine operable panels coloured by
+// their RECORDED verdict (the lab's CARDS/OFF tables,
+// docs/_static/keyboard/round-keyboard-lab.html — the device's own
+// timings run the widgets: multi-tap T 700 ms, dwell 400 ms, scan
+// 1 s), the four off-hardware cards, and the violet dashed keeps —
+// what the shipped sweep wheel took from the alternatives it
+// rejected. The pairing record: the keys are the house circle-check
+// commit and circle-xmark discard since 2026-11-08 (screens.c:1806);
+// the frozen mock still draws the older xmark-on-commit / trash-on-
+// discard. The thirteen in black boxes is
+// docs/_graphs/keyboard-lab.dot (this page); vouches are
+// keyboard-lab-corpus.dot; strikes keyboard-lab-constraints.dot.
+// The wheel's own machine is wheel-commit.dot on keyboard.rst.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph keyboard_lab_methods {
+    rankdir=LR;
+    label="The methods opened — recorded verdicts, and what the wheel kept";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#7c3aed", fontcolor="#4c1d95",
+          style=dashed, penwidth=1.4];
+
+    multitap [label="2 multi-tap 30 deg —\nSHIP · 2-4 KB",
+              fillcolor="#dff0dc", color="#2e7d32"];
+    dwell [label="3 dwell 400 ms —\nSHIP · tens of LOC",
+           fillcolor="#dff0dc", color="#2e7d32"];
+    scan [label="4 auto-scan 1 s —\nSHIP as setting",
+          fillcolor="#dff0dc", color="#2e7d32"];
+    swipe [label="5 9x4 swipe —\nHOLD · duplicate",
+           fillcolor="#faeecd", color="#b07d10"];
+    qwerty [label="6 QWERTY 6x6 —\nREJECTED · geometry",
+            fillcolor="#f8d7d7", color="#b91c1c"];
+    glide [label="7 glide · trace —\nREJECTED · no dict",
+           fillcolor="#f8d7d7", color="#b91c1c"];
+    twist [label="8 IMU twist —\nEXPERIMENTAL",
+           fillcolor="#e9ddf8", color="#7c3aed"];
+    encoder [label="9 dial + haptics —\nthe v2 BOARD",
+             fillcolor="#d7eef2", color="#0e7490"];
+    voice [label="voice —\nINFEASIBLE", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
+    ocr [label="OCR —\nINFEASIBLE", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
+    handoff [label="handoff —\nINFEASIBLE NOW", style="rounded,filled,dashed", fillcolor="#eceff1", color="#6b7280"];
+    t9dec [label="T9 decode —\nREJECTED · task", fillcolor="#f8d7d7", color="#b91c1c"];
+    wheel [label="1 sweep wheel v2 —\nTHE SHIP",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+
+    multitap -> wheel [label="kept: coarse press\n+ centre preview"];
+    dwell -> wheel [label="kept: the 400 ms\nas centre back-hold"];
+    glide -> wheel [label="kept: its double-entry,\nmade impossible"];
+    swipe -> wheel [color="#b07d10", fontcolor="#6b4e08", label="HOLD — duplicates"];
+    qwerty -> wheel [style=invis];
+    twist -> wheel [style=invis];
+    voice -> wheel [style=invis];
+    ocr -> wheel [style=invis];
+    handoff -> wheel [style=invis];
+    t9dec -> wheel [style=invis];
+}

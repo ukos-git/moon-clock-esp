@@ -1,0 +1,82 @@
+// The fixers and what the trust flag gates (clock_sntp.c:35 is the
+// flag; these are the ONLY raisers; verified before drawing):
+//   Boot NTP — SYNCHRONOUS inside clock_init (enable_ntp_sync = wifi
+//   up at main.cpp:512, timeout CLOCK_NTP_TIMEOUT_MS 10 s) — done
+//   BEFORE the panel wakes (wifi_manager_deinit follows at :541: an
+//   associated modem's DTIM beacon steals QSPI DMA completions, task
+//   #29); the success path writes the RTC (S3) and lands the home
+//   screen with a fresh clock.
+//   sntp_sync_time_cb (clock_sntp.c:109): s_time_trusted = true; the
+//   just-synced epoch is force-snapshotted (non-PCF builds); the
+//   event bit releases the waiter. needs_sync()
+//   (CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS, 1 h) is what re-arms the
+//   hourly gate.
+//   Manual entry (P4 only — the hub's clock icon): the settings-time
+//   commit runs clock_set_time + clock_sntp_set_time_trusted(true) +
+//   moon_ui_day_tick (screens.c:2901-2904) — a user-entered time IS
+//   trusted; the rejected path logs "manual time ... rejected".
+//   What the flag gates:
+//     the moon door (clock.c:257): clock_get_time (I2C read on the
+//     S3, time() on P4/knob) -> validate_time (:271, year 2000..2099
+//     + field ranges) -> ESP_ERR_INVALID_STATE on any implausible
+//     answer -> mktime reads the digits as LOCAL (TZ/DST) -> UTC
+//     epoch. "Show nothing rather than a wrong phase" is the
+//     reject's purpose (the function's own comment). moon_ui_start
+//     (:2744) with no time leaves the panel BLACK ("a blank RTC
+//     leaves the moon black until a trustworthy time exists",
+//     main.cpp:675); boot replay's final leg, the core-1 event scan,
+//     the day tick and the wake stale re-bake each skip or defer on
+//     the reject — never a bake from the default 2026 date.
+//     the knob's arming rule (main.c:239): the static phase arms on
+//     the wall bool — "a restore happened" — NOT on the raw clock's
+//     plausibility (the trust flag stays down until an SNTP fix, so a
+//     factory-default clock never shows a silently-wrong moon); the
+//     late fix force-rebakes. The deep-sleep alarm leg adds its own
+//     floor: the rule fires only at now >= 1600000000.
+//     the P4 alarm gate (clock_interrupt.c:183): the one-shot only
+//     SETS a flag on its own task; the shared 1300 ms poll fires only
+//     when clock_sntp_time_trusted() AND (the flag OR now >=
+//     next_epoch) — the default/unsynced 2026-01-24 12:00 can never
+//     ring a phantom. The S3 needs no such gate: its AF flag is
+//     hardware (alarm-lifecycle.dot).
+//     the P4 unsynced dim (screens.c:3646-3658, compiled out on the
+//     S3): the time label sits at LV_OPA_50 while !trusted and
+//     brightens on the next tick after the flag flips — an
+//     approximate value READS as approximate.
+//   The asymmetry the flag makes visible: the S3 TRUSTS ITS CHIP (the
+//   PCF is the time base; validate_time is the only gate), the P4 and
+//   knob TRUST THE LAST FIX (restored digits are plausible-but-
+//   untrusted by design). Same moon, same scheduler, opposite
+//   defaults — which is why the manual-entry screen exists only for
+//   the P4 (settings-time.rst).
+// The sealed version is time-chain.dot; the bases are
+// time-chain-bases.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph time_chain_trust {
+    rankdir=TB;
+    label="The trust flag — two raisers path in, four consumers gate on it";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    ntp [label="boot NTP — SYNCHRONOUS\nin clock_init, BEFORE\nthe panel wakes",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    man [label="manual commit (P4\nonly) — a user time\nIS trusted",
+         fillcolor="#efece4"];
+    cb [label="sntp_sync_time_cb —\ntrust up, snapshot,\nevent bit released",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    sys [label="the system clock —\nsettimeofday lands"];
+    gates [label="the flag-gated leg —\nknob arms on the\nrestore bool, the P4\nrings only trusted",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    ntp -> cb [label="the event bit"];
+    man -> cb [style=dashed, color="#2b5fb0"];
+    cb -> sys [color="#2b5fb0", penwidth=1.6];
+    cb -> gates [style=dashed, color="#2b5fb0"];
+}

@@ -1,0 +1,32 @@
+// The knob's display chain opened (vendor schematic, demo-confirmed):
+//   QSPI x4: CLK 13, CS 14, D0-D3 15-18, RST 21. TE (tearing) is not
+//   wired. LEDA sits on 3V3 - the panel is a BACKLIT LCD; the product
+//   name's "LCD" is literal, not an AMOLED.
+//   Backlight: PWM GPIO 47 drives an AO3400A PMOS; LEDC is THE ONLY
+//   DIMMER - there is no 0x51 brightness register like the S3's
+//   CO5300 has (docs/implementation/knob-display carries the ramps
+//   that ride it).
+// The bake/disk geometry on top of this panel is knob-display.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_wiring_display {
+    rankdir=LR;
+    label="The knob's display chain — SH8601 and its PMOS backlight";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.3, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    s3 [label="ESP32-S3R8", fillcolor="#efece4", penwidth=1.6];
+    qspi [label="QSPI x4 — CLK 13\n· CS 14 · D0-3\n15-18 · RST 21"];
+    sh [label="SH8601 — RGB565\n· LEDA to 3V3\n· TE unwired", fillcolor="#efece4"];
+    bl [label="GPIO 47 → AO3400A\nPMOS — LEDC is\nthe only dimmer", fillcolor="#efece4"];
+
+    s3 -> qspi;
+    qspi -> sh;
+    s3 -> bl [label="LEDC PWM"];
+}
