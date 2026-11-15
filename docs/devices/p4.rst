@@ -315,12 +315,6 @@ The P4 build merges the shared defaults with
    # accurate and is unusable as a clock time base.
    CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 
-   # Companion knob (task #16): the 4C is wall-powered, so it keeps the radio
-   # associated through the airplane/light-sleep hand-offs and the knob's UDP
-   # frames reach the listener at any time (the battery S3 stays n — see
-   # components/companion/Kconfig).
-   CONFIG_COMPANION_KEEP_WIFI=y
-
 **The board line asymmetry, the P4 half:** this file **does** carry
 ``CONFIG_BOARD_P4=y`` — the Kconfig ``choice``'s default is the S3,
 so selecting the P4 must override it, while the S3 file needs no

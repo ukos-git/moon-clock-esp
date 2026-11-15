@@ -153,6 +153,42 @@ current output (re-run 2026-11-02, the art pass in-tree):
      gate: C-NASA per-frame MAE <= 12  AND  C-Python per-frame MAE <= 2
      ->  PASS
 
+The same gate, seen as pictures: four rows of the set as
+NASA / device / residual. The third panel of each row is
+``|C − NASA| × 8`` after the same sub-pixel registration the MAE uses
+— so the bright seam along the terminator is precisely the
+subsolar-offset error the table's "error grows with illumination" note
+explains, amplified eightfold. ``docs/nasa_figs.py`` rebuilds these
+from a fresh gate run (the two rows at 75 % and 90 % sit in the
+table's upper MAE band; the 25 % and 50 % rows show the residual
+shrinking toward the crescent):
+
+.. figure:: ../img/nasa/nasa_vs_c_p025.png
+   :alt: NASA vs C runtime vs residual at phase 25 (first quarter)
+   :figclass: align-center
+
+   Phase 25.0 (NASA frame 1993) — C−NASA MAE 5.22 in the table above.
+
+.. figure:: ../img/nasa/nasa_vs_c_p050.png
+   :alt: NASA vs C runtime vs residual at phase 50 (half moon)
+   :figclass: align-center
+
+   Phase 50.0 (NASA frame 2259) — C−NASA MAE 7.42.
+
+.. figure:: ../img/nasa/nasa_vs_c_p075.png
+   :alt: NASA vs C runtime vs residual at phase 75 (gibbous)
+   :figclass: align-center
+
+   Phase 75.0 (NASA frame 905) — C−NASA MAE 7.72.
+
+.. figure:: ../img/nasa/nasa_vs_c_p090.png
+   :alt: NASA vs C runtime vs residual at phase 90 (gibbous toward full)
+   :figclass: align-center
+
+   Phase 90.0 (NASA frame 1817) — C−NASA MAE 8.64; the residual
+   covers the whole lit disk here, exactly where the model error is
+   largest.
+
 Reading the table
 -----------------
 

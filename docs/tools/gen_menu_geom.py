@@ -17,11 +17,17 @@ Wheel keyboard (screens.c WHEEL_* defines + the design comment):
   LVGL angles (0 = right, 90 = down, clockwise) plot as
   (r cos a, -r sin a) in the y-up figure.
 
-Alarm-time band (screens.c ALARM_TIME_* defines):
+Alarm-time screen (screens.c ALARM_TIME_* defines + the screen builder):
   object 2(R+W) -> outer R = UI_PX(223), width UI_PX(10) (inner 213) —
-  the home seconds-arc ring · day handles at r UI_PX(218) on
-  ALARM_DAY_ANG(d) = 181 + 30 d (d = Mon..Sun) · the dark track and the
-  re-seeded indicator run 181..1 (the 360/0 wrap).
+  the home seconds-arc ring · day handles (34 px circles) at r UI_PX(218)
+  on ALARM_DAY_ANG(d) = 181 + 30 d (d = Mon..Sun) · the dark track and
+  the re-seeded indicator run 181..1 (the 360/0 wrap) · the two time
+  rollers (140x110 boxes, the 96 px numbers font) centred at x −80/+70,
+  y −23 — the home clock's glyph centres — with the `:` at x −10 · the
+  "Mo-Fr" range summary at y −100 (NO date row on this screen: the
+  DD.MM.YY row lives on the settings-time screen, see
+  gen_roller_screens.py) · the bottom-centre exit button (90 px box,
+  BOTTOM_MID −34 -> band top edge y 342).
 
 Palette follows gen_perf_figs.py / gen_hub_ring.py: blue #2b5fb0,
 amber #b07d10, gray guides are geometry, not entities.
@@ -58,6 +64,12 @@ WHEEL_MODE_MID, WHEEL_CENTRE_R = 114, 55
 SECTORS = [2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 3, 2]  # [ab][cd][ef]...[wy], sum 26
 SHARE = 360.0 / 26
 ALARM_R_OUT, ALARM_W, ALARM_HANDLE_R = 223, 10, 218
+ALARM_HANDLE_D = 34      # the day-handle circle's diameter (UI_PX(34))
+ALARM_ROLLER_W, ALARM_ROLLER_H = 140, 110  # the time rollers (96 px font)
+ALARM_HOUR_X, ALARM_MIN_X = -80, 70        # rollers' centres (home glyph centres)
+ALARM_PAIR_Y, ALARM_COLON_X = -23, -10     # pair row + the `:` x
+ALARM_RANGE_Y = -100     # the "Mo-Fr" summary row
+EXIT_SIZE, EXIT_BOTTOM = 90, 34            # settings_create_exit_button(90), BOTTOM_MID -34
 
 
 def uipx(x: int, panel: int) -> int:
@@ -76,6 +88,42 @@ def arc(ax, r, w, a0, a1, color, alpha=1.0, lw=None):
     ax.add_patch(Wedge((0, 0), r + w / 2, -a1, -a0, width=w,
                        facecolor=color, edgecolor="none", alpha=alpha,
                        zorder=3))
+
+
+def smp(v, panel):
+    """Signed UI_PX: the code negates OUTSIDE UI_PX(-UI_PX(80)), so C
+    truncates toward zero — mirror that, not Python's floor."""
+    return math.copysign(uipx(abs(v), panel), v)
+
+
+def roller_box(ax, panel, cx, cy, w, h, color, alpha, label=None):
+    """A roller/tap box: centred at code-space (cx, cy) — code y is
+    DOWNWARD from the panel centre, so it plots as -cy (y-up)."""
+    from matplotlib.patches import Rectangle
+    R = lambda v: uipx(v, panel)
+    x, y = smp(cx, panel) - R(w) / 2, -smp(cy, panel) - R(h) / 2
+    ax.add_patch(Rectangle((x, y), R(w), R(h), facecolor=color, alpha=alpha,
+                           edgecolor=color, linewidth=0.8, zorder=3))
+    if label:
+        ax.text(smp(cx, panel), -smp(cy, panel), label, fontsize=6.5,
+                color="#1e3f70", ha="center", va="center", zorder=5)
+
+
+def exit_band(ax, panel):
+    """The bottom-centre exit button: 90 px box anchored BOTTOM_MID at
+    -34 (its top edge is the y 342 line every screen comment cites)."""
+    from matplotlib.patches import Rectangle
+    R = lambda v: uipx(v, panel)
+    half = panel / 2
+    top_below = half - R(EXIT_SIZE + EXIT_BOTTOM)  # y 342 below centre at 466
+    chord = 2 * math.sqrt(max(half * half - top_below * top_below, 0))
+    ax.plot([-chord / 2, chord / 2], [-top_below, -top_below], "--",
+            color=LIGHT, linewidth=1.0, zorder=2)
+    cy = -(half - R(EXIT_BOTTOM) - R(EXIT_SIZE) / 2)
+    ax.add_patch(Rectangle((-R(EXIT_SIZE) / 2, cy - R(EXIT_SIZE) / 2),
+                           R(EXIT_SIZE), R(EXIT_SIZE), facecolor="none",
+                           edgecolor=GRAY, linestyle="--", linewidth=0.9,
+                           zorder=2))
 
 
 def panel_frame(ax, panel):
@@ -152,31 +200,50 @@ def draw_alarm_band(ax, panel, annotate):
     # the dark full track 181..1 (the 360/0 wrap) and the indicator sample
     arc(ax, r_out - w / 2, w, 181, 361, LIGHT, alpha=0.9)
     arc(ax, r_out - w / 2, w, 181, 301, BLUE, alpha=0.85)  # Mon..Fri sample
-    # the seven day handles at ALARM_DAY_ANG(d) = 181 + 30 d
+    # the exit band first (behind everything): bottom-centre 90 px button
+    exit_band(ax, panel)
+    # the two time rollers (140x110, 96 px font) at the home clock's
+    # glyph centres + the `:` between them (screens.c settings_create_roller)
+    roller_box(ax, panel, ALARM_HOUR_X, ALARM_PAIR_Y, ALARM_ROLLER_W,
+               ALARM_ROLLER_H, BLUE, 0.25, "HH")
+    roller_box(ax, panel, ALARM_MIN_X, ALARM_PAIR_Y, ALARM_ROLLER_W,
+               ALARM_ROLLER_H, BLUE, 0.25, "MM")
+    ax.text(smp(ALARM_COLON_X, panel), -smp(ALARM_PAIR_Y, panel), ":",
+            fontsize=10, color=BLUE, ha="center", va="center", zorder=5)
+    # the "Mo-Fr" range summary row (NO date row on this screen)
+    ax.text(0, -smp(ALARM_RANGE_Y, panel), "Mo–Fr", fontsize=6.5, color=GRAY,
+            ha="center", va="center", zorder=5)
+    # the seven day handles at ALARM_DAY_ANG(d) = 181 + 30 d — real 34 px
+    # circles (they poke out of the 10 px ring), 4 px ext-click not drawn
     days = "MTWTFSS"
+    from matplotlib.patches import Circle
     for d in range(7):
         a = 181 + 30 * d
         x, y = pt(R(ALARM_HANDLE_R), a)
         big = d in (0, 4)  # the default working endpoints (start, end)
-        ax.scatter([x], [y], s=52 if big else 26, zorder=4,
-                   facecolor=AMBER if big else BLUE,
-                   edgecolor="#1e3f70" if not big else "#6b4e08",
-                   linewidth=0.6)
-        lx, ly = pt(R(ALARM_HANDLE_R) + R(26), a)
-        ax.text(lx, ly, days[d], fontsize=6.0, color=BLUE if not big else "#6b4e08",
+        ax.add_patch(Circle((x, y), R(ALARM_HANDLE_D) / 2, zorder=4,
+                            facecolor=AMBER if big else BLUE,
+                            edgecolor="#6b4e08" if big else "#1e3f70",
+                            linewidth=0.6))
+        lx, ly = pt(R(ALARM_HANDLE_R) + R(32), a)
+        ax.text(lx, ly, days[d], fontsize=6.0, color=GRAY,
                 ha="center", va="center", zorder=5)
-    # the two rollers' labels (time HH:MM above the date row — the layout)
-    ax.text(0, R(30), "HH:MM", ha="center", va="center", fontsize=9,
-            color=BLUE, zorder=5)
-    ax.text(0, -R(20), "DD.MM.YY", ha="center", va="center", fontsize=6,
-            color=BLUE, zorder=5)
     if annotate:
         for r, label, a in ((ALARM_R_OUT, "223 outer", 236),
-                            (ALARM_HANDLE_R, "218 handles", 254),
+                            (ALARM_HANDLE_R, "218 midline", 254),
                             (ALARM_R_OUT - ALARM_W, "w = 10", 128)):
             x, y = pt(R(r), a)
             ax.text(x, y, label, fontsize=5.6, color=GRAY, ha="center",
                     va="center", zorder=5)
+        x, y = pt(R(ALARM_HANDLE_R) - R(30), 181 + 30 * 2)
+        ax.text(x, y, "34 px handles", fontsize=5.2, color=AMBER,
+                ha="center", va="center", zorder=5)
+        ax.text(smp(ALARM_HOUR_X, panel), -smp(ALARM_PAIR_Y, panel) - R(62),
+                "140×110 @ (−80/+70, −23)", fontsize=5.2, color=BLUE,
+                ha="center", va="center", zorder=5)
+        ax.text(0, -(panel / 2 - uipx(EXIT_SIZE + EXIT_BOTTOM, panel)) - R(14),
+                "exit band top y 342", fontsize=5.2, color=GRAY, ha="center",
+                va="center", zorder=5)
 
 
 def main() -> None:

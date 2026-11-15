@@ -399,6 +399,30 @@ throughput), and the knob's one-time relief build lands at **727 ms**
 per boot leg, 0 site restarts, 0 ``PANEL IO STUCK``. P4: bench
 deferred (board off the bench this pass).
 
+The ladder above is the page's own prose as one picture: the hourly
+refresh has exactly four outcomes the product pays for, judged against
+the producer's single budget constant (``HOURLY_BUDGET_MS``,
+``components/ui/moon_ui.c``) and the fade legs' ``UI_MOON_HOURLY_FADE_MS``.
+
+.. figure:: ../_static/figs/perf_hourly.png
+   :alt: hourly refresh outcomes on one log axis against the 5 s producer budget
+   :figclass: align-center
+
+   The hourly-refresh ladder — every accepted-capture outcome on one
+   log millisecond axis with the 5 s ``HOURLY_BUDGET_MS`` line
+   (dashed red). The TF hour-cache hit (185–235 ms, dark segment the
+   accepted window) plus the two 240 ms hardware-brightness fade legs
+   is **~7× cheaper than the plain bake it replaces** (1300 ms, S3
+   native 400 px) and ~13× cheaper than the revealed legs; the
+   revealed outcomes (dotted bars, min–max error bars) still land
+   *inside* the budget — the memoization catch is what made that true:
+   before ``new_moon_epoch_cached``, the cache-policy leg re-ran the
+   ~8.2 s ephemeris scan every cycle (red ✗) and blew the budget every
+   hour (bench #44). The knob's revealed pair is the same story on the
+   third board. Solid bars non-revealed, dotted revealed. The
+   generator is ``docs/tools/gen_perf_hourly.py`` (accepted captures
+   quoted beside it; budget and fade are the device's own constants).
+
 The device CPU (one-core shares)
 --------------------------------
 

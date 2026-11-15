@@ -1,0 +1,55 @@
+digraph spiffs_store {
+    label="The SPIFFS store: three files, their readers and writers — and who survives a flash";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=19;
+    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+
+    part [label="the 64 K storage partition = SPIFFS\nbaked from the source tree's spiffs/ dir\non EVERY build — but runtime-owned:\na full flash clobbers the runtime state\n(the settings screens re-create the files)",
+          shape=note, fillcolor="#e8e8e4", color="#525c78", penwidth=1.6,
+          fontcolor="#1e3f70"];
+
+    subgraph cluster_files {
+        label="the three files on the card of flash";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        creds [label="wifi_credentials.txt   GITIGNORED\nline 1 SSID · line 2 password\nthe tracked example is what ships\n(secrets never enter the tree)",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                 penwidth=1.6];
+        alarm [label="alarm.txt   tracked default\nfive-field cron, one rule per line\n(“0 7 * * 1-5” = 7:00 Mon–Fri;\nday_of_month + month are ignored)\ncomments-only = no alarms",
+                 fillcolor="#efece4"];
+        set [label="settings.txt   GITIGNORED\n“key = value” · # comments skipped\nsix range-validated keys, each falling\nback to its #ifndef-seeded Kconfig default",
+               fillcolor="#efece4"];
+    }
+
+    wifi [label="wifi.c read_wifi_credentials\nat boot: first non-comment line =\nSSID, second = password",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    sched_r [label="clock_alarm_scheduler fopen(\"r\")\narms the rule: PCF85063A ALM on S3,\nesp_timer one-shot on P4 + knob\n(zero-rule boot MUST clock_clear_alarm\nor a stale time fires a phantom alarm)",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    load [label="settings_store_load at boot\n(main, before the audio/roller\nseeds — the banner quotes the REAL values)",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    power [label="the knob's power ladder\nreads the timeout pair LIVE\n(dim after idle_timeout_sec,\ndeep sleep one countdown later)",
+           fillcolor="#efece4"];
+
+    kb [label="the wheel keyboard commit\n(screens.c) → wifi_credentials_write\n— the ONLY runtime writer of credentials",
+        fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    sched_w [label="clock_alarm_scheduler_write\n(full replace, one rule per line\nor comments-only) — driven by the\nalarm-settings screens",
+              fillcolor="#efece4"];
+    save [label="settings_store_save\nrewrites the whole file: two-line\nheader (“do not edit by hand — a full\nflash resets this file”) + the six keys;\nevery commit fires on RELEASED, never\non the drag path",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    part -> creds; part -> alarm; part -> set;
+    creds -> wifi [label="boot read", color="#2b5fb0"];
+    kb -> creds [label="commit", color="#2b5fb0"];
+    alarm -> sched_r [label="boot read", color="#b07d10"];
+    sched_w -> alarm [label="full replace", color="#8a8a8a"];
+    set -> load [label="boot read", color="#b07d10"];
+    set -> power [label="live reads", style=dashed];
+    save -> set [label="whole-file rewrite", color="#2b5fb0"];
+}

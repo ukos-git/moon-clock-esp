@@ -202,18 +202,21 @@ The rules the graph encodes:
 Menu geometry, computed per variant
 -----------------------------------
 
-Two settings screens carry real *geometry* beyond the ring: the wheel
-keyboard and the alarm-time day band. Like the hub ring
-(:doc:`settings-hub <settings-hub>`), their layout is not hand-placed
-figures but pure ``UI_PX()`` arithmetic in
-:doc:`../code/index` (``components/ui/screens.c``) — so the figure
-below **computes** every element position per family panel the way
-the device does (the same integer division, the code's own radii and
-angle expressions: the wheel's WHEEL_* defines and design comment,
-the band's ALARM_TIME_* defines and ``ALARM_DAY_ANG(d) = 181 + 30d``;
-LVGL angles, 0 = right, 90 = down). The generator is
-``docs/tools/gen_menu_geom.py``; the hub-ring companion is
-``gen_hub_ring.py``, the dial-disk one ``gen_disk_geom.py``.
+The menu surfaces that carry real *geometry* beyond the ring are the
+wheel keyboard, the alarm-time day band and the five roller screens
+(settings-time, pomodoro, and the single-roller family). Like the hub
+ring (:doc:`settings-hub <settings-hub>`), their layout is not
+hand-placed figures but pure ``UI_PX()`` arithmetic in
+:doc:`../code/index` (``components/ui/screens.c``) — so the figures
+below **compute** every element position per family panel the way the
+device does (the same integer division, the code's own radii, box
+sizes and ``lv_obj_align`` offsets: the wheel's WHEEL_* defines and
+design comment, the band's ALARM_TIME_* defines and
+``ALARM_DAY_ANG(d) = 181 + 30d``, the rollers' create-call arguments;
+LVGL angles, 0 = right, 90 = down). The generators are
+``docs/tools/gen_menu_geom.py`` and ``gen_roller_screens.py``; the
+hub-ring companion is ``gen_hub_ring.py``, the dial-disk one
+``gen_disk_geom.py``.
 
 .. figure:: ../_static/figs/menu_geom.png
    :alt: wheel keyboard and alarm-time band geometry, computed per panel
@@ -224,11 +227,34 @@ LVGL angles, 0 = right, 90 = down). The generator is
    sector hairlines r 150..226, register track LVGL 150..390 at r
    84..144, commit/discard wedges at r 114, centre box r ~55. Bottom
    row: the :doc:`alarm-time day band <settings-alarm-time>` — outer
-   r 223, width 10 (the home seconds-arc ring), seven day handles on
-   the r 218 midline, the dark track and indicator running 181..1
-   through the 360/0 wrap (sample shown: Mon–Fri). The S3 column
-   carries the 1:1 numbers; P4 and knob scale every radius through
-   ``UI_PX``.
+   r 223, width 10 (the home seconds-arc ring), the seven 34 px day
+   handles on the r 218 midline, the dark track and indicator running
+   181..1 through the 360/0 wrap (sample shown: Mon–Fri), and the
+   screen's own content: the two 140×110 time rollers at the home
+   clock's glyph centres (−80/+70, −23), the "Mo–Fr" range summary at
+   y −100, and the shared sub-screen exit button (90 px box,
+   BOTTOM_MID −34 — top edge y 342, dashed). The S3 column carries the
+   1:1 numbers; P4 and knob scale every radius through ``UI_PX``.
+
+.. figure:: ../_static/figs/roller_screens.png
+   :alt: settings-time, pomodoro and the single-roller family geometry, computed per panel
+   :figclass: align-center
+
+   The roller family — every roller is one visible row (the roller *is*
+   the value display). Top: :doc:`settings-time <settings-time>` — the
+   time row (two 140×110 boxes, 96 px font) at ±75/−30 with the `:` at
+   centre, the date row (three 60×70 boxes, 48 px font) at ±75/0 with
+   the dots at ±37, caption at y −110. Middle:
+   :doc:`pomodoro <settings-pomodoro>` — the twin rollers at the home
+   clock's glyph centres (−80/+70, −23, same pattern as the alarm-time
+   band's screen above), caption at y −100. Bottom: the
+   single-roller family (:doc:`light-sleep <settings-light-sleep>` and
+   :doc:`deep-sleep <settings-deep-sleep>` at 210, :doc:`timezone
+   <settings-tz>` at 380, :doc:`alarm sound <settings-alarm-sound>` at
+   260 plus the 100×100 preview button at +150) — all three shown
+   true-centred at once for width comparison; each device screen shows
+   only its own roller. The exit button (90, −34) is the shared
+   sub-screen furniture on every one of these screens.
 
 .. toctree::
    :maxdepth: 2

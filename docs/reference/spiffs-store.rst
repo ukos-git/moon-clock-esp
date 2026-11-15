@@ -8,6 +8,12 @@ directory on **every** build and *runtime-owned*: the app writes
 clobbers the runtime state (accepted — the settings screens re-create
 them). Three files live on it.
 
+.. graphviz:: ../_graphs/spiffs-store.dot
+
+Each file has exactly one runtime writer (blue) and boot-time readers
+(amber); the knob's power ladder is the only *live* reader — every
+other read happens at boot.
+
 ``wifi_credentials.txt``
 ------------------------
 

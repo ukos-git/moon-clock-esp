@@ -92,6 +92,21 @@ spread of libration and posangle; NASA's JSON feed supplies each pick's
 geometry for the cross-check on the geometry page. The shell block
 below is the exact download-and-reduce recipe, line by line after it.
 
+.. figure:: ../img/nasa/nasa_quarters.png
+   :alt: five NASA SVS 5415 reference frames spanning 2025, new moon to gibbous
+   :figclass: align-center
+
+   The answer key, literally: five tracked crops from the 8,760-frame
+   series (``docs/img/nasa/nasa_HHHHH.png`` — the 0-based *hour index*
+   into 2025), the four quarter marks plus the final frame. Each
+   caption's illumination is computed by the project's own
+   ``moon.astro.geometry`` — the same physics the devices run — and
+   was cross-checked against the frame's measured lit-pixel fraction
+   (agreement to ±0.003; at the new-moon frame the pixel threshold
+   also counts earthshine). The strip is composited by
+   ``docs/tools/gen_nasa_quarters.py`` from the tracked frames — the
+   frames themselves are never re-rendered.
+
 The validation reference is NASA's
 `"Moon Phases for 2025" <https://svs.gsfc.nasa.gov/5415/>`_ — 8,760
 frames (one per hour of 2025) of the Moon as seen from Earth,
