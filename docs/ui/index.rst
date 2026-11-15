@@ -37,6 +37,13 @@ transient WiFi screen — the knob registers
 there, and the wheel keyboard's commit starts a sync — only the wake
 path's sync is clock-only.
 
+The same graph is also priced in **taps** — BFS depth from the awake
+home per board, the four machine-only rows with their drivers, and
+the wheel's per-character price — as :ref:`the tap ladder
+<taps-ladder-perf>` in :doc:`the performance page
+<../verification/performance>`; its bars are checked against this
+very matrix (16/15/13 asserted at figure time).
+
 .. list-table::
    :header-rows: 1
    :widths: 30 7 7 7 49

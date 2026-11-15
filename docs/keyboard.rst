@@ -143,7 +143,11 @@ active key lit at ``150 + 60·m … 210 + 60·m``, the key labels at LVGL
 under the finger** (not the nearest key) and re-strings the 26 slots
 (digits: ``0123456789#@._-+*?!/&%:;,`` — 25 slots; symbols:
 ``#$%&@!_=<>[]{}~^:,/?*+-.'`` — 25 slots). Case is separate (lower/
-upper) because it matters for passwords.
+upper) because it matters for passwords. The whole keyboard's cost
+against the password — taps to enter *N* characters, the 63/64 cap
+pair, all parsed at figure time — is plotted as :ref:`the tap ladder
+<taps-ladder-perf>` in :doc:`the performance page
+<verification/performance>`.
 
 Bottom band — commit / discard
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1108,6 +1108,93 @@ widths are reference-tabled in :doc:`the moon constants
 <../reference/moon-consts>`; and the bake *time* these taps cost is the
 work ladder at the head of this page.
 
+.. _taps-ladder-perf:
+
+The tap ladder (how much human labour each screen costs)
+--------------------------------------------------------
+
+**The short version.** Every other ladder on this page prices the
+machine — milliseconds, bytes, watts, priorities. This one prices the
+other half of every interaction: **the finger**. How many taps from
+the awake home screen does each screen of the ``ScreensEnum`` cost?
+The answer is a three-level ladder — hub 1, ring 2, subtrees 3,
+nothing deeper — and four screens the finger cannot reach at all,
+because the machine loads them. The right panel prices the product's
+only keyboard: a password is **one press-and-release per character**
+plus rounding — you pay for the secret, not for the keyboard.
+
+The graph is not hand-drawn; the generator **parses the navigation
+edges out of ``screens.c``** — the home tap
+(``event_handler_cb_home_tap``, registered on exactly the two home
+roots and opening the hub only while ``!clock_is_idle()`` — the wake
+tap is a deliberate second tap), the ``ring[]`` table with its
+``#if defined(CONFIG_BOARD_P4)`` clock entry (6 icons on the S3 and
+the knob, 7 on the P4), the alarm screen's two ``user_data`` entries,
+the roller row that opens the wheel, the wheel's exit, and all nine
+bottom-exit buttons — under an **accounting rule**: any literal
+``loadScreen(SCREEN_ID_*)`` in ``screens.c`` outside this set is a
+SystemExit, so navigation nobody has explained cannot silently
+appear. The four machine-only views (alarm, transient sync,
+light-sleep, deep-sleep) are then italic **"no tap leg"** rows with
+their ``actions.c`` drivers cited — the bus ladder's *no such leg*
+precedent — because you cannot tap *into* the alarm view; it taps its
+way out (touch dismisses). The per-panel bars are cross-checked
+against the **drift-gated reachability matrix** of :doc:`the UI index
+<../ui/index>` (16/15/13, with the exact absentee set asserted: the
+P4-only ``settings-time``; the knob's two sleep views, which it
+replaces with a real dimmed backlight and a real ``esp_deep_sleep_start``).
+The knob's "tap" is a dial-click — who *reads* the finger is
+``docs/_graphs/input-chain.dot``.
+
+What the bars say: **depth never exceeds 3** — nothing in the product
+hides behind a fourth tap. Everything the finger can reach is the hub
+(1), a ring icon (2), or one of three third-level leaves: the alarm
+screen's two entries (``settings-pomodoro``, ``settings-alarm-time``)
+and the wheel (``settings-wifi-password``). One parsed fact the plot
+does not draw but the parser asserts turns depth into a bill:
+**every screen's bottom-exit button goes to its BFS parent** (the
+parsed exit table — pomodoro and alarm-time to the alarm screen, the
+wheel to the scan screen, everything else to the hub, the hub's
+central disk to home) — so up costs exactly what down cost, and a
+round trip to any screen is precisely ``2·depth`` taps: 2 to the hub,
+4 to a settings screen, 6 to the wheel. ``settings-time`` draws its
+bar for the P4 alone; the italic notes on its row are the matrix's
+own ``—`` cells.
+
+**Right:** the wheel's price as a function of the password, derived
+from the registers parsed verbatim out of ``s_wheel_sets[]`` (letters
+and capitals 26 slots, digits and symbols 25 each — by ``strlen``,
+never hand-counted). Three curves: lowercase-only ``N+1`` (the first
+register the wheel draws is letters, per the ``s_wheel_mode``
+comment), one register hop ``N+2``, alternating letters/symbols
+``1.5N+1.5``. The register premium is *half a tap per character* —
+at a 12-character key the three paths cost 13/14/19 taps: **the
+per-character term dominates; the registers are rounding**. The cap
+pair is parsed, not recalled: ``WHEEL_PW_MAX`` 63 (the commit guard)
+under ``MAX_PASSWORD_LEN`` 64 — the firmware's own reject of lengths
+0 and ≥ 64 — so the floor is one character and no 8-character
+minimum exists anywhere.
+
+.. figure:: ../_static/figs/perf_taps.png
+   :alt: taps from the awake home to every screen, per board, and wheel taps versus password length
+   :figclass: align-center
+
+   The tap ladder. **Left:** BFS tap-depth per screen, one bar per
+   board (S3 blue, P4 cyan, knob amber); machine-driven views carry
+   italic ``actions.c`` driver citations instead of bars, and absent
+   screens carry the matrix's own reasons. **Right:** taps to enter
+   and commit a password of *N* characters — press-and-release per
+   character, register hop, commit key; the wheel stops at 63 and
+   ``wifi.c`` rejects ≥ 64, both parsed.
+
+The generator is ``docs/tools/gen_perf_taps.py``. What one
+press-and-release *is* — the exact-box hit-test, the sticky sector,
+the commit-only-in-band rule — is drawn in ``docs/_graphs/wheel-commit.dot``
+on :doc:`the round keyboard <../keyboard>`; the matrix the bars are
+checked against is :doc:`the UI index <../ui/index>`; the knob's
+dial-click path is :doc:`the knob display
+<../implementation/knob-display>`.
+
 The performance decisions, ranked
 ---------------------------------
 

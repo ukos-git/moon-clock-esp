@@ -34,9 +34,9 @@ the repo, never ``build/knob``):
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,706,960 B (0x1a0bd0)
+     - 1,706,992 B (0x1a0bf0)
      - 2,097,152 B (2048 K)
-     - 390,192 B (19 %)
+     - 390,160 B (19 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
      - 1,859,488 B (0x1c5fa0)
@@ -147,10 +147,12 @@ the app's growth history:
                                               widened ceiling; the same day's P4
                                               sibling measured 1,605,984 B
                                               (0x188160), docs/devices/p4.rst
-   binary    1,706,960 B  (0x1a0bd0)  current (measured 2026-11-15, built at
-                                              HEAD 830adbd — the docs-only
-                                              commits after it change only the
-                                              embedded calcver hash string) —
+   binary    1,706,992 B  (0x1a0bf0)  current (measured 2026-11-15, built at
+                                              HEAD b0b9e68 + this pass's two
+                                              comment-only C edits — the
+                                              docs-only commits after it
+                                              change only the embedded
+                                              calcver hash string) —
                                               the three-board family build
                                               (shared hub + sky events + the
                                               settings stack over the 11-02

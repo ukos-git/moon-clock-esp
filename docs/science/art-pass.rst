@@ -232,7 +232,11 @@ The gating is deliberate: the blend runs **only** in the display bake
 (:math:`dk_sup > 0` — retired with the dusk 2026-11-13, the
 parameter kept in the portable core) both fell through to the
 original hard path, so the validation numbers and the — then live —
-sleep-screen endpoint stayed untouched by the soft edge.
+sleep-screen endpoint stayed untouched by the soft edge. The whole dark
+branch around this blend — the shared per-pixel inputs, the caller's
+two knobs, this shipped path, and the inert hard night test the gate
+still runs — is drawn as one picture in :doc:`the dark side <darkside>`
+("The branch in one picture").
 
 The warm tint
 -------------

@@ -23,7 +23,9 @@ decisions:
    frames. The panel shows a *product* dark side: the actual lunar
    surface rendered again, as if a dim lamp sat on exactly the opposite
    side of the Moon from the Sun. One parameter switches between them;
-   everything else about a frame is identical.
+   the geometry, terrain and lit side are the same bake — with one
+   display-only addition: the display's terminator is blended, not
+   stepped (the branch below).
 2. **The displayed dark side is computed, not painted.** The first
    version painted the night half in one constant gray, and it was
    rejected: beside a real-textured crescent, a textureless half-disk
@@ -86,7 +88,8 @@ customer picks the night half with a single switch, ``dark_zero``. The
 image gate asks for the physics answer (``0`` — earthshine); the panel
 asks for the product (``1`` — the computed backlit surface). The lit
 side, the terrain, the vectors: all shared. Only the night pixels
-differ.
+differ — plus, on the display, the narrow terminator blend band the
+shipped branch adds around :math:`lns = 0` (drawn next).
 
 The bake's ``dark_zero`` flag selects which dark side is written:
 
@@ -98,11 +101,46 @@ The bake's ``dark_zero`` flag selects which dark side is written:
 - ``dark_zero = 1`` — the **computed backlit** surface: the dark side is
   the actual lunar surface (albedo *and* relief) lit from the
   anti-solar direction at a faint level. This is the *display* model —
-  what the device shows.
+  what the device shows, blended into the lit side at the terminator
+  (the shipped branch, drawn next).
 
 The flag is a per-caller parameter, not a global: the same ``moon_bake``
 serves both the gate (physics) and the display (product), and nothing
 else changes between the two paths.
+
+The branch in one picture
+-------------------------
+
+**The short version.** The prose above describes two night sides and
+one night test. The picture adds the thing the prose leaves out: the
+branch *every shipping display bake takes* is neither night branch — it
+computes both sides and smoothstep-blends them across a narrow band at
+:math:`\lns = 0` (``moon_bake.c:479-493``), returning before the
+``is_night`` test below is ever evaluated. The hard test is the *gate's*
+path (and, until the retirement, the dusk's); the blend's *why* — the
+cutout-edge report and the "NASA adds a gaussian blur at the boundary"
+quote — belongs to the artistic pass (:doc:`the artistic pass <art-pass>`,
+"The soft terminator").
+
+.. graphviz:: ../_graphs/dark-side.dot
+
+Three claims the picture is drawn to make. First, the device's night
+side never reaches the hard test while ``dk_sup`` is 0: the three
+display bake sites (``moon_ui.c:1249`` the hourly strip, ``:1455`` the
+boot bake, ``:2035`` the bake-reveal strip) all pass ``dark_zero=1,
+dk_sup=0`` and return from the blend. Second, the gate's isolation is
+structural, not stylistic — ``dark_zero=0`` is *byte-identical* to the
+old earthshine bake for every :math:`d` (``moon.h:101-102``), so the
+image-diff numbers certify lit-side physics however the product's dark
+side is tuned (the earthshine branch still loads the albedo and never
+uses it — the header's own "one dead load", ``moon_bake.c:50-53``).
+Third, everything dashed is inert: the ``dk_sup`` bound, its
+``MOON_DK_MARGIN`` erosion, and the backlit night write are dusk-era
+machinery kept so the shade-map model stays one code path; the
+blood-moon pre-tint rides the *lit* side only (the classifier is
+``docs/_graphs/sky-events.dot``), and the body-frame constancy — the
+camera selects which pixels exist, never their color — is what the
+retired dusk's cheap spin stood on.
 
 Why not a black overlay
 -----------------------
@@ -187,7 +225,8 @@ it pins ``l`` into 0–1. ``out = A * l * MOON_NIGHT_BACKLIT_K`` then
 multiplies three factors: the ground's paint (the albedo byte, in 0–255
 units), how far the slope faces the anti-solar lamp (``l``), and the
 dimming constant. The return line rounds to the nearest byte and
-clamps to the display range. Three multiplies — no table read.
+clamps to the display range. One product of three factors — no table
+read.
 
 The peak dark-side gray is :math:`255 \times K` — with :math:`K = 0.20`
 that is a peak of about **51**, a level at which the maria and highland
@@ -296,8 +335,14 @@ inside the function makes it pure black. With ``dk_sup`` at 0 the extra
 test is dead and both branches agree.
 
 Every caller passes ``dk_sup = 0.0f`` today (the dusk was the only
-non-zero caller, retired 2026-11-13), so the test reduces to
-:math:`lns \le 0` — byte-identical to the pre-backlit bake.
+non-zero caller, retired 2026-11-13). What that leaves depends on the
+path. The **gate** (``dark_zero = 0``) does run this test, and on that
+path it reduces to the plain :math:`lns \le 0` and stays byte-identical
+to the pre-backlit bake (``moon.h:101-102``). The **display** never
+reaches this line at all: with ``dk_sup = 0`` the shipped blend branch
+(the "branch in one picture" above) returns first, so the backlit night
+write below the test is dusk-era machinery, inert — exactly the dashed
+nodes in the figure.
 
 The shade-map margin (NN aliasing)
 -----------------------------------
@@ -331,11 +376,16 @@ for the 864×432 map):
    /* The re-project samples the map NEAREST-NEIGHBOR, so a dark pixel
     * (d < dk_sup) near the d = dk_sup boundary rounds to the cell whose
     * CENTER is up to half a theta-cell + half a lat-cell away in d.
-    * |grad(r . S)| = 1 on the unit sphere, so that is (pi/map_w + pi/map_h)
+    * |grad(r . S)| = 1 on the unit sphere, so that is (pi/map_w + pi/(2*map_h))
     * ~= 0.0073 for the 864x432 map. Write the backlit night side for
     * d < dk_sup + MOON_DK_MARGIN so every cell a dark pixel can round to
     * is backlit (pure black when the cell is sun-lit, lns > 0). */
    #define MOON_DK_MARGIN 0.010f
+
+(The quote's own formula, ``pi/map_w + pi/(2*map_h)``, is the exact
+half-theta-cell + half-lat-cell worst case this section derived above,
+and evaluates to 0.00727 at 864x432 — the 0.010 margin is that bound
+plus a hair.)
 
 With the margin, a dark pixel *cannot* sample a lit cell and re-light the
 sliver; the :math:`moon_reproject` path is a pure gather with no dark-side

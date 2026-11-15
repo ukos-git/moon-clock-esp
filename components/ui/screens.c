@@ -139,7 +139,8 @@ static void settings_alarm_sound_screen_refresh(void);
 static char s_wheel_ssid[33];
 
 /* One icon of the hub's ring: a clickable 96 px FA glyph. The target
- * screen rides in the event's user_data (one handler for all four). */
+ * screen rides in the event's user_data (one handler for the whole
+ * ring -- 6 entries on the S3 and the knob, 7 on the P4). */
 static void event_handler_cb_hub_icon(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;

@@ -166,7 +166,7 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
 /* Backlit night side (the device's dark side, dark_zero = 1): the
  * unilluminated side is rendered as the lunar SURFACE (albedo + relief)
  * lit from the ANTI-solar direction (-S) at a faint level, instead of the
- * flat MOON_NIGHT_FLOOR (the old black overlay) or the phase-dependent
+ * flat MOON_NIGHT_FLOOR (the old black overlay) or the phase-independent
  * earthshine ("earth ray", dark_zero = 0). The backlit Lambert is
  * L_anti = clip(-lns, 0, 1) where lns is the solar displaced-normal
  * Lambert: a surface point lit from -S at exactly the strength the solar
