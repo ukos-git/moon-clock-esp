@@ -199,7 +199,11 @@ floor rides ``meta.txt`` as a **non-authoritative** line (it never
 invalidates the folder), so even a boot without a trustworthy clock
 prunes and replays on the last known new moon. The hourly producer
 re-runs the scan + evict every hour, so a board that never reboots still
-prunes at the crossing.
+prunes at the crossing. What those two rules cost — the per-frame codec
+scratch (resident pair vs the lazy pair) and the bounded worst case of a
+full 709-file card month, per board — is quantified in
+:doc:`the performance comparison <../verification/performance>`
+(*The hour-cache footprint*).
 
 The producer mounts the card **lazily on the first producer to run** —
 the boot replay task when ``UI_MOON_BOOT_REPLAY`` is on (a card-less
@@ -506,7 +510,14 @@ The fade (no pixels written)
 Every screen switch (except the both-moon switch — airplane / WiFi /
 the sleep screens share the one moon image) dims the **panel's own
 hardware brightness** (0x51) to 0, switches the screen while the
-panel is still black, and ramps back:
+panel is still black, and ramps back. The whole machine — the
+both-moon decision, the ramp, and the three branches of
+``moon_ui_screen_switched`` including the starved-fade-in rescue —
+as one picture:
+
+.. graphviz:: ../_graphs/screen-switch.dot
+   :alt: The screen-switch fade machine — loadScreen's both-moon decision, the 0x51 fade-out ramp from the tracked level, the clock-widget reparent while black, and the three branches of moon_ui_screen_switched: the #34 starved-fade-in rescue (amber), the while-black atomic flush plus fade-in ramp, and the plain atomic switch
+   :align: center
 
 .. code-block:: c
    :caption: components/ui/moon_ui.c (the fade ramp — shared by the screen switch and the hourly refresh's legs)

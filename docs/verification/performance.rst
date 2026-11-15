@@ -475,6 +475,64 @@ and Kconfig cannot drift apart:
    from ``components/ui/Kconfig`` at figure time; the capture windows
    quoted beside it).
 
+The hour-cache footprint
+------------------------
+
+**The short version.** The fourth resource axis is not time, rate or
+brightness but **capacity**: what one hour of moon costs the codec
+while it flows, and what a full card month costs the card. The cache
+is capped at ``TF_MAX_HOURS`` = **709** files — one synodic month of
+hourly keys with slack — so the honest worst case is bounded by the
+encoder's own out-buffer formula, ``S² + S²/2 + 1024``, which the code
+calls "the max a valid cached file can be". Nothing here was measured
+on a card: the real JPEGs at the default ``UI_MOON_TFCACHE_JPEG_Q`` =
+90 are far smaller than the bound and instrumented nowhere; the figure
+states the bound and stops.
+
+- The **codec scratch** is per frame, not per card: the resident pair
+  the boot log prints ("ready: ... scratch=NN KB") is ``s_enc_in``
+  (GRAY probe, ``S²``) plus ``s_enc_out`` (the out-capacity above);
+  the two big ones — ``s_fetch_in`` (sized to the same out-capacity)
+  and ``s_dec_rgb`` (3·S² RGB888) — are allocated **lazily** since
+  task #38, because on the S3 the eager ``3·S²`` decode buffer starved
+  the 8 MB board's slot floor and silently killed the card path *every*
+  boot (:doc:`the animation pipelines <../implementation/animations>`,
+  the task #38 line — a cold folder never decodes, so the memory was
+  dead weight on exactly the board that could least spare it).
+- A **full card month** is 709 files at each board's own resolution:
+  the raw decoded payload is **108 MiB** (S3, disk 400) against
+  **286 MiB** (P4, disk 650); the on-card worst case — every file at
+  the encoder bound — is **163 MiB** against **429 MiB**, both far
+  under any plausible card. Eviction keeps the folder honest to its
+  name: nothing older than the *newer* of two floors survives — one
+  synodic month back, and the new-moon floor the producers set
+  (:doc:`the animation pipelines <../implementation/animations>`,
+  *The TF hour cache*).
+- The knob rides along as the violet footnote: no SD socket, **never
+  stores** — every frame is the bake path (the boot ladder's always-
+  black pair). The whole subsystem exists only with
+  ``UI_MOON_TFCACHE=y`` (the default), so the figure is the default
+  build.
+
+.. figure:: ../_static/figs/perf_cache.png
+   :alt: hour-cache footprint — per-frame codec scratch and the bounded card month, per board
+   :figclass: align-center
+
+   The capacity axis. **Left:** one hour's frame through the codec —
+   the resident encode pair (the sizes the boot log prints) against
+   the hatched lazy pair (fetch input, decode out) that task #38 made
+   conditional, KiB linear, per board. **Right:** a full card month of
+   709 hourly files — the raw decoded payload (hatched, what they
+   decode *to*) against the on-card worst case at the encoder's own
+   file bound (solid), MiB log; the real JPEGs q90 are far smaller,
+   never measured. S3 blue, P4 vermillion; the knob never reaches the
+   plot — no SD socket, the muted footer says so. The
+   generator is ``docs/tools/gen_perf_cache.py`` — cap, synodic window,
+   out-capacity formula, decode-buffer comment, ``MOON_PX`` pair and
+   the ``UI_MOON_TFCACHE``/``JPEG_Q`` Kconfig values are **parsed from
+   the live sources** at figure time; the card itself is only bounded,
+   never touched.
+
 The interactive pacing ladder
 -----------------------------
 

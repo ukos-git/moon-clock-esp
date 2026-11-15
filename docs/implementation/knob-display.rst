@@ -529,6 +529,10 @@ compile the lift.
 Battery gauge (P4)
 ------------------
 
+.. graphviz:: ../_graphs/knob-battery.dot
+   :alt: The knob battery gauge — ADC1 ch0 behind the 10K/10K divider, fuse calibration with raw fallback, the placeholder-percent linear map (amber) and the docked-VBUS charging heuristic (amber), and the iOS-style icon's four states on the one-minute tick
+   :align: center
+
 The gauge is the knob's only addition to the home screen, and it is a
 **knob-side overlay** by design: ``knob_battery_ui.c`` adds an
 iPhone-style status-bar battery icon to the shared home root after

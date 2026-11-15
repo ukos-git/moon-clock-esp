@@ -1,0 +1,74 @@
+// The knob battery gauge: ADC1 ch0 behind the 10K/10K divider, the
+// fuse-calibrated read with its raw fallback, the placeholder-percent
+// linear map, the docked-VBUS charging heuristic, and the iOS-style
+// icon's four states on the one-minute tick. Every edge verified in
+// knob/components/knob_battery/knob_battery.c (init :47, cell_mv :88,
+// percent :120, charging :138) and knob/components/knob_ui/
+// knob_battery_ui.c (attach :157, timer_cb :127, geometry + palette
+// defines :52-70), with the attach sites at knob/main/main.c:468-469.
+// The hardware side (pin, divider, rail ambiguity) is docs/_graphs/
+// knob-wiring.dot; the bench verdict (multimeter ritual, 4522 mV dock
+// signature) is docs/devices/knob.rst.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_battery {
+    label="The knob battery gauge: one ADC read path, two honest placeholders — the Kconfig calibration pair and the VBUS charging heuristic";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    init [label="knob_battery_init (main.c:468, inside the P1 umbrella):\nadc_oneshot unit ADC_UNIT_1, channel\nKNOB_BATTERY_ADC_CHANNEL (GPIO 1 = ADC1_CH0 —\nADC2 is unusable with the radio on), 12 dB\nattenuation; either failure logs \"gauge off\" and\nleaves s_adc NULL — every entry point then inert",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    cali [label="eFuse curve-fitting calibration scheme;\nits ABSENCE is not fatal — linear raw approximation:\nraw x 3100/4095 (~3100 mV full scale at 12 dB;\n775/1023 at 10-bit). Placeholder accuracy either way",
+           fillcolor="#efece4"];
+
+    cell [label="knob_battery_cell_mv: adc_oneshot_read ->\nraw_to_voltage (or the fallback) ->\nx KNOB_BATTERY_DIV_NUM / _DEN (2/1 = the\n10K/10K divider) -> cell mV. The FIRST read logs\n\"raw -> mV sense -> mV cell\" — the bench line the\nmultimeter ritual will check against",
+           fillcolor="#efece4"];
+
+    pct [label="knob_battery_percent:\n(mv - MV_EMPTY) x 100 / (MV_FULL - MV_EMPTY),\nclamped 0..100 — THE FIRST PLACEHOLDER: 3300..\n4200 mV is the plan's sanctioned LiPo pair until\nthe multimeter ritual (user present) lands the\nhonest numbers + the divider-rail verdict",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    chg [label="knob_battery_charging (THE SECOND PLACEHOLDER):\nmv >= KNOB_BATTERY_CHARGING_MV (4400; 0 = bolt off)\nis read as \"on the dock\" — a cell value far over the\n4200 mV ceiling is the docked-USB signature\n(bench ~4522 mV). A HEURISTIC, not a signal: the\ntop rail may measure VBUS rather than the cell",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    subgraph cluster_ui {
+        label="the view: knob_battery_ui_attach (main.c:469) — the knob's ONLY home-screen addition, a knob-side OVERLAY (the shared home stays byte-identical)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        attach [label="gauge off (KNOB_BATTERY_GAUGE=n or ADC init\nfailed) -> log \"gauge off\", the icon NEVER appears\n(the component still links — the early requirements\npass sees only the literal REQUIRES). Else: capsule\nbody UI_PX(52) x UI_PX(24) + nub UI_PX(5) x UI_PX(10)\n+ border 3 + inset 2, at BOTTOM_MID -UI_PX(26) —\nthe retired NN % label's proven foot spot — added\nLAST to objects.modem_sleep, click-transparent so\nthe home tap -> hub gesture still owns every tap",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+        timer [label="lv_timer 60000 ms + the immediate first fill:\nthe cell moves on the MINUTE scale, not the second"];
+
+        s_dead [label="no reading (pct < 0):\nempty capsule, DEAD-CHROME grey\n#787878 outline + nub, zero-width fill,\nbolt hidden",
+                 fillcolor="#e8e8e4"];
+
+        s_charging [label="charging:\nhand-rasterised 10x14 A8 bolt (even-odd\npolygon, 4x supersampled, recolour white)\nover a fill in the THEME'S MOON COLOR —\ntheme_colors[active_theme_index][0], the\nseconds-arc ink, read LIVE so a theme change\npropagates on the next tick (the reference\niOS green replaced 2026-11-14, user decision)",
+                     fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+        s_low [label="pct <= KNOB_BATTERY_LOW_PCT (20):\nfill red #FD3B2F",
+               fillcolor="#f4dcdc"];
+
+        s_ok [label="else:\nfill white #FFFFFF (proportional\nwidth = inner x pct / 100)",
+               fillcolor="#f2f2ef"];
+    }
+
+    init -> cali [label="scheme fails ->\nraw fallback"];
+    cali -> cell;
+    cell -> pct;
+    cell -> chg [style=dashed];
+    init -> attach [style=dashed, label="knob_battery_available()"];
+    attach -> timer [color="#2b5fb0", penwidth=1.6];
+    timer -> s_dead [label="pct < 0"];
+    timer -> s_charging [color="#b07d10", fontcolor="#6b4e08", label="charging"];
+    timer -> s_low [label="<= LOW_PCT"];
+    timer -> s_ok [label="else"];
+    chg -> s_charging [color="#b07d10", fontcolor="#6b4e08", style=dashed];
+}
