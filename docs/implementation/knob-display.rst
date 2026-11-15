@@ -149,7 +149,9 @@ public headers from its own components:
   variables nor ``CONFIG_`` symbols** (``build.cmake``'s
   ``__component_get_requirements`` runs ``cmake -P`` on just the
   properties files) — the same reason the knob branches there key on
-  the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``.
+  the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``
+  (the seam in one picture — projects, passes, guards, shims — is
+  drawn in :doc:`the build system <../reference/build-system>`).
 
 The injected mutex must be **reentrant** (bench 2026-11-10): it is
 the app-wide ``s_lvgl_mux`` that ``lvgl_task`` holds across

@@ -205,6 +205,11 @@ The whole chain — sources to flashed partition — in one picture:
 
 .. graphviz:: ../_graphs/assets-pipeline.dot
 
+The same rows counted in bytes — every data row's occupancy, the
+shipped blobs against their ceilings, and the what-ifs the CSV
+comments keep (re-derived at figure time) — are :ref:`the storage
+ladder <storage-ladder-perf>`.
+
 The Kconfig conventions
 -----------------------
 
@@ -310,6 +315,20 @@ init), an ``imu`` **stub** (the board has no IMU), and an empty
 ``esp_codec_dev`` (no codec). Its own ``knob_*`` components add the
 dial, battery gauge, power ladder, time handling and the render seam
 (:doc:`the Knob board <../devices/knob>`).
+
+The seam in one picture
+-----------------------
+
+The pages above state the machine in prose — three projects, one repo,
+two CMake passes, literal requirements, silent shims. This is the one
+picture of it; every quoted line was read out of ``CMakeLists.txt``,
+``knob/CMakeLists.txt`` and the shared components' ``CMakeLists`` at
+sketch time:
+
+.. graphviz:: ../_graphs/build-seam.dot
+   :alt: The build seam — the knob re-using the clock's four shared components through individually-listed EXTRA_COMPONENT_DIRS, same-named silent shims, and KNOB_BOARD branches confined to SRCS because the early requirements pass sees neither project variables nor CONFIG_ symbols
+   :align: center
+   :caption: The seam, drawn. The top band is the three projects with the configure-time guards **inside** them — the root's even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio and the knob's shape-replicant that drops the Kconfig-width check ("the knob has no Kconfig mirror; its single truth is the pipeline-written manifest + header") and is *stricter* about existence (a missing manifest kills the knob build — a knob without its blob has no moon at all). The blue edge from the knob project is the seam itself: ``EXTRA_COMPONENT_DIRS`` spelled dir-by-dir, **never** the parent ``components/``. The middle band is the reason for every rule above it: the EARLY requirements pass (``build.cmake:664``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols — so ``REQUIRES`` is spelled out unconditionally and the amber edge to the silent ``esp_codec_dev`` shim is the consequence (an ``if()`` hiding a missing component is invisible in that pass); the target pass is where ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` — the ui component's four dropped translation units and the ``fonts_knob`` flip. The gray notes give the two facts easy to forget: why the parent directory is never added (IDF 5.5.1 excludes components by name only — adding it would register the *clock's* ``board``/``imu`` and collide), and where ``CONFIG_`` symbols come from instead (the per-target ``sdkconfig.defaults`` files, with the target/board mismatch guard as the referee). The seam's *runtime* side — ``knob_moon_render.c`` implementing ``moon_ui.h``, the reentrant mutex, the deep-sleep ladder — is :doc:`the knob display implementation <../implementation/knob-display>`; the blob the fit guard prices is the asset-pipeline figure in *"The flash-data partitions"* above, counted in bytes at :ref:`the storage ladder <storage-ladder-perf>` below.
 
 The host-side tooling
 ---------------------

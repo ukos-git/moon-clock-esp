@@ -14,7 +14,7 @@
 #                            blob size set by the asset pipeline's
 #                            MOON_ALBEDO_W; the P4 default 2048x1024
 #                            albedo + 2048x1024 DEM = 4,194,304 B <
-#                            5,242,880 B. A 2560-wide albedo (2,228,224 B
+#                            5,242,880 B. A 2560-wide albedo (3,276,800 B
 #                            albedo + 2,097,152 B DEM = 5,373,952 B) would
 #                            need >= 5248K -- the root CMakeLists guard
 #                            refuses a blob that overflows this row, naming

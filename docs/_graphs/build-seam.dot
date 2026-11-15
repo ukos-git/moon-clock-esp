@@ -1,0 +1,120 @@
+// The seam the build layer states in prose: three projects, one repo — the
+// knob re-uses the clock's shared components through individually-listed
+// EXTRA_COMPONENT_DIRS, satisfies the names it lacks with silent same-name
+// shims, and branches on the PROJECT variable KNOB_BOARD — because the
+// component manager's early requirements pass sees neither project
+// variables nor CONFIG_ symbols. Every edge and quote verified in
+// CMakeLists.txt (P4 block :16-29, board/target mismatch :77-88, asset
+// guards :94-163, spiffs :168, blob flash-vs-warn :179-185),
+// knob/CMakeLists.txt (KNOB_BOARD :22-28, EXTRA_COMPONENT_DIRS :29-41,
+// lock :43-47, guards :51-88, spiffs :93, flash :99-103),
+// components/ui/CMakeLists.txt (early-pass comment :7-13, FONT_DIR :14-20,
+// UI_BOARD_SRCS :31-35, unconditional-REQUIRES comment :36-43, REQUIRES
+// :55-59), components/clock/CMakeLists.txt:5 (REQUIRES board),
+// components/moon/CMakeLists.txt:46 + components/wifi/CMakeLists.txt:4
+// (name NEITHER board nor imu), knob/components/board/Kconfig:11-13
+// (choice BOARD default BOARD_KNOB), and ~/esp/esp-idf/tools/cmake/
+// build.cmake:659-664 (__component_get_requirements). The seam's RUNTIME
+// side (knob_moon_render's thirteen functions, the reentrant mutex) belongs
+// to docs/implementation/knob-display.rst; the blob the fit guard prices
+// belongs to docs/_graphs/assets-pipeline.dot (this page) and the storage
+// ladder (verification/performance.rst) — cross-refs kept reciprocal there.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph build_seam {
+    label="The seam in one picture: the knob re-uses the clock's four shared components through individually-listed EXTRA_COMPONENT_DIRS, satisfies the names it lacks with silent same-name shims, and branches on the PROJECT variable KNOB_BOARD — because the early requirements pass sees neither project variables nor CONFIG_ symbols: REQUIRES literal, branches only in SRCS";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=17;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_projects {
+        label="the three projects — one repo, three build dirs, three locks (the guards below ARE lines of these files)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        rootcmake [label="root CMakeLists.txt — the CLOCK project:\nS3 is the default target; the P4 is a sibling\nbuild (-D IDF_TARGET=esp32p4 -B build/p4) whose\ntarget block EXCLUDE_COMPONENTS the vendored\nS3 BSP (manifest targets: [esp32s3]) 'out of the\nP4 build AND of the component manager's\nlocal-manifest list' (:16-21) and pins\nDEPENDENCIES_LOCK dependencies.lock.p4 BEFORE\nproject() (:27-28, 'which runs the component\nmanager', :24-26); the tracked root\ndependencies.lock stays the S3's",
+                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        guardroot [label="root's configure guards (:94-163): MOON_ALBEDO_W\nmust be an EVEN equirect width (:107-108); the\nmanifest's alb_w must EQUAL the Kconfig width\n(:130-134); the combined blob must fit the\nmoon_assets row of 'the partition CSV the build\nactually uses' — PARTITION_TABLE_CUSTOM_FILENAME\nhonoured, else partitions.csv (:137-144) — 'they\nneed >= X K' names the KiB (:160-163). 'All\nthree mismatches have historically surfaced as\nobscure build/boot failures … so they are\nFATAL_ERRORs here' (:88-93). A MISSING blob is\na WARNING only (:183-85) — the app boots\nwithout the moon",
+                     fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+        knobcmake [label="knob/CMakeLists.txt — the SIBLING project\n(Waveshare ESP32-S3-Knob-Touch-LCD-1.8):\nown build dir (-C knob -B ../build/knob —\nOUTSIDE the repo), own gitignored lock\ndependencies.lock.knob (:47) and sdkconfig.\nset(KNOB_BOARD ON) sits at :23, BEFORE\nproject(knob) (:49) — the file's own comment:\n'A PROJECT variable, not a CONFIG_ symbol: the\ncomponent manager resolves requirements BEFORE\nKconfig runs, and CONFIG_ variables are unset\nin that first pass' (:20-22)",
+                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        guardknob [label="knob's guards (:51-88) replicate the root's\nSHAPE, minus the Kconfig-width check — 'the\nknob has no Kconfig mirror; its single truth\nis the pipeline-written manifest + header'\n(:52-54) — and it is STRICTER about\nexistence: a missing MANIFEST is a FATAL_ERROR\n(:59-63), because a knob without its blob has\nno moon at all (no SD socket)",
+                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    subgraph cluster_passes {
+        label="the two CMake passes — the reason for every rule above";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        earlypass [label="the EARLY requirements pass\n(build.cmake:664 __component_get_requirements —\n'Perform early expansion of component\nCMakeLists.txt in CMake scripting mode'):\ncmake -P component_get_requirements.cmake\nevaluates every component CMakeLists with\nNEITHER project variables NOR CONFIG_ symbols\n(ui/CMakeLists:7-13) — so REQUIRES/\nPRIV_REQUIRES are spelled out UNCONDITIONALLY\non purpose, every name resolving in all three\nprojects (:36-43)",
+                     fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        targetpass [label="the TARGET pass (full configure): the\nproject scope is complete — branches may key\non KNOB_BOARD, and the house rule says branch\nonly SRCS/INCLUDES there, never requirements\n(CONFIG_BOARD_P4 'reads false in that pass\n(harmless: SRCS are only consumed by the\nsecond, target-owning pass)', :11-13)",
+                      fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    subgraph cluster_shared {
+        label="the four shared rows — the SAME CMakeLists, the SAME REQUIRES, in all three projects";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        shared4 [label="clock / wifi / moon / ui compile VERBATIM.\nWho names what: clock REQUIRES board\n(clock/CMakeLists:5 'esp_io_expander board\nwifi …'); ui REQUIRES imu, board and\nesp_codec_dev (ui:55-59); moon (moon:46\n'ReQUIRES esp_partition esp_timer log') and\nwifi (wifi:4) name NEITHER board nor imu —\nthe portable core sits below the board",
+                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        uibranch [label="ui's knob branch, keyed on KNOB_BOARD\n(ui:31-35): UI_BOARD_SRCS — 'alarm_audio.c\ndemo.c moon_ui.c moon_tfcache.c' — becomes\nEMPTY, and FONT_DIR flips to fonts_knob\n(:14-20; fonts/ 96-48-32, fonts_p4/ 148-74-50,\nfonts_knob/ 74-37-25 — identical lv_font_t\nsymbol names, 'so fonts.h and every consumer\nare unchanged')",
+                   fillcolor="#efece4"];
+    }
+
+    subgraph cluster_shims {
+        label="the shims — same-named SILENT components the knob owns, answering names the early pass cannot see";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        boardshim [label="knob/components/board — SH8601 display +\ntouch init, answers the REQUIRES 'board' that\nclock and ui name; its Kconfig carries the\nchoice BOARD with default BOARD_KNOB\n(:11-13; BOARD_S3/BOARD_P4 stay\nselectable-but-unused 'so the shared Kconfig's\nif BOARD_P4 clauses parse'). The CLOCKS answer\nthe same name with the real shim\ncomponents/board (choice BOARD default\nBOARD_S3, :12-14)",
+                    fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+        imushim [label="knob/components/imu — imu_stub.c: a fixed\nupright, no chip; answers ui's REQUIRES 'imu'",
+                 fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+        codecshim [label="knob/components/esp_codec_dev — a CMakeLists\nfile and NOTHING ELSE: no sources, no\nheaders. The silent NAME shim that lets ui's\nunconditional REQUIRES 'esp_codec_dev'\nresolve; on the clocks the vendored real\ncomponent owns the name",
+                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+        whyshim [label="why the parent components/ is NEVER added:\n'IDF 5.5.1 excludes components by name only,\nso we simply never add the directories — the\nshims carry the component names board/imu\nthat the shared code REQUIRESs' (knob\nCMakeLists header :10-13) — adding the parent\nwould register the CLOCK's board/imu and\ncollide, EXCLUDE-by-name could not fix that",
+                 fillcolor="#efece4", color="#8a8a8a", fontsize=10];
+    }
+
+    kconfnote [label="where CONFIG_ symbols come from instead:\nsdkconfig.defaults.esp32p4 pins\nCONFIG_BOARD_P4=y (:7) and\nPARTITION_TABLE_CUSTOM_FILENAME=\n\"partitions_p4.csv\" (:13) — the root's\nmismatch guard FATAL_ERRORs when target and\nBOARD choice disagree (:77-88); the knob's own\nchoice BOARD lives in the shim's Kconfig",
+               fillcolor="#efece4", color="#8a8a8a", fontsize=10];
+    seamnote [label="the seam's RUNTIME side is knob-display.rst's: knob_moon_render.c\nimplements moon_ui.h over the knob_ui producer core; a stub answers\nalarm_audio.h ('every selectable sound is honestly named Silent')",
+              fillcolor="#efece4", color="#8a8a8a", fontsize=10];
+
+    rootcmake -> guardroot [style=invis];
+    knobcmake -> guardknob [style=invis];
+    guardroot -> guardknob [style=dotted, label="the knob replicates the shape", color="#b07d10"];
+    rootcmake -> kconfnote [style=dotted];
+    rootcmake -> earlypass [style=invis];
+    rootcmake -> shared4 [label="project() discovers the root\ncomponents/ (the clock's own\nboard shim included)"];
+    knobcmake -> shared4 [label="EXTRA_COMPONENT_DIRS, spelled\ndir-by-dir (:36-41) — never\nthe parent components/",
+                          color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    knobcmake -> boardshim;
+    knobcmake -> imushim;
+    knobcmake -> codecshim [label="and the same project dir owns\nall three shims — the names\nthe shared REQUIRES name", color="#b07d10"];
+    earlypass -> shared4 [label="evaluates every component's\nCMakeLists for requirements —\nthe literals are all it can see",
+                          color="#2b5fb0", fontcolor="#1e3f70"];
+    earlypass -> codecshim [label="the name must EXIST: an if()\nhiding a missing component is\ninvisible in this pass — hence\nthe silent esp_codec_dev shim",
+                            color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    targetpass -> uibranch [label="branches live here, keyed on\nKNOB_BOARD — SRCS/INCLUDES only",
+                            color="#b07d10", fontcolor="#6b4e08"];
+    uibranch -> seamnote [style=dotted, color="#8a8a8a", label="the dropped TUs'\nheaders answered"];
+    boardshim -> whyshim [style=invis];
+}

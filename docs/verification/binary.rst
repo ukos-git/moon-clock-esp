@@ -117,6 +117,10 @@ The root ``CMakeLists`` (replicated by the knob's own) checks the
 manifest width and the partition fit at configure time — a blob
 baked for another board is a build-time ``FATAL_ERROR``, not a
 boot-time surprise (:doc:`the build system <../reference/build-system>`).
+This page is the *app* side of the flash budget; the data side —
+every row's occupancy against its reservation, the shipped blobs and
+the what-ifs their CSV comments keep — is
+:ref:`the storage ladder <storage-ladder-perf>`.
 
 The S3 ceiling's chronology
 ---------------------------

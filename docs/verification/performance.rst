@@ -956,7 +956,9 @@ transaction rows describe is drawn in
 (``docs/tools/gen_perf_bus.py`` draws both panels; the strip anatomy
 shares its constants with ``gen_strip_staging.py``). The pixels those
 bytes carry — the same bars counted in the currency the O(N) statements
-speak — are :ref:`the pixel ladder <pixel-ladder-perf>` just below.
+speak — are :ref:`the pixel ladder <pixel-ladder-perf>` just below, and
+the same bytes at rest in their partition rows are :ref:`the storage
+ladder <storage-ladder-perf>`.
 
 .. figure:: ../_static/figs/perf_bus.png
    :alt: bytes per panel refresh for all three boards — full frame, hourly disk flush, one DMA transaction — against the 32 KiB SPI-DMA cap, and the raw QSPI wire time of one full frame against the 33 ms LVGL beat
@@ -1040,7 +1042,92 @@ Three counting facts the byte view cannot show:
 The *time* these counts cost is the head of this page, the *fineness*
 of the sources they gather from is the :ref:`resolution funnel
 <sharpness-funnel-perf>` below, and the *bytes* they become on the
-wire are the bus ladder above.
+wire are the bus ladder above. Where those bytes **live** — the
+partition rows the blobs and the app sit in, counted against their
+reservations — is the storage ladder next.
+
+.. _storage-ladder-perf:
+
+The storage ladder (how many bytes lie in the flash)
+----------------------------------------------------
+
+**The short version.** The binary page owns the *app* side of the
+flash budget (:doc:`the binary chronology <binary>`); this is its
+missing half — the **data** side, row by row, every number parsed at
+figure time from the three partition CSVs, the three asset manifests,
+the on-disk ``moon_assets.bin`` blobs, the generated
+``moon_consts.h`` headers, the two clock ``sdkconfig.h`` files and the
+``spiffs/`` payload. Ten occupancy bars on the left (fraction of each
+reservation used); on the right, the ``moon_assets`` row — the
+product's tightest budget — with the three what-ifs its CSV comments
+keep. The discipline is the family's: nothing is recalled, and the
+CSV comments are **re-derived, not trusted** — the layout rule
+(u8 albedo, int8 DEM) re-checks every byte figure they print. That
+cross-check earned its keep this very pass: the P4 comment claimed a
+2560-wide albedo was "2,228,224 B", while the product of its own
+numbers (5,373,952 total − 2,097,152 DEM) is 3,276,800 — the comment
+was wrong and is fixed; the generator now refuses to draw until
+comment and arithmetic agree again.
+
+.. figure:: ../_static/figs/perf_storage.png
+   :alt: occupancy of every flash data row per board (factory app, stacked albedo+DEM moon_assets, spiffs storage, reserved coredump) and the moon_assets row shipped plus three what-ifs — S3 at albedo 1024 fills the row to the byte, P4 at 2560-wide needs 5248K over its 5120K row, the knob with the clock's proven 2048x1024 DEM equals the S3's shipped blob
+   :figclass: align-center
+
+   **Left:** what each data row actually holds — the live binary in
+   ``factory`` (same files the drift gate checks, so binary.rst, the
+   table there and this bar are one chain), the ``moon_assets`` blob
+   stacked albedo (amber) + int8 DEM (orange), the 956-byte spiffs
+   payload in ``storage`` (the tracked ``alarm.txt`` +
+   ``wifi_credentials.example.txt`` plus the gitignored
+   ``wifi_credentials.txt`` the image really bakes — 940 B on a clean
+   checkout; ``settings.txt`` is asserted **absent**, the app owns it
+   at runtime), and the knob's 64 K ``coredump`` ring drawn italic
+   *no bytes until a crash* (the space is reserved, not filled — the
+   bus ladder's honest *no such leg* precedent).
+   **Right:** the ``moon_assets`` row against its ceiling tick in the
+   board's colour — three shipped blobs and three what-ifs. Solid =
+   computed from the parsed layout; hatched = cited from the CSV's
+   own comment (and re-derived before drawing). S3 blue, P4
+   vermillion, knob violet; the generator is
+   ``docs/tools/gen_perf_storage.py``, whose parsers also assert the
+   root's ``FATAL_ERROR`` trio and the knob's replicant still *exist*
+   in the two ``CMakeLists.txt`` files — the figure is the docs-side
+   twin of the build-time guards and dies if one is removed.
+
+Three counting facts the app-side budget cannot show:
+
+- **The tightest flash budget in the product is not the app.** The
+  S3 ``moon_assets`` row runs at **94.2 %** — 151,040 B free under a
+  2,621,440 B ceiling — while the S3 app keeps its (now-famous) 19 %.
+  And the headroom is exactly the price of the next albedo width:
+  1024×512 − 864×432 = 524,288 − 373,248 = 151,040 B, so the next
+  width in the root guard's own even-width set fills the row **to the
+  byte** (asserted equal at figure time; the guard's fit check then
+  becomes the hair trigger).
+- **The DEM is the floor under every board.** The S3's blob is 85 %
+  relief (2,097,152 of 2,470,400 B — the wall that made the 16 MB
+  chip a *requirement*, binary.rst's chronology), the P4's is a
+  50/50 split (2048×1024 albedo *and* DEM), and the knob's DEM is
+  halved to 1024×512 (524,288 B). One signed byte per grid cell is
+  what makes the whole flash layout close.
+- **The knob's row is pre-sized to the clock's proven bake.** Its own
+  864×432 albedo plus the clock's 2048×1024 DEM would weigh exactly
+  2,470,400 B — the S3's shipped blob to the byte — which is the
+  whole content of the CSV's "2560K is sized for the proven
+  2048x1024-DEM bake too, so the table never has to change" (a
+  partition change means a full flash on the bench unit, the
+  comment's own reason; re-derived before the figure trusts it).
+
+The chip reservations close the ledger: S3 4736 K of 16 MB (the
+comment's "Total = 4736K", re-derived from the rows, ~11 MB unused —
+the headroom binary.rst's widening rule lives on), P4 14464 K of
+32 MB, knob 7296 K of 16 MB with the CSV's "~8.9 MB free" before the
+coredump row and "~8.8 MB" after it (both re-derived). The
+two amber/orange segments are the same bytes the sharpness funnel
+samples per pixel and the pixel ladder's relief wall unpacks from at
+boot; the hour cache, by contrast, stores *baked output* on the TF
+card — a derived copy of what these rows make, not another resident
+copy of them.
 
 .. _freshness-ladder-perf:
 

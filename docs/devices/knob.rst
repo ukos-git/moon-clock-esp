@@ -325,12 +325,18 @@ Layout and commands:
   glue only — the shared ``components/moon`` compiles the core TUs
   once and picks ``generated/knob`` through a ``CONFIG_BOARD_KNOB``
   branch, so ``check_gate.py --target knob`` still describes exactly
-  the physics the panel shows.
+  the physics the panel shows. (The seam as a whole — three projects,
+  two CMake passes, literal requirements, silent shims — is drawn in
+  :doc:`the build system <../reference/build-system>`.)
 * Moon assets: the pipeline's third target —
   ``--target s3 p4 knob`` bakes albedo 864×432 + DEM 1024×512 into
   the 2560 KiB ``moon_assets`` partition of ``knob/partitions.csv``
-  (blob existence and fit are configure-time ``FATAL_ERROR``\\ s in
-  ``knob/CMakeLists.txt``; the generated
+  (manifest existence and blob fit are configure-time
+  ``FATAL_ERROR``\\ s in ``knob/CMakeLists.txt`` — *stricter than the
+  clock, where a missing blob is only a warning*: the knob has no SD
+  socket, so a knob without its pipeline output has no moon at all;
+  a hand-deleted ``.bin`` beside a live manifest still only warns,
+  per the guard's own comment. The generated
   ``components/moon/generated/knob/moon_consts.h`` is tracked).
 * K7c threading mirrors the clock's moon pipeline minus the AMOLED
   machinery: a producer task bakes into a PSRAM double buffer, a swap
