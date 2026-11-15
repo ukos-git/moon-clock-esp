@@ -96,7 +96,11 @@ The run
 
 ``check_gate.py`` renders the C frames (``moon_sim``), loads the NASA
 crops and the Python prototype's frames, computes the per-frame MAE
-and a content-windowed SSIM, and prints the table. There is no
+and a content-windowed SSIM, and prints the table. That Python leg
+makes the gate the prototype's deepest consumer in the repo:
+``check_gate.py`` imports **six** of the package's twelve modules
+(``host_sim/check_gate.py:53-59``) — the blue hub of
+:ref:`the package in one picture <python-surface>`. There is no
 separate "render the frames first" step: the gate writes its frame
 list under ``--out`` (default ``/tmp/moon-sim-gate``) and invokes the
 simulator itself (``--list frames.txt --size 400 --neutral --out

@@ -189,7 +189,9 @@ Moon barycentric positions with the vendored ``eraEpv00`` +
 ``eraMoon98`` — the *same low-order models* the validated Python
 prototype uses via PyERFA's ``builtin`` backend — and builds the body
 basis with the calibrated pole and prime meridian from ``moon_consts.h``
-(:doc:`the geometry <../science/geometry>`):
+(:doc:`the geometry <../science/geometry>`); the twin side — where
+``EPHEMERIS = "builtin"`` enters the prototype and which files import
+it at all — is :ref:`the package in one picture <python-surface>`:
 
 .. code-block:: c
    :caption: components/moon/core/moon_astro.c (the two ephemeris calls)

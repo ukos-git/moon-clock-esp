@@ -34,14 +34,39 @@ The package is lazy: ``moon/__init__.py`` carries no imports, and the
 entry points are the modules themselves (``python -m moon.calibrate``,
 ``python -m moon.animation``, ``python -m moon.assets``).
 
+.. _python-surface:
+
+The package in one picture
+--------------------------
+
+**The short version.** The package is twelve modules and the repo has
+exactly **five tracked importers**. ``constants.py`` is the hub (the
+one thing every validation path reaches), ``assets.py`` is both the
+widest importer — seven modules — and the only module whose output
+the devices carry, and a sixth and seventh tool
+(``render_demo.py``, ``gen_media.py``) deliberately never import any
+of it: they shell out to the compiled binaries instead. The sketch
+draws every import edge, every artifact and every consumer with its
+line numbers.
+
+.. graphviz:: ../_graphs/python-surface.dot
+   :align: center
+   :alt: Twelve module nodes with intra-package import arrows pointing at constants, astro, sphere, textures, renderer, register and metrics; a dashed third-party cluster (astropy, numpy, tifffile, PIL, skimage, scipy, the subprocessed ffmpeg, the never-imported imageio); an artifacts cluster (the per-target blob and manifest, the generated moon_consts.h, the fitted LUT, the sweep mp4); and the consumer cluster — check_gate.py importing six modules, perf_measure.py four, the three docs figure tools, and the dashed pair that shells out instead.
+   :caption: The Python side as the repo actually uses it. Arrows inside the package read "imports" (every ``from .X`` line comment-stripped first); blue edges are imports a shipped gate, number or figure depends on; dashed legs are the never-imported pair (``render_demo.py`` runs the ``moon_sim`` binary, ``gen_media.py`` stitches uisim PNGs with ffmpeg) and the transitive ``imageio`` pin. ``assets.py`` is both the widest importer (seven modules) and the only module whose output the devices carry. The C half of the same interface is :ref:`the surface in one picture <c-api-surface>`; the gate's dataflow is image-gate.dot; the pipeline flow is assets-pipeline.dot.
+
 Dependencies
 ------------
 
-``astropy`` (PyERFA ephemeris + units), ``numpy``, ``tifffile`` (the
-16-bit LROC albedo), ``Pillow`` (PNG output), ``scikit-image`` (the
-SSIM implementation), ``imageio`` (the mp4 writer) — the full pin list
-is the package's ``requirements.txt``; ``matplotlib``-free
-(PIL/ffmpeg for the mp4). The package's own venv is
+Six things are imported directly: ``astropy`` (PyERFA ephemeris +
+units), ``numpy``, ``tifffile`` (the 16-bit LROC albedo), ``Pillow``
+(PNG output), ``scikit-image`` (the SSIM implementation and
+``register``'s phase cross-correlation) and ``scipy`` (``ndimage``:
+the shift in ``register``, the ``uniform_filter1d`` in ``validate``)
+— plus ``ffmpeg``, shelled out to by ``animation.make_mp4`` (libx264,
+yuv420p, crf 20) rather than imported. ``scikit-image`` drags
+``imageio`` into the pin list, but no module of the package imports
+it. The full pin list is the package's ``requirements.txt``;
+``matplotlib``-free (PIL/ffmpeg for the mp4). The package's own venv is
 ``assets/images/moon/.venv``; ``host_sim/.venv`` runs the gate, which
 imports the same tree.
 
@@ -141,13 +166,13 @@ The verified example (``host_sim/.venv/bin/python``, the benchmark's
 epoch):
 
 .. code-block:: python
-   :caption: One frame's geometry, run 2026-11-02
+   :caption: One frame's geometry, run 2026-11-15
 
    >>> import sys; sys.path.insert(0, 'assets/images/moon')
    >>> from moon.astro import geometry
    >>> g = geometry('2026-04-15T12:00')
    >>> g.illum, g.phase_angle_deg
-   (0.05399502784729134, 153.13...)   # the waxing crescent at the benchmark epoch
+   (0.05396610789642542, 153.13...)   # the waxing crescent at the benchmark epoch
    >>> g.subsolar_lon, g.subsolar_lat   # (-159.25, 0.60) deg
    >>> g.subearth_lon, g.subearth_lat   # (-6.10, -1.71) deg
    >>> g.posangle, g.distance_km        # (338.11, 372443)
@@ -242,12 +267,18 @@ in :doc:`the image gate <../verification/image-gate>` image-diffs against): it s
 published positions (the tolerance constants), fits the tone LUT, and
 runs the per-frame MAE/SSIM. ``moon.calibrate`` is the one-time body
 frame fit (pole + prime meridian) that produced the ``constants``
-values; ``moon.register`` is the pixel-registration fallback (a
-rendered crop's shift to the NASA crop) — the gate's pixel-aligned
-convention makes it a no-op in the normal path; its one in-tree
-consumer is ``docs/nasa_figs.py`` (the NASA-comparison figure maker),
-which registers the simulator's crop onto NASA's before drawing the
-strip.
+values — it *prints* the fit (``calibrate.py:231-240``) and a human
+pastes it into ``constants.py``; neither it nor ``validate`` (whose
+LUT print says "paste into constants.py as TONE_LUT",
+``validate.py:170``) ever rewrites its own source.
+``moon.register`` is the pixel-registration fallback (a rendered
+crop's shift to the NASA crop) — the gate's pixel-aligned convention
+makes it a no-op in the normal path; in-tree it has two consumers,
+``host_sim/check_gate.py:58`` (``register_shift``, before the C-vs-Python
+image diff) and ``docs/nasa_figs.py:35`` (the NASA-comparison figure
+maker, which registers the simulator's crop onto NASA's before drawing
+the strip) — beside its two in-package callers, ``validate`` and
+``assets`` themselves.
 
 assets — the device derivation
 ------------------------------
@@ -326,22 +357,41 @@ their combined residual:
 
 The prototype's per-pixel gradient *without* the cache is why the
 gate's C-Python floor is ~1 gray (the quantization, not the model) —
-and why the host C bake (2.23 ms @ 400 px, :doc:`performance <../verification/performance>`) beats the
-prototype (67.2 ms) by ~30×: the cache and the float32 FPU are the
+and why the host C bake (2.25 ms @ 400 px, the current ``perf_data.json``
+capture, :doc:`performance <../verification/performance>`) beats the
+prototype (47.6 ms) by 21×: the cache and the float32 FPU are the
 port's two wins, and the gate proves they cost ~1 gray of fidelity.
 
 The site's own tooling, on this API
 -----------------------------------
 
-The two host tools whose measured numbers appear in these docs are built on this
-package: ``host_sim/check_gate.py`` (the C-vs-Python-vs-NASA gate,
-:doc:`the image gate <../verification/image-gate>` — it imports ``moon.assets`` / ``moon.constants`` /
-``moon.astro`` exactly the way this page's examples do) and
-``host_sim/render_demo.py`` (the demo-film driver — note it shells
-out to the ``moon_sim`` *binary*, it does not import
-``moon.animation``; the package's own ``make_frames``/``make_mp4``
-stand as the host-side sweep API behind ``python -m moon.animation``).
-The docs' own films come from ``docs/gen_media.py`` (:doc:`the animation pipelines <../implementation/animations>`).
+Five tracked files import the package; a further pair of docs tools
+deliberately never touch it:
+
+- ``host_sim/check_gate.py`` (the C-vs-Python-vs-NASA gate,
+  :doc:`the image gate <../verification/image-gate>`) is the deep
+  one: it imports **six** modules — ``moon.assets`` /
+  ``moon.constants`` / ``moon.astro`` exactly the way this page's
+  examples do, plus ``moon.metrics`` (``to_gray``, ``disk_metrics``),
+  ``moon.register`` (``register_shift``) and ``moon.validate``
+  (``_iso``, ``select_frames``) — the prototype's whole validation
+  path reused rather than re-derived (``check_gate.py:53-59``).
+- ``docs/tools/perf_measure.py`` is the six-engine comparator: it
+  times the *Python engine itself* through ``moon.animation.render_frame``
+  — the 47.6 ms at 400 px the performance page quotes is that call —
+  on ``moon.astro`` geometry over ``moon.textures`` loads at the
+  benchmark's fixed epoch (``perf_measure.py:152-155``).
+- ``docs/nasa_figs.py`` registers crops with ``moon.register``
+  (:35), ``docs/tools/gen_nasa_quarters.py`` places them with
+  ``moon.astro.geometry`` (:45), and ``docs/tools/gen_moonjs.py``
+  embeds the ``moon.constants`` numbers in the browser sim (:41).
+- ``host_sim/render_demo.py`` and ``docs/gen_media.py`` are the pair
+  that shells out instead: the demo-film driver runs the ``moon_sim``
+  *binary* (it does not import ``moon.animation``; the package's own
+  ``make_frames``/``make_mp4`` stand as the host-side sweep API behind
+  ``python -m moon.animation``), and the docs' films stitch **uisim**
+  screenshots with ffmpeg (:doc:`the animation pipelines <../implementation/animations>`).
+
 A reader who wants to *reproduce* a measured number runs the same
 package — which is the point of keeping the reference in-tree and
 tracked.

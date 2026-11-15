@@ -173,7 +173,10 @@ The plot's story, in five facts:
 
 1. **The C core is the fastest engine at the device's sizes — by a
    wide margin.** At 400 px the host C bake is 2.25 ms; the Python
-   reference is 47.6 ms (21×); the JS port is 10.3 ms (4.6×). The C
+   reference is 47.6 ms (21×) — that number is
+   ``moon.animation.render_frame``, the module the comparator's blue
+   edge points at in :ref:`the package in one picture
+   <python-surface>`; the JS port is 10.3 ms (4.6×). The C
    core is not a *re-implementation* of the Python model for speed —
    it is the *same model* written for the constraint (float32, a
    gradient cache, no per-pixel allocation), and it runs the model
@@ -480,6 +483,8 @@ and Kconfig cannot drift apart:
    from ``components/ui/Kconfig`` at figure time; the capture windows
    quoted beside it).
 
+.. _cache-footprint-perf:
+
 The hour-cache footprint
 ------------------------
 
@@ -517,7 +522,10 @@ states the bound and stops.
   stores** — every frame is the bake path (the boot ladder's always-
   black pair). The whole subsystem exists only with
   ``UI_MOON_TFCACHE=y`` (the default), so the figure is the default
-  build.
+  build. How often the card is written at all — 48 media operations a
+  day on the clock boards, zero on the knob — is the churn axis of
+  :ref:`the write ladder <write-ladder-perf>` below; this figure
+  prices what ONE card month costs, that one how OFTEN.
 
 .. figure:: ../_static/figs/perf_cache.png
    :alt: hour-cache footprint — per-frame codec scratch and the bounded card month, per board
@@ -912,6 +920,8 @@ and how — is :ref:`the input chain <input-chain-ui>`; the
    new measured: the knob's chain beats the beat, everything else
    rides it, and the human holds tower 61× over it by design.
 
+.. _bus-ladder-perf:
+
 The bus ladder (how many bytes cross the wire)
 ----------------------------------------------
 
@@ -1127,7 +1137,124 @@ two amber/orange segments are the same bytes the sharpness funnel
 samples per pixel and the pixel ladder's relief wall unpacks from at
 boot; the hour cache, by contrast, stores *baked output* on the TF
 card — a derived copy of what these rows make, not another resident
-copy of them.
+copy of them. How OFTEN the firmware rewrites these same media — the
+churn axis, from a 241,024-byte encoder bound to an 8-byte NVS commit
+— is :ref:`the write ladder <write-ladder-perf>` below.
+
+.. _write-ladder-perf:
+
+The write ladder (how often the media are written, and how big one write is)
+----------------------------------------------------------------------------
+
+**The short version.** The storage ladder counts bytes that *lie* in
+the flash, the hour-cache footprint counts *capacity*, the bus ladder
+counts bytes the display *moves* — none of them counts how OFTEN the
+media are written. This ladder counts scheduled flash writes per day
+per board and the blast radius of a single write across the four
+media the firmware owns (TF card, NVS, spiffs, coredump partition).
+Nothing was measured on a card or in NVS: every number is parsed from
+the live sources or arithmetic on parsed numbers, and the generator's
+parsers die when a source drifts.
+
+- **The hourly producer is the churn: 48 media operations a day.**
+  ``UI_MOON_HOURLY_ENABLE`` / ``UI_MOON_HOURLY_TFCACHE`` /
+  ``UI_MOON_TFCACHE`` are all ``default y``
+  (``components/ui/Kconfig:137/:169/:271``), so the steady state is one
+  ``tfcache_store`` write-through per new hour
+  (``components/ui/moon_ui.c:1614`` — the ONLY store call site, and
+  the parser asserts it sits inside its
+  ``#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE``
+  guard) plus ~24 eviction unlinks a day once the 709-file window is
+  full: ``cache_floor`` (``moon_tfcache.c:693``) walks one hour per
+  hour, so one file per hour falls below it, and the producers call
+  ``tfcache_evict`` every hour (``moon_ui.c:1587/:1615``; the store's
+  own ``> 24``-hour gate, ``moon_tfcache.c:684`` — "one scan per day
+  of new hours" — just guarantees the scan even when the producers
+  idle). ``meta.txt`` rewrites ride the new-moon crossing — **one per
+  synodic month** — because ``tfcache_set_new_moon_floor``
+  early-returns on an unchanged floor, its own comment: "the meta
+  rewrite only ever fires on the new-moon crossing"; the second
+  ``meta_write`` site fires once per fresh/wiped folder.
+- **The most frequent write is the cheapest — and the RTC decides who
+  pays it.** The 15-minute NVS epoch snapshot
+  (``CLOCK_NVS_SAVE_INTERVAL_SEC`` 900, ``clock_sntp.c:52`` — the
+  code's comment: "one commit per quarter hour") fires from the minute
+  tick (``clock_interrupt.c:171``, its ONLY caller): **96 commits/day**
+  of an 8-byte ``int64`` (``nvs_set_i64`` + ``nvs_commit``), plus one
+  forced save per SNTP sync — but only on the RTC-less boards. The
+  whole ``clock_nvs_*`` family sits under ``#if
+  !CONFIG_CLOCK_USE_PCF85063A`` (``clock_sntp.c:45``) and the calling
+  minute-tick branch lives inside the same guard's RTC-less block in
+  ``clock_interrupt.c`` (:124 to the ``#else`` at :200) — the S3's
+  built ``sdkconfig.h`` defines the RTC, so **the S3's daily NVS bill
+  is zero, compiled out**, while the P4 (``sdkconfig.defaults.esp32p4``
+  pins ``=n``) and the knob (``knob/sdkconfig`` leaves it unset) each
+  pay the 96.
+- **The knob's day carries no scheduled write but its clock.**
+  ``moon_tfcache.c`` is a ``UI_BOARD_SRCS`` member the ``KNOB_BOARD``
+  branch empties (``components/ui/CMakeLists.txt:31-33``) — the TF legs
+  are *not compiled*, the bus ladder's no-such-leg precedent.
+  ``alarm.txt``'s writer (``clock_alarm_scheduler_write``,
+  ``clock_alarm_scheduler.c:504``) has **zero call sites repo-wide**:
+  the file belongs to the spiffs image, not the runtime.
+  ``settings.txt`` — 2 comment + 6 key lines, 240 B computed from the
+  asserted ``fprintf`` template — is written only by three
+  settings-screen actions (sleep ``screens.c:1406``, timezone
+  ``:3066``, alarm sound ``:3148``) and the TEST settings demo
+  (``main.cpp:275``); ``wifi_credentials.txt`` only by the
+  provisioning wheel's commit (``screens.c:2301``, its single caller,
+  87 B with a sample SSID). The knob's 64 K coredump partition
+  (``knob/partitions.csv:18``) sees its first bytes on a crash — the
+  coredump row the storage ladder drew italic *no bytes until a crash*
+  is a write target whose schedule is a flat zero.
+
+The three facts the other ladders cannot show: the *most numerous*
+write is the 8-byte NVS value — 96/day of operations per board at a
+total payload under 1 KB/day, while 24× rarer the hourly stores write
+up to 5.5 MiB/day on the S3 and 14.5 MiB/day on the P4 at the encoder
+bound (the real q90 JPEGs far smaller, instrumented nowhere); the
+*same shared component* bills two boards 96 commits a day and the
+third zero, decided by one ``#if`` that three sdkconfig layers answer
+differently; and the knob — the board with the smallest screen —
+writes flash on a tap and on a crash, and on nothing else, because
+its largest media subsystem is excluded at CMake level rather than
+disabled at runtime. The human-paced writers (three screen actions,
+one provisioning commit, one TEST demo) are call-site counts, not
+frequencies, and deliberately contribute zero to the day bar.
+
+.. figure:: ../_static/figs/perf_writes.png
+   :alt: the write ladder — scheduled writes per day per board, and bytes per single write
+   :figclass: align-center
+
+   The churn axis. **Left:** scheduled flash writes per day, stacked
+   by leg — the hourly store (24), eviction unlinks (~24 at window
+   steady state), meta at the new-moon crossing (~1/synodic ≈ 0.03),
+   the 15-min NVS epoch commit (96, RTC-less boards only): S3 48, P4
+   144, knob 96. S3 blue, P4 vermillion, knob violet; the two zero
+   legs are annotated where their bars are absent (the RTC ``#if``,
+   the ``KNOB_BOARD`` source exclusion). **Right:** bytes per ONE
+   write, log — the 8-byte NVS value, the 87 B credentials write, the
+   240 B settings rewrite, the ~82 B meta rewrite (both boards'
+   asserted templates), the 64 K coredump partition bound, and the
+   encoder's own file bound ``S²+S²/2+1024`` — 241,024 B at 400 px,
+   634,774 B at 650 (hatched: the storage ladder's twin, never a
+   measured JPEG). alarm.txt draws a zero stub: its writer exists at
+   ``clock_alarm_scheduler.c:504`` with no caller. The generator is
+   ``docs/tools/gen_perf_writes.py`` — caps, the fprintf templates,
+   every call-site count (1 store, 3+1 settings writers, 1 credentials
+   writer, 0 alarm writers, 1 ``maybe_save`` caller), the Kconfig
+   defaults, the ``CLOCK_USE_PCF85063A`` state across all three
+   sdkconfig layers and the partition rows are **parsed from the live
+   sources** at figure time; nothing touches a card, an NVS partition
+   or a spiffs image.
+
+What this ladder does NOT count, and who does: the bytes the display
+moves per refresh are the :ref:`bus ladder <bus-ladder-perf>`, the
+resident flash images are :ref:`the storage ladder
+<storage-ladder-perf>`, the 709-file card month as *capacity* is the
+:ref:`hour-cache footprint <cache-footprint-perf>` above, and the
+spiffs files' contents and ownership are inventoried in
+:doc:`the SPIFFS store <../reference/spiffs-store>`.
 
 .. _census-ladder-perf:
 

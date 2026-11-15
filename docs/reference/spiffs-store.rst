@@ -128,7 +128,11 @@ a bad/missing value falling back to the Kconfig-seeded default
 These six keys are the user's whole layer — the configuration ladder
 draws the table as a dot matrix (writer, seed origin, validated
 range, still-read) with the two ghosts as the only open rows
-(:ref:`the configuration ladder <config-ladder-perf>`).
+(:ref:`the configuration ladder <config-ladder-perf>`). The file is
+*human-paced* storage: the write ladder counts its writers — three
+settings-screen actions and the TEST settings demo, 240 B rewritten
+per call, no scheduled leg at all
+(:ref:`the write ladder <write-ladder-perf>`).
 
 The two timeouts are user-facing in **minutes** on the settings
 screens (a 1–30 minute picker) and stored internally in seconds

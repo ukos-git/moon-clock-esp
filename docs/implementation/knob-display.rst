@@ -635,7 +635,10 @@ its own black box, armed in every production build:
 * **The coredump ring** — a 64 K ``coredump`` partition at the tail
   of ``knob/partitions.csv`` with ``CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH``
   (ELF format): a panic writes an ELF core there that outlives the
-  reset. Read back on the bench:
+  reset. On the churn axis its schedule is a flat zero — the only
+  media target whose every write is an accident, not a timer
+  (:ref:`the write ladder <write-ladder-perf>`). Read back on the
+  bench:
   ``esptool.py --port <port> read_flash 0x710000 0x10000 core.bin``,
   strip the 24-byte flash header, then
   ``espcoredump.py --chip esp32s3 info_corefile -t elf -c core.elf

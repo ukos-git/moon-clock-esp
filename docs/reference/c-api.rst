@@ -11,7 +11,9 @@ device's interface *and* the host simulator's (the same translation
 units build into both, :doc:`the architecture <../implementation/architecture>`;
 how many times each of them is actually compiled — across the twelve
 link images — is priced at :ref:`the sharing ladder
-<sharing-ladder-perf>`), so this page is the reference a
+<sharing-ladder-perf>`; the Python prototype these units port
+1:1 has the twin sketch at :ref:`the package in one picture
+<python-surface>`), so this page is the reference a
 reader uses to build against the core — on the device or on the host.
 
 The design contract
