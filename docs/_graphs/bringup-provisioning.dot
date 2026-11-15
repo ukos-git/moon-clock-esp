@@ -1,0 +1,50 @@
+// The NETWORK box, opened: the provisioning chain that ends where the
+// boot sync began — on /spiffs/wifi_credentials.txt the next boot's
+// blocking sync finds. Every edge verified in code before drawing:
+// components/ui/screens.c (home/WiFi shared root handler + "the wake
+// tap itself never opens the hub — a deliberate second tap does"
+// :108-118, hub ring[] GLYPH_WIFI entry :594-604 (:598), the scan
+// armed at screen ENTRY behind scan_panel_hold_arm() :1624-1631,
+// roller tap -> keyboard :1574-1577, the circle-check: empty password
+// REJECTED :2297-2300, commit :2313-2319), components/wifi/wifi.c
+// (the file path :22, wifi_credentials_write :117, wifi_scan_begin
+// :545), and the CLAUDE.md hard invariant that wifi_credentials.txt
+// is gitignored. The transient screen's own anatomy is
+// docs/_graphs/wifi-sync.dot (ui/wifi); the sealed version of this
+// box is docs/_graphs/bringup-overview.dot (this page). FONTS: 12 pt
+// = the page's 16 px body text at 1:1 — kept inside the content
+// column so it is never scaled down.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph bringup_provisioning {
+    rankdir=TB;
+    label="Provisioning: the chain that ends where the boot sync began";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    tap [label="TAP the screen — home or the\ncarrying WiFi screen: one shared\nroot handler opens the settings hub\n(a wake tap needs a DELIBERATE\nsecond tap)",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    hub [label="the hub ring: the GLYPH_WIFI entry\ncarries the WiFi screen as its\nuser_data — the same table the tap\nladder BFS-walks",
+         fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    scan [label="the settings-WiFi screen arms the\nscan AT ENTRY — panel hold first,\nthen wifi_scan_begin(); the roller\nshows the centred SCANNING / NO APS\nplaceholder until rows render",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    kb [label="tap an AP row → the round wheel\nkeyboard opens with the SSID\nprefilled — letters first, four\nregisters",
+        fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    commit [label="the circle-check commits: an EMPTY\npassword is rejected; else\nwifi_credentials_write lands BOTH\nlines in /spiffs/wifi_credentials.txt",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    cred [label="the file is gitignored — 'never\ncommit' it; idf.py flash rewrites\nthe partition from spiffs/, so a\ntracked example is all the image\ncarries",
+            shape=note, fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    next [label="the same handshake re-runs now, and\nthe next boot's blocking sync finds\nthe file — the board lands on the\nhome WITH its moon",
+          fillcolor="#efece4"];
+
+    tap -> hub [color="#2b5fb0", penwidth=1.6];
+    hub -> scan [color="#2b5fb0", penwidth=1.6];
+    scan -> kb [color="#2b5fb0", penwidth=1.6];
+    kb -> commit [color="#2b5fb0", penwidth=1.6];
+    commit -> cred [style=dotted, color="#b07d10", constraint=false];
+    commit -> next [style=dashed, color="#2b5fb0", penwidth=1.4, fontcolor="#1e3f70"];
+}

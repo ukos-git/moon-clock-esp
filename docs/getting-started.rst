@@ -101,7 +101,8 @@ binary-size checks).
 
 4. **Tell it the network.** A fresh board has no
    ``/spiffs/wifi_credentials.txt`` yet, so the blocking boot sync
-   (which runs *before* the panel comes up — see the figure below)
+   (which runs *before* the panel comes up — see the first-boot sketch
+   below)
    simply fails and the transient WiFi screen rides the ~8 s connect +
    10 s NTP handshake, then drops to the airplane screen: it shows the
    handshake, not a list, and never strands the device. The list is
@@ -122,10 +123,20 @@ password. Everything else — the moon asset pipeline, the image gate,
 the uisim screenshot pass — is developer tooling, not part of putting
 a clock on a desk.
 
-.. graphviz:: _graphs/bringup-flow.dot
-   :alt: The bring-up — host once, the optional assets behind the configure-time guards, the chip_id gate, the per-target build and flash, the boot sync resolving before the panel, and the provisioning chain that ends in the credential file
+.. graphviz:: _graphs/bringup-overview.dot
+   :alt: The bring-up as a black-box overview — the host, the optional asset branch, the chip_id gate, the per-target build and flash, the first boot resolving before the panel, and provisioning, closed by one loop into the credential file
    :align: center
-   :caption: The bring-up, drawn. Left to right it is the six stops of the journey above: the host shell, the OPTIONAL asset branch (the blue path passes *around* it — it exists only for a pipeline or ``MOON_ALBEDO_W`` change, and the amber nodes are its two faces: the configure-time ``FATAL_ERROR`` trio, and the warning-only missing blob that boots a clock *without its moon*). The diamond is the gate no port may skip — ``chip_id`` against the port you are *about* to flash, with the ESP32S3-also-names-the-knob ambiguity priced beside it. The build cluster carries the referee (the target/board ``FATAL_ERROR``) between the two command shapes, and the flash node names the three regions one ``idf.py flash`` carries. The boot cluster is the part the prose can understate: the NTP sync is synchronous **before the panel exists**, and *both* outcomes land the user on the airplane screen — a failure must not strand the device on the WiFi screen. The right band is the provisioning chain from step 4, ending where the boot sync began: on the credential file the next boot's sync finds. The *commands* of the middle band are drawn once, :doc:`on the devices page <devices/index>` (``build-flash.dot``); the *seam* the three builds hang off is ``build-seam.dot`` in :doc:`the build-system reference <reference/build-system>`; the transient WiFi screen's anatomy is :doc:`the WiFi screen <ui/wifi>`.
+   :caption: The bring-up, drawn as black boxes: the five stages of the journey above, each sealed — no internals on this figure. Every box opens into its own sketch: the *commands* of step 3 are drawn once, :doc:`on the devices page <devices/index>` (``build-flash.dot``); the *optional asset branch* — pipeline, the configure-time ``FATAL_ERROR`` trio, the warning-only missing blob, the image gate — rides the pipeline figure in :doc:`the build-system reference <reference/build-system>`; the *referee* between the two command shapes is the target/board guard described in that same reference; and the two step-4 boxes open below this figure into their own detail sketches. The blue loop is the whole point: provisioning ends where the boot sync began, on the credential file the next boot's sync finds.
+
+.. graphviz:: _graphs/bringup-boot-sync.dot
+   :alt: First boot — wifi_manager_init reads the credential file, NTP runs under its bound, the radio deinits before the panel, NTP-fixed wakes to the airplane screen, and the failed handshake shows the transient WiFi screen until the UI tick hands off
+   :align: center
+   :caption: The first-boot box, opened. The boot sync is synchronous **before the panel exists** (main.cpp :494-515): the fresh board's missing credential file prints "WiFi credentials not configured. Please set valid credentials." (wifi.c :299) and the NTP leg rides the 10 s bound (actions.c :65-67). The immediate ``wifi_manager_deinit()`` is deliberate — "Airplane before the panel ever wakes up" (main.cpp :532-541; the DTIM beacon theft, task #29). The success path never shows the WiFi screen (main.cpp :644-662); the failure path shows it through the "~8+10 s handshake" (actions.c :796; the 8 s + 10 s pair), and the one UI-tick hand-off drops it on *both* handshake outcomes — "a failure must not strand the device on the WiFi screen" (:62-64, :733-734). The sync task's own anatomy — what runs off the UI task, and why — is ``wifi-sync.dot`` on :doc:`the WiFi screen <ui/wifi>` page.
+
+.. graphviz:: _graphs/bringup-provisioning.dot
+   :alt: The provisioning chain — tap opens the hub, the WiFi ring entry arms the scan at entry, the roller tap opens the prefilled wheel keyboard, the circle-check writes both credential lines and re-runs the handshake
+   :align: center
+   :caption: The network box, opened. One shared root handler serves the home and the transient WiFi screen, but "the wake tap itself never opens the hub — a deliberate second tap does" (screens.c :108-118); the hub ring's ``GLYPH_WIFI`` entry (screens.c :598) is the same table the tap ladder BFS-walks; the scan is armed at screen *entry*, behind the panel hold (screens.c :1624-1631, wifi.c :545); tapping an access-point row opens the round wheel keyboard with the SSID prefilled (:1574-1577); the circle-check rejects an empty password (:2297-2300) and ``wifi_credentials_write`` lands **both** lines in ``/spiffs/wifi_credentials.txt`` (wifi.c :22, :117) before the same handshake re-runs — and the next boot's blocking sync finds the file. The file stays gitignored ("never commit" it, the hard invariant); ``idf.py flash`` rewrites the partition from ``spiffs/``, so a tracked example is all the image carries. The transient screen's anatomy is :doc:`the WiFi screen <ui/wifi>`.
 
 
 Regenerating the moon assets (optional)
@@ -170,3 +181,9 @@ against NASA's reference renders for **all three** board textures
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4
    host_sim/.venv/bin/python host_sim/check_gate.py --target knob
+
+The branch as one picture — sources, per-board blobs, the three
+configure-time guards, the warning-only missing blob, and the gate —
+is the pipeline figure in :doc:`the build-system reference
+<reference/build-system>`; its sealed version is the amber box in the
+bring-up figure above.

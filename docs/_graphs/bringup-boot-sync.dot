@@ -1,0 +1,44 @@
+// The FIRST-BOOT box, opened: the blocking sync resolves before the
+// panel exists, and both handshake outcomes leave the transient WiFi
+// screen on the one UI-tick hand-off. Every quoted line verified in
+// code before drawing: main/main.cpp (boot sync :494-515, "Airplane
+// before the panel ever wakes up" + the DTIM reasoning :532-541,
+// action_wake_screen :644-662 "never shown at boot on the success
+// path"), components/wifi/wifi.c ("credentials not configured" :299,
+// WIFI_CONNECTION_TIMEOUT_MS 8000 :28), components/ui/actions.c
+// (CONFIG_CLOCK_NTP_TIMEOUT_MS 10000 :65-67, action_start_wifi_sync
+// :793, the background task :71, "the ~8+10 s handshake" :796-797,
+// "a failure must not strand the device on the WiFi screen" :62-64,
+// ui_tick_timer_cb :718, the s_wifi_sync_done drop :733-734). The
+// sync task's own anatomy is docs/_graphs/wifi-sync.dot (ui/wifi);
+// the beginner's journey around this box is
+// docs/_graphs/bringup-overview.dot (this page). FONTS: 12 pt = the
+// page's 16 px body text at 1:1 — the graph is kept inside the
+// content column so it is never scaled down.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph bringup_boot_sync {
+    rankdir=TB;
+    label="First boot: the blocking sync resolves BEFORE the panel exists";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    bootsync [label="wifi_manager_init() reads\n/spiffs/wifi_credentials.txt —\nno file: 'WiFi credentials not\nconfigured. Please set valid\ncredentials.' Then clock_init runs\nNTP under the 10 s bound, and\nwifi_manager_deinit() lands\n'Airplane before the panel ever\nwakes up' (the DTIM theft, #29)",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    ok [label="NTP fixed → action_wake_screen\nlands straight on the airplane\nscreen with the static-phase boot\nbake — the WiFi screen is never\nshown on this path",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    fail [label="no credentials / NTP failed →\naction_start_wifi_sync loads the\ntransient WiFi screen and spawns\nthe background sync task — the\n'~8+10 s handshake' (8 s wifi\n+ 10 s NTP)",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    drop [label="the UI tick hands off the WiFi\nscreen on BOTH outcomes — 'a failure\nmust not strand the device on the\nWiFi screen'; the done flag is\nclaimed by the tick, not a poller",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    bootsync -> ok [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                    label="NTP fixed"];
+    bootsync -> fail [color="#b07d10", penwidth=1.4, fontcolor="#6b4e08",
+                      label="no credentials /\nfix failed"];
+    fail -> drop [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+}

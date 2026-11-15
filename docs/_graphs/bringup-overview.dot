@@ -1,0 +1,50 @@
+// The bring-up as a BLACK-BOX OVERVIEW: the five stages of the
+// getting-started walk, each drawn as a sealed box — no internals on
+// this page's figure. Every box opens into its own detail sketch: the
+// step-3 commands into docs/_graphs/build-flash.dot (devices/index),
+// the optional asset branch into docs/_graphs/assets-pipeline.dot
+// (reference/build-system), the first-boot box into
+// docs/_graphs/bringup-boot-sync.dot and the network box into
+// docs/_graphs/bringup-provisioning.dot (both on this page). The one
+// loop is the story: provisioning ends where the boot sync began, on
+// the credential file. FONTS: 12 pt everywhere = the page's 16 px body
+// text at 1:1 (graphviz pt at 72 dpi, browser px at 96 dpi), and the
+// graph is kept inside the content column so object{max-width:100%}
+// never scales it down — smaller text was the old figure's failure.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph bringup_overview {
+    rankdir=TB;
+    label="The bring-up in black boxes — five stages, one optional branch, one loop";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.5, ranksep=0.55];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.18,0.11", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    host [label="the host, once (steps 1+2)\ninstall ESP-IDF 5.5.1, clone the repo",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    port [label="the port (step 2)\nplug one board, esptool chip_id on\nthe port you are ABOUT to flash",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    build [label="one build, one flash per board (step 3)\nthe target picks BSP, table and blob",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    boot [label="first boot (step 4)\nWiFi + NTP sync resolves\nBEFORE the panel exists",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    prov [label="the network (step 4)\nhub → WiFi screen → wheel keyboard\n→ wifi_credentials.txt",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+    assets [label="moon assets — OPTIONAL\nonly after a pipeline or\nMOON_ALBEDO_W change",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    host -> port [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    port -> build [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    build -> boot [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                   label="one flash carries\napp + SPIFFS + blob"];
+    boot -> prov [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70",
+                  label="no credentials yet —\nthe tick drops to airplane"];
+    prov -> boot [style=dashed, color="#2b5fb0", penwidth=1.4, fontcolor="#1e3f70",
+                  label="the next boot's sync\nfinds the file"];
+    host -> assets [style=dotted];
+    assets -> build [style=dotted, color="#b07d10", fontcolor="#6b4e08",
+                     label="blob + manifest\n+ generated header"];
+}

@@ -4,7 +4,7 @@
 // Every edge was read out of the live source before drawing
 // (comment-stripped greps — same discipline as api-surface.dot):
 //   Boot spawns (main/main.cpp app_main): the panel comes up AFTER the
-//     blocking wifi_manager_init + clock_init (bringup-flow.dot's "Airplane
+//     blocking wifi_manager_init + clock_init (bringup-boot-sync.dot's "Airplane
 //     before the panel ever wakes up"); bsp_display_start / _with_config
 //     runs the esp_lv_adapter's LVGL task (main.cpp:558-572 P4 branch,
 //     S3 falls through bsp_display_start). The S3 BSP pins that task

@@ -201,7 +201,9 @@ The two are *different kinds* of flash data:
   (albedo at 0, then the int8 DEM, ``esp_partition_read`` at boot) is
   the ``moon_assets.h`` contract.
 
-The whole chain — sources to flashed partition — in one picture:
+The whole chain — sources to flashed partition — in one picture
+(beginners meet this branch as the optional amber box of the bring-up
+on :doc:`the getting-started page <../getting-started>`):
 
 .. graphviz:: ../_graphs/assets-pipeline.dot
 

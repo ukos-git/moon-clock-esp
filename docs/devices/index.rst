@@ -136,8 +136,10 @@ the host shell, the optional asset branch behind its configure-time
 guards, the ``chip_id`` gate no port may skip, the two command shapes
 separated by the target/board referee, the boot sync that resolves
 before the panel exists, and the provisioning chain ending in the
-credential file — is drawn end to end on
-:doc:`the getting-started page <../getting-started>`.
+credential file — is drawn on
+:doc:`the getting-started page <../getting-started>` as a black-box
+overview whose first-boot and provisioning legs open into their own
+detail sketches.
 
 The conventions the three builds share:
 
