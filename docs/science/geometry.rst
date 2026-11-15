@@ -18,8 +18,80 @@ wobble that lets us peek around the sides of the Moon) and position
 angle (the tilt of the lunar north pole on the sky). Get them wrong and
 the Moon looks like *a* moon — just not *this* moon, on *this* date.
 
+The short version
+-----------------
+
+This page is the first half of "compute the Moon": before any pixel can
+be shaded, the renderer has to know where everything *is* and how the
+Moon is *aimed*. The whole job in plain language:
+
+1. **Ask where the bodies are.** A compact astronomical formula gives
+   the positions of the Sun, Earth, and Moon for the requested instant
+   — no network, no NASA lookup tables on the device.
+2. **Keep only the directions.** The renderer never asks *how far* —
+   only *which way*: two arrows from the Moon, one pointing at the Sun
+   (:math:`\mathbf{S}`), one pointing at the Earth (:math:`\mathbf{E}`).
+3. **Know how the Moon is aimed.** The Moon turns like a wheel on an
+   axle: its orientation at any instant is fixed by just two numbers —
+   where the axle (spin axis) points, and how far the wheel has turned
+   about it since a known starting reading.
+4. **Speak the Moon's language.** The surface maps are stored in the
+   frame that rotates with the ground. Re-expressing the Sun, Earth and
+   camera arrows in that frame turns "which way?" into "which point on
+   the surface?" — which is what a texture lookup needs.
+
+The next page (:doc:`the lighting model <lighting>`) takes the arrows
+this page builds and does the shading. Here every arrow is derived,
+number by number.
+
+Vocabulary
+----------
+
+Twelve terms carry the page (full definitions in the :doc:`glossary
+<../glossary>`):
+
+- **Frame (reference frame)** — a set of three numbered arrows used to
+  state directions, like the axes on a graph. "The Sun lies at
+  direction (x, y, z)" is meaningless until you say *which frame*;
+  converting between frames re-expresses the same arrow in the other
+  frame's arrows.
+- **Unit vector** — an arrow trimmed to length exactly 1, so it carries
+  direction only.
+- **ICRF** — the International Celestial Reference Frame: the
+  near-non-rotating backdrop anchored to distant quasars, the standard
+  "fixed stars" frame all astronomy positions are quoted in.
+- **Body frame** — the frame glued to the lunar surface, rotating with
+  it: its +z is the lunar north pole, and latitudes and longitudes are
+  just coordinates in it.
+- **Pole** — the direction of the Moon's spin axis, stated in the ICRF.
+- **Prime meridian** — the reference longitude (the lunar "Greenwich");
+  the angle :math:`W` says how far the Moon has rotated since the
+  reference epoch.
+- **Julian Date (JD)** — astronomy's continuous day counter; the
+  reference epoch J2000 is JD 2451545.0.
+- **Ephemeris** — any formula or table that says where the solar-system
+  bodies are at a given time.
+- **Dot product** — the vector multiply ``A · B`` between two unit
+  arrows: the cosine of the angle between them (``1`` same way, ``0``
+  at right angles, negative pointing apart). It is how "how aligned are
+  these two directions?" gets computed with three multiplies and two
+  adds.
+- **Cross product** — ``A × B``: the arrow perpendicular to both
+  inputs (right-hand rule); the standard way to manufacture a
+  perpendicular direction.
+- **Libration** — the Moon's slow apparent wobble, which over time lets
+  us peek a little past each limb and each pole.
+- **Position angle** — how the lunar north pole is tilted on the sky:
+  the angle from celestial north to the pole, measured eastward.
+
 Two frames, one rotation
 ------------------------
+
+**The short version.** The Moon's orientation is a wheel on an axle:
+you need to know exactly two things — which way the axle points (the
+*pole*) and how far the wheel has turned since a known starting reading
+(the prime meridian :math:`W`). Those two facts fix the entire
+surface-glued frame, and every texture lookup follows from it.
 
 The ephemeris (the Sun, Moon, and Earth positions in time) is computed
 in the **ICRF** — the International Celestial Reference Frame, a
@@ -57,6 +129,11 @@ The prime meridian at any epoch is a linear function of Julian Date:
 
    W(\text{JD}) = W_0 + \text{RATE} \times (\text{JD} - \text{JD}_{2000})
 
+Read that as a clock face: :math:`W_0` is the reading at the reference
+epoch, and ``RATE × (elapsed days)`` is speed times time-since-then —
+about 13.2° per day, so the wheel comes back around in 360 / 13.176 ≈
+27.3 days (the Moon's rotation period relative to the stars).
+
 The body-frame basis (three orthonormal ICRF vectors, the x, y, and z
 columns) is built by fixing the 0° meridian direction in the ICRF x–z
 plane perpendicular to the pole, then rotating the whole basis about the
@@ -74,6 +151,22 @@ this with a Rodrigues rotation:
        th = math.radians(W_deg)
        return _rot_axis(x0, P, th), _rot_axis(y0, P, th), P
 
+What those lines do, one by one:
+
+- ``x0 = [P[2], 0.0, -P[0]]`` is an arrow in the ICRF x–z plane that is
+  perpendicular to the pole (check: dotting it with :math:`P` gives
+  ``P.x*P.z + 0 - P.z*P.x = 0``). It serves as the 0°-meridian
+  direction at the moment :math:`W = 0`.
+- ``y0 = cross(P, x0)`` manufactures the third arrow so that x, y, z
+  form a right-handed set.
+- The two ``_rot_axis`` calls swing *both* equatorial arrows together
+  about the pole by :math:`W` — that one rotation *is* the Moon's spin.
+  (``_rot_axis`` is Rodrigues' formula in three terms: the part of the
+  arrow along the axis stays put, the part across it sweeps a circle.)
+- Because the pole never moves and only the spin angle :math:`W`
+  changes, the frame rotates rigidly — exactly what "glued to the
+  surface" means.
+
 Once the basis is built, any ICRF unit vector :math:`\mathbf{v}`
 converts to body-frame coordinates by dotting with the three basis
 columns:
@@ -82,8 +175,20 @@ columns:
 
    \mathbf{v}_{body} = (\mathbf{v}\cdot\mathbf{b}_x,\; \mathbf{v}\cdot\mathbf{b}_y,\; \mathbf{v}\cdot\mathbf{b}_z)
 
+Dotting with the three columns asks the same arrow the same question
+three times — *how much of you points along this axis?* — and the three
+answers are its coordinates in the body frame.
+
 The ephemeris
 -------------
+
+**The short version.** The ephemeris answers one question: *where are
+the Sun, Earth, and Moon right now?* Professional planetary ephemerides
+pinpoint them to sub-arcsecond accuracy — a level nobody could notice
+on a disk a few hundred pixels across. This project deliberately uses
+the cheap alternative: public-domain formulas small and fast enough to
+run on the microcontroller itself, good to a few tenths of a degree —
+the gate number below makes "plenty" precise.
 
 The project uses a *cheap* ephemeris — the same low-order models
 astropy's ``builtin`` (PyERFA) backend uses internally — rather than a
@@ -106,6 +211,12 @@ two directions the renderer needs:
    S = _unit(sun - moon)    # Moon -> Sun  (ICRF)
    E = _unit(earth - moon)  # Moon -> geocenter (ICRF)
 
+Each of the last two lines is "subtract two positions, then squeeze the
+result to length 1". The subtraction turns *positions* into a
+*direction seen from the Moon*; ``_unit`` then throws the distance away
+— which is exactly why the cheap ephemeris is not merely adequate but
+precisely adequate: only the direction ever reaches the pixel shader.
+
 Both are then rotated into the body frame with the same dot-product
 conversion as above. The cheap ephemeris is *sufficient* here: the gate
 (:doc:`the image gate <../verification/image-gate>`) measures a maximum subsolar-point error of about 0.43°
@@ -116,6 +227,13 @@ sub-arcsecond position, which is utterly irrelevant at this resolution.)
 
 The camera basis
 ----------------
+
+**The short version.** The camera looks down the Earth–Moon line. To
+draw the disk you need two arrows lying flat in the plane perpendicular
+to that line: one to call *up* (screen +y) and one to call *right*
+(screen +x). "Up" is celestial north flattened onto the sky; "right"
+is the *west* side — the picture as a person standing on Earth sees
+it, with lunar east appearing on the left.
 
 The last piece is the *view*. The camera is on Earth, looking at the
 Moon, so the line of sight is :math:`-\mathbf{E}` (the Moon→geocenter
@@ -139,6 +257,16 @@ cross product with the line of sight:
    right_body = _to_body(right, basis)
    up_body    = _to_body(north, basis)
 
+Line by line: ``N_sky`` is the celestial north-pole direction in the
+ICRF, and ``L`` is the line of sight *from us toward the Moon*. The
+``north`` line is the workhorse: ``N_sky @ L`` (a dot product) measures
+how much of north points *along* the line of sight, and subtracting
+``(N_sky @ L) * L`` knocks that part off — what remains is the piece of
+north lying flat on the sky plane, the camera's up. ``east`` is then
+the perpendicular the cross product manufactures, and ``right`` simply
+flips it. The last two lines re-express both arrows in the body frame
+with the same dot-with-the-columns conversion as before.
+
 The ``right = -east`` line is the "east-left" convention, and it is one
 of the two things that is easy to get backwards (the other is the 180°
 texture offset, below). The C core carries the same sign as a calibration
@@ -146,6 +274,12 @@ knob, ``MOON_POSANGLE_SIGN``.
 
 The position angle
 ------------------
+
+**The short version.** The position angle is the one number an amateur
+astronomer quotes for "how is the Moon tilted on the sky tonight?"
+Nothing drawn on the panel depends on it — the renderer carries it as a
+self-check, and the image gate compares it against NASA's published
+value to catch aiming mistakes independently of the pixels.
 
 The *position angle* is the angle on the sky, measured east of
 celestial north, of the lunar north pole. It is a useful independent
@@ -170,9 +304,20 @@ the Moon:
 
 where :math:`i` is the Sun-Moon-Earth (phase) angle. :math:`i=0` is a
 full moon (we see the fully-lit face), :math:`i=180°` is a new moon.
+Read it as a conversation: ``S · E`` is the dot product asking *how
+wide is the Sun–Moon–Earth angle?*, and ``(1 + cos i) / 2`` straightens
+the answer into the illuminated fraction a calendar would print — full
+moon (:math:`i = 0°`) gives ``1``, half moon (:math:`i = 90°`) gives
+``0.5``, new moon (:math:`i = 180°`) gives ``0``.
 
 The 180° texture offset
 -----------------------
+
+**The short version.** The map and the math count longitude from
+opposite sides of the Moon — two conventions, neither one wrong, and
+the equirectangular image simply starts its columns 180° away from
+where body-frame longitude starts. One added constant reconciles them
+at every lookup.
 
 The equirect albedo texture is stored with column 0 at the prime
 meridian, but the body-frame longitude convention the ephemeris uses is
@@ -192,18 +337,28 @@ error.
 Libration, for free
 -------------------
 
+**The short version.** Nobody computes the wobble. The model honestly
+tracks just two ingredients — a steady spin and a real orbit — and the
+famous wobble is what honestly tracking them *looks like* from Earth.
+
 Libration is not computed as a separate term. It emerges from the body
 frame: as the Moon's rotation (the prime meridian) and its orbit (the
 directions :math:`\mathbf{S}` and :math:`\mathbf{E}`) evolve in time,
 the sub-Earth and sub-Solar points wander across the surface, and the
 camera basis precesses with the line of sight. That wandering *is* the
-libration in longitude, latitude, and the libration in libration (the
-nodal wobble that lets us see a little past each pole). The calibrated
+libration in longitude and latitude — including the nodal wobble that
+lets us see a little past each pole. The calibrated
 pole and prime-meridian constants are what make that wander trace the
 real 18.6-year nodal cycle.
 
 Where the numbers go
 --------------------
+
+**The short version.** Everything above lands in one C struct: three
+unit arrows for the per-pixel work (:math:`\mathbf{S}`,
+:math:`\mathbf{E}`, and the camera pair) plus a bag of scalars — the
+sub-solar and sub-Earth points, position angle, phase angle, illuminated
+fraction, distance — that exist for the image gate and for debugging.
 
 All of this lands in the ``moon_geom_t`` struct the bake consumes
 (``components/moon/include/moon.h``):
