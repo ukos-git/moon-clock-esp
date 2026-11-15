@@ -1,0 +1,64 @@
+// The SPIFFS writers — who writes what, and when (companion to
+// spiffs-store.dot). The wheel keyboard commit (screens.c) goes
+// through wifi_credentials_write — the ONLY runtime writer of
+// credentials; it fires on COMMIT only (wheel-commit.dot).
+// clock_alarm_scheduler_write is a FULL replace, one rule per line or
+// comments-only, driven by the alarm-settings screens.
+// settings_store_save rewrites the whole file: the two-line header
+// ("do not edit by hand — a full flash resets this file") + the six
+// keys, and every commit fires on RELEASED, never on the drag path.
+// Readers re-shown as ghosts: wifi.c boot read (first non-comment line
+// = SSID, second = password); clock_alarm_scheduler fopen("r") arms the
+// rule — PCF85063A ALM on S3, esp_timer one-shot on P4 + knob, and a
+// zero-rule boot MUST clock_clear_alarm or a stale time fires a phantom
+// alarm; settings_store_load runs at boot before the audio/roller
+// seeds (the banner quotes the REAL values); the knob's power ladder
+// reads the timeout pair LIVE — dim after idle_timeout_sec, deep sleep
+// one countdown later.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph spiffs_store_io {
+    rankdir=LR;
+    label="The writers and their files — commits on RELEASED, never on the drag path";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    kb    [label="wheel keyboard\ncommit",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    schedw [label="scheduler\nfull replace",
+            fillcolor="#efece4"];
+    save  [label="settings_store\n_save — whole\nfile rewrite",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    creds [label="wifi_credentials\n.txt",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+           fontcolor="#3f3f3f"];
+    alarm [label="alarm.txt",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+           fontcolor="#3f3f3f"];
+    set   [label="settings.txt",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+           fontcolor="#3f3f3f"];
+    wifi  [label="wifi.c boot\nread",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    schedr [label="scheduler arms\n(PCF ALM /\nesp_timer)",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    load  [label="boot load,\naudio/roller\nseeds after",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    power [label="knob power\nladder, live",
+           style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+           fontcolor="#3f3f3f"];
+
+    kb -> creds    [label="the only\nruntime writer", color="#2b5fb0"];
+    schedw -> alarm;
+    save -> set    [color="#2b5fb0"];
+    creds -> wifi;
+    alarm -> schedr [color="#b07d10"];
+    set -> load     [color="#b07d10"];
+    set -> power [style=dashed];
+}

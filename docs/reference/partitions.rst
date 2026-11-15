@@ -26,6 +26,9 @@ S3 — ``partitions.csv``
 .. include:: _fragments/partitions-s3.inc
 
 .. graphviz:: ../_graphs/partition-s3.dot
+   :alt: S3 partition chain — bootloader + table, factory 2048 K, storage 64 K, moon_assets 2560 K, unused
+   :caption: Flash order as a chain: the ``factory`` 2048 K row is the binding constraint of the family, and the ``moon_assets`` 2560 K row prices the 864×432 albedo + 2048×1024 DEM blob (2,470,400 B combined). The table ends at 4736 K including the 64 K prefix; ~11.4 MB of the 16 MB chip stays unused.
+   :align: center
 
 P4 — ``partitions_p4.csv``
 --------------------------
@@ -33,6 +36,9 @@ P4 — ``partitions_p4.csv``
 .. include:: _fragments/partitions-p4.inc
 
 .. graphviz:: ../_graphs/partition-p4.dot
+   :alt: P4 partition chain — bootloader + table, factory 9216 K, storage 64 K, moon_assets 5120 K, unused
+   :caption: The 32 MB chip's chain: ``factory`` 9216 K, ``moon_assets`` 5120 K pricing the 2048×1024 albedo + 2048×1024 DEM blob (4096 K combined). The table ends at 14464 K including the 64 K prefix; ~17.9 MB stays unused — and because the binary header stays 16 MB, esptool's size-mismatch warning on this board is EXPECTED, not a fault.
+   :align: center
 
 knob — ``knob/partitions.csv``
 ------------------------------
@@ -40,6 +46,9 @@ knob — ``knob/partitions.csv``
 .. include:: _fragments/partitions-knob.inc
 
 .. graphviz:: ../_graphs/partition-knob.dot
+   :alt: knob partition chain — bootloader + table, factory 4096 K, storage 512 K, moon_assets 2560 K, coredump 64 K, unused
+   :caption: The sibling's chain: ``factory`` 4096 K, a fatter 512 K ``storage``, the 2560 K ``moon_assets`` row (864×432 albedo + 1024×512 DEM = 876 K combined), and the 64 K ``coredump`` witness of task #27 — read it with ``esptool read_flash`` at the data offset plus ``espcoredump.py``. The table totals 7296 K; ~8.8 MB stays unused.
+   :align: center
 
 The two data partitions in the build
 ------------------------------------

@@ -8,11 +8,27 @@ directory on **every** build and *runtime-owned*: the app writes
 clobbers the runtime state (accepted — the settings screens re-create
 them). Three files live on it.
 
-.. graphviz:: ../_graphs/spiffs-store.dot
+The store as a sealed box — the 64 K partition and its three files with
+their boot readers:
 
-Each file has exactly one runtime writer (blue) and boot-time readers
-(amber); the knob's power ladder is the only *live* reader — every
-other read happens at boot.
+.. graphviz:: ../_graphs/spiffs-store.dot
+   :alt: SPIFFS overview — the 64 K storage partition, three files, their boot readers
+   :caption: One partition, three files, boot reads only (the wheel-keyboard and settings writers are the box's other side, drawn next). The partition is baked from ``spiffs/`` on every build but *runtime-owned* — a full flash clobbers the runtime state and the settings screens re-create the files.
+   :align: center
+
+The formats, opened — what each file actually holds:
+
+.. graphviz:: ../_graphs/spiffs-store-files.dot
+   :alt: The three SPIFFS files with their formats — two-line credentials, five-field cron, key equals value
+   :caption: ``wifi_credentials.txt`` is two bare lines (SSID, password — the tracked example is what ships, so secrets never enter the tree); ``alarm.txt`` is five-field cron, one rule per line, comments-only meaning no alarms; ``settings.txt`` is ``key = value`` lines with six range-validated keys, each falling back to its ``#ifndef``-seeded Kconfig default (the tables below).
+   :align: center
+
+The writers, opened — who commits what, and when:
+
+.. graphviz:: ../_graphs/spiffs-store-io.dot
+   :alt: The SPIFFS writers — wheel keyboard to credentials, scheduler full replace to alarm, settings_store_save whole-file rewrite to settings
+   :caption: Each file has exactly one runtime writer (blue) and boot-time readers (amber); the knob's power ladder is the only *live* reader — every other read happens at boot. The scheduler's write is a FULL replace, ``settings_store_save`` rewrites the whole file behind its two-line header, and every commit fires on RELEASED, never on the drag path.
+   :align: center
 
 ``wifi_credentials.txt``
 ------------------------

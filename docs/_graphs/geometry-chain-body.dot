@@ -1,0 +1,52 @@
+// The calibrated body frame — a wheel on an axle, two numbers
+// (companion to geometry-chain.dot). All citations
+// components/moon/core/moon_astro.c + generated moon_consts.h. P from
+// MOON_POLE_RA_ICRF 269.839977° / MOON_POLE_DEC_ICRF 68.110423°
+// (:49-53) — the axle, unit by construction (cos dec · cos/sin ra, sin
+// dec); the CALIBRATED pair, not the IAU nominal values. W =
+// MOON_PRIME_MER_W0 40.017251 + MOON_PRIME_MER_RATE 13.17617251°/day ·
+// d (:104) — how far the wheel has turned; 360/RATE ≈ 27.3 days; x0 =
+// unit[Pz, 0, −Px] (⊥ P, in the ICRF x–z plane, :54-55) and y0 = unit(P
+// × x0) (:56-58). Swing BOTH equatorial arrows about P by W — rot_axis,
+// Rodrigues' three terms v·c + (k×v)·s + k(k·v)(1−c) (:26-38), called
+// at :108-111; the columns are xb, yb, zb = P (:112-114). The pole
+// never moves; only W turns — that one rotation IS the spin. ICRF →
+// body = dot with the three columns (:117-122 for S and E, :148-153 for
+// right and up) — the same arrow asked the same question three times; a
+// pure rotation, so it maps ANY vector (unit or in meters) without
+// distortion (:168-170).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph geometry_chain_body {
+    rankdir=TB;
+    label="The body frame — the calibrated pole is the axle,\nW the wheel angle, Rodrigues the spin";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    pole [label="P — the CALIBRATED\npole pair RA 269.84°\nDEC 68.11° (:49-53),\nunit by construction",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    w0 [label="W = W0 40.017 +\nRATE 13.176°/day ·\nd (:104); x0 ⊥ P,\ny0 = P × x0",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    basis [label="rot_axis :26-38,\nRodrigues three\nterms, at :108-111\n— columns xb, yb, P",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    tobody [label="ICRF → body = dot\nwith the columns\n:117-122 / :148-153\n— pure rotation",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dirs [label="S, E in ICRF\n(from -time.dot)",
+          style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+          fontcolor="#3f3f3f"];
+    out [label="→ moon_geom_t;\nlon/lat + shadow in\n-view.dot",
+         style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+         fontcolor="#3f3f3f"];
+
+    pole -> basis;
+    w0 -> basis [label="W"];
+    basis -> tobody [label="columns"];
+    dirs -> tobody [label="asked three\ntimes"];
+    tobody -> out [style=dashed];
+}

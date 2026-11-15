@@ -80,6 +80,20 @@ dial commit *sends* ``LV_EVENT_RELEASED`` to the focused roller — the
 drag path and the detent path are the same commit. The fire itself (the
 shared 1300 ms poll, the trigger, the ring, the fire-then-reschedule)
 is :doc:`the alarm lifecycle <../implementation/clock-sleep>`;
-this figure owns the settings-side machine and the grid arithmetic:
+these figures own the settings-side machine and the grid arithmetic —
+the cycle as a chain first, then the two boxes opened:
 
 .. graphviz:: ../_graphs/pomodoro-cycle.dot
+   :alt: The pomodoro cycle as a chain — alarm-rules screen, stopwatch entry, release commit, rule setter, day grid, arming funnel, home row, fire note
+   :caption: The whole settings-side machine in one chain: a roller release rewrites the one rule file, the day-grid arithmetic caches the next ring, the home row reads the cache. The FIRE note is the alarm lifecycle's — the interval rule is just the other rule kind that lands there (same 1300 ms poll, same fire-then-reschedule).
+   :align: center
+
+.. graphviz:: ../_graphs/pomodoro-cycle-edit.dot
+   :alt: The settings machine opened — three glyphs, master tap, mutual-exclusion note, twin rollers with seeding, the dial that sends RELEASED
+   :caption: The glyphs' colours come straight from ``clock_alarm_rule_types()``, derived from the PARSED rules so the glyphs cannot disagree with the file; the entries are MUTUALLY EXCLUSIVE (each setter rewrites ``alarm.txt`` with its single rule); the twin rollers are the display (96 px font at the home clock's x-centres 153/303, colon 223 — the separate H:MM preview label is GONE); only a RELEASED persists, and the knob dial's commit *sends* ``LV_EVENT_RELEASED`` so drag and detent share the path.
+   :align: center
+
+.. graphviz:: ../_graphs/pomodoro-cycle-grid.dot
+   :alt: The rule arithmetic opened — setter gate, full replace, */N day grid anchored at midnight, arming funnel, home row view
+   :caption: The setter gates ``1..1440`` and renders ``*/N * * * *`` into a FULL replace + reload; the parser's pomodoro corner is the minute field's ``*/N`` spanning the whole day (N > 59 anchors the grid at midnight, N ≤ 59 rings within the hour, both intervals together are rejected); the single arming funnel caches the nearest ring then arms the PCF85063A ALM (S3) or the ``esp_timer`` one-shot (P4/knob), and the home row stays a pure VIEW of that cache.
+   :align: center

@@ -1,0 +1,51 @@
+// One instant in: time to TT, and the cheap ephemeris (companion to
+// geometry-chain.dot). All citations components/moon/core/moon_astro.c
+// unless noted. d_ut = epoch/86400 + 2440587.5 — JD(UT) (:82); d =
+// d_ut + 69.184 s − J2000 (:83), TT_OFF_S 69.184 at :19 with the
+// comment "TT − UTC in the 2017..2035 range (no leap second in that
+// window)"; then the ERFA split d1 = J2000, d2 = d (:84). The same day
+// counter also spins the body wheel (W at :104 — see
+// geometry-chain-body.dot). eraEpv00(d1, d2) (:87) — Earth–Moon
+// barycenter around the Sun; a nonzero return ABORTS the whole geometry
+// (return :88). Sun (geocentric) = −Earth (helio) (:90) — the same
+// model the validated astropy "builtin" pipeline uses. eraMoon98(d1,
+// d2) (:93) — Moon around the geocenter, mg in AU (the native unit;
+// the shadow block rescales it later). The three directions, squeezed
+// to unit (:96-102): S = unit(sun − mg) Moon→Sun; E = unit(−mg)
+// Moon→geocenter; L = unit(mg) geocenter→Moon, the LINE OF SIGHT —
+// distances are thrown away HERE, which is why a cheap ephemeris is
+// precisely adequate (only directions reach the shader). The app only
+// ever reaches the epoch through clock_get_utc_epoch's validate gate
+// (time-chain.dot).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph geometry_chain_time {
+    rankdir=TB;
+    label="Time to TT, then the ERFA ephemeris — distances die here, only directions survive";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    jd [label="JD(UT) :82, TT at\n:83 — TT_OFF_S 69.184\n(:19), ERFA split\nd1 = J2000, d2 = d",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    epv00 [label="eraEpv00 :87 —\nbarycenter; nonzero\nreturn ABORTS; sun\n= −earth :90",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    moon98 [label="eraMoon98 :93 —\nMoon about the geo-\ncenter, mg in AU",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    dirs [label="S, E, L unit :96-\n102 — the LINE OF\nSIGHT; distances\nthrown away HERE",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    w0 [label="the same day\ncounter → W at :104\n(see -body.dot)",
+        style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+        fontcolor="#3f3f3f"];
+
+    jd -> epv00 [label="d1, d2"];
+    jd -> moon98 [label="d1, d2"];
+    jd -> w0 [style=dashed];
+    epv00 -> dirs [label="sun"];
+    moon98 -> dirs [label="mg"];
+}

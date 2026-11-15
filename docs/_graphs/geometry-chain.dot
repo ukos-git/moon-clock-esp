@@ -1,4 +1,4 @@
-// The moon_geometry chain in one picture: one UTC epoch in, one
+// The moon_geometry chain — black-box view: one UTC epoch in, one
 // moon_geom_t out. Every node and edge verified in
 // components/moon/core/moon_astro.c (:19 TT_OFF_S 69.184, :21 AU_KM,
 // :26-38 rot_axis, :40-45 unit3, :48-59 body_ref_basis, :62-78
@@ -14,129 +14,54 @@
 // components/moon/core/moon_event.c (:255-281 the classifier reads the
 // shadow triple) and components/moon/include/moon_event.h (:47-49 the
 // cone constants). The gate's tolerance numbers (0.6/0.6/2.0 deg) are
-// assets/images/moon/moon/constants.py GEO_*_TOL_DEG. The pipeline
-// AROUND this chain — who calls moon_geometry and where the finished
-// frame goes — is docs/_graphs/moon-core-flow.dot
+// assets/images/moon/moon/constants.py GEO_*_TOL_DEG.
+// Four boxes in sequence: the time to TT (geometry-chain-time.dot
+// carries the JD/TT arithmetic + the vendored ERFA ephemeris + the
+// three unit directions), the calibrated body frame (the same file,
+// and geometry-chain-body.dot for the two-number rotation), the camera
+// basis + scalars + eclipse shadow (geometry-chain-view.dot), then the
+// struct out. The pipeline AROUND this chain — who calls moon_geometry
+// and where the finished frame goes — is docs/_graphs/moon-core-flow.dot
 // (implementation/core-c.rst); the shading that consumes the four
 // arrows is science/lighting.rst; the sampling resolution of the
 // textures these lookups hit is the resolution funnel in
 // verification/performance.rst.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph geometry_chain {
-    label="moon_geometry: one UTC epoch in, one moon_geom_t out — the ephemeris answers where, the calibrated two-number rotation answers how the Moon is aimed, and the camera basis answers how we look";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="moon_geometry — one UTC epoch in, one moon_geom_t out;\ndetails in -time, -body and -view";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    epoch [label="one int64 UTC epoch (moon_geometry, :80) —\nthe bake's single input; the app only ever\ngets here through clock_get_utc_epoch's\nvalidate gate (time-chain.dot)",
-           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    epoch [label="one int64 UTC\nepoch — the bake's\nsingle input",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    time [label="instant → TT,\nERFA ephemeris —\ndetail in -time",
+          fillcolor="#efece4"];
+    body [label="the calibrated bo-\ndy frame — wheel\non an axle, TWO\nnumbers",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    view [label="camera basis, the\nscalars, the eclipse\nshadow — in -view",
+          fillcolor="#efece4"];
+    out [label="moon_geom_t — the\n4 body arrows + sca-\nlars + shadow triple;\nno heap",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    bake [label="the bake — one\nbody direction → one\nNN albedo tap",
+          fillcolor="#efece4"];
+    gate [label="the image gate —\n32 NASA frames, tol\n0.6/0.6/2.0°",
+          fillcolor="#efece4"];
+    classifier [label="the moon_event\nclassifier — the\nblood-moon test",
+                fillcolor="#efece4"];
 
-    subgraph cluster_time {
-        label="one instant in — time to TT";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        jd [label="d_ut = epoch/86400 + 2440587.5 — JD(UT)\n(:82); d = d_ut + 69.184 s − J2000 (:83),\nTT_OFF_S 69.184 at :19 with the comment\n\"TT − UTC in the 2017..2035 range (no leap\nsecond in that window)\"; then the ERFA\nsplit d1 = J2000, d2 = d (:84)",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_eph {
-        label="the cheap ephemeris — vendored ERFA, O(1), no network";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        epv00 [label="eraEpv00(d1, d2) (:87) — Earth–Moon\nbarycenter around the Sun; a nonzero\nreturn aborts the whole geometry (return\n:88). Sun (geocentric) = −Earth (helio)\n(:90) — the same model the validated\nastropy \"builtin\" pipeline uses",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        moon98 [label="eraMoon98(d1, d2) (:93) — Moon around the\ngeocenter, mg in AU (the native unit;\nthe shadow block rescales it later)",
-                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        dirs [label="the three directions, squeezed to unit\n(:96-102): S = unit(sun − mg) Moon→Sun;\nE = unit(−mg) Moon→geocenter;\nL = unit(mg) geocenter→Moon, the LINE OF\nSIGHT — distances are thrown away HERE,\nwhich is why a cheap ephemeris is precisely\nadequate (only directions reach the shader)",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_body {
-        label="the calibrated body frame — a wheel on an axle, two numbers";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        pole [label="P from MOON_POLE_RA_ICRF 269.839977° /\nMOON_POLE_DEC_ICRF 68.110423° (:49-53) —\nthe axle, unit by construction (cos dec ·\ncos/sin ra, sin dec); the CALIBRATED pair,\nnot the IAU nominal values",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        w0 [label="W = MOON_PRIME_MER_W0 40.017251 +\nMOON_PRIME_MER_RATE 13.17617251°/day · d\n(:104) — how far the wheel has turned;\n360/RATE ≈ 27.3 days; x0 = unit[Pz, 0, −Px]\n(⊥ P, in the ICRF x–z plane, :54-55) and\ny0 = unit(P × x0) (:56-58)",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        basis [label="swing BOTH equatorial arrows about P by W\n— rot_axis, Rodrigues' three terms\nv·c + (k×v)·s + k(k·v)(1−c) (:26-38), called\nat :108-111; the columns are xb, yb, zb = P\n(:112-114). The pole never moves; only W\nturns — that one rotation IS the spin",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        tobody [label="ICRF → body = dot with the three columns\n(:117-122 for S and E, :148-153 for right\nand up) — the same arrow asked the same\nquestion three times; a pure rotation, so\nit maps ANY vector (unit or in meters)\nwithout distortion (:168-170)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    subgraph cluster_cam {
-        label="the camera basis — the view from Earth";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        north [label="north = unit(Ns − (Ns·Lu)·Lu) with Ns =\n[0,0,1] (:137-141) — celestial north\nflattened onto the sky plane; the guard\ncomment :133-136: projecting against a\nNON-unit L \"leaves a component along the\nline of sight, tilting the disk\" — hence\nLu, not L",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        east [label="east = unit(north × L) (:143); screen\nright = −east (:147) — the EAST-LEFT\nconvention (lunar east waxes on the left);\nthe twin sign knob is MOON_POSANGLE_SIGN\n(1.0) used at :199 — the two things easy\nto backwards, together with the 180°\ntexture offset",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_scalars {
-        label="the scalars — gate fields, not pixels";
-        fontname="Helvetica"; fontsize=13; color="#9a9a9a"; style="rounded";
-
-        lonlat [label="body_lonlat (:62-78) on S and on E\n(:126-131): swing the reference arrows by\nW again (:66-67), lon = atan2(v·yb, v·xb)\n(:71), lat = asin(clamped v·P) (:72-77) →\nsubsolar_lon/lat + subearth_lon/lat",
-                  fillcolor="#efece4"];
-
-        pa [label="posangle (:192-203): Np = unit(P − (P·Lu)Lu),\nthen MOON_POSANGLE_SIGN·atan2(Np·east,\nNp·north) mod 360 — nothing drawn depends\non it; the gate cross-checks it against\nNASA with tolerance 2.0°\n(GEO_POSANGLE_TOL_DEG)",
-             fillcolor="#efece4"];
-
-        phase [label="phase (i = Sun–Moon–Earth angle): cos i =\nSu·Eu (:206, clamped), phase_angle_deg =\nacos (:211), illum = (1 + cos i)/2 (:212 —\ni=0 full, 180 new), distance_km = |mg|·\nAU_KM 149597870.7 (:21, :213) — the ONLY\nplace a distance survives, for display",
-                 fillcolor="#efece4"];
-    }
-
-    shadow [label="the eclipse shadow axis (:155-190): s =\n−sun/|sun| (the umbra cone's axis points\nAWAY from the Sun), a = mgm·s with mgm =\nmg·MOON_EV_AU_M (moon_event.h:47, meters —\nthe classifier's currency), point* = −mgm +\na·s (the axis's closest point to the Moon's\ncenter, perp to s by construction); all\nthree rotated to the body frame →\nshadow_dir, shadow_off, off_ax",
-              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-    out [label="moon_geom_t (moon.h:29-52) — the four\nbody-frame unit arrows S, E, right, up the\nbake consumes, the lon/lat + posangle +\nphase scalars, and the shadow triple;\none struct per epoch, no heap",
-          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    gate [label="the image gate — 32 NASA SVS 5415 frames;\nmeasured max 0.43° subsolar / 0.51°\nsubearth / 0.44° posangle (moon_astro.c\nheader :6-7, moon.h:55-57) against\ntolerances 0.6 / 0.6 / 2.0°",
-           fillcolor="#efece4"];
-
-    classifier [label="the moon_event classifier (:255-281 reads\nthe triple): |shadow_off| is the Moon\ncenter's perp distance to the umbra axis,\noff_ax the axial coordinate from Earth —\nagainst the cone constants (moon_event.h\n:48-49) this is the blood-moon test",
-                 fillcolor="#efece4"];
-
-    bake [label="the bake (next page): per screen pixel\nr = u·right + v·up + w·E (w = √(1−r²),\northographic), one body direction → one\nnearest-neighbor albedo tap with θ + 180°\n(MOON_TEX_LON_OFFSET, moon_bake.c:454)",
-           fillcolor="#f2f2ef"];
-
-    epoch -> jd;
-    jd -> epv00 [label="d1, d2"];
-    jd -> moon98 [label="d1, d2"];
-    jd -> w0 [label="d — the same day\ncounter spins the wheel"];
-    epv00 -> dirs [label="sun"];
-    moon98 -> dirs [label="mg"];
-    pole -> basis;
-    w0 -> basis [label="W"];
-    basis -> tobody [label="columns xb, yb, P"];
-    dirs -> tobody [label="Su, Eu"];
-    dirs -> north [label="Lu (the UNIT\nline of sight)"];
-    north -> east [label="× L"];
-    tobody -> out [label="S, E"];
-    east -> out [label="right, up via the\nsame dot (:148-153)"];
-    tobody -> lonlat [style=dashed, label="xb, yb, P, W"];
-    dirs -> lonlat [style=dashed, label="S, E as ICRF"];
-    tobody -> pa [style=dashed, label="P + north/east"];
-    dirs -> phase [style=dashed, label="Su, Eu, mg"];
-    dirs -> shadow [label="sun, mg"];
-    tobody -> shadow [label="the rotation is\nunit-blind"];
-    shadow -> out;
-    out -> bake [color="#2b5fb0", penwidth=1.6];
-    lonlat -> gate [style=dashed, color="#5c6675"];
-    pa -> gate [style=dashed, color="#5c6675"];
-    phase -> gate [style=dashed, color="#5c6675"];
-    shadow -> classifier [style=dashed, color="#b07d10", fontcolor="#6b4e08"];
+    epoch -> time [color="#2b5fb0", penwidth=1.6];
+    time -> body;
+    body -> view;
+    view -> out [color="#2b5fb0", penwidth=1.6];
+    out -> bake [color="#2b5fb0"];
+    out -> gate [style=dashed];
+    out -> classifier [style=dashed, color="#b07d10"];
 }

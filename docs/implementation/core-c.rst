@@ -44,14 +44,25 @@ terminator. Four answers cover everything below:
    C core's frames against the Python prototype and NASA's and read
    the agreement as proof, not luck.
 
-The whole data flow in one picture — one UTC epoch in, one frame out;
-the assets and the geometry meeting in the row bake, the event
-classifier tinting the display LUT once per day, and the device side
-landing every published state as ONE atomic flush under ``s_rgb_mtx``
-(the invariant, :doc:`the display pipeline <display>`):
+The whole data flow — one UTC epoch in, one frame out — first as a
+sealed box, then opened twice: the core's internals (geometry, assets,
+relief, bake, event tint, render) and the device side that lands every
+published state as ONE atomic flush under ``s_rgb_mtx`` (the invariant,
+:doc:`the display pipeline <display>`):
 
 .. graphviz:: ../_graphs/moon-core-flow.dot
-   :alt: The portable core's data flow — UTC epoch into moon_geometry, assets into the boot relief cache and the per-pixel bake, moon_event.classify into the gray565 tint LUT, finished rows through rotate/gray565, and the device side (core-1 producers, row watermark, bake reveal, one atomic lv_refr_now under s_rgb_mtx)
+   :alt: The portable core as a black box — UTC epoch in, one atomic whole-panel flush out, the same .c files on host and device
+   :caption: The core is board-blind, allocation-free and shared VERBATIM — device, host_sim and the knob compile the same ``.c`` files, which is what makes the :doc:`image gate <../verification/image-gate>` proof portable. The two boxes opened below are the core's internals and the device side; the host (bench, ``check_gate``, uisim) rides the same epoch.
+   :align: center
+
+.. graphviz:: ../_graphs/moon-core-flow-core.dot
+   :alt: The core opened — geometry, assets, relief cache, moon_bake_rows, event LUT, rotate and gray565
+   :caption: The assets and the geometry meeting in the row bake: the relief gradient cache (int8, 0.003 rad, ~1.3 s S3 / 727 ms knob) is built once at boot from one DEM pass; ``moon_bake_rows`` publishes ROWS as they finish — each pixel one nearest-neighbour albedo tap plus one packed gradient load; the event classifier tints once into the gray→RGB565 LUT (blood-moon occlusion rides the LUT), and rotate (Q15.15) + gray565 finish the rows.
+   :align: center
+
+.. graphviz:: ../_graphs/moon-core-flow-panel.dot
+   :alt: The device side opened — core-1 producers, the row watermark, the bake reveal, one atomic lv_refr_now
+   :caption: ``moon_ui.c`` is the ONLY panel writer: core-1 producers (hourly, boot replay, day tick) are NEVER concurrent — the replay gate holds the hourly probe — and they bump the row watermark under ``s_rgb_mtx`` where it free-runs regardless of the tick. The tick's bake reveal heals the OLD frame on any abort; publication is one atomic whole-panel ``lv_refr_now`` plus the drain witness, and a reveal never touches ``s_frame`` (the full state machine: :doc:`the bake reveal <bake-reveal>`).
    :align: center
 
 The left half of this picture — the black box ``moon_geometry`` and

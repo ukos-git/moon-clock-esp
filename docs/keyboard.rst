@@ -63,20 +63,33 @@ centre backspaces.
 The machine in one picture
 --------------------------
 
-The page below describes each part; the sketch is the machine they form,
-drawn straight out of ``components/ui/screens.c`` (the sweep handler at
-``:2221``, the inverse-transform hit-test at ``:1915``, the keys at
-``:2311``/:2332/:2352``). The shape to hold in mind before any section:
-ONE invisible press arc feeds ONE sticky-sector reveal, and the ONLY
-moment a character is added is RELEASED-with-the-finger-still-in-band —
-press and zone-crossing never write to the entry, which is what makes a
-slow sweep double-entry-proof. Who *reads* the finger (the 33 ms LVGL
-indev timer, the CST9217 IRQ versus the GT911's pure polling) belongs to
-:ref:`the input chain <input-chain-ui>`; what happens after the
-commit key writes the credentials belongs to
+The page below describes each part; the sketches are the machine they
+form, drawn straight out of ``components/ui/screens.c`` (the sweep
+handler at ``:2221``, the inverse-transform hit-test at ``:1915``, the
+keys at ``:2311``/:2332/:2352``). The shape to hold in mind before any
+section: ONE invisible press arc feeds ONE sticky-sector reveal, and
+the ONLY moment a character is added is RELEASED-with-the-finger-still-
+in-band — press and zone-crossing never write to the entry, which is
+what makes a slow sweep double-entry-proof. Who *reads* the finger (the
+33 ms LVGL indev timer, the CST9217 IRQ versus the GT911's pure
+polling) belongs to :ref:`the input chain <input-chain-ui>`; what
+happens after the commit key writes the credentials belongs to
 :doc:`the Wi-Fi sync machine <ui/wifi>`.
 
 .. graphviz:: _graphs/wheel-commit.dot
+   :alt: The round keyboard sealed — one transparent press band, the sweep machine, the release commit, the four other touchables
+   :caption: The machine sealed: the press target is ONE transparent ``lv_arc`` (annulus r 140..233, ADV_HITTEST + PRESS_LOCK — without ADV_HITTEST the arc falls back to a bounding-box test and the LAST-created arc wins, the gotcha that ate a day). The sweep and the keys are opened below.
+   :align: center
+
+.. graphviz:: _graphs/wheel-commit-sweep.dot
+   :alt: The sweep machine opened — PRESSED slot via inverse transform, sticky-sector reveal, hot inversion, PRESSING clamp, RELEASED commit, CANCEL heal
+   :caption: The sweep machine: PRESSED rides the indev point INVERSE over the screen root (the 90° orientation roll — the alarm-time idiom), the band test then atan2 name the EXACT box with no nearest-centre tie-break; only the pressed sector reveals, its at-rest twins hide, the lit box inverts; PRESSING clamps to the sticky sector and never re-keys; RELEASED adds the character (bounds-checked one below the Wi-Fi side's cap, which ``wifi.c`` rejects at) and ALWAYS heals; CANCEL heals without adding.
+   :align: center
+
+.. graphviz:: _graphs/wheel-commit-keys.dot
+   :alt: At rest and the four keys — 26 letters in 12 sectors, the register track, COMMIT/DISCARD/centre, and the knob lift, re-sync and demo pointer notes
+   :caption: The at-rest ring, the register track (ONE arc, the INDICATOR's own pad pinned to 0 — the track-pad fix that dropped the radius into pie wedges) and the four one-press touchables: the register arc picks the EXACT 60° key and clears the stray 25th slot; COMMIT writes credentials and hands the picture to :doc:`the Wi-Fi sync machine <ui/wifi>`; DISCARD clears an entry, or EXITS an empty one; the centre taps backspace and its 400 ms long-press is the only in-ring exit. The three amber nodes are the machines drawn elsewhere — the knob's z-order lift (the inner-half "mode 3" bug, bench 2026-11-11), the 2 s orientation re-sync (stated, not suppressed), and demo mode's second pointer.
+   :align: center
 
 The screen itself
 -----------------

@@ -1,0 +1,45 @@
+// The three starters and the start guard, in full (companion to
+// wifi-sync.dot). THE HOURLY GATE (actions.c ~:940, minute tick):
+// minute == 0 && !clock_is_idle() && !demo && !connected &&
+// clock_sntp_needs_sync() (CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS) && on
+// the AIRPLANE screen — "at rest" only: never wake a sleeper for a 30 s
+// radio fetch, never yank a settings session. THE WAKE PATH (clocks):
+// action_wake_screen ends in action_start_wifi_sync when the RTC is due
+// — the screen switch to WiFi rides the same task, the sync itself
+// never does. THE WHEEL KEYBOARD COMMIT: credentials written
+// (wifi_credentials_write), then the sync — the knob reaches the screen
+// only through these legs, never its background boot SNTP join
+// (boot_arm_task shows nothing). action_start_wifi_sync (:793): re-entry
+// guard s_wifi_sync_running; clock_idle_set_enabled(false) — no sleep
+// transition may race the sync task's init with its deinit;
+// loadScreen(WIFI) + ui_tick; moon_ui_panel_dim_ramp(100) — the
+// both-moon switch has no fade-in to un-dim; moon_ui_panel_traffic_hold
+// (true) BEFORE the storm; the kickoff spawns the task (6144 B,
+// prio 10).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wifi_sync_start {
+    rankdir=TB;
+    label="The three starters — hourly gate, wake path, keyboard\ncommit — and the :793 guard";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    hourly [label="HOURLY GATE —\nminute 0, at rest,\nairplane screen,\nSNTP due",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wakep [label="WAKE PATH — RTC\ndue; the switch\nrides the wake\ntask",
+           fillcolor="#efece4"];
+    kb [label="KEYBOARD commit\n— credentials\nfirst, then sync",
+        fillcolor="#efece4"];
+    start [label=":793 — re-entry\nguard, idle OFF,\ndim 100, traffic\nhold, 6144 B prio 10",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    hourly -> start [color="#2b5fb0", penwidth=1.6];
+    wakep -> start [color="#2b5fb0", penwidth=1.6];
+    kb -> start [color="#2b5fb0", penwidth=1.6];
+}

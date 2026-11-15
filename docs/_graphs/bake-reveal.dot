@@ -9,81 +9,40 @@
 // strategy: the clock reveals into the LIVE s_rgb (every abort must heal from
 // the untouched s_frame), the knob reveals into the BACK buffer (the front
 // frame survives; a die-unpublished re-hides the disk instead).
+// Black-box view here; the full state machines with their citations are
+// bake-reveal-clock.dot and bake-reveal-knob.dot.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 digraph bake_reveal {
-    label="The bake reveal: the producers arm a watermark, the pacing task converts every completed band into ONE atomic lv_refr_now; the clock heals from the untouched s_frame, the knob re-hides — the bake is the metronome";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The bake reveal — producers arm a watermark, the pacing\ntask turns every completed band into ONE atomic flush;\nthe clock heals from s_frame, the knob re-hides";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_clock {
-        label="clock (S3 + P4) — components/ui/moon_ui.c, Kconfig UI_MOON_BAKE_REVEAL (default y, depends on UI_MOON_HOURLY_ENABLE)";
-        fontsize=13; color="#2b5fb0"; fontcolor="#1e3f70"; penwidth=1.4; style="rounded";
+    fade [label="hourly start —\nfade to black,\n5 s producer\nbudget",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    arm [label="producer arms the\nreveal — pub/shown/\nstop under s_rgb_mtx",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    bands [label="ONE atomic band\nlv_refr_now per 50 ms\n— unbaked rows stay\nblack",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    done [label="DONE — publish,\nONE atomic whole-\npanel flush, commit\non show",
+          fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+    heal [label="HEAL on any abort\n— untouched s_frame\nre-converts, whole\nframe back",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    knob [label="the knob shares the\nSTATES, not the buf-\nfer: reveals into\nthe BACK buffer",
+          style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280",
+          fontcolor="#3f3f3f"];
 
-        arm [label="producer arms the reveal — moon_reveal_bake(owner) :1230\nsets pub/shown/clear/stop under s_rgb_mtx.\nOwners: REVEAL_HOURLY (moon_hourly_task's\ncold-bake leg :1607 — a TF fetch HIT never\narms) and REVEAL_REPLAY_FINAL (the boot\nreplay's final \"now\" leg :1929, abort_flag\n= &s_replay_abort — the sleep hand-off's own)",
-               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        bake_loop [label="core-1 strip loop :1278 — moon_bake_rows into the\ns_hourly_gray bounce, one MOON_REVEAL_ROWS\nchunk (S3 10 rows → 40 states / P4 13 → 50,\n#error pins divisibility), watermark\ns_reveal_pub = y1 UNDER s_rgb_mtx (the orbit\nrule), vTaskDelay(1) per chunk; then ONE\nbounded catch-up wait (2500 ms) for the tick\nto land the tail, owner → REVEAL_NONE :1313.\nNEVER touches the panel, NEVER s_frame",
-                     fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-
-        hourly_fade [label="the hourly start leg (moon_hourly_service :1682):\nfade_ramp(panel→0, UI_MOON_HOURLY_FADE_MS),\ns_hourly_faded = true (the #34 owed-exactly-\nonce rule), 5 s producer budget\n(HOURLY_BUDGET_MS :1687), spawn pinned core 1",
-                       fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-        gate [label="the tick's reveal leg (moon_bake_reveal_service :1279,\nfrom moon_tick_cb :2363, MOON_TICK_MS = 50)\nis PARKED while !s_moon_screen ||\npanel_hold_live() || clock_is_idle() ||\ns_fade_pending || s_orbit_sweeping :1288.\ns_fade_busy is DELIBERATELY not a gate —\nduring the hourly the reveal leg IS the 0x51\nwriter that pays the owed fade-in.\nThe watermark keeps advancing while parked",
-                 fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-        canvas [label="state 1 — the BLACK CANVAS :1304: memset s_rgb over\nthe square, full invalidate, ONE atomic\nwhole-panel lv_refr_now under s_rgb_mtx;\ns_reveal_dirty = true (s_rgb now diverges\nfrom s_frame: half of this is not a resting\nstate, any abort must heal)",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        bands [label="state 2 — ONE band per 50 ms tick :1314: rows\n[shown, pub) gray→RGB565 through moon_gray565\ninto s_rgb, lv_obj_invalidate_area of exactly\nthat band on every moon image, ONE\nlv_refr_now under s_rgb_mtx + drain witness\n\"bake reveal\". A band is ≤ one strip's payload\n(S3 400·20·2 = 16 000 B < the 23 300 B cap);\nbursty producer → larger catch-up bands",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        first_strip [label="first completed strip pays the OWED fade-in\n:1347 — fade_ramp(0→100, UI_MOON_HOURLY_FADE_MS)\n+ s_fade_busy = false, once; the dark window\nis the fade, not fade + bake",
-                       fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-
-        done [label="the DONE legs — hourly: publish (memcpy s_frame +\nLUT into s_rgb, guarded) :1622, tick's done\nleg moon_hourly_finish(1) :2978 shows it as\nONE atomic whole-panel flush + clears\ns_reveal_dirty + commit-on-show; visually a\nno-op over a completed reveal (contract +\nwitness kept). Replay final: publish :1944 +\ns_replay_show — the tick shows atomically;\ndirty STAYS set, so the backstop heal below\nis the final re-convergence (its witness line\nmeans normal completion, not an abort)",
-                 fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
-
-        heal [label="HEAL — moon_reveal_restore :1209: re-convert the\nUNTOUCHED s_frame → s_rgb (a COMPLETE frame,\nnever half a moon) + ONE atomic whole-panel\nflush, LVGL-task callers only, witness\n\"bake reveal restore\". Callers: moon_hourly_finish(0)\n(failed / 5 s budget blown / sleep hand-off\nvia moon_ui_pause — heals BEFORE the ramp back,\nbrightness never climbs over a half-moon,\n:2993); moon_ui_pause's replay branch (:2797:\nabort + stop + heal BEFORE the tick pauses —\nthe sleep screens must not inherit the canvas);\nand the tick's backstop :1292 (owner NONE, dirty\nset: producer died with strips up — healed on\nthe way back)",
-                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    subgraph cluster_knob {
-        label="knob sibling — knob/components, Kconfig KNOB_UI_BAKE_REVEAL (boot first frame ONLY: no SD socket, every boot computes ~1 s — the knob's only black window)";
-        fontsize=13; color="#2b5fb0"; fontcolor="#1e3f70"; penwidth=1.4; style="rounded";
-
-        k_producer [label="producer task (prio 5, pinned CPU1, unregistered):\nbake_publish(epoch, caption, reveal=true :344) —\nstatic_once_body's boot frame :433. bake_frame\nwith pub_rows (knob_moon.c): memset the BACK\nbuffer black, then per row moon_bake_rows +\nLUT-convert into out, SEQ_CST fence, watermark\n*pub_rows = y+1 (the s_pub fence shape);\nvTaskDelay(1) every 16 rows",
-                        fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-
-        k_swap [label="swap task (prio 7, 15 ms poll, the panel owner)\nedge-detects s_reveal_active :600 and per new\nwatermark: point s_moon_dsc at the buffer BEING\nBAKED, unhide the disk at the FIRST completed\nrows, lv_obj_invalidate_area [shown, pub) on\nevery image, ONE atomic band lv_refr_now under\nlvgl_lock :612-627 — states identical to the\nclock's, the pacing task is not",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        k_apply [label="the real publish follows: SEQ_CST fence +\ns_pub++ :381, the swap's apply leg :640 lands\nthe frame (descriptor swap + one atomic\nlv_refr_now) and clears s_reveal_displayed —\nthe revealed buffer IS the applied frame now",
-                   fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
-
-        k_hide [label="a reveal that dies UNPUBLISHED (s_pub == 0)\nre-hides the disk :631 — the honest \"moon\nunavailable\" posture the plain bake already\nhad. No heal path needed: the reveal lives in\nthe BACK buffer, the front frame never diverged.\nDay-tick re-bakes and wake bakes pass reveal=\nfalse — old-frame-then-atomic, no black window",
-                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    }
-
-    // --- clock flow
-    hourly_fade -> arm [label="cold-bake leg (no TF hit)"];
-    arm -> bake_loop [color="#2b5fb0", penwidth=1.6];
-    bake_loop -> gate [style=dashed, label="watermark via s_reveal_pub\n(the tick reads it under the mutex)"];
-    gate -> canvas [color="#2b5fb0", penwidth=1.6, label="gates open,\nclear pending"];
-    canvas -> bands [color="#2b5fb0", penwidth=1.6, label="one state per 50 ms tick"];
-    bands -> bands [style=dashed, label="next completed\nband"];
-    bands -> first_strip [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="hourly, first band"];
-    bands -> done [color="#3a6b35", fontcolor="#2c4f29", label="pub == rows, then the\nproducer publishes"];
-    gate -> gate [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="parked — dirty persists"];
-    bake_loop -> heal [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="stop / abort observed"];
-    heal -> done [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="old frame whole;\nthen finish(0) ramps back"];
-
-    // --- knob flow
-    k_producer -> k_swap [style=dashed, label="watermark via s_reveal_pub\n(SEQ_CST fences pair)"];
-    k_swap -> k_swap [style=dashed, label="next watermark,\none band flush"];
-    k_swap -> k_apply [color="#3a6b35", fontcolor="#2c4f29", label="bake ends → s_pub++"];
-    k_producer -> k_hide [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="bake failed (no albedo /\ngray alloc) → ok=false"];
+    fade -> arm [color="#b07d10"];
+    arm -> bands [color="#2b5fb0", penwidth=1.6, label="watermark\nadvances"];
+    bands -> done [color="#3a6b35", fontcolor="#2c4f29", label="pub == rows"];
+    arm -> heal [style=dashed, color="#b07d10", label="abort"];
+    heal -> done [style=dashed];
+    bands -> knob [style=dashed, arrowhead=none];
 }

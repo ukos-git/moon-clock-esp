@@ -1,0 +1,90 @@
+// The at-rest widgets, the register arc, the four keys, and the three
+// machines drawn elsewhere (companion to wheel-commit.dot) — all
+// components/ui/screens.c. At rest, every widget is pre-built ONCE at
+// boot; a press only toggles text/colour/angle. 26 at-rest letters r
+// 168 (32 px SSID font — the 48 px font is a digits subset), each
+// owning SHARE = 360/26 deg; 12 fixed frequency sectors [ab cd ef gh il
+// jkq mn op rs tu vxz wy] span n-SHARE — same boundaries in all four
+// registers (:1876). The register track is ONE arc: MAIN 150..390
+// (#222222) + INDICATOR the lit 60-degree key (150+60m..210+60m); the
+// INDICATOR's own pad pinned to 0 — the track-pad-on-indicator fix
+// dropped the radius and clamped the width into pie wedges from the
+// centre (:2619). The bottom 120-degree band: bar-built circle-CHECK
+// commit (LVGL 31.5..88.5, icon LVGL 60, r 114 — the FA subset has no
+// circle-check code point, the glyph is built not typed :2719) +
+// bar-built circle-xmark discard (91.5..148.5, icon 120 :2756); centre
+// 110 px tap box r ~55 — never overlaps the band, so a hold cannot
+// start a letter. Register arc PRESSED (:2260): rel = theta-150
+// (wrapped); inside the 240-degree span the EXACT 60-degree key k =
+// rel/60 wins (not the nearest label) -> set_mode (:2109): no-op when
+// unchanged, re-string the slots, CLEAR the 25th slot of the 25-char
+// digit/symbol registers (the stray Z after a register switch). COMMIT
+// PRESSED (:2311): empty -> log + ignore; else wifi_credentials_write
+// (ssid, pw) -> action_start_wifi_sync() — past this node the picture
+// belongs to wifi-sync.dot. DISCARD PRESSED (:2332): entry non-empty ->
+// CLEAR it (the zero-input exit doubles as the X: an EMPTY entry EXITS
+// to the WiFi list). Centre box (:2352): SHORT_CLICKED -> BACKSPACE;
+// LONG_PRESSED -> back to the WiFi list, no write no sync — v2's only
+// in-ring exit (v1's in-ring X is gone); ages through LVGL's default
+// LV_LONG_PRESSED_TIME 400 ms (uisim drives a 600 ms hold to prove it).
+// Shared with the other machines (drawn there, named here):
+// CONFIG_BOARD_KNOB only (:2635) — the catch is moved in Z-ORDER just
+// above the mode arc; at 360 px the arc's annulus answered presses on
+// the INNER half of the letter band as "mode 3"/"mode 0" and a register
+// rebuild ended in a task-WDT reset (bench 2026-11-11). The global 2 s
+// press orientation re-sync (actions.c:230, the indev callback :357)
+// fires on long sweeps too — pose-stability gated, transform-aware,
+// cannot move the letter under the finger (stated, not suppressed).
+// Demo mode (:2375): demo.c injects a SECOND virtual pointer through
+// the real touch path; the wheel only exposes its geometry (letters
+// aimed at the band middle (140+WHEEL_C)/2, keys at r 114) so the tour
+// taps never duplicate the layout. NOT drawn here: who READS the finger
+// (the 33 ms LVGL indev timer, CST9217 IRQ vs GT911 polling) is
+// input-chain.dot; everything AFTER credentials_write is wifi-sync.dot;
+// the hub-ring path INTO this screen is the reachability matrix in
+// ui/index.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wheel_commit_keys {
+    rankdir=TB;
+    label="At rest, the register arc, the four keys — and the three machines drawn elsewhere";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.38];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    ring [label="26 at-rest letters\nr 168, SHARE 360/26;\n12 frequency sectors,\nsame in all 4 regs",
+          fillcolor="#efece4"];
+    modearc [label="register track —\none arc: MAIN 150..\n390 + INDICATOR lit\n60° key, pad 0",
+             fillcolor="#efece4"];
+    keys [label="bottom 120° band —\nbar-built CHECK\n+ XMARK; centre box\nr ~55, no overlap",
+          fillcolor="#efece4"];
+    modepress [label="arc PRESSED :2260\n— exact k = rel/60,\nset_mode :2109,\nclear 25th slot",
+               fillcolor="#efece4"];
+    commitpress [label="COMMIT :2311 —\ncredentials_write\n→ wifi-sync; empty\nignored",
+                 fillcolor="#efece4"];
+    discardpress [label="DISCARD :2332 —\nnon-empty CLEAR;\nempty EXITS to\nthe list",
+                  fillcolor="#efece4"];
+    centerpress [label="centre :2352 — tap\nBACKSPACE, long-press\n(400 ms) → list,\nthe only in-ring exit",
+                  fillcolor="#efece4"];
+    knobpath [label="knob :2635 — catch\nZ-above mode arc;\ninner-half \"mode 3\"\nbug, WDT 2026-11-11",
+              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    resync [label="2 s press re-sync\n(actions.c:230, :357)\n— pose-gated, can-\nnot move the letter",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    demoptr [label="demo :2375 — second\npointer, real touch\npath; wheel exposes\nband middle + r 114",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    ring -> modearc [style=dashed, label="same sector\nboundaries"];
+    modearc -> modepress;
+    modepress -> keys [style=invis];
+    keys -> commitpress;
+    commitpress -> discardpress [style=invis];
+    keys -> centerpress;
+    centerpress -> knobpath [style=invis];
+    knobpath -> resync [style=invis];
+    resync -> demoptr [style=invis];
+}

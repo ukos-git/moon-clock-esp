@@ -1,0 +1,61 @@
+// The rule arithmetic opened (companion to pomodoro-cycle.dot), all in
+// clock_alarm_scheduler.c + actions.c. clock_alarm_set_pomodoro_interval
+// (:633): gate 1..1440 — a 0 or 25 h interval is ESP_ERR_INVALID_ARG
+// (the screen's 0-reject is the friendly half of this gate); renders
+// "# pomodoro: ring every N minutes\n*/N * * * *";
+// clock_alarm_scheduler_write -> the file IS the rule set (FULL
+// replace, :500-517), then reload (:523-571) re-parses and reschedules
+// from the current RTC time. The */N day grid (:95, :217-277) is the
+// pomodoro's own corner of the parser: the MINUTE field's */N may span
+// the whole day (N up to 1440 — the max_value == 59 -> 1440 branch; the
+// hour field keeps its own 23 cap), and minute-and-hour intervals
+// together are REJECTED (:159-163). N > 59: the grid is ANCHORED AT
+// MIDNIGHT — next ring = the first total-minutes-of-day multiple of N
+// strictly after now; today's grid exhausted -> 00:00 of the next day.
+// N <= 59: multiples of N within the current hour (at most one ring per
+// hour). The rule writes "*" days — all days, no weekday mask.
+// clock_alarm_schedule_next (:394-481) is the single arming funnel:
+// nearest candidate across the rules (one rule here), CACHE it
+// (s_next_alarm + s_alarm_scheduled), then arm — S3 -> the PCF85063A ALM
+// registers + AIE; P4/knob (no PCF) -> clock_alarm_arm_esp_timer
+// one-shot. Finally clock_trigger_alarm_update -> the registered
+// home-row updater (main.cpp:617). The home alarm row (actions.c:1020-
+// 1037): clock_alarm_get_next_scheduled ANSWERS THE CACHE — print
+// "%d:%02d" (hour WITHOUT leading zero, the 'Mo 7:00' rule); the
+// 2-letter weekday prefix appears only while the ring is MORE than 24 h
+// away (next_s - now_s > 86400); no scheduled rule -> "--:--". The
+// minute tick re-runs it (actions.c:956-959) because "the alarm's
+// weekday prefix flips exactly at the 24 h boundary and the time after
+// a fire/re-arm" — the row is a VIEW of the cache, never a second
+// schedule. The FIRE is alarm-lifecycle.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph pomodoro_cycle_grid {
+    rankdir=TB;
+    label="The rule and its arithmetic — the setter, the */N grid, the arming funnel, the home row";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.4];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    setter [label="the setter — gate\n1..1440, renders\n*/N * * * *, FULL\nreplace + reload",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    grid [label="the */N grid — N >\n59 anchors at mid-\nnight, N ≤ 59 per\nhour, both reject",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    arm [label="arming funnel —\ncache the nearest,\nthen PCF ALM or\nesp_timer",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    home [label="home row \"%d:%02d\"\n— no leading zero;\nweekday > 24 h;\n--:-- when none",
+          fillcolor="#efece4"];
+    fire [label="the ring — the\nlifecycle's (alarm-\nlifecycle.dot)",
+          shape=note, fillcolor="#e8e8e4", color="#525252", fontcolor="#1e3f70"];
+
+    setter -> grid [label="reload re-parses"];
+    grid -> arm [color="#2b5fb0"];
+    arm -> home [label="trigger_alarm\n_update"];
+    arm -> fire [style=dashed, color="#b07d10"];
+    home -> fire [style=dashed, arrowhead=none];
+}

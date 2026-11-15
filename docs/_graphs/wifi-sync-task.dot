@@ -1,0 +1,59 @@
+// The sync task, the airplane-first teardown and the hand-off, in full
+// (companion to wifi-sync.dot). wifi_sync_task_fn ON ITS OWN TASK — the
+// 1.7 s wake-freeze fix: heap probe (task #29 leak watch),
+// wifi_manager_init, and only if clock_sntp_needs_sync() the SNTP with
+// CONFIG_CLOCK_NTP_TIMEOUT_MS (10 s) bound — an NTP failure KEEPS the
+// RTC time and still lands airplane (both outcomes leave the screen).
+// Airplane NOW INSIDE the task: an ASSOCIATED station keeps waking the
+// modem for DTIM beacons (~300 ms) and that RX churn steals QSPI DMA
+// completions on the S3 AMOLED (task #29) — so wifi_manager_deinit
+// immediately, EXCEPT when init deferred to an in-flight scan
+// (ESP_ERR_INVALID_STATE: the scan owns the radio — ce26a83); then the
+// traffic hold releases, the tail drains, the repaint rides the next
+// tick. The screen itself: moon SHARED with airplane (the switch is the
+// atomic flush), clock widget reparented, seconds arc, wifi glyph grey
+// = still connecting; tick_screen_wifi flips it WHITE on
+// wifi_manager_is_connected() — a state compare, not a per-tick style
+// set. The UI-tick hand-off (:733): !running && done && !demo — the only
+// thing that leaves the screen, no poller thread; the DONE flag is
+// claimed HERE. But asleep after the handshake: hand-off DEFERRED — the
+// done flag is NOT claimed, the next wake re-triggers the sync. But
+// demo mode: the flag stays UNCLAIMED (the demo's own SYNC phase takes
+// it through action_sync_demo_done; the screen is handed off when the
+// demo ends). Back on airplane: loadScreen(MODEM_SLEEP) — one atomic
+// flush (shared moon, no re-bake) + ui_tick; the idle ladder re-arms
+// UNLESS moon_ui_replaying() (the boot replay holds it and the tick's
+// end leg re-arms — the P4's sync runs ~30 s through the boot).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wifi_sync_task {
+    rankdir=TB;
+    label="The sync task — SNTP keeps the RTC time on failure,\nairplane inside the task, one poll claims DONE";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    task [label="wifi_sync_task_fn\n— heap probe, mgr\ninit, SNTP 10 s\nbound, RTC kept",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    air [label="airplane INSIDE —\nDTIM churn steals\nQSPI DMA (#29);\nscan-except :71",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    poll [label="UI-tick poll :733\n— !running && done\n&& !demo; claims\nthe DONE flag",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    idle_defer [label="asleep → hand-off\nDEFERRED, flag not\nclaimed — wake\nre-triggers",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    demo_defer [label="demo → flag UN\nCLAIMED; the demo's\nSYNC phase takes\nit",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    home [label="loadScreen(MODEM\n_SLEEP) atomic; idle\nre-arms UNLESS\nreplaying()",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    task -> air;
+    air -> poll [style=dashed, label="done flags"];
+    poll -> idle_defer [style=dashed, color="#b07d10", label="idle"];
+    poll -> demo_defer [style=dashed, color="#b07d10", label="demo"];
+    poll -> home [color="#2b5fb0", penwidth=1.6, label="awake"];
+}

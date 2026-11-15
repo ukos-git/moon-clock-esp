@@ -92,12 +92,27 @@ The chain in one picture
 two vendored ERFA calls, a two-number rotation, a camera basis, and a
 bag of scalars (plus the eclipse-shadow triple the event classifier
 consumes). The page below walks each station; this is the machine they
-describe, drawn once.
+describe — the chain sealed first, then the stations opened.
 
 .. graphviz:: ../_graphs/geometry-chain.dot
-   :alt: The moon_geometry chain from epoch to struct
+   :alt: The moon_geometry chain sealed — epoch in, time and ERFA box, calibrated body frame box, camera basis and scalars box, moon_geom_t out, fan-out to bake, gate, classifier
    :align: center
-   :caption: ``moon_geometry`` in one picture — every arrow verified in ``components/moon/core/moon_astro.c`` at the line numbers printed inside the nodes. Blue is the path a value takes to the struct; the amber nodes are the two things easy to get backwards (the east-left flip with its sign knob, and the shadow axis the blood-moon classifier reads); gray dashed edges are *reads* of already-built values — the gate fields and the classifier re-project what the main path produced.
+   :caption: ``moon_geometry`` as a black box: the four boxes below are opened one figure each. Blue is the path a value takes to the struct; gray dashed edges are *reads* of already-built values — the gate fields and the classifier re-project what the main path produced.
+
+.. graphviz:: ../_graphs/geometry-chain-time.dot
+   :alt: The time station opened — JD(UT), TT offset, the ERFA split, eraEpv00 and eraMoon98, the three unit directions
+   :align: center
+   :caption: The first two stations: the TT conversion (the 69.184 s offset, no leap second in the 2017–2035 window) and the two vendored ERFA calls — a nonzero ``eraEpv00`` return ABORTS the whole geometry. Distances are thrown away at the unit squeeze, which is what makes the cheap ephemeris precisely adequate; the same day counter also spins the body wheel.
+
+.. graphviz:: ../_graphs/geometry-chain-body.dot
+   :alt: The body frame opened — calibrated pole, W rotation angle, Rodrigues rot_axis, dot-with-the-columns into the body frame
+   :align: center
+   :caption: The two-number rotation: the CALIBRATED pole pair is the axle (not the IAU nominal values), W is how far the wheel has turned (≈ 27.3 days per turn), and Rodrigues' three terms swing both equatorial arrows about the pole — the pole never moves, only W turns; that one rotation IS the spin. The ICRF→body dot is the same arrow asked the same question three times, and being a pure rotation it maps ANY vector without distortion.
+
+.. graphviz:: ../_graphs/geometry-chain-view.dot
+   :alt: The camera basis, scalars and eclipse shadow opened — north onto the sky plane, east-left flip, lon/lat, posangle, phase, the umbra axis triple
+   :align: center
+   :caption: The view and the gate fields: celestial north flattened onto the sky plane (project against the NON-unit line of sight and the disk tilts — the guard comment), east with the EAST-LEFT screen-right flip — one of the two things easy to get backwards, with its sign knob and the 180° texture offset — and the shadow axis (the other amber one) that the blood-moon classifier reads against the cone constants. The scalars are gate fields, not pixels: the lon/lat, posangle and phase feed the NASA cross-check at tolerances 0.6/0.6/2.0°.
 
 The distance is discarded at ``unit3`` and only resurrected for the
 display ``distance_km`` — the fact that makes the cheap ephemeris not

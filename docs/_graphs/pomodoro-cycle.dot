@@ -1,106 +1,56 @@
-// The pomodoro cycle: three glyph states on the alarm-rules screen, the
-// twin-roller screen whose RELEASED handler is the whole commit, the
-// */N day-grid arithmetic, and the home row that reads the cached next
-// ring. Every edge verified in components/ui/screens.c (the entry
-// cluster :690-724, the stopwatch entry :790-800, the rollers + save
-// :818-966, the dial focus + commit :3952/:4085-4105/:4261-4275),
-// components/clock/clock_alarm_scheduler.c (set_pomodoro_interval
-// :633-646, the whole-file write :500-517, reload :523-571, the field
-// caps :95-123, the both-interval reject :159-163, the day grid
-// :217-277, the arming funnel :394-481) and components/ui/actions.c
-// (refresh_alarm_display :1020-1037, the minute-tick refresh :956-959,
-// the registration main.cpp:617). The FIRE itself — poll, trigger,
-// ring, dismiss, fire-then-reschedule — is docs/_graphs/
-// alarm-lifecycle.dot (the interval rule is just the other rule kind
-// that lands there); this sketch owns the settings-side machine and
-// the grid arithmetic the lifecycle figure leaves as one node.
+// The pomodoro cycle — black-box view: a roller release rewrites the
+// one rule file, the day-grid arithmetic caches the next ring, the home
+// row reads the cache. Every edge verified in components/ui/screens.c
+// (the entry cluster :690-724, the stopwatch entry :790-800, the
+// rollers + save :818-966, the dial focus + commit :3952/:4085-4105/
+// :4261-4275), components/clock/clock_alarm_scheduler.c
+// (set_pomodoro_interval :633-646, the whole-file write :500-517,
+// reload :523-571, the field caps :95-123, the both-interval reject
+// :159-163, the day grid :217-277, the arming funnel :394-481) and
+// components/ui/actions.c (refresh_alarm_display :1020-1037, the
+// minute-tick refresh :956-959, the registration main.cpp:617). The
+// FIRE itself — poll, trigger, ring, dismiss, fire-then-reschedule — is
+// docs/_graphs/alarm-lifecycle.dot (the interval rule is just the other
+// rule kind that lands there); this family owns the settings-side
+// machine: pomodoro-cycle-edit.dot for the glyphs/rollers/dial,
+// pomodoro-cycle-grid.dot for the parser + arming funnel + home row.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph pomodoro_cycle {
-    label="The pomodoro cycle: a roller release rewrites the one rule file, the day-grid arithmetic caches the next ring, the home row reads the cache — the fire itself is the alarm lifecycle's";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=18;
-    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
-          shape=box, width=1.9, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The pomodoro cycle — a release rewrites the rule file,\nthe grid caches the next ring, the home row reads it";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.4];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_entries {
-        label="the alarm-rules screen — three glyphs, exactly one rule kind";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        glyphs [label="settings_alarm_screen_refresh (screens.c:702):\ncolors straight from clock_alarm_rule_types() —\nbit 0 interval (stopwatch), bit 1 fixed (alarm\nclock); the central alarm-clock is white while\nANY rule is loaded, moon grey when everything\nis off. The scheduler derives the bits from the\nPARSED rules, so the glyphs cannot disagree\nwith the file",
-                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        master [label="master tap (screens.c:713, CLICKED):\ntypes == 0 → RETURN (\"already off; re-arming\ngoes through the two entries\"); else\nclock_alarm_deactivate_all → \"# no alarms\"\nwhole-file write + reload — the ZERO branch\n(arm cleared, cache dropped, home row\n--:--) is alarm-lifecycle.dot's disarm\ninvariant",
-                  fillcolor="#efece4"];
-
-        exclusive [label="the entries are MUTUALLY EXCLUSIVE\n(screens.c:690 comment + scheduler): each\nsetter rewrites /spiffs/alarm.txt with ITS\nsingle rule, so activating one replaces the\nother's — exactly one kind of rule ever\nexists, and rule_types is at most one bit",
-                    shape=note, fillcolor="#e8e8e4", color="#525252", penwidth=1.2];
-    }
-
-    stopwatch [label="the stopwatch entry (screens.c:790, GLYPH_STOPWATCH\nU+F2F2, lower-left diagonal of the central clock):\nCLICKED → loadScreen(SCREEN_ID_SETTINGS_POMODORO)\n— the sub-screen's exit returns to the CALLING\nlevel, the alarm screen, not the hub",
-                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-    subgraph cluster_screen {
-        label="the pomodoro screen (SCREEN_ID_SETTINGS_POMODORO) — the rollers ARE the display";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        rollers [label="twin shared clock-style rollers (screens.c:898):\nhours 0–23 + minutes 0–59, the 96 px bold-numbers\nfont at the home clock's glyph centres (hour slot x\n153, minute 303, colon 223) under the \"REPEAT\nINTERVAL\" caption (the 32 px SSID font — the clock\nlabel has none, this screen needs one to say what\nthe value IS). The old separate H:MM preview label\nis GONE; tick_screen_settings_pomodoro is EMPTY —\nnothing on this screen repeats",
-                   fillcolor="#efece4"];
-
-        seed [label="settings_pomodoro_screen_refresh (:858):\nclock_alarm_get_interval_rule() — the first rule\nwith minute_interval > 0, -1 when none. Seed\nH = N/60, M = N%60 (LV_ANIM_OFF); no rule →\nboth rollers read 00 — \"a sub-hour rule shows\nhours 0\", a 90-min rule seeds 1:30",
-              fillcolor="#efece4"];
-
-        released [label="ONLY a RELEASED persists (:850, both rollers):\ntotal = 60*H + M; total < 1 → REJECTED, the log line\n\"interval 0 rejected (keeping the current rule)\" —\n00:00 is not a rule, the stored interval survives.\nOtherwise clock_alarm_set_pomodoro_interval(total).\nKeeping the SPIFFS write + RTC reschedule off the\ndrag path is the screen's whole design",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        dial [label="the knob's dial reaches the same commit:\nPRESSED focuses a roller (s_dial_roller_focus 0/1,\n3 px white circle border — dial_ring); on the\nalarm screen the focus cycles master → pomodoro\n→ alarm-clock (s_dial_alarm_focus). The dial\nCOMMIT sends LV_EVENT_RELEASED to the focused\nroller — \"The roller's RELEASED handler IS the\ncommit (store save / reschedule) — same as\nlifting a finger off a drag\" (:4267), so finger\ndrag and dial detent take the identical path",
-               fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
-    }
-
-    subgraph cluster_rule {
-        label="the rule and its arithmetic (clock_alarm_scheduler.c) — the interval rule is an alarm rule";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-
-        setter [label="clock_alarm_set_pomodoro_interval (:633):\ngate 1..1440 (a 0 or 25 h interval is\nESP_ERR_INVALID_ARG — the screen's 0-reject\nis the friendly half of this gate); render\n\"# pomodoro: ring every N minutes\\n*/N * * * *\";\nclock_alarm_scheduler_write → the file IS the\nrule set (FULL replace), then reload re-parses\nand reschedules from the current RTC time",
-                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        grid [label="the */N day grid (:95, :217) — the pomodoro's\nown corner of the parser: the MINUTE field's\n*/N may span the whole day (N up to 1440, the\nmax_value == 59 → 1440 branch; the hour field\nkeeps its own 23 cap), and minute-and-hour\nintervals together are REJECTED (:160). N > 59:\nthe grid is ANCHORED AT MIDNIGHT — next ring =\nfirst total-minutes-of-day multiple of N\nstrictly after now; today's grid exhausted →\n00:00 of the next day. N ≤ 59: multiples of N\nwithin the current hour (at most one ring per\nhour). The rule writes \"*\" days — all days,\nno weekday mask for the pomodoro",
-               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-
-        arm [label="clock_alarm_schedule_next (:394) — the single\narming funnel: nearest candidate across the\nrules (one rule here), CACHE it (s_next_alarm\n+ s_alarm_scheduled), then arm: S3 → the\nPCF85063A ALM registers + AIE; P4/knob (no\nPCF) → clock_alarm_arm_esp_timer one-shot.\nFinally clock_trigger_alarm_update →\nthe registered home-row updater",
-              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    }
-
-    home [label="the home alarm row (actions.c:1020, via main.cpp:617):\nclock_alarm_get_next_scheduled ANSWERS THE CACHE —\nprint \"%d:%02d\" (hour WITHOUT leading zero, the 'Mo\n7:00' rule); the 2-letter weekday prefix appears only\nwhile the ring is MORE than 24 h away (next_s − now_s\n> 86400); no scheduled rule → \"--:--\". The minute tick\nre-runs it (actions.c:959) because \"the alarm's weekday\nprefix flips exactly at the 24 h boundary and the time\nafter a fire/re-arm\" — the row is a VIEW of the cache,\nnever a second schedule",
+    glyphs [label="alarm-rules screen —\nthree glyphs, one\nrule kind",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    stopwatch [label="stopwatch entry →\nthe pomodoro screen",
+                fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    released [label="ONLY a RELEASED\npersists — total < 1\nis REJECTED",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    setter [label="set_pomodoro_\ninterval → full\nreplace + reload",
+            fillcolor="#efece4"];
+    grid [label="the */N day grid —\ncaches the next\nring",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    arm [label="the arming funnel —\nPCF ALM or\nesp_timer",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    home [label="the home alarm row —\na VIEW of the cache,\nnever a second\nschedule",
           fillcolor="#efece4"];
+    fire [label="the ring: the alarm\nlifecycle's — same\npoll, same fire-then-\nreschedule",
+          shape=note, fillcolor="#e8e8e4", color="#525252", fontcolor="#1e3f70"];
 
-    fire [label="the ring: the interval rule is the OTHER rule kind that\nreaches the alarm lifecycle — same 1300 ms poll, same\nfire-then-reschedule, same SCREEN_ID_ALARM show (S3/P4\nring on the ES8311, the knob is the codec-less silent\nboard). Poll, trigger, dismiss: docs/_graphs/\nalarm-lifecycle.dot; the audio: alarm-audio.dot",
-         shape=note, fillcolor="#e8e8e4", color="#525252", penwidth=1.2];
-
-    glyphs -> stopwatch [label="tap the stopwatch"];
-    glyphs -> master [style=dashed, label="tap the central clock"];
-    glyphs -> exclusive [style=dashed, arrowhead=none];
-    stopwatch -> rollers [color="#2b5fb0", penwidth=1.6];
-    rollers -> seed [style=dashed, label="screen entry"];
-    rollers -> released [label="lift the finger"];
-    dial -> released [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="dial commit =\nsend RELEASED"];
-    released -> setter [color="#2b5fb0", penwidth=1.6, label="total ≥ 1"];
-    setter -> grid [label="reload re-parses"];
-    grid -> arm [color="#2b5fb0", penwidth=1.6, label=">= 1 rule"];
-    arm -> home [label="clock_trigger_alarm_update\n(LVGL task via clock_cb)"];
-    arm -> fire [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="AIE set / one-shot armed"];
+    glyphs -> stopwatch;
+    stopwatch -> released [label="lift the finger /\ndial commit"];
+    released -> setter [color="#2b5fb0", label="total ≥ 1"];
+    setter -> grid;
+    grid -> arm [color="#2b5fb0"];
+    arm -> home;
+    arm -> fire [style=dashed, color="#b07d10"];
     home -> fire [style=dashed, arrowhead=none];
 }

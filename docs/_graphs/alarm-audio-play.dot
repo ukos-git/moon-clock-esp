@@ -1,0 +1,60 @@
+// The player task and the dismiss fade, in full (companion to
+// alarm-audio.dot). An alarm fires (actions.c action_alarm_triggered
+// :1109 — backlight relight first if g_backlight_off, then
+// alarm_audio_ring_start :306): s_busy guard (ONE player task — the
+// codec streams one loop at a time), s_stop=false, s_ringing=true,
+// args {loop=s_selected, looping, ring, ramp 2500 ms, vol 75/100},
+// xTaskCreate(play_task, 6 KiB, prio 4). The preview path (screens.c
+// :3140/:3158): alarm_audio_select + save + preview(sel) — ONE PASS,
+// 300 ms ramp, same player; s_busy makes ring-vs-preview mutually
+// exclusive. play_task (:200): esp_codec_dev_open (16-bit mono 22 050,
+// MCLK = 256xFS) — an open failure is ANOTHER display-only soft fail;
+// set_out_vol 0. The loop: per round the volume is COMPUTED from wall
+// time (ticks x portTICK_PERIOD_MS against ramp_ms — the BLOCKING
+// esp_codec_dev_write (portMAX_DELAY) paces the stream at the audio
+// rate, so the ramp can never outrun the sound), then one 1024-sample
+// chunk (~47 ms) of s_loops[loop] is written. Ring: wrap forever until
+// s_stop; preview: break after one pass (off >= LOOP_SAMPLES). The
+// touch dismiss — EVERY path (the dedicated alarm indev cb, the asleep
+// idle-wake) runs through action_wake_screen :1295 ->
+// alarm_audio_ring_stop :326: it does NOT touch the codec, it only
+// raises s_stop (the ring task owns the teardown; ~47 ms write
+// granularity bounds the reaction). The player fades out ITSELF (:262):
+// vol -5 every 10 ms step (~150 ms total — the I2S keeps streaming the
+// drained DMA, so the fade rides on silence), vol 0, esp_codec_dev_close
+// (DAC + I2S TX disabled; the NEXT ring re-opens), s_ringing=false,
+// s_busy=false, vTaskDelete.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph alarm_audio_play {
+    rankdir=TB;
+    label="The player task — blocking writes pace the ramp; the dismiss only raises s_stop";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.4];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    ring [label="ring_start :306 —\ns_busy ONE player,\nramp 2500 ms,\nvol 75, 6 KiB prio 4",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    preview [label="preview — ONE\npass, 300 ms\nramp, same player",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    open [label="play_task :200 —\ncodec open (MCLK\n256×FS) or soft\nfail; vol 0",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    stream [label="1024-sample\nchunks — the BLOCK-\ning write IS the\nclock; ramp rides\nwall time",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    dismiss [label="the touch dismiss —\nring_stop :326 only\nraises s_stop",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    fade [label="the fade :262 —\nvol −5/10 ms ~150\nms, close, delete\nitself",
+          fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+
+    ring -> open [color="#2b5fb0", penwidth=1.6];
+    preview -> open [color="#2b5fb0", penwidth=1.6];
+    open -> stream [color="#2b5fb0", label="vol 0"];
+    stream -> stream [style=dashed, label="next chunk"];
+    dismiss -> stream [style=dashed, color="#b07d10", label="seen at the\nchunk edge"];
+    stream -> fade [color="#3a6b35", fontcolor="#2c4f29", label="stop / one pass"];
+}

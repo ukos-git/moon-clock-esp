@@ -1,0 +1,58 @@
+// The knob battery gauge's view, in full (companion to
+// knob-battery.dot) — knob/components/knob_ui/knob_battery_ui.c
+// (attach :157, timer_cb :127, geometry + palette defines :52-70),
+// attach site knob/main/main.c:469. The gauge is the knob's ONLY
+// home-screen addition, a knob-side OVERLAY (the shared home stays
+// byte-identical). Gauge off (KNOB_BATTERY_GAUGE=n or ADC init failed)
+// -> log "gauge off", the icon NEVER appears (the component still
+// links — the early requirements pass sees only the literal REQUIRES).
+// Else: capsule body UI_PX(52) x UI_PX(24) + nub UI_PX(5) x UI_PX(10) +
+// border 3 + inset 2, at BOTTOM_MID -UI_PX(26) — the retired NN %
+// label's proven foot spot — added LAST to objects.modem_sleep,
+// click-transparent so the home tap -> hub gesture still owns every
+// tap. lv_timer 60000 ms + the immediate first fill: the cell moves on
+// the MINUTE scale, not the second. Four states: no reading (pct < 0) =
+// empty capsule, DEAD-CHROME grey #787878 outline + nub, zero-width
+// fill, bolt hidden; charging = hand-rasterised 10x14 A8 bolt
+// (even-odd polygon, 4x supersampled, recolour white) over a fill in
+// the THEME'S MOON COLOR — theme_colors[active_theme_index][0], the
+// seconds-arc ink, read LIVE so a theme change propagates on the next
+// tick (the reference iOS green replaced 2026-11-14, user decision);
+// pct <= KNOB_BATTERY_LOW_PCT (20) = fill red #FD3B2F; else fill white
+// #FFFFFF, proportional width = inner x pct / 100.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph knob_battery_ui {
+    rankdir=TB;
+    label="The view — capsule + nub at the retired label's foot spot, four states on the minute tick";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    attach [label="attach :157 — cap-\nsule UI_PX 52×24,\nBOTTOM_MID −26,\nadded LAST, click-\ntransparent",
+            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    timer [label="lv_timer 60 000 ms\n+ immediate fill —\nminutes, not se-\nconds",
+           fillcolor="#efece4"];
+    dead [label="pct < 0 — DEAD-\nCHROME #787878\noutline, bolt hi-\nden",
+          fillcolor="#e8e8e4"];
+    charging [label="charging — A8 bolt\nover the THEME's\nMOON color, read\nLIVE",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    low [label="≤ LOW_PCT 20 —\nred #FD3B2F",
+         fillcolor="#f4dcdc"];
+    ok [label="else — white\n#FFFFFF, pro-\nportional width",
+        fillcolor="#f2f2ef"];
+
+    attach -> timer [color="#2b5fb0", penwidth=1.6];
+    timer -> dead;
+    timer -> charging [color="#b07d10", fontcolor="#6b4e08"];
+    timer -> low;
+    timer -> ok;
+    dead -> charging [style=invis];
+    charging -> low [style=invis];
+    low -> ok [style=invis];
+}

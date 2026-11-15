@@ -62,6 +62,19 @@ The whole lifecycle — the three starters, what runs off the UI task,
 and the one poll that drops the screen — drawn from the code:
 
 .. graphviz:: ../_graphs/wifi-sync.dot
+   :alt: The transient WiFi screen sealed — three starters, the sync kickoff, the shown screen, the task, the tick poll, the airplane return
+   :caption: The box first: there is no menu entry — hourly gate, wake path and keyboard commit are the only starters; one poll on the UI tick is the only thing that ever leaves the screen.
+   :align: center
+
+.. graphviz:: ../_graphs/wifi-sync-start.dot
+   :alt: The three starters opened — hourly gate at rest, wake path on RTC due, keyboard commit — all through the guarded kickoff
+   :caption: The starters in full: the hourly gate (~:940) only fires at rest — minute 0, not idle, not demo, not connected, SNTP due per ``CLOCK_NTP_SYNC_INTERVAL_HOURS``, and on the airplane screen (never wake a sleeper for a 30 s radio fetch, never yank a settings session); the wake path rides the wake task itself; the keyboard commits credentials first. All three enter one guarded ``action_start_wifi_sync``: re-entry guard, idle DISABLED (no sleep transition may race the task's init), panel dim 100, traffic hold BEFORE the storm, task 6144 B prio 10.
+   :align: center
+
+.. graphviz:: ../_graphs/wifi-sync-task.dot
+   :alt: The sync task opened — SNTP bound with RTC kept on failure, airplane inside the task, the tick poll claiming DONE, idle and demo defers
+   :caption: The task opened: a heap probe (the leak watch), manager init, and SNTP only if due — an NTP failure KEEPS the RTC time and still lands airplane. Airplane runs INSIDE the task because an associated station wakes the modem for DTIM beacons and that RX churn steals QSPI DMA completions on the S3 AMOLED — the one exception is a deferred init hitting an in-flight scan (``ESP_ERR_INVALID_STATE``: the scan owns the radio). The tick poll claims DONE — but a sleeper after the handshake defers (the flag is NOT claimed; the next wake re-triggers), demo leaves it unclaimed for the demo's own SYNC phase, and the airplane return re-arms the idle ladder UNLESS the boot replay holds it (the P4's sync runs ~30 s through the boot).
+   :align: center
 
 Where the screen first meets a new user — the fresh board whose
 blocking boot sync failed, the drop to the airplane screen, and the

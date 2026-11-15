@@ -61,6 +61,19 @@ init paths (codec NULL, loops malloc) soft-fail like the IMU — the alarm
 stays display-only and the sound selection still remembers its choice.
 
 .. graphviz:: ../_graphs/alarm-audio.dot
+   :alt: The alarm ring chain — boot init, four PSRAM loops, ring into the player task, self-performed fade, knob stub
+   :caption: The whole chain sealed: boot ``alarm_audio_init`` joins the ES8311 to the I2C bus the touch/IMU/RTC already run on and bakes the four 1 s loops (176 400 B of PSRAM); an alarm fires ONE player task at a time; the fade-out is the task's own job, and the knob's silent stub closes the chain.
+   :align: center
+
+.. graphviz:: ../_graphs/alarm-audio-loops.dot
+   :alt: The four baked loops — Two-Tone A5/E5, Beep 2 kHz, Bell with partials, Arpeggio C5-E5-G5-C6
+   :caption: The loops in full — 0 Two-Tone A5/E5 (880/659.26 Hz, 4×250 ms), 1 Beep (2 kHz square, 3×200 ms bursts), 2 Bell (880 Hz + 1760/2640/3520 partials, exponential decay τ = 350 ms), 3 Arpeggio (C5-E5-G5-C6, 4×250 ms); mono s16 @22 050 with 10 ms attack/release against clicks, and the knob's stub answers all four names honestly as "Silent".
+   :align: center
+
+.. graphviz:: ../_graphs/alarm-audio-play.dot
+   :alt: The player task — ring or preview into codec open, blocking 1024-sample chunks pace the ramp, dismiss only raises the stop flag
+   :caption: The player opened: ring_start spawns a 6 KiB prio-4 task (vol 75, ramp 2500 ms; the preview is the same player, one pass, 300 ms ramp — ``s_busy`` makes them mutually exclusive); the BLOCKING ``esp_codec_dev_write`` of 1024-sample (~47 ms) chunks IS the clock, so the wall-time-computed ramp can never outrun the sound; the touch dismiss never touches the codec — it only raises the stop flag — and the task then fades itself −5 every 10 ms (~150 ms), closes the DAC and deletes itself.
+   :align: center
 
 The scheduler that *arms* the fire (``alarm.txt``, the PCF85063A ALM pin on
 the S3, the ``esp_timer`` one-shot on the P4) is sketched in

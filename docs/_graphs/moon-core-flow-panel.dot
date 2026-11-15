@@ -1,0 +1,43 @@
+// The device side opened (companion to moon-core-flow.dot).
+// components/ui/moon_ui.c is the ONLY panel writer. The core-1
+// producers are NEVER concurrent — the replay gate holds the hourly
+// probe — and there are three: hourly refresh, boot replay, day tick.
+// Each producer arms the pipeline; the row watermark is bumped by the
+// producer under s_rgb_mtx and free-runs regardless of the tick. The
+// tick's bake reveal walks black canvas -> one completed band per 50 ms
+// -> heal the OLD frame on any abort (the full state machine with its
+// moon_ui.c citations is bake-reveal.dot). Publication is ONE atomic
+// whole-panel lv_refr_now under s_rgb_mtx + the drain witness — s_frame
+// is never touched by a reveal; the finished rows reach the panel as
+// s_frame + s_rgb published in ONE mutex block.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph moon_core_flow_panel {
+    rankdir=TB;
+    label="The device side — producers, the row watermark, the reveal, the atomic show";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.45];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    producers [label="core-1 producers —\nhourly · replay ·\nday tick — NEVER\nconcurrent",
+               fillcolor="#efece4"];
+    wm  [label="row watermark —\nproducer bumps\nunder s_rgb_mtx,\nfree-runs",
+         fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
+    reveal [label="bake reveal (tick) —\nblack canvas → one\nband per 50 ms →\nheal on abort",
+            fillcolor="#f6e7dc", color="#b5643a"];
+    show [label="ONE atomic whole-\npanel lv_refr_now +\ndrain witness",
+          fillcolor="#fbeae5", color="#c2410c", fontcolor="#7c2410", penwidth=1.8];
+    sframe [label="s_frame + s_rgb in\nONE mutex block —\na reveal never\ntouches s_frame",
+            shape=note, fillcolor="#e8e8e4", color="#525252",
+            fontcolor="#1e3f70"];
+
+    producers -> wm [color="#b5643a", penwidth=1.6, label="arm + bump"];
+    wm -> reveal;
+    reveal -> show [color="#c2410c", penwidth=1.6];
+    show -> sframe [style=dashed, arrowhead=none];
+}

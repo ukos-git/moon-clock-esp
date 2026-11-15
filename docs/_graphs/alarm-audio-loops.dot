@@ -1,0 +1,48 @@
+// The four baked loops, in full (companion to alarm-audio.dot).
+// loop_gen_all bakes them ONCE at boot into PSRAM — 1 s each, mono
+// s16 @22 050, 10 ms attack/release against clicks, 4 x 22 050 x 2 B =
+// 176 400 B total. 0 Two-Tone A5/E5 (880/659.26 Hz, 4x250 ms); 1 Beep —
+// 2 kHz square, 3x200 ms bursts; 2 Bell — 880 Hz + 1760/2640/3520
+// partials, exponential decay tau = 350 ms; 3 Arpeggio — C5-E5-G5-C6,
+// 4x250 ms. s_selected = settings_alarm_sound_id(); the sound screen
+// (screens.c :3140/:3158) roller commit -> alarm_audio_select + save +
+// preview(sel), and the preview button re-plays the selection — ONE
+// PASS, 300 ms ramp, same player (s_busy makes ring-vs-preview
+// mutually exclusive). The knob's stub answers all four names as
+// "Silent" (not fake chime names). Boot init itself: main.cpp:601,
+// AFTER settings_store_load; alarm_audio_init :279; the ES8311 just
+// joins the I2C bus the touch/IMU/RTC already run on (idempotent
+// bsp_i2c_init).
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph alarm_audio_loops {
+    rankdir=TB;
+    label="The four baked loops — 1 s each, mono s16 @22 050, 10 ms attack/release";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.38];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    bake [label="loop_gen_all bakes\nONCE at boot —\n176 400 B of\nPSRAM",
+          shape=note, fillcolor="#e8e8e4", color="#525252", fontcolor="#1e3f70"];
+    l0 [label="0 Two-Tone — A5/E5\n880/659.26 Hz,\n4×250 ms",
+        fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    l1 [label="1 Beep — 2 kHz\nsquare, 3×200 ms\nbursts",
+        fillcolor="#efece4"];
+    l2 [label="2 Bell — 880 Hz +\npartials, decay\nτ = 350 ms",
+        fillcolor="#efece4"];
+    l3 [label="3 Arpeggio —\nC5-E5-G5-C6,\n4×250 ms",
+        fillcolor="#efece4"];
+    sel [label="s_selected from\nsettings; roller\ncommit saves +\npreviews",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    bake -> l0;
+    l0 -> l1 [style=invis];
+    l1 -> l2 [style=invis];
+    l2 -> l3 [style=invis];
+    bake -> sel [style=dashed];
+}

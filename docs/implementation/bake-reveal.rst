@@ -136,16 +136,27 @@ lands each advance as one atomic band — the states are identical, the
 pacing task is not.
 
 The same machine in the house dot notation, carrying what the mermaid
-leaves out: BOTH boards side by side, the hourly fade leg, the gate
-that parks the tick (with the deliberate ``s_fade_busy`` exemption),
-the first-strip fade-in payer, and the full recovery set — the clock's
-three heal callers and the knob's die-unpublished re-hide. Every node
-quotes its own line in ``moon_ui.c`` / ``knob_ui.c`` / ``knob_moon.c``;
-note the buffer asymmetry the two clusters make visible (clock: reveal
-into the live ``s_rgb``, heal from the untouched ``s_frame``; knob:
-reveal into the back buffer, so the honest cleanup re-hides instead).
+leaves out — the shared contract first as a sealed box, then each side
+opened. Note the buffer asymmetry the split makes visible (clock:
+reveal into the live ``s_rgb``, heal from the untouched ``s_frame``;
+knob: reveal into the back buffer, so the honest cleanup re-hides
+instead). Every detail node quotes its own line in ``moon_ui.c`` /
+``knob_ui.c`` / ``knob_moon.c``.
 
 .. graphviz:: ../_graphs/bake-reveal.dot
+   :alt: The bake reveal sealed — producers arm a watermark, the pacing task converts every completed band into one atomic flush; the clock heals from s_frame, the knob re-hides
+   :caption: Both board families share the STATES — black canvas, one completed band per displayed state, one atomic ``lv_refr_now`` each — and the bake itself is the metronome; only the buffer strategy and the honest-cleanup path differ, drawn opened below.
+   :align: center
+
+.. graphviz:: ../_graphs/bake-reveal-clock.dot
+   :alt: The clock side opened — hourly fade leg, producer arm, strip loop, parked tick, black canvas, per-band flush, first-strip fade-in payer, done legs, and the heal callers
+   :caption: The clock's full state machine with its citations: the hourly fade leg (the ``s_hourly_faded`` owed-exactly-once rule, the 5 s producer budget), the producer arm for either owner (a TF fetch HIT never arms), the gate that parks the tick — with the deliberate ``s_fade_busy`` exemption, since during the hourly the reveal leg IS the 0x51 writer that pays the owed fade-in — the first-strip fade-in payer, the commit-on-show done legs, and the full recovery set: the clock's three heal callers, always healing BEFORE any brightness ramp back.
+   :align: center
+
+.. graphviz:: ../_graphs/bake-reveal-knob.dot
+   :alt: The knob side opened — back-buffer producer, the swap task's edge-detected band flushes, the real publish, and the die-unpublished re-hide
+   :caption: The knob's variant (boot first frame only — no SD socket, every boot computes): the producer memsets the BACK buffer black and advances the watermark row by row, the swap task edge-detects it and lands each advance as one atomic band under the LVGL lock — states identical to the clock's, the pacing task is not — and a reveal that dies UNPUBLISHED re-hides the disk, the honest "moon unavailable" posture the plain bake already had (no heal path needed: the front frame never diverged).
+   :align: center
 
 Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
 ................................................................

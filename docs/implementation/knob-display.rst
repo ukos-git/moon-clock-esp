@@ -573,7 +573,13 @@ Battery gauge (P4)
 ------------------
 
 .. graphviz:: ../_graphs/knob-battery.dot
-   :alt: The knob battery gauge — ADC1 ch0 behind the 10K/10K divider, fuse calibration with raw fallback, the placeholder-percent linear map (amber) and the docked-VBUS charging heuristic (amber), and the iOS-style icon's four states on the one-minute tick
+   :alt: The knob battery gauge — ADC1 ch0 behind the 10K/10K divider, fuse calibration with raw fallback, the placeholder-percent linear map (amber) and the docked-VBUS charging heuristic (amber)
+   :caption: The read path: one ADC read (``ADC1_CH0`` — ADC2 is unusable with the radio on — 12 dB, init failure means "gauge off" and every entry point inert), the eFuse calibration with its raw × 3100/4095 fallback (placeholder accuracy either way), the 10K/10K divider, and the two honest placeholders — the sanctioned 3300–4200 mV percent pair and the ≥ 4400 mV docked-USB charging heuristic (bench ~4522 mV), both waiting on the multimeter ritual. The hardware side is :doc:`the knob wiring <../devices/knob>`.
+   :align: center
+
+.. graphviz:: ../_graphs/knob-battery-ui.dot
+   :alt: The gauge's view — capsule and nub at the retired label's foot spot, four states (dead chrome, theme-moon charging, red low, white) on the one-minute tick
+   :caption: The view: a knob-side OVERLAY (the shared home stays byte-identical) — capsule + nub at ``BOTTOM_MID`` minus ``UI_PX(26)``, added LAST and click-transparent so the home tap → hub gesture still owns every tap — refreshed by a 60 s timer plus an immediate first fill, with four states: dead-chrome grey capsule, the hand-rasterised bolt over the theme's moon color while charging, red at or below ``KNOB_BATTERY_LOW_PCT``, proportional white otherwise.
    :align: center
 
 The gauge is the knob's only addition to the home screen, and it is a

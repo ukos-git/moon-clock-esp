@@ -1,0 +1,57 @@
+// The sweep machine opened (companion to wheel-commit.dot) — the
+// catch's LV_EVENT_* handler, event_handler_cb_wheel_sweep :2221.
+// PRESSED -> wheel_point_to_slot (:1915): the indev point first rides
+// lv_obj_transform_point INVERSE over the screen root (the 90 deg
+// orientation roll — the alarm_time_point_to_day idiom), then band test
+// 140..WHEEL_C, then atan2 theta names the sector and
+// floor(Delta-ANGLE/SHARE) names the box — the EXACT box, no
+// nearest-centre tie-break. set_revealed(true, sec) (:2062): ONLY the
+// pressed sector's 76 px non-rounded boxes (r 150..226) + its in-sector
+// dividers + its reveal letters r 209 appear; the sector's at-rest
+// twins HIDE (no double letter); the other sectors' boxes stay hidden.
+// set_hot (:2034): the lit box INVERTS (white 0xF2F3F5 fill, near-black
+// 0x101115 letter); centre shows the single letter + "release commits"
+// (32 px SSID, y -6; the hint is a SIBLING of the 110 px box — a child
+// would clip); unlit sectors' at-rest letters dim to 0x555555.
+// PRESSING: recompute the slot, then CLAMP to the sticky sector's
+// [lo..hi] (:2239) — sliding across a sector boundary sweeps over the
+// pressed sector's boxes, it never re-keys the set. RELEASED: re-test
+// the band; IN-band -> add_slot(hot) bounds-checked WHEEL_PW_MAX 63
+// (:2213; one below the Wi-Fi side's 64, which wifi.c rejects at >=
+// 64); ALWAYS heal: set_revealed(false) + the running entry (last 6
+// chars, "..." prefix, "...." empty :1968). CANCEL: heal only — no
+// character is added.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wheel_commit_sweep {
+    rankdir=TB;
+    label="The sweep machine :2221 — inverse-transform slot, sticky\nsector, clamp on drag, commit only on release";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.4];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    pressed [label="PRESSED → slot :1915\n— inverse root trans-\nform, band test,\natan2 → exact box",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    revealed [label="set_revealed :2062\n— ONLY the pressed\nsector's boxes +\nreveal letters",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hot [label="set_hot :2034 — lit\nbox INVERTS, cen-\ntre hint (sibling,\nnever a child)",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    pressing [label="PRESSING — reclamp\nto the sticky [lo..\nhi], never re-keys",
+              fillcolor="#efece4"];
+    released [label="RELEASED — in-band\nadd_slot, PW_MAX 63;\nALWAYS heal, entry\nlast 6 chars",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    cancel [label="CANCEL — heal only,\nno character",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    pressed -> revealed [color="#2b5fb0", penwidth=1.6];
+    revealed -> hot [color="#2b5fb0", penwidth=1.6];
+    hot -> pressing [style=dashed, label="finger moves"];
+    pressing -> hot [style=dashed, label="re-clamp"];
+    hot -> released [color="#2b5fb0", penwidth=1.6, label="finger lifts"];
+    released -> cancel [style=invis];
+}
