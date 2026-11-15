@@ -199,6 +199,77 @@ The rules the graph encodes:
 - The alarm screen has no entry either — the alarm scheduler shows
   it; a touch dismisses it.
 
+.. _input-chain-ui:
+
+How the finger and the dial reach the widget
+--------------------------------------------
+
+The navigation graph above says *where* a tap lands; this answers
+*how it gets there*. Two families, opposite ownership: on the clocks
+the **BSP** creates the one real ``LV_INDEV_TYPE_POINTER`` device
+(CST9217 on the S3, GT911 on the P4) and three guarded listeners
+co-locate on that single indev — the idle/touch door
+(:c:func:`indev_read_cb` in ``clock_idle.c``, the wake side of which
+is :doc:`the wake-doors sketch <../implementation/clock-sleep>`), the
+2 s orientation press (:c:func:`action_register_orientation_touch` in
+``actions.c``, pipeline in ``tilt-pipeline.dot``) and the alarm touch
+dismiss (:c:func:`action_register_alarm_touch`) — while on the knob
+**the app owns both read paths itself**: a polled CST816S and the
+EC1 dial as two FreeRTOS tasks. One read clock drives every pointer:
+LVGL's indev read timer at ``LV_DEF_REFR_PERIOD`` = **33 ms** on all
+three boards (``managed_components/lvgl__lvgl/src/indev/lv_indev.c:105``);
+the S3's CST9217 has a real INT line (GPIO 11) so the adapter runs in
+IRQ mode — but the ISR only signals a semaphore, reads still ride the
+33 ms timer — and the P4's GT911 has INT = NC, pure polling (pins in
+the wiring sketches). Because all the listeners run in the LVGL task
+(indev events land in ``lv_timer_handler``), none of them needs
+atomics. The one exception to "the finger talks to LVGL" is the demo:
+its **second** POINTER indev injects presses through the real
+hit-test while the BSP indev stays live for the human — created
+*after* the three registrations so it never steals their target
+(:doc:`demo mode <../verification/demo-mode>`).
+
+.. graphviz:: ../_graphs/input-chain.dot
+
+The rules the graph encodes:
+
+- **One indev, three guards on the clocks.** Every
+  ``lv_indev_add_event_cb`` binds through ``lv_indev_get_next(NULL)``
+  to the BSP's indev; what separates the listeners is their guard,
+  not their event: the idle listener wakes only from IDLE (a tap
+  while awake only resets the timer), the press listener acts only
+  after ``ORI_RESYNC_PRESS_MS`` 2000 *and* on a stable on-axis pose,
+  the dismiss listener acts only while ``g_alarm_active &&
+  !clock_is_idle()``.
+- **The dial is a pulse pair, not a quadrature wheel.** A = GPIO 8,
+  B = GPIO 7: every detent pulses exactly one channel and which
+  channel pulsed *is* the direction; the vendor ``process_knob_channel``
+  shape (LOW re-arms, the debounced RISE counts) lives in
+  ``knob_board_encoder.c``. An A-edge quadrature read is the
+  documented "the dial only moves one way" bug family.
+- **Home dial = brightness, never input.** On the modem-sleep screen
+  a detent turns the backlight ±5 % floored at the ladder's own dim
+  rung (``CONFIG_KNOB_DIM_DUTY`` 64 → 25 %), is *not* ladder activity,
+  and only brightening from a dark panel counts as wake intent (user
+  decision 2026-11-10). Off home the same detent steps the edit
+  cursor under the LVGL lock — and activity is reported **before**
+  the lock so a contended dial never delays the un-dim.
+- **The dial task and the indev path meet at the reentrant lock.**
+  ``knob_ui_lvgl_lock`` (knob_ui.c) is a holder+depth wrapper: a
+  same-task take is a depth bump, because a FreeRTOS mutex is not
+  recursively takable and the first tap used to self-deadlock when
+  its CLICKED handler re-took the lock through ``loadScreen`` → seam
+  (bench 2026-11-10; the dial semantics continue in
+  :ref:`dial-semantics-knob <dial-semantics-knob>`).
+- **Tap-to-commit is the no-target fallback.** A background press
+  with no clickable widget under it resolves to the screen root,
+  where ``screens_dial_commit`` listens; the settings creators clear
+  root CLICKABLE, so ``knob_dial_start`` restores it knob-side only —
+  LVGL 9 needs CLICKABLE to make a press a *target* at all. The moon
+  roots stay out: their tap opens the hub (``screens.c``
+  :c:func:`event_handler_cb_home_tap`, awake-only — the wake tap
+  never opens the hub).
+
 .. _menu-geometry:
 
 Menu geometry, computed per variant

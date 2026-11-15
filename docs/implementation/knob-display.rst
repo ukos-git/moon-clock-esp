@@ -414,7 +414,10 @@ Dial semantics (P2)
 The dial is an **input device, not a second UI**: it steps one
 per-screen edit cursor and a tap commits it. Touch stays fully
 native everywhere — the dial is additive, and because there is no
-push-button on the EC1, the tap is the *only* commit gesture.
+push-button on the EC1, the tap is the *only* commit gesture. The
+whole input chain — encoder pulse pair, the 20 ms consumer task, the
+polled CST816S and where the dial task meets the LVGL lock — is drawn
+in :ref:`input-chain-ui <input-chain-ui>`.
 
 Two files carry it. ``knob/components/knob_ui/knob_dial.c`` runs the
 input side: a 20 ms task consumes the debounced encoder count

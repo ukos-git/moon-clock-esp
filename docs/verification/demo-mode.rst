@@ -141,6 +141,12 @@ safety rails, and the action-layer gates beneath it:
 
 .. graphviz:: ../_graphs/demo-tour.dot
 
+The taps themselves ride a **second POINTER indev** — a real
+hit-tested injection beside the BSP's (press 90 + release 60 ms,
+created after the alarm/orientation/idle registrations so it never
+steals their target); see
+:ref:`input-chain-ui <input-chain-ui>`.
+
 Suppression while the tour runs
 --------------------------------
 

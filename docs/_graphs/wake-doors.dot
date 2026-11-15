@@ -20,7 +20,7 @@ digraph wake_doors {
         color="#525c78";
         fontsize=13; fontcolor="#1e3f70";
 
-        tap [label="indev_read_cb (LV_EVENT_PRESSED/PRESSING,\nclock_idle_register_indev): PRESSED while\nIDLE → clock_trigger_idle_wake; while AWAKE\nthe same tap only RESETS the idle timer —\nthis asymmetry is the one-way-door note",
+        tap [label="indev_read_cb (LV_EVENT_PRESSED/PRESSING,\nregistered by clock_idle_init, clock_idle.c:70/:71):\nPRESSED while IDLE → clock_trigger_idle_wake;\nwhile AWAKE the same tap only RESETS the idle\ntimer — this asymmetry is the one-way-door note",
              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     }
 

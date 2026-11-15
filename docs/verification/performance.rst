@@ -764,6 +764,94 @@ the touch pipeline never sees a bake. The hub idle sits at 7–9 % because the L
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
 :doc:`the architecture <../implementation/architecture>`.
 
+.. _scheduler-ladder-perf:
+
+The scheduler ladder (who outranks whom)
+----------------------------------------
+
+One resource axis had never been plotted: not how much work, how
+often, how bright, how many bytes, how loud or how patient, but
+**priority** — when two tasks want the CPU at the same instant, which
+one runs. Every dot is an ``xTaskCreate*`` call site parsed at figure
+time (stack, priority expression, pinned core, stack caps) against the
+kernel's own constants: ``configMAX_PRIORITIES`` (25) from the IDF
+FreeRTOSConfig, the adapter's LVGL priority/stack/core triple from
+``esp_lv_adapter.h``, the P4's stack override straight out of
+:cfile:`main/main.cpp` (with its line number), and the WDT and
+timer-daemon baselines from **both** generated ``sdkconfig.h`` files —
+clocks and knob build dirs — so the two headers' disagreement is
+plotted too: the clocks leave CPU1's idle unwatched, the knob checks
+it with panic.
+
+The comparison the ladder makes visible is the render-path inversion
+between the two families:
+
+- **The clocks put the producers above the renderer.** The three bake
+  producers (re-bake, hourly, boot replay) sit at
+  ``configMAX_PRIORITIES − 3`` = 22, pinned to core 1 — sixteen levels
+  above the LVGL worker's 6 — because the while-black hand-off lets
+  the renderer wait: the producer rebuilds the frame off-panel while
+  the panel is black and the finished frame lands as one atomic flush
+  (:doc:`the animation pipelines <../implementation/animations>`). A
+  bake that an LVGL redraw could starve is the bug class this band
+  prevents. The sky-event worker takes the band below — "below the
+  bake tasks in priority", the code's own comment — and relies on the
+  same parsed fact its comment cites: IDLE1 is not WDT-watched on the
+  clocks, so its 15–20 s scan can never trip the watchdog.
+- **The knob puts the renderer above its producer.** ``knob_lvgl`` (10)
+  outranks ``knob_swap`` (7) outranks ``knob_moon`` (5): the producer
+  fills a back buffer nobody is waiting on, the swap task
+  edge-detects the watermark and publishes, and the renderer is the
+  foreground (:doc:`the knob display <../implementation/knob-display>`).
+  The inversion is the sign flip on the right panel. It also lets the
+  knob keep the producer deliberately **unregistered** from the TWDT
+  (dotted edge — "its work never feeds the watchdog", the code's
+  comment) while the swap stays a plain registered task ("a watchdog
+  on it is a feature") — and precisely because the CPU1 idle check is
+  ON with panic there, an unyielding scan still aborts the boot.
+- **The radio tier is shared code, so the tie is shared too.**
+  ``wifi_sync`` is priority 10 from the one :cfile:`components/ui/actions.c`
+  call site on all three boards — tied with the knob's renderer (co-equal,
+  time-sliced) but preempting the clocks' LVGL worker (+4), which is
+  why the wake path runs the sync on that background task instead of
+  on the UI tick. The scan (5) sits below both renderers on both
+  families.
+- **The guard tier always runs, never disturbs.** The panel-io watchdog
+  (3, pinned core 0), the alarm ring player (4), the two dial tasks and
+  the power supervisor (4–5) all outrank IDLE (0) but rank below every
+  renderer — they can always preempt the idles (which is what the
+  parsed 5 s TWDT baselines watch), yet a ring, a turn of the dial or a
+  stuck-bus probe never delays a frame.
+- **One band the app does not own.** The ``esp_timer`` daemon shares
+  the producer band by definition, not coincidence —
+  ``ESP_TASK_TIMER_PRIO`` is literally ``(ESP_TASK_PRIO_MAX - 3)`` —
+  the shaded band's only non-app resident.
+
+Right panel: the same rows as headroom over each family's own LVGL
+task (one subtraction, nothing new measured). Not drawn: the
+``hang_watch`` probe (its ``xTaskCreate`` sits under
+``#if CONFIG_TEST_HANG_WATCH`` — a test hook, never shipped) and the
+knob's alarm, which is its silent stub with no player task at all. The
+generator is ``docs/tools/gen_perf_sched.py``; the same task set in
+prose is the task table of :doc:`the architecture
+<../implementation/architecture>`, and the memory each row commits is
+the footprint figure above.
+
+.. figure:: ../_static/figs/perf_sched.png
+   :alt: The FreeRTOS priority ladder of every shipped task on the clocks and the knob, and the same rows as headroom over each family's LVGL task
+   :figclass: align-center
+
+   The scheduler ladder. **Left:** every shipped task as one row
+   sorted by priority (``pNN`` prefix), clocks on the left of the
+   gutter and knob on the right — stack, pinned core, parsed provenance
+   per row, the producer band shaded violet (its height is
+   ``configMAX_PRIORITIES − 3``, shared with the ``esp_timer`` daemon
+   by definition), the knob's producer drawn with a dotted edge for its
+   deliberate TWDT non-registration, the IDLE row carrying both
+   boards' parsed WDT posture. **Right:** the same rows as headroom
+   over each family's own LVGL task — the clocks' producers clear the
+   renderer by +16, the knob's by −5, the inversion one subtraction.
+
 The performance decisions, ranked
 ---------------------------------
 

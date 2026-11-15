@@ -230,6 +230,11 @@ rather than on the LVGL task: a 1.3 s frame bake must not block the
 50 ms tick that drains the previous frame's strips — the tick's only
 pipeline job is displaying what the producers publish.
 
+The **priority** this roster leaves implicit — the full ladder with
+the knob rows, the band the ``esp_timer`` daemon shares with the
+producers, and each producer's TWDT posture — is parsed and plotted in
+:ref:`the scheduler ladder <scheduler-ladder-perf>`.
+
 The buffers and who touches them
 --------------------------------
 

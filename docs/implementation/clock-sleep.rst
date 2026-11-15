@@ -726,7 +726,10 @@ awake-bypass on the ring — and the tail is one handler. The awake
 alarm dismiss is the sketch's one edge that deliberately skips the
 ``clock_trigger_idle_wake`` funnel (a tap while awake otherwise only
 resets the idle timer, which is exactly the one-way door the
-callback's comment documents):
+callback's comment documents). How the finger and the dial get to
+these doors in the first place — the one BSP-owned indev with its
+three co-located listeners and the knob's own polled read paths — is
+:ref:`input-chain-ui <input-chain-ui>`:
 
 .. graphviz:: ../_graphs/wake-doors.dot
 
