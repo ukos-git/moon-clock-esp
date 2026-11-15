@@ -151,7 +151,10 @@ public headers from its own components:
   properties files) — the same reason the knob branches there key on
   the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``
   (the seam in one picture — projects, passes, guards, shims — is
-  drawn in :doc:`the build system <../reference/build-system>`).
+  drawn in :doc:`the build system <../reference/build-system>`; the
+  silence those shims compile to — 16 + 28 + 0 lines against the
+  5,178 the build drops — is counted in
+  :ref:`the build census <census-ladder-perf>`).
 
 The injected mutex must be **reentrant** (bench 2026-11-10): it is
 the app-wide ``s_lvgl_mux`` that ``lvgl_task`` holds across

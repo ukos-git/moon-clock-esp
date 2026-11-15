@@ -330,6 +330,14 @@ sketch time:
    :align: center
    :caption: The seam, drawn. The top band is the three projects with the configure-time guards **inside** them — the root's even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio and the knob's shape-replicant that drops the Kconfig-width check ("the knob has no Kconfig mirror; its single truth is the pipeline-written manifest + header") and is *stricter* about existence (a missing manifest kills the knob build — a knob without its blob has no moon at all). The blue edge from the knob project is the seam itself: ``EXTRA_COMPONENT_DIRS`` spelled dir-by-dir, **never** the parent ``components/``. The middle band is the reason for every rule above it: the EARLY requirements pass (``build.cmake:664``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols — so ``REQUIRES`` is spelled out unconditionally and the amber edge to the silent ``esp_codec_dev`` shim is the consequence (an ``if()`` hiding a missing component is invisible in that pass); the target pass is where ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` — the ui component's four dropped translation units and the ``fonts_knob`` flip. The gray notes give the two facts easy to forget: why the parent directory is never added (IDF 5.5.1 excludes components by name only — adding it would register the *clock's* ``board``/``imu`` and collide), and where ``CONFIG_`` symbols come from instead (the per-target ``sdkconfig.defaults`` files, with the target/board mismatch guard as the referee). The seam's *runtime* side — ``knob_moon_render.c`` implementing ``moon_ui.h``, the reentrant mutex, the deep-sleep ladder — is :doc:`the knob display implementation <../implementation/knob-display>`; the blob the fit guard prices is the asset-pipeline figure in *"The flash-data partitions"* above, counted in bytes at :ref:`the storage ladder <storage-ladder-perf>` below.
 
+The seam has a ledger: how many parts each image assembles from
+(the shared-4 under every bar, the registry set each lock resolves),
+what it drops on the knob side (the four ``UI_BOARD_SRCS``
+translations, 5,178 lines) against what answers its three board-side
+names (44 lines and one CMakeLists), and which four ``REQUIRES``
+literals oblige the early pass at all — counted in **parts** at
+:ref:`the build census <census-ladder-perf>`.
+
 The host-side tooling
 ---------------------
 

@@ -1129,6 +1129,102 @@ boot; the hour cache, by contrast, stores *baked output* on the TF
 card — a derived copy of what these rows make, not another resident
 copy of them.
 
+.. _census-ladder-perf:
+
+The build census (how many parts make each image, and how many are silent)
+--------------------------------------------------------------------------
+
+**The short version.** The binary chronology counts bytes and the
+storage ladder counts bytes lying still; the seam sketch
+(:doc:`the build system <../reference/build-system>`,
+``build-seam.dot``) draws the *shape* of the three projects. Nobody
+had yet counted the **parts** that shape prices — how many components
+each board's image is assembled from, and how many of them compile to
+nothing. Three panels, every number parsed at figure time from the
+directory listings, the two ``CMakeLists.txt`` files, the three
+dependency locks, the font tiers and the two clock build trees:
+**left**, one stacked bar per board of the components under project
+control (the same steel **shared-4** — ``clock``/``wifi``/``moon``/``ui``
+— under all three bars, then the app, the board-side pair, the
+vendored BSP, the knob-native six, the shims, and the registry set
+each lock resolves: 29 / 31 / 20 parts; the IDF core set is
+target-specific and deliberately not counted); **middle**, the seam's
+prices in lines of code — the four ``UI_BOARD_SRCS`` translations the
+knob build never compiles (3,219 + 815 + 792 + 352 = **5,178**),
+against the knob's three answers to the board-specific names
+(16 + 28 + **0** lines); **right**, who names what — the
+``board``/``imu``/``esp_codec_dev`` matrix read out of the four
+shared ``REQUIRES`` literals (clock names ``board``; ui names all
+three; wifi and moon name none), plus the ``FONT_DIR`` branch's one
+tier per build. The family's discipline holds: the parsers assert the
+``EXCLUDE_COMPONENTS`` literal predates ``project()``, that
+``EXTRA_COMPONENT_DIRS`` lists exactly the four dirs and never the
+parent, that the KNOB branch still empties the four TUs, that the
+three locks still disagree per target (hosted never on S3, the co5300
+BSP never on P4, the knob's six name-for-name against
+``knob/managed_components/`` on disk), and that the codec shim is
+still *a CMakeLists file and nothing else* — the figure is the
+docs-side twin of the seam's rules and refuses to draw when one is
+removed.
+
+.. figure:: ../_static/figs/perf_census.png
+   :alt: three panels — per-board stacked bars of components under project control (S3 29 with its in-tree BSP, P4 31 with the BSP excluded and 24 managed, knob 20 with six native components and three shims), the four knob-dropped UI translations by LOC against the shims' 44 lines and the zero-source codec shim, and the REQUIRES naming matrix for board/imu/esp_codec_dev with the one-tier-per-build FONT_DIR note
+   :figclass: align-center
+
+   **Left:** one bar per board, segments by family (legend below).
+   The shared-4 is identical under every bar — the census's first
+   fact is that the seam only ever moves the *ends*. The S3 carries
+   the vendored AMOLED BSP in-tree (its managed name shadowed, the
+   25-row patch living there); the P4's bar is grown by
+   ``EXCLUDE_COMPONENTS`` instead — one name removed (:20), and the
+   XC BSP + ``esp_hosted`` + ``esp_wifi_remote`` return as managed
+   entries (the bar grows 21 → 24); the knob adds neither side — no
+   ``board``, no ``imu``, no BSP — and answers their names with three
+   silent shims. **Middle:** amber = a TU the knob build never
+   compiles (the sum 5,178 is in the axis label); each bar is
+   annotated with what answers it on the knob side. The
+   ``esp_codec_dev`` row is the honest *no such leg* drawn as a
+   **zero** bar (the bus ladder's precedent): the shim is one
+   ``CMakeLists.txt`` and nothing else, so the name exists, the
+   early pass is satisfied, and zero lines compile. **Right:** filled
+   = the component's ``REQUIRES`` literal names that register — four
+   hits total, exactly the four answers the three projects must each
+   provide; below it, the three font tiers (7 ``.c`` files each,
+   asserted the *same file names* across all three) of which
+   ``FONT_DIR`` compiles exactly one per build.
+
+Three counting facts the byte view cannot show:
+
+- **The knob answers three names it never compiles with 44 lines and
+  one CMakeLists — while 5,178 lines drop out on the other side of
+  the seam.** The shim side is 16 (board) + 28 (imu) + 0 (codec);
+  the drop side is the four ``UI_BOARD_SRCS`` files, each of which
+  the knob re-answers *elsewhere* (``knob_moon_render.c`` for the
+  whole 3,219-line UI, a ``"Silent"`` stub for the audio, nothing at
+  all for the TF cache and the demo — no SD socket, no demos). The
+  seam costs 44 lines to keep and re-prices 5,178 into new files.
+- **The P4's single excluded name is repaid by a managed set grown
+  to 24.** The vendored S3 BSP is one ``EXCLUDE_COMPONENTS`` entry
+  (:20), and what arrives in its place is a whole radio stack: the
+  XC BSP plus ``esp_hosted`` plus ``esp_wifi_remote`` (the remote
+  C6) are lock entries, not tree entries — the target-gating is
+  asserted both ways (hosted never on S3, co5300 never on P4).
+- **The clock's whole named "board" is 28 lines, and the purest
+  price of the early pass compiles 0.** The name ``board`` that
+  ``clock`` and ``ui`` list in ``REQUIRES`` is answered by a
+  28-line forwarding shim over the BSP; ``esp_codec_dev`` is the
+  limiting case — a component that must *exist* for the requirements
+  pass (build.cmake sees neither project variables nor ``CONFIG_``
+  symbols) and exists as a build file only. A name, not code, is the
+  seam's smallest currency.
+
+The census is the seam sketch's ledger twin: ``build-seam.dot``
+(:doc:`the build system <../reference/build-system>`) says *where*
+the names resolve, ``build-flash.dot``
+(:doc:`the boards <../devices/index>`) says *what the command
+carries*, and this counts *how many parts* each image assembles from
+— with the shims as the only segments that compile to silence.
+
 .. _freshness-ladder-perf:
 
 The freshness ladder (how old every shown number is)

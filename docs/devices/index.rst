@@ -131,6 +131,14 @@ Build and flash conventions
    :alt: Build and flash sequence
    :align: center
 
+The chain above is one leg of the journey. The whole first-bring-up —
+the host shell, the optional asset branch behind its configure-time
+guards, the ``chip_id`` gate no port may skip, the two command shapes
+separated by the target/board referee, the boot sync that resolves
+before the panel exists, and the provisioning chain ending in the
+credential file — is drawn end to end on
+:doc:`the getting-started page <../getting-started>`.
+
 The conventions the three builds share:
 
 - **Build sequentially.** Never run two ``idf.py`` builds in parallel

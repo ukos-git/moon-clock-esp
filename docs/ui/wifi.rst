@@ -62,3 +62,10 @@ The whole lifecycle — the three starters, what runs off the UI task,
 and the one poll that drops the screen — drawn from the code:
 
 .. graphviz:: ../_graphs/wifi-sync.dot
+
+Where the screen first meets a new user — the fresh board whose
+blocking boot sync failed, the drop to the airplane screen, and the
+hub → roller → keyboard chain whose circle-check commit re-runs this
+very sync (one of the three starters above) — is drawn as the whole
+beginner's journey on
+:doc:`the getting-started page <../getting-started>`.

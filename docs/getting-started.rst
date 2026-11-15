@@ -73,7 +73,13 @@ binary-size checks).
    .. code-block:: bash
 
       ls /dev/ttyACM*                          # /dev/ttyUSB* on some hosts
-      esptool.py --port <port> chip_id         # ESP32S3 → the 1.75 AMOLED
+      esptool.py --port <port> chip_id         # ESP32S3 → the 1.75 AMOLED —
+                                               #   but ALSO the knob: both are
+                                               #   ESP32-S3 with 16 MB flash, so
+                                               #   disambiguate by which board
+                                               #   you just plugged in (the
+                                               #   devices pages carry the full
+                                               #   three-way check)
                                                # ESP32-P4 → the 4C board
 
 3. **Build and flash.** Fresh clones build from the checked-in
@@ -93,16 +99,34 @@ binary-size checks).
    ``… flash -p <port>`` against the port that reported ``ESP32-P4``.
    :doc:`The P4 page <devices/p4>` has the exact sequence.
 
-4. **Tell it the network.** The board scans on boot and lands on the
-   WiFi screen; tap an access point and enter the password on the
+4. **Tell it the network.** A fresh board has no
+   ``/spiffs/wifi_credentials.txt`` yet, so the blocking boot sync
+   (which runs *before* the panel comes up — see the figure below)
+   simply fails and the transient WiFi screen rides the ~8 s connect +
+   10 s NTP handshake, then drops to the airplane screen: it shows the
+   handshake, not a list, and never strands the device. The list is
+   one tap away: tap the screen (home and the WiFi screen share the
+   one root handler) to open the settings hub, take the WiFi ring
+   entry, and the settings-WiFi screen starts the scan on entry — its
+   roller shows a centred SCANNING placeholder, then one row per
+   access point. Tap an access point and enter the password on the
    round keyboard (the :doc:`round keyboard's design record <keyboard>`
-   is what that screen looks like and why). The credentials persist in
-   the board's SPIFFS — :doc:`the SPIFFS store <reference/spiffs-store>`.
+   is what that screen looks like and why); the circle-check key
+   commits. The credentials persist in the board's SPIFFS —
+   :doc:`the SPIFFS store <reference/spiffs-store>` — and the same
+   commit starts the sync: the next boot's blocking sync finds the
+   file and the board lands on the home with its moon.
 
 That is the whole bring-up: toolchain, one build, one flash, one
 password. Everything else — the moon asset pipeline, the image gate,
 the uisim screenshot pass — is developer tooling, not part of putting
 a clock on a desk.
+
+.. graphviz:: _graphs/bringup-flow.dot
+   :alt: The bring-up — host once, the optional assets behind the configure-time guards, the chip_id gate, the per-target build and flash, the boot sync resolving before the panel, and the provisioning chain that ends in the credential file
+   :align: center
+   :caption: The bring-up, drawn. Left to right it is the six stops of the journey above: the host shell, the OPTIONAL asset branch (the blue path passes *around* it — it exists only for a pipeline or ``MOON_ALBEDO_W`` change, and the amber nodes are its two faces: the configure-time ``FATAL_ERROR`` trio, and the warning-only missing blob that boots a clock *without its moon*). The diamond is the gate no port may skip — ``chip_id`` against the port you are *about* to flash, with the ESP32S3-also-names-the-knob ambiguity priced beside it. The build cluster carries the referee (the target/board ``FATAL_ERROR``) between the two command shapes, and the flash node names the three regions one ``idf.py flash`` carries. The boot cluster is the part the prose can understate: the NTP sync is synchronous **before the panel exists**, and *both* outcomes land the user on the airplane screen — a failure must not strand the device on the WiFi screen. The right band is the provisioning chain from step 4, ending where the boot sync began: on the credential file the next boot's sync finds. The *commands* of the middle band are drawn once, :doc:`on the devices page <devices/index>` (``build-flash.dot``); the *seam* the three builds hang off is ``build-seam.dot`` in :doc:`the build-system reference <reference/build-system>`; the transient WiFi screen's anatomy is :doc:`the WiFi screen <ui/wifi>`.
+
 
 Regenerating the moon assets (optional)
 ---------------------------------------
