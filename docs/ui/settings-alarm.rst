@@ -15,6 +15,12 @@ The alarm rules screen: the large central alarm-clock is the **master toggle** �
 
    Alarm rules — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_alarm.png
+   :alt: alarm rules — the knob panel (360)
+   :align: center
+
+   Alarm rules — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
+
 Elements
 --------
 

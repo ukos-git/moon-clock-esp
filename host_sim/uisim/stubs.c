@@ -402,17 +402,25 @@ void ui_tick(void) {
 /* The moon geometry, mirroring the device's board-conditional block in
  * moon_ui.c: 400/33/200 on the S3 (PANEL_SIZE 466), 650/35/325 on the P4
  * (PANEL_SIZE 720). The disk radius is MOON_PX/2 -- the asset's native
- * MOON_DISK_RADIUS_PX (200) on the S3 and 325 = 650/2 on the P4. */
+ * MOON_DISK_RADIUS_PX (200) on the S3 and 325 = 650/2 on the P4. The
+ * knob (PANEL_SIZE 360) mirrors its render seam instead: the full-panel
+ * 360 bake frame with the disk parked INSIDE the seconds arc -- r 150 at
+ * cy 180 (knob_moon_render's knob_ui_set_disk_geom, task #48), the 30 px
+ * surround stays black (the battery gauge / progress row overlap it). */
 #ifndef PANEL_SIZE
 #define PANEL_SIZE 466
 #endif
 #if PANEL_SIZE == 720
 #define MOON_PX 650
+#define MOON_R 325.0f
+#elif PANEL_SIZE == 360
+#define MOON_PX 360
+#define MOON_R 150.0f
 #else
 #define MOON_PX 400
+#define MOON_R 200.0f
 #endif
 #define MOON_IMG_POS ((PANEL_SIZE - MOON_PX) / 2)
-#define MOON_R ((float)MOON_PX / 2.0f)
 
 static uint8_t s_gray[MOON_PX * MOON_PX];
 static uint16_t s_rgb[MOON_PX * MOON_PX];

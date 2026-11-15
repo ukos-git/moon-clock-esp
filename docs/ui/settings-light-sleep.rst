@@ -15,6 +15,12 @@ One parameterized sleep-settings builder (the light and deep screens are near-id
 
    The idle timeout (light sleep) — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_light_sleep.png
+   :alt: the idle timeout (light sleep) — the knob panel (360)
+   :align: center
+
+   The idle timeout (light sleep) — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; on the knob this same ``idle_timeout_sec`` key commits its own LEDC backlight dim)
+
 Elements
 --------
 

@@ -15,6 +15,12 @@ The alarm screen is the ringing state: the clock, the alarm indicator, and the a
 
    The alarm (ringing) screen — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/alarm.png
+   :alt: the alarm (ringing) screen — the knob panel (360)
+   :align: center
+
+   The alarm (ringing) screen — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
+
 Elements
 --------
 

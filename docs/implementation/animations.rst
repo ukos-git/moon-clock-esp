@@ -112,6 +112,41 @@ the LVGL task is never blocked on a bake (the three-role shape, all in
   publishes ``s_frame`` + ``s_rgb`` in ONE ``s_rgb_mtx`` block. It never
   touches the panel.
 
+The whole cycle, role by role — who touches the panel, who touches the
+card, and where the two legs' timings land:
+
+.. raw:: html
+
+   <pre class="mermaid">
+   sequenceDiagram
+       participant MIN as Minute path (probe)
+       participant TICK as LVGL tick (legs)
+       participant P as Producer core 1
+       participant TF as TF hour cache
+       participant PN as Panel
+
+       MIN->>MIN: gate (idle, moon-less screen, buffers busy, a fade owns the panel) then arm s_hourly_start
+       MIN->>TICK: armed
+       TICK->>PN: fade-to-black (0x51 ramp, writes no pixels)
+       TICK->>P: spawn (latest-wins, 5 s budget)
+       P->>TF: fetch the hour-centre key (hour*3600 + 1800)
+       alt card hit
+           TF-->>P: stored gray JPEG
+           P->>P: tint LUT, publish s_frame + s_rgb in one s_rgb_mtx block
+           TICK->>PN: ONE atomic whole-panel flush while still black, drain-witnessed
+           TICK->>PN: fade back 0 to 100
+       else card miss (bake reveal)
+           P->>P: moon_reveal_bake row-chunked, rows watermark under s_rgb_mtx
+           TICK->>PN: black canvas, then one atomic band flush per completed strip
+           TICK->>PN: fade back paid at the FIRST completed strip
+           P->>TF: write-through store + eviction (max of synodic-back and new-moon floor)
+       else producer misses the 5 s budget
+           TICK->>PN: heal the half-revealed square back to the OLD frame, restore brightness only
+       end
+       Note over MIN,PN: s_baked_hour + s_baked_event commit ON SHOW — a cycle that never shows stays due and self-heals on the next minute tick
+       Note over TICK: a sleep entry mid-cycle drops the pending legs and restores the brightness before pausing (moon_ui_pause)
+   </pre>
+
 The bake key is the **hour centre** (``hour * 3600 + 1800``): stable
 across boots and boards, so a card seeded by one boot serves the next
 the byte-identical gray, and the on-screen frame is at most 30 min stale
@@ -219,6 +254,32 @@ a silent one: its boot bake is revealed row by row through its own
 ``KNOB_UI_BAKE_REVEAL`` seam (:doc:`the knob display <knob-display>`).
 Demo mode boots
 without the replay (its scripted tour owns the display).
+
+The whole presentation, including the abort path and the single-caller
+arbitration the ladder rests on:
+
+.. raw:: html
+
+   <pre class="mermaid">
+   flowchart TB
+     BOOT["Boot, UI_MOON_BOOT_REPLAY on, not demo"] --> HOLD["idle ladder held at spawn"]
+     HOLD --> LIST{"card mounted and hours listed (lazy first-producer mount)"}
+     LIST -- "hours ascending" --> FETCH["per hour — fetch gray JPEG, neutral tint LUT, publish under s_rgb_mtx"]
+     FETCH --> SHOW["tick lands each frame as ONE atomic whole-panel flush, drain-witnessed"]
+     SHOW --> MORE{"more hours?"}
+     MORE -- "yes" --> FETCH
+     MORE -- "no, stopped on newest" --> FINAL
+     LIST -- "no card, cold folder, version wipe, no clock" --> BLACK["panel holds boot black"]
+     BLACK --> FINAL
+     FINAL["final leg — classify + event LUT + revealed now-bake outside the mutex"] --> LAST["tick's last atomic show, bookkeeping commits, end leg re-arms the idle ladder"]
+     SHOW -. "sleep entry or screen switch aborts — un-shown frames dropped, final bake skipped" .-> ABORT["s_baked_day stays 0 — the minute day-tick queues the corrective re-bake on return"]
+   </pre>
+
+While ``moon_ui_replaying()`` is true the hourly probe/spawn, the
+day-tick and the orbit gate out and every idle re-arm site in
+``actions.c`` defers — the two core-1 producers (replay, hourly) never
+run at once, which is what keeps tfcache's single-caller contract
+intact.
 
 Lifecycle holds (the boot presentation owns the screen for the length
 of the animation): the replay disables the idle→sleep ladder at spawn

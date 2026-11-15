@@ -577,6 +577,28 @@ names the last ACCEPTED write (task + strip range + age — the probe
 row is unmistakable at ``y465..466``), so culprit and victim appear in
 one line; the watchdog keeps covering every path the probes do not.
 
+The whole witness as a decision tree — where each branch was bought
+with a capture (the shapes and holds above), and every dead end is
+either an in-place heal or a bounded restart, never a silent wedge:
+
+.. raw:: html
+
+   <pre class="mermaid">
+   flowchart TB
+     SITE["atomic show site — panel still dark, drain called"] --> HOLDQ{"live panel hold?"}
+     HOLDQ -- "yes — preceding flush was itself dropped" --> NOOP["drain no-ops entirely (probing would phantom-accept)"]
+     HOLDQ -- "no" --> SUBMIT["submit probe strict — single DRAM row, s_panel_mtx held across submit + witness"]
+     SUBMIT --> ACC{"probe accepted by the io queue?"}
+     ACC -- "rejected — WEDGED queue" --> RST["restart AT THE SITE, budgeted — RTC_NOINIT magic, 3 per boot"]
+     RST --> DEGRADE["budget spent — degrade to a working clock instead of a restart storm"]
+     ACC -- "accepted" --> INC{"probe's own completion incremented the counter?"}
+     INC -- "yes — healthy, ~40 ms" --> DONE["show proceeds — the frame is provably on the panel"]
+     INC -- "frozen — driver ate the completion flag" --> HEAL["heal IN PLACE — no-op tx_param(-1) runs the driver's own drain loop, slot MINE logged"]
+     HEAL --> PARK{"heal parks in get_trans_result — truly undelivered completion?"}
+     PARK -- "no — queue re-armed" --> DONE
+     PARK -- "yes" --> WDG["panel watchdog restarts in 3 s + 3 s — the honest fallback"]
+   </pre>
+
 The 0x51 brightness path
 ------------------------
 

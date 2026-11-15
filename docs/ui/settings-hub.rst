@@ -15,6 +15,18 @@ The settings root: a black screen, a central concentric exit (the 150 px circle-
 
    The settings hub — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_hub.png
+   :alt: the settings hub — the knob panel (360)
+   :align: center
+
+   The settings hub — knob 360×360 at rest (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; six icons like the S3, centre exit white)
+
+.. figure:: ../img/screens/knob/settings_hub_dial.png
+   :alt: the settings hub with the dial cursor focused — the knob panel (360)
+   :align: center
+
+   The same hub after one clockwise dial detent — ``screens_dial_step(+1)``: the focused ring icon goes white (grey = unfocused), the central exit carries the focus ring when it is the cursor. Touch the knob's EC1 encoder, the cursor rides the shared handlers (:ref:`dial-semantics-knob <dial-semantics-knob>`)
+
 The wheel keyboard (:doc:`settings-wifi-password <settings-wifi-password>`) has no hub icon of its own — it is reached by tapping an AP row on the WiFi screen, and its only way back is the centre long press.
 
 Elements
@@ -31,7 +43,7 @@ Elements
 
    * - 1
      - Exit (centre circle-xmark)
-     - Back to the CALLING level — the airplane screen for the normal path (the settings hub's exit also triggers the manual WiFi sync, :doc:`the transient WiFi screen <wifi>`).
+     - Back to the CALLING level — the airplane screen for the normal path. The exit loads the home screen only; it kicks off no sync (the sync triggers are the hourly gate, the wake path on the clocks, and the keyboard commit — :doc:`the transient WiFi screen <wifi>`).
      - ``event_handler_cb_hub_exit``, :cfunc:`settings_hub_icon`'s sibling :cfunc:`settings_create_exit_button`
 
    * - 2

@@ -15,6 +15,12 @@ The real alarm: the time rollers (minutes in **5-minute steps** — 10:03 is not
 
    The real alarm (time + days) — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_alarm_time.png
+   :alt: the real alarm (time + days) — the knob panel (360)
+   :align: center
+
+   The real alarm (time + days) — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
+
 Elements
 --------
 

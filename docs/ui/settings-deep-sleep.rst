@@ -15,6 +15,12 @@ The twin of the :doc:`idle-timeout screen <settings-light-sleep>` (the same para
 
    The sleep countdown (deep sleep) — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_deep_sleep.png
+   :alt: the sleep countdown (deep sleep) — the knob panel (360)
+   :align: center
+
+   The sleep countdown (deep sleep) — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; on the knob this same ``deep_sleep_countdown_sec`` key arms its RTC TIMER deep sleep)
+
 Elements
 --------
 

@@ -253,12 +253,13 @@ Conventions
   line numbers are exact per-line anchors. Line numbers in prose are
   approximate — use the roles or search for the symbol.
 - Screenshots are the uisim output (the real unmodified
-  ``screens.c`` + LVGL, rendered in software) for both clock panels;
-  device composites place the uisim frame at true panel geometry over
-  the product photo. The knob has **no dedicated uisim capture** —
-  its screens are the same ``screens.c`` running under the render
-  seam at 360 px, so the per-screen pages' layout and element tables
-  apply to it as well (:doc:`the knob display implementation <implementation/knob-display>`).
+  ``screens.c`` + LVGL, rendered in software) for all three family
+  panels — 466 (S3), 720 (P4) and 360 (knob, the shared ``screens.c``
+  compiled under ``CONFIG_BOARD_KNOB``); device composites place the
+  uisim frame at true panel geometry over the product photo (authored
+  for the two clock housings; the knob's 360 captures are raw
+  panels). The per-screen pages' layout and element tables apply to
+  the knob as well (:doc:`the knob display implementation <implementation/knob-display>`).
   Data images are measured or fitted pixel data —
   diagrams a native mechanism can express are native
   (``.. graphviz::`` / mermaid) instead.

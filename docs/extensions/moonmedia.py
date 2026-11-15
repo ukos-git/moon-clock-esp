@@ -3,9 +3,10 @@
 Two jobs:
 
 * a ``media`` Sphinx builder — ``sphinx-build -b media`` regenerates the
-  uisim screenshots for BOTH panels (``host_sim/uisim/build.sh run`` +
-  ``--panel 720``, and the ``--wheel`` capture flow for the password
-  keyboard), runs ``docs/tools/enclose.py`` over every
+  uisim screenshots for ALL THREE boards (``host_sim/uisim/build.sh run``
+  + ``--panel 720`` + ``--panel 360``, the ``--wheel`` capture flow for
+  the password keyboard on every panel, and the knob's ``--dial``
+  dial-cursor shot), runs ``docs/tools/enclose.py`` over every
   ``ui/labels/*.json`` spec for both panels (the annotated callouts
   rendered inside the round product housing, alpha outside —
   ``annotate.py`` still holds the badge/leader drawing primitives it
@@ -16,7 +17,7 @@ Two jobs:
   is fast even on a cold tree.
 
 * a ``builder-inited`` staleness check for the normal builds: every
-  committed screenshot (``docs/img/screens{,/p4}/*.png``), annotated
+  committed screenshot (``docs/img/screens{,/p4,/knob}/*.png``), annotated
   callout (``docs/img/screens/annot/*.png``) and device composite
   (``docs/_static/photos/sim_*.png``) must EXIST and must not be OLDER
   than the tracked sources it was rendered from (the UI sources, the
@@ -75,6 +76,18 @@ WHEEL_MAP = {
     "sym": "settings_wifi_password_sym",
 }
 
+# The knob's raw uisim set (docs/img/screens/knob/): the 13 screens the
+# knob REACHES (ui/index.rst reachability matrix) — only the light-/
+# deep-sleep states and the P4-only manual-time screen are not captured
+# (the knob dims its real backlight, deep-sleeps for real and has no
+# manual time entry). The transient WiFi screen IS reachable there:
+# the knob registers action_update_clock_display, so the hourly sync
+# gate runs on it too, and the wheel keyboard's commit starts a sync
+# unconditionally. Plus the wheel-keyboard set and the dial-cursor hub
+# shot (--dial capture mode).
+KNOB_BASE = [s for s in BASE_SCREENS if s not in ("light_sleep", "deep_sleep", "settings_time")]
+KNOB_EXTRA = ["settings_hub_dial"]
+
 
 # --------------------------------------------------------------------------
 # render inputs (the staleness check's "newer than" set)
@@ -88,13 +101,20 @@ def _inputs() -> list[Path]:
         fp = ROOT / "components" / "ui" / f
         if fp.exists():
             p.append(fp)
-    # the font sets (both boards; uisim compiles them in software)
-    for fdir in ("components/ui/fonts", "components/ui/fonts_p4"):
+    # the font sets (all three boards; uisim compiles them in software)
+    for fdir in ("components/ui/fonts", "components/ui/fonts_p4", "components/ui/fonts_knob"):
         d = ROOT / fdir
         if d.is_dir():
             p.extend(sorted(d.glob("*.c")))
     # the uisim build inputs (the scripted indev + the build driver)
     for f in ("main.c", "stubs.c", "stb_impl.c", "build.sh"):
+        fp = UISIM / f
+        if fp.exists():
+            p.append(fp)
+    # the uisim stub headers (the knob board blocks in the shared sources
+    # compile against the host stand-ins: esp_log, esp_timer, FreeRTOS)
+    p.extend(sorted((UISIM / "freertos").glob("*.h")))
+    for f in ("esp_err.h", "esp_log.h", "esp_timer.h"):
         fp = UISIM / f
         if fp.exists():
             p.append(fp)
@@ -108,7 +128,7 @@ def _inputs() -> list[Path]:
         if fp.exists():
             p.append(fp)
     # the per-board moon texture gen C (the albedo/DEM the moon shows)
-    for t in ("s3", "p4"):
+    for t in ("s3", "p4", "knob"):
         fp = ROOT / "assets" / "images" / "moon" / "out" / t / "moon_assets_gen.c"
         if fp.exists():
             p.append(fp)
@@ -143,7 +163,7 @@ def _stale_check(app):
     photos_dir = _DOCS / "_static" / "photos"
 
     jobs: list[tuple[Path, list[Path]]] = []
-    for sub in ("", "p4"):
+    for sub in ("", "p4", "knob"):
         base = screens_dir / sub
         for png in sorted(base.glob("*.png")) if base.is_dir() else []:
             jobs.append((png, inputs))
@@ -219,6 +239,19 @@ def _copy_panel(panel_dir: Path) -> None:
         _copy(OUT / f"wheel_{wheel}.png", panel_dir / f"{doc}.png")
 
 
+def _copy_knob_panel(panel_dir: Path) -> None:
+    """The knob set: only the 12 REACHABLE base screens (never the
+    transient WiFi sync, the sleep states or the P4-only manual-time
+    screen — the knob does not run those flows), the wheel-keyboard set
+    and the dial-cursor hub shot."""
+    for name in KNOB_BASE:
+        _copy(OUT / f"{name}.png", panel_dir / f"{name}.png")
+    for wheel, doc in WHEEL_MAP.items():
+        _copy(OUT / f"wheel_{wheel}.png", panel_dir / f"{doc}.png")
+    for name in KNOB_EXTRA:
+        _copy(OUT / f"{name}.png", panel_dir / f"{name}.png")
+
+
 def _annotate_all() -> None:
     labels = sorted((_DOCS / "ui" / "labels").glob("*.json"))
     annot = _DOCS / "img" / "screens" / "annot"
@@ -260,7 +293,15 @@ def _media_pipeline(app) -> None:
     _run(["bash", "host_sim/uisim/build.sh", "run", "--panel", "720", "--wheel"], "build.sh run --panel 720 --wheel")
     _copy_panel(p4_dir)
 
-    print("moonmedia: annotations (both panels)")
+    print("moonmedia: uisim knob (360) — base screens")
+    _run(["bash", "host_sim/uisim/build.sh", "run", "--panel", "360"], "build.sh run --panel 360")
+    print("moonmedia: uisim knob (360) — --wheel + --dial captures")
+    _run(["bash", "host_sim/uisim/build.sh", "run", "--panel", "360", "--wheel"], "build.sh run --panel 360 --wheel")
+    _run(["bash", "host_sim/uisim/build.sh", "run", "--panel", "360", "--dial", "settings_hub"],
+         "build.sh run --panel 360 --dial settings_hub")
+    _copy_knob_panel(s3_dir / "knob")
+
+    print("moonmedia: annotations (both clock panels)")
     _annotate_all()
 
     if os.environ.get("MEDIA_VIDEOS"):

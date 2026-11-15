@@ -10,9 +10,10 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the checked-in build trees (2026-11-15, HEAD ``830adbd`` —
-the recent commits are docs-only, so these are the family-build
-binaries):
+Measured from the build trees (2026-11-15, HEAD ``7bc7e8f`` — the
+recent commits are docs-only, so these are the family-build binaries;
+the knob's tree is the sibling project's own ``../build/knob`` outside
+the repo, never ``build/knob``):
 
 .. list-table::
    :header-rows: 1
@@ -35,9 +36,9 @@ binaries):
      - 7,577,696 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,556,144 B (0x17bcb0)
+     - 1,555,632 B (0x17bcb0)
      - 4,194,304 B (4096 K)
-     - 2,638,160 B (63 %)
+     - 2,638,672 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 19 % is the
 meaningful one: the S3 is the board the app *grew into* (the

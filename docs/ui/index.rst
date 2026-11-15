@@ -6,11 +6,16 @@ screens (the clock plus the moon, in the product's sleep/wake states)
 and the eleven settings screens (the hub and its ten sub-screens) —
 enumerated by ``enum ScreensEnum`` in
 :doc:`../code/index` (``components/ui/screens.h``). Each page carries
-simulator screenshots for the two clock panels (S3 466×466 first, P4
-720×720 second; the knob runs the same ``screens.c`` at 360 px under
-its render seam and has no dedicated capture), annotated callouts
-naming every pointing element, and a per-element table linking the
-element to its code and its Kconfig / SPIFFS option.
+simulator screenshots for the three family panels — S3 466×466 first,
+P4 720×720 second, and the knob at 360×360 for the thirteen screens it
+reaches (its column shows the raw uisim panel: the same shared
+``screens.c`` compiled under ``CONFIG_BOARD_KNOB``, including the P2
+dial surface; callout enclosures are authored only for the two clock
+housings, and the knob project's own overlays — battery gauge — live
+in the sibling project, not in the sim set), annotated callouts
+naming every pointing element on the two clock panels, and a
+per-element table linking the element to its code and its Kconfig /
+SPIFFS option.
 
 The screens share one clock widget (the layout contract in
 ``screens.h``): the digits you see on every moon screen are the same
@@ -21,13 +26,16 @@ Which screens each variant reaches
 
 The full ``ScreensEnum`` ships on all three boards — the matrix below
 is **reachability**, computed from the code that loads screens: the
-P4 reaches all **16/16**, the S3 **15/16**, the knob **12/16**. The
-knob's four absentees are not missing code but flows the knob does
-not run: it never shows the transient WiFi sync screen (its SNTP join
-runs in the background), it dims its real backlight instead of a
-light-sleep screen, it deep-sleeps for real (``esp_deep_sleep_start``,
-panel off) instead of showing the app-dark screen, and the hub's
-manual-time clock icon is compiled in only under ``CONFIG_BOARD_P4``.
+P4 reaches all **16/16**, the S3 **15/16**, the knob **13/16**. The
+knob's three absentees are not missing code but flows the knob does
+not run: it dims its real backlight instead of a light-sleep screen,
+it deep-sleeps for real (``esp_deep_sleep_start``, panel off) instead
+of showing the app-dark screen, and the hub's manual-time clock icon
+is compiled in only under ``CONFIG_BOARD_P4``. It *does* reach the
+transient WiFi screen — the knob registers
+:cfunc:`action_update_clock_display`, so the hourly sync gate runs
+there, and the wheel keyboard's commit starts a sync — only the wake
+path's sync is clock-only.
 
 .. list-table::
    :header-rows: 1
@@ -46,8 +54,8 @@ manual-time clock icon is compiled in only under ``CONFIG_BOARD_P4``.
    * - :doc:`wifi <wifi>` (transient sync)
      - ✓
      - ✓
-     - —
-     - Shown while a sync is in flight; the knob's Wi-Fi join exists only for SNTP and shows no screen.
+     - ✓
+     - Shown while a sync is in flight (hourly gate, wake path on the clocks, keyboard commit). On the knob the hourly gate and the keyboard commit run; its background SNTP join shows nothing.
    * - :doc:`light-sleep <light-sleep>` (dim state)
      - ✓
      - ✓
@@ -147,7 +155,7 @@ the knob adds only its dial cursor on top
      W["Transient WiFi sync"]
      A["Alarm screen (touch dismisses)"]
      HOME -- "tap (not while rolling)" --> HUB
-     HUB -- "centre exit -> calling level, starts manual sync (S3/P4)" --> HOME
+     HUB -- "centre exit -> calling level (no sync is kicked off)" --> HOME
      HUB --> ALR
      HUB --> LS
      HUB --> DS
@@ -161,13 +169,14 @@ the knob adds only its dial cursor on top
      AT -- "exit returns to CALLING level" --> ALR
      WS -- "tap an AP row" --> PW
      PW -- "centre long press" --> WS
+     PW -- "commit: write credentials, start sync" --> W
      LS -- "exit to hub" --> HUB
      DS -- "exit to hub" --> HUB
      WS -- "exit to hub" --> HUB
      TZ -- "exit to hub" --> HUB
      SND -- "exit to hub" --> HUB
      TM -- "exit to hub" --> HUB
-     HOME -- "hourly refresh / wake sync shows it, drops back on sync-done" --> W
+     HOME -- "hourly sync gate / wake path (clocks) / keyboard commit shows it, drops back on sync-done" --> W
      W -- "s_wifi_sync_done" --> HOME
    </pre>
 
@@ -177,13 +186,16 @@ The rules the graph encodes:
   root (:cfunc:`settings_sub_screen_prepare`) — the alarm
   sub-screens return to the alarm-rules screen, everything else to
   the hub, the hub to the level that opened it (the home screen on
-  the normal path; its exit also triggers the manual WiFi sync).
+  the normal path). Leaving the hub loads the home screen only —
+  no sync is kicked off on exit; the sync triggers are the hourly
+  gate, the wake path (clocks) and the keyboard commit.
 - **The deep-sleep icon is anchored at the bottom (180°) and found
   by target, not by index**, so the anchor cannot drift between the
   six- and seven-icon rings (:doc:`settings-hub <settings-hub>`).
-- The transient WiFi screen is the only screen with no user entry —
-  it appears when a sync goes in flight (wake, manual, hourly) and
-  drops back to the airplane home on ``s_wifi_sync_done``.
+- The transient WiFi screen has no menu entry — it appears when a
+  sync goes in flight (the hourly gate at rest on the home screen,
+  the wake path on the clocks, the keyboard commit) and drops back
+  to the airplane home on ``s_wifi_sync_done``.
 - The alarm screen has no entry either — the alarm scheduler shows
   it; a touch dismisses it.
 

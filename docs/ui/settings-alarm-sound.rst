@@ -15,6 +15,12 @@ The alarm sound: one roller over the four baked loops (two-tone / beep / bell / 
 
    The alarm sound — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_alarm_sound.png
+   :alt: the alarm sound — the knob panel (360)
+   :align: center
+
+   The alarm sound — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; the preview plays nothing here — the knob's ``esp_codec_dev`` shim is silent)
+
 Elements
 --------
 

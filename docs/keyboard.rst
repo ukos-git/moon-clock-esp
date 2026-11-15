@@ -258,3 +258,14 @@ true panel geometry) — then the flat captures:
    :figclass: align-center
 
    The **#$/symbol register** — the punctuation and bracket tail.
+
+.. figure:: img/screens/knob/settings_wifi_password_touched.png
+   :alt: The v2 keyboard mid-press on the knob panel (360)
+   :figclass: align-center
+
+   **The same wheel on the knob** — the shared ``screens.c`` under
+   ``CONFIG_BOARD_KNOB`` at 360 px (the h still previewed mid-press);
+   at this size the character catch's press partition (its annulus
+   lifts to r ≥ 108 at the knob's scale) is what keeps ring presses
+   from landing on the mode arc
+   (:doc:`the knob display <implementation/knob-display>`).

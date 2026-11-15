@@ -26,6 +26,11 @@
  *                 clip/anchoring fix without eyeballing the PNG.
  *   --rottest / --reveal <q> [screen] / --wheel: the other verification
  *               hooks (see their blocks below).
+ *   --dial [screen]  (knob panel only) capture the dial edit cursor:
+ *               screens_dial_init + one clockwise detent on the given
+ *               screen (default settings_hub), written to
+ *               out/<screen>_dial.png -- the state after a user's first
+ *               dial turn on that screen.
  */
 #include <dirent.h>
 #include <math.h>
@@ -427,6 +432,40 @@ int main(int argc, char **argv) {
         lv_draw_buf_destroy(buf);
         return rc;
     }
+
+#ifdef CONFIG_BOARD_KNOB
+    /* --dial [screen]: the knob's dial edit cursor (screens.c "P2 dial
+     * surface"). The knob's hardware encoder is not in the sim, but the
+     * cursor logic is pure screens.c -- drive it through its own entry
+     * points: screens_dial_init (the post-ui_init focus state), load
+     * the screen, one clockwise detent, capture. The docs use this for
+     * the hub's focused-ring-icon shot (the knob column of the UI
+     * pages). */
+    if (argc > 1 && !strcmp(argv[1], "--dial")) {
+        const char *name = (argc > 2) ? argv[2] : "settings_hub";
+        enum ScreensEnum id = SCREEN_ID_SETTINGS_HUB;
+        for (size_t j = 0; j < sizeof s_entries / sizeof s_entries[0]; j++)
+            if (!strcmp(s_entries[j].name, name))
+                id = s_entries[j].id;
+        loadScreen(id);
+        ui_tick();
+        pump(disp, 100);
+        screens_dial_init();
+        screens_dial_step(1);
+        pump(disp, 100);
+        lv_obj_t *root = ((lv_obj_t **)&objects)[id - 1];
+        lv_draw_buf_t *buf = lv_snapshot_take(root, LV_COLOR_FORMAT_RGB565);
+        if (!buf) {
+            fprintf(stderr, "dial: snapshot failed\n");
+            return 1;
+        }
+        char path[96];
+        snprintf(path, sizeof path, "out/%s_dial.png", name);
+        int rc = write_png(path, buf);
+        lv_draw_buf_destroy(buf);
+        return rc;
+    }
+#endif
 
     /* --rolltest: verify the HH:MM PAIR ROLL (odometer, the settings
      * roller's motion). Load the home screen (the shared clock widget

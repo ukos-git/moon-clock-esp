@@ -1,7 +1,7 @@
 The transient WiFi screen
 =========================
 
-Shown while a WiFi + NTP sync runs (boot, the hourly ``CLOCK_NTP_SYNC_INTERVAL_HOURS``, or the manual sync from the settings hub's exit button) and dropped back to the airplane screen when the sync completes. Same structure as the airplane screen — the moon, the clock, the seconds arc — with a connection indicator below the clock. The two screens share the ONE moon image, so the switch between them is the atomic whole-panel flush (the both-moon exception in :doc:`the display pipeline <../implementation/display>`).
+Shown while a WiFi + NTP sync runs — the hourly gate at rest on the home screen (``CLOCK_NTP_SYNC_INTERVAL_HOURS``, checked at the top of a minute by :cfunc:`action_update_clock_display`), the wake path on the two clocks, or the wheel keyboard's commit — and dropped back to the airplane screen when the sync completes. Leaving the settings hub starts no sync (it loads the home screen only). Same structure as the airplane screen — the moon, the clock, the seconds arc — with a connection indicator below the clock. The two screens share the ONE moon image, so the switch between them is the atomic whole-panel flush (the both-moon exception in :doc:`the display pipeline <../implementation/display>`). The knob reaches this screen through the hourly gate and the keyboard commit; its background boot SNTP join (``boot_arm_task``) shows no screen.
 
 .. figure:: ../img/screens/annot/wifi_s3.png
    :alt: the transient wifi screen — the S3 panel (466, annotated)
@@ -14,6 +14,12 @@ Shown while a WiFi + NTP sync runs (boot, the hourly ``CLOCK_NTP_SYNC_INTERVAL_H
    :align: center
 
    The transient WiFi screen — P4 720×720 (the same UI_PX layout, scaled)
+
+.. figure:: ../img/screens/knob/wifi.png
+   :alt: the transient wifi screen — the knob panel (360)
+   :align: center
+
+   The transient WiFi screen — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; reached here by the hourly gate or the keyboard commit, never by the background boot join)
 
 Elements
 --------

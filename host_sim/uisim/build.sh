@@ -8,9 +8,13 @@
 #
 # Usage:  ./build.sh                build only
 #         ./build.sh run [screen ..]  build, then snapshot PNGs into out/
-#         --panel N  render for the N x N panel (default 466; the P4's
-#                    720 builds into its own build-<N>/ dir so the object
-#                    cache never mixes panel sizes)
+#         --panel N  render for the N x N panel (default 466). The three
+#                    family variants: 466 S3 AMOLED, 720 P4 4C, 360 knob
+#                    (the knob compiles the screens' CONFIG_BOARD_KNOB
+#                    blocks — dial surface + knob geometries — and takes
+#                    the fonts_knob tier + the knob moon asset target).
+#                    Each non-466 panel builds into its own build-<N>/
+#                    dir so the object cache never mixes variants.
 set -euo pipefail
 cd "$(dirname "$0")"   # host_sim/uisim
 
@@ -38,17 +42,33 @@ UI="$ROOT/components/ui"
 BUILD="$PWD/build"
 JOBS="$(nproc)"
 
-# The font set and the moon asset target follow the panel (the device
-# CMakeLists do the same switch on CONFIG_BOARD_P4): 466 -> fonts/ + the
-# S3's 864x432 texture, anything else -> fonts_p4/ + the P4's 2048x1024
-# texture (out/<t>/moon_assets_gen.c + generated/<t>/moon_consts.h). The
+# The font set, the moon asset target and the board define follow the
+# panel (the device CMakeLists do the same switch on the BOARD choice):
+# 466 -> fonts/ + the S3's 864x432 texture; 720 -> fonts_p4/ + the P4's
+# 2048x1024 texture; 360 -> fonts_knob/ + the knob's 864x432 texture.
+# Each with out/<t>/moon_assets_gen.c + generated/<t>/moon_consts.h. The
 # symbol names are identical, screens.c is shared.
-FONT_DIR="$UI/fonts"
-MOON_ASSET_TARGET=s3
-if [ "$PANEL" != 466 ]; then
+case "$PANEL" in
+466)
+    FONT_DIR="$UI/fonts"
+    MOON_ASSET_TARGET=s3
+    BOARD_DEFINE=
+    ;;
+720)
     FONT_DIR="$UI/fonts_p4"
     MOON_ASSET_TARGET=p4
-fi
+    BOARD_DEFINE=-DCONFIG_BOARD_P4=1
+    ;;
+360)
+    FONT_DIR="$UI/fonts_knob"
+    MOON_ASSET_TARGET=knob
+    BOARD_DEFINE=-DCONFIG_BOARD_KNOB=1
+    ;;
+*)
+    echo "unknown --panel $PANEL (family variants: 466 S3, 720 P4, 360 knob)" >&2
+    exit 1
+    ;;
+esac
 MOON_GEN_C="$ROOT/assets/images/moon/out/$MOON_ASSET_TARGET/moon_assets_gen.c"
 if [ ! -f "$MOON_GEN_C" ]; then
     echo "missing $MOON_GEN_C -- regenerate: assets/images/moon/.venv/bin/python -m moon.assets --target $MOON_ASSET_TARGET" >&2
@@ -64,10 +84,11 @@ CC=${CC:-gcc}
 CFLAGS="-std=gnu11 -O2 -Wall -Wno-unused-parameter -Wno-unused-function -Wno-implicit-function-declaration -fno-strict-aliasing -fcommon -DPANEL_SIZE=$PANEL"
 if [ "$PANEL" != 466 ]; then
     BUILD="$PWD/build-$PANEL"
-    # The non-466 panel IS the P4 board: compile the screens'
-    # CONFIG_BOARD_P4 blocks (the settings hub's clock icon, the P4's
-    # manual time-entry entry point) into the sim too.
-    CFLAGS="$CFLAGS -DCONFIG_BOARD_P4=1"
+    # The variant's board define compiles its screens.c blocks: the P4's
+    # (settings hub clock icon, manual time entry) or the knob's (P2 dial
+    # surface + dial cursor, knob roller geometries, wheel press
+    # partition). The S3 defines neither.
+    CFLAGS="$CFLAGS $BOARD_DEFINE"
 fi
 
 INCLUDES=(

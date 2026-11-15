@@ -15,6 +15,12 @@ Two shared clock-style rollers side by side (hours 0–23, minutes 0–59) seed 
 
    The pomodoro interval — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_pomodoro.png
+   :alt: the pomodoro interval — the knob panel (360)
+   :align: center
+
+   The pomodoro interval — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
+
 Elements
 --------
 

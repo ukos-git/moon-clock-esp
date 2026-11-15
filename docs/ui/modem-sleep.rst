@@ -15,6 +15,12 @@ The modem-sleep screen is the awake state at rest: the current moon phase, the c
 
    The airplane screen (modem sleep) — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/modem_sleep.png
+   :alt: the airplane screen (modem sleep) — the knob panel (360)
+   :align: center
+
+   The airplane screen (modem sleep) — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; the moon sits at the seam's geometry — r 150 at cy 180, limb inside the seconds arc; the knob project's battery gauge is not part of the sim set)
+
 Elements
 --------
 

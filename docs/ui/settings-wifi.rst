@@ -27,6 +27,12 @@ bottom-centre exit).
 
    The network list — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_wifi.png
+   :alt: the network list — the knob panel (360)
+   :align: center
+
+   The network list — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; here the roller shows four rows (three on the clocks) at its narrower 300 px width)
+
 Elements
 --------
 

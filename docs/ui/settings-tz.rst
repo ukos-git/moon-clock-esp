@@ -15,6 +15,12 @@ The timezone / UTC offset: one roller over ALL offsets — every 30-minute UTC o
 
    The timezone — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_tz.png
+   :alt: the timezone — the knob panel (360)
+   :align: center
+
+   The timezone — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
+
 Elements
 --------
 

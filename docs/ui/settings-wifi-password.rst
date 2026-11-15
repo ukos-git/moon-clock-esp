@@ -15,6 +15,12 @@ The circular wheel keyboard (v2, the 12-sector hybrid; the design record is :doc
 
    The wheel keyboard (WiFi password) — P4 720×720 (the same UI_PX layout, scaled)
 
+.. figure:: ../img/screens/knob/settings_wifi_password.png
+   :alt: the wheel keyboard (wifi password) — the knob panel (360)
+   :align: center
+
+   The wheel keyboard (WiFi password) — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; at 360 px the character catch's press partition keeps the ring from stealing mode-arc presses — see :doc:`the knob display <../implementation/knob-display>`)
+
 The wheel's own design record (the geometry, the functionality, the 1:1 operable widget) is :doc:`the round keyboard <../keyboard>`; the full alternatives study — the 13 considered methods, each in its own operable 1:1 widget with its pros and cons — is :doc:`the round keyboard lab <../keyboard-lab>`. The four register/press variants are the raw shots this page's annotated view is built from.
 
 Elements
