@@ -58,7 +58,10 @@ system, build steps) **update the site** — do not let it drift:
 4. Verify clean: `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`
    must finish with **0 warnings** (the `moonmedia` staleness check warns at
    build time if a committed screenshot is missing or older than its render
-   inputs). Commit docs with the code change.
+   inputs), and `docs/.venv/bin/python docs/tools/check_docs_drift.py` must
+   exit **0** — it is the drift gate for the hand-kept-in-sync single-sourced
+   fragments (Kconfig/consts/partitions), the UI reachability matrix and its
+   screenshots, and the binary-size rows. Commit docs with the code change.
 
 ## Hard invariants (violations ship visible bugs)
 
@@ -135,6 +138,12 @@ host_sim/uisim/build.sh run --panel 720        # the P4 set (720, the 2048 textu
 host_sim/uisim/build.sh run --panel 360        # the knob set (360, CONFIG_BOARD_KNOB, fonts_knob tier)
 python3 docs/gen_media.py                      # docs videos (moon_sim frames)
 docs/.venv/bin/sphinx-build -b html docs docs/_build/html       # the docs site (0 warnings is the gate)
+docs/.venv/bin/python docs/tools/check_docs_drift.py           # drift gate: the single-sourced
+                                                               # fragments (Kconfig/consts/
+                                                               # partitions), the UI reachability
+                                                               # matrix + its screenshots, and the
+                                                               # binary-size rows vs the live
+                                                               # sources (exit 1 = DRIFT: lines)
 docs/.venv/bin/sphinx-build -b media docs docs/_build/media     # regenerate the docs screenshots + composites
 ```
 

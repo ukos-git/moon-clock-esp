@@ -201,6 +201,10 @@ The two are *different kinds* of flash data:
   (albedo at 0, then the int8 DEM, ``esp_partition_read`` at boot) is
   the ``moon_assets.h`` contract.
 
+The whole chain — sources to flashed partition — in one picture:
+
+.. graphviz:: ../_graphs/assets-pipeline.dot
+
 The Kconfig conventions
 -----------------------
 
@@ -351,6 +355,36 @@ panels (the per-screen pages live in
 :doc:`the user interface <../ui/index>`) — and docs and code are
 committed together. A change
 that does not update the doc is a *half-finished* change.
+
+The docs drift check
+~~~~~~~~~~~~~~~~~~~~
+
+Half of the standing rule — *keeping* the reference tables honest —
+is automated by ``docs/tools/check_docs_drift.py`` (run it with the
+docs venv: ``docs/.venv/bin/python docs/tools/check_docs_drift.py``;
+exit 0 = green, exit 1 prints one ``DRIFT:`` line per disagreement).
+The reference fragments carry no generator — they are *hand-kept-in-sync*
+files, which is exactly the situation that drifts silently — so the
+checker parses both sides and compares:
+
+1. the ``kconfig-*.inc`` fragments against the live Kconfig sources
+   (every documented key exists, every documented default is one of
+   the source's first-match-wins ``default`` lines, and the reverse
+   coverage pass catches *undocumented* symbols),
+2. ``moon-consts.inc`` against the generated ``moon_consts.h`` header
+   plus the core's numeric ``#define``/``const`` homes,
+3. the ``partitions-*.inc`` fragments against the three CSVs (the
+   decimal and the hex spelling must both agree with the CSV),
+4. the :doc:`UI reachability matrix <../ui/index>` against the
+   ``SCREEN_ID_*`` enum, the page files, and the screenshots each page
+   embeds (✓ rows need their annotated figures, — rows must not embed
+   the panel they claim unreachable), and
+5. the ``binary.rst`` current-size rows against the binaries on disk.
+
+The figure on :doc:`the binary-size page <../verification/binary>`
+completes the chain the other direction: it *parses* that same table
+(``docs/tools/gen_binary_figs.py``), so checker, page and figure can
+never disagree about the flash budget.
 
 The reference section is where the doc's tables come from: the
 glossary the text's terms resolve to, and the sources

@@ -8,6 +8,8 @@ The screen itself compiles unconditionally (only the hub *icon* is
 the S3 shot below is the shared layout at 466 px, shown here to
 document the geometry; on real hardware only the P4 can open it.
 
+.. drift-check:allow-panel settings-time_s3.png
+
 .. figure:: ../img/screens/annot/settings-time_s3.png
    :alt: manual time entry (p4) — the S3 panel (466, annotated)
    :align: center

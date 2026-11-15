@@ -199,6 +199,37 @@ The rules the graph encodes:
 - The alarm screen has no entry either — the alarm scheduler shows
   it; a touch dismisses it.
 
+Menu geometry, computed per variant
+-----------------------------------
+
+Two settings screens carry real *geometry* beyond the ring: the wheel
+keyboard and the alarm-time day band. Like the hub ring
+(:doc:`settings-hub <settings-hub>`), their layout is not hand-placed
+figures but pure ``UI_PX()`` arithmetic in
+:doc:`../code/index` (``components/ui/screens.c``) — so the figure
+below **computes** every element position per family panel the way
+the device does (the same integer division, the code's own radii and
+angle expressions: the wheel's WHEEL_* defines and design comment,
+the band's ALARM_TIME_* defines and ``ALARM_DAY_ANG(d) = 181 + 30d``;
+LVGL angles, 0 = right, 90 = down). The generator is
+``docs/tools/gen_menu_geom.py``; the hub-ring companion is
+``gen_hub_ring.py``, the dial-disk one ``gen_disk_geom.py``.
+
+.. figure:: ../_static/figs/menu_geom.png
+   :alt: wheel keyboard and alarm-time band geometry, computed per panel
+   :figclass: align-center
+
+   Top row: the :doc:`wheel keyboard <settings-wifi-password>` —
+   press band r 140..panel/2, at-rest letters r 168, reveal row r 209,
+   sector hairlines r 150..226, register track LVGL 150..390 at r
+   84..144, commit/discard wedges at r 114, centre box r ~55. Bottom
+   row: the :doc:`alarm-time day band <settings-alarm-time>` — outer
+   r 223, width 10 (the home seconds-arc ring), seven day handles on
+   the r 218 midline, the dark track and indicator running 181..1
+   through the 360/0 wrap (sample shown: Mon–Fri). The S3 column
+   carries the 1:1 numbers; P4 and knob scale every radius through
+   ``UI_PX``.
+
 .. toctree::
    :maxdepth: 2
 

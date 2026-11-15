@@ -253,7 +253,29 @@ cell an accepted capture or a gate run, never a projection:
 the family HEAD; the per-board gate story is
 :doc:`the image gate <image-gate>`.)
 
-Read the table as *throughput per pixel*, not wall time: the knob's
+.. figure:: ../_static/figs/perf_variants.png
+   :alt: per-variant comparison — throughput per pixel, relief build, revealed tax
+   :figclass: align-center
+
+   The same three facts as the table, as charts. **Left:** throughput
+   per baked pixel at each board's native size (log axis) — host C read
+   live from ``perf_data.json``, the device rows from the accepted
+   captures; the S3 and knob bars land on top of each other because
+   they *are* the same silicon paying the same PSRAM latency, and the
+   P4 bar sits 3.6× left of them. **Middle:** the one-time relief
+   build against the DEM grid — the knob's halved 1024×512 DEM halves
+   the clocks' build, the **O(N_dem)** signature; the P4 leg is hatched
+   because it was never captured (the board was off the bench).
+   **Right:** the plain bake vs the revealed bake per board — solid
+   bars the non-revealed baseline, dotted bars the accepted revealed
+   window with its min–max error bar; this is the visible-for-
+   computation tax of :doc:`the bake reveal <../implementation/bake-reveal>`
+   in one glance. The generator is ``docs/tools/gen_perf_variants.py``
+   (device constants quoted beside it; the host row re-reads
+   ``perf_data.json`` so figure and table cannot drift apart).
+
+Read the table as *throughput per pixel*, not wall time (the figure
+above plots exactly that): the knob's
 991 ms at 360 px and the S3's ~1.3 s at 400 px are the same silicon
 paying the same PSRAM latency per pixel, the P4 buys its 2.5×
 pixel-count lead over the S3 at *lower* wall time (fact 3), and the

@@ -85,8 +85,11 @@ WHEEL_MAP = {
 # manual time entry). The transient WiFi screen IS reachable there:
 # the knob registers action_update_clock_display, so the hourly sync
 # gate runs on it too, and the wheel keyboard's commit starts a sync
-# unconditionally. Plus the wheel-keyboard set and the dial-cursor hub
-# shot (--dial capture mode).
+# unconditionally. Plus the wheel-keyboard rest shot (the committed
+# base name) and its touched capture (the 360-px wheel-in-press view
+# keyboard.rst embeds — the ABC/123/sym variants are annotation inputs
+# for the two clock panels only, no knob page embeds them), and the
+# dial-cursor hub shot (--dial capture mode).
 KNOB_BASE = [s for s in BASE_SCREENS if s not in ("light_sleep", "deep_sleep", "settings_time")]
 KNOB_EXTRA = ["settings_hub_dial"]
 
@@ -242,14 +245,20 @@ def _copy_panel(panel_dir: Path) -> None:
 
 
 def _copy_knob_panel(panel_dir: Path) -> None:
-    """The knob set: only the 12 REACHABLE base screens (never the
-    transient WiFi sync, the sleep states or the P4-only manual-time
-    screen — the knob does not run those flows), the wheel-keyboard set
-    and the dial-cursor hub shot."""
+    """The knob set: only the 13 REACHABLE base screens (never the
+    light-/deep-sleep states or the P4-only manual-time screen — the
+    knob dims its real backlight, deep-sleeps for real and has no
+    manual time entry; the transient WiFi screen IS reachable), the
+    wheel-keyboard rest shot (the --wheel capture's rest frame is the
+    committed base name) plus the touched capture (keyboard.rst's
+    360-px wheel-in-press view; the ABC/123/sym variants are S3/P4
+    annotation inputs only — the knob set has no annotated views) and
+    the dial-cursor hub shot."""
     for name in KNOB_BASE:
         _copy(OUT / f"{name}.png", panel_dir / f"{name}.png")
-    for wheel, doc in WHEEL_MAP.items():
-        _copy(OUT / f"wheel_{wheel}.png", panel_dir / f"{doc}.png")
+    _copy(OUT / "wheel_rest.png", panel_dir / "settings_wifi_password.png")
+    _copy(OUT / "wheel_touched.png",
+          panel_dir / "settings_wifi_password_touched.png")
     for name in KNOB_EXTRA:
         _copy(OUT / f"{name}.png", panel_dir / f"{name}.png")
 

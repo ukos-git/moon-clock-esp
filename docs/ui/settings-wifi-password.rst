@@ -1,7 +1,7 @@
 The wheel keyboard (WiFi password)
 ==================================
 
-The circular wheel keyboard (v2, the 12-sector hybrid; the design record is :doc:`the round keyboard <../keyboard>`). Reached by tapping the network list's roller centre (the SSID prefilled, case kept). **Proportional sectors**: the 26 slots of the active mode tile the ring with equal shares (``SHARE = 360/26``), and the 12 frequency-grouped sectors (``[ab][cd][ef][gh][il][jkq][mn][op][rs][tu][vxz][wy]``) span n·SHARE — the grouping is fixed across all four registers, so the sector boundaries never move when the register changes (the muscle memory of the press position survives abc → 123). At rest: the 26 letters at r 168 and the 12 hairline sector dividers (r 150..226). The **reveal**: on touch-down in the ring band (r 140..233) only the pressed sector's boxes appear — one thick non-rounded arc box per letter, tiling the sector edge-to-edge — and the lit box inverts (white fill, near-black letter); the reveal is sticky to the pressed sector. The **hit-test** is the exact box under the finger (the finger's angle names the sector, the offset-in-sector names the box). The **centre preview** (DTMF-style): while pressed the lit letter shows in the centre with "release commits"; on release the character commits and the running entry re-appears (last 6 + ellipsis). The **register arc**: four 60° keys (abc / ABC / 123 / #\$) on the top 240° (LVGL 150..390, r 114); the **bottom 120°**: the house circle-xmark **commit** key and the trash **discard** key. A plain tap on the centre **backspaces**; a 400 ms **long press** on the centre is the ONLY way back to the WiFi list (v2 has no in-ring exit — the xmark glyph is the commit key, so the standard exit button is deliberately skipped). All presses commit on **release** only (the reveal + preview show exactly what the release will commit).
+The circular wheel keyboard (v2, the 12-sector hybrid; the design record is :doc:`the round keyboard <../keyboard>`). Reached by tapping the network list's roller centre (the SSID prefilled, case kept). **Proportional sectors**: the 26 slots of the active mode tile the ring with equal shares (``SHARE = 360/26``), and the 12 frequency-grouped sectors (``[ab][cd][ef][gh][il][jkq][mn][op][rs][tu][vxz][wy]``) span n·SHARE — the grouping is fixed across all four registers, so the sector boundaries never move when the register changes (the muscle memory of the press position survives abc → 123). At rest: the 26 letters at r 168 and the 12 hairline sector dividers (r 150..226). The **reveal**: on touch-down in the ring band (r 140..233) only the pressed sector's boxes appear — one thick non-rounded arc box per letter, tiling the sector edge-to-edge — and the lit box inverts (white fill, near-black letter); the reveal is sticky to the pressed sector. The **hit-test** is the exact box under the finger (the finger's angle names the sector, the offset-in-sector names the box). The **centre preview** (DTMF-style): while pressed the lit letter shows in the centre with "release commits"; on release the character commits and the running entry re-appears (last 6 + ellipsis). The **register arc**: four 60° keys (abc / ABC / 123 / #\$) on the top 240° (LVGL 150..390, r 84..144, midline r 114); the **bottom 120°**: the house circle-**check** **commit** key (LVGL ~31.5..88.5) and the circle-**xmark** **discard** key (~91.5..148.5), both at r 114 — the 2026-11-08 pairing, the check accepts and the X discards (:doc:`the round keyboard <../keyboard>`). A plain tap on the centre **backspaces**; a 400 ms **long press** on the centre is the ONLY way back to the WiFi list (v2 has no in-ring exit — the wheel owns the circle-xmark glyph as *discard*, so the standard circle-xmark exit button is deliberately skipped). All presses commit on **release** only (the reveal + preview show exactly what the release will commit).
 
 .. figure:: ../img/screens/annot/settings-wifi-password_s3.png
    :alt: the wheel keyboard (wifi password) — the S3 panel (466, annotated)
@@ -46,13 +46,13 @@ Elements
      - ``s_wheel_mode_keys`` (the four-key arc)
 
    * - 3
-     - Commit (circle-xmark)
-     - Saves the credentials (``wifi_credentials_write``) and starts the WiFi sync (``action_start_wifi_sync``) — the shot's "committed" variant lands on the transient WiFi screen.
+     - Commit (house circle-check)
+     - Saves the credentials (``wifi_credentials_write``) and starts the WiFi sync (``action_start_wifi_sync``) — the shot's "committed" variant lands on the transient WiFi screen. House circle-check at r 114 (LVGL ~31.5..88.5).
      - ``event_handler_cb_wheel_commit`` — the credentials land in :cfile:`spiffs/wifi_credentials.txt`
 
    * - 4
-     - Discard (trash)
-     - Clears the running entry (and the prefilled SSID) without saving.
+     - Discard (circle-xmark)
+     - Clears the running entry (and the prefilled SSID) without saving. The circle-xmark key at r 114 (LVGL ~91.5..148.5); the icon is built from rotated bars, not a font glyph.
      - ``event_handler_cb_wheel_discard``
 
    * - 5

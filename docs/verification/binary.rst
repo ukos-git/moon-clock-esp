@@ -65,6 +65,22 @@ the warning is expected and the flash succeeds (the hardware is
 links the same components minus the codecs and sensors) has never
 been approached either.
 
+.. figure:: ../_static/figs/binary_budget.png
+   :alt: current binaries against their factory ceilings, and the S3 chronology
+   :figclass: align-center
+
+   The budget, drawn. **Left:** each current binary against its
+   ``factory`` partition (gray = the partition, filled = the app) —
+   the S3's 81 % is the live constraint, the P4's 20 % and the knob's
+   37 % are headroom by design. The bars are **parsed from the table
+   above** (``docs/tools/gen_binary_figs.py`` reads this page), and
+   :doc:`the docs drift check <../reference/build-system>`
+   (``docs/tools/check_docs_drift.py``) verifies the page against the
+   binaries on disk — figure, table and disk are one chain.
+   **Right:** the chronology below as a step history — the production
+   build punching through the original 1392 KiB ceiling, the widening
+   to 2048 K, and the family build growing to 81 % under it.
+
 The partition tables
 --------------------
 
