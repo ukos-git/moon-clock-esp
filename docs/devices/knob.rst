@@ -511,7 +511,11 @@ Layout and commands:
   parsed, and since P1 the alarm **presents**: awake, the shared
   esp_timer fires the silent alarm visual; asleep, the TIMER wake
   above shows it (codec-less, so it never rings — *editing* the rule
-  on glass comes with P3).
+  on glass comes with P3). The shared clock keeps advancing under the
+  alarm visual — HH:MM ticks on the alarm screen too (the missing
+  ``clock_minute_enable_interrupt`` gate that froze it there while
+  ringing was caught and fixed on 2026-11-15,
+  :doc:`the knob display <../implementation/knob-display>`).
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the
   pulsed channel IS the direction. The decoder mirrors the vendor's

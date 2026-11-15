@@ -12,6 +12,7 @@
 
 #include "board_display.h"
 #include "clock.h"
+#include "clock_minute.h"
 #if CONFIG_KNOB_UI_ENABLE
 #include "actions.h"
 #include "clock_cb.h"
@@ -425,6 +426,23 @@ void app_main(void) {
     const clock_config_t clock_cfg = {.enable_ntp_sync = false};
     if (clock_init(&clock_cfg) != ESP_OK) {
         ESP_LOGW(TAG, "clock_init failed — time stays untrusted");
+    } else if (clock_minute_enable_interrupt(CLOCK_MINUTE_INT_FULL) != ESP_OK) {
+        /* The clocks' main.cpp enables the minute "interrupt" right
+         * after a successful clock_init, and on the software time base
+         * that call is the SWITCH the synthesized minute tick runs
+         * behind: clock_minute_process_interrupt reports a rollover
+         * only while s_minute_int_type is FULL. The knob shipped
+         * without it since P1 home parity — the 1300 ms lv_timer below
+         * still synthesized the countdown and the alarm fire (neither
+         * consults the gate, so the alarm rang), but
+         * clock_trigger_time_update never fired, the shared HH:MM
+         * froze at its last screen-switch value, and the alarm screen
+         * the user stares at while it ringing showed a dead clock
+         * (bench 2026-11-15: "once an alarm fires, the clock is not
+         * updated during the alarm"). The software leg only sets the
+         * gate — no PCF, no I2C. Log-line proof: "Minute tick:
+         * software mode (no PCF85063A), type=2". */
+        ESP_LOGW(TAG, "minute tick enable failed — clock labels stay at the attach value");
     }
 
     /* K7: eager asset load (albedo -> PSRAM, relief gradient cache) runs

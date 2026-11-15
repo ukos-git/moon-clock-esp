@@ -195,7 +195,23 @@ per-second chain rides the shared ``clock_rtc_interrupt_handler_cb``
 on an ``lv_timer`` (1300 ms, the clocks' cadence) with exactly the
 clocks' three registrations — clock labels + day probe, alarm
 display, alarm trigger — and no idle pair: the knob's ladder is
-``knob_power``'s, not the app-layer dimming. The idle pair's *other*
+``knob_power``'s, not the app-layer dimming. Making that chain's
+minute leg actually tick took one more of the clocks' lines the port
+had missed: ``clock_minute_enable_interrupt(CLOCK_MINUTE_INT_FULL)``
+after a successful ``clock_init`` — on the software time base not a
+register write but the *gate*, since ``clock_minute_process_interrupt``
+reports a rollover only while the enabled type is FULL. Without it
+the ``lv_timer`` still synthesized the countdown and the alarm fire
+(neither consults the gate), so the alarm **rang** — but
+``clock_trigger_time_update`` never ran and the shared HH:MM froze at
+its last screen-switch value, visibly so on the alarm screen while it
+was ringing (the user, 2026-11-15: "once an alarm fires, the clock is
+not updated during the alarm"). The boot log line ``Minute tick:
+software mode (no PCF85063A), type=2`` is the gate-open evidence.
+With the gate open the shared chain's hourly-sync leg rides along as
+on the clocks — at the top of a minute, on the airplane screen, with
+the radio down and NTP due, it runs the same background WiFi + NTP
+task (the knob's usual state is *joined*, so it stays dormant). The idle pair's *other*
 legacy is boot-time, though: on the clocks the shared 10 ms UI-tick
 and 1 s seconds-increment ``lv_timer`` timers are created by
 ``action_wake_screen`` — a handler the knob never runs — so the

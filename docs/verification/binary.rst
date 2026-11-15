@@ -20,6 +20,10 @@ git-describe short hash as the TF-cache calcver string (the root
 the commits since these builds are docs/host-sim-only, and the
 firmware delta to the current HEAD is that embedded string alone —
 constant length, so the sizes below carry to HEAD unchanged. The
+knob row is the exception to that last clause: it is a rebuild
+carrying the minute-tick enable (``knob/main/main.c``, the
+alarm-screen clock fix of 2026-11-15 — one call, one log line and
+their string, +256 B), committed together with this page. The
 knob's tree is the sibling project's own ``../build/knob`` outside
 the repo, never ``build/knob``):
 
@@ -44,9 +48,9 @@ the repo, never ``build/knob``):
      - 7,577,696 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,555,632 B (0x17bcb0)
+     - 1,555,888 B (0x17bdb0)
      - 4,194,304 B (4096 K)
-     - 2,638,672 B (63 %)
+     - 2,638,416 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 19 % is the
 meaningful one: the S3 is the board the app *grew into* (the
