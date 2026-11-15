@@ -31,29 +31,44 @@ endif()
 project(moon-phase)
 
 # Calculation version for the TF sweep cache (components/ui/moon_tfcache.c):
-# the cache folder is /moon_cache/<calcver>_<target>_<bakepx>/, so a new
-# bake-code build (new commit => new describe string) bakes into a FRESH
-# empty folder and the sweep module deletes the stale siblings. The repo
-# is versioned with commitizen (`.cz.toml`); `cz bump` creates the vMAJOR.
-# MINOR.PATCH tags describe then picks up (until the first bump it is the
-# short hash -- equally valid as a cache key). Re-configure is triggered
-# on commit/tag movement (.git/HEAD, packed-refs); a working-tree `-dirty`
-# suffix only refreshes on those events -- acceptable for a cache key
-# (bake code changes are committed changes by convention).
-find_package(Git QUIET)
-set(MOON_CALC_VER "unknown")
-if(GIT_FOUND)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-        ${CMAKE_SOURCE_DIR}/.git/HEAD
-        ${CMAKE_SOURCE_DIR}/.git/packed-refs)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE MOON_CALC_VER_RAW
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if(MOON_CALC_VER_RAW)
-        set(MOON_CALC_VER ${MOON_CALC_VER_RAW})
+# the cache folder is /moon_cache/<calcver>_<target>_<bakepx>/. The key is
+# the version set MANUALLY via commitizen (`cz bump` writes
+# version = "x.y.z" into .cz.toml): the card re-keys only on a deliberate
+# version bump, so commits alone never invalidate the cache again (the old
+# per-commit git-describe key rolled a fresh folder per build -- including
+# `-dirty` keys no commit ever owned). Until the FIRST bump there is no
+# version line and the git-describe short hash keys the folder -- equally
+# valid as a cache key. Re-configure is triggered on .cz.toml and on
+# commit/tag movement (.git/HEAD, packed-refs) so both sources take effect
+# without a fullclean.
+set(MOON_CALC_VER "")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/.cz.toml)
+if(EXISTS ${CMAKE_SOURCE_DIR}/.cz.toml)
+    file(READ ${CMAKE_SOURCE_DIR}/.cz.toml _cz_toml)
+    string(REGEX MATCH "version[ \t]*=[ \t]*\"([^\"]+)\"" _cz_match "${_cz_toml}")
+    if(_cz_match)
+        set(MOON_CALC_VER "${CMAKE_MATCH_1}")
     endif()
+endif()
+if(NOT MOON_CALC_VER)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            ${CMAKE_SOURCE_DIR}/.git/HEAD
+            ${CMAKE_SOURCE_DIR}/.git/packed-refs)
+        execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE MOON_CALC_VER_RAW
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(MOON_CALC_VER_RAW)
+            set(MOON_CALC_VER ${MOON_CALC_VER_RAW})
+        endif()
+    endif()
+endif()
+if(NOT MOON_CALC_VER)
+    set(MOON_CALC_VER "unknown")
 endif()
 idf_build_set_property(COMPILE_OPTIONS "-DMOON_CALC_VER=\"${MOON_CALC_VER}\"" APPEND)
 message(STATUS "moon calc version (TF sweep-cache folder prefix): ${MOON_CALC_VER}")

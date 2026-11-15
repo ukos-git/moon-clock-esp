@@ -134,7 +134,12 @@ The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
 
 The cache persists one small gray JPEG per HOUR under
 ``/moon_cache/<calcver>_<target>_<px>/``; the folder name carries the
-calculation version, so a new bake build starts from an empty folder, and
+calculation version — the version the repo sets **manually via
+commitizen** (``cz bump`` writes ``version = "x.y.z"`` into ``.cz.toml``,
+and the root ``CMakeLists`` reads that line as ``MOON_CALC_VER``), falling
+back to the ``git describe`` short hash only until the first bump — so a
+deliberate version bump starts an empty folder while plain commits leave
+the card alone, and
 a self-describing ``meta.txt`` wipes/recreates the folder on any
 resolution mismatch (``moon_tfcache.c``). Two rules bound the folder
 (the user's cache policy, 2026-11-14): nothing more than one synodic
@@ -286,10 +291,13 @@ codec (``esp_new_jpeg``, format self-probed at init), the same
 tint-LUT-identical fetch, and the same silent card-less fallback, all on
 the per-board mount (S3 SPI 1-bit on SPI3_HOST, P4 4-bit SDMMC) and
 ``CONFIG_FATFS_LFN_HEAP``. Two dated facts about that module stay worth
-knowing because they still shape it: the folder is keyed on the build's
-``git describe`` stamp, so **every new flash starts its cache from zero**
-and prunes the old version's folder (by design — a new bake build is a new
-calculation, and a dirty tree gets a fresh ``-dirty`` folder); and the
+knowing because they still shape it: the folder is keyed on the
+commitizen-set version (the ``version`` line in ``.cz.toml``, which
+``cz bump`` writes; the ``git describe`` short hash keys it only until the
+first bump), so **the card re-keys on a deliberate version bump** and the
+stale sibling folders are pruned then — plain commits no longer start the
+cache from zero (the old per-commit ``git describe`` key did, ``-dirty``
+suffix and all, until 2026-11-15); and the
 decode out-buffer is allocated **lazily** on the first hit rather than at
 init (task #38, 2026-11-13) — holding the ``3·S²`` buffer eagerly starved
 the 8 MB S3's slot floor and silently killed the card path *every* boot, so
