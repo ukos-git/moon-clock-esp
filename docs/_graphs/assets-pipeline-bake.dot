@@ -1,0 +1,55 @@
+// The bake side, opened (verified before drawing):
+//   The sources are shared by all three boards: LROC albedo loaded
+//   16-bit via tifffile + the LOLA DEM — ONE dataset; only the
+//   per-board BAKE resolution differs.
+//   moon/constants.py is the single source of truth (widths, DEM
+//   quantisation range) — so components/moon/generated/<target>/
+//   moon_consts.h is GENERATED from it (TRACKED; docs/reference/
+//   moon-consts.rst single-sources that header).
+//   The CLI: cd assets/images/moon && .venv/bin/python -m moon.assets
+//   --target s3 p4 knob; choices come from constants.TARGETS. The
+//   whole out/<target>/ tree is gitignored and regenerated.
+//   The three outputs: moon_assets.bin — the flashed blob, albedo u8
+//   at offset 0 (864 wide on S3+knob, 2048 on P4) then the int8 DEM
+//   — the moon_assets.h boot contract read by esp_partition_read;
+//   moon_assets_manifest.json — alb_w, combined_bytes, DEM geometry
+//   — the guard's input AND its witness; moon_assets_gen.c — the
+//   compiled-in fallback texture, also a moonmedia staleness input.
+//   The root CMakeLists' FATAL_ERROR trio referees both firmware ends
+//   (see assets-pipeline-guards.dot).
+// The sealed version is assets-pipeline.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph assets_pipeline_bake {
+    rankdir=TB;
+    label="The bake side — one dataset, constants.py as referee, three outputs";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    albedo [label="LROC albedo —\n16-bit TIFF via\ntifffile"];
+    dem [label="LOLA DEM — int8 after\nquantisation; per-board\nBAKE px differs"];
+    consts [label="moon/constants.py —\nthe SINGLE source\n(widths, DEM range)",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    cli [label="python -m moon.assets\n--target s3 p4 knob\n— out/<t>/ is\ngitignored",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hdr [label="generated/<t>/\nmoon_consts.h —\nTRACKED, generated\nfrom constants.py",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    blob [label="moon_assets.bin —\nalbedo u8 at 0 (864\nS3+knob, 2048 P4),\nthen int8 DEM",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    mani [label="the manifest —\nalb_w, combined_bytes,\nDEM geometry: guard\ninput AND witness"];
+    genc [label="moon_assets_gen.c —\ncompiled-in fallback;\na moonmedia staleness\ninput"];
+
+    albedo -> cli;
+    dem -> cli;
+    consts -> cli [label="widths +\nquantisation", color="#b07d10", fontcolor="#6b4e08"];
+    consts -> hdr [style=dashed, color="#b07d10"];
+    cli -> blob;
+    cli -> mani;
+    cli -> genc [style=dashed];
+}

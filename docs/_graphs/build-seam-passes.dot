@@ -1,0 +1,53 @@
+// The two CMake passes — the reason for every rule on the seam
+// (verified before drawing):
+//   The EARLY requirements pass (build.cmake:659-664,
+//   __component_get_requirements — 'Perform early expansion of
+//   component CMakeLists.txt in CMake scripting mode'):
+//   cmake -P component_get_requirements.cmake evaluates every
+//   component CMakeLists with NEITHER project variables NOR CONFIG_
+//   symbols (ui/CMakeLists:7-13) — so REQUIRES/PRIV_REQUIRES are
+//   spelled out UNCONDITIONALLY on purpose, every name resolving in
+//   all three projects (:36-43; an if() hiding a missing component is
+//   INVISIBLE in this pass — hence the silent esp_codec_dev shim,
+//   build-seam-shims.dot).
+//   The TARGET pass (full configure): the project scope is complete —
+//   branches may key on KNOB_BOARD, and the house rule says branch
+//   only SRCS/INCLUDES there, never requirements (CONFIG_BOARD_P4
+//   'reads false in that pass (harmless: SRCS are only consumed by
+//   the second, target-owning pass)', :11-13). The ui component's
+//   knob branch (ui:31-35): UI_BOARD_SRCS — 'alarm_audio.c demo.c
+//   moon_ui.c moon_tfcache.c' — becomes EMPTY, and FONT_DIR flips to
+//   fonts_knob (:14-20; fonts/ 96-48-32, fonts_p4/ 148-74-50,
+//   fonts_knob/ 74-37-25 — identical lv_font_t symbol names, 'so
+//   fonts.h and every consumer are unchanged').
+// The sealed version is build-seam.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph build_seam_passes {
+    rankdir=TB;
+    label="The two passes — the early one is why REQUIRES are literals";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    early [label="the EARLY pass —\nexpand requirements\npre-vars, pre-Kconfig",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    literals [label="REQUIRES spelled\nUNCONDITIONALLY —\nevery name resolves\nin all three projects",
+              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    targetp [label="the TARGET pass —\nfull configure, the\nproject scope done"];
+    br [label="KNOB_BOARD branches\nlive here — SRCS /\nINCLUDES only",
+        fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    uisrc [label="UI_BOARD_SRCS →\nempty; FONT_DIR →\nfonts_knob (:14-20)"];
+    uitu [label="the four dropped\nTUs: alarm_audio,\ndemo, moon_ui,\nmoon_tfcache"];
+
+    early -> literals [color="#2b5fb0", penwidth=1.6];
+    early -> targetp [label="then the full\nconfigure runs"];
+    targetp -> br [color="#b07d10"];
+    br -> uisrc [color="#b07d10"];
+    uisrc -> uitu;
+}

@@ -23,7 +23,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph build_seam_projects {
     rankdir=TB;
-    label="The projects — a clock at the root, a knob beside it, three locks";
+    label="The projects — the clock, the knob, and three locks";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.45, ranksep=0.5];
@@ -32,7 +32,7 @@ digraph build_seam_projects {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    rootp [label="the root — the CLOCK\nproject, S3 default;\nits lock stays S3's",
+    rootp [label="root — the CLOCK\nproject; S3 default;\nits lock stays S3's",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     p4sib [label="the P4 sibling —\n-B build/p4, own\nlock dependencies.\nlock.p4"];
     excl [label="EXCLUDE_COMPONENTS\nthe vendored S3 BSP\n(manifest targets:\n[esp32s3])"];

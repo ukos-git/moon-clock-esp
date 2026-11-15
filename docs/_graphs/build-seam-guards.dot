@@ -1,0 +1,57 @@
+// The configure-time guards, opened (verified before drawing):
+//   Root's guards (:94-163): MOON_ALBEDO_W must be an EVEN equirect
+//   width (:107-108); the manifest's alb_w must EQUAL the Kconfig
+//   width (:130-134); the combined blob must fit the moon_assets row
+//   of 'the partition CSV the build actually uses' —
+//   PARTITION_TABLE_CUSTOM_FILENAME honoured, else partitions.csv
+//   (:137-144) — 'they need >= X K' names the KiB (:160-163). 'All
+//   three mismatches have historically surfaced as obscure build/boot
+//   failures … so they are FATAL_ERRORs here' (:88-93). A MISSING
+//   blob is a WARNING only (:183-185) — the app boots without the
+//   moon.
+//   knob's guards (:51-88) replicate the root's SHAPE, minus the
+//   Kconfig-width check — 'the knob has no Kconfig mirror; its single
+//   truth is the pipeline-written manifest + header' (:52-54) — and
+//   it is STRICTER about existence: a missing MANIFEST is a
+//   FATAL_ERROR (:59-63), because a knob without its blob has no moon
+//   at all (no SD socket).
+//   Where CONFIG_ symbols come from instead: sdkconfig.defaults.
+//   esp32p4 pins CONFIG_BOARD_P4=y (:7) and
+//   PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv" (:13) — the
+//   root's mismatch guard FATAL_ERRORs when target and BOARD choice
+//   disagree (:77-88); the knob's own choice BOARD lives in the
+//   shim's Kconfig.
+// The sealed version is build-seam.dot; the blob these guards price is
+// assets-pipeline.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph build_seam_guards {
+    rankdir=TB;
+    label="The configure guards — obscure failures die as FATAL_ERRORs";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.35, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    rootg [label="root's guards :94-163\n— the FATAL_ERROR\ntrio",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    kconf [label="CONFIG_ symbols:\nthe per-target sdkconfig.\ndefaults files",
+           fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    g1 [label="MOON_ALBEDO_W\neven (equirect 2:1)"];
+    g2 [label="manifest alb_w =\nKconfig width —\nwrong-board blob dies"];
+    g3 [label="combined_bytes ≤\nthe moon_assets row\nof the CSV in use"];
+    miss [label="MISSING blob =\nWARNING only — boots\nwithout the moon"];
+    knobg [label="the knob replicates\nthe shape, drops the\nwidth check — and\nno manifest is FATAL",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    rootg -> g1;
+    g1 -> g2;
+    g2 -> g3;
+    g3 -> knobg [style=dashed, color="#b07d10"];
+    rootg -> miss [style=dashed];
+    rootg -> kconf [style=dashed];
+}
