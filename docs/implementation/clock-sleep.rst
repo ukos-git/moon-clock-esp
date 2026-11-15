@@ -104,8 +104,9 @@ firmware also have fuller entries in the :doc:`glossary
   agrees with the home axis (the dot) and which side of it it falls
   (the cross); together they pick the quadrant.
 - **Departure wake** *(glossary)* — waking on a *sustained move
-  away* from the settled pose, not on raw motion: two thresholds
-  (magnitude and direction) held for two consecutive samples.
+  away* from the settled pose, not on raw motion: two per-state
+  thresholds (the 5° activity bar awake, the 20° wake bar asleep)
+  held for two consecutive samples.
 - **SNTP / on-demand sync** — the network time check the device
   runs at boot, hourly, and on wake when the RTC has drifted enough
   to distrust; the radio spins up only for the check's duration.
@@ -293,8 +294,9 @@ is exactly the half-picture the atomic rule forbids.
 
 The screen's orientation is not a continuous ramp — it is quantized
 to **four 90° steps** (0/90/180/270° clockwise), applied as the LVGL
-root's ``transform_rotation``. The pipeline (on the LVGL task, fed by
-the tilt monitor's 1 Hz samples):
+root's ``transform_rotation``. The pipeline (on the LVGL task, reading
+the IMU itself once per 100 ms through a gate on the UI tick — its own
+10 Hz, independent of the tilt monitor's 1 Hz timer):
 
 1. **Sample** — 100 ms x/y gravity samples, int4-quantized.
 2. **Window** — a 1 s windowed mean (10 samples) kills a single-sample
@@ -556,14 +558,21 @@ into, and calls it activity only when the readings sustain a move
 couple of samples in a row. The pose it fell asleep at is the
 reference; motion relative to it is the wake.
 
-The tilt sensor (QMI8658C) drives two things — the orbit's sustained
-poses (:doc:`the animation pipelines <animations>`) and the **activity/wake** signal. The wake fires
+The tilt sensor (QMI8658C) drives three things — the
+**activity/wake** signal, the whole-screen **90° orientation**
+pipeline (above: the tilt's only UI coupling while the orbit is off),
+and the moon's out-of-plane orbit
+(:doc:`the animation pipelines <animations>`), which is
+``UI_MOON_ORBIT_ENABLE`` default ``n`` because the ~2 s relief-DEM
+re-bake cannot be served at the tilt cadence. The wake fires
 on **departure from a settled pose**, not on raw per-sample deltas:
 
 - the settled pose is tracked as an EMA of the gravity vector;
-- a *departure* requires **two bars** (magnitude and direction
-  thresholds) held for a **2-sample streak** before it counts as
-  activity.
+- a *departure* requires **two bars** — per-state thresholds on the
+  same angle: ``UI_IMU_ACTIVITY_DEG`` (5°) while awake, the deliberate
+  pick-up ``UI_IMU_WAKE_DEG`` (20°) while asleep — held for a
+  **2-sample streak** before it counts as activity. The asleep band
+  between the bars neither wakes nor holds.
 
 The failure mode the design prevents is waking the device *right
 after it slept*: a device on a desk jostled by a fan or a footstep
@@ -573,6 +582,14 @@ departure model treats the settled pose as the *reference* and only
 wakes on a sustained move *away from it* — the "the clock woke itself"
 bug class, fixed at the signal level rather than with a sleep
 debounce.
+
+The full chain — one read path, two consumers on two clocks (the
+monitor's 1 Hz timer versus the orientation pipeline's 100 ms gate on
+the UI tick), the settled state as the single edge between them, and
+the 2 s press re-sync with its stability and on-axis gates — drawn
+from the code:
+
+.. graphviz:: ../_graphs/tilt-pipeline.dot
 
 The sleep ladder: awake → light → deep
 --------------------------------------

@@ -542,6 +542,44 @@ UI_SCREEN_SWITCH_FADE`` symbol indirection:
    2400×-spread that is the design: brightness animates, pixels never
    half-move. The generator is ``docs/tools/gen_perf_dim.py``.
 
+The static footprint (how much memory)
+---------------------------------------
+
+The fourth axis is neither work, frequency nor brightness but
+**bytes**: the same three resources whose ceilings caused both NO_MEM
+families (the 32 KiB SPI-DMA staging cap, the 64 KiB LVGL pool that a
+panel-sized rotated layer does not fit). Every bar is **parsed or
+derived from the live sources at figure time** — the allocators and
+``MOON_PX`` from ``components/ui/moon_ui.c``, the 25-row double buffer
+from the vendored S3 BSP, the task stacks from their ``xTaskCreate``
+sites, the LVGL pool default from the lvgl Kconfig (unpinned in every
+``sdkconfig``), the flash assets from the three manifests — so figure
+and sources are one chain, like the pacing and brightness ladders.
+Runtime watermarks (free heap, largest block) are the device's own
+``heap internal/psram`` boot lines, deliberately not repeated here.
+
+.. figure:: ../_static/figs/perf_mem.png
+   :alt: three panels — PSRAM working set per board, internal-RAM commitments, flash moon assets vs their partition
+   :figclass: align-center
+
+   The static footprint. **Left:** the PSRAM working set — the clocks
+   carry the three moon buffers (``s_frame`` gray + ``s_rgb`` RGB565 +
+   the hourly bounce ``s_hourly_gray``, sizes ``MOON_PX² × {1,2,1}`` —
+   P4 pays 2.6× S3 for the 650 px disk), plus the draw buffers, plus
+   (hatched) the rotated root's panel-sized layer that exists only
+   while rotated and comes from the clib malloc precisely because the
+   64 KiB LVGL pool cannot hold it; the knob instead double-buffers
+   the full 360² square (``moon_ui.c`` is *excluded* from the knob
+   build — its working set lives in ``knob_ui``). **Middle:** the
+   internal-RAM commitments — the static LVGL pool and the task
+   stacks; the two ``MALLOC_CAP_SPIRAM`` stack tasks are dotted, not
+   RAM debt. **Right:** the flash moon assets against their own
+   partition rows — the S3's 2 MiB DEM pushes the combined image to
+   94 % of its 2,560 KiB partition, the P4's 4 MiB combined sits at
+   80 %, the knob's half-axis DEM (1024×512) leaves it at 34 %
+   (headroom the asset pipeline's size guards keep as headroom). The
+   generator is ``docs/tools/gen_perf_mem.py``.
+
 The device CPU (one-core shares)
 --------------------------------
 

@@ -179,8 +179,10 @@ The device pipeline
 - **Departure wake** — the tilt-wake model: the wake fires on
   *departure* from a settled-pose EMA (two bars + a 2-sample
   streak), not raw per-sample deltas (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
-- **moon_assets** — the 2,470,400 B flash partition: the 864×432
-  equirect albedo + the 2048×1024 int8 relief DEM (:doc:`the binary-size chronology <verification/binary>` and :doc:`the build system <reference/build-system>`).
+- **moon_assets** — the 2,560 K flash partition carrying the
+  generated blob: the 864×432 equirect albedo + the 2048×1024 int8
+  relief DEM, a 2,470,400 B combined image on the S3
+  (:doc:`the binary-size chronology <verification/binary>` and :doc:`the build system <reference/build-system>`).
 - **Relief gradient cache** — the one-time boot build of the DEM's
   quantized slopes into a packed uint16 array (the 2 PSRAM loads/px
   bake, :doc:`the C core <implementation/core-c>` and :doc:`performance <verification/performance>`).

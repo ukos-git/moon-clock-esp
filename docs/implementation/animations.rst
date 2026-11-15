@@ -412,11 +412,14 @@ The orbit (tilt viewport)
 The home's moon is a static bake — and when the tilt sensor holds a
 sustained off-axis pose, the **orbit** rotates the *viewport* itself
 (the camera basis folds about the screen normal by the tilt angle) —
-a re-bake at the tilted orbit, displayed strip by strip
-(latest-wins: only the newest pending orbit is baked; older tilt
-samples are dropped). The orbit bake is a normal ``moon_bake`` into
-``s_frame`` with the orbit-folded camera basis; its completion is one
-atomic whole-frame flush.
+a re-bake at the tilted orbit (latest-wins: only the newest pending
+orbit is baked; older tilt samples are dropped). The orbit bake is a
+normal ``moon_bake`` into ``s_frame`` with the orbit-folded camera
+basis, built row by row off the LVGL task so a cancel lands fast;
+its completion is one atomic whole-frame flush — the tick's orbit
+consumer caps its batch at ``MOON_ORBIT_BATCH`` = all strips, and the
+publish is all-or-nothing, so the viewport lands as one ~150 ms
+frame rather than a progressive top-to-bottom wipe.
 The orbit is what makes "tilt the clock and the moon shows a
 different face" true, at the cost of a 1.3 s bake per sustained
 change (the tilt confirmation — 1 s windowed mean, integer

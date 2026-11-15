@@ -33,7 +33,7 @@ digraph wake_doors {
         fontsize=13; fontcolor="#1e3f70";
 
         monitor [label="the 1 s tilt monitor (moon_ui) samples the\nQMI8658C and calls\nactions.c → clock_idle_notify_tilt_activity"];
-        depart [label="clock_idle_notify_tilt_activity: wakes only\non DEPARTURE from the settled-pose EMA —\ntwo bars (magnitude + direction) held for a\n2-sample streak; the ≤ 1/s rate cap is the\ncall site — raw deltas are the \"the clock\nwoke itself\" bug class",
+        depart [label="clock_idle_notify_tilt_activity: wakes only\non DEPARTURE from the settled-pose EMA —\ntwo per-state bars (5° activity while awake,\n20° UI_IMU_WAKE_DEG while asleep) held for a\n2-sample streak; the ≤ 1/s rate cap is the\n1 Hz call site — raw deltas are the \"the\nclock woke itself\" bug class; the full\nsignal chain is docs/_graphs/tilt-pipeline.dot",
                   fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     }
 

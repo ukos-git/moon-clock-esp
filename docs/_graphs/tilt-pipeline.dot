@@ -1,0 +1,97 @@
+// The tilt signal chain: ONE accelerometer read path feeding TWO
+// consumers on TWO different clocks (the 1 Hz activity/wake monitor
+// and the 10 Hz orientation pipeline), plus the orbit that is off by
+// default. The settled state of the monitor gates the orientation
+// anchor's re-tracking — the one edge between the two consumers.
+// Every edge verified in components/imu/imu_qmi8658.c (burst read,
+// |g| band), components/ui/moon_ui.c (monitor cb :2285, timer :2588,
+// moon_imu_tick :2162), components/clock/clock_idle.c:92 and
+// components/ui/actions.c (screen_orientation_apply :409,
+// ori_apply_v10 :315, ORI_* defines :183-:240).
+// The wake door itself and its shared tail are docs/_graphs/wake-doors.dot.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph tilt_pipeline {
+    label="The tilt chain: one gravity read path, two consumers on two clocks — the 1 Hz activity/wake monitor and the 10 Hz 90° orientation pipeline; the monitor's settled state gates the orientation anchor";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_sensor {
+        label="the sensor front end (imu_qmi8658.c) — shared by every consumer";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        chip [label="QMI8658C on the shared I2C bus\n(0x6A/0x6B) — imu_is_ready() gates\nevery consumer; the knob ships\nimu_stub.c (ready=false, gravity\nalways false) AND excludes moon_ui.c\nentirely — its UI sits at the base\norientation and tilt never wakes it",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        sample [label="imu_gravity_sample: one burst read →\ng in units of g (calibrated);\n|g| outside 0.5..1.5 is a shake or\ndrop → the sample is DROPPED;\na NACK-stuck bus logs the first\nand every 20th consecutive failure"];
+    }
+
+    subgraph cluster_monitor {
+        label="consumer A — the activity/wake monitor (moon_ui.c), 1 Hz, NEVER paused";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        mon [label="moon_tilt_monitor_cb on its own 1 s\nlv_timer (:2588) — deliberately NOT\nthe moon tick (the moon tick is PAUSED\nin sleep and the wake must run there);\nCONFIG_UI_IMU_ENABLE=n: the timer\nsurvives only to cache the LVGL task handle",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        fast [label="fast EMA (alpha 0.5) of the raw g →\ns_pose_g, unit-normalized: the\ncurrent pose with per-sample noise\nsuppressed; the FIRST sample seeds\nboth EMAs (zero departure)"];
+        dep [label="departure = acos(dot) between pose\nand settled reference, degrees —\nNOT the delta of two raw samples\n(the p90 ~3.3 deg at-rest noise floor\nis why raw deltas fired \"woke right\nafter sleep entry\")"];
+        settle [label="departure < UI_IMU_ACTIVITY_DEG (5°):\nSETTLED — the slow EMA (alpha 0.2)\nabsorbs the pose into the reference\n(only while settled, so the ~0.4–0.7\n°/s at-rest drift is tracked, not\nfought; ceiling bar × α/(1−α) = 1.25\n°/s — alpha 0.1 sat AT its ceiling\non a hot board); streak reset"];
+        bars [label="the TWO BARS are per-STATE thresholds\non the same departure — awake: the\nactivity bar (5°, holds the idle timer\nwhile the user manipulates the ball);\nasleep: the deliberate-pick-up wake\nbar UI_IMU_WAKE_DEG (20°) — table\nvibration and drift cannot clear it;\nthe asleep 5..20° band is neither",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        streak [label="a STREAK of two consecutive\nqualifying samples gates both bars\n(one residual spike cannot fire);\nthe 1 Hz call site is the ≤ 1/s\nrate cap on notify"];
+        sink [label="clock_idle_notify_tilt_activity\n(clock_idle.c:92): resets the idle\nactivity stamp ALWAYS; if asleep,\nalso clock_trigger_idle_wake() —\nthe tilt door of wake-doors.dot"];
+        settled_flag [label="moon_ui_tilt_settled() — the\nmonitor's settled verdict, exported\nfor the orientation anchor (below)",
+                      fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    subgraph cluster_ori {
+        label="consumer B — the 90° orientation pipeline (actions.c), 10 Hz";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        gate [label="screen_orientation_apply is called EVERY\nUI tick (10 ms awake) but samples only\nthrough the 100 ms gate (ORI_SAMPLE_MS)\n→ 10 Hz; the tilt monitor's own 1 Hz\ntimer does NOT feed this consumer"];
+        quant [label="int4 quantization (ORI_Q_SCALE 8 —\n1 level = 1/8 g, clamped ±1 g) of x/y;\nflat gate: |g_xy| < 0.25 g leaves the\nin-plane pose UNDEFINED — last\norientation, window and reference\nall frozen"];
+        win [label="1 s running mean (ORI_WINDOW 10) is\nthe 1 Hz low-pass; STABLE = the\nfiltered mean holds within ONE int4\nlevel for ORI_STABLE_SAMPLES 15\n(~1.5 s) — the home anchor may seed\nand re-anchor only on a stable pose"];
+        quad [label="integer dot/cross quadrant (no atan2,\nno floats in the decision) → step ∈\n{0, 90, 180, 270}° CW-positive; the\nstep is decided BEFORE the reference\nre-tracks, and re-tracking happens\nonly while SETTLED and step == 0 —\nthe fast 180° flip cannot adopt its\ntransient pose as home (the \"clock\nwoke up sideways\" bug class)"];
+        conf [label="sustained confirmation: the step must\nbe produced by ORI_WINDOW (10) consecutive\nsamples (~1 s) before it applies —\na single transient or I2C glitch\nis diluted out; a deliberate move\ncosts at most ~1 s of latency"];
+        apply [label="v10 = ORI_BASE_V10 − step×10 (sign flipped\nby UI_CLOCK_ROLL_SIGN; base 900 = +90°\nif BOARD_P4, else 1800 = +180° — the\npanel-mount offset); ori_apply_v10 pushes\nLVGL transform_rotation to ALL 16 screen\nroots, pivot centre; the rotated root's\nlayer is panel-sized RGB565 (~0.4 MB @466,\n~1.0 MB @720) from the CLIB malloc →\nPSRAM (the 64 KB LVGL pool cannot hold\nit); hit test inverse-maps through the\ntransform, step 0 = direct draw, zero cost",
+               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        resync [label="the 2 s press re-sync — PRESSED stamps,\nRELEASED at ≥ 2000 ms asks for it\n(action_register_orientation_touch);\nACTIONED only if stable AND on-axis\n(|dot|² ≥ 3|cross|² — the 2026-10-30\n\"flipping does not reliably work\"\nfix: a palm released mid-flip is\ndropped); re-anchors home and pushes\nthe base orientation",
+                 fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    orbit [label="consumer C — the moon's out-of-plane orbit\n(moon_imu_tick, moon_ui.c:2162, off the moon\ntick): asin(−gz) → low-pass, dead-zone, clamp,\nquantize → re-bake. UI_MOON_ORBIT_ENABLE is\nDEFAULT n — the ~2 s relief-DEM re-bake cannot\nbe served at the tilt cadence on the S3, so\norientation is the tilt's only UI coupling",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    chip -> sample;
+    sample -> mon [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="imu_read_gravity, 1 Hz"];
+    mon -> fast;
+    fast -> dep;
+    dep -> settle [label="dep < 5°"];
+    dep -> bars [label="dep ≥ bar", color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    bars -> streak;
+    streak -> sink [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="streak ≥ 2"];
+    settle -> settled_flag [style=dashed, color="#b07d10", fontcolor="#6b4e08"];
+
+    sample -> gate [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="imu_read_gravity, 10 Hz\ndifferent timer, same read path"];
+    gate -> quant;
+    quant -> win;
+    win -> quad;
+    quad -> conf;
+    conf -> apply [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="10 agree"];
+    settled_flag -> quad [style=dashed, color="#b07d10", penwidth=1.6, fontcolor="#6b4e08", label="re-track only while\nsettled and step 0 —\nthe one edge between\nthe two consumers"];
+    resync -> apply [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="base push"];
+    sample -> orbit [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="off by default"];
+}

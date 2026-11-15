@@ -151,6 +151,15 @@ constants the code uses):
    The moon disk's rows are the only pixels that stage; the black
    surround never enters a strip.
 
+The whole path in one picture — who may produce a panel state (the
+atomic rule and its two sanctioned exceptions), how a strip travels
+(PSRAM draw buffer, byte-order swap, the vtable wrapper, 25-row DMA
+staging), and the three witnesses on ``s_panel_mtx`` (the 2 s
+flush-wait gate, the 3 s watchdog, the drain verify with its
+in-place-heal versus budgeted-restart split) — drawn from the code:
+
+.. graphviz:: ../_graphs/flush-path.dot
+
 The direct-write spin (history, removed 2026-11-13)
 ----------------------------------------------------
 
@@ -268,7 +277,11 @@ with a known failure mode*, so it gets (a) one owner at a time by
 construction, (b) a bounded hold time, and (c) a watchdog that turns
 the silent failure into a logged, recoverable reboot. The user sees a
 ~3 s pause and a reboot; without the watchdog they see a clock that
-stops being a clock.
+stops being a clock. All three layers — and the drain verify with its
+in-place-heal versus budgeted-restart split, which closed this family
+after the watchdog had already ruled out the simple wedge — are the
+witness cluster of the whole-path picture above
+(``docs/_graphs/flush-path.dot``).
 
 .. _display-lost-dma:
 
