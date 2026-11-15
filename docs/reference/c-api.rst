@@ -312,5 +312,7 @@ The device wraps the API in the display pipeline (``moon_panel_draw_bitmap`` + t
 run the *device's math* on the host and call it verified: the math
 and the display are different layers, and only the math is portable.
 
-The next page is the *build* layer that keeps the core (and the
-two boards) building from one tree (:doc:`the build system <build-system>`).
+The next page is the *build* layer that keeps the core building
+everywhere — the two clock boards from one tree, the knob as a
+sibling project that links the same shared components
+(:doc:`the build system <build-system>`).

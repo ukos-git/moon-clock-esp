@@ -1,8 +1,10 @@
 Board selection Kconfig
 =======================
 
-The project's dual-board switch lives in
-``components/board/Kconfig.projbuild``. A project-*root*
+The clock tree's two-board switch lives in
+``components/board/Kconfig.projbuild`` (the knob's sibling project
+carries its own ``choice BOARD`` in its shim Kconfig, default
+``BOARD_KNOB`` — :doc:`the Knob board <../devices/knob>`). A project-*root*
 ``Kconfig.projbuild`` is not processed by the ESP-IDF 5.5 build system
 (only per-component ``Kconfig`` / ``Kconfig.projbuild`` files are
 collected), so the choice lives in the always-built board-shim

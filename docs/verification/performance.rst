@@ -2,10 +2,12 @@ Performance, measured
 =====================
 
 This page is the performance comparison the project owes: the
-same moon bake, timed on **four engines** — the C core on the host,
-the C core on each board (the Waveshare ESP32-S3-Touch-AMOLED-1.75
-and the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC), the Python prototype
-(numpy, float64, vectorized), and the JavaScript port (V8, scalar) —
+same moon bake, timed on **six engines** — the C core on the host,
+the C core on each of the three boards (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75, the Waveshare
+ESP32-P4-WIFI6-Touch-LCD-XC, and the Waveshare
+ESP32-S3-Knob-Touch-LCD-1.8), the Python prototype (numpy, float64,
+vectorized), and the JavaScript port (V8, scalar) —
 across **every disk size** the product renders, plus the per-pipeline
 breakdowns (geometry, relief build, rotation, shade map, re-project)
 and the on-device CPU costs. Every measurement is a **plot** (time
@@ -70,8 +72,8 @@ That is exactly the split this page needs: the host says *how much
 work* a bake is; the device says *what the work costs* on the silicon
 it ships on.
 
-The four engines
-----------------
+The six engines
+---------------
 
 - **C core (host)** — float32, scalar, ~ns load latency: the
   algorithm's compute cost.
@@ -79,6 +81,9 @@ The four engines
   random load: the shipping product (400 px disk).
 - **C core (P4)** — float32 + RISC-V vector, X16 PSRAM (instruction +
   data shared): the second product (650 px disk).
+- **C core (knob)** — float32 + FPU, Xtensa (the same S3-class
+  ESP32-S3R8 at 240 MHz), octal PSRAM: the family's third board
+  (360 px disk, :doc:`the knob display <../implementation/knob-display>`).
 - **Python (numpy)** — float64, vectorized, ~ns load latency: the
   validated reference model.
 - **JS (V8)** — float64, scalar: the browser simulator
@@ -137,13 +142,15 @@ The bake, across sizes and engines
 ----------------------------------
 
 .. figure:: ../_static/figs/perf_engines.png
-   :alt: Bake time vs disk size for all five engines, log-log
+   :alt: Bake time vs disk size for all six engines, log-log
    :figclass: align-center
 
-   Single-frame bake time vs disk size, re-measured 2026-11-07 (median
-   of 5). The two host C builds sit together at the bottom (their
-   marker *shape* tells S3-asset from P4-asset); the device points
-   (hollow markers) are the accepted-capture wall times from
+   Single-frame bake time vs disk size — host data re-measured
+   2026-11-07 (median of 5), the knob point from the 2026-11-14
+   reveal-bench capture. The two host C builds sit together at the
+   bottom (their marker *shape* tells S3-asset from P4-asset); the
+   device points (hollow markers — circles S3, squares P4, diamonds
+   knob) are the accepted-capture wall times from
    :doc:`on-device verification <device-verify>`, plotted on the same
    millisecond axis. The dashed gray line is the ``size²`` reference
    through the host curve.
@@ -157,7 +164,7 @@ The bake, across sizes and engines
    O(N)-in-pixels claim, shown rather than asserted. The host C fit
    is 13.2 ns per pixel.
 
-The plot's story, in four facts:
+The plot's story, in five facts:
 
 1. **The C core is the fastest engine at the device's sizes — by a
    wide margin.** At 400 px the host C bake is 2.34 ms; the Python
@@ -195,6 +202,66 @@ The plot's story, in four facts:
    reference model, on the same silicon. (The JS port is *faster
    than the Python reference* at every size — the browser sim runs
    the *cached* gradient, the prototype does not.)
+5. **The knob confirms the memory-bound class from a third point.**
+   The knob is S3-class silicon (ESP32-S3R8, 240 MHz, octal PSRAM) at
+   a third disk size: its 360 px boot bake is **991 ms** (2026-11-14
+   reveal-bench, non-revealed) — 7.6 µs per pixel against the S3's
+   ~8.1 µs/px at 400–466 px. Same class, same floor: on every Xtensa
+   board the PSRAM load latency, not the FPU, sets the bake time, and
+   the bake time scales with the pixel count. Only the P4 (fact 3)
+   escapes the class — with its vector unit *and* its wider PSRAM.
+
+The comparison per board variant
+---------------------------------
+
+The same bake at each board's *native* disk size, side by side — every
+cell an accepted capture or a gate run, never a projection:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 12 22 18 22 14
+
+   * - Board variant
+     - native bake px
+     - single bake (accepted capture)
+     - one-time relief build
+     - revealed bake (band-flush path)
+     - image gate (MAE / SSIM)
+   * - S3 AMOLED 466
+     - 400
+     - ~1.2–1.35 s (2026-11-08, 864 albedo; an earlier capture read
+       ~0.72 s)
+     - ~1.3 s (2048×1024 DEM)
+     - cold-cycle revealed bake 2687 ms internals; boot-replay final
+       leg 2009–2615 ms (2026-11-14)
+     - 6.68 / 0.908
+   * - P4 4C 720
+     - 650
+     - 0.96 s (618 px: 0.60 s — M3/M4 captures)
+     - — (not captured)
+     - not captured (P4 leg of the 2026-11-14 bench deferred)
+     - 6.73 / 0.907
+   * - Knob 360
+     - 360
+     - 991 ms (2026-11-14, non-revealed)
+     - 727 ms (1024×512 DEM)
+     - 2028–2059 ms (2026-11-14 — the ~+105 % visible-for-computation
+       tax)
+     - 6.45 / 0.907
+
+(The gate rows are ``check_gate.py --target …`` runs on 2026-11-15 at
+the family HEAD; the per-board gate story is
+:doc:`the image gate <image-gate>`.)
+
+Read the table as *throughput per pixel*, not wall time: the knob's
+991 ms at 360 px and the S3's ~1.3 s at 400 px are the same silicon
+paying the same PSRAM latency per pixel, the P4 buys its 2.5×
+pixel-count lead over the S3 at *lower* wall time (fact 3), and the
+revealed column is the honest price of the bake reveal —
+:doc:`the bake reveal <../implementation/bake-reveal>` books the band
+flushes into the bake's own budget. The relief-build column scales
+with the DEM grid, exactly as the **O(N_dem)** class above predicts
+(knob's halved DEM ≈ half the clocks' build).
 
 The per-step breakdown (host C)
 -------------------------------
@@ -283,9 +350,11 @@ bake cost would show the backpressure failing (the ``shown in`` deltas
 tracking the bake) — which is the verification signature :doc:`on-device
 verification <device-verify>` checks. What remains on the device today is
 the **static bake** (boot / wake / day tick / the hourly producer's TF-miss
-path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 bake, the
-864/2048-albedo PSRAM load-latency floor) and the **orbit** re-bake
-(~1.7–2.4 s), plus the **hourly refresh**'s two 240 ms hardware-brightness
+path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 / ~1 s knob
+bake, the 864/2048-albedo PSRAM load-latency floor; the knob's 360 px
+native bake is the 991 ms point of the per-variant table above) and the
+**orbit** re-bake (~1.7–2.4 s), plus the **hourly refresh**'s two 240 ms
+hardware-brightness
 fade legs around that bake.
 
 The bake-reveal bench (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` +
@@ -302,7 +371,9 @@ replay's revealed final leg is
 **2009–2615 ms** (20 band states); the knob's revealed boot bake runs
 **2028–2059 ms** against its **991 ms** non-revealed baseline — the
 visible-for-computation tax (band flushes consume real bake
-throughput). Drain witness across the reveal legs: ~5 in-place heals
+throughput), and the knob's one-time relief build lands at **727 ms**
+— half the clocks' ~1.3 s, the **O(N_dem)** signature of its halved
+1024×512 DEM. Drain witness across the reveal legs: ~5 in-place heals
 per boot leg, 0 site restarts, 0 ``PANEL IO STUCK``. P4: bench
 deferred (board off the bench this pass).
 

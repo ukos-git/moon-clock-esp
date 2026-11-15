@@ -1,12 +1,20 @@
 Build system and Kconfig
 ========================
 
-Two boards, one tree: the S3 build (the Waveshare
+Two clock boards, one tree: the S3 build (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75) is the default target and the P4 build
 (the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) is a sibling with its own
 partition table, its own dependency
 lock, and a board-select Kconfig that gates the app's board-specific
-code. This page is the build layer — the three-file
+code. The knob adds a **third build**: a sibling ESP-IDF project
+under ``knob/`` with its own ``CMakeLists`` / partition table /
+dependency lock / Kconfig, which links the clock's shared
+``clock``/``wifi``/``moon``/``ui`` components through
+``EXTRA_COMPONENT_DIRS`` (as individual dirs, never the parent
+``components/``) and satisfies the component names it lacks with
+same-named silent shims (``board``/``imu``/``esp_codec_dev``) —
+:doc:`the Knob board <../devices/knob>`. This page is the build layer
+— the three-file
 ``sdkconfig.defaults`` split, the P4 target block in the root
 CMakeLists, the two flash-data partitions (SPIFFS + the moon assets
 blob), and the Kconfig conventions the project lives by.
@@ -30,9 +38,14 @@ files — all three **hand-curated**:
        manifest, ``CONFIG_PARTITION_TABLE_CUSTOM=y``, the clock/Kconfig
        defaults — everything that is the *same* on both boards)
    * - ``sdkconfig.defaults.esp32s3``
-     - the S3's board line (``CONFIG_BOARD_S3=y``) + the S3-only
-       values (the BSP's flush geometry: ``buffer_height 25``, queue
-       depth 1 — the display pipeline's NO_MEM fix)
+     - the S3-only values (octal PSRAM at 80 MHz, 240 MHz core clock,
+       CPU1 idle-WDT off, flush queue depth 1
+       ``CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1`` — the display
+       pipeline's NO_MEM fix). Carries **no** ``CONFIG_BOARD_S3=y``:
+       the S3 is the board ``choice``'s default, while the P4 file
+       does carry its board line (the asymmetry is documented on
+       :doc:`the S3 board <../devices/s3>`; the buffer-height 25 lives
+       in the vendored-BSP wrapper, not in this file)
    * - ``sdkconfig.defaults.esp32p4``
      - the P4's board line (``CONFIG_BOARD_P4=y``), the partition
        file (``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"``),
@@ -41,6 +54,11 @@ files — all three **hand-curated**:
        without it the PSRAM *silently falls back to 20 MHz* and the
        DSI underruns, :doc:`the P4 port <../implementation/p4-port>`), the XIP-from-PSRAM + 256 KB L2
        cache (the 128 B-line M0 values), and the taller main stack
+
+The knob does **not** participate in this split — it is its own
+project with ``knob/sdkconfig.defaults`` and a gitignored live
+``knob/sdkconfig`` (the sibling project's Kconfig carries its own
+``choice BOARD``, default ``BOARD_KNOB``).
 
 The ``save-defconfig`` warning (the project's Kconfig rule #1):
 ``idf.py save-defconfig`` writes the *shared* file only. With the
@@ -55,7 +73,7 @@ The build commands
 ------------------
 
 .. code-block:: bash
-   :caption: The two targets (``<port>`` = the board you identified; see
+   :caption: The three builds (``<port>`` = the board you identified; see
              :doc:`the boards <../devices/index>`)
 
    source ~/esp/esp-idf/export.sh
@@ -68,7 +86,12 @@ The build commands
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
 
-Two constraints the commands encode:
+   # knob (360) — sibling project, own build dir + own
+   # dependencies.lock.knob; app-flash preserves its SPIFFS credentials
+   idf.py -C knob -B ../build/knob build
+   idf.py -C knob -B ../build/knob app-flash -p <port>
+
+Three constraints the commands encode:
 
 - **The P4 build has its own build dir (``build/p4``) and its own
   dependency lock (``dependencies.lock.p4``, gitignored).** The
@@ -77,8 +100,15 @@ Two constraints the commands encode:
   driver stacks) — a shared lock would oscillate. The root
   CMakeLists sets ``DEPENDENCIES_LOCK`` *before* ``project()`` (which
   runs the component manager) for the P4 build.
+- **The knob builds outside the clock's tree.** ``-B ../build/knob``
+  resolves relative to the *invoking* directory — ``idf.py -C knob``
+  first changes into ``knob/``, so the build dir lands at
+  ``~/esp/build/knob``, next to the repo, not inside it. Its live
+  ``knob/sdkconfig`` and ``dependencies.lock.knob`` are gitignored
+  like the clock's, and ``app-flash`` (not a full flash) is the
+  convention that keeps the knob's SPIFFS Wi-Fi credentials.
 - **Never run two ``idf.py`` builds in parallel** (a project rule):
-  the two targets share the component manager's cache, and parallel
+  the builds share the component manager's cache, and parallel
   configures corrupt each other's lock resolution. Build
   sequentially.
 
@@ -133,8 +163,15 @@ is the third, :doc:`the binary-size chronology <../verification/binary>`):
    # SPIFFS: the runtime-owned files (wifi_credentials.txt + alarm.txt)
    spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
 
-   # The moon assets: the equirect albedo + int8 relief DEM blob
-   set(MOON_ASSETS_BIN ${CMAKE_CURRENT_SOURCE_DIR}/assets/images/moon/moon_assets.bin)
+   # The moon assets: the per-board pre-baked blob (gitignored), the
+   # out/<target>/ dir picked by IDF_TARGET (the knob's own
+   # CMakeLists replicates the guards for --target knob).
+   set(MOON_ASSET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets/images/moon/out/${MOON_ASSET_TARGET})
+   set(MOON_ASSETS_BIN ${MOON_ASSET_DIR}/moon_assets.bin)
+   # Guards before the flash, all FATAL_ERROR: MOON_ALBEDO_W must be an
+   # even equirect width, the manifest's alb_w must equal it, and the
+   # combined blob must fit the moon_assets row of the partition CSV the
+   # build actually uses.
    if(EXISTS ${MOON_ASSETS_BIN})
        esptool_py_flash_to_partition(flash "moon_assets" ${MOON_ASSETS_BIN})
    else()
@@ -150,10 +187,17 @@ The two are *different kinds* of flash data:
   the runtime state (accepted; ``spiffs/`` must not contain
   ``settings.txt``, which the app owns at runtime).
 - **``moon_assets``** is a *generated* blob (the asset pipeline,
-  :doc:`the Python API <python-api>`: ``cd assets/images/moon && python -m moon.assets``),
-  local-only and gitignored. The build *warns* (does not fail) when
-  it is missing — the app boots without the moon, which is the
-  failure mode a reader should recognize. The blob's layout
+  :doc:`the Python API <python-api>`:
+  ``cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob``
+  — one blob per board under ``out/<target>/``), local-only and
+  gitignored. The build *warns* (does not fail) when it is missing —
+  the app boots without the moon, which is the failure mode a reader
+  should recognize. When the blob *is* there, three consistencies are
+  enforced as build-time ``FATAL_ERROR``s: an even ``MOON_ALBEDO_W``,
+  the manifest's baked width equal to it, and the combined blob within
+  the ``moon_assets`` row of the partition CSV the build actually uses
+  (the knob's own CMakeLists replicates the guards for its target).
+  The blob's layout
   (albedo at 0, then the int8 DEM, ``esp_partition_read`` at boot) is
   the ``moon_assets.h`` contract.
 
@@ -252,6 +296,17 @@ wifi → board → BSP), and the *portable* core sits at the bottom with
 no upward edges — which is why the host simulator can link it and the
 gate can run it (:doc:`the architecture <../implementation/architecture>` and :doc:`the image gate <../verification/image-gate>`).
 
+The knob's build reuses the ``moon``/``clock``/``wifi``/``ui`` rows
+verbatim through ``EXTRA_COMPONENT_DIRS`` (individual dirs, never the
+parent ``components/`` — the component manager excludes components by
+name only, so the names must be owned one by one), and stands in
+**same-named components** where the shared requirements name something
+the board lacks: its own ``board`` shim (SH8601 display + touch
+init), an ``imu`` **stub** (the board has no IMU), and an empty
+``esp_codec_dev`` (no codec). Its own ``knob_*`` components add the
+dial, battery gauge, power ladder, time handling and the render seam
+(:doc:`the Knob board <../devices/knob>`).
+
 The host-side tooling
 ---------------------
 
@@ -264,7 +319,11 @@ The non-IDF build lives in ``host_sim/`` (CMake, the same core):
    # build/moon_sim     the C-sim (the gate's C frames; --neutral for the
    #                    gate's physics config)
    # build/moon_bench   the performance bench (:doc:`performance <../verification/performance>`)
-   host_sim/.venv/bin/python host_sim/check_gate.py    # the image gate
+   host_sim/.venv/bin/python host_sim/check_gate.py --target s3    # the image
+   host_sim/.venv/bin/python host_sim/check_gate.py --target p4    # gate — all
+   host_sim/.venv/bin/python host_sim/check_gate.py --target knob  # three boards
+   # (the gate exits 2 on a stale sim binary built against the other
+   #  target's texture — the --target must match the build it checks)
    host_sim/uisim/build.sh run                          # the UI simulator
    # (renders the real screens to PNG; --wheel for the keyboard,
    #  --panel 466/720 for the panel size)
@@ -286,7 +345,7 @@ The project's standing rule (CLAUDE.md) closes the loop on this
 page: **after every change** (code, Kconfig, screens, timings,
 hardware facts, test system, build steps) the documentation is
 updated — the affected RST pages are fixed, and if screens or UI
-geometry changed the uisim screenshots are regenerated for both
+geometry changed the uisim screenshots are regenerated for both clock
 panels (the per-screen pages live in
 :doc:`the user interface <../ui/index>`) — and docs and code are
 committed together. A change

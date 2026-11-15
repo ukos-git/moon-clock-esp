@@ -27,8 +27,9 @@ The knob (16 MB, sibling project)
      - app/factory
      - **4096 K**
      - The application binary (moon display on the shared clock
-       components, ~1.3 MB — ~67 % free; the ``knob/`` sibling
-       project's own app)
+       components; measured 1,556,144 B on 2026-11-15 — ~63 % free;
+       the ``knob/`` sibling project's own app —
+       :doc:`the binary-size chronology <../verification/binary>`)
    * - ``storage``
      - data/spiffs
      - 512 K

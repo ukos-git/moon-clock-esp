@@ -2,7 +2,8 @@ Getting started
 ===============
 
 This site documents the Moon Phase Clock end to end — the physics, the
-implementation, the two boards, the user interface, and the validation.
+implementation, the three boards, the user interface, and the
+validation.
 Start where your job is:
 
 - **I want to build and flash one of the boards.**

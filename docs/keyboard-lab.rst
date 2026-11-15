@@ -458,6 +458,7 @@ section turns from the *user-facing* design to the *developer-facing*
 interface: the Python API the examples and the gate are built on
 (:doc:`the Python API <reference/python-api>`), the C API the device
 compiles (:doc:`the C API <reference/c-api>`), the build system and
-Kconfig that keep two boards buildable from one tree
+Kconfig that keep the two clock boards buildable from one tree — with
+the knob's sibling project linking the same shared components
 (:doc:`the build system <reference/build-system>`), and the glossary
 and references (:doc:`the glossary <glossary>`).

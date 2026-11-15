@@ -20,7 +20,7 @@ terminator. Four answers cover everything below:
 
 1. **It is a library, not a program.** No tasks, no drivers, no
    hardware headers: the identical source compiles into the host
-   simulator running on a PC *and* onto both boards. Its complete list
+   simulator running on a PC *and* onto all three boards. Its complete list
    of platform wishes is a float FPU and a ``malloc``-like allocator —
    nothing else.
 2. **A frame is three steps.** *Where is everything* — the ephemeris

@@ -197,8 +197,10 @@ Project jargon
 - **The clean-tree gate** — the stop-hook that commits an in-flight
   working tree; the ``wip:`` commits in the project's history are
   its records (:doc:`the binary-size chronology <verification/binary>`).
-- **Board identification** — the two boards claim ``/dev/ttyACM*``
-  through their USB serial adapters; which port is which changes with
+- **Board identification** — the S3 and P4 claim ``/dev/ttyACM*``
+  through their USB serial adapters (the knob's app MCU does the same
+  via native USB; the knob's second-MCU plug orientation claims
+  ``/dev/ttyUSB*`` instead); which port is which changes with
   USB topology, so identify before flashing (``lsusb`` / ``dmesg`` on
   plug-in, then ``esptool --port <port> chip_id`` — the procedure in
   :doc:`the boards <devices/index>`).

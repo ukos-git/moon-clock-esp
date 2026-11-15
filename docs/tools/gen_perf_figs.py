@@ -50,6 +50,7 @@ BLUE = "#2b5fb0"     # C host / S3 entity
 VERM = "#c2410c"     # P4 entity
 CYAN = "#0891b2"     # Python reference
 AMBER = "#b07d10"    # JS port
+VIOLET = "#7c3aed"   # knob entity (hollow diamonds — identity never color alone)
 
 plt.rcParams.update({
     "font.size": 9.5,
@@ -120,7 +121,8 @@ def fig_engines():
     # host-line hue; marker SHAPE + direct labels carry identity too.
     dev_handles = {}
     for board, pts, color, mk in (("S3", DEV["s3"], BLUE, "o"),
-                                  ("P4", DEV["p4"], VERM, "s")):
+                                  ("P4", DEV["p4"], VERM, "s"),
+                                  ("Knob", DEV["knob"], VIOLET, "D")):
         xs = [p["size"] for p in pts]
         ys = [p["ms"] for p in pts]
         (ln,) = ax.plot(xs, ys, "", color=color, marker=mk, markersize=8,
@@ -131,22 +133,28 @@ def fig_engines():
     k2 = [HOST_S3["200"]["bake"] * (s / 200) ** 2 for s in MS]
     (ref,) = ax.plot(MS, k2, "--", color=MUTED, lw=1.2, dashes=(5, 4))
     order = [handles[0], dev_handles["S3"], handles[1], dev_handles["P4"],
-             handles[2], handles[3],
+             dev_handles["Knob"], handles[2], handles[3],
              (ref, "reference: time ∝ size² (O(N) in pixels)")]
+    # the legend sits ABOVE the axes, not inside them: the knob's single
+    # accepted point (360 px / 991 ms) lands at the top of the field and an
+    # in-plot legend box swallowed it (framealpha 0.95 = effectively opaque)
     ax.legend([h for h, _ in order], [t for _, t in order],
-              loc="upper left", frameon=True, framealpha=0.95,
+              loc="lower left", bbox_to_anchor=(0, 1.02), ncol=3,
+              frameon=True, framealpha=0.95,
               edgecolor=HAIR, fontsize=7.5)
     ax.set_xscale("log")
     ax.set_yscale("log")
+    # 360 omitted from the ticks: the knob's point is labelled by the
+    # legend, and the tick text collided with 320/400 on the log axis
     ax.set_xticks([200, 240, 320, 400, 466, 650])
     ax.set_xticklabels([200, 240, 320, 400, 466, 650])
     ax.set_xlim(180, 1100)
     ax.minorticks_off()
     ax.set_xlabel("bake disk size (px)")
     ax.set_ylabel("single-frame bake time (ms)")
-    ax.set_title(f"One bake, five engines — every engine is quadratic in size "
+    ax.set_title(f"One bake, six engines — every engine is quadratic in size "
                  f"(measured slopes {min(slopes):.1f}–{max(slopes):.1f})",
-                 fontsize=10, color=INK)
+                 fontsize=10, color=INK, pad=46)
     fig.tight_layout()
     save(fig, "perf_engines.png")
 
@@ -166,11 +174,16 @@ def fig_pixels():
                         markerfacecolor=color, markeredgecolor="white",
                         markeredgewidth=0.8)
         handles.append((ln, name))
-        end_label(ax, n[-1], ys[-1], name, color, dx=10)
+        if name != "C core (host)":
+            # no end label for the host C here: it hugs the x-axis and its
+            # label overprinted the JS one; the legend + the linear-fit
+            # entry already name that band
+            end_label(ax, n[-1], ys[-1], name, color, dx=10)
     # device points on the same axis
     dev = {}
     for board, pts, color, mk in (("S3 device", DEV["s3"], BLUE, "o"),
-                                  ("P4 device", DEV["p4"], VERM, "s")):
+                                  ("P4 device", DEV["p4"], VERM, "s"),
+                                  ("Knob device", DEV["knob"], VIOLET, "D")):
         xs = [p["size"] ** 2 for p in pts]
         ys = [p["ms"] for p in pts]
         (ln,) = ax.plot(xs, ys, "", marker=mk, markersize=8, markerfacecolor="white",
@@ -181,16 +194,20 @@ def fig_pixels():
     k = float(np.polyfit(n, ys, 1)[0])
     (fit,) = ax.plot([0, n[-1]], [0, k * n[-1]], "--", color=MUTED, lw=1.2,
                      dashes=(5, 4))
-    order = [handles[0], dev["S3 device"], dev["P4 device"], handles[1],
+    order = [handles[0], dev["S3 device"], dev["P4 device"], dev["Knob device"],
+             handles[1],
              handles[2],
              (fit, f"host C linear fit ({k * 1e6:.1f} ns/px)")]
+    # above the axes (same reason as fig 1: the device points live in the
+    # upper field, where an in-plot legend box hides them)
     ax.legend([h for h, _ in order], [t for _, t in order],
-              loc="upper left", frameon=True, framealpha=0.95,
+              loc="lower left", bbox_to_anchor=(0, 1.02), ncol=3,
+              frameon=True, framealpha=0.95,
               edgecolor=HAIR, fontsize=8)
     ax.set_xlabel("bake input count (pixels = size²)")
     ax.set_ylabel("bake time (ms)")
     ax.set_title("Time vs input count: every engine is linear in pixels — O(N)",
-                 fontsize=10, color=INK)
+                 fontsize=10, color=INK, pad=48)
     ax.set_ylim(bottom=0)
     fig.tight_layout()
     save(fig, "perf_vs_pixels.png")

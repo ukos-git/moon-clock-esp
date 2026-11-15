@@ -29,3 +29,11 @@ The constants
 -------------
 
 .. include:: _fragments/moon-consts.inc
+
+The one Kconfig key
+-------------------
+
+Everything generated above follows a single Kconfig selection — the
+asset width it bakes and flashes:
+
+.. include:: _fragments/kconfig-moon.inc

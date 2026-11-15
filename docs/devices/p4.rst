@@ -327,7 +327,7 @@ header even though the P4's chip is 32 MB),
 ``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the P4 file then selects
 ``partitions_p4.csv`` through
 ``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``), ``CONFIG_SPIRAM=y``,
-``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF sweep cache
+``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF hour cache
 hour keys exceed 8.3; a historic ``LFN_NONE`` pin was stripped from
 the live configs),
 the LVGL 9.6 setup (notably
@@ -375,6 +375,11 @@ Moon constants
 --------------
 
 .. include:: ../reference/_fragments/moon-consts.inc
+
+Moon asset Kconfig
+------------------
+
+.. include:: ../reference/_fragments/kconfig-moon.inc
 
 Partition table
 ---------------

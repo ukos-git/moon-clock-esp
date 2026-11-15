@@ -11,9 +11,12 @@ It is not a photo. It is not a clock face with a moon icon. It is a
 3-D-shaded rendering of the real lunar surface (LRO WAC albedo + LOLA
 relief), lit by the real Sun from the real subsolar point of the
 current moment, projected through the real camera libration. The
-pipeline is small enough to run in about 1.4 MB of flash and to bake a
-full frame in well under a second on the S3 board (the Waveshare
-ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`) — which is what made the
+pipeline is small enough to run in about 1.7 MB of flash (the current
+S3 binary measures 1,706,960 bytes — the measured record lives in
+:doc:`the binary-size chronology <verification/binary>`) and to bake a
+full 400-px frame in roughly 1.3 s on the S3 board (the Waveshare
+ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`,
+:doc:`performance <verification/performance>`) — which is what made the
 animation stack (the free spin, the boot sweep, the "dusk") possible
 on a $20 board; the user retired all three on 2026-11-13, and the
 home is a static LVGL phase now — refreshed once per hour behind the
@@ -78,40 +81,63 @@ direction:
    an always-on display (:doc:`the animation pipelines <implementation/animations>`) and the entry/exit flow itself
    (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
 
-The two boards
---------------
+The three boards
+----------------
 
-The same portable C core runs on two hardware targets — the
-**Waveshare ESP32-S3-Touch-AMOLED-1.75** (the primary, "S3" below) and
-the **Waveshare ESP32-P4-WIFI6-Touch-LCD-XC** (the secondary, "4C"
-below):
+The same portable C core runs on three hardware targets — the
+**Waveshare ESP32-S3-Touch-AMOLED-1.75** (the primary, "S3" below),
+the **Waveshare ESP32-P4-WIFI6-Touch-LCD-XC** (the full sibling port,
+"4C" below) and the **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** (the
+knob — the dial board of the family, built as a sibling ESP-IDF
+project that links the clock's shared components):
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 40 40
+   :widths: 15 29 28 28
 
    * - Property
      - S3 (primary)
      - P4 4C (secondary)
+     - Knob (sibling project)
    * - SoC
      - ESP32-S3 (dual Xtensa LX7, 240 MHz)
      - ESP32-P4 (quad RISC-V, 400 MHz) + remote C6 Wi-Fi over SDIO
+     - ESP32-S3R8 (dual Xtensa LX7, 240 MHz); a second MCU
+       (ESP32-U4WDH) runs the knob side — the firmware never talks
+       to it
    * - Panel
-     - 466×466 RGB565 AMOLED, CO5300, QSPI
+     - 466×466 RGB565 AMOLED, CO5300, QSPI (brightness register
+       0x51)
      - 720×720 round IPS, JD9365, MIPI-DSI
+     - 360×360 round **backlit** LCD, SH8601, QSPI (dimming is a
+       PWM backlight, GPIO 47 — no brightness register)
    * - Touch
      - CST9217
      - GT911
+     - CST816S
+   * - Dial
+     - —
+     - —
+     - EC1 encoder on the app MCU (A GPIO 8, B GPIO 7): cursor
+       stepper, home brightness, EXT0 wake
    * - Extras
-     - QMI8658C IMU, PCF85063A RTC
-     - IMU, RTC (same family)
+     - QMI8658C IMU, PCF85063A RTC (via TCA9554), ES8311 audio
+     - QMI8658C IMU, ES8311 audio; **no RTC IC** — time base is the
+       32 kHz crystal + SNTP, the alarm a software one-shot
+     - **none of these**: no IMU, no RTC, no audio — the knob's
+       deep sleep is a real ``esp_deep_sleep_start`` on an RTC
+       **TIMER**, never an early ring
    * - Flash / PSRAM
-     - 16 MB flash (2 MB app partition)
-     - 32 MB flash (9 MB app partition)
+     - 16 MB flash (2 MB app partition), 8 MB octal PSRAM
+     - 32 MB flash (9 MB app partition) + PSRAM
+     - 16 MB flash (4 MB app partition), 8 MB octal PSRAM (in-package)
 
 :doc:`the S3 board <devices/s3>` covers the S3 in detail; :doc:`the P4 4C port <devices/p4>` covers the P4 port and
 what it takes (and what it did not) to port a pixel-perfect display
-pipeline across panel technologies.
+pipeline across panel technologies; :doc:`the knob <devices/knob>`
+covers the dual-MCU board and its sibling build, and
+:doc:`the knob display implementation <implementation/knob-display>`
+its render seam and sleep ladder.
 
 How these docs are organized
 ----------------------------
@@ -219,7 +245,7 @@ Conventions
 -----------
 
 - Times are UTC unless marked otherwise. "Frame" means one 466×466
-  (S3) or 720×720 (P4) whole-panel image.
+  (S3), 720×720 (P4) or 360×360 (knob) whole-panel image.
 - "Gray" means 8-bit luminance 0–255; "5-bit" means the panel's R5G6B5
   fidelity after the gray→RGB565 LUT.
 - Code links (``:cfile:``, ``:cfunc:``, ``:clabel:``) resolve to the
@@ -227,8 +253,12 @@ Conventions
   line numbers are exact per-line anchors. Line numbers in prose are
   approximate — use the roles or search for the symbol.
 - Screenshots are the uisim output (the real unmodified
-  ``screens.c`` + LVGL, rendered in software) for both panels;
+  ``screens.c`` + LVGL, rendered in software) for both clock panels;
   device composites place the uisim frame at true panel geometry over
-  the product photo. Data images are measured or fitted pixel data —
+  the product photo. The knob has **no dedicated uisim capture** —
+  its screens are the same ``screens.c`` running under the render
+  seam at 360 px, so the per-screen pages' layout and element tables
+  apply to it as well (:doc:`the knob display implementation <implementation/knob-display>`).
+  Data images are measured or fitted pixel data —
   diagrams a native mechanism can express are native
   (``.. graphviz::`` / mermaid) instead.

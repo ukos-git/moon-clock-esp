@@ -371,6 +371,41 @@ dial's wake-intent is the software stand-in for the EXT0 dial wake.
 un-dimmed to full every countdown and looked wide awake half the time —
 user 2026-11-11: "is it really transitioning to light sleep?".)
 
+The ladder and the alarm, as one sketch
+........................................
+
+Read the diagram as the prose above: the left chain is the ladder
+(awake → dim → sleep entry), the branch under the entry is the RTC
+TIMER's three guards, and the right fan-out is ``main.c``'s wake
+arbitration for a TIMER fire — the rule that an early wake *holds*
+rather than rings is the one arrow to read twice.
+
+.. raw:: html
+
+   <pre class="mermaid">
+   flowchart TD
+     ACT["awake — 500 ms supervisor; activity = touch, dial detents off-home only"]
+     ACT -->|"idle after settings_idle_timeout_sec (60)"| DIM["dim rung — LEDC duty 25 %, clock alpha 20 %, seconds arc hidden"]
+     DIM -->|"touch / brightening"| ACT
+     DIM -->|"countdown settings_deep_sleep_countdown_sec (60) after that"| ENTRY["sleep entry — save the clock/epoch NVS snapshot"]
+     ENTRY --> CALC["KNOB_ALARM_TIMER_WAKE: knob_power_rule_epochs_around (mktime, tm_isdst = -1, rule hour/minute + weekday mask)"]
+     CALC -->|"rule inside 60 s"| DEFER["sleep DEFERRED — the awake esp_timer fires the alarm"]
+     CALC -->|"gap beyond KNOB_ALARM_MAX_SLEEP_GAP_S (82800)"| GPIO["GPIO-only sleep — no RTC TIMER"]
+     CALC -->|"epoch implausible (before 2020)"| NOARM["no phantom timer armed"]
+     CALC -->|"otherwise: delta to the next rule"| ARM["RTC TIMER armed — esp_sleep_enable_timer_wakeup(delta)"]
+     NOARM --> SLEEP
+     GPIO --> SLEEP["esp_deep_sleep_start — EXT0 dial-A GPIO 8 + EXT1 touch GPIO 9 always armed"]
+     ARM --> SLEEP
+     SLEEP -->|"EXT0 / EXT1"| NORM["normal dial-style wake"]
+     SLEEP -->|"RTC TIMER (wake-cause legend 4)"| ARB{"wake arbitration — rule recomputed from the snapshot / SNTP"}
+     ARB -->|"within KNOB_ALARM_GRACE_S (300) of the rule"| FIRE["it IS the alarm — action_alarm_triggered (silent visual)"]
+     ARB -->|"early, within KNOB_ALARM_LATE_MAX_S (900)"| HOLD["holds DARK at 1 Hz — a landing SNTP fix re-anchors — fires AT the rule, never early"]
+     ARB -->|"further off, or implausible epoch"| STALE["stale fire — normal dial-style wake"]
+   </pre>
+
+RC-clock drift (bench tolerance ~0.5 %) is what the grace window exists
+to absorb; SNTP on every wake re-corrects it, so it never compounds.
+
 .. _dial-semantics-knob:
 
 Dial semantics (P2)

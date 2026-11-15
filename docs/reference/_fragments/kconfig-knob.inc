@@ -121,10 +121,13 @@ the page above):
        reachable over USB-JTAG. Production ships ``y``
    * - ``KNOB_BATTERY_GAUGE``
      - ``y``
-     - The P4 gauge: an ``adc_oneshot`` read on GPIO 1 rendered as
-       ``NN %`` at the foot of the shared home (knob-side overlay,
-       minute refresh). ``n`` leaves every entry point inert — no
-       ADC init, no label
+     - The P4 gauge: an ``adc_oneshot`` read on GPIO 1 rendered as an
+       **iPhone-style battery icon** (outline + nub + proportional
+       fill) at the bottom centre of the shared home — the docked fill
+       takes the theme's moon color (the seconds-arc ink, not the
+       reference green), red at or below ``KNOB_BATTERY_LOW_PCT``,
+       bolt when docked (knob-side overlay, minute refresh). ``n``
+       leaves every entry point inert — no ADC init, no icon
        (:doc:`the knob display <../implementation/knob-display>`)
    * - ``KNOB_BATTERY_ADC_CHANNEL``
      - ``0`` (0..7)
@@ -142,6 +145,18 @@ the page above):
      - ``4200`` (3600..4500)
      - Cell mV at 100 % — LiPo **placeholder**; the percentage is
        clamped between the pair
+   * - ``KNOB_BATTERY_CHARGING_MV``
+     - ``4400`` (0..5200)
+     - The bolt heuristic: the board has no charge-state line, but
+       docked the sense line reads the USB rail (bench signature
+       ~4522 mV, far above the 4200 mV cell ceiling) — at or above
+       this cell-mV read the icon takes its docked look (theme-color
+       fill + bolt). ``0`` = bolt off
+   * - ``KNOB_BATTERY_LOW_PCT``
+     - ``20`` (1..99)
+     - iOS-style low-battery red: at or below this percent the fill
+       turns red; decorative until the multimeter session settles the
+       placeholder calibration
    * - ``KNOB_DIAG_FRAME_TRACE``
      - ``n`` (bench)
      - Bench-only: log flush start/complete, swap apply begin/end,

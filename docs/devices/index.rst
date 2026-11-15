@@ -1,15 +1,15 @@
 The boards
 ==========
 
-The project targets two Waveshare boards. This page covers what both
-share — the ESP-IDF toolchain, how to tell which USB port is which
-board, and the build/flash conventions — and the per-board pages
-cover the hardware, the pre-configured defaults, and the full
-compile-time settings. A third board of the moon-clock family, the
-ESP32-S3-Knob-Touch-LCD-1.8, is a sibling project that links the
-clock's shared ``clock``/``wifi``/``moon`` components behind its own
-board shim and runs the moon display — the dial, battery and real
-deep sleep are its additions
+The project targets three Waveshare boards. This page covers what all
+three share — the ESP-IDF toolchain, how to tell which USB port is
+which board, and the build/flash conventions — and the per-board
+pages cover the hardware, the pre-configured defaults, and the full
+compile-time settings. The third board, the
+ESP32-S3-Knob-Touch-LCD-1.8 "knob", is a sibling project that links
+the clock's shared ``clock``/``wifi``/``moon``/``ui`` components
+behind its own board shim and runs the moon display — the dial,
+battery gauge and real deep sleep are its additions
 (:doc:`the Knob board <knob>`).
 
 .. toctree::
@@ -19,8 +19,8 @@ deep sleep are its additions
    p4
    knob
 
-The two targets
----------------
+The three targets
+-----------------
 
 .. list-table::
    :header-rows: 1
@@ -38,20 +38,29 @@ The two targets
      - ``esp32p4``
      - 720×720 JD9365 MIPI-DSI
      - 32 kHz crystal + SNTP (software alarm)
+   * - ESP32-S3-Knob-Touch-LCD-1.8 (knob)
+     - ``esp32s3``, sibling project under ``knob/``
+     - 360×360 SH8601 QSPI backlit LCD
+     - SNTP + NVS time snapshot; RTC **TIMER** arms the deep-sleep /
+       alarm wake (never an early ring)
 
 :doc:`The S3 board <s3>` is the product's face and the default build
 target; :doc:`the P4 4C <p4>` is the second board, ported as a full
-sibling. The hardware difference that matters most to the firmware:
+sibling; :doc:`the knob <knob>` is the family's third board, built as
+its own project that links the clock's shared components. The
+hardware difference that matters most to the firmware:
 the S3 carries a PCF85063A RTC behind a TCA9554 IO expander (so the
 deep-sleep countdown and the alarm arm into the PCF's hardware
 registers), while the 4C carries **no** RTC IC or IO expander (the
 time base is the 32 kHz crystal RTC timer + SNTP, and the countdown /
-alarm run on a software ``esp_timer`` one-shot).
+alarm run on a software ``esp_timer`` one-shot). The knob likewise has
+no RTC IC — it sleeps for real (``esp_deep_sleep_start``) and arms the
+wake on the SoC's RTC TIMER.
 
 Installing the toolchain
 ------------------------
 
-Both boards build with **ESP-IDF 5.5.1**. Install it once (the project
+All three builds use **ESP-IDF 5.5.1**. Install it once (the project
 expects the framework checkout at ``~/esp/esp-idf``):
 
 1. Follow the ESP-IDF install guide for your platform to get the
@@ -83,8 +92,12 @@ Identifying the boards
 
 Never hard-code which port is which board — the mapping changes with
 USB topology (which board is plugged in, hub order, a re-plug). Teach
-the procedure instead; both boards present a serial adapter the host
-claims as a ``/dev/ttyACM*`` node:
+the procedure instead; the S3 and P4 present a serial adapter the
+host claims as a ``/dev/ttyACM*`` node, and so does the knob's app
+MCU *when the Type-C plug sits in the S3 orientation* (flipping the
+plug switches the receptacle to the board's second MCU — the
+U4WDH's CH340-family bridge, which shows up as ``/dev/ttyUSB*``
+instead; :doc:`the Knob board <knob>`):
 
 1. **Plug in *one* board at a time** and watch what node appears::
 
@@ -99,10 +112,15 @@ claims as a ``/dev/ttyACM*`` node:
 
        esptool.py --port <port> chip_id
 
-   ``ESP32S3`` identifies the S3 board; ``ESP32-P4`` identifies the
-   4C. (``esptool.py`` is on ``PATH`` after ``export.sh``.) Run this
-   against the port you are about to flash — it is the single check
-   that catches a stale port guess.
+   ``ESP32S3`` identifies the S3 board **or the knob** — both are
+   ESP32-S3 with 16 MB flash, so the chip report alone cannot tell
+   them apart; disambiguate by step 1 (which physical board you just
+   plugged in, and on the knob which plug orientation you used — the
+   S3 side answers, the U4WDH side reports ``ESP32-U4WDH``) and by
+   label; ``ESP32-P4`` identifies the 4C. (``esptool.py`` is on
+   ``PATH`` after ``export.sh``.) Run this against the port you are
+   about to flash — it is the single check that catches a stale port
+   guess.
 3. Keep a scratch note of the mapping *for this plug session* (it does
    not survive a re-plug) and re-run step 2 if in doubt.
 
@@ -113,14 +131,14 @@ Build and flash conventions
    :alt: Build and flash sequence
    :align: center
 
-The conventions both boards share:
+The conventions the three builds share:
 
 - **Build sequentially.** Never run two ``idf.py`` builds in parallel
-  — the two targets share the component manager's cache and parallel
+  — the builds share the component manager's cache and parallel
   configures corrupt each other's lock resolution. One ``idf.py`` at a
   time.
 - **Check the binary size after every build** against the ``factory``
-  partition (2048 K on the S3, 9216 K on the P4 —
+  partition (2048 K on the S3, 9216 K on the P4, 4096 K on the knob —
   :doc:`the partition tables <../reference/partitions>`). The S3's 2 MB
   ``factory`` is the binding constraint; the binary-size chronology
   (:doc:`the binary-size chronology <../verification/binary>`) tracks it.
@@ -128,6 +146,13 @@ The conventions both boards share:
   ``factory`` app, the ``storage`` SPIFFS (baked from ``spiffs/`` on
   every build), and the ``moon_assets`` blob
   (:doc:`the build system <../reference/build-system>`).
+- **The knob builds and flashes as its own project** —
+  ``idf.py -C knob -B ../build/knob build`` (its build dir lands
+  *outside* the clock's tree) and
+  ``idf.py -C knob -B ../build/knob app-flash -p <port>`` — the
+  ``app-flash`` is what preserves the knob's SPIFFS Wi-Fi
+  credentials; a full flash resets them
+  (:doc:`the Knob board <knob>`).
 - **A full flash clobbers the runtime SPIFFS state** (``alarm.txt`` /
   ``wifi_credentials.txt`` / ``settings.txt`` are written back by the
   app, so a re-flash resets them to the ``spiffs/`` defaults —
@@ -156,11 +181,15 @@ auto-appends (later file wins):
 - ``sdkconfig.defaults.esp32p4`` — the P4's (``CONFIG_BOARD_P4=y``,
   ``partitions_p4.csv``, rev v1.3, PSRAM 200 MHz + the experimental
   flag, XIP + 256 KB L2, PCF85063A off, the C6-over-SDIO pins).
+- ``knob/sdkconfig.defaults`` — the knob's **own** defaults: the
+  sibling project never sees the root split, and its live
+  ``knob/sdkconfig`` is gitignored like the clock's
+  (:doc:`the Knob board <knob>`).
 
-All three are **hand-curated**: ``idf.py save-defconfig`` writes only
-the shared file and would clobber the board lines, so the files are
-kept by hand — a stray board line in the wrong file is a build-time
-``FATAL_ERROR`` (the root ``CMakeLists`` target/board guard), not a
-runtime surprise. Each per-board page lists its own file's contents
-and the full compile-time settings; the Kconfig rules the whole
-project lives by are in :doc:`the build system <../reference/build-system>`.
+The root files are **hand-curated**: ``idf.py save-defconfig`` writes
+only the shared file and would clobber the board lines, so the files
+are kept by hand — a stray board line in the wrong file is a
+build-time ``FATAL_ERROR`` (the root ``CMakeLists`` target/board
+guard), not a runtime surprise. Each per-board page lists its own
+file's contents and the full compile-time settings; the Kconfig rules
+the whole project lives by are in :doc:`the build system <../reference/build-system>`.

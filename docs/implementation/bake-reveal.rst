@@ -88,6 +88,44 @@ rather than a regression:
   completes or the final atomic show replaces the square), and it is
   a fresh user decision — this feature.
 
+The state machine, as displayed
+...............................
+
+**The short version.** The reveal is a designed sequence of *consistent*
+states — the black canvas, one completed strip band per 50 ms tick, the
+healed old frame on any abort — and every state is ONE atomic band
+``lv_refr_now`` under ``s_rgb_mtx`` with the drain witness. The producer
+free-runs and bumps only a watermark; the tick converts at most one
+state per 50 ms; nothing on the path ever shows the async drain's
+partial work.
+
+.. raw:: html
+
+   <pre class="mermaid">
+   stateDiagram-v2
+     [*] --> ARMED: producer arms the owner (hourly cold leg / replay final leg)
+     ARMED --> CANVAS: first tick lands the black canvas — ONE atomic band flush
+     CANVAS --> BANDS: first completed strip — the hourly leg pays the owed fade-in here
+     BANDS --> BANDS: one band per 50 ms tick — rows shown..pub through moon_gray565
+     BANDS --> GATED: traffic hold / fade pending — the watermark keeps advancing
+     GATED --> BANDS: the gate opens — one larger catch-up band
+     BANDS --> DONE: bake complete (pub == rows)
+     BANDS --> HEAL: abort — 5 s budget blown / pause / screen left / producer failed
+     DONE --> [*]: publish + the tick's ONE atomic whole-panel show (no heal follows)
+     HEAL --> [*]: the old frame healed WHOLE (s_frame never touched by the reveal)
+   </pre>
+
+Where each edge lives: the arm/done legs are the two producers'
+(``moon_hourly_task``'s cold bake, ``moon_boot_replay_task``'s final
+"now" leg), the band conversion is ``moon_bake_reveal_service`` in
+``moon_tick_cb``, and ``GATED`` is the service's early return — the
+watermark is written by the producer under ``s_rgb_mtx`` regardless of
+the gate, so a held tick shows larger catch-up bands when it resumes
+rather than losing rows. The knob's variant (below) collapses the tick
+into the producer: its swap task edge-detects the same watermark and
+lands each advance as one atomic band — the states are identical, the
+pacing task is not.
+
 Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
 ................................................................
 

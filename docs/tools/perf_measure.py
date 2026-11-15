@@ -58,11 +58,16 @@ DEVICE_POINTS = {
         {"size": 618, "ms": 600.0, "note": "sweep final, M3/M4 acceptance capture"},
         {"size": 650, "ms": 960.0, "note": "sweep final @650, M3/M4 acceptance capture"},
     ],
+    "knob": [
+        {"size": 360, "ms": 991.0,
+         "note": "boot bake @360 px, 2026-11-14 reveal-bench non-revealed baseline"},
+    ],
 }
 # One-time device steps from the same accepted captures (ms).
 DEVICE_ONESHOT = {
     "s3": {"relief_build": 1300.0, "shademap_build": 1600.0},
     "p4": {"shademap_build": 282.0},
+    "knob": {"relief_build": 727.0},
 }
 # The per-pipeline device costs (accepted captures, ms) — the rows of the
 # old device-pipelines table, as plotted data. cat: bake / display / build /
@@ -73,6 +78,8 @@ DEVICE_PIPELINES = [
     {"board": "S3", "name": "full-res bake @466 px", "ms": 1300.0, "cat": "bake"},
     {"board": "P4", "name": "sweep final bake @618 px", "ms": 600.0, "cat": "bake"},
     {"board": "P4", "name": "sweep final bake @650 px", "ms": 960.0, "cat": "bake"},
+    {"board": "Knob", "name": "boot bake @360 px (non-revealed)", "ms": 991.0, "cat": "bake"},
+    {"board": "Knob", "name": "boot bake @360 px (revealed, band flushes)", "ms": 2043.0, "cat": "bake"},
     {"board": "S3", "name": "spin frame (gather+composite+write)", "ms": 45.0, "cat": "display"},
     {"board": "S3", "name": "dusk frame (re-project)", "ms": 50.0, "cat": "display"},
     {"board": "S3", "name": "sweep display step (per frame)", "ms": 230.0, "cat": "display"},

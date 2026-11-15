@@ -326,6 +326,11 @@ Moon constants
 
 .. include:: ../reference/_fragments/moon-consts.inc
 
+Moon asset Kconfig
+------------------
+
+.. include:: ../reference/_fragments/kconfig-moon.inc
+
 Partition table
 ---------------
 
