@@ -146,6 +146,10 @@ Touch, motion, time
   (departure from a settled pose wakes the device, :doc:`the clock and sleep machine <../implementation/clock-sleep>`) and
   the **clock roll** (the clock face counter-rotates to stay upright
   as you tilt the board, :doc:`the clock and sleep machine <../implementation/clock-sleep>`).
+  Both key off the 1 s monitor tick, not the chip's stream: the
+  firmware asks 86,400 times a day while the chip produces at its
+  1000 Hz ODR — one sample in a thousand is ever read
+  (:ref:`the silicon ladder <silicon-ladder-perf>`).
 - **PCF85063A** RTC, behind a **TCA9554** IO expander, I²C. The RTC
   keeps the clock alive through light sleep, and because the product's
   "deep sleep" is app-level (the backlight off, the CPU still running)

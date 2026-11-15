@@ -28,9 +28,16 @@ Every number is PARSED at figure time (the house pattern):
        producers' 12288/12288 pair, panel_wdg 3/core 0 at 2595)
   ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY 6 / _STACK_SIZE (8 * 1024) /
   _TASK_CORE_ID (-1)          managed_components/espressif__esp_lvgl_adapter/
-                              include/esp_lv_adapter.h:44-:46
-      (the clocks' "lvgl" worker, no affinity; the P4's 12288 override
-       main/main.cpp "p4_lv_cfg.task_stack_size")
+                              include/esp_lv_adapter.h:102-:104
+      (the clocks' "lvgl" worker's affinity is PER BOARD: the S3 BSP
+       overrides the adapter default itself — "cfg->lv_adapter_cfg.
+       task_core_id = 0;" components/esp32_s3_touch_amoled_1_75/
+       esp32_s3_touch_amoled_1_75.c:590, its comment :581-590 quoting
+       the starvation the default invites — while the P4 branch of
+       main.cpp overrides ONLY the stack ("p4_lv_cfg.task_stack_size",
+       main/main.cpp:565) and its painter keeps core -1, "no affinity";
+       the generator asserts the BSP line AND the absence of a P4-side
+       task_core_id, so the split is re-read every figure time)
   play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:319,
                               wifi.c:551, actions.c:132
   knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, SPIRAM,
@@ -51,8 +58,8 @@ Every number is PARSED at figure time (the house pattern):
 NOT drawn: hang_watch (xTaskCreate at main.cpp:748 sits under
 #if CONFIG_TEST_HANG_WATCH — a test hook, not shipped); the knob's
 silent alarm stub creates no play_task; the S3 and P4 share the clock
-column (identical call sites, the only delta being the P4's 12 KiB
-LVGL stack, printed on its row).
+column (identical call sites; the two deltas — the P4's 12 KiB LVGL
+stack and the painter's per-board core — are printed on its row).
 
 Right panel: the SAME rows as headroom over each family's own render
 task (prio - p_lvgl) — derived, one subtraction, nothing new measured:
@@ -88,6 +95,8 @@ ALARM_AUDIO = os.path.join(ROOT, "components", "ui", "alarm_audio.c")
 WIFI = os.path.join(ROOT, "components", "wifi", "wifi.c")
 ACTIONS = os.path.join(ROOT, "components", "ui", "actions.c")
 MAIN_CPP = os.path.join(ROOT, "main", "main.cpp")
+BSP_S3 = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
+                      "esp32_s3_touch_amoled_1_75.c")
 KNOB_MAIN = os.path.join(ROOT, "knob", "main", "main.c")
 KNOB_UI = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")
 KNOB_ENC = os.path.join(ROOT, "knob", "components", "knob_board",
@@ -228,6 +237,23 @@ def main() -> None:
                          "not found in main.cpp")
     p4_lv_stack = int(m4.group(1))
     p4_lv_line = main_src.count("\n", 0, m4.start()) + 1
+    # the per-board painter affinity: the S3 BSP pins the adapter task
+    # itself; the P4 branch must NOT (its painter rides the adapter
+    # default) — both halves are asserted, so the row cannot silently
+    # drift back to a shared "no affinity" lie
+    bsp_src = _read(BSP_S3)
+    m0 = re.search(r"cfg->lv_adapter_cfg\.task_core_id\s*=\s*(-?\d+)\s*;",
+                   bsp_src)
+    if not m0:
+        raise SystemExit("S3 BSP LVGL core pin (cfg->lv_adapter_cfg."
+                         "task_core_id) not found in the BSP — the affinity "
+                         "split moved; re-read esp32_s3_touch_amoled_1_75.c")
+    s3_lv_core = int(m0.group(1))
+    s3_lv_line = bsp_src.count("\n", 0, m0.start()) + 1
+    if re.search(r"task_core_id", main_src):
+        raise SystemExit("main.cpp now touches task_core_id — the P4 painter "
+                         "no longer rides the adapter default; update the "
+                         "LVGL row and the crew sketch")
     wdt_timeout = config_int(SDKH, "CONFIG_ESP_TASK_WDT_TIMEOUT_S",
                              "task WDT timeout")
     wdt_cpu0 = config_int(SDKH, "CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0",
@@ -274,9 +300,10 @@ def main() -> None:
                  resolve(sync["prio_expr"]), sync["stack"], None, TEAL, "",
                  "actions.c:132"))
     clocks.append(("LVGL worker\n(esp_lv_adapter)", lv_prio, lv_stack,
-                   None if lv_core < 0 else lv_core, BLUE,
-                   f"P4 stack {p4_lv_stack}",
-                   f"adapter :44-:46, main.cpp:{p4_lv_line}"))
+                   None, BLUE,
+                   f"S3 core {s3_lv_core} (BSP :{s3_lv_line}) · P4 core "
+                   f"{lv_core} · P4 stack {p4_lv_stack}",
+                   f"adapter :102-:104, main.cpp:{p4_lv_line}"))
     klv = task_at(KNOB_MAIN, "knob_lvgl", "knob LVGL task")
     knob_prio = resolve(klv["prio_expr"])
     knob.append(("LVGL\nknob_lvgl_task", knob_prio, klv["stack"], None, BLUE,
@@ -387,7 +414,9 @@ def main() -> None:
             "test hook, never shipped); the knob's alarm is its silent stub\n"
             "(no play_task). Dotted edge = TWDT-unregistered (the knob's\n"
             "producer, knob_ui.c:701 comment). S3 and P4 share the clock\n"
-            "column — the only delta is the P4's 12 KiB LVGL stack.",
+            "column — its two deltas ride the LVGL row: the P4's 12 KiB\n"
+            "stack, and the painter's core (S3 pinned to 0 by the BSP's own\n"
+            "line, P4 kept at the adapter default).",
             fontsize=5.7, color=MUTED, ha="left", va="top")
     ax.set_xlim(-4.6, 4.6)
     ax.set_ylim(n + 4.6, -2.4)

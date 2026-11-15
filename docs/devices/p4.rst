@@ -321,6 +321,17 @@ binary's clock source is verified in ``build/p4/config/sdkconfig.h``,
 and the bench-note lives in
 :doc:`the clock and the sleep machine <../implementation/clock-sleep>`.
 
+The other half of that core-1-bakes comment sits in the adapter
+config: the S3 BSP pins the LVGL painter to core 0 itself
+(``esp32_s3_touch_amoled_1_75.c:581-590``), while the P4 branch of
+``main.cpp`` passes ``ESP_LV_ADAPTER_DEFAULT_CONFIG()`` through —
+overriding only ``task_stack_size = 12288`` (:cfile:`main/main.cpp:558-570`)
+— so the 4C's painter keeps the adapter default ``task_core_id = -1``,
+"no affinity", and the producers' pinning alone carries the split on
+this board. The affinity split, the spawn edges and the chip
+interrogations of the whole crew are drawn in
+:ref:`the crew sketch <task-roster-arch>`.
+
 **The board line asymmetry, the P4 half:** this file **does** carry
 ``CONFIG_BOARD_P4=y`` — the Kconfig ``choice``'s default is the S3,
 so selecting the P4 must override it, while the S3 file needs no

@@ -163,10 +163,13 @@ The tasks
 **The short version.** The device always runs about five workers at
 once, and the table below is their crew roster: who runs, on which of
 the two CPUs, and what they own. One line explains the whole design:
-the LVGL painter lives on core 0 and must answer every 50 ms, so every
-CPU-bound bake is *pinned* to core 1 and runs as its own task — a 1.3 s
-bake can then never stall the tick that drains the previous frame's
-strips.
+the LVGL painter must answer every 50 ms, so every CPU-bound bake is
+*pinned* to core 1 and runs as its own task — a 1.3 s bake can then
+never stall the tick that drains the previous frame's strips. On the
+S3 the painter's side of that split is enforced by the BSP itself (it
+sets ``task_core_id = 0``); on the P4 the painter keeps the adapter's
+default of *no affinity* and the split is carried by the producers'
+pinning alone (:ref:`the crew sketch <task-roster-arch>` draws both).
 
 The system runs on FreeRTOS. The load-bearing tasks and what core each
 is pinned to:
@@ -186,13 +189,17 @@ is pinned to:
        bakes the static current phase itself), deep-sleep
        entry
    * - ``LVGL`` (adapter)
-     - 0
-     - yes (``task_pin_to_core 0``)
+     - 0 on the S3; either on the P4
+     - S3 yes (the BSP sets ``task_core_id = 0``); P4 no (the
+       adapter default ``-1``, "no affinity", passes through)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
    * - bake tasks (orbit / rebake / hourly / boot replay)
      - 1
-     - **yes** (pinned, PSRAM-stack)
+     - **yes** (pinned; internal-RAM stacks — ``pvPortMalloc`` is
+       ``heap_caps_malloc(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)``;
+       only the classify worker ``moon_event`` rides PSRAM via
+       ``xTaskCreatePinnedToCoreWithCaps``)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
        ``moon_rebake`` re-bakes the static frame off the LVGL task,
        ``moon_hourly`` produces the once-per-hour frame (a bake or a TF
@@ -212,20 +219,30 @@ is pinned to:
        for the 1.7 s wake freeze, :doc:`the clock and sleep machine <clock-sleep>`)
 
 Read the roster column by column. The **Core** column splits the crew:
-the painter and its watchdog on core 0, every bake producer on core 1,
-and ``wifi_sync`` pinned to *neither* — its only job is to do slow
-network work out of everyone's way. The **Pinned?** column says ``yes``
-exactly where timing matters: the LVGL task must stay where the touch
-pipeline is, the bakes must stay where they cannot starve it. The
-**Owns** column holds one curiosity: ``panel_wdg`` owns a watchdog whose
-entire job is to notice when somebody forgot to hand back the panel key
-(:doc:`the display pipeline <display>`).
+the painter (core 0 on the S3 by the BSP's own line, either core on the
+P4) and its watchdog on core 0, every bake producer on core 1, and
+``wifi_sync`` pinned to *neither* — its only job is to do slow network
+work out of everyone's way. The **Pinned?** column says ``yes`` exactly
+where timing matters: the bakes must stay where they cannot starve the
+tick. The **Owns** column holds one curiosity: ``panel_wdg`` owns a
+watchdog whose entire job is to notice when somebody forgot to hand back
+the panel key (:doc:`the display pipeline <display>`).
 
 Two design choices are worth calling out. First, the bake producers
 (orbit, rebake, hourly) are **pinned to core 1** because a bake
-is CPU-bound work: the LVGL task (on core 0, with the touch pipeline,
+is CPU-bound work: the LVGL task (with the touch pipeline,
 the clock minute update, and the fade ramps) must never share a core
-with a bake or a gather. Second, those pipelines run as *tasks*
+with a bake or a gather. The S3 BSP enforces the painter's half of that
+separation itself, quoting the design's failure mode verbatim: "The
+adapter default (core -1, no affinity) lets FreeRTOS park it on core 1,
+where the moon bake producer (pinned core 1, priority
+``configMAX_PRIORITIES - 3``) starves it"
+(``components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c:581-590``).
+The P4's ``main.cpp`` passes ``ESP_LV_ADAPTER_DEFAULT_CONFIG()``
+through — overriding only ``task_stack_size = 12288`` — so its painter
+keeps the adapter default ``ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID``
+(``-1``, "no affinity") and the producers' pinning alone carries the
+split there. Second, those pipelines run as *tasks*
 rather than on the LVGL task: a 1.3 s frame bake must not block the
 50 ms tick that drains the previous frame's strips — the tick's only
 pipeline job is displaying what the producers publish.
@@ -234,6 +251,16 @@ The **priority** this roster leaves implicit — the full ladder with
 the knob rows, the band the ``esp_timer`` daemon shares with the
 producers, and each producer's TWDT posture — is parsed and plotted in
 :ref:`the scheduler ladder <scheduler-ladder-perf>`.
+
+.. _task-roster-arch:
+
+The crew in one picture
+-----------------------
+
+.. graphviz:: ../_graphs/task-roster.dot
+   :alt: The crew, wired — boot, tick and on-demand spawn arrows over the clocks' ten tasks and the knob's seven, dashed producer-to-tick wake arrows, and amber arrows from each hand to the chip it interrogates
+   :align: center
+   :caption: The crew, wired — the roster table above says *who runs where*; this says **who spawns whom, who wakes whom, and which chip each hand asks**. Blue arrows are ``xTaskCreate*`` sites with the creator named: the boot band (``app_main`` boots the radio and clock *before* the panel, then ``bsp_display_start`` runs the adapter painter; ``moon_ui_init`` spawns the watchdog and the classify worker; ``moon_ui_start`` spawns the boot replay) and the tick band (the tick head's ``moon_hourly_service`` spawns the hourly producer at the hour centre; ``moon_rebake_request`` spawns rebake from exactly three callers — degraded hourly probe, day tick, wake). Dashed arrows are hand-backs, not calls: producers publish into the shared PSRAM buffers and the tick shows them atomically; ``wifi_sync`` sets the done flag the wake handler consumes and then ``vTaskDelete(NULL)``s itself — every dynamic member self-deletes, every static one never exits. Amber arrows are periodic interrogations, each with its cadence on the wire: the indev layer's 33 ms touch read, the 1 Hz tilt ask against the IMU's 1000 Hz stream, the 1.3 s RTC poll (S3 only), the hour-centre card reads, the knob's dial poll that nominal 3 ms clamps to an effective 10 ms. The two dashed ghosts are drawn as ghosts: ``moon_orbit`` gates on ``UI_MOON_ORBIT_ENABLE`` (not set in either clock's ``sdkconfig``) and ``hang_watch`` on ``TEST_HANG_WATCH``. The painter node carries the per-board affinity split; the claims footer prices the stack memories as internal-RAM debt. The priorities of these same tasks are :ref:`the scheduler ladder <scheduler-ladder-perf>`, their resident bytes the :ref:`static footprint <static-footprint-perf>`, and the cadences on the amber arrows :ref:`the silicon ladder <silicon-ladder-perf>`.
 
 The buffers and who touches them
 --------------------------------

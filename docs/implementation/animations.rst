@@ -432,7 +432,10 @@ phase, not a dark-side disk
 or a frame that was mid-bake when the device slept —
 the wake no longer bakes on the LVGL task: the parked frame displays
 immediately and ``moon_rebake_request()`` re-bakes on a core-1 task
-(the same worker pattern as the day-tick re-bake and the hourly producer).
+(the same worker pattern as the day-tick re-bake and the hourly producer
+— the spawn edges for all three of that request's callers, and the
+wake-hand-back arrows they all share toward the tick, are the tick band
+of :ref:`the crew sketch <task-roster-arch>`).
 The finished frame is
 never displayed off-task — the convert flushes only on the LVGL task
 (the 3.5 KB stack rule) — so the bake merely raises a show flag and

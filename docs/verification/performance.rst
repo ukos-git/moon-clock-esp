@@ -668,6 +668,8 @@ UI_SCREEN_SWITCH_FADE`` symbol indirection:
    2400×-spread that is the design: brightness animates, pixels never
    half-move. The generator is ``docs/tools/gen_perf_dim.py``.
 
+.. _static-footprint-perf:
+
 The static footprint (how much memory)
 ---------------------------------------
 
@@ -705,6 +707,8 @@ Runtime watermarks (free heap, largest block) are the device's own
    80 %, the knob's half-axis DEM (1024×512) leaves it at 34 %
    (headroom the asset pipeline's size guards keep as headroom). The
    generator is ``docs/tools/gen_perf_mem.py``.
+
+.. _loudness-ladder-perf:
 
 The ring's loudness (the alarm audio ladder)
 ---------------------------------------------
@@ -847,8 +851,10 @@ task (one subtraction, nothing new measured). Not drawn: the
 knob's alarm, which is its silent stub with no player task at all. The
 generator is ``docs/tools/gen_perf_sched.py``; the same task set in
 prose is the task table of :doc:`the architecture
-<../implementation/architecture>`, and the memory each row commits is
-the footprint figure above.
+<../implementation/architecture>`, the same task set *wired* — who
+spawns whom, who wakes whom, which chip each hand asks — is
+:ref:`the crew sketch <task-roster-arch>`, and the memory each row
+commits is :ref:`the static footprint <static-footprint-perf>` above.
 
 .. figure:: ../_static/figs/perf_sched.png
    :alt: The FreeRTOS priority ladder of every shipped task on the clocks and the knob, and the same rows as headroom over each family's LVGL task
@@ -903,7 +909,9 @@ encoder chain clears it at 0.09–0.61×, the beat row lands at 1× by
 definition, navigation pays 15× for its fade round-trip, and every
 human confirmation sits at 61×: **no human ever waits on the beat,
 the machine always waits on the human**. The mechanism — who reads
-and how — is :ref:`the input chain <input-chain-ui>`; the
+and how — is :ref:`the input chain <input-chain-ui>`; the same legs
+counted as **asks per day** instead of wait time are :ref:`the
+silicon ladder <silicon-ladder-perf>` below; the
 ``docs/tools/gen_perf_response.py`` generator draws both panels.
 
 .. figure:: ../_static/figs/perf_response.png
@@ -1885,6 +1893,81 @@ out-funds the population is the render-path story of :doc:`the
 architecture <../implementation/architecture>`; the population's
 navigation — who may visit whom — is the reachability matrix of
 :doc:`the UI index <../ui/index>`.
+
+.. _silicon-ladder-perf:
+
+The silicon ladder (how often each chip is asked)
+-------------------------------------------------
+
+**The short version.** The family's other axes count bytes (bus,
+storage, writes, footprint) or waits (pacing, patience, response,
+freshness) — none of them counts **interrogations**: how many times a
+day each board's firmware asks a chip for something, while the hand
+is on (the sleep story is owned by the pacing and patience ladders
+and the dark hours they price). Every bar is parsed at figure time:
+the shared beat ``CONFIG_LV_DEF_REFR_PERIOD`` asserted **equal across
+all three** generated headers (it is also the LVGL indev read period,
+``lv_indev.c:105`` — so every touch chip answers 2,618,181 reads a
+day), the tilt monitor's 1 s ask against the QMI8658C's parsed
+1000 Hz ODR, the clocks' ``RTC_POLL_INTERVAL_MS`` 1300 feeding the
+expander-INT + PCF-CTRL2 double read, the encoder's nominal
+``ENC_POLL_MS`` 3 clamped to one tick at the knob's parsed 100 Hz,
+the hour-centre epoch ``hour * 3600 + 1800``, the 60 s battery gauge,
+and the day scan at the ``moon_event`` worker.
+
+The ladder's two comparisons are gaps, not rates. **The 1000×:** the
+IMU streams 86,400,000 samples a day (the CTRL2 "1000 Hz = 3"
+setting, a hatched chip-side ghost — never billed to a board) while
+the firmware asks for 86,400; one sample in a thousand is read, and
+the departure model that wakes the device lives entirely inside that
+one-in-a-thousand. **The 3×:** the dial's 3 ms nominal poll cannot
+exist at a 100 Hz tick — ``pdMS_TO_TICKS(3)`` is zero, the code's own
+``poll < 1 ? 1 : poll`` clamp lands it at 10 ms, and the 28,800,000
+nominal becomes an effective 8,640,000 (the response ladder already
+priced what the user pays for that clamp; here it is priced as
+polls). The right panel is the presence matrix: filled dots are asked
+at the printed rate, open dots are **zero legs with a parsed
+reason** — the P4's IMU probe failing ("moon tilt disabled", with the
+P4 board page never mentioning the chip while the S3 page does), the
+RTC leg compiled out by the three ``#if !CONFIG_CLOCK_USE_PCF85063A``
+legs and the undefined P4-header macro, the knob's ``imu_stub.c``
+answering ``false``, no RTC driver in the knob's own sources, the
+hour cache whose whole module is the ``KNOB_BOARD`` side of
+``UI_BOARD_SRCS`` (four files, emptied — "no SD socket"), and the
+radio re-sync's airplane-screen gate the knob never stands on. The
+same 1.3 s metronome appears three times with three different
+truths: 66,461 two-read I2C interrogations on the S3, a compiled-out
+timer callback on the P4, a software minute-tick with no chip behind
+it on the knob. Not drawn: the alarm ring player (event-driven, and
+:ref:`the ring ladder <loudness-ladder-perf>` owns when), the
+``esp_timer`` daemon's own housekeeping, and every sleep-window
+quiet — the bars are *awake-attention* rates. Every figure number
+dies with its source: the CST9217 driver is lock-only (asserted in
+``dependencies.lock``, no address ever drawn), while GT911 0x5D/0x14
+and PCF85063A 0x51 are parsed from the on-disk headers, the
+``UI_BOARD_SRCS`` quartet is parsed name-for-name from the component
+CMakeLists, and the knob-zero claims are walked over the knob's own
+sources (the vendored ``managed_components`` package it never links
+is excluded by rule). The generator is
+``docs/tools/gen_perf_silicon.py``; who holds each of these hands is
+:ref:`the crew sketch <task-roster-arch>` (its amber arrows *are*
+these legs), what one interrogation costs on the panel bus is
+:ref:`the bus ladder <bus-ladder-perf>`, and what the card asks
+*write* is :ref:`the write ladder <write-ladder-perf>`.
+
+.. figure:: ../_static/figs/perf_silicon.png
+   :alt: interrogations per day per chip leg per board on a log axis with hatched chip-side ghosts, and the per-board presence matrix of filled, open and absent legs
+   :figclass: align-center
+
+   The silicon ladder. **Left:** every periodic interrogation leg as a
+   group, one bar per board in its identity colour (S3 blue, P4 teal,
+   knob amber) on one log count axis — with the two hatched ghosts
+   that are never billed (the IMU's 86,400,000/day stream behind the
+   86,400 asks, the dial's un-clamped 28,800,000 nominal behind the
+   clamped 8,640,000), and every zero leg drawn as an open dotted bar
+   with its parsed reason in italics. **Right:** the presence matrix,
+   leg × board — filled dots carry the count, open dots mark the
+   parsed zeros, ``×`` marks the legs the board does not build at all.
 
 The performance decisions, ranked
 ---------------------------------
