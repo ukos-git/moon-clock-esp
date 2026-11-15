@@ -9,8 +9,127 @@ alarm). It is
 the part of the product where a *clock* and a *moon* have to agree on
 every minute of the day.
 
+The short version
+-----------------
+
+The whole page answers one question: *when does the screen change,
+and who is allowed to change it?* The moon math (the other
+implementation pages) decides **what** to show; this machine decides
+*when* — and four answers cover everything below:
+
+1. **Two moon screens, one image.** The home screen ("airplane")
+   and the WiFi screen carry the *same* moon picture — the WiFi
+   screen is that picture plus a transient sync indicator, shown
+   only while a time sync is in flight (boot, hourly, manual).
+   Because the images are identical, the switch between them needs
+   no hiding; everything else — the settings hub and its
+   sub-screens — shows no moon at all.
+2. **Nothing moves until something changes.** The clock updates
+   only when the displayed minute rolls (and never while the panel
+   is dark), each digit sits in its own fixed-width box so the
+   string never hops, and the screen's orientation snaps between
+   *four* 90° poses — never a continuous tilt-follow. Every visible
+   change lands as one atomic burst, like every other frame in this
+   product.
+3. **A ladder of two rungs and two timers.** No touch and no
+   sustained tilt for a minute (the default, user-tunable) →
+   *light sleep*: everything pauses, the panel dims to 25 % and
+   the clock to 20 % opacity — the dim *is* the sleep indicator.
+   A one-shot countdown armed at that very moment later fires
+   *deep sleep*: the clock is hidden, the WiFi radio is
+   deinitialized, the backlight goes off — and only the RTC's
+   crystal keeps counting, because that is what lets the alarm
+   find its moment. (The knob is the one board that truly powers
+   down.)
+4. **Three doors, one handler.** Touch, tilt, and alarm all enter
+   through the same wake tail: kill any ring, relight the panel,
+   show the moon at its current phase immediately — and run the
+   network time check on a background task, so the freshly woken
+   screen never freezes waiting for the radio.
+
+Everything below is this machine section by section: the screens,
+the minute rules, the four poses, the ladder, the alarm invariant,
+the tilt, and the doors.
+
+Vocabulary
+----------
+
+Sixteen terms carry the page — the ones shared with the rest of the
+firmware also have fuller entries in the :doc:`glossary
+<../glossary>`:
+
+- **Tick / LVGL task** — the UI worker: wakes every 50 ms, redraws
+  what changed, and pushes the finished frame to the panel. Every
+  change the eye sees rides on this tick.
+- **Activity timer / idle timeout** — the countdown that a touch
+  or a sustained tilt resets; when it expires
+  (``settings_idle_timeout_sec``, default 60 s, range 60–1800) the
+  device steps down the sleep ladder.
+- **RTC** — *real-time clock*: a small chip with its own crystal
+  (the PCF85063A on the S3) that keeps counting seconds while the
+  main chip idles; the clock the alarm and the countdown ride on.
+- **ALM pin** — the RTC chip's alarm output wire: when the armed
+  alarm instant arrives, the pin toggles and says "wake up and
+  ring".
+- **One-shot** — a countdown programmed to fire exactly once after
+  a chosen delay: the deep-sleep countdown is a one-shot armed the
+  moment the device goes quiet, so sleep depth never follows an
+  animation.
+- **App-level deep sleep** — on the clocks, "deep sleep" is a
+  *software* state, not a power-down: backlight off, timers
+  paused, radio deinitialized — the chip itself keeps running
+  (which is why the P4 can simply stay dim when an alarm is
+  pending). The knob's deep sleep is the real thing,
+  ``esp_deep_sleep_start`` — silicon off.
+- **Airplane (modem-sleep) screen** — the home screen's internal
+  name: while it sits there the WiFi modem is *down*; the network
+  is woken only briefly, on demand, to check the time.
+- **Alpha** — transparency in percent: the clock at 20 % alpha is
+  drawn one-fifth as opaque, letting the AMOLED's black read
+  through the digits.
+- **0x51 brightness ramp** — the panel's own dim/brighten command
+  (glossary: *fade-to-black*): it changes every pixel's brightness
+  at once and writes no pixels, which is why it fits inside the
+  atomic-frame rule.
+- **EMA (exponentially weighted moving average)** — a
+  slowly-following average: each new sample nudges the running
+  value a little, so a one-off jolt barely moves it and a held
+  pose gradually becomes "the settled pose."
+- **int4 quantization** — rounding each gravity axis to a coarse
+  integer grid where one level is 1/8 g (clamped to ±1 g): table
+  jitter never counts as motion, and everything downstream is
+  integer arithmetic.
+- **Dot / cross** — the two integer products that answer the tilt
+  geometry without trigonometry: how strongly the sampled direction
+  agrees with the home axis (the dot) and which side of it it falls
+  (the cross); together they pick the quadrant.
+- **Departure wake** *(glossary)* — waking on a *sustained move
+  away* from the settled pose, not on raw motion: two thresholds
+  (magnitude and direction) held for two consecutive samples.
+- **SNTP / on-demand sync** — the network time check the device
+  runs at boot, hourly, and on wake when the RTC has drifted enough
+  to distrust; the radio spins up only for the check's duration.
+- **LEDC duty** — the knob's dimmer dial: an ESP32 PWM channel
+  whose duty cycle sets the backlight — an 8-bit scale, duty 64
+  ≈ the clocks' 25 % panel rung.
+- **EXT0 / EXT1 pads, NVS snapshot** — physical wake inputs for a
+  chip that is truly asleep (turning the knob, tapping it), and the
+  rough current time the knob stores in flash before sleeping, so
+  it knows approximately *when* it woke before the network corrects
+  it.
+
 The screen model
 ----------------
+
+**The short version.** Two screens in the whole product carry the
+moon, and they carry the *same* image: the home (airplane) screen,
+and — while a time sync is in flight — the WiFi screen, which is
+that same picture with a transient indicator laid over it. A third
+family, the settings hub and its sub-screens, carries no moon at
+all. The firmware always knows which family the visible screen
+belongs to (``moon_screen_has_image()`` feeding ``s_moon_screen``),
+and that knowledge is what makes the switch between the two moon
+screens free: same picture, nothing to hide.
 
 The home screen is the **airplane (modem-sleep) screen**: the moon in
 the foreground, the clock label, the seconds arc — no icons. The
@@ -117,6 +236,16 @@ The sub-screens:
 The minute-driven clock
 -----------------------
 
+**The short version.** The home clock is not animated: it changes
+exactly when the displayed minute rolls, and the update runs on the
+UI worker. Two guards decide whether an update happens at all —
+skip it entirely while the panel is dark (the RTC keeps time; the
+first wake re-applies it), and, historically, hold a sync until a
+boot sweep finished, a guard that retired along with the sweeps.
+And the digits never slide sideways, because each character lives
+in its own fixed-width box: when a ``1`` is replaced by a ``4``
+only that box's ink changes.
+
 The clock display updates are **minute-driven, on the LVGL task**:
 ``action_update_clock_display`` fires when the displayed minute
 changes, writes the clock label, and refreshes the seconds arc. Two
@@ -152,6 +281,16 @@ label instead, so the string is a constant width and only the ink moves.
 The 90° orientation steps
 -------------------------
 
+**The short version.** The screen does not smoothly follow the
+tilt. It waits until the device has clearly been *set down* at one
+of four angles — 0, 90, 180, 270° — and then snaps there in one
+atomic instant. Getting there is a funnel of four checks: look,
+average away the jitters, pick the quadrant, and demand that the
+answer persist before adopting it. A continuous rotation was
+rejected on purpose: it would re-render the whole screen through
+every intermediate angle, and every one of those in-between frames
+is exactly the half-picture the atomic rule forbids.
+
 The screen's orientation is not a continuous ramp — it is quantized
 to **four 90° steps** (0/90/180/270° clockwise), applied as the LVGL
 root's ``transform_rotation``. The pipeline (on the LVGL task, fed by
@@ -170,6 +309,14 @@ the tilt monitor's 1 Hz samples):
    of a new home pose happens only when the step is 0 (the device
    flat, home orientation).
 
+Read the funnel by what each stage refuses: *Sample* refuses to
+trust a single reading; *Window* refuses a moving target — no
+decision while the average is still wandering; *Quadrant* refuses
+trigonometry, picking the quarter with dot/cross integers alone;
+*Confirmation* refuses to flip on one stubborn sample. The pose
+must survive all four before the screen moves — and when it does,
+it moves once.
+
 Why steps and not a ramp: a continuous ramp rotates the *whole
 screen* (the LVGL root transform) through every intermediate angle,
 which at 50 ms ticks costs a full-panel re-render per step — and a
@@ -180,6 +327,14 @@ every frame by the current step and re-rotate the UI keep-mask with it
 so its panel writes matched LVGL's root transform; that machinery was
 removed 2026-11-13 — the root transform is now the only rotation the
 panel sees (:doc:`the display pipeline <display>`).)
+
+**The calibrations in one sentence each:** *home is where the desk
+is* — the mount offset records which step the flat-on-desk pose
+lands on, so "upright" means "as this housing sits on the desk",
+whatever the panel's own 0° happens to be inside it; and *only the
+flat pose may redefine home* — re-learning the home axis mid-flip
+would remember a passing pose as permanent, which is the "the clock
+woke up sideways" bug class.
 
 Two calibration facts are load-bearing. The panel's **mount offset**
 (Kconfig ``UI_ORI_BASE_V10``, per board: the P4 panel is mounted +90°
@@ -192,6 +347,20 @@ mid-flip, the flip's transient pose would become the new home (the
 
 The idle/sleep state machine
 ----------------------------
+
+**The short version.** Picture a three-rung ladder walked by two
+timers. The device sits *awake* on the home screen. When the
+activity timer expires — no touch, no sustained tilt, sixty seconds
+by default — it steps down to *light sleep*: the moon freezes on
+its current phase, the clock fades to 20 % opacity, and the whole
+panel dims to 25 % with the panel's own brightness command, no
+pixels rewritten; the dim *is* the sleep indicator. At that very
+moment a one-shot countdown is armed, and when it fires the device
+steps to *deep sleep*: the clock is hidden, the WiFi radio is
+deinitialized, the backlight goes off — and only the RTC's crystal
+keeps counting, because that is what lets the alarm ring later.
+Every number here (the timeout, the countdown, the two dim
+percentages) is a user setting.
 
 The state machine lives in ``clock_idle.c`` (the activity timer) and
 ``actions.c`` (the transitions). Activity = a touch or a tilt
@@ -305,6 +474,19 @@ able to ring.
 The third board runs a different ladder
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+**The short version.** The knob shares the *look* of the ladder but
+has none of the clocks' instruments: no IMU to feel a pick-up, no
+RTC to arm, and — being battery-powered — the willingness to truly
+switch itself off. It dims by LEDC duty instead of the panel
+command and calls the real chip power-down. The alarm question is
+answered by the chip's own timer: before sleeping, the knob arms a
+wake-up for the next alarm rule, and on waking it recomputes that
+rule from the time it last saved to flash — inside the 300 s grace,
+show the silent alarm visual; within 900 s, hold at 1 Hz until the
+rule arrives (**never ring early**); further off or implausible, it
+was just a dial turn. Every wake re-corrects over the network, so
+the timer's drift never compounds.
+
 The knob (:doc:`the Knob board <../devices/knob>`) shares the
 *screens* and the *scheduler* but not this state machine: no IMU to
 wake on, no RTC to arm, no light sleep. Its
@@ -336,6 +518,16 @@ arbitration.
 The RTC alarm disarm rule
 -------------------------
 
+**The short version.** The RTC chip *remembers* its armed alarm
+through a reboot — the register is battery-backed, not reset by
+power. The scheduler rewrites that memory on every schedule, but a
+device that boots with *no* alarm rules must go one step further
+and erase it: otherwise the stale time left by some previous life
+still fires, and a device with no alarms wakes at the wrong minute
+showing a rule that no longer exists. That erase-on-zero-rules is
+the invariant, and the headless device is the honest test — a
+phantom wake never comes back to the desk.
+
 The PCF85063A's alarm register **persists across reboots** (it is
 battery-backed, not reset by power). The scheduler writes the next
 alarm time on every schedule; but a boot with **zero alarm rules**
@@ -348,6 +540,16 @@ proves it (a phantom wake never comes back to the desk).
 
 The tilt: activity and wake
 ---------------------------
+
+**The short version.** The accelerometer feeds two decisions; this
+page covers the second one: *is someone handling the device?* The
+answer cannot be "the numbers moved" — a desk clock that wakes at
+every footstep is a dead battery by morning. So the machine keeps a
+slowly-following estimate of the pose the device has *settled*
+into, and calls it activity only when the readings sustain a move
+*away* from that pose: far enough, in a consistent direction, for a
+couple of samples in a row. The pose it fell asleep at is the
+reference; motion relative to it is the wake.
 
 The tilt sensor (QMI8658C) drives two things — the orbit's sustained
 poses (:doc:`the animation pipelines <animations>`) and the **activity/wake** signal. The wake fires
@@ -369,6 +571,19 @@ debounce.
 
 The wake paths
 --------------
+
+**The short version.** Three doors open the same way — a finger (a
+tap), a hand (a sustained tilt away from the settled pose), and the
+clock itself (the alarm) — and all three run one tail: stop any
+ring, relight the panel if it was off, and head for the airplane
+screen. The one deliberate split is the time check: the WiFi
+reconnect and SNTP run on their own background task, never on the
+UI worker, so the screen you just woke up to can repaint while the
+radio works — that split is the whole story of the 1.7 s wake
+freeze. The moon comes back at its current phase *immediately*,
+with no story or replay; if the stored frame has gone stale, the
+replacement bakes in the background and lands atomically when done,
+for exactly the same reason.
 
 Three wakes, one handler (``action_wake_screen``):
 
@@ -438,6 +653,14 @@ off this task.
 The hourly sync
 ---------------
 
+**The short version.** Once an hour the device double-checks its
+clock against the network — but only if it is *already* awake and
+sitting still on the home screen. A sleeping device is never woken
+for it (its next real wake syncs anyway), an open settings session
+outranks it, and the WiFi screen is a weather vane: up while the
+sync is in flight, down the moment it lands, whether it succeeded
+or failed.
+
 While the device is **at rest on the airplane screen**, at the top of
 a minute, when it is not connected and the RTC is due for a refresh
 (``CLOCK_NTP_SYNC_INTERVAL_HOURS``, production: 1 h), the same sync
@@ -453,6 +676,14 @@ path fires. The policy is deliberately conservative:
 
 The state machine, in full
 ---------------------------
+
+**The short version.** Read the diagram as the prose: the left side
+is the awake life (boot → sync → airplane ↔ hub on a tap), the
+right side is the ladder (airplane → dim → dark), and the arrows
+climbing back up are exactly the three doors. Every labelled
+transition — the 60 s idle, the 30 s countdown, the two wake
+routes, and the P4's refusal to drop into the dark while an alarm
+is pending — is a section of this page.
 
 .. raw:: html
 
