@@ -44,6 +44,16 @@ terminator. Four answers cover everything below:
    C core's frames against the Python prototype and NASA's and read
    the agreement as proof, not luck.
 
+The whole data flow in one picture — one UTC epoch in, one frame out;
+the assets and the geometry meeting in the row bake, the event
+classifier tinting the display LUT once per day, and the device side
+landing every published state as ONE atomic flush under ``s_rgb_mtx``
+(the invariant, :doc:`the display pipeline <display>`):
+
+.. graphviz:: ../_graphs/moon-core-flow.dot
+   :alt: The portable core's data flow — UTC epoch into moon_geometry, assets into the boot relief cache and the per-pixel bake, moon_event.classify into the gray565 tint LUT, finished rows through rotate/gray565, and the device side (core-1 producers, row watermark, bake reveal, one atomic lv_refr_now under s_rgb_mtx)
+   :align: center
+
 Vocabulary
 ----------
 

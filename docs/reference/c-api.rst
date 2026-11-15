@@ -2,8 +2,11 @@ The C API
 =========
 
 The portable core (``components/moon/core``) exposes a small C API —
-one header (``components/moon/include/moon.h``), the geometry, the
-bake, the rotation, the fixed-point trig, and the tone LUT. It is the
+three headers in ``components/moon/include``: ``moon.h`` (the
+geometry, the bake, the rotation, the fixed-point trig, and the tone
+LUT), ``moon_event.h`` (the sky-event classifier — harvest, blue,
+super, micro, blood), and ``moon_assets.h`` (the asset backend seam,
+device partition vs host array). It is the
 device's interface *and* the host simulator's (the same translation
 units build into both, :doc:`the architecture <../implementation/architecture>`), so this page is the reference a
 reader uses to build against the core — on the device or on the host.
@@ -53,6 +56,13 @@ The geometry
        float phase_angle_deg;
        float illum;       /* (1 + cos i) / 2 */
        float distance_km;
+       float shadow_dir[3];   /* eclipse shadow axis, body frame: the
+                               * geocentric ANTI-solar unit direction
+                               * (the umbra cone's axis) — moon_event.h */
+       float shadow_off[3];   /* the closest point of that axis to the
+                               * Moon's center (perp. to shadow_dir), m */
+       float off_ax;          /* the point's axial coordinate, meters
+                               * from the EARTH (see moon_event.h) */
    } moon_geom_t;
 
    /* UTC epoch seconds -> body-frame geometry. Cheap ephemeris
@@ -66,7 +76,10 @@ basis the Python prototype's ``Geometry`` carries (:doc:`the Python API <python-
 is what makes the gate's C-vs-Python comparison like-for-like. The
 ``subsolar_*`` / ``subearth_*`` / ``posangle`` fields are
 *gate/debug-only* (the bake does not read them — it works from the
-vectors).
+vectors). The three ``shadow_*`` fields locate the Earth's shadow in
+the body frame; ``moon_event.c``'s classifier turns them into the
+per-pixel umbra/penumbra occlusion of a blood moon (the sky events,
+below).
 
 The bake
 --------
@@ -81,9 +94,11 @@ The bake
    void moon_bake(const moon_geom_t *g, const uint8_t *albedo,
                   const moon_grel_t *grel, uint8_t *frame, int size,
                   float radius, float cx, float cy, int alb_w, int alb_h,
-                  int dark_zero, float dk_sup);
+                  int dark_zero, float dk_sup,
+                  const moon_bake_ev_t *bev);
 
-   void moon_bake_rows(..., int y0, int y1, ...);  /* the row-band variant */
+   void moon_bake_rows(..., int y0, int y1, ..., const moon_bake_ev_t *bev);
+                                          /* the row-band variant */
 
 The parameters the device always passes (and the two that carry the
 *display* decisions):
@@ -110,6 +125,14 @@ The parameters the device always passes (and the two that carry the
   arc (the "white ray", :doc:`the dark side <../science/darkside>`). The sliver is sun-lit, so the
   backlit color clips to pure black there — exactly the old
   flat-floor kill, computed instead of overlaid.
+- ``bev`` — the pre-calculated *sky event* (``moon_event.h``, below;
+  ``NULL`` = none): when ``bev->blood`` the lit Lambert is multiplied
+  per pixel by ``1 − 0.85 × the pixel's umbra occlusion``
+  (``MOON_EV_BLOOD_K``) BEFORE the tone LUT, so the eclipse "bite"
+  lands in the right place on the disk and a total eclipse still
+  shows a faint copper disk, not a black hole. ``NULL`` or an
+  all-false event is byte-identical to the pre-event bake (the
+  gate's posture).
 
 The per-pixel model (``moon_bake.c``): the base-sphere direction
 ``r = u*right + v*up + w*E`` (the bake's 257-entry atan/row-frac table
@@ -127,14 +150,19 @@ The constant-projection pair (the dusk — host-only since 2026-11-13)
 
    void moon_shade_map_build(const moon_geom_t *g, const uint8_t *albedo,
                              const moon_grel_t *grel, uint8_t *map,
-                             int map_w, int map_h, int dark_zero,
-                             float dk_sup);
+                             uint8_t *map_dark, int map_w, int map_h,
+                             int dark_zero, float dk_sup,
+                             const moon_bake_ev_t *bev);
    void moon_shade_map_rows(..., int y0, int y1, ...);
 
    void moon_reproject(const uint8_t *map, int map_w, int map_h,
                        const moon_geom_t *g, uint8_t *frame, int size,
                        float radius, float cx, float cy);
-   void moon_reproject_rows(..., int y0, int y1);
+   void moon_reproject_rows(const uint8_t *map, const uint8_t *map_dark,
+                            int map_w, int map_h, const moon_geom_t *g,
+                            uint8_t *frame, int size, float radius,
+                            float cx, float cy, int y0, int y1,
+                            float lit_w);
 
 The pair was the dusk's economics (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`): ``moon_shade_map_build``
 builds the **pre-shaded body-frame equirect map** once per epoch (the
@@ -147,7 +175,13 @@ spin; only the projection rotates. The re-project's dark side is
 *correct by construction* (the map carries the whole color, including
 the backlit night side; the ``dk_sup`` margin erosion is applied to
 the *map* at build time, so a dark pixel can never sample a lit cell —
-the old re-project ``dk_sup`` early-return is gone).
+the old re-project ``dk_sup`` early-return is gone). The companion
+``map_dark`` is the lit-fade variant: each pixel lerps
+``lit * lit_w + dark * (1 − lit_w)`` of the two nearest-neighbor
+samples — the companion is identical to the lit map in the backlit
+cells, so the lerp moves exactly the lit cells (the "earth ray" rim
+arc eases to black over a spin). The plain gather is
+``map_dark = NULL`` / ``lit_w`` ignored — exact, no rounding.
 
 The relief cache
 ----------------
@@ -164,7 +198,7 @@ The relief cache
                           uint16_t *pack);
    void moon_relief_row(const int8_t *row_n, const int8_t *row_m,
                         const int8_t *row_s, int dem_w, int dem_h,
-                        int r, uint16_t *pack);
+                        int r, uint16_t *gpack);
 
 ``moon_relief_build`` is the one-time boot cost (~1.3 s on the S3,
 :doc:`performance <../verification/performance>`) that makes every later bake cheap. The quantization
@@ -205,12 +239,94 @@ The tone LUT
     * to the NASA lit-region balance). */
    uint16_t moon_gray565(uint8_t g);
    void moon_gray565_set_warm(int on);  /* off = neutral (the gate) */
+   void moon_gray565_set_event(const moon_event_t *ev);
+   /* the sky-event tint; the LUT is the COMPOSITE of every flag set
+    * (harvest + super, ...), so one call per day covers the instant.
+    * The neutral gate LUT is never tinted — set_warm(0) wins. */
 
 The warm/neutral switch is the art pass's isolation (:doc:`the artistic pass <../science/art-pass>`): the
 gate runs the simulator with the neutral LUT (``--neutral``) so its
 metrics validate the *physics*, and the device's default is the warm
 tint. ``moon_gray565_set_warm(0)`` is the one-line switch that makes
 a build gate-configured.
+
+The sky events (moon_event.h)
+-----------------------------
+
+.. code-block:: c
+   :caption: moon_event.h — the classifier (abridged; the full comment is the rule set)
+
+   typedef struct {
+       bool blood;        /* lunar eclipse: Moon center inside the
+                             Earth's shadow cone at the epoch */
+       bool harvest;      /* full moon whose civil date falls in
+                             Sep 22 .. Oct 23 (the closest full moon
+                             to the autumn equinox — civil rule) */
+       bool blue;         /* 2nd full moon of its civil month (the
+                             PREVIOUS full moon shares the month —
+                             exact, a month holds at most two) */
+       bool super_moon;   /* full moon, geocentric < 357,500 km */
+       bool micro_moon;   /* full moon, geocentric > 405,500 km */
+       float shadow_dir[3], shadow_off[3], off_ax;
+                          /* umbra axis (body frame, meters) — the
+                             moon_geom_t fields; valid when blood */
+   } moon_event_t;
+   typedef moon_event_t moon_bake_ev_t;  /* the bake's 14th argument */
+
+   void  moon_event_classify(int64_t utc_epoch, moon_event_t *ev);
+   bool  moon_event_any(const moon_event_t *ev);        /* any flag set */
+   int   moon_event_signature(const moon_event_t *ev);  /* 5-bit OR */
+   float moon_event_occ(const moon_event_t *ev, const float d[3]);
+                                                        /* 0..1 occlusion */
+
+The rules are pinned by a 60-year census — **all 742 full moons of
+2000..2060**, geocentric envelope 356,431 .. 406,528 km: the
+super/micro bounds sit ~1,000 km *inside* the extremes and fire 60 /
+61 times (~once a year each), where the naive perigee/apogee values
+would fire at most once in 60 years. "Full moon" is the **moment
+test** \|epoch − F\| ≤ 18 h around the exact opposition F (the argmax
+of S·E) — a literal S·E > 0.999 dot test loses every full moon whose
+ecliptic latitude exceeds 2.56°, roughly half of all of them. The
+classification is cheap: a handful of ephemeris evaluations plus the
+60-day S·E peak search cached *per calendar day*. The header also
+carries the shadow constants (``MOON_EV_EARTH_R_M`` 6,371 km,
+``MOON_EV_SUN_R_M`` 695,700 km, ``MOON_EV_AU_M``,
+``MOON_EV_UMBRA_TIP_M``, ``MOON_EV_PENUMBRA_SLOPE``,
+``MOON_EV_BLOOD_K`` 0.85) — at the mean lunar distance they give the
+eclipse figures every almanac prints: umbra ~4,580 km, penumbra
+~8,175 km. ``moon_event_occ`` is header-inline (the bake hot path and
+the host tools share it without a link dependency): 1 fully inside
+the umbra, 0 outside the penumbra, a linear ramp between the cone
+edges — the partial-eclipse "bite". The device's day-tick compares
+``moon_event_signature`` against the last baked signature so an event
+STARTS or ENDS *mid-day* (a lunar eclipse happens at the hour it
+happens, not at the UTC midnight the date-change tick sees);
+``moon_gray565_set_event`` carries the LUT tint; the 2025-03-14 total
+eclipse is the frozen test date (:doc:`the image gate <../verification/image-gate>`).
+
+The asset seam (moon_assets.h)
+------------------------------
+
+.. code-block:: c
+   :caption: moon_assets.h — one seam, two backends
+
+   const uint8_t *moon_albedo(void);     /* MOON_ALB_W x MOON_ALB_H
+                                            equirect u8, row 0 = north,
+                                            col 0 = longitude 0 */
+   const moon_grel_t *moon_relief(void); /* the relief gradient cache;
+                                            NULL = partition missing /
+                                            too small, or PSRAM alloc
+                                            failed */
+   void moon_deinit(void);               /* device: release; host: no-op */
+
+The bake's caller never sees the backends: the **device** reads the
+whole int8 DEM from the ``moon_assets`` partition in ONE
+``esp_partition_read`` into a transient PSRAM buffer, builds the
+cache, and frees the buffer — the DEM is never kept resident, so
+steady-state relief memory is the one 4 MB uint16 array, which is
+what lets the cache fit the 8 MB pool alongside albedo, ``s_frame``,
+``s_rgb`` and LVGL (:doc:`the display pipeline <../implementation/display>`); the **host** links the
+generated C arrays (``moon_assets_gen.c``, :doc:`the Python API <python-api>`).
 
 The constants header
 --------------------
@@ -276,7 +392,7 @@ A minimal host caller (the bench's shape):
    uint8_t *frame = malloc(size * size);
    moon_bake(&g, albedo, (moon_grel_t){ .pack = grel }, frame, size,
              radius, cx, cy, MOON_ALB_W, MOON_ALB_H,
-             /* dark_zero */ 1, /* dk_sup */ 0.0f);
+             /* dark_zero */ 1, /* dk_sup */ 0.0f, /* bev */ NULL);
 
    uint16_t *rgb = malloc(size * size * sizeof(uint16_t));
    moon_rotate(frame, size, rgb, size, cx, cy, cx, cy,

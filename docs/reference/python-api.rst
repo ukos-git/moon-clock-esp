@@ -38,9 +38,12 @@ Dependencies
 ------------
 
 ``astropy`` (PyERFA ephemeris + units), ``numpy``, ``tifffile`` (the
-16-bit LROC albedo), ``Pillow`` (PNG output), ``matplotlib``-free
-(PIL/ffmpeg for the mp4). The project venv:
-``host_sim/.venv``.
+16-bit LROC albedo), ``Pillow`` (PNG output), ``scikit-image`` (the
+SSIM implementation), ``imageio`` (the mp4 writer) — the full pin list
+is the package's ``requirements.txt``; ``matplotlib``-free
+(PIL/ffmpeg for the mp4). The package's own venv is
+``assets/images/moon/.venv``; ``host_sim/.venv`` runs the gate, which
+imports the same tree.
 
 constants — the single source of truth
 ---------------------------------------
@@ -60,6 +63,10 @@ The public names (values as of the current tree):
      - 269.839977 / 68.110423 deg
      - the calibrated IAU_Moon body-frame pole (the ``calibrate``
        output against NASA SVS 5415 — not the IAU 2015 default)
+   * - ``PRIME_MER_W0`` / ``J2000_JD``
+     - 40.017251 / 2451545.0
+     - the fitted prime-meridian offset at the J2000 epoch (deg) /
+       the epoch the rate is referred to
    * - ``PRIME_MER_RATE_DEG_DAY``
      - 13.17617251
      - the prime-meridian rotation rate (deg/day)
@@ -82,7 +89,8 @@ The public names (values as of the current tree):
        core carries the same offset)
    * - ``EARTHSHINE_A/B/C``
      - 30.455 / -11.733 / -2.615
-     - the quadratic earthshine fit in the dark-side disk fraction
+     - the cubic earthshine fit ``A·x + B·x² + C·x³`` in the dark-side
+       disk fraction
    * - ``TONE_LUT``
      - (256,)
      - the calibrated gray->gray tone curve (the fit, :doc:`the lighting model <../science/lighting>`)
@@ -110,14 +118,16 @@ geometry. The public surface:
 .. code-block:: python
    :caption: moon.astro public API
 
-   class Geometry:      # the epoch's geometry (dataclass-like)
+   class Geometry:      # the epoch's geometry (dataclass)
+       utc                      # the ISO string passed in
        subsolar_lon, subsolar_lat   # deg (body frame)
        subearth_lon, subearth_lat
        posangle                 # deg, east of celestial north
        phase_angle_deg, illum   # (1 + cos i) / 2
        distance_km
-       # + the body-frame vectors S (Moon->Sun), E (Moon->geocenter),
-         right, up (the camera basis) and the ICRF basis
+       S_body, E_body           # Moon->Sun / Moon->geocenter, unit
+       right_body, up_body      # the camera basis — all body frame
+       def to_dict(self) -> dict  # the scalar fields (no vectors)
 
    def geometry(utc: str, ephemeris: str | None = None) -> Geometry
        # "2026-04-15T12:00" -> the epoch's geometry (PyERFA, the
@@ -142,8 +152,8 @@ epoch):
    >>> g.subearth_lon, g.subearth_lat   # (-6.10, -1.71) deg
    >>> g.posangle, g.distance_km        # (338.11, 372443)
 
-The ``Geometry`` carries the *body-frame* vectors (``S``, ``E``,
-``right``, ``up``) — the same basis the C core's ``moon_geom_t``
+The ``Geometry`` carries the *body-frame* vectors (``S_body``,
+``E_body``, ``right_body``, ``up_body``) — the same basis the C core's ``moon_geom_t``
 carries (:doc:`the C core <../implementation/core-c>`), which is what makes the C-vs-Python gate a
 *like-for-like* comparison (the two implementations share the
 subsolar offset; the gate's 1-gray C-Python floor is the port alone).
@@ -179,7 +189,7 @@ vectorized):
        # displaced-normal sun dot -> the raw (0..255) + dterm.
        # band_only=True = the legacy terminator-band model (the A/B).
    def to_uint8(img, max_val=255.0)
-   def earthshine(d)          # the quadratic dark-side fit (A/B/C)
+   def earthshine(d)          # the cubic dark-side fit (A/B/C)
    def tonemap(raw, dterm, lut)
    def save_png(img, path, alpha=None)
    def reference_alpha(size=400, radius=199.3, cx=199.3, cy=199.5)
@@ -234,30 +244,47 @@ runs the per-frame MAE/SSIM. ``moon.calibrate`` is the one-time body
 frame fit (pole + prime meridian) that produced the ``constants``
 values; ``moon.register`` is the pixel-registration fallback (a
 rendered crop's shift to the NASA crop) — the gate's pixel-aligned
-convention makes it a no-op in the normal path.
+convention makes it a no-op in the normal path; its one in-tree
+consumer is ``docs/nasa_figs.py`` (the NASA-comparison figure maker),
+which registers the simulator's crop onto NASA's before drawing the
+strip.
 
 assets — the device derivation
 ------------------------------
 
 ``moon.assets`` is the module that *produces the device's flash
-content* (the 2,470,400 B ``moon_assets`` blob, :doc:`the binary-size chronology <../verification/binary>`):
+content* (the per-board ``moon_assets`` blob — albedo then DEM,
+2,470,400 B S3 / 4,194,304 B P4 / 897,536 B knob, :doc:`the binary-size chronology <../verification/binary>`):
 
 .. code-block:: python
 
-   ALB_W, ALB_H = 864, 432      # the equirect albedo (row 0 = north)
-   DEM_W, DEM_H = 2048, 1024    # the int8 relief DEM
+   DEM_W, DEM_H = 2048, 1024    # the DEFAULT int8 relief DEM size —
+                                # per-board sizes are constants.TARGETS[t]
+                                # ("alb" / "dem", e.g. knob 1024x512)
    DEM_STEPS = 254              # the quantization range (-128..126)
-   def bake_albedo(full, width=864, ...)   # full-res -> equirect u8
-   def bake_dem(h_full, width=2048, ...)   # full-res height -> int8
+   def bake_albedo(full, width, height)   # full-res -> equirect u8
+                                # (BOTH sizes required — the per-board
+                                # TARGETS[t]["alb"], row 0 = north)
+   def bake_dem(h_full, width, height)    # full-res height -> int8
    def relief_lns(r_body, g, dem, ...)     # the DEM relief-normal sun dot
    def render_from_assets(g, alb, dem=None, ...)
        # one frame FROM THE ASSET MAPS with the exact device lighting
        # (full-disk displaced-normal Lambert, L = clip(lns, 0, 1))
-   def gen_consts_header(out_path, dem_lo, dem_hi)
+   def gen_consts_header(out_path, dem_lo, dem_hi, alb_w, alb_h,
+                         dem_w=DEM_W, dem_h=DEM_H)
        # the moon_consts.h the device compiles (the calibrated
-       # pole/prime-meridian + the DEM range)
+       # pole/prime-meridian + the DEM range + the asset sizes)
    def gen_assets_c(out_path, alb, dem)
        # the C array the device flash-bakes (the moon_assets blob)
+
+The module is also the pipeline entry point —
+``python -m moon.assets --target s3 p4 knob`` (the default is all
+targets). Its surface beyond ``--target``: ``--out`` (root dir — each
+target writes ``<root>/<target>/``), ``--alb WxH`` (override the
+albedo size for the selection — equirect 2:1, even W ≤ 4096),
+``--json`` (the NASA ``mooninfo_2025.json``), ``--roundtrip``
+(re-parse the produced blob and compare), ``--frames`` (also render
+N reference frames).
 
 The ``gen_consts_header`` / ``gen_assets_c`` pair is the *source* of
 the device's ``moon_consts.h`` and the ``moon_assets`` partition
@@ -310,8 +337,11 @@ The two host tools whose measured numbers appear in these docs are built on this
 package: ``host_sim/check_gate.py`` (the C-vs-Python-vs-NASA gate,
 :doc:`the image gate <../verification/image-gate>` — it imports ``moon.assets`` / ``moon.constants`` /
 ``moon.astro`` exactly the way this page's examples do) and
-``host_sim/render_demo.py`` (the ``make_frames`` + ``make_mp4``
-pipeline behind the README's animation demo, ``docs/gen_media.py``).
+``host_sim/render_demo.py`` (the demo-film driver — note it shells
+out to the ``moon_sim`` *binary*, it does not import
+``moon.animation``; the package's own ``make_frames``/``make_mp4``
+stand as the host-side sweep API behind ``python -m moon.animation``).
+The docs' own films come from ``docs/gen_media.py`` (:doc:`the animation pipelines <../implementation/animations>`).
 A reader who wants to *reproduce* a measured number runs the same
 package — which is the point of keeping the reference in-tree and
 tracked.

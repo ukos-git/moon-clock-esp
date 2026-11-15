@@ -1,5 +1,5 @@
 # Knob moon-display partition table (16 MB flash, schematic U3
-# W25Q128JVPIQ). storage carries knob_credentials.txt (K2), mirroring the
+# W25Q128JVPIQ). storage carries wifi_credentials.txt (K2), mirroring the
 # clock's SPIFFS credentials pattern. moon_assets (K7) carries the
 # pre-baked blob
 # (assets/images/moon/out/knob/moon_assets.bin: albedo 864x432 u8 then

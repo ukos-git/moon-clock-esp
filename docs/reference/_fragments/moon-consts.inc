@@ -74,6 +74,30 @@
      - The 256-entry 8-bit tone LUT (bin 0 = 0, the pure dark side);
        the art pass's warm curve (see :doc:`the art pass
        <../science/art-pass>`). Shown in full in the generated header.
+   * - ``MOON_TBL_N``
+     - ``257``
+     - The bake's atan / row-frac table length (256 intervals;
+       ``moon_bake.c``)
+   * - ``MOON_GREL_INV``
+     - ``0.003``
+     - The relief cache's int8 slope quantization step (±half-step
+       moves ``L`` by < 0.3 %)
+   * - ``MOON_NIGHT_BACKLIT_K``
+     - ``0.20``
+     - The computed backlit night side's peak level (gray ≈ 51,
+       ``dark_zero = 1``; :doc:`the dark side <../science/darkside>`)
+   * - ``MOON_EV_EARTH_R_M`` / ``MOON_EV_SUN_R_M`` / ``MOON_EV_AU_M``
+     - ``6371000.0`` / ``695700000.0`` / ``149597870.7e3``
+     - The eclipse cone's bodies (m) — ``moon_event.h``
+   * - ``MOON_EV_UMBRA_TIP_M`` / ``MOON_EV_PENUMBRA_SLOPE``
+     - derived
+     - The umbra cone's tip distance and the penumbra's linear radius
+       slope (formulas over the three constants above; at the mean
+       distance: umbra ~4,580 km, penumbra ~8,175 km)
+   * - ``MOON_EV_BLOOD_K``
+     - ``0.85``
+     - The blood-moon lit-side multiplier — ``L *= 1 − 0.85·occ``
+       (a total eclipse shows a faint copper disk, not a black hole)
 
 Two model notes:
 

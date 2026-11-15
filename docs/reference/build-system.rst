@@ -326,7 +326,8 @@ The non-IDF build lives in ``host_sim/`` (CMake, the same core):
    #  target's texture — the --target must match the build it checks)
    host_sim/uisim/build.sh run                          # the UI simulator
    # (renders the real screens to PNG; --wheel for the keyboard,
-   #  --panel 466/720 for the panel size)
+   #  --dial <screen> for the knob's dial-cursor shot,
+   #  --panel 466/720/360 for the three family panels)
    python3 docs/gen_media.py                            # the docs videos
    docs/.venv/bin/sphinx-build -b html docs docs/_build/html
    # (the site build — 0 warnings is the gate, the standing rule)

@@ -3,7 +3,7 @@
 # size-mismatch warning is expected). Chosen by the root CMakeLists when
 # IDF_TARGET=esp32p4; consumers find every partition by label, not offset.
 #   bootloader 32K + partition table 4K (offset 0x8000) + nvs 24K +
-#   phy 4K = 48K fixed (keep phy_init even though the PHY runs on the
+#   phy 4K = 64K fixed (keep phy_init even though the PHY runs on the
 #   C6 slave — the xiaozhi v2.5.2 4C merged binary and the esp_hosted
 #   host-side examples both carry it)
 #   app (factory)    9216K  (the P4 app + LVGL 9 + the DSI stack: huge

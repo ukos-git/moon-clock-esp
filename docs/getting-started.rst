@@ -108,8 +108,9 @@ Regenerating the moon assets (optional)
 ---------------------------------------
 
 The ``moon_assets`` partition holds the pre-baked equirect albedo +
-relief DEM — one blob **per board target** (the S3's 864×432 albedo +
-DEM fits its 2560 K partition; the P4's 2048×1024 fits its 5120 K —
+relief DEM — one blob **per board target** (the S3's 864×432 albedo
+and 2048×1024 DEM fit its 2560 K partition; the P4's 2048×1024 pair
+fits its 5120 K —
 :doc:`the partition tables <reference/partitions>`). The blobs and the
 rest of ``assets/`` are gitignored; the texture width is the Kconfig
 ``MOON_ALBEDO_W`` (height = width / 2, even only), defaulting per board
@@ -128,7 +129,7 @@ width/manifest/partition mismatch:
 
 .. code-block:: bash
 
-   cd assets/images/moon && uv venv .venv && uv pip install -e .
+   cd assets/images/moon && uv venv .venv && uv pip install -r requirements.txt
    .venv/bin/python -m moon.assets --target s3 p4 knob   # all three boards
 
 The pipeline loads the 4096×2048 16-bit LROC albedo (16-bit via

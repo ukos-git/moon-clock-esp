@@ -114,7 +114,7 @@ libration drift across the year. The calibrated constants live in
 source of truth shared by the C core and the Python prototype):
 
 .. code-block:: c
-   :caption: components/moon/include/moon_consts.h (the calibrated body frame)
+   :caption: components/moon/generated/<board>/moon_consts.h (the calibrated body frame)
 
    // --- Calibrated IAU_Moon body frame (pole + prime meridian) ---
    #define MOON_POLE_RA_ICRF   269.839977

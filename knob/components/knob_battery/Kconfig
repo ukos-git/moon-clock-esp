@@ -54,8 +54,10 @@ config KNOB_BATTERY_CHARGING_MV
         Heuristic, not a signal: the board has no charge-state line, but
         the cell-sense ADC reads the USB rail when docked (bench
         signature ~4522 mV), far above the 4200 mV cell ceiling. At or
-        above this threshold the battery icon shows the green fill +
-        bolt ("on the dock"). Same honesty class as the placeholder
+        above this threshold the battery icon shows the theme's
+        moon-colour fill + bolt ("on the dock" — user 2026-11-14,
+        knob_battery_ui.c takes theme_colors, not the reference
+        green). Same honesty class as the placeholder
         percentage -- the multimeter ritual may retire it. 0 hides the
         bolt entirely.
 

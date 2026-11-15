@@ -16,7 +16,7 @@ exploits the *redundancy*:
 
 1. **The C core** (``components/moon/core``) — the device path: cheap
    ERFA ephemeris, float32, the relief gradient cache, the Q15.15
-   rotation, the tone LUT. Rendered on the host by ``host_sim/moon_sim``
+   rotation, the tone LUT. Rendered on the host by ``host_sim/build/moon_sim``
    (the *exact* runtime path, compiled for x86 — no device-specific
    code is in the core).
 2. **The Python prototype** (``moon.astro`` + ``moon.renderer``) —
@@ -88,21 +88,28 @@ The run
 -------
 
 .. code-block:: bash
-   :caption: Running the gate
+   :caption: Running the gate (one command per board — it renders the C frames itself)
 
-   # 1. The C frames (the device path, on the host)
-   host_sim/build/moon_sim --list gate_frames.txt --size 400 --neutral
-
-   # 2. The gate (C vs NASA + C vs Python, the 32-frame set), per
-   #    board texture — every committed board must pass its own:
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4
    host_sim/.venv/bin/python host_sim/check_gate.py --target knob
 
 ``check_gate.py`` renders the C frames (``moon_sim``), loads the NASA
 crops and the Python prototype's frames, computes the per-frame MAE
-and a content-windowed SSIM, and prints the table. The current
-output (re-run 2026-11-02, the art pass in-tree):
+and a content-windowed SSIM, and prints the table. There is no
+separate "render the frames first" step: the gate writes its frame
+list under ``--out`` (default ``/tmp/moon-sim-gate``) and invokes the
+simulator itself (``--list frames.txt --size 400 --neutral --out
+<out>``). The ``--target`` picks both the texture sizes (from
+``constants.TARGETS``) and the simulator build directory
+(``build/``, ``build-p4/``, ``build-knob/`` — each configured with
+``-DMOON_ASSETS_TARGET=<t>``; see :doc:`getting-started <../getting-started>`),
+and a startup-line **stale-binary guard** makes the gate exit ``2``
+when the binary was built against the other target's texture. Other
+flags: ``--sim`` (explicit binary), ``--frames`` (default 32),
+``--json`` (the NASA ``mooninfo_2025.json`` path). Exit codes: ``0``
+pass, ``1`` gate fail, ``2`` simulator failure / stale binary. The
+current output (re-run 2026-11-02, the art pass in-tree):
 
 .. code-block:: text
    :caption: Host image gate, 32-frame set (2026-11-02)

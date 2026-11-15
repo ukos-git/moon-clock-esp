@@ -773,8 +773,8 @@ static void ui_tick_timer_cb(lv_timer_t *timer) {
 /* ---------------- on-demand WiFi + NTP sync (the transient WiFi screen) ---
  *
  * The device lives on the airplane (modem-sleep) screen; WiFi is
- * activated on demand (boot, wake, the hourly tick, the settings hub's
- * exit button) purely to refresh the RTC, then the sync flow drops
+ * activated on demand (boot, wake, the hourly tick) purely to refresh
+ * the RTC, then the sync flow drops
  * straight back to airplane. The WiFi screen hosts the handshake; it
  * and the airplane screen share the one
  * moon image, so the hand-off is the atomic whole-panel flush with no

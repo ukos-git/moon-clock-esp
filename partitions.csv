@@ -3,7 +3,7 @@
 # This board has a 16MB flash chip (esptool flash_id: "Detected flash size:
 # 16MB"). The 2MB layout in git history was a config choice, not a hardware
 # limit -- the 2048x1024 relief DEM (2,097,152 B) needed the headroom.
-#   bootloader 32K + partition table 4K + nvs 24K + phy 4K = 80K fixed
+#   bootloader 32K + partition table 4K + nvs 24K + phy 4K = 64K fixed
 #   app (factory)    2048K  (the circular keyboard's widened font + code
 #                            pushed the app past the old 1392K ceiling; the
 #                            16MB chip leaves plenty -- consumers find every

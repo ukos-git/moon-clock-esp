@@ -681,7 +681,8 @@ The state machine, in full
 is the awake life (boot → sync → airplane ↔ hub on a tap), the
 right side is the ladder (airplane → dim → dark), and the arrows
 climbing back up are exactly the three doors. Every labelled
-transition — the 60 s idle, the 30 s countdown, the two wake
+transition — the 60 s idle, the 60 s countdown
+(``UI_DEEP_SLEEP_COUNTDOWN_SEC``, min 60), the two wake
 routes, and the P4's refusal to drop into the dark while an alarm
 is pending — is a section of this page.
 
@@ -693,11 +694,11 @@ is pending — is a section of this page.
      BOOT --> WIFI: NTP ok — static-phase bake (the 1344-frame boot sweep retired 2026-11-13)
      BOOT --> AIRPLANE: NTP fail
      WIFI --> AIRPLANE: sync complete
-     AIRPLANE --> HUB: tap — the sub-screens (exit returns via the on-demand sync)
+     AIRPLANE --> HUB: tap — the sub-screens (exit returns with no sync kicked off)
      HUB --> AIRPLANE
      AIRPLANE --> LIGHT_SLEEP: idle 60 s — static dim (25% panel, 20% clock alpha, countdown armed at entry)
      LIGHT_SLEEP --> AIRPLANE: wake (touch / tilt / alarm) — backlight → 100, static phase, on-demand sync
-     LIGHT_SLEEP --> DEEP_SLEEP: RTC countdown (30 s)
+     LIGHT_SLEEP --> DEEP_SLEEP: RTC countdown (60 s default)
      DEEP_SLEEP --> LIGHT_SLEEP: ALM pending (P4 stays dim, does not drop out)
      DEEP_SLEEP --> AIRPLANE: wake — ALM pin (S3) / software one-shot (P4), or tilt
      DEEP_SLEEP --> DEEP_SLEEP: touch — none on the S3

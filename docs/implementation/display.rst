@@ -133,6 +133,24 @@ synchronous ``lv_refr_now`` drains all 19 strips back-to-back through
 the wrapper, and under ``s_rgb_mtx`` the moon image is stable, so no
 strip can show a mixed frame.
 
+The strip pacing and the staging queue, both boards side by side —
+the S3's 25-row strips exist because its 16 MB PSRAM is not
+SPI-DMA-capable (every strip is staged through internal RAM and the
+466-wide 25-row buffer is 23,300 B, under the 32 KiB SPI-DMA cap, so
+queue depth 1 means one strip = one buffer = one QSPI transfer); the
+P4's 130-row pacing is a *choice* — MIPI-DSI has no SPI-DMA ceiling,
+and the flush simply rides the XC BSP's 50-row DPI-DMA buffer
+(``docs/tools/gen_strip_staging.py`` draws this figure from the same
+constants the code uses):
+
+.. figure:: ../_static/figs/strip_staging.png
+   :alt: Strip staging, S3 vs P4 — the 400 px disk split into 16 25-row strips with a 25-row in-flight buffer and 2 queued (23.3 KiB under the 32 KiB SPI-DMA cap, queue depth 1), and the 650 px P4 disk into 5 130-row strips riding three 50-row MIPI buffers
+   :align: center
+   :width: 100%
+
+   The moon disk's rows are the only pixels that stage; the black
+   surround never enters a strip.
+
 The direct-write spin (history, removed 2026-11-13)
 ----------------------------------------------------
 

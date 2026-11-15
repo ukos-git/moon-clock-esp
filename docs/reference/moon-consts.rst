@@ -6,12 +6,14 @@ The moon's compile-time constants are **not Kconfig** — they are
 ``assets/images/moon/moon/constants.py`` (shared verbatim with the
 host simulator); ``python -m moon.assets`` renders the per-board
 header into ``components/moon/generated/{s3,p4,knob}/moon_consts.h``
-(do-not-edit). ``components/moon/CMakeLists.txt`` adds
-``generated/p4`` on ``CONFIG_BOARD_P4`` and ``generated/s3``
-otherwise, so every clock translation unit sees the board's own
-constants; the ``knob/`` sibling project adds ``generated/knob`` in
-its own build. The bake's geometry, the lighting model, and the asset
-blobs all agree because they all read the same table.
+(do-not-edit). ``components/moon/CMakeLists.txt`` itself selects the
+directory on the ``BOARD`` symbols — ``generated/knob`` on
+``CONFIG_BOARD_KNOB``, ``generated/p4`` on ``CONFIG_BOARD_P4``,
+``generated/s3`` otherwise (first-match ``if/elseif/else``) — so
+every consumer's ``#include "moon_consts.h"`` resolves to the board's
+own texture dims; the ``knob/`` sibling project supplies the symbol
+through its own board shim. The bake's geometry, the lighting model,
+and the asset blobs all agree because they all read the same table.
 
 The per-board differences are the albedo size (``MOON_ALB_W/H``, the
 P4's 2048 against the S3/knob's 864) and the relief DEM

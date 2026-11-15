@@ -3,7 +3,8 @@ Knob component Kconfig
 
 The ``knob/`` sibling project's compile-time surface: its own
 ``knob_moon``, ``knob_time`` (the boot-arm bridge), ``knob_power``,
-``knob_ui`` (the ``KNOB_UI_ENABLE`` umbrella) and ``board`` (shim)
+``knob_ui`` (the ``KNOB_UI_ENABLE`` umbrella), ``knob_battery`` (the
+fuel gauge — eight of the twenty-seven keys) and ``board`` (shim)
 component ``Kconfig`` files. The physics stays
 single-truth through the generated
 ``components/moon/generated/knob/moon_consts.h``
@@ -37,6 +38,6 @@ the knob pins or reads are called out here):
 * ``UI_CLOCK_ALPHA_PCT`` — the shared clock widget's opacity at the
   knob's dim rung (20 %, dim parity; ``knob_render_set_home_dim``).
   The remaining UI keys compile at their defaults — the screens they
-  drive arrive with P2/P3.
+  drive shipped with P2 (the dial) and P3 (alarm editing).
 
 .. include:: _fragments/kconfig-knob.inc

@@ -167,6 +167,14 @@ fetch), without waiting on a real hour boundary.
 The TF hour cache (``UI_MOON_TFCACHE`` + ``UI_MOON_HOURLY_TFCACHE``)
 .....................................................................
 
+The anatomy in one picture — what a warm hour is, where the folder's
+key comes from, who may touch the card (never both producers at
+once), and why a missing card is a normal path rather than an error:
+
+.. graphviz:: ../_graphs/tf-hour-cache.dot
+   :alt: The TF hour cache anatomy — folder keyed by calcver/target/bakepx with self-describing meta.txt, the two core-1 producers single-caller by construction, lazy first-producer mount, the eviction floor as the newer of synodic-back and the producer-supplied new-moon floor, tfcache_ready false as the normal card-less posture
+   :align: center
+
 The cache persists one small gray JPEG per HOUR under
 ``/moon_cache/<calcver>_<target>_<px>/``; the folder name carries the
 calculation version — the version the repo sets **manually via

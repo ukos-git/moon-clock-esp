@@ -1,4 +1,4 @@
-/* Q15.15 sin/cos (2048-entry quarter-symmetric table, built once).
+/* Q15.15 sin/cos (1025-entry quarter-symmetric table, built once).
  *
  * For the "ball in hand" rotation the angle is a monotonic accumulator
  * updated per frame; these two lookups are the only per-frame trig.

@@ -257,7 +257,7 @@ void moon_gray565_set_warm(int on);
  * neutral gate LUT is never tinted (set_warm(0) wins over set_event). */
 void moon_gray565_set_event(const moon_event_t *ev);
 
-/* Q15.15 sin/cos, int32 (2048-entry quarter-symmetric table, moon_fixp.c). */
+/* Q15.15 sin/cos, int32 (1025-entry quarter-symmetric table, moon_fixp.c). */
 int32_t moon_sin15(float rad);
 int32_t moon_cos15(float rad);
 

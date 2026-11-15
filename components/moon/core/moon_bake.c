@@ -190,7 +190,8 @@ static __attribute__((always_inline)) inline int8_t slope_q(float slope) {
  * per-pixel dk_sup kill): the re-project samples the map NEAREST-NEIGHBOR,
  * so a dark pixel (d < dk_sup) near the d = dk_sup boundary rounds to the
  * cell whose CENTER is up to half a theta-cell + half a lat-cell away in
- * d. |grad(r . S)| = 1 on the unit sphere, so that is (pi/map_w + pi/map_h)
+ * d. |grad(r . S)| = 1 on the unit sphere, and the map spans 2*pi in
+ * theta but only pi in latitude, so that is (pi/map_w + pi/(2*map_h))
  * ~= 0.0073 for the 864x432 map -- a cell that is LIT at its center (the
  * crescent's edge, up to gray 137+) would re-light the rim sliver the dk_sup
  * bound exists to kill. The map build writes the backlit night side for

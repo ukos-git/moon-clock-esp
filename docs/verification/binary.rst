@@ -111,9 +111,10 @@ the app's growth history:
 .. code-block:: text
    :caption: The S3 factory partition, 2026
 
-   ceiling   1,392,000 B  (1392 K)   the original layout's app ceiling
-   ceiling   1,425,408 B  (1392 K usable)  the "old 1,425,408 B" figure
-                                              recorded in the project's invariants
+   ceiling   1,425,408 B  (1392 KiB)  the original layout's app ceiling — the
+                                              "old 1,425,408 B" figure recorded in
+                                              the project's invariants (CLAUDE.md,
+                                              the partitions.csv comment)
    binary    1,451,472 B  (0x1625d0)  the production build that outgrew the
                                               1,425,408 B ceiling (coredump/trace
                                               facility restore) — the ceiling
@@ -126,6 +127,10 @@ the app's growth history:
                                               keyboard's widened font + code)
    binary    1,462,560 B  (0x165120)  the 2026-11-02 take — +240 B over
                                               wheel v2; 30% under the ceiling
+   binary    1,511,280 B  (0x170f70)  the 2026-11-04 M4-era take — 72% of the
+                                              widened ceiling; the same day's P4
+                                              sibling measured 1,605,984 B
+                                              (0x188160), docs/devices/p4.rst
    binary    1,706,960 B  (0x1a0bd0)  current (measured 2026-11-15, built at
                                               HEAD 830adbd — the docs-only
                                               commits after it change only the
@@ -142,8 +147,8 @@ build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
 and the fix was not to *shrink* the app (the coredump/trace facility
 was not shrinkable) but to *widen the partition* — a change the 16 MB
 chip made free, because the other partitions (``moon_assets`` 2560 K,
-``storage`` 64 K, the fixed 80 K) leave the chip's remaining ~11 MB
-unused. The invariant in CLAUDE.md records the new ceiling
+``storage`` 64 K, the fixed 64 K prefix) leave the chip's remaining
+~11 MB unused. The invariant in CLAUDE.md records the new ceiling
 (**S3 factory 2,097,152 B / 2048 K**) and the rule that the binary
 size is checked after every build — the ceiling is a *recorded*
 number, not a hardware limit, and the check is what keeps it honest.

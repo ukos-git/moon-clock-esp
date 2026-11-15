@@ -51,12 +51,14 @@ UISIM = ROOT / "host_sim" / "uisim"
 OUT = UISIM / "out"
 PY = sys.executable                                  # the docs venv python
 
-# The four animation films, referenced by implementation/animations.rst via
-# ``.. raw:: html`` ``<video>``. Raw HTML never triggers Sphinx's image copy,
-# so each is registered as a static file (landed under _static/img/) and the
-# RST points at ``_static/img/`` — otherwise the built page's ``../img/`` is
-# empty and the video 404s.
-VIDEOS = ["boot_sweep.mp4", "free_spin.mp4", "dusk.mp4", "fade.mp4"]
+# The animation film, referenced by implementation/animations.rst via
+# ``.. raw:: html`` ``<video>``. Raw HTML never triggers Sphinx's image
+# copy, so each is registered as a static file (landed under
+# _static/img/) and the RST points at ``_static/img/`` — otherwise the
+# built page's ``../img/`` is empty and the video 404s. The boot-sweep,
+# spin and dusk films retired 2026-11-13 with their subsystems; only
+# the fade film remains.
+VIDEOS = ["fade.mp4"]
 
 
 # The 16 base screen shots uisim names them (the ScreensEnum, underscored).

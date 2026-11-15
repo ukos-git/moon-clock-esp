@@ -2,7 +2,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph partitions_s3 {
     rankdir=LR;
-    label="partitions.csv — S3, 16 MB flash (total 4752 K)";
+    label="partitions.csv — S3, 16 MB flash (table ends at 4736 K incl. the 64 K prefix)";
     labelloc=t;
     fontsize=14;
     fontname=sans;
@@ -12,8 +12,8 @@ digraph partitions_s3 {
     boot    [label="bootloader +\npartition table\n(nvs 24 K + phy 4 K)", fillcolor="#e8e8e8", fillstyle=solid];
     factory [label="factory (app)\n2048 K", fillcolor="#cfe0c8", fillstyle=solid];
     storage [label="storage (SPIFFS)\n64 K", fillcolor="#f5e6b8", fillstyle=solid];
-    assets  [label="moon_assets\n2560 K\n(864x432 albedo +\n2048x1024 DEM = 2402 K)", fillcolor="#d9d2ea", fillstyle=solid];
-    free    [label="unused\n~10.7 MB", fillcolor="#f4f4f4", fillstyle=solid];
+    assets  [label="moon_assets\n2560 K\n(864x432 albedo +\n2048x1024 DEM = 2,470,400 B)", fillcolor="#d9d2ea", fillstyle=solid];
+    free    [label="unused\n~11.4 MB", fillcolor="#f4f4f4", fillstyle=solid];
 
     boot -> factory -> storage -> assets -> free;
 }

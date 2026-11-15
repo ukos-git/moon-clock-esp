@@ -69,9 +69,10 @@ persist in the board's SPIFFS.
   Configuration → Default timezone_.
 - **Moon assets:** the `moon_assets` partition holds the per-board equirect
   albedo + relief DEM (gitignored). Regenerate with
-  `assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4`, then
-  prove it against NASA's renders with
-  `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` (and `p4`).
+  `assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4 knob`,
+  then prove it against NASA's renders with
+  `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` (and `p4`,
+  `knob`).
 - **Moon rendering, host:** `host_sim/moon_sim` builds the exact device core on
   the host and writes PNGs at the real panel size; `host_sim/check_gate.py`
   image-diffs it against NASA reference frames.

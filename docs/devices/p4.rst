@@ -22,7 +22,8 @@ spin-era facts quoted on this page (the 103-row strips, the 1-FB +
 ``LV_DISPLAY_RENDER_MODE_NONE`` posture, the async-DMA reject
 absorption) are the display-pipeline contract as measured when the
 spin ran, kept as history; the ``UI_MOON_SPIN_*`` Kconfig symbols
-linger only until the config sweep retires them.
+were retired with the spin subsystem on 2026-11-13 (the config
+sweep deleted the keys).
 
 Component wiring
 ----------------
@@ -341,9 +342,11 @@ the LVGL 9.6 setup (notably
 ``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y`` — which the P4 file
 **flips to ``n``** above, because on the RISC-V P4 ``IRAM_ATTR``
 would overflow the scarce ``sram_low``), and the same UI seeds the
-S3 page lists. The P4's ``UI_MOON_ANIM_BAKE_PX`` default (650)
-comes from the Kconfig ``default 650 if BOARD_P4`` line, not a
-defaults-file pin.
+S3 page lists. The P4's native bake size is not a Kconfig value at
+all: it is ``#define MOON_PX 650`` (``components/ui/moon_ui.c``,
+behind ``#if defined(CONFIG_BOARD_P4)``) — the old
+``UI_MOON_ANIM_BAKE_PX`` Kconfig key was deleted with the sweep
+2026-11-13.
 
 Compile-time settings
 ---------------------

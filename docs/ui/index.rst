@@ -50,7 +50,7 @@ path's sync is clock-only.
      - ✓
      - ✓
      - ✓
-     - Boot home on every board (``ui_init``); a tap opens the hub (gated on the clock not rolling).
+     - Boot home on every board (``ui_init``); a tap opens the hub (gated on ``!clock_is_idle()`` — fires only while awake; a wake tap lands on the sleep screen's root, which has no handler, so opening the hub is a deliberate second tap).
    * - :doc:`wifi <wifi>` (transient sync)
      - ✓
      - ✓
@@ -154,7 +154,7 @@ the knob adds only its dial cursor on top
      TM["Manual time (P4 only)"]
      W["Transient WiFi sync"]
      A["Alarm screen (touch dismisses)"]
-     HOME -- "tap (not while rolling)" --> HUB
+     HOME -- "tap (awake only — !clock_is_idle())" --> HUB
      HUB -- "centre exit -> calling level (no sync is kicked off)" --> HOME
      HUB --> ALR
      HUB --> LS

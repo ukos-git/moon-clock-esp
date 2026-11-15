@@ -1,7 +1,7 @@
 The airplane screen (modem sleep)
 =================================
 
-The modem-sleep screen is the awake state at rest: the current moon phase, the clock, and the seconds arc. Any tap opens the settings hub (the screen-root handler ``event_handler_cb_home_tap``; the clock container and its labels are recursively non-clickable so touches reach the root). When the idle timeout (``idle_timeout_sec``, seeded by ``CLOCK_IDLE_TIMEOUT_SEC``) expires, the device enters light sleep and this screen is replaced by the :doc:`light-sleep <light-sleep>` screen.
+The modem-sleep screen is the awake state at rest: the current moon phase, the clock, the alarm row, and the seconds arc. A tap opens the settings hub (the screen-root handler ``event_handler_cb_home_tap``, gated on ``!clock_is_idle()`` so only awake taps count — the tap that wakes the device lands on a sleep screen's root, which has no handler, and opening the hub is a deliberate second tap; the clock container and its labels are recursively non-clickable so touches reach the root). When the idle timeout (``idle_timeout_sec``, seeded by ``CLOCK_IDLE_TIMEOUT_SEC``) expires, the device enters light sleep and this screen is replaced by the :doc:`light-sleep <light-sleep>` screen.
 
 .. figure:: ../img/screens/annot/modem-sleep_s3.png
    :alt: the airplane screen (modem sleep) — the S3 panel (466, annotated)
@@ -50,5 +50,25 @@ Elements
 
    * - 4
      - Tap anywhere
-     - Opens the settings hub. The whole screen is one touch target — the moon image and the clock pass-through are non-clickable, so the tap lands on the screen root's handler.
+     - Opens the settings hub. The whole screen is one touch target — the moon image and the clock pass-through are non-clickable, so the tap lands on the screen root's handler. Gated on ``!clock_is_idle()``: awake taps only, the wake tap never opens the hub.
      - ``event_handler_cb_home_tap`` (also the :doc:`wake path <../implementation/clock-sleep>`'s idle-wake entry), option ``idle_timeout_sec`` / ``CLOCK_IDLE_TIMEOUT_SEC``
+
+   * - 5
+     - Alarm row — next fire
+     - The NEXT scheduled alarm under the clock (third element of the shared clock widget, scheduler cache — no I2C in the tick). The hour drops its leading zero — a 07:05 rule reads "7:05", minutes stay zero-padded (task #49, cleaner against the XX:MM above). A fire beyond 24 h carries the two-letter weekday prefix ("Su 20:00" on Saturday), one inside 24 h reads plain; no scheduled rule → "--:--", no prefix.
+     - ``refresh_alarm_display`` (:cfile:`components/ui/actions.c`), ``clock_alarm_get_next_scheduled`` (the ``clock`` component)
+
+The three variants' disk geometry side by side — the seconds arc's
+pad (``UI_PX(10)``, the 12 px stroke centred on the mid radius),
+where the ink lands, and the moon disk's limb gap inside it, all
+computed with the exact ``UI_PX`` integer arithmetic
+(``docs/tools/gen_disk_geom.py``):
+
+.. figure:: ../_static/figs/disk_geom.png
+   :alt: Per-variant disk geometry — S3, P4 and knob panels with the seconds arc ink band (S3 217..229, P4 339..351, knob 167..179), the limb-to-ink gaps of 17, 14 and 17 px, and the disk diameters as percent of panel
+   :align: center
+   :width: 100%
+
+   The limb always clears the arc ink — the knob's shared-home seam
+   (disk r 150 at cy 180) is set to exactly that rule
+   (:doc:`knob display <../implementation/knob-display>`).

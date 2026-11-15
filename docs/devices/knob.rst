@@ -307,7 +307,8 @@ Layout and commands:
 
 * ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
   {board, imu, knob_board, knob_ui, knob_moon, knob_power,
-  knob_time}`` and the shared ``../components/{clock, ui, wifi,
+  knob_time, knob_battery}`` (plus the silent ``esp_codec_dev``
+  shim) and the shared ``../components/{clock, ui, wifi,
   moon}`` brought in through ``EXTRA_COMPONENT_DIRS`` (individual
   dirs, never the parent — the shims own the ``board``/``imu``
   names). The seam's

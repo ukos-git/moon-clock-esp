@@ -240,11 +240,13 @@ bake reads just one word per pixel. That drops the frame time to
 ~1.3 s.
 
 The height data is the **LOLA** (Lunar Orbital Laser Altimeter) DEM,
-stored on the device as a **2048×1024 int8** equirect map. Each cell is
+stored on the clock boards as a **2048×1024 int8** equirect map (the
+knob's is the halved 1024×512 — the per-board sizes are
+:doc:`the moon constants <../reference/moon-consts>`). Each cell is
 the LOLA height quantized to 8 bits over a fixed meter range:
 
 .. code-block:: c
-   :caption: components/moon/include/moon_consts.h (the relief DEM)
+   :caption: components/moon/generated/<board>/moon_consts.h (the relief DEM)
 
    // LOLA height quantized to int8 over [MOON_DEM_MIN, MOON_DEM_MAX] meters:
    // code = round((h - MIN) / (MAX - MIN) * MOON_DEM_STEPS) - 128.
@@ -346,14 +348,17 @@ for it. (The Xtensa FPU has no ``atan``/``asin`` at all, so even the
 "which map point is this?" question is answered with a tiny lookup
 table.)
 
-The color is the **LROC WAC** albedo, an 864×432 equirect map (row 0 =
-north, column 0 = the texture longitude 0, with the 180° offset from
+The color is the **LROC WAC** albedo — an equirect map, 864×432 on
+the S3 and the knob, 2048×1024 on the P4 (row 0 = north, column 0 =
+the texture longitude 0, with the 180° offset from
 :doc:`the geometry <geometry>`). The Xtensa FPU has no ``atan``/``asin``, so the texture
 longitude/latitude come from two small 257-entry internal-RAM lookup
 tables (worst-case error << one texture row) rather than libm calls.
-The albedo is sampled **nearest-neighbor**: the 864-wide texture is
-~1.05 texture pixels per screen pixel on the disk, so nearest-neighbor
-is already sub-pixel accurate and costs one byte load.
+The albedo is sampled **nearest-neighbor**: the S3's 864-wide texture
+is ~1.05 texture pixels per screen pixel on its disk, so
+nearest-neighbor is already sub-pixel accurate and costs one byte
+load (the P4's 2048-wide texture on its 650 px disk samples
+~1.6 texels per pixel — same conclusion, more headroom).
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (albedo sample)
@@ -388,7 +393,7 @@ anti-solar gradient, a fit to the reference frames' Earthlight. It is a cubic in
    }
 
 .. code-block:: c
-   :caption: components/moon/include/moon_consts.h (earthshine coefficients)
+   :caption: components/moon/generated/<board>/moon_consts.h (earthshine coefficients)
 
    #define MOON_ES_A 30.455
    #define MOON_ES_B -11.733
@@ -483,7 +488,7 @@ dark side, which is where this product made its most deliberate choices.
 
    One frame through the whole pipeline — each panel is the actual
    intermediate result at one step of the 10-line model above (a waning
-   gibbous at 50% illumination, 466×466, the same code the Moon Lab
+   gibbous, 466×466, the same code the Moon Lab
    simulator runs). :math:`d`: the smooth base-sphere cosine.
    :math:`lns`: the displaced-normal result — the terminator is now
    ragged, and the dark side is not perfectly flat. :math:`L`: the clip

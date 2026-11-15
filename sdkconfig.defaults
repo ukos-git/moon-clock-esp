@@ -26,7 +26,8 @@ CONFIG_SPIRAM=y
 CONFIG_FATFS_LFN_HEAP=y
 # Clock opacity in light sleep (percent, 0..100): the light-sleep entry
 # dims the ONE shared clock widget to this opacity (the panel dim carries
-# the readability now, so 100 = no extra alpha is the default).
+# the readability now; 100 would mean no extra alpha — the shipped
+# default dims the clock to 20 %, the Kconfig default agrees).
 CONFIG_UI_CLOCK_ALPHA_PCT=20
 # Screen switches (e.g. into the settings hub) fade to black with the
 # panel's OWN hardware brightness (the CO5300 0x51 command, the same

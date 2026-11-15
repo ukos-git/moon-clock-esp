@@ -41,9 +41,9 @@ The P4 (32 MB)
        would need ≥ 5248 K — the root ``CMakeLists`` guard refuses a
        blob that overflows this row, naming the KiB it needs.)
 
-Total 14428 K; the 32 MB chip leaves ~17.6 MB unused. Two header
-notes: the P4 binary header still says **16 MB** (both boards flash a
-16 MB header, ``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``), so esptool's
-size-mismatch warning on the P4 is *expected*; and the fixed prefix is
-48 K (the partition table sits at 0x8000 on the P4, vs 0x4000 on the
-S3).
+Total 14464 K (the same 64 K fixed prefix — bootloader at 0x2000,
+partition table at 0x8000 like the S3, nvs + phy up to the factory's
+0x10000 — plus the rows); the 32 MB chip leaves ~17.9 MB unused. Two
+header notes: the P4 binary header still says **16 MB** (both boards
+flash a 16 MB header, ``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``), so
+esptool's size-mismatch warning on the P4 is *expected*.

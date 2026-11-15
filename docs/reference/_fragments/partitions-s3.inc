@@ -42,7 +42,9 @@ The S3 (16 MB)
        (864×432 albedo + 2048×1024 DEM = 2,470,400 B < 2,621,440 B)
        — :doc:`the Python API <../reference/python-api>`
 
-Total 4752 K; the 16 MB chip leaves ~10.7 MB unused. The 2 MB
+Total 4736 K (the 64 K fixed prefix — bootloader at 0x0, partition
+table at 0x8000, nvs + phy up to the factory's 0x10000 — plus the
+rows); the 16 MB chip leaves ~11.4 MB unused. The 2 MB
 ``factory`` is the board's binding constraint — the binary-size
 chronology (:doc:`the binary-size chronology <../verification/binary>`)
 tracks it.

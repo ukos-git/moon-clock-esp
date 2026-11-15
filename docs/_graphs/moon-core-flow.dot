@@ -1,0 +1,69 @@
+digraph mooncore {
+    label="The portable core's data flow: one epoch in, one frame out — and the SAME .c files on host and device";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=19;
+    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+
+    epoch [label="UTC epoch\n(one int64)", fillcolor="#f4f2ec"];
+
+    subgraph cluster_core {
+        label="components/moon/core — board-blind, allocation-free, shared VERBATIM (device = host_sim = knob)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=14; fontcolor="#1e3f70";
+
+        geom [label="moon_geometry (moon_astro.c + vendored ERFA)\nephemeris: sun + moon vectors, phase\nO(1) — < 0.05 ms host, once per bake",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        asset [label="assets (pre-baked blobs, flash)\nalbedo 864×432 S3/knob · 2048×1024 P4\nDEM 2048×1024 · knob 1024×512",
+               fillcolor="#efece4"];
+        relief [label="moon_relief (moon_bake.c)\ngradient cache, built ONCE at boot\nint8 · 0.003 rad steps · ~1.3 s S3 / 727 ms knob",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+        bake [label="moon_bake_rows (moon_bake.c)\nper-pixel Lambert + relief + art branch\nO(N): backlit night / soft terminator\npublishes ROWS as they finish",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
+        event [label="moon_event.c\nclassify once → gray→RGB565 tint LUT\n(blood-moon occlusion rides the LUT)",
+               fillcolor="#dfe6f1", color="#2b5fb0"];
+        render [label="moon_render.c / moon_fixp.c\nmoon_rotate (Q15.15 gather · quarter table)\nmoon_gray565 (+ warm flag)",
+                 fillcolor="#dfe6f1", color="#2b5fb0"];
+    }
+
+    subgraph cluster_device {
+        label="device side (components/ui/moon_ui.c) — the ONLY panel writer";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        producers [label="core-1 producers (NEVER concurrent —\nthe replay gate holds the hourly probe)\nhourly refresh · boot replay · day tick",
+                   fillcolor="#efece4"];
+        wm [label="row watermark\n(producer bumps under s_rgb_mtx,\nfree-runs regardless of the tick)",
+            fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
+        reveal [label="bake reveal (tick)\nblack canvas → one completed band per 50 ms\nheal the OLD frame on abort",
+                fillcolor="#f6e7dc", color="#b5643a"];
+        show [label="ONE atomic whole-panel lv_refr_now\nunder s_rgb_mtx + drain witness\n(s_frame never touched by a reveal)",
+              fillcolor="#fbeae5", color="#c2410c", penwidth=1.8, fontcolor="#7c2410"];
+    }
+
+    host [label="host_sim — the same core .c files\nbench (C) · check_gate (NASA refs) · uisim\n(real screens, three PANEL_SIZEs)",
+          fillcolor="#eef0ee"];
+
+    epoch -> geom;
+    asset -> bake [label="one bilinear albedo tap\n+ one packed gradient load per pixel"];
+    asset -> relief [label="one DEM pass at boot\nO(N_dem), size-independent"];
+    relief -> bake [color="#b07d10"];
+    geom -> bake [label="geom_t"];
+    bake -> wm [label="gray8 rows"];
+    wm -> reveal;
+    bake -> render [label="finished rows"];
+    geom -> event;
+    event -> render [label="tinted gray"];
+    render -> show [label="s_frame + s_rgb, published\nin ONE mutex block"];
+    producers -> geom [style=dashed, label="arm"];
+    producers -> wm [style=dashed, color="#b5643a", fontcolor="#8a3d18"];
+    epoch -> host [style=dashed, color="#8a8a8a"];
+}

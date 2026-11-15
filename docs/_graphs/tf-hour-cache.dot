@@ -1,0 +1,59 @@
+digraph tfcache {
+    label="The TF hour cache: what a warm hour is, where its folder comes from, who may touch it";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=19;
+    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_folder {
+        label="the card: /moon_cache/<calcver>_<target>_<bakepx>/  (one synodic cycle ≈ 709 files)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        hour [label="one image per HOUR\nkey = hour·3600 + 1800 (hour centre)\ngray JPEG at MOON_PX — stable across\nboots AND boards (one card serves all)",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+        meta [label="meta.txt (self-describing)\nbake px · albedo width · relief · JPEG q\n+ new-moon floor line — NON-AUTHORITATIVE\n(a mismatch wipes the folder; the floor line never does)",
+              fillcolor="#efece4"];
+    }
+
+    calcver [label="the folder key's calcver\nset at CMake CONFIGURE from git describe\n(repo versioned with commitizen)\n⇒ a new bake build starts from an EMPTY folder\nBY DESIGN", fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    subgraph cluster_producers {
+        label="the two core-1 producers — ONE caller at a time by construction";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=14; fontcolor="#1e3f70";
+
+        hourly [label="hourly producer\nfetch the hour → HIT: tint LUT + publish\nin 185–235 ms\nMISS: bake, then WRITE-THROUGH store",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        replay [label="boot replay producer\nlist_hours (ascending) → per hour:\nfetch + neutral tint + publish\n— then the revealed now-bake final leg",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        floor [label="tfcache_set_new_moon_floor (moon_ui.c)\npolicy = the NEWER of (a) one synodic back\nfrom the newest hour and (b) the new-moon floor\n(the cache does not link the ephemeris)",
+                fillcolor="#f6f1e2", color="#b07d10"];
+    }
+
+    mount [label="lazy first-producer mount\ninit runs once, by the FIRST producer\n(card-less boot pays a ~1 s probe, once);\nscratch buffers stay resident",
+             fillcolor="#efece4"];
+    ready [label="tfcache_ready() false = NORMAL\nmissing card / failed mount / bad decode /\ncard pulled mid-run — silent by design,\nthe refresh just bakes every hour",
+             fillcolor="#eef0ee", style="rounded,filled"];
+    evict [label="auto-evict past the floor\nlist_hours / store / evict all agree\non the same bounded window",
+            fillcolor="#efece4"];
+
+    calcver -> hour [style=dashed, color="#b07d10", fontcolor="#6b4e08", label="names the folder"];
+    hourly -> hour [label="fetch / store", color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    replay -> hour [label="fetch (read-only)", color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    hourly -> replay [style=dotted, label="the replay presents ⇒\nthe hourly probe/spawn holds off"];
+    floor -> evict [color="#b07d10"];
+    floor -> meta [style=dashed, color="#b07d10", label="rides meta.txt too"];
+    hourly -> mount [style=dashed];
+    replay -> mount [style=dashed];
+    mount -> ready [style=dashed];
+    ready -> hourly [style=dashed, label="false ⇒ card-less path"];
+}

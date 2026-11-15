@@ -7,8 +7,8 @@ runs. Below is **Moon Lab**: a line-faithful JavaScript port of the
 portable C core (``moon_bake.c``), driven by the validated PyERFA
 ephemeris, precomputed into a small table. Every pixel you see is
 computed by your browser from the same equations the ESP32-S3 executes
-at 240 MHz — the same displaced-normal Lambert, the same 2048×1024
-relief gradient cache, the same tone LUT, the same backlit dark side,
+at 240 MHz — the same displaced-normal Lambert, the same relief
+gradient cache (on a 1024×512 DEM downsample), the same tone LUT, the same backlit dark side,
 the same soft terminator, the same warm tint.
 
 .. note::
@@ -210,8 +210,10 @@ ephemeris's own tolerance.
 
 The two texture assets (the 864×432 albedo and a 1024×512 downsample of
 the relief DEM) and the 256-entry tone LUT are embedded base64 in
-``moonlab_data.js`` — the same 8-bit albedo and int8 DEM the C core
-bakes from.
+``moonlab_data.js`` — the same 8-bit albedo the S3 bakes from, and a
+downsample of the same int8 DEM source (the S3's core builds its cache
+from the full 2048×1024 grid; the browser carries the halved
+downsample).
 
 .. figure:: ../_static/figs/phase_strip.png
    :alt: A full synodic month, rendered by the simulator

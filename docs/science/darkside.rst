@@ -320,7 +320,9 @@ MOON_DK_MARGIN`, eroding the lit region outward by the worst-case
 nearest-neighbor offset (a dark pixel can round to a cell whose center
 is up to half a longitude-cell plus half a latitude-cell away in :math:`d`;
 on the unit sphere :math:`|\nabla(\hat{\mathbf{r}}\cdot\mathbf{S})| = 1`,
-so that is :math:`\pi/\text{map}_w + \pi/\text{map}_h \approx 0.0073`
+and the equirect map spans :math:`2\pi` in longitude but only
+:math:`\pi` in latitude, so that is
+:math:`\pi/\text{map}_w + \pi/(2\,\text{map}_h) \approx 0.0073`
 for the 864×432 map):
 
 .. code-block:: c
