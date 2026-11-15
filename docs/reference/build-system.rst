@@ -201,11 +201,25 @@ The two are *different kinds* of flash data:
   (albedo at 0, then the int8 DEM, ``esp_partition_read`` at boot) is
   the ``moon_assets.h`` contract.
 
-The whole chain — sources to flashed partition — in one picture
-(beginners meet this branch as the optional amber box of the bring-up
-on :doc:`the getting-started page <../getting-started>`):
+The whole chain — sources to flashed partition — as a sealed overview
+plus the two sides opened (beginners meet this branch as the optional
+amber box of the bring-up on
+:doc:`the getting-started page <../getting-started>`):
 
 .. graphviz:: ../_graphs/assets-pipeline.dot
+   :alt: The moon asset pipeline sealed — LROC albedo plus LOLA DEM through the per-target CLI, out/<target>/ with blob, manifest and gen.c fallback, the three configure-time FATAL_ERROR guards, the flashed moon_assets partition
+   :caption: The sealed chain — one dataset through the per-target CLI into ``out/<target>/``, past the referee guards, onto the ``moon_assets`` partition; both sides are opened below.
+   :align: center
+
+.. graphviz:: ../_graphs/assets-pipeline-bake.dot
+   :alt: The bake side opened — LROC albedo as 16-bit TIFF and the LOLA DEM feeding the moon.assets CLI, constants.py as single source also generating the tracked moon_consts.h, and the three gitignored outputs blob, manifest, gen.c
+   :caption: The bake side — LROC albedo loaded 16-bit via ``tifffile`` plus the LOLA DEM, one dataset for all three boards (only the per-board BAKE resolution differs); ``moon/constants.py`` is the single source of truth whose widths and DEM quantisation range also GENERATE the tracked ``components/moon/generated/<t>/moon_consts.h`` the firmware compiles (:doc:`the constants reference <moon-consts>`); ``out/<target>/`` is gitignored and holds the trio — the blob (albedo u8 at offset 0, then the int8 DEM), the manifest (``alb_w``, ``combined_bytes``, DEM geometry — the guard's input AND its witness) and the compiled-in fallback ``moon_assets_gen.c`` (also a moonmedia staleness input).
+   :align: center
+
+.. graphviz:: ../_graphs/assets-pipeline-guards.dot
+   :alt: The referee side opened — the Kconfig albedo width against the manifest and the partition row as three FATAL_ERROR guards, idf.py flash landing the row with the missing blob as warning only, and the host image gate grading the same bytes
+   :caption: The referees — the Kconfig widths (864 on S3/knob, 2048 on P4 — the ``default … if BOARD_P4`` pattern) against the manifest, against the ``moon_assets`` row of the partition CSV the build ACTUALLY uses (``PARTITION_TABLE_CUSTOM_FILENAME`` honoured, else ``partitions.csv``). "All three mismatches have historically surfaced as obscure build/boot failures … so they are FATAL_ERRORs here", while a missing blob stays a WARNING — the app boots without the moon. The knob's ``CMakeLists`` replicates the trio for ``--target knob``; the host image gate grades the SAME bytes the device boots (``check_gate --target s3|p4|knob``, exit 2 on a sim built against the other board's texture).
+   :align: center
 
 The same rows counted in bytes — every data row's occupancy, the
 shipped blobs against their ceilings, and the what-ifs the CSV
@@ -318,19 +332,46 @@ init), an ``imu`` **stub** (the board has no IMU), and an empty
 dial, battery gauge, power ladder, time handling and the render seam
 (:doc:`the Knob board <../devices/knob>`).
 
-The seam in one picture
------------------------
+The seam, in pictures
+---------------------
 
 The pages above state the machine in prose — three projects, one repo,
-two CMake passes, literal requirements, silent shims. This is the one
-picture of it; every quoted line was read out of ``CMakeLists.txt``,
-``knob/CMakeLists.txt`` and the shared components' ``CMakeLists`` at
-sketch time:
+two CMake passes, literal requirements, silent shims. This is the
+sealed overview plus four detail sketches; every quoted line was read
+out of ``CMakeLists.txt``, ``knob/CMakeLists.txt`` and the shared
+components' ``CMakeLists`` at sketch time:
 
 .. graphviz:: ../_graphs/build-seam.dot
    :alt: The build seam — the knob re-using the clock's four shared components through individually-listed EXTRA_COMPONENT_DIRS, same-named silent shims, and KNOB_BOARD branches confined to SRCS because the early requirements pass sees neither project variables nor CONFIG_ symbols
+   :caption: The seam, drawn — the blue edge from the knob project is the seam itself: ``EXTRA_COMPONENT_DIRS`` spelled dir-by-dir, **never** the parent ``components/`` (the rule the shims sketch opens); the two-pass band is the reason for every rule the details carry.
    :align: center
-   :caption: The seam, drawn. The top band is the three projects with the configure-time guards **inside** them — the root's even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio and the knob's shape-replicant that drops the Kconfig-width check ("the knob has no Kconfig mirror; its single truth is the pipeline-written manifest + header") and is *stricter* about existence (a missing manifest kills the knob build — a knob without its blob has no moon at all). The blue edge from the knob project is the seam itself: ``EXTRA_COMPONENT_DIRS`` spelled dir-by-dir, **never** the parent ``components/``. The middle band is the reason for every rule above it: the EARLY requirements pass (``build.cmake:664``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols — so ``REQUIRES`` is spelled out unconditionally and the amber edge to the silent ``esp_codec_dev`` shim is the consequence (an ``if()`` hiding a missing component is invisible in that pass); the target pass is where ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` — the ui component's four dropped translation units and the ``fonts_knob`` flip. The gray notes give the two facts easy to forget: why the parent directory is never added (IDF 5.5.1 excludes components by name only — adding it would register the *clock's* ``board``/``imu`` and collide), and where ``CONFIG_`` symbols come from instead (the per-target ``sdkconfig.defaults`` files, with the target/board mismatch guard as the referee). The seam's *runtime* side — ``knob_moon_render.c`` implementing ``moon_ui.h``, the reentrant mutex, the deep-sleep ladder — is :doc:`the knob display implementation <../implementation/knob-display>`; the blob the fit guard prices is the asset-pipeline figure in *"The flash-data partitions"* above, counted in bytes at :ref:`the storage ladder <storage-ladder-perf>` below.
+
+.. graphviz:: ../_graphs/build-seam-projects.dot
+   :alt: The three projects opened — the root clock project spawning the P4 sibling that excludes the vendored S3 BSP and pins its own lock before project(), and the knob sibling whose KNOB_BOARD is set before project() because the component manager runs there, pre-Kconfig
+   :caption: The projects — the P4 is a sibling build of the root (``-D IDF_TARGET=esp32p4 -B build/p4``) whose target block ``EXCLUDE_COMPONENTS`` the vendored S3 BSP (manifest targets: ``[esp32s3]``) "out of the P4 build AND of the component manager's local-manifest list" (:16-21) and pins ``DEPENDENCIES_LOCK dependencies.lock.p4`` **before** ``project()`` (:27-28, "which runs the component manager", :24-26); the tracked root ``dependencies.lock`` stays the S3's. The knob likewise owns its build dir (``-C knob -B ../build/knob`` — OUTSIDE the repo), its gitignored ``dependencies.lock.knob`` (:47) and its sdkconfig; ``set(KNOB_BOARD ON)`` sits at :23, BEFORE ``project(knob)`` (:49) — "A PROJECT variable, not a ``CONFIG_`` symbol: the component manager resolves requirements BEFORE Kconfig runs, and ``CONFIG_`` variables are unset in that first pass" (:20-22).
+   :align: center
+
+.. graphviz:: ../_graphs/build-seam-passes.dot
+   :alt: The two CMake passes opened — the early requirements pass that sees neither project variables nor CONFIG_ symbols and forces literal REQUIRES, and the target pass where KNOB_BOARD branches live, with the four dropped ui translation units and the fonts_knob flip
+   :caption: The passes — the EARLY one (``build.cmake:664``, ``cmake -P component_get_requirements.cmake``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols, so ``REQUIRES``/``PRIV_REQUIRES`` are spelled out unconditionally on purpose and every name must resolve in all three projects (the ui comment :36-43); an ``if()`` hiding a missing component is invisible in that pass, which is what the silent ``esp_codec_dev`` shim pays for. The target pass is where ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` (``CONFIG_BOARD_P4`` "reads false in that pass (harmless: SRCS are only consumed by the second, target-owning pass)") — the ui component's four dropped translation units (``alarm_audio.c``, ``demo.c``, ``moon_ui.c``, ``moon_tfcache.c``) and the ``fonts_knob`` flip (fonts/ 96-48-32, fonts_p4/ 148-74-50, fonts_knob/ 74-37-25 — identical ``lv_font_t`` symbol names, "so fonts.h and every consumer are unchanged").
+   :align: center
+
+.. graphviz:: ../_graphs/build-seam-shims.dot
+   :alt: The silent shims opened — the knob's board shim with its SH8601 init and BOARD_KNOB-default choice, the imu stub answering a fixed upright, the esp_codec_dev component that is only a CMakeLists, and the rule that the parent components/ directory is never added because the component manager excludes by name
+   :caption: The shims — who names what: ``clock`` REQUIRES board (:5, "esp_io_expander board wifi …"), ``ui`` REQUIRES imu, board and ``esp_codec_dev`` (:55-59), while ``moon`` (:46) and ``wifi`` (:4) name NEITHER — the portable core sits below the board. The knob answers with same-named silent components: ``board`` (SH8601 display + touch init; its Kconfig carries ``choice BOARD`` default ``BOARD_KNOB``, ``BOARD_S3``/``BOARD_P4`` selectable-but-unused "so the shared Kconfig's if BOARD_P4 clauses parse" — the clocks answer the same name with the real component, default ``BOARD_S3``), ``imu`` (``imu_stub.c``: a fixed upright, no chip) and ``esp_codec_dev`` (a ``CMakeLists`` and NOTHING ELSE — on the clocks the vendored real component owns that name). Why never add the parent ``components/``: IDF 5.5.1 excludes components by name only — adding it would register the *clock's* ``board``/``imu`` and collide, and EXCLUDE-by-name could not fix that.
+   :align: center
+
+.. graphviz:: ../_graphs/build-seam-guards.dot
+   :alt: The configure guards opened — the root's even-width, manifest-width and partition-fit FATAL_ERROR trio, the missing blob as warning only, the knob's stricter manifest-must-exist replicant, and the per-target sdkconfig.defaults as the source of CONFIG_ symbols
+   :caption: The guards — the root's even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio ("All three mismatches have historically surfaced as obscure build/boot failures … so they are FATAL_ERRORs here"; the fit message names the KiB, "they need >= X K"), and the knob's shape-replicant that drops the Kconfig-width check ("the knob has no Kconfig mirror; its single truth is the pipeline-written manifest + header") and is *stricter* about existence: a missing manifest kills the knob build, because a knob without its blob has no moon at all (no SD socket). ``CONFIG_`` symbols come instead from the per-target ``sdkconfig.defaults`` files (``CONFIG_BOARD_P4=y``, ``PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"``), with the root's target/board mismatch guard as referee (:77-88).
+   :align: center
+
+The seam's *runtime* side — ``knob_moon_render.c`` implementing
+``moon_ui.h``, the reentrant mutex, the deep-sleep ladder — is
+:doc:`the knob display implementation <../implementation/knob-display>`;
+the blob the fit guard prices is the asset-pipeline figure in
+*"The flash-data partitions"* above, counted in bytes at
+:ref:`the storage ladder <storage-ladder-perf>` below.
 
 The seam has a ledger: how many parts each image assembles from
 (the shared-4 under every bar, the registry set each lock resolves),

@@ -47,7 +47,7 @@ digraph build_seam_projects {
 
     rootp -> p4sib;
     p4sib -> excl;
-    p4sib -> lockpin;
+    excl -> lockpin;
     lockpin -> mgr [style=dashed, color="#b07d10"];
     knobp -> knb;
     knb -> mgr [style=dashed, color="#b07d10"];
