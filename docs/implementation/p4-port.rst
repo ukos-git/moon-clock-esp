@@ -54,7 +54,18 @@ P4's two chips below, the ``esp_wifi`` call leaving
 ``esp_wifi_remote`` + ``esp_hosted``:
 
 .. graphviz:: ../_graphs/p4-port-seams.dot
-   :alt: The P4 port as seams — board-blind app tree above, the shim as the only #if, the JD9365 panel and the remote C6 (esp_wifi_remote + esp_hosted over SDIO) below, the 3-file defaults split beside it
+   :alt: The P4 port as seams — board-blind app tree above, the shim as the only #if, the JD9365 panel and the remote C6 over SDIO below, the 3-file defaults split beside it
+   :caption: The black box: the whole port reduces to one gate — the shim is the ONLY place "S3" and "P4" coexist as an ``#if``; the build side is the 3-file defaults split with its own build dir and own lock (:doc:`the merge <../devices/index>`). The two details open the app tree and the two chips.
+   :align: center
+
+.. graphviz:: ../_graphs/p4-port-seams-app.dot
+   :alt: The app tree — moon core, ui, clock, wifi all board-blind above the components/board gate
+   :caption: The core keeps exactly one ``#if`` (``MOON_PX`` 400/650); the ui scales everything through ``UI_PX(x) = x·panel/466`` with baked font tiers (fonts / fonts_p4); the clock drops the PCF85063A (``CONFIG_CLOCK_USE_PCF85063A=n`` — the RTC is S3-side hardware) onto a software minute tick + esp_timer countdown; ``wifi_manager.c`` never changes — it just gets the C6 handed to it as the host esp_wifi API.
+   :align: center
+
+.. graphviz:: ../_graphs/p4-port-seams-chips.dot
+   :alt: The P4's two chips — the JD9365 DSI panel driven from the shim, the remote C6 radio fed by wifi_manager
+   :caption: The panel is the JD9365 720×720 round IPS over MIPI-DSI DPI DMA, RGB888, ONE framebuffer + NONE tear mode (the 3-FB flip showed stale poses — d3d68b9), the XC BSP behind ``CONFIG_BSP_LCD_TYPE_720_720_4_INCH``. The radio is esp_wifi_remote 0.14.5 + esp_hosted 1.4.7 — RPC over SDIO, 4-bit at 40 MHz (CLK 18, CMD 19, D0–D3 14–17, slave reset GPIO 54) to the C6 slave, STA only, ``SOFTAP_SUPPORT=n`` on both sides; the three component-manager guard keys (``int``, default 0 — a bool would hard-error) silence the esp_hosted 3.1.0 registry's USB-transport clauses.
    :align: center
 
 The board shim

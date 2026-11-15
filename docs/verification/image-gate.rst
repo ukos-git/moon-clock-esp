@@ -57,11 +57,22 @@ a transcription bug; a frame that fails the second but not the first
 is the model's residual (the ephemeris, the reference's own
 processing).
 
-The whole gate in one picture — one subject, two references, two
+The whole gate, in pictures — one subject, two references, two
 thresholded comparisons, three board textures:
 
 .. graphviz:: ../_graphs/image-gate.dot
-   :alt: The gate's dataflow — C core, Python prototype and NASA references converge on two MAE comparisons feeding check_gate.py per target
+   :alt: The host image gate as a black box — C core subject, two references, two MAE comparisons, per-board verdict
+   :caption: One subject (the x86 build of the device's own C core — the exact device path), two references, two thresholded MAE comparisons, three board textures. The gate runs on the 32-frame set at the reference geometry; the details open the dataflow and the thresholds.
+   :align: center
+
+.. graphviz:: ../_graphs/image-gate-references.dot
+   :alt: Dataflow — the C core and the Python and NASA references feeding the two MAE comparisons
+   :caption: The subject is the EXACT device path — float32, the cheap ERFA ephemeris, the relief-gradient cache — against the validated float64 Python model (``moon.astro`` + ``moon.renderer``, the same low-order ephemeris, so any disagreement is a porting bug — a sign flip, a quadrant error, a texture offset — not physics) and NASA SVS 5415 CGI Moon Kit ground truth (8,760 frames; the ``final_400x400`` crops are pixel-aligned to the C frames, so the MAE is a plain per-pixel mean, no registration step).
+   :align: center
+
+.. graphviz:: ../_graphs/image-gate-thresholds.dot
+   :alt: The two MAE thresholds, the shared geometry, the reported SSIM and the per-target check_gate verdict
+   :caption: The thresholds are asymmetric by construction: C-vs-Python (per-frame MAE ≤ 2, current mean 1.03) is the porting-fidelity gate, C-vs-NASA (≤ 12, mean 6.68) the model-accuracy gate — a frame failing only the first is a transcription bug, only the second the model's own residual (the cheap ephemeris's subsolar-point error, the relief model, the tone LUT fit). All three render on one geometry (400×400, r 199.3, c 199.3/199.5) with ``--neutral`` and ``dark_zero = 0`` — the art path renders OUTSIDE this configuration, which is what makes the art pass byte-identical. SSIM (mean 0.908) is reported, not gated; ``check_gate.py --target s3|p4|knob`` compares each board against its OWN texture, and exit 2 means a stale sim binary.
    :align: center
 
 The 32-frame set

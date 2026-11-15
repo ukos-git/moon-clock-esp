@@ -1,0 +1,62 @@
+// The four surfaces, opened (the CPU is not the whole device) — the
+// page's argument as a graph, with the incidents hanging off the only
+// surface that could see them. The dashed BLIND edges are the point:
+// three of the four incidents were invisible to the log, which is why
+// the coredump, the scanout and the eye are verification surfaces in
+// their own right. Facts (verified before drawing):
+//   NO_MEM mid-flush: the screen showed a HALF-UPDATED image and the
+//   log said ESP_ERR_NO_MEM with no context about WHICH transfer —
+//   fix: 25-row strips, queue depth 1 (the 32 KiB SPI DMA cap; the
+//   host malloc has neither cap nor staging).
+//   Lost DMA completion: SILENT — no WDT, no panic, no log (parked
+//   tasks keep the idles alive, so the WDT never fires either); the
+//   GPSPI lock's REQ/PEND stuck with NO HOLDER. The evidence was the
+//   COREDUMP shape: "two tasks on one bus lock, no holder"; the
+//   watchdog's restart is the cure. The silent case's witness: the
+//   coredump's custom 32 B phdr + 588 B CORE notes, and the TCB in
+//   the notes IS the thread id (symbolize with the ROM-ELF, not the
+//   app ELF).
+//   P4 DPI-FIFO underrun: one VISIBLE tear per ~28 s of load, NO log
+//   line at all (the DPI controller does not log underruns by
+//   default) — fix: 103 -> 65-row strips.
+//   Seam lines: serial-log-INVISIBLE — the write path was correct,
+//   the per-strip QSPI re-latch was not; the EYE caught it (fix
+//   1582ddb, one continuous window write; the spin retired
+//   2026-11-13, the write path underneath stays).
+// The sealed box is device-verify.dot; the flow + grammar are
+// device-verify-capture.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph device_verify_surfaces {
+    rankdir=LR;
+    label="The four surfaces — and what each one caught";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    log_s [label="the CPU's\nLOG", fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+    wdt_s [label="the WDT /\nbus lock", fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+    scan_s [label="the panel's\nSCANOUT", fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+    eye_s [label="the user's\nEYE", fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29", penwidth=1.6];
+
+    i_nomem [label="NO_MEM mid-flush — half-\nupdated image; fix: 25 rows,\nqueue depth 1 (32 KiB cap)"];
+    i_dma [label="lost DMA — SILENT; GPSPI\nREQ/PEND stuck NO HOLDER;\nthe coredump rooted it",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    i_dpi [label="P4 DPI-FIFO underrun —\ntear per ~28 s, no log;\nfix: 103 → 65-row strips"];
+    i_seam [label="seam lines — log-invisible;\nthe EYE caught it; fix\n1582ddb one window write"];
+
+    log_s -> i_nomem [color="#2b5fb0", penwidth=1.6, label="saw it"];
+    log_s -> i_dma [style=dashed, color="#b07d10", fontcolor="#6b4e08",
+                    label="blind"];
+    wdt_s -> i_dma [style=dashed, color="#b07d10", fontcolor="#6b4e08",
+                    label="blind too — parked\ntasks keep idles alive"];
+    scan_s -> i_dpi [color="#2b5fb0", penwidth=1.6, label="saw the tear"];
+    log_s -> i_dpi [style=dashed, label="blind: no log"];
+    eye_s -> i_seam [color="#2b5fb0", penwidth=1.6, label="caught it"];
+    log_s -> i_seam [style=dashed, label="blind: the write\npath was correct"];
+}

@@ -136,10 +136,18 @@ disarm the user's alarms). The tour's edits are bounded to the
 pomodoro/real-alarm entry screens, which only re-seed their rollers'
 current values.
 
-The whole cycle as one picture — ``demo.c``'s phase machine, its two
-safety rails, and the action-layer gates beneath it:
+The whole cycle as one picture — ``demo.c``'s phase machine as a
+sealed box, then opened step by step:
 
 .. graphviz:: ../_graphs/demo-tour.dot
+   :alt: The demo tour as a black box — arm, the nine scripted phases, the alarm that rings last, and the s_cycle loop
+   :caption: Armed on schedule, the tour owns the display until reset; the cycle loops via ``s_cycle++`` with the moon index reset, and the alarm sits at the cycle's tail on purpose (8cc3fe4) — the 2026-11-08 bench take showed the QSPI completion-loss race firing ~29 s into the alarm phase, and placing it last keeps roll and sync comparable on every cycle (the race was root-caused 2026-11-12 to the wake path's WiFi-init storm).
+   :align: center
+
+.. graphviz:: ../_graphs/demo-tour-phases.dot
+   :alt: The ten scripted phases as a chain — moons, hub walk, WiFi, wheel, back, home, roll, sync, alarm — looping via s_cycle
+   :caption: The five-screen moon rotation follows ``s_moon_order`` (modem-sleep, WiFi, light-sleep, deep-sleep, alarm); the wheel walks the keyboard register tour (ABC + A, 123 + 1, back to abc) with DISCARD only — the tour never commits a credential; the sync phase runs one bounded on-demand sync (``home_drain_sync``, 45 s cap). Two widgets are never tapped on purpose: the wheel's circle-CHECK commit key (it would write the credentials file and start a connect) and the alarm screen's deactivate-all master (it would really disarm the user's alarms).
+   :align: center
 
 The taps themselves ride a **second POINTER indev** — a real
 hit-tested injection beside the BSP's (press 90 + release 60 ms,
@@ -152,6 +160,11 @@ Suppression while the tour runs
 
 The tour owns the display until reset; anything that would hijack it
 is refused at the action layer (``components/ui/actions.c``):
+
+.. graphviz:: ../_graphs/demo-tour-suppress.dot
+   :alt: The six suppressions actions.c applies while action_demo_active is set
+   :caption: The six refusals while ``action_demo_active()`` — the same list the bullets below spell out; the boot replay shares the idle gate, and the ring the alarm phase wants is re-armed deliberately via ``action_demo_allow_alarm(true)``.
+   :align: center
 
 * the **deep-sleep transition** returns early (and disarms the source
   countdown) while ``action_demo_active()``;

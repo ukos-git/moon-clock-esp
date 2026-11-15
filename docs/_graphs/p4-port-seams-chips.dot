@@ -1,0 +1,50 @@
+// The P4's two chips, opened (verified before drawing):
+//   Display: JD9365 · 720×720 round IPS over MIPI-DSI DPI DMA,
+//   RGB888, ONE framebuffer + NONE tear mode (the 3-FB flip showed a
+//   stale spin pose — d3d68b9); driven from the shim with the XC BSP,
+//   CONFIG_BSP_LCD_TYPE_720_720_4_INCH.
+//   Radio: esp_wifi_remote 0.14.5 + esp_hosted 1.4.7 — the host side
+//   presents the SAME esp_wifi API; RPC over SDIO, 4-bit @ 40 MHz
+//   (CLK 18, CMD 19, D0-D3 14-17, slave reset GPIO 54); the ESP32-C6
+//   slave runs the Wi-Fi firmware, STA only — SOFTAP_SUPPORT=n on
+//   BOTH sides.
+//   The three CM guard keys (int, default 0 — bool would make the
+//   component manager's eval_bool("1") hard-error) silence the
+//   esp_hosted 3.1.0 registry's USB-transport if: clauses that fail
+//   on our 1.4.7 sdkconfig.
+// The sealed box is p4-port-seams.dot; the app tree is
+// p4-port-seams-app.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph p4port_chips {
+    rankdir=TB;
+    label="The P4's two chips — DSI panel, remote C6";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    shim_g [label="the board shim —\nthe seam",
+            fillcolor="#f2f2f2", color="#6b7280", fontcolor="#3f3f3f",
+            style="rounded,filled,dashed"];
+    wifi_g [label="components/wifi —\nwifi_manager",
+            fillcolor="#f2f2f2", color="#6b7280", fontcolor="#3f3f3f",
+            style="rounded,filled,dashed"];
+    guard [label="the three CM guard keys\n(int, default 0) — silence\nthe 3.1.0 registry's USB\nif: clauses on our 1.4.7",
+           fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    dsi [label="JD9365 · 720×720 IPS —\nMIPI-DSI DPI DMA, RGB888,\n1 FB + NONE tear mode",
+         fillcolor="#efece4"];
+    rmt [label="esp_wifi_remote 0.14.5 +\nesp_hosted 1.4.7 — the\nsame esp_wifi API, RPC\nover SDIO",
+         fillcolor="#efece4"];
+    c6 [label="the ESP32-C6 slave —\nthe Wi-Fi firmware, STA\nonly (SOFTAP_SUPPORT=n\nboth sides)",
+        fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+
+    shim_g -> dsi [color="#b91c1c", penwidth=1.6];
+    wifi_g -> rmt [color="#2b5fb0", penwidth=1.6];
+    guard -> rmt [style=dashed];
+    rmt -> c6 [label="SDIO · esp_hosted RPC", color="#b91c1c", penwidth=1.6];
+}

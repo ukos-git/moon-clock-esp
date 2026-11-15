@@ -1,51 +1,42 @@
+// The P4 port as seams, as a black box: one app tree, every board
+// fact behind one gate. The internals are opened in the detail
+// sketches:
+//   p4-port-seams-app.dot    the four board-blind components and the
+//                            shim they all funnel through
+//   p4-port-seams-chips.dot  the P4's two chips — the JD9365 panel
+//                            and the ESP32-C6 radio over SDIO
+// The one identity that survives every split: the shim
+// (components/board) is the ONLY place "S3" and "P4" coexist as an
+// #if. The esp_wifi call leaves wifi_manager.c unchanged and arrives
+// at the C6 through esp_wifi_remote + esp_hosted. The build side is
+// the 3-file defaults split (sdkconfig-merge.dot) with its own build
+// dir (-B build/p4) and own lock (dependencies.lock.p4) — a stray
+// board line in the wrong file is the CMakeLists' FATAL_ERROR.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph p4port {
-    label="The P4 port as seams: one app tree, every board fact behind one gate";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=20;
-    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
-          shape=box, width=1.8, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The P4 port as seams — one app tree, one gate";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_app {
-        label="one app tree — everything above the shim is board-blind";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525252";
-        fontsize=14; fontcolor="#3c3c3c";
-        core [label="moon core\nboard-blind · float32\nMOON_PX 400/650\none #if in moon_ui.c", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-        ui [label="ui\nUI_PX(x) = x·panel/466\nbaked font tiers\nfonts / fonts_p4", fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-        clock [label="clock\nCONFIG_CLOCK_USE_PCF85063A=n\n→ software minute tick\n+ esp_timer countdown", fillcolor="#eef0ee"];
-        wifi [label="components/wifi\nwifi_manager\n(the esp_wifi API —\nthe S3 calls the real one)", fillcolor="#eef0ee"];
-        shim [label="components/board\nTHE seam\nthe only place S3 and P4\ncoexist as an #if\n(display init, brightness)",
-                fillcolor="#f6e7dc", color="#b5643a", penwidth=2.2, fontcolor="#8a3d18"];
-    }
+    app [label="ONE APP TREE — moon core,\nui, clock, wifi: above the\nshim, everything is\nboard-blind",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    shim [label="THE SEAM — components/\nboard: the only place S3\nand P4 coexist as an #if\n(display init, brightness)",
+          fillcolor="#f4e8e6", color="#b91c1c", fontcolor="#7a1a1a", penwidth=1.6];
+    chips [label="THE P4's TWO CHIPS — the\nJD9365 DSI panel, the\nESP32-C6 radio over SDIO",
+          fillcolor="#efece4"];
+    build [label="THE BUILD — 3-file\ndefaults split, -B\nbuild/p4, own lock",
+           fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
 
-    subgraph cluster_p4 {
-        label="the P4 board's two chips";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#f4f2ec";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-        dsi [label="JD9365 · 720×720 IPS\nMIPI-DSI DPI DMA · RGB888\n1 FB + NONE tear mode", fillcolor="#efece4"];
-        rmt [label="esp_wifi_remote 0.14.5 + esp_hosted 1.4.7\nhost-side: same esp_wifi API\nRPC over SDIO (4-bit @ 40 MHz,\nCLK 18 · CMD 19 · D0–D3 14–17,\nslave reset GPIO 54)", fillcolor="#efece4"];
-        guard [label="the three CM guard keys\n(int, default 0)\nsilence the 3.1.0 registry's\nUSB-transport if: clauses\nthat fail on our 1.4.7",
-                 fontsize=12, fillcolor="#f4f2ec"];
-        c6 [label="ESP32-C6 slave\nruns the Wi-Fi firmware\n(STA only —\nSOFTAP_SUPPORT=n both sides)", fillcolor="#e8e8e4"];
-    }
-
-    build [label="the 3-file defaults split\nsdkconfig.defaults + .esp32s3/.esp32p4\n(later file wins) · own build dir\n-B build/p4 · own lock — dependencies.lock.p4\nstray board line = CMakeLists FATAL_ERROR",
-           fillcolor="#eef0ee", fontsize=12];
-
-    core -> ui;
-    ui -> shim [label="panel-scaled flush"];
-    shim -> dsi [label="XC BSP · CONFIG_BSP_LCD_TYPE_720_720_4_INCH", color="#b5643a", penwidth=1.8];
-    clock -> shim [style=dashed];
-    wifi -> rmt [label="the shim presents the C6 radio\nthrough the host esp_wifi API\n(wifi_manager.c stays board-blind)", color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
-    guard -> rmt [style=dashed];
-    rmt -> c6 [label="SDIO · esp_hosted RPC", color="#b5643a", penwidth=1.8];
-    build -> shim [style=dashed, color="#8a8a8a"];
-    build -> core [style=dashed, color="#8a8a8a"];
+    app -> shim [label="panel-scaled flush"];
+    shim -> chips;
+    build -> shim [style=dashed];
+    build -> app [style=dashed];
 }

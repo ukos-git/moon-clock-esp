@@ -1,21 +1,61 @@
-// Build + flash sequence for one board (port = <port>, the identified node)
+// Build + flash sequence for ONE board (port = <port>, the
+// identified node — never hard-coded: plug one board, watch which
+// /dev/ttyACM* node appears, confirm the chip with
+// esptool.py --port <port> chip_id before flashing; the mapping does
+// not survive a re-plug). The seven steps, in order (verified against
+// the root build flow):
+//   source ~/esp/esp-idf/export.sh — ESP-IDF 5.5.1 in every build
+//   shell;
+//   the moon assets are pre-baked locally and gitignored:
+//   cd assets/images/moon && .venv/bin/python -m moon.assets writes
+//   components/moon/generated/{s3,p4}/moon_consts.h and
+//   assets/images/moon/moon_assets.bin (the root CMakeLists
+//   FATAL_ERRORs on a width/manifest/partition mismatch — regenerate
+//   after touching the pipeline or MOON_ALBEDO_W);
+//   idf.py set-target merges the three sdkconfig.defaults files
+//   (later file wins) into the live sdkconfig — sdkconfig-merge.dot;
+//   idf.py build — the component manager resolves dependencies.lock
+//   (the P4 build: -D IDF_TARGET=esp32p4 -B build/p4, lock
+//   dependencies.lock.p4);
+//   CHECK the binary size against the factory partition: 2048 K S3 /
+//   9216 K P4 (the P4's 16 MB header warning from esptool is
+//   expected);
+//   idf.py flash -p <port> lands app + storage SPIFFS + the
+//   moon_assets blob;
+//   idf.py monitor -p <port> — serial console, 115200.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph build_flash {
     rankdir=TB;
-    label="build + flash (one board)";
-    labelloc=t;
-    fontsize=14;
-    fontname=sans;
-    node [fontname=sans, shape=box, style="rounded,filled", margin=0.25, fontsize=10.5];
-    edge [fontname=sans, fontsize=10];
+    label="build + flash — one board, seven steps";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    env   [label="source ~/esp/esp-idf/export.sh\n(ESP-IDF 5.5.1 in every build shell)", fillcolor="#f5e6b8"];
-    assets [label="moon assets (local, gitignored):\ncd assets/images/moon && .venv/bin/python -m moon.assets\n-> components/moon/generated/{s3,p4}/moon_consts.h\n   + assets/images/moon/moon_assets.bin", fillcolor="#d9d2ea"];
-    cfg   [label="idf.py set-target + merge of the three\nsdkconfig.defaults files (later file wins)\n-> live sdkconfig", fillcolor="#cfe0c8"];
-    build [label="idf.py build\n(component manager resolves dependencies.lock)", fillcolor="#cfe0c8"];
-    size  [label="check the binary size against the factory\npartition (2048 K S3 / 9216 K P4)", fillcolor="#f5e6b8"];
-    flash [label="idf.py flash -p <port>\n(app + storage SPIFFS + moon_assets blob)", fillcolor="#cfe0c8"];
-    mon   [label="idf.py monitor -p <port>\n(serial console, 115200)", fillcolor="#e8e8e8"];
+    env [label="source the export.sh —\nESP-IDF 5.5.1 in every\nbuild shell",
+         fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    assets [label="the moon assets —\npython -m moon.assets:\ngenerated header + board\nblob (local, gitignored)",
+            fillcolor="#efece4"];
+    cfg [label="set-target + the three\nsdkconfig.defaults merge\n(later file wins)",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    build [label="idf.py build — the\ncomponent manager reads\nthe target's lock",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    size [label="check binary size vs the\nfactory partition\n(2048 K S3 / 9216 K P4)",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    flash [label="idf.py flash -p <port> —\napp + storage SPIFFS +\nmoon_assets blob",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
+    mon [label="idf.py monitor -p <port>\n(serial console, 115200)",
+         fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
 
-    env -> assets -> cfg -> build -> size -> flash -> mon;
+    env -> assets;
+    assets -> cfg;
+    cfg -> build;
+    build -> size;
+    size -> flash;
+    flash -> mon;
 }

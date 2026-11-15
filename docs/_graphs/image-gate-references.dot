@@ -1,0 +1,46 @@
+// The gate's dataflow, opened (verified before drawing):
+//   THE SUBJECT: components/moon/core compiled x86 — host_sim's
+//   moon_sim — the EXACT device path: float32, the cheap ERFA
+//   ephemeris, the relief-gradient cache.
+//   REFERENCE 1: the Python prototype (moon.astro + moon.renderer),
+//   the validated model at float64, using the SAME low-order
+//   ephemeris — so any disagreement is a porting bug (a sign flip, a
+//   quadrant error, a texture offset), not physics.
+//   REFERENCE 2: NASA SVS 5415 CGI Moon Kit ground truth — 8,760
+//   frames; the final_400x400 crops are pixel-aligned to the C frames
+//   (same disk, same size, same origin), so the MAE is a plain
+//   per-pixel mean, no registration step.
+// The subject is C-vs-Python on the left (porting fidelity), C-vs-
+// NASA on the right (model accuracy). The thresholds, geometry and
+// verdict are image-gate-thresholds.dot; the sealed box is
+// image-gate.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph gate_refs {
+    rankdir=LR;
+    label="One subject, two references, two comparisons";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.6];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    c [label="THE SUBJECT — C core x86:\nfloat32 · cheap ERFA ·\nrelief-gradient cache",
+       fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    py [label="Python prototype —\nmoon.astro + moon.renderer;\nvalidated · float64 · same\nlow-order ephemeris",
+        fillcolor="#efece4"];
+    nasa [label="NASA SVS 5415 CGI Moon Kit\n— 8,760 frames; the\nfinal_400x400 crops,\npixel-aligned",
+          fillcolor="#efece4"];
+    cmp_py [label="C vs Python — PORTING\nFIDELITY (MAE ≤ 2)",
+            fillcolor="#efece4"];
+    cmp_nasa [label="C vs NASA — MODEL\nACCURACY (MAE ≤ 12)",
+              fillcolor="#efece4"];
+
+    c -> cmp_py [color="#2b5fb0", penwidth=1.6];
+    py -> cmp_py;
+    c -> cmp_nasa [color="#2b5fb0", penwidth=1.6];
+    nasa -> cmp_nasa;
+}

@@ -67,12 +67,13 @@ the *timing* column, quoted from accepted captures.
 
 .. _capture-grammar-verify:
 
-The capture in one picture
---------------------------
+The capture, in pictures
+------------------------
 
 The page owns the *standard*; this section draws the *machine that
 reads it* — every quoted line verified against its emitting
-``ESP_LOG`` call before drawing. Three clusters. **The capture** is
+``ESP_LOG`` call before drawing. Three clusters, one figure each.
+**The capture** is
 the defined flow the acceptance is read on: the boot bake's
 ``bake | phase … | geo … bake …`` + ``bake | rgb565 …`` pair
 (``moon_ui.c:1467``/``:1471``, one per boot and per day-roll — the
@@ -98,6 +99,19 @@ coredump, the scanout and the eye are verification surfaces in their
 own right.
 
 .. graphviz:: ../_graphs/device-verify.dot
+   :alt: The device verification machine — the capture flow, the line grammar, the acceptance triple and the four surfaces
+   :caption: The page's standard in one box: a pipeline is accepted when ALL FOUR surfaces agree — a number without the eye's sign-off is a hypothesis, not a verification. The host half proves the MATH renders (:doc:`the image gate <image-gate>`); this machine is the DEVICE half.
+   :align: center
+
+.. graphviz:: ../_graphs/device-verify-capture.dot
+   :alt: The boot-to-wake capture flow with its three line classes feeding the acceptance triple
+   :caption: Every line quoted against its ``ESP_LOG`` site: boot logs ``bake | phase %.1f%% illum, subsolar (…) | geo Xms bake Yms`` plus ``bake | rgb565 Xms (total Yms)`` (``moon_ui.c:1467``/``:1471`` — one pair per boot and per day-roll; a bake that never logs its rgb565 line stalled) behind ``panel-io watchdog armed (3000 ms stuck limit)`` (``:2600``); idle logs ``Idle monitoring enabled`` (``clock_idle.c:138``; re-arm variant ``actions.c:1373``) then ``Idle timeout reached after X ms`` (``:121``) at ``CONFIG_CLOCK_IDLE_TIMEOUT_SEC`` = 60 s (``clock/Kconfig:68``); light sleep logs the switch (``actions.c:1476``), the seconds pause (``:1497``), ``panel dim ramp: brightness 100 -> 25% (240 ms)`` (``moon_ui.c:3116``) and ``RTC countdown %u s to deep sleep armed`` (``actions.c:1513`` — the ENTRY arms the RTC one-shot itself); deep sleep the trio at ``actions.c:1261``/``:1270``/``:1276``. PROGRESS is witnessed by the boot pair, the dim+arm pair and the wake arc signature; TIMING reads the boot bake against the shown delta (~304 ms display-paced, not the ~1.3 s bake — backpressure failing would show bake-paced); FAILURE means any WDT/panic line, ``PANEL IO STUCK`` (``moon_ui.c:2481``), ``panel draw not accepted`` (``:652``) or ``ESP_ERR_NO_MEM`` — the count over the window must be 0.
+   :align: center
+
+.. graphviz:: ../_graphs/device-verify-surfaces.dot
+   :alt: The four verification surfaces — log, WDT/bus lock, scanout, eye — with the four incidents and the blind edges
+   :caption: Three of the four incidents were invisible to the log: the lost DMA completion was silent to BOTH log and WDT (parked tasks keep the idles alive) and was rooted only by the coredump shape — ``two tasks on one bus lock, no holder``; the P4 DPI-FIFO underrun logged nothing (the DPI controller does not log underruns by default) and showed as one tear per ~28 s of load, fixed by 103 → 65-row strips; the seam lines were invisible because the WRITE path was correct — the per-strip QSPI re-latch was not, and the eye caught it (1582ddb, one continuous window write; the spin retired 2026-11-13, the write path underneath stays). The log's one clear catch: ``ESP_ERR_NO_MEM`` mid-flush with a half-updated screen — fixed to 25-row strips, queue depth 1 (the 32 KiB SPI DMA cap; the host malloc has neither cap nor staging). The silent case's witness: the coredump's custom 32 B phdr + 588 B CORE notes — the TCB in the notes IS the thread id; symbolize with the ROM-ELF, not the app ELF.
+   :align: center
 
 The flows the capture reads belong to their own sketches — the fade
 machine (``docs/_graphs/screen-switch.dot``), the dim-and-arm machine

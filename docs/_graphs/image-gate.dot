@@ -1,57 +1,42 @@
+// The host image gate as a black box: one subject (the x86 build of
+// the device's own C core), two references, two thresholded MAE
+// comparisons, three board textures. The internals are opened in the
+// detail sketches:
+//   image-gate-references.dot  the dataflow — subject, references,
+//                              comparisons
+//   image-gate-thresholds.dot  the thresholds, the geometry, SSIM,
+//                              the per-target verdict
+// The gate runs on a 32-frame set (8 frames per quarter of the phase
+// cycle, evenly spaced across the year), rendered at the reference
+// geometry with --neutral and dark_zero = 0 — the PHYSICS
+// configuration; the display's artistic constants render OUTSIDE this
+// path, which is what makes the art pass byte-identical.
+// The device half of the same standard is
+// docs/verification/device-verify.rst.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph gate {
-    rankdir=LR;
-    label="The host image gate — one C path, two comparisons, three board textures";
-    labelloc="t";
-    fontname="Helvetica"; fontsize=20;
-    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
-          shape=box, width=1.7, height=0.5,
-          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
-    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+    rankdir=TB;
+    label="The host image gate — one C path, two references";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    subgraph cluster_subject {
-        label="the subject under test";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#e8e8e4";
-        color="#525252";
-        fontsize=14; fontcolor="#3c3c3c";
-        c [label="C core\ncomponents/moon/core compiled x86\nhost_sim/moon_sim — the exact device path\nfloat32 · cheap ERFA · relief-gradient cache",
-           fillcolor="#dfe6f1", color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
-    }
+    subject [label="THE SUBJECT — the C core\ncompiled x86 (host_sim's\nmoon_sim): the exact\ndevice path",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    refs [label="THE TWO REFERENCES — the\nfloat64 Python prototype,\nNASA SVS 5415 ground truth",
+          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    cmps [label="THE TWO COMPARISONS —\nper-frame MAE ≤ 2 porting\nfidelity, ≤ 12 model accuracy",
+          fillcolor="#efece4"];
+    verdict [label="THE VERDICT — check_gate.py:\nboth pairs inside thresholds,\neach on its board's texture",
+             fillcolor="#f4e8e6", color="#b91c1c", fontcolor="#7a1a1a", penwidth=1.6];
 
-    subgraph cluster_refs {
-        label="the two references";
-        labeljust="l";
-        style="rounded,filled";
-        fillcolor="#eef0ee";
-        color="#8a8a8a";
-        fontsize=14; fontcolor="#6e6e6e";
-        py [label="Python prototype\nmoon.astro + moon.renderer\nvalidated model · float64\nsame low-order ephemeris", fillcolor="#eef0ee"];
-        nasa [label="NASA SVS 5415\nCGI Moon Kit ground truth\n8,760 frames · final_400x400\ncrops, pixel-aligned", fillcolor="#eef0ee"];
-    }
-
-    geom [label="one geometry for all three\n400×400 · r 199.3 · c 199.3/199.5\n--neutral · dark_zero = 0\n(the art path renders OUTSIDE\nthis configuration)",
-          fillcolor="#f4f2ec", fontsize=12];
-
-    cmp_py [label="C vs Python\nporting fidelity\nper-frame MAE ≤ 2\ncurrent mean 1.03",
-            fillcolor="#f4f2ec", fontsize=12];
-    cmp_nasa [label="C vs NASA\nmodel accuracy\nper-frame MAE ≤ 12\ncurrent mean 6.68",
-              fillcolor="#f4f2ec", fontsize=12];
-    ssim [label="content-window SSIM\nmean 0.908 — reported,\nNOT gated",
-          fillcolor="#f2f2ef", color="#8a8a8a", style="rounded,filled,dashed", fontsize=12];
-
-    verdict [label="check_gate.py --target\ns3 │ p4 │ knob\nPASS = both pairs inside\nthresholds, own board texture\nexit 2 = stale sim binary",
-             fillcolor="#f6e7dc", color="#b5643a", penwidth=2.2,
-             fontcolor="#8a3d18", fontsize=12];
-
-    geom -> c     [style=dashed, color="#8a8a8a"];
-    geom -> py    [style=dashed, color="#8a8a8a"];
-    geom -> nasa  [style=dashed, color="#8a8a8a"];
-    c    -> cmp_py   [color="#2b5fb0", penwidth=1.6];
-    py   -> cmp_py   [color="#8a8a8a"];
-    c    -> cmp_nasa [color="#2b5fb0", penwidth=1.6];
-    nasa -> cmp_nasa [color="#8a8a8a"];
-    cmp_py   -> verdict [color="#b5643a", penwidth=2.2, style=bold];
-    cmp_nasa -> verdict [color="#b5643a", penwidth=2.2, style=bold];
-    ssim -> verdict [style=dashed];
+    subject -> cmps [color="#2b5fb0", penwidth=1.6];
+    refs -> cmps;
+    cmps -> verdict [color="#b91c1c", penwidth=1.6];
 }

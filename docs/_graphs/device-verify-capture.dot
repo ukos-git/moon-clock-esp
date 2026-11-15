@@ -1,0 +1,80 @@
+// The capture, opened — the defined flow and the grammar (every
+// quoted line verified against its emitting ESP_LOG call before
+// drawing):
+//   boot: the bake pair "bake | phase %.1f%% illum, subsolar (…) |
+//   geo Xms bake Yms" + "bake | rgb565 Xms (total Yms)"
+//   (components/ui/moon_ui.c:1467/:1471) — one pair per boot AND per
+//   day-roll; a bake that never logs its rgb565 line is a bake that
+//   stalled. First line of the boot: "panel-io watchdog armed
+//   (3000 ms stuck limit)" (moon_ui.c:2600).
+//   idle: "Idle monitoring enabled" (components/clock/clock_idle.c:138,
+//   re-arm variant components/ui/actions.c:1373) then "Idle timeout
+//   reached after X ms" (clock_idle.c:121) at
+//   CONFIG_CLOCK_IDLE_TIMEOUT_SEC = 60 s (components/clock/Kconfig:68).
+//   light sleep (static dim — nothing animates between the switch and
+//   the arm): "Switching to light sleep screen" (actions.c:1476),
+//   "Seconds timer paused for light sleep" (:1497), "panel dim ramp:
+//   brightness 100 -> 25% (240 ms)" (moon_ui.c:3116), "RTC countdown
+//   %u s to deep sleep armed" (actions.c:1513 — the ENTRY arms the
+//   RTC one-shot itself).
+//   deep sleep: "Deep sleep: panel backlight off" (actions.c:1261),
+//   "UI tick timer paused for deep sleep" (:1270), "Seconds timer
+//   paused for deep sleep" (:1276).
+//   wake: shows the current phase STATIC; the acceptance SIGNATURE is
+//   the seconds arc advancing WHILE the background wifi_sync reconnect
+//   runs (task at actions.c:71/:132) — the old freeze's signature was
+//   the wake screen frozen for the sync's whole duration.
+//   TIMING: the bake's wall time vs the atomic shown delta — a shown
+//   delta that tracks the bake (~1.3 s) instead of the display
+//   (~304 ms) is the backpressure failing (display-paced, not
+//   bake-paced).
+//   FAILURE lines: WDT reset / panic (the ROM's own lines),
+//   "PANEL IO STUCK: panel mutex held X ms after a Y ms wait by task
+//   Z" (moon_ui.c:2481), "panel draw not accepted: …" (moon_ui.c:652),
+//   ESP_ERR_NO_MEM from the flush (the BSP's return) — ANY one is a
+//   verification failure; the count over the window must be 0.
+// The sealed box is device-verify.dot; the surfaces are
+// device-verify-surfaces.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph device_verify_capture {
+    rankdir=TB;
+    label="The capture — one flow, read for three classes of line";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.45, ranksep=0.5];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    boot [label="boot — the BAKE PAIR:\nthe phase+geo line, then\nthe rgb565 line\n(moon_ui.c:1467/:1471)",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    idle [label="idle — monitoring on, then\nthe 60 s timeout\n(clock_idle.c:138/:121)",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    lsl [label="light sleep — switch,\nseconds pause, dim to 25 %,\nRTC countdown armed at\nENTRY (actions.c:1476-1513)",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    deep [label="deep sleep — backlight off,\nUI tick + seconds timers\npaused (:1261/:1270/:1276)",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wake [label="wake — the phase shows\nSTATIC; SIGNATURE: the\nseconds arc advances WHILE\nbackground wifi_sync runs"];
+
+    progress [label="PROGRESS — the pairs prove\nthe endpoints were reached"];
+    timing [label="TIMING — shown delta\n~304 ms display-paced,\nnot the ~1.3 s bake"];
+    failure [label="FAILURE — any WDT, PANEL IO\nSTUCK (:2481), draw-not-\naccepted (:652), NO_MEM;\nthe window's count must be 0",
+              fillcolor="#f4e8e6", color="#b91c1c", fontcolor="#7a1a1a", penwidth=1.6];
+    verdict [label="endpoint ∧ rate ∧ zero\nfailures → ACCEPTED;\nprogress not timing = perf\nregression; timing + WDT\n= lifecycle bug",
+             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    boot -> idle;
+    idle -> lsl;
+    lsl -> deep;
+    deep -> wake;
+
+    wake -> progress [style=dashed, color="#8a8a8a"];
+    progress -> timing [style=invis];
+    timing -> failure [style=invis];
+    progress -> verdict;
+    timing -> verdict;
+    failure -> verdict [color="#b91c1c"];
+}

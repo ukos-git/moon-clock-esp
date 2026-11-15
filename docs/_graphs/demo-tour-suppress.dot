@@ -1,0 +1,51 @@
+// The suppressions, opened (components/ui/actions.c — verified before
+// drawing). The tour owns the display until reset; everything that
+// would hijack it is refused at the action layer while
+// action_demo_active():
+//   idle lifecycle belongs to the tour — the monitor is switched off
+//   at ARM, the idle timer is held every second, and monitors do not
+//   re-arm (the boot replay shares that gate), so no sleep countdown
+//   ever expires mid-take;
+//   the deep-sleep transition returns early AND disarms the source
+//   countdown while action_demo_active();
+//   scheduled alarms are dropped in action_alarm_triggered — the
+//   alarm phase opens with action_demo_allow_alarm(true) because it
+//   deliberately rings;
+//   the sync-done airplane hand-off is skipped — the flag stays
+//   unclaimed until the tour claims it with action_sync_demo_done;
+//   the hourly on-demand sync trigger is skipped — no yanking the
+//   script away mid-take;
+//   the shared clock widget shows MM:SS — a live odometer for the
+//   recording.
+// The sealed box is demo-tour.dot; the phases are
+// demo-tour-phases.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph demo_tour_suppress {
+    rankdir=TB;
+    label="Suppressed while the tour runs";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.4];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    gate [label="actions.c gates\neverything below on\naction_demo_active()",
+          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+    idle [label="the idle lifecycle belongs to\nthe tour — monitor off at ARM,\nidle timer held every second;\nboot replay shares that gate"];
+    deep [label="the deep-sleep transition\nreturns early — and disarms\nthe source countdown"];
+    alarmgate [label="scheduled alarms dropped in\naction_alarm_triggered; the\nalarm phase rings deliberately\nvia action_demo_allow_alarm(true)"];
+    handoff [label="sync-done airplane hand-off\nskipped — the flag stays\nunclaimed until\naction_sync_demo_done claims it"];
+    hourly [label="the hourly sync trigger is\nskipped — no yanking the\nscript away mid-take"];
+    fmt [label="the shared clock widget shows\nMM:SS — a live odometer for\nthe recording"];
+
+    gate -> idle;
+    idle -> deep [style=invis];
+    deep -> alarmgate [style=invis];
+    alarmgate -> handoff [style=invis];
+    handoff -> hourly [style=invis];
+    hourly -> fmt [style=invis];
+}

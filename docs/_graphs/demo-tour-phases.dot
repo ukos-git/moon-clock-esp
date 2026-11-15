@@ -1,0 +1,66 @@
+// The scripted phases, opened (demo.c's phase machine, verified before
+// drawing): ten steps, every one driven through the real touch path
+// (a hit-tested second POINTER indev — see demo-tour.dot).
+//   moons: the five moon screens on a rotation — modem-sleep, WiFi,
+//   light-sleep, deep-sleep, alarm (s_moon_order).
+//   hub_walk: the scripted tap list home → hub → every icon → exits,
+//   with a dwell per step.
+//   wifi: hub WiFi icon → settings wifi → scan → the AP roller row.
+//   wheel: the keyboard drive + register tour — ABC + A, 123 + 1,
+//   back to abc — DISCARD only, never commits a credential.
+//   back: wifi exit → hub exit → home.
+//   home: lands home; drains an owed on-demand sync first.
+//   roll: the synthetic tilt script (clock orientation roll).
+//   sync: one bounded on-demand sync (home_drain_sync, 45 s cap).
+//   alarm LAST: the real ring script; dismiss is the real
+//   action_wake_screen flow, then the wake-sync drain closes the
+//   cycle.
+// The sealed box is demo-tour.dot; the action-layer refusals are
+// demo-tour-suppress.dot.
+// FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
+// content column.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph demo_tour_phases {
+    rankdir=TB;
+    label="The scripted phases — every step is a real tap";
+    labelloc="t"; labeljust="c";
+    fontname="Helvetica"; fontsize=12;
+    graph [nodesep=0.4, ranksep=0.42];
+    node [fontname="Helvetica", fontsize=12, shape=box, style="rounded,filled",
+          width=0, height=0, margin="0.16,0.10", fillcolor="#f2f2ef",
+          color="#525252", penwidth=1.2];
+    edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
+
+    arm [label="arm — armed on schedule;\nthe boot-animation gate\nretired 2026-11-13",
+         fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    moons [label="moons — five screens on a\nrotation: modem-sleep,\nWiFi, light-sleep,\ndeep-sleep, alarm\n(s_moon_order)",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    hub [label="hub_walk — scripted taps:\nhome → hub → every icon →\nexits, dwell per step",
+         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wifi [label="wifi — hub icon → settings\nwifi → scan → the AP\nroller row",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    wheel [label="wheel — keyboard drive +\nregister tour: ABC + A,\n123 + 1, back to abc;\nDISCARD only — never\ncommits a credential",
+           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    back [label="back — wifi exit →\nhub exit → home",
+          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    home [label="home — lands home; drains\nan owed on-demand sync first",
+          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    roll [label="roll — the synthetic tilt\nscript (clock orientation\nroll)",
+          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    sync [label="sync — one bounded on-demand\nsync (home_drain_sync,\n45 s cap)",
+          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
+    alarm [label="alarm — LAST: the real ring\nscript; dismiss is the real\naction_wake_screen flow,\nthen the wake-sync drain\ncloses the cycle",
+            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
+
+    arm -> moons;
+    moons -> hub;
+    hub -> wifi;
+    wifi -> wheel;
+    wheel -> back;
+    back -> home;
+    home -> roll;
+    roll -> sync;
+    sync -> alarm;
+    alarm -> moons [style=dashed, color="#b07d10", fontcolor="#6b4e08",
+                    label="s_cycle++ ·\nmoon index reset"];
+}

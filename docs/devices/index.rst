@@ -128,7 +128,8 @@ Build and flash conventions
 ---------------------------
 
 .. graphviz:: ../_graphs/build-flash.dot
-   :alt: Build and flash sequence
+   :alt: Build and flash sequence — export, assets, config merge, build, size check, flash, monitor
+   :caption: The unrolled commands: ``source ~/esp/esp-idf/export.sh``, the asset bake (``cd assets/images/moon && .venv/bin/python -m moon.assets`` — its outputs are local and gitignored), the size budget (2048 K S3 — the binding constraint — / 9216 K P4 / 4096 K knob), and the port rule that closes the chain: flash the ``chip_id``-verified port, never a remembered one.
    :align: center
 
 The chain above is one leg of the journey. The whole first-bring-up —
@@ -178,7 +179,8 @@ one shared file plus a per-target file that the build system
 auto-appends (later file wins):
 
 .. graphviz:: ../_graphs/sdkconfig-merge.dot
-   :alt: Three-file sdkconfig merge order
+   :alt: Three-file sdkconfig merge order — shared file, per-target file, live config, board guard
+   :caption: kconfgen auto-appends the per-target file when it exists and the LATER file wins; the live files are the gitignored ``sdkconfig`` / ``sdkconfig.p4``, and a hand-edited live pin beats every ``default`` line — so a changed default needs the stale pin deleted. The file contents are itemized in the list below; the knob carries its own ``knob/sdkconfig.defaults`` that never sees this split.
    :align: center
 
 - ``sdkconfig.defaults`` — the shared values (LVGL 9.6 setup, the
