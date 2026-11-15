@@ -249,7 +249,10 @@ only that box's ink changes.
 
 The clock display updates are **minute-driven, on the LVGL task**:
 ``action_update_clock_display`` fires when the displayed minute
-changes, writes the clock label, and refreshes the seconds arc. Two
+changes, writes the clock label, and refreshes the seconds arc — how
+late that can land (the parsed 1.3 s poll that notices the rollover,
+``clock_interrupt.c:26``) is drawn in :ref:`the freshness ladder
+<freshness-ladder-perf>`. Two
 gates matter:
 
 - **The backlight gate** — while the panel is off (deep sleep), the
@@ -330,7 +333,7 @@ Four facts carry the chain — all of them the code's own:
 - **The flag gates what hurts to get wrong**: the P4's software alarm
   poll fires only while trusted (a default 2026-01-24 12:00 can never
   ring a phantom — ``clock_interrupt.c:183``), the P4's time label sits
-  at ``LV_OPA_50`` until the flag flips (``screens.c:3644``, compiled
+  at ``LV_OPA_50`` until the flag flips (``screens.c:3646-3658``, compiled
   out on the S3), and the manual-entry commit (``screens.c:2901``) sets
   the time, the flag *and* the day tick together. ``clock_tz_apply``
   rewrites the S3's RTC local digits epoch-consistently (``mktime``

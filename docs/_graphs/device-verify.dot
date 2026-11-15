@@ -1,0 +1,140 @@
+// The capture grammar: one defined flow, three classes of line, the
+// acceptance triple, and the four surfaces with the three incidents
+// the device (not the simulator) caught. Every quoted line verified in
+// code before drawing: components/ui/moon_ui.c (the bake pair :1467/
+// :1471, watchdog armed :2600, dim ramp :3116, PANEL IO STUCK :2481,
+// draw-not-accepted :652), components/clock/clock_idle.c (monitoring
+// :138, timeout :121), components/ui/actions.c (light-sleep switch
+// :1476, seconds pause :1497, countdown arm :1513, deep-sleep trio
+// :1261/:1270/:1276, re-arm :1373, wifi_sync task :71/:132) and
+// components/clock/Kconfig (idle timeout 60 s, :68). The flows this
+// figure READS belong to other sketches: the fade machine is
+// screen-switch.dot, the dim+arm machine sleep-entry.dot, the hourly
+// bake-reveal.dot, the wake doors wake-doors.dot, the bus lock
+// flush-path.dot; the host half of the same standard is
+// docs/verification/image-gate.rst.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph device_verify {
+    label="The capture grammar: one defined flow read for three classes of line — the acceptance triple wants endpoint AND rate AND zero failure lines — and three of the four incidents the device caught were invisible to the log";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_capture {
+        label="the capture: boot -> idle -> light sleep -> deep sleep -> wake, read line by line (115200, the esp-idf monitor)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        boot [label="boot bake (one pair per boot and per day-roll):\n\"bake | phase %.1f%% illum, subsolar (…) | geo Xms bake Yms\"\n+ \"bake | rgb565 Xms (total Yms)\" (moon_ui.c:1467/:1471)\n— a bake that never logs its rgb565 line is a bake that\nstalled; first line: \"panel-io watchdog armed (3000 ms\nstuck limit)\" (moon_ui.c:2600)",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+              penwidth=1.6];
+
+        idle [label="idle: \"Idle monitoring enabled\"\n(clock_idle.c:138, re-arm variant actions.c:1373) then\n\"Idle timeout reached after X ms\" (clock_idle.c:121)\nat CONFIG_CLOCK_IDLE_TIMEOUT_SEC = 60 s (clock/Kconfig:68)",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+              penwidth=1.6];
+
+        lsl [label="light sleep (static dim — nothing animates between\nthe switch and the arm): \"Switching to light sleep screen\"\n(actions.c:1476), \"Seconds timer paused for light sleep\"\n(:1497), \"panel dim ramp: brightness 100 -> 25% (240 ms)\"\n(moon_ui.c:3116), \"RTC countdown %u s to deep sleep armed\"\n(actions.c:1513 — the ENTRY arms the RTC one-shot itself)",
+               fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+               penwidth=1.6];
+
+        deep [label="deep sleep: \"Deep sleep: panel backlight off\"\n(actions.c:1261), \"UI tick timer paused for deep sleep\"\n(:1270), \"Seconds timer paused for deep sleep\" (:1276)",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                penwidth=1.6];
+
+        wake [label="wake: shows the current phase STATIC; the acceptance\nSIGNATURE is the seconds arc advancing WHILE the\nbackground wifi_sync reconnect runs (task at actions.c:71/\n:132) — the old freeze's signature was the wake screen\nfrozen for the sync's whole duration",
+                fillcolor="#efece4"];
+    }
+
+    subgraph cluster_grammar {
+        label="the grammar: three classes, one triple";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        progress [label="PROGRESS — the lines that prove a pipeline\nreached its endpoint (the pairs the capture draws\nabove); absent endpoint = the pipeline stalled",
+                    fillcolor="#efece4"];
+
+        timing [label="TIMING — the bake's wall time vs the atomic\nshown delta: a shown delta that tracks the bake\n(~1.3 s) instead of the display (~304 ms) is the\nbackpressure failing (display-paced, not bake-paced)",
+                    fillcolor="#efece4"];
+
+        failure [label="FAILURE — WDT reset / panicked (the ROM's own\nlines), \"PANEL IO STUCK: panel mutex held X ms after a\nY ms wait by task Z\" (moon_ui.c:2481), \"panel draw not\naccepted: …\" (moon_ui.c:652), ESP_ERR_NO_MEM from the\nflush (the BSP's return) — ANY one is a verification\nfailure; the count over the window must be 0",
+                    fillcolor="#f4e8e6", color="#b91c1c", fontcolor="#7a1a1a",
+                    penwidth=1.6];
+
+        verdict [label="the acceptance TRIPLE (the page's own rule):\nendpoint ∧ rate ∧ zero failure lines → ACCEPTED\nprogress but not timing → PERFORMANCE REGRESSION\ntiming but a WDT → LIFECYCLE BUG",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                  penwidth=1.6];
+    }
+
+    subgraph cluster_surfaces {
+        label="the four surfaces — the CPU is not the whole device";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        log_s [label="the CPU's log", fillcolor="#efece4"];
+        wdt_s [label="the WDT / the bus lock", fillcolor="#efece4"];
+        scan_s [label="the panel's scanout", fillcolor="#efece4"];
+        eye_s [label="the user's eye", fillcolor="#efece4"];
+        {rank=same; scan_s; wdt_s; log_s; eye_s;}
+        {rank=same; i_dpi; i_dma; i_nomem; i_seam;}
+
+        i_nomem [label="NO_MEM mid-flush: the screen showed a HALF-UPDATED\nimage, the log said ESP_ERR_NO_MEM with no context about\nWHICH transfer — fix: 25 rows, queue depth 1 (the 32 KiB\nSPI DMA cap; the host malloc has neither cap nor staging)",
+                    fillcolor="#efece4"];
+
+        i_dma [label="lost DMA completion: SILENT — no WDT, no panic, no log;\nthe GPSPI lock's REQ/PEND stuck with NO HOLDER. The\nevidence was the COREDUMP shape: \"two tasks on one bus\nlock, no holder\"; the watchdog's restart is the cure",
+                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08",
+                  penwidth=1.6];
+
+        i_dpi [label="P4 DPI-FIFO underrun: one VISIBLE tear per ~28 s of load,\nNO log line at all (the DPI controller does not log\nunderruns by default) — fix: 103 -> 65-row strips",
+                  fillcolor="#efece4"];
+
+        i_seam [label="seam lines: serial-log-INVISIBLE — the write path was\ncorrect, the per-strip QSPI re-latch was not; the EYE\ncaught it (fix 1582ddb, one continuous window write;\nspin retired 2026-11-13, the write path underneath stays)",
+                  fillcolor="#efece4"];
+
+        coredump [label="the silent case's evidence: the coredump's custom 32 B\nphdr + 588 B CORE notes, and the TCB in the notes IS the\nthread id (symbolize with the ROM-ELF, not the app ELF)",
+                   shape=note, fillcolor="#e8e8e4", color="#525252"];
+    }
+
+    rule [label="the standard of the page: A pipeline is accepted when ALL FOUR surfaces agree — the log says it ran,\nthe timing says it ran at budget, the panel says it displayed (no underrun, no seam), the eye says it is the\nright picture; a number without the eye's sign-off is a hypothesis, not a verification. The host half proves\nthe MATH renders (docs/verification/image-gate.rst); this figure is the DEVICE half.",
+            shape=note, fillcolor="#e8e8e4", color="#525252", penwidth=1.2,
+            fontcolor="#1e3f70"];
+
+    boot -> idle -> lsl -> deep -> wake;
+
+    boot -> progress [style=dashed, label="the pair is the\nendpoint proof"];
+    lsl -> progress [style=dashed, label="dim + arm are the\nsleep endpoints"];
+    wake -> progress [style=dashed, label="arc moves during\nthe reconnect"];
+    boot -> timing [style=dashed, color="#b91c1c", fontcolor="#7a1a1a",
+                    label="bake vs shown"];
+
+    progress -> verdict;
+    timing -> verdict;
+    failure -> verdict [color="#b91c1c"];
+
+    log_s -> failure [label="every ESP_LOG line above"];
+    wdt_s -> failure [label="the ROM's reset\nreason lines"];
+
+    log_s -> i_nomem [color="#2b5fb0", penwidth=1.6,
+                      label="saw it: the log AND\nthe half-updated screen"];
+    log_s -> i_dma [style=dashed, color="#b07d10", fontcolor="#6b4e08",
+                    label="blind to BOTH: silent —\nno WDT fire either (parked\ntasks keep the idles alive)"];
+    i_dma -> coredump [style=dashed, color="#b07d10", arrowhead=none,
+                       label="the shape that rooted it"];
+    scan_s -> i_dpi [color="#2b5fb0", penwidth=1.6, label="saw it (tear)"];
+    log_s -> i_dpi [style=dashed, label="blind: not logged"];
+    eye_s -> i_seam [color="#2b5fb0", penwidth=1.6, label="saw it (lines)"];
+    log_s -> i_seam [style=dashed, label="blind: the write\npath was correct"];
+
+    verdict -> rule [style=dashed, arrowhead=none];
+}

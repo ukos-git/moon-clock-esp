@@ -150,7 +150,9 @@ card, and where the two legs' timings land:
 The bake key is the **hour centre** (``hour * 3600 + 1800``): stable
 across boots and boards, so a card seeded by one boot serves the next
 the byte-identical gray, and the on-screen frame is at most 30 min stale
-at the show. ``s_baked_hour`` / ``s_baked_event`` commit *on show*, so a
+at the show (:ref:`the freshness ladder <freshness-ladder-perf>` plots
+this bound beside every other one on the panel, parsing the 1800 s
+offset at figure time). ``s_baked_hour`` / ``s_baked_event`` commit *on show*, so a
 cycle that never shows leaves the next hour still due (it self-heals on
 the next minute tick).
 

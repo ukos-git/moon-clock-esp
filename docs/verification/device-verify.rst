@@ -65,6 +65,50 @@ performance regression; one that passes timing but shows a WDT is a
 lifecycle bug; the measured numbers in this section (:doc:`the animation pipelines <../implementation/animations>` and :doc:`performance <performance>`) are
 the *timing* column, quoted from accepted captures.
 
+.. _capture-grammar-verify:
+
+The capture in one picture
+--------------------------
+
+The page owns the *standard*; this section draws the *machine that
+reads it* — every quoted line verified against its emitting
+``ESP_LOG`` call before drawing. Three clusters. **The capture** is
+the defined flow the acceptance is read on: the boot bake's
+``bake | phase … | geo … bake …`` + ``bake | rgb565 …`` pair
+(``moon_ui.c:1467``/``:1471``, one per boot and per day-roll — the
+bake that never logs its rgb565 line stalled), the idle pair
+(``clock_idle.c:138``/``:121`` at the parsed 60 s
+``CONFIG_CLOCK_IDLE_TIMEOUT_SEC``), the light-sleep quartet (switch,
+seconds pause, the ``panel dim ramp`` line, the countdown arm — the
+*entry* arms the RTC one-shot itself, ``actions.c:1476-1513``), the
+deep-sleep trio (``actions.c:1261/:1270/:1276``) and the wake, whose
+acceptance is not a log line at all but a **signature**: the seconds
+arc advances *while* the background ``wifi_sync`` reconnects (the
+freeze's signature was the frozen screen). **The grammar** maps the
+three line classes onto the acceptance triple — endpoint ∧ rate ∧
+zero failure lines — with the two one-sided verdicts (progress but
+not timing = performance regression; timing but a WDT = lifecycle
+bug). **The four surfaces** is this page's argument as a graph: the
+log, the WDT/bus lock, the panel's scanout and the user's eye, with
+the incidents hanging off the only surface that could see them — and
+the dashed *blind* edges are the figure's point: three of the four
+incidents (the silent lost-DMA-completion, the DPI-FIFO underrun,
+the seam lines) were invisible to the log, which is why the
+coredump, the scanout and the eye are verification surfaces in their
+own right.
+
+.. graphviz:: ../_graphs/device-verify.dot
+
+The flows the capture reads belong to their own sketches — the fade
+machine (``docs/_graphs/screen-switch.dot``), the dim-and-arm machine
+(``sleep-entry.dot``), the hourly bake (``bake-reveal.dot``), the
+wake doors (``wake-doors.dot``) and the bus lock (``flush-path.dot``,
+:doc:`the display pipeline <../implementation/display>`). The
+timing-class numbers live in :doc:`the ladders <performance>`;
+:ref:`the freshness ladder <freshness-ladder-perf>` draws the other
+side of the same currency — not how soon the user is noticed, but
+how old what is shown may be.
+
 Boot acceptance — and the sweep-era captures
 --------------------------------------------
 

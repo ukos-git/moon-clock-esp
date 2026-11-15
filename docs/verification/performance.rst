@@ -965,6 +965,67 @@ shares its constants with ``gen_strip_staging.py``).
    against the 33 ms beat — the S3 spends two-thirds of one read-timer
    beat on its whole panel, the knob a third.
 
+.. _freshness-ladder-perf:
+
+The freshness ladder (how old every shown number is)
+----------------------------------------------------
+
+**The short version.** The response ladder plotted how soon the user
+is *noticed* — the input side of the latency family. This is its
+mirror: how **old** every number on the panel may be when the user
+looks at it. Eleven rows on one log millisecond axis, every timer
+parsed from the live sources at figure time: the 1000 ms
+seconds-tick timer and the 1300 ms clock-interrupt poll that owns
+the digits (each annotated with the render beat, parsed and asserted
+equal in all three generated ``sdkconfig.h`` files), the wall-minute
+reload that lands the alarm row's 24 h-boundary prefix flip
+(``actions.c:959``), the knob's 60 s gauge timer
+("the cell moves on the minute scale, not the second", the code's
+own comment), the 900 s NVS snapshot gate of the two boards without
+an RTC (forced on every SNTP fix), the SNTP correction interval
+(Kconfig-paced), the moon disk's hour-centre pin — the parsed
+``hour * 3600 + 1800`` offset, which the code itself calls "at most
+30 min stale at the show" —, the hour cache's same pin on
+*deterministic* content ("byte-identical across boots and boards"),
+and the sky tint's calendar-day scan ("the one untinted bake
+self-heals"). Two rows carry **no bar**: the Wi-Fi state has no
+timer at all (three on-demand kickoffs), and the albedo/DEM blob is
+a pure function keyed by calcver — pipeline age, never stale.
+
+The figure's content is the asymmetry between *refreshing* and
+*going stale*. Right panel: the same rows as checks per day
+(86400 s / cadence — one division, nothing new measured), ~156,000
+checks a day of which the ~153,000 fastest are the ephemeris being
+re-derived, fresh by construction. The only rows that can actually
+**age** are the ADC (1,440/day), the radio (on demand) and the NVS
+snapshot (96/day) — which is exactly why the P4 *marks* its one
+stale row: the unsynced clock sits at ``LV_OPA_50`` until a fix
+lands (:doc:`the chain of trust <../implementation/clock-sleep>`).
+The minute, hour and day bars are wall-calendar definitions, stated
+as such on the rows, not firmware constants. Hardware drift between
+SNTP corrections is deliberately **not plotted** — it is the
+32k-crystal bench question of :doc:`the P4 device page
+<../devices/p4>`, and inventing a drift rate would be the one way to
+make this figure lie. The generator is ``docs/tools/gen_perf_fresh.py``;
+the host-side proof that the ephemeris rows *depict correctly* is
+:doc:`the image gate <image-gate>`, and the device half that proves
+the pipelines actually land these values is
+:ref:`the capture grammar <capture-grammar-verify>`.
+
+.. figure:: ../_static/figs/perf_fresh.png
+   :alt: every shown value's worst staleness on one log axis, and the same rows as checks per day
+   :figclass: align-center
+
+   The freshness ladder. **Left:** nine timed rows on the log
+   millisecond axis — blue the shared tick family (arc, digits,
+   alarm prefix), amber the knob's ADC, teal the time source (NVS
+   snapshot, SNTP cadence), violet the moon family (disk pin, hour
+   cache, sky tint); hatched = Kconfig-paced, and the two italic
+   rows are the honest *no timer at all*. **Right:** the same rows
+   as checks per day — one division, nothing new measured: the panel
+   re-derives the ephemeris ~153,000 times a day and polls the three
+   things that can age another ~3,000.
+
 The performance decisions, ranked
 ---------------------------------
 

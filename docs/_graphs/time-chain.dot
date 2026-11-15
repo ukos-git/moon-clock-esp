@@ -7,7 +7,7 @@
 // fallback chain, :268 needs_sync), components/clock/clock_interrupt.c
 // (:165-172 minute tick + snapshot, :183 fire gate), components/clock/
 // clock_tz.c (:63-117 apply), components/ui/screens.c (:2890-2911 manual
-// commit, :3644-3655 unsynced dim), components/ui/moon_ui.c (:2654 start),
+// commit, :3646-3658 unsynced dim), components/ui/moon_ui.c (:2654 start),
 // knob/main/main.c (:210-245 wall-arms, :278-292 rule gate), knob/
 // components/knob_power/knob_power.c (:56 plausibility floor, :196
 // pre-sleep save) and main/main.cpp (:508 settings before clock_init,
@@ -71,7 +71,7 @@ digraph time_chain {
     alarm_gate [label="the P4 alarm gate (clock_interrupt.c:183):\nthe one-shot only SETS a flag on its own task;\nthe shared 1300 ms poll fires only when\nclock_sntp_time_trusted() AND (the flag OR\nnow >= next_epoch) — the default/unsynced\n2026-01-24 12:00 can never ring a phantom.\nThe S3 needs no such gate: its AF flag is\nhardware (alarm-lifecycle.dot)",
                   fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
-    ui_dim [label="the P4 unsynced dim (screens.c:3644, compiled\nout on the S3): the time label sits at\nLV_OPA_50 while !trusted and brightens on the\nnext tick after the flag flips — an\napproximate value READS as approximate",
+    ui_dim [label="the P4 unsynced dim (screens.c:3646-3658, compiled\nout on the S3): the time label sits at\nLV_OPA_50 while !trusted and brightens on the\nnext tick after the flag flips — an\napproximate value READS as approximate",
                 fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
     asym_note [label="the asymmetry the flag makes visible: the S3\nTRUSTS ITS CHIP (the PCF is the time base;\nvalidate_time is the only gate), the P4 and\nknob TRUST THE LAST FIX (restored digits are\nplausible-but-untrusted by design). Same moon,\nsame scheduler, opposite defaults — which is\nwhy the manual-entry screen exists only for\nthe P4 (settings-time.rst)",

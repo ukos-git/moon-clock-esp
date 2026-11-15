@@ -267,4 +267,7 @@ only run quarterly is a gate you only believe quarterly.
 
 The next page is the other half of validation: not "does the math
 render correctly" but "does the *device* run correctly" — the
-on-device verification (:doc:`on-device verification <device-verify>`).
+on-device verification (:doc:`on-device verification <device-verify>`),
+whose acceptance grammar — the capture flow, the three line classes,
+the acceptance triple, and the incidents that were invisible to the
+log — is drawn there (``docs/_graphs/device-verify.dot``).
