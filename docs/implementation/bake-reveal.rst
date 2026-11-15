@@ -126,6 +126,18 @@ into the producer: its swap task edge-detects the same watermark and
 lands each advance as one atomic band — the states are identical, the
 pacing task is not.
 
+The same machine in the house dot notation, carrying what the mermaid
+leaves out: BOTH boards side by side, the hourly fade leg, the gate
+that parks the tick (with the deliberate ``s_fade_busy`` exemption),
+the first-strip fade-in payer, and the full recovery set — the clock's
+three heal callers and the knob's die-unpublished re-hide. Every node
+quotes its own line in ``moon_ui.c`` / ``knob_ui.c`` / ``knob_moon.c``;
+note the buffer asymmetry the two clusters make visible (clock: reveal
+into the live ``s_rgb``, heal from the untouched ``s_frame``; knob:
+reveal into the back buffer, so the honest cleanup re-hides instead).
+
+.. graphviz:: ../_graphs/bake-reveal.dot
+
 Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
 ................................................................
 

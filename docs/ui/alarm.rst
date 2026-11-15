@@ -47,3 +47,23 @@ Elements
      - Any touch dismisses
      - A dedicated indev callback (not the idle-wake path) — the disarm + audio fade-out + the switch back to the current moon screen.
      - ``action_register_alarm_touch`` (:cfile:`components/ui/actions.c`) — option: the ``alarm.txt`` rules
+
+The ring chain (ES8311)
+-----------------------
+
+The audio side of the ringing state is :cfile:`components/ui/alarm_audio.c`:
+four baked loops in PSRAM, one short-lived player task per ring or preview,
+and a blocking-I2S stream that paces its own volume ramp. The two AMOLED
+clocks carry the codec + speaker amp; the knob has neither and answers the
+same header with silent no-ops (``knob/components/knob_ui/knob_alarm_audio_stub.c``)
+so the shared :cfile:`actions.c` links honestly on all three boards. Both
+init paths (codec NULL, loops malloc) soft-fail like the IMU — the alarm
+stays display-only and the sound selection still remembers its choice.
+
+.. graphviz:: ../_graphs/alarm-audio.dot
+
+The scheduler that *arms* the fire (``alarm.txt``, the PCF85063A ALM pin on
+the S3, the ``esp_timer`` one-shot on the P4) is sketched in
+:doc:`the clock and sleep machine <../implementation/clock-sleep>`; this
+figure picks the story up at ``action_alarm_triggered``. The selection screen
+and its persisted ``alarm_sound_id=`` line are :doc:`settings-alarm-sound`.

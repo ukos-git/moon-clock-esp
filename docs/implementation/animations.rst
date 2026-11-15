@@ -381,7 +381,34 @@ spin and its full-screen ``lv_snapshot`` are gone
 (:doc:`the architecture <architecture>`). The once-a-day sky-events day
 scan that used to print ``IDLE0`` watchdog bursts on the LVGL task at boot
 was root-caused and moved off it 2026-11-09 (the core-1 sky-events worker,
-:doc:`the clock and sleep machine <clock-sleep>`).
+*Who pays for the day scan*, below).
+
+Who pays for the day scan
+..........................
+
+The classification RULES (the ±18 h moment test around the exact
+opposition, the census-pinned super/micro bounds, the umbra/penumbra cone,
+the 742-moon census itself) are single-sourced in
+:ref:`the sky events <sky-events-capi>`; what belongs to the UI story is
+the *economics* — the scan is one 6 h-grid sweep of a 60-day window
+(the code's own cap: *up to ~600* ``se_dot`` evaluations, and the
+knob-only ``s_scan_evals`` INFO line prints the true number once a day)
+and it must never run on the LVGL task
+(the 2026-11-09 root cause: it froze the clock between minute ticks and
+storm-printed the unwatched IDLE0 until the WDT fired). Four facts pin the
+shape: the five core-1 pipeline tasks (hourly, replay, rebake, orbit, and
+the worker itself — ``moon_ev_scan_allowed``) may scan IN PLACE and warm
+the day on the way; every other caller passes
+``moon_event_classify_here``, which on a cold day hands the scan to the
+worker and returns a ZEROED event — a plain untinted bake, byte-identical
+to an all-false classify, that SELF-HEALS a minute later when the probe
+sees the signature change; the worker is pinned to the unwatched core with
+a priority BELOW the bake tasks (a hungry bake outranks a warm-up); and the
+knob, having no worker, compiles a 20 ms wall-clock yield budget INTO the
+scan loops themselves — the bench lesson that a fixed every-32-evals yield
+still starved IDLE1 (the argmax's 73 samples never yielded at all).
+
+.. graphviz:: ../_graphs/sky-events.dot
 
 Wakes: the deferred re-bake (live)
 ..................................

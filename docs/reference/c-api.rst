@@ -250,6 +250,8 @@ metrics validate the *physics*, and the device's default is the warm
 tint. ``moon_gray565_set_warm(0)`` is the one-line switch that makes
 a build gate-configured.
 
+.. _sky-events-capi:
+
 The sky events (moon_event.h)
 -----------------------------
 

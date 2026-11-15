@@ -2722,7 +2722,7 @@ void moon_ui_day_tick(void) {
      * tick): a lunar eclipse starts and ends at the hour it happens,
      * NOT at the UTC midnight the date change sees, and the harvest /
      * blue / super tints only make sense when the day is actually full
-     * (the is_full test's ~10 h window). Re-bake when the event's
+     * (the is_full test's ±18 h window around F). Re-bake when the event's
      * 5-bit signature changes (blood turns on as the Moon enters the
      * shadow, off at the exit) -- the re-bake picks up the per-pixel
      * occlusion and the tint LUT. The once-per-hour refresh

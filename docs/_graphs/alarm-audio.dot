@@ -1,0 +1,63 @@
+// The alarm ring chain (both AMOLED clocks; docs/ui/alarm.rst): the ES8311
+// codec + speaker amp behind bsp_audio_codec_speaker_init, the four baked
+// loops, the short-lived player task, the touch dismiss fade. Every edge
+// verified in components/ui/alarm_audio.c (:200 player, :279 init, :306
+// ring_start, :326 ring_stop, :333 preview), components/ui/actions.c
+// (action_alarm_triggered :1109, action_wake_screen :1295) and
+// components/ui/screens.c (the sound screen :3140-3160). The knob has no
+// codec at all: knob/components/knob_ui/knob_alarm_audio_stub.c answers the
+// same header with silent no-ops and four honest "Silent" names.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph alarm_audio {
+    label="The alarm ring chain: baked loops in PSRAM, one short-lived player task streaming blocking I2S chunks that self-pace the volume ramp; the touch dismiss asks for a fade the task itself performs";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    boot_init [label="boot (main.cpp:601, AFTER settings_store_load):\nalarm_audio_init :279 — bsp_audio_codec_speaker_init\n(idempotent bsp_i2c_init — the touch/IMU/RTC\nALREADY run on that bus, the ES8311 just joins\nit — + bsp_audio_init: I2S master TX/RX, mono\n16-bit @22 050 — + the ES8311 DAC with the amp\nPA pin); then loop_gen_all bakes the four 1 s\nloops into PSRAM (4 × 22 050 × 2 B = 176 400 B)\nand s_selected = settings_alarm_sound_id()",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    soft_fail [label="SOFT FAIL, twice over — codec NULL (init failed)\nor loops malloc failed (like the IMU's rule):\nthe alarm stays DISPLAY-ONLY, ring/preview\nwarn and return; the sound selection still\nremembers its choice",
+                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    loops [label="the four baked loops (1 s each, mono s16 @22 050,\n10 ms attack/release against clicks):\n0 Two-Tone A5/E5 (880/659.26 Hz, 4×250 ms)\n1 Beep — 2 kHz square, 3×200 ms bursts\n2 Bell — 880 Hz + 1760/2640/3520 partials,\n  exponential decay τ = 350 ms\n3 Arpeggio — C5-E5-G5-C6, 4×250 ms",
+             shape=note, fillcolor="#efece4"];
+
+    ring [label="an alarm fires (actions.c action_alarm_triggered —\nbacklight relight first if g_backlight_off, then\nalarm_audio_ring_start :306): s_busy guard (ONE\nplayer task — the codec streams one loop at a\ntime), s_stop=false, s_ringing=true, args\n{loop=s_selected, looping, ring, ramp 2500 ms,\nvol 75/100}, xTaskCreate(play_task, 6 KiB, prio 4)",
+           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    preview [label="settings-alarm-sound (screens.c :3140/:3158):\nthe roller commit → alarm_audio_select + save\n+ preview(sel); the preview button re-plays the\nselection — ONE PASS, 300 ms ramp, same player\n(s_busy makes ring-vs-preview mutually exclusive)",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    open [label="player task (alarm_audio.c play_task :200):\nesp_codec_dev_open (16-bit mono 22 050, MCLK =\n256×FS) — an open failure is ANOTHER display-\nonly soft fail; set_out_vol 0",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+
+    stream [label="the loop: per round, the volume is COMPUTED from\nwall time (ticks × portTICK_PERIOD_MS against\nramp_ms — the BLOCKING esp_codec_dev_write\n(portMAX_DELAY) paces the stream at the audio\nrate, so the ramp can never outrun the sound),\nthen one 1024-sample chunk (~47 ms) of\ns_loops[loop] is written. Ring: wrap forever\nuntil s_stop. Preview: break after one pass\n(off ≥ LOOP_SAMPLES)",
+              fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    dismiss [label="the touch dismiss — EVERY path (the dedicated\nalarm indev cb, the asleep idle-wake) runs\nthrough action_wake_screen :1295 →\nalarm_audio_ring_stop :326: it does NOT touch\nthe codec, it only raises s_stop (the ring task\nowns the teardown; ~47 ms write granularity\nbounds the reaction)",
+                fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    fade [label="the player does the fade-out ITSELF :262: vol −5\nevery 10 ms step (~150 ms total — the I2S keeps\nstreaming the drained DMA, so the fade rides on\nsilence), vol 0, esp_codec_dev_close (DAC + I2S\nTX disabled; the NEXT ring re-opens), s_ringing\n=false, s_busy=false, vTaskDelete",
+            fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
+
+    knob_stub [label="the knob — no codec, no I2S, no amp (bench-\nverified hardware list): knob_alarm_audio_stub.c\nanswers the SAME header; ring/preview are silent\nno-ops, all four names are \"Silent\" (not fake\nchime names), the selection persists in-process\nso the settings round-trip behaves — the shared\nactions.c links and runs honestly on all three",
+                  fillcolor="#efece4", color="#8a8a8a", fontcolor="#525252", style="rounded,filled,dashed"];
+
+    boot_init -> loops [label="bake once"];
+    boot_init -> soft_fail [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="NULL handle /\nno PSRAM"];
+    ring -> open [color="#2b5fb0", penwidth=1.6];
+    preview -> open [color="#2b5fb0", penwidth=1.6];
+    loops -> stream [style=dashed, label="s_loops + loop×22 050"];
+    open -> stream [color="#2b5fb0", penwidth=1.6, label="vol 0"];
+    stream -> stream [style=dashed, label="next 1024-sample chunk\n(blocking write = clock)"];
+    dismiss -> stream [color="#b07d10", fontcolor="#6b4e08", style=dashed, label="s_stop observed at the\nchunk boundary"];
+    stream -> fade [color="#3a6b35", fontcolor="#2c4f29", label="stop / one pass done /\nwrite error"];
+    ring -> knob_stub [style=dashed, color="#8a8a8a", label="same call,\nsilent"];
+    preview -> knob_stub [style=dashed, color="#8a8a8a"];
+
+    { rank=same; ring; preview; }
+}

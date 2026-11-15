@@ -580,6 +580,50 @@ Runtime watermarks (free heap, largest block) are the device's own
    (headroom the asset pipeline's size guards keep as headroom). The
    generator is ``docs/tools/gen_perf_mem.py``.
 
+The ring's loudness (the alarm audio ladder)
+---------------------------------------------
+
+The fifth axis is neither work, frequency, brightness nor bytes but
+**volume**: what the ringing state costs the ear and the bus. Like the
+brightness ladder, every value is **parsed from the live sources at
+figure time** — the eight ``#define``s of :cfile:`components/ui/alarm_audio.c`,
+the header's ``ALARM_SOUND_COUNT``, the stop fade's ``vol -= 5`` step,
+the four ``loop_gen_all`` frequency arrays and ``ALARM_NAMES`` — and
+the two pacing numbers (the ~46 ms chunk, the ~33 ms level spacing)
+are plain divisions of parsed constants; nothing here was measured on
+the bench (the ring is heard, not instrumented). The dB tick labels
+are the ``RING_VOL_FULL`` comment's own curve line, read literally:
+
+.. figure:: ../_static/figs/perf_audio.png
+   :alt: the ring and preview volume timelines with chunk ticks, and the four baked loops drawn as frequency scores
+   :figclass: align-center
+
+   The loudness ladder. **Left:** one player task, two flows — the
+   ring ramp 0 → ``RING_VOL_FULL`` (75) over ``RING_RAMP_MS`` (2500 ms)
+   carries a dot at every ``CHUNK_SAMPLES`` (1024) blocking
+   ``esp_codec_dev_write`` boundary: the write *is* the metronome
+   (``portMAX_DELAY``, self-pacing), which is why the ramp needs no
+   timer at all — its volume is *computed* from
+   ``xTaskGetTickCount()`` against ``ramp_ms`` each chunk, a new
+   integer level only ~33 ms apart. The dashed hold is the loop until
+   touch (one ``LOOP_MS`` lap per pass, duration deliberately
+   schematic); the stop fade is the code's exact −5-per-10 ms
+   staircase (15 steps ≈ 150 ms) riding the drained DMA on silence,
+   then ``esp_codec_dev_close``. The preview is the same machine with
+   ``PREV_RAMP_MS`` (300) and *exactly one* pass — looping is the
+   ring's only extra. **Right:** the four baked loops as scores over
+   one 1000 ms lap, frequencies and timings read out of
+   ``loop_gen_all`` — the alternating A5/E5 two-tone, three 200 ms
+   bursts of the 2 kHz square, the 880 Hz bell with its four
+   amplitude-weighted partials under a 350 ms exponential decay, the
+   C5–E5–G5–C6 arpeggio — baked once at init into
+   4 × 22 050 samples × 2 B = 172 KiB PSRAM (the boot log's own
+   line). On the knob the whole ladder collapses to silence: same
+   header, four "Silent" names, no codec to open
+   (:doc:`the knob <../devices/knob>`). The generator is
+   ``docs/tools/gen_perf_audio.py``; the state machine around it is
+   sketched in :doc:`the alarm screen <../ui/alarm>`.
+
 The device CPU (one-core shares)
 --------------------------------
 
