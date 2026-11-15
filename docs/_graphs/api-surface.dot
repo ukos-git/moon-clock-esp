@@ -1,0 +1,205 @@
+// The core's public surface in one picture: 23 exported entries across three
+// headers, who calls each of them in the shipped tree, and the six that
+// nobody outside the core ever calls. Every quoted line verified in code
+// before drawing (comment-stripped greps — the tfcache "gray565" hit is a
+// comment at components/ui/moon_tfcache.c:18, NOT a call; the replay show
+// path in moon_ui.c supplies the LUT):
+//   components/moon/include/moon.h — moon_geometry :58, moon_bake :108,
+//     moon_bake_rows :118, moon_shade_map_rows :169, moon_shade_map_build
+//     :175, moon_reproject_rows :199, moon_reproject :201, moon_relief_row
+//     :211, moon_relief_build :220, moon_rotate :225, moon_rotate_rows :232,
+//     moon_gray565 :238, moon_gray565_set_warm :243, moon_gray565_set_event
+//     :258, moon_sin15 :261, moon_cos15 :262; moon_event.h — classify :119,
+//     any :124, signature :132, occ :143 (all three after classify are
+//     static inline in the header); moon_assets.h — moon_albedo :23,
+//     moon_relief :29, moon_deinit :32.
+//   Definition sites: moon_geometry = moon_astro.c:80; the bake family =
+//     moon_bake.c (bake_rows :538, bake :572 delegating to rows at :574,
+//     relief_row :267, relief_build :317 calling it per row at :322,
+//     shade_map_rows :676, shade_map_build :773 wrapping rows at :776,
+//     reproject_rows :872, reproject :903 wrapping rows at :905, the blood
+//     occlusion via inline occ at :450 and :735); the LUT trio + rotate =
+//     moon_render.c (set_warm :71, set_event :88, gray565 :124, rotate :165
+//     and rotate_rows :172 both building the LUT lazily via g565_build
+//     :167/:174 and delegating to moon_rotate_range); moon_fixp.c (sin15
+//     :35, cos15 :52); moon_event.c:221 (classify).
+//   Device callers (components/ui/moon_ui.c): geometry six sites (boot bake
+//     :1426, hourly producer :1594, replay warmup :1920, orbit :2017, plus
+//     the new-moon scan :1762/:1777); whole bake three (:1454 boot, :1609
+//     hourly producer, :1932 orbit batch); bake_rows two (hourly bounce
+//     :1248, orbit rows :2034, both dark_zero 1); gray565 EIGHT convert sites
+//     in four roles — canonical convert moon_convert_to_rgb :1368, publishes
+//     :1625/:1892/:1947 (after the s_hourly_gray→s_frame memcpy), heals
+//     :1213 (moon_reveal_restore) and :1298 (designed exit), row converts
+//     :1323 (reveal band) and :2043 (orbit rows); set_event four (producers
+//     :1446/:1563/:1916 + the replay's set_event(NULL) :1844); classify is
+//     NEVER called directly on the LVGL task — the static wrapper
+//     moon_event_classify_here :1122-1136 routes cold day scans to core 1
+//     (worker :1112, day tick :2609); seam reads :1430/:1435, eager warmup
+//     :2530 ("moon assets unavailable" guard).
+//   Knob caller (knob/components/knob_moon/knob_moon.c): geometry :118,
+//     bake_rows row-by-row :128/:145 (dark_zero 1), gray565 per row
+//     :133/:157, set_event :83, classify :82/:94, any :119, signature
+//     :85/:95, seam :55/:56 — its header comment :9-13 calls the bake path
+//     the identity moon_rotate "by construction, not hope".
+//   Host callers (host_sim/main.c): geometry :146, bake :168 (the gate's
+//     dark_zero 0 / dk_sup 0.0 posture), rotate :97 + cos15/sin15 :97,
+//     set_event :162, classify :161, set_warm(0) :219 (the --neutral gate
+//     posture), seam :134/:135. (host_sim/bench.c): set_warm(0) :68,
+//     geometry :81, seam :85/:91, bake :111, rotate :119, and the ONLY
+//     external callers of the dusk pair: shade_map_build :125, reproject
+//     :129. (host_sim/uisim/stubs.c): geometry :444, bake :445 with the
+//     seam inline (the file header: "bakes the REAL current-phase moon ...
+//     dark_zero = 1 like the device static/wake frame"), gray565 :448 — the
+//     sim's home moon is this one function.
+//   The two tracked-but-never-linked throwaway probes: host_sim/dark_test.c
+//     ("Throwaway ... Not part of the gate", geometry :45, bake :55) and
+//     host_sim/newmoon_test.c (geometry :40) — their headers carry their
+//     hand-typed cc lines; host_sim/CMakeLists.txt links exactly
+//     moon_sim + moon_bench.
+//   The asset seam's two backends: components/moon/esp/moon_esp_assets.c
+//     (albedo :77, ONE esp_partition_read then relief_build at :101,
+//     relief :106, deinit :138) and components/moon/host/moon_host_assets.c
+//     (albedo :30, relief lazily building at :38, deinit no-op :44 —
+//     "the cache lives for the simulator's process"). moon_deinit has ZERO
+//     callers repo-wide, device and host alike.
+// The bake's per-pixel model is moon-core-flow.dot; the dark-side branch is
+// dark-side.dot; the gray->RGB565 dictionary and the rotation's last-mile
+// internals are rotate-lut.dot; the compile multiplicity of every TU drawn
+// here is the sharing ladder (verification/performance.rst).
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph api_surface {
+    label="The core's surface in one picture — 23 entries, three headers, and every caller the family actually has";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=2.0, height=0.5,
+          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_headers {
+        label="the three headers (components/moon/include) — the contract page walks them one by one";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f4f2ec"; color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        h_moon [label="moon.h — 16 entries (:58-:262)\nfloat32 in, 8-bit out, Q15.15 for the\nrotation; every pixel-passing function\nships a *_rows sibling",
+                fillcolor="#efece4"];
+        h_event [label="moon_event.h — 4 entries\nany/signature/occ are static INLINE\n(:124/:132/:143): \"the bake hot path and\nthe host tools share it without a link\ndependency\" (:100-102)",
+                   fillcolor="#efece4"];
+        h_assets [label="moon_assets.h — 3 entries (:23/:29/:32)\none seam, two backends — the bake's\ncaller never sees who answers",
+                    fillcolor="#efece4"];
+    }
+
+    subgraph cluster_core {
+        label="the definitions (components/moon/core + the two seam backends) — pure C, no esp_/lv_ call in the math path";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#eef0ee"; color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        geom [label="moon_geometry\n(moon_astro.c:80)\ncheap ephemeris:\neraEpv00 + eraMoon98",
+              fillcolor="#dfe6f1"];
+        bake [label="moon_bake (moon_bake.c:572)\n— delegates the full square\nto moon_bake_rows(0,size) (:574)",
+                fillcolor="#dfe6f1"];
+        bakerows [label="moon_bake_rows (:538) — the ONLY\n*_rows sibling with an external\ncaller; per-pixel: base sphere,\nalbedo, displaced normal, dark\nbranch, tone LUT (moon_bake.c)",
+                    fillcolor="#dfe6f1"];
+        relief [label="moon_relief_build (:317)\ncalls moon_relief_row (:267)\nper row (:322) — the row helper\nhas NO external caller",
+                  fillcolor="#dfe6f1"];
+        rowsib [label="the other three siblings —\nmoon_rotate_rows, moon_shade_map_rows,\nmoon_reproject_rows: exported, but only\nthe whole-frame variant wraps them\n(:776, :905) or moon_rotate_range\ndoes — zero external callers",
+                  style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+        dusk [label="the dusk pair (host-only since\n2026-11-13): moon_shade_map_build\n(:773) + moon_reproject (:903) — the\nONLY external callers anywhere are\nbench.c:125/:129 (the A/B timing)",
+                style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+        rot [label="moon_rotate (:165) + the trig pair\n(moon_fixp.c:35/:52) — no device\ncaller since the spin's removal;\nhost tools drive it verbatim;\nfirst call builds the LUT lazily\n(:167) — rotate-lut.dot",
+              style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+        lut [label="the tone dictionary (moon_render.c)\ngray565 :124 / set_warm :71 /\nset_event :88 — set_warm(0) wins\nover set_event (:29-31); the device\nnever calls set_warm: warm is\nthe shipped default",
+               fillcolor="#dfe6f1"];
+        evclass [label="moon_event_classify\n(moon_event.c:221) — the 60-day\nS·E peak scan, cached per calendar\nday; the bake reads the flags via\ninline occ (moon_bake.c:450/:735)",
+                  fillcolor="#dfe6f1"];
+        deinit [label="moon_deinit — defined TWICE\n(esp :138, host :44 \"the cache lives\nfor the simulator's process\"),\nCALLED NOWHERE repo-wide",
+                  style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+        esp_be [label="device backend (moon_esp_assets.c)\nalbedo :77; ONE esp_partition_read\nthen relief_build :101; relief :106",
+                  fillcolor="#f6f1e2"];
+        host_be [label="host backend (moon_host_assets.c)\nalbedo :30; relief lazily builds at\n:38 from the generated arrays",
+                  fillcolor="#f6f1e2"];
+    }
+
+    subgraph cluster_device {
+        label="the device callers — blue edges are paths a shipped frame took";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f6f9fd"; color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        ui [label="components/ui/moon_ui.c\ngeometry ×6 (boot :1426, hourly\n:1594, orbit :2017, scan :1762/:1777,\n:1920); bake ×3 (:1454/:1609/:1932);\nbake_rows :1248/:2034; gray565 EIGHT\nsites — convert :1368, publishes\n:1625/:1892/:1947, heals :1213/:1298,\nrows :1323/:2043",
+              fillcolor="#dfe6f1"];
+        guard [label="the classify guard (moon_ui.c)\nstatic moon_event_classify_here\n:1122-1136 — \"never the day scan on\nthe LVGL task\": cold days go to the\ncore-1 worker (:1112, :2609), warm\ndays take the cheap path (:1136)",
+                 fillcolor="#f6f1e2", color="#b07d10"];
+        knob [label="knob_moon.c (the knob's whole\nmoon caller) — geometry :118,\nbake_rows per row :128/:145,\ngray565 :133/:157, set_event :83,\nclassify :82/:94, seam :55/:56;\nidentity gather \"by construction,\nnot hope\" (:9-13)",
+                fillcolor="#dfe6f1"];
+    }
+
+    subgraph cluster_host {
+        label="the host tools — teal edges; the gate and the bench link the EXACT core source list (the sharing ladder checks the set equality)";
+        labeljust="l";
+        style="rounded,filled"; fillcolor="#f3f7f4"; color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        simmain [label="host_sim/main.c (the gate)\ngeometry :146, bake :168 with the\ngate's dark_zero 0 / dk_sup 0.0,\nrotate+cos/sin15 :97, classify :161,\nset_event :162, set_warm(0) :219",
+                  fillcolor="#dfe6f1"];
+        benchc [label="host_sim/bench.c (the bench)\nset_warm(0) :68, geometry :81,\nbake :111, rotate :119 — and the\ndusk pair's ONLY external callers\n:125/:129",
+                  fillcolor="#dfe6f1"];
+        stubs [label="host_sim/uisim/stubs.c (the sim's\nhome moon) — \"moon_ui_create_image\nbakes the REAL current-phase moon\n... dark_zero = 1 like the device\nstatic/wake frame\": geometry :444,\nbake :445, gray565 :448",
+                fillcolor="#dfe6f1"];
+        probes [label="dark_test.c + newmoon_test.c —\n\"Throwaway ... Not part of the gate\"\n(geometry :40/:45, bake :55) —\ntracked in git, linked by NOBODY;\nCMakeLists builds exactly moon_sim\n+ moon_bench",
+                  style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+    }
+
+    h_moon -> geom; h_moon -> bake; h_moon -> bakerows; h_moon -> relief;
+    h_moon -> rowsib [style=dashed]; h_moon -> dusk [style=dashed];
+    h_moon -> rot [style=dashed]; h_moon -> lut;
+    h_event -> evclass;
+    h_assets -> esp_be [label="device"];
+    h_assets -> host_be [label="host"];
+    h_assets -> deinit [style=dashed];
+
+    bake -> bakerows [label="0,size (:574)", color="#8a8a8a"];
+    relief -> rowsib [label="row per row? NO — relief_row\n(:267) is relief_build's own", style=dashed, color="#8a8a8a"];
+    dusk -> rowsib [label="wraps them (:776/:905)", style=dashed, color="#8a8a8a"];
+    rot -> rowsib [label="rotate_range serves both", style=dashed, color="#8a8a8a"];
+    evclass -> bakerows [label="bev occlusion via inline occ", color="#8a8a8a", style=dashed];
+    esp_be -> relief [label="relief_build :101", color="#b07d10"];
+    host_be -> relief [label="relief_build :38 (lazy)", color="#b07d10"];
+
+    ui -> geom [color="#2b5fb0"];
+    ui -> bake [color="#2b5fb0"];
+    ui -> bakerows [color="#2b5fb0", label="bounce :1248, orbit rows :2034"];
+    ui -> lut [color="#2b5fb0", label="8 converts + set_event ×4 (:1844 = NULL)"];
+    ui -> guard [color="#b07d10"];
+    guard -> evclass [color="#b07d10", label="classify only from core 1"];
+    ui -> esp_be [color="#2b5fb0", label=":1430/:1435, warm :2530"];
+
+    knob -> geom [color="#2b5fb0"];
+    knob -> bakerows [color="#2b5fb0", label="one row per lock"];
+    knob -> lut [color="#2b5fb0", label=":133/:157 + set_event :83"];
+    knob -> evclass [color="#2b5fb0", label=":82/:94 (device task, small scan)"];
+    knob -> esp_be [color="#2b5fb0", label=":55/:56"];
+
+    simmain -> geom [color="#0f766e"];
+    simmain -> bake [color="#0f766e", label="0/0.0"];
+    simmain -> rot [color="#0f766e", style=dashed];
+    simmain -> lut [color="#0f766e", label="set_warm(0) :219"];
+    simmain -> evclass [color="#0f766e", label=":161"];
+    simmain -> host_be [color="#0f766e", label=":134/:135"];
+    benchc -> bake [color="#0f766e"];
+    benchc -> rot [color="#0f766e", style=dashed];
+    benchc -> lut [color="#0f766e", label="set_warm(0) :68"];
+    benchc -> dusk [color="#0f766e", style=dashed, label="the pair's ONLY callers"];
+    benchc -> host_be [color="#0f766e"];
+    stubs -> bake [color="#0f766e", label=":444-:448"];
+    stubs -> lut [color="#0f766e", label=":448"];
+    stubs -> host_be [color="#0f766e", label="inline in the bake call"];
+    probes -> bake [color="#8a8a8a", style=dashed];
+    probes -> geom [color="#8a8a8a", style=dashed];
+
+    rank_sep [shape=point, style=invis, width=0, height=0];
+    h_moon -> rank_sep [style=invis];
+}

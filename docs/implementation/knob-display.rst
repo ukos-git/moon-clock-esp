@@ -157,7 +157,10 @@ public headers from its own components:
   :ref:`the build census <census-ladder-perf>`, and the same silence
   counted for the menu — 80 entries, the biggest menu on the bench,
   of which 28 of the 50 inherited are clock-private — in
-  :ref:`the configuration ladder <config-ladder-perf>`).
+  :ref:`the configuration ladder <config-ladder-perf>`, and the
+  knob's fifteen own files compiled exactly ONCE each — the largest
+  repo-owned image of the family (57 TUs) with the least reuse — in
+  :ref:`the sharing ladder <sharing-ladder-perf>`).
 
 The injected mutex must be **reentrant** (bench 2026-11-10): it is
 the app-wide ``s_lvgl_mux`` that ``lvgl_task`` holds across

@@ -414,6 +414,10 @@ knob, having no worker, compiles a 20 ms wall-clock yield budget INTO the
 scan loops themselves — the bench lesson that a fixed every-32-evals yield
 still starved IDLE1 (the argmax's 73 samples never yielded at all).
 
+The whole caller picture — who in the shipped tree calls each of the
+core's 23 entries — is the surface sketch in :doc:`the C API
+<../reference/c-api>`; its amber guard node is exactly this wrapper.
+
 .. graphviz:: ../_graphs/sky-events.dot
 
 Wakes: the deferred re-bake (live)

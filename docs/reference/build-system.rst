@@ -341,7 +341,14 @@ in **choices** — the 67/55/80 menuconfig entries the three menus
 define, the 28 inherited options that stay silent in the knob build,
 the dead letters, the configure-only guards and the six keys of
 ``settings.txt`` — is
-:ref:`the configuration ladder <config-ladder-perf>`.
+:ref:`the configuration ladder <config-ladder-perf>`. And the table
+transposed — **how many of the twelve link images compile each
+source**: the 16 portable-core TUs alone at 12/12, the 412-TU vendored
+LVGL stopping at 6 (the three screenshot rigs cost 1,236 vendored
+compiles the gate and bench never pay), the four dropped ``UI_BOARD_SRCS``
+at 2, and the knob's fifteen own files at exactly 1 apiece — is
+:ref:`the sharing ladder <sharing-ladder-perf>`, whose parser dies if
+the three core source lists ever disagree name-for-name.
 
 The host-side tooling
 ---------------------

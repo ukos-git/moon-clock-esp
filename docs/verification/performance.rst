@@ -1225,6 +1225,90 @@ the names resolve, ``build-flash.dot``
 carries*, and this counts *how many parts* each image assembles from
 — with the shims as the only segments that compile to silence.
 
+.. _sharing-ladder-perf:
+
+The sharing ladder (how many images compile each source)
+---------------------------------------------------------
+
+**The short version.** The build census counts the *parts* each image
+assembles from; this ladder **transposes the table** and asks the
+complementary question — of the family's twelve link images, how many
+compile each source? The twelve: three device firmwares plus the host
+tools built per target — ``moon_sim`` ×3, ``moon_bench`` ×3, the uisim
+×3 (the gate and the bench are one ``add_executable`` pair configured
+once per target dir, so every moon source is compiled three times over
+on the host alone). **Left**, one bar per source (or family of
+sources): the 16 portable-core TUs — five math plus eleven vendored
+ERFA — are the only repo-owned files that touch the dotted
+"every image" line at 12/12; the vendored LVGL's 412 TUs (cited,
+hatched) stop at 6 (firmwares + uisims, the sim/bench never link it);
+the four ``UI_BOARD_SRCS`` top out at **2**. **Right**, the same
+model read per image — repo-owned TUs per link image, recomputed from
+the rows and asserted: S3 **47**, P4 **47**, knob **57**, each sim
+**19**, each bench **19**, each uisim **31** (+412 vendored). Every
+count is parsed at figure time from ``components/moon/CMakeLists.txt``,
+``host_sim/CMakeLists.txt``, ``host_sim/uisim/build.sh``, the four
+shared component ``CMakeLists``, and the knob's component listing —
+and the parser asserts the three core source lists are **name-for-name
+equal** (the "shared verbatim" invariant made mechanical: if a host
+list drifts from the component list, the figure refuses to draw), that
+the two probes are tracked-but-never-linked, and that the font tiers
+are 7 files each with identical names.
+
+.. figure:: ../_static/figs/perf_share.png
+   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the sixteen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the two throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 47, P4 47, knob 57, each sim 19, each bench 19, each uisim 31 with a plus-412-vendored annotation
+   :figclass: align-center
+
+   **Left:** the file side — who compiles this, with the "every
+   image" witness line at 12. Blue is the portable core (the
+   founding invariant, drawn as the only bar that reaches the line);
+   steel the shared UI; slate the clock-side device TUs; amber the
+   four the knob drops; violet the knob's own fifteen; teal the host
+   tools' own files; the grey hatched row is the cited 412-TU LVGL
+   walk (``drivers/`` excluded, counted from the uisim's own find);
+   the dashed ghost at zero is the throwaway pair. **Right:** the
+   image side — the same rows summed per link image, never
+   hand-summed: three firmwares, three gates, three benches, three
+   screenshot rigs.
+
+Three counting facts the census's part-view cannot show:
+
+- **The core is the family's only everywhere-code, and the figure is
+  its guard.** 16 of the ~47 repo-owned TUs in a device image belong
+  to ``components/moon/core`` — five math files and eleven public-
+  domain ERFA files — and they are the ONLY repo-owned files compiled
+  into all twelve images. The parser reads the core list out of three
+  places (the component's ``SRCS``, ``host_sim/CMakeLists.txt``'s
+  ``MOON_CORE_SRCS``, the uisim's ``build.sh``) and dies unless the
+  three are name-for-name equal, so the "shared verbatim" promise the
+  project instructions make is now also a *figure-time* promise.
+- **The knob builds the largest repo-owned image while re-using the
+  least of itself.** 57 TUs beat the clocks' 47 — the shared clock's
+  whole 11-TU body arrives through ``EXTRA_COMPONENT_DIRS``, plus the
+  knob's fifteen own files, plus the inherited core and UI. Yet the
+  violet row tops out at **1**: nothing knob-owned compiles twice,
+  and the four ``UI_BOARD_SRCS`` the census priced at 5,178 lines top
+  out at **2** images (S3 + P4). It is the configuration ladder's
+  finding mirrored: the smallest screen carries the biggest menu *and*
+  the biggest one-shot image.
+- **Screenshots are the most expensive host artefact — and the dead
+  code's bill is exactly zero.** Each uisim panel compiles 31
+  repo-owned TUs *plus* the 412-TU vendored LVGL (cited), so the
+  docs' three panel sets cost 1,236 vendored compiles, while
+  ``moon_sim``/``moon_bench`` — the image gate's own numbers — link
+  no LVGL at all. And the two tracked throwaway probes
+  (``dark_test.c``, ``newmoon_test.c``, plus a stale gitignored
+  ``pole_test`` ELF that is all the third ever left) draw the dashed
+  ghost bar at **0**: tracked by git, called in code, linked by
+  nobody.
+
+The sharing ladder is the census's transpose and the surface sketch's
+ledger: :ref:`the surface in one picture <c-api-surface>` names who
+*calls* each core entry; this prices how many times each source is
+*compiled*. See also :doc:`the build system <../reference/build-system>`
+for where the lists live and :doc:`the knob display
+<../implementation/knob-display>` for the fifteen one-shot files.
+
 .. _config-ladder-perf:
 
 The configuration ladder (how many choices each layer hands over)

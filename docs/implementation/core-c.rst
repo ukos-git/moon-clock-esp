@@ -417,7 +417,10 @@ of the code rather than a hope.
   last-mile sketch draws who calls the dictionary from where: the
   four device convert sites, the TF cache's replay, the knob's
   identity gather, and the host tools that are the rotation's only
-  remaining customers.
+  remaining customers. The page before that one widens the same
+  census to the WHOLE surface — all 23 exported entries and every
+  caller with its line numbers
+  (:ref:`the surface in one picture <c-api-surface>`).
 
 The contract that makes the host/device split safe is that
 ``moon_bake`` is a **pure function of (geometry, albedo, gradient,

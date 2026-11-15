@@ -479,6 +479,12 @@ compute path used ("pixel-identical by construction",
 pixel-identical to the host rotation path "by construction, not
 hope" (``knob_moon.c:9-13``).
 
+This sketch draws the two look-ups' customers; the caller census for
+the WHOLE core surface — all 23 exported entries, the four device
+convert roles, the two host tools, and the six never-called exports —
+is the twin sketch on :doc:`the C API reference <../reference/c-api>`
+(:ref:`the surface in one picture <c-api-surface>`).
+
 The core is done. The remaining question — the one that defines the
 device's character — is how a finished frame gets onto a panel whose
 DMA path can fit 32 KiB at a time. That is the display pipeline:

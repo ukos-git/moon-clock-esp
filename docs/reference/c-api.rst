@@ -8,7 +8,10 @@ LUT), ``moon_event.h`` (the sky-event classifier — harvest, blue,
 super, micro, blood), and ``moon_assets.h`` (the asset backend seam,
 device partition vs host array). It is the
 device's interface *and* the host simulator's (the same translation
-units build into both, :doc:`the architecture <../implementation/architecture>`), so this page is the reference a
+units build into both, :doc:`the architecture <../implementation/architecture>`;
+how many times each of them is actually compiled — across the twelve
+link images — is priced at :ref:`the sharing ladder
+<sharing-ladder-perf>`), so this page is the reference a
 reader uses to build against the core — on the device or on the host.
 
 The design contract
@@ -38,6 +41,71 @@ them:
   to the display while the rest is still being computed (the orbit
   bakes rows today; the dusk re-projected rows and the boot sweep was
   the original user — both retired 2026-11-13, :doc:`the animation pipelines <../implementation/animations>`).
+
+.. _c-api-surface:
+
+The surface in one picture
+--------------------------
+
+**The short version.** The core exports **23 entries across three
+headers** — and the shipped tree calls 17 of them. The sketch draws
+every caller with its line numbers: the device's two files
+(``moon_ui.c``, ``knob_moon.c``) in blue, the host tools in teal, and
+the six entries nobody outside the core ever calls as dashed
+islands — the four internal ``*_rows`` helpers, the dusk pair's
+retired siblings, and ``moon_deinit``, defined in both backends and
+called by no one.
+
+.. graphviz:: ../_graphs/api-surface.dot
+   :align: center
+   :alt: Three header nodes feeding the definition cluster — geometry, the bake/rows pair, the relief builder, the tone dictionary, the event classifier, the dashed rotation and dusk pair, the dashed rows siblings, the dashed deinit — with the device cluster (moon_ui.c and its amber core-1 classify guard, knob_moon.c) and the host cluster (main.c, bench.c, uisim/stubs.c, the dashed never-linked probes) hanging call edges with line numbers onto them, and the two asset backends bridging the seam to the relief builder.
+   :caption: The core's public surface as the family actually uses it. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the rotation since 2026-11-13, the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``). Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call.
+
+Three claims the picture makes, each checkable at the cited line:
+
+- **The device owns the bake, not the rotation.** ``moon_ui.c`` drives
+  the geometry at six sites, the whole bake at three (:1454 boot,
+  :1609 hourly producer, :1932 orbit batch), ``moon_bake_rows`` at two
+  (the hourly bounce :1248, the orbit rows :2034) and the tone
+  dictionary at **eight** convert sites in four roles — the canonical
+  ``moon_convert_to_rgb`` (:1368), the three publishes after the
+  ``s_hourly_gray``→``s_frame`` memcpy (:1625/:1892/:1947), the two
+  heals (:1213/:1298), the two row converts (:1323/:2043). The knob
+  file is the same shape compressed: geometry :118, ``bake_rows``
+  row-by-row :128/:145, ``gray565`` per row :133/:157. Neither device
+  file calls ``moon_rotate`` or ``moon_gray565_set_warm`` — warm is
+  the shipped default and the identity gather is "by construction, not
+  hope" (``knob_moon.c``:9-13).
+- **Classify never runs on the LVGL task.** ``moon_event_classify``'s
+  only device callers are ``knob_moon.c`` :82/:94 and, on the clock,
+  the static wrapper ``moon_event_classify_here`` (:1122-1136), which
+  routes a cold day's 60-day peak scan to the core-1 worker (:1112,
+  day tick :2609) and takes the cached path inline when the day is
+  warm (:1136) — the freeze this guard prevents is the day-scan story
+  in :doc:`the animation pipelines <../implementation/animations>`
+  ("Who pays for the day scan").
+- **Six entries are exported for a caller that no longer exists (or
+  never did).** ``moon_rotate_rows``, ``moon_shade_map_rows``,
+  ``moon_reproject_rows`` and ``moon_relief_row`` are wrapped by their
+  whole-frame siblings inside the core (:776, :905, :322) and have zero
+  external callers; ``moon_shade_map_build``/``moon_reproject`` survive
+  only as ``bench.c``:125/:129's A/B subjects; ``moon_deinit`` is
+  defined twice (``moon_esp_assets.c``:138, ``moon_host_assets.c``:44
+  — "the cache lives for the simulator's process") and called nowhere.
+  They stay exported because the host tools' build census links the
+  exact core list — :doc:`the sharing ladder
+  <../verification/performance>` prices every file here by how many of
+  the twelve link images compile it.
+
+The two throwaway probes (``dark_test.c``, ``newmoon_test.c`` — "Throwaway
+... Not part of the gate") hang dashed off the sketch too: tracked in
+git, hand-typed ``cc`` lines in their headers, linked by nobody —
+``host_sim/CMakeLists.txt`` builds exactly ``moon_sim`` + ``moon_bench``.
+The bake's per-pixel model is :doc:`the core flow sketch
+<../implementation/core-c>`; the gray→RGB565 dictionary and the
+rotation's last mile are :doc:`rotate-lut
+<../implementation/rotate-lut>`; the dark-side branch is
+:doc:`darkside <../science/darkside>`.
 
 The geometry
 ------------
