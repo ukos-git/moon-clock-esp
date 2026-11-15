@@ -125,6 +125,11 @@ a bad/missing value falling back to the Kconfig-seeded default
      - 0..3
      - ``SETTINGS_ALARM_SOUND_DEFAULT`` (0, the two-tone)
 
+These six keys are the user's whole layer — the configuration ladder
+draws the table as a dot matrix (writer, seed origin, validated
+range, still-read) with the two ghosts as the only open rows
+(:ref:`the configuration ladder <config-ladder-perf>`).
+
 The two timeouts are user-facing in **minutes** on the settings
 screens (a 1–30 minute picker) and stored internally in seconds
 (60–1800). On the **knob** they are the power ladder: since P2 the

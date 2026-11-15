@@ -1,0 +1,175 @@
+// The last mile: the two look-ups between a baked gray square and a lit
+// panel — the in-plane rotation gather (host-only since 2026-11-13) and the
+// fused gray->RGB565 dictionary (every frame that ever reached a panel).
+// Every quoted line verified in code before drawing: components/moon/core/
+// moon_fixp.c (:1 "1025-entry quarter-symmetric table", :6-7 the int32
+// "would wrap to -32768 and mirror the disk" warning, :13 NQ 1024, :15
+// sin_tab[NQ+1], :20-21 double sin * 32768 + 0.5, :28-33 red16, :40-49 the
+// quadrant fold, :52 cos = sin advanced a quarter) and components/moon/core/
+// moon_render.c (warm comment :13-23 with the NASA lit-region numbers, event
+// comment :27-31 "set_warm(0) wins over set_event", ev multipliers :32,
+// g565_build :34-69 — neutral idiom :41-43, pink-gray comment :36-39, warm
+// branch :44-50, event branch :51-64, pack :66; set_warm :71-76, set_event
+// :88-122 with the event multipliers :91-114 and "one call per day" /
+// "an event-less day is a no-op" :85-87; lazy build :124-128; moon_rotate_range
+// :130-163 — 4-px unroll comment :136-139, inverse map :144-145, "|dx|, |dy|
+// < 234, max |fx| ~ 1.6e9 fits int32" :147-148, shift floor :149-150, round
+// half up :151-152, unsigned test :153-156, fused LUT read :157, incremental
+// update :158-159). Callers: host_sim/main.c:97 (the rotate call with
+// moon_cos15/moon_sin15) and :219 --neutral, host_sim/bench.c:68/:119,
+// components/ui/moon_ui.c convert sites :1213/:1323/:1625/:2043, tint sites
+// :1446/:1563/:1916, the replay set_event(NULL) quote :1844-1847,
+// components/ui/moon_tfcache.c:18-21 "pixel-identical by construction", and
+// knob/components/knob_moon/knob_moon.c:9-13 ("the EXACT LUT table the
+// identity moon_rotate consults") + :83. The gray square itself is
+// moon-core-flow.dot and dark-side.dot; the panel boundary this figure ends
+// at is display.rst (flush-path.dot).
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph rotate_lut {
+    label="The last mile: bake once, then answer every pixel twice — an inverse rotation and a 256-entry color dictionary";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.9, height=0.5,
+          fillcolor="#f2f2f2", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_fixp {
+        label="the trig pair — one quarter turn stored (moon_fixp.c, 52 lines)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        qtab [label="sin_tab[NQ+1], NQ = 1024 (:13-15)\n1025 int32 entries, 8 KB, built once\nlazily (:1 \"1025-entry quarter-symmetric\ntable\") — INT32 on purpose: cos 0 =\n32768 wrapped to -32768 in int16 would\n\"mirror the disk\" (:6-7)",
+                fillcolor="#efece4"];
+        fold [label="moon_sin15 (:35-50): red16 folds any angle into\n[0, 4·NQ) (:28-33), then the quadrant\nunpacking mirrors it — q1 walks the table\nBACKWARDS (NQ − idx), q2 negates, q3\nmirrors and negates; linear step lands\n~18 bits of angle, sub-pixel per frame",
+                fillcolor="#efece4"];
+        cos15 [label="moon_cos15 (:52): one line —\n\"cosine is sine a quarter turn ahead\"\n(sin(rad + pi/2))",
+                  fillcolor="#efece4"];
+    }
+
+    subgraph cluster_gather {
+        label="the gather — moon_rotate_range (moon_render.c:130-163), ~8 ms for 400×400";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        unroll [label="4 px per iteration (:139)\n\"The unroll keeps up to 4 PSRAM frame\nloads in flight so the gather is not\nlatency-bound\" (:137-138) — bandwidth-\nbound, the relief cache's lesson at 4 M",
+                  fillcolor="#efece4"];
+        invmap [label="the inverse map, paid per GROUP of 4 (:144-145):\nfx = dx·c15 + dy·s15, fy = dy·c15 − dx·s15 —\n\"p = R(−theta) s\", Q15.15; \"|dx|, |dy| < 234,\nmax |fx| ~ 1.6e9 fits int32\" (:147-148)",
+                  fillcolor="#efece4"];
+        rnd [label="floor + round-to-nearest (:149-152):\nfx >> 15 (\"arithmetic shift = floor\"),\nthen (fx & 32767) > 16383 ? 1 — the\ndiscarded fraction decides, a bit-and\nand a compare for the NN sample",
+                fillcolor="#efece4"];
+        test [label="the whole bounds test in two\ncomparisons (:153-156): (unsigned)ix <\(unsigned)\nframe_size — a negative becomes huge, so\none < catches below-zero AND past-edge;\nout-of-frame keeps gval = 0 — \"Out of\nframe = black\", no disk mask (header :6)",
+                 fillcolor="#efece4"];
+        fused [label="row[x0 + k] = g565[gval] (:157)\nthe LUT read fused into the same\ninstruction stream — the gray->565\nstep costs nothing extra",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                 penwidth=1.6];
+        inc [label="fx += c15; fy -= s15 (:158-159)\none destination pixel over = one fixed\nrotation step over — \"exact integer\nmath\" (:137), no multiply returns and no\ndrift accumulates along the row",
+               fillcolor="#efece4"];
+    }
+
+    subgraph cluster_build {
+        label="the dictionary — g565_build, 256 entries (moon_render.c:34-69)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=14; fontcolor="#6e6e6e";
+
+        neutral [label="neutral base (:41-43): r5 = (g·31+127)/255,\ng6 = (g·63+127)/255, b5 = r5 — the\nround-to-nearest idiom; b5 = r5 is what\n\"gray\" MEANS, neutrality is structural.\nThe pink bug this prevents, verbatim\n(:37-39): the 5-bit value in the 6-bit\ngreen field \"caps green at 31/63 (~49%)\nand renders every gray as magenta/pink\"",
+                    fillcolor="#efece4"];
+        warmb [label="warm branch (:44-50): r5 = (g·32+127)/255,\nb5 = (g·29+127)/255, capped at 31 —\nR ×1.038, B ×0.933 calibrated to NASA's\nlit-region RGB (164,160,153), R/B = 1.07\n(:15-21): \"a warm moon reads as a real\nmoon photo against the AMOLED's true\nblack\" — the SHIPPED default (:26)",
+                   fillcolor="#f7f1e2", color="#b07d10", fontcolor="#8a5f0a"];
+        eventb [label="sky-event branch (:51-64): the pre-\ncalculated multipliers ride the WARM\nbase — blood 1.15/0.55/0.42 (:91-95),\nharvest 1.10/0.92/0.62, blue 0.92/1.00/\n1.12, super/micro ×1.08/×0.92 (:96-114),\neach round(+0.5) and capped (31/63/31)",
+                  fillcolor="#f7f1e2", color="#b07d10", fontcolor="#8a5f0a"];
+        pack [label="(r5 << 11) | (g6 << 5) | b5 (:66)\nLVGL-native RGB565 — 5-6-5 with the\nfields at their real widths; \"the panel's\nformat made literal\"",
+                fillcolor="#efece4"];
+    }
+
+    subgraph cluster_tint {
+        label="the two rebuild entry points — display-only decisions";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f7f1e2";
+        color="#b07d10";
+        fontsize=14; fontcolor="#8a5f0a";
+
+        setwarm [label="moon_gray565_set_warm(on) (:71-76)\nrebuilds only when the flag CHANGES;\nset_warm(0) is the gate's --neutral path\n(:21-23) — \"the display tint never enters\nthe gate numbers\"",
+                   fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+        setevent [label="moon_gray565_set_event(ev) (:88-122)\n\"They compose multiplicatively (harvest +\nsuper, ...), so one call per day covers\nall of the instant's events\" (:84-85);\n\"the device calls this once per day; an\nevent-less day is a no-op\" (:86-87);\nset_warm(0) WINS over set_event — the\nneutral gate LUT is never tinted (:29-31)",
+                    fillcolor="#f2f2f2", color="#b07d10", fontcolor="#8a5f0a"];
+    }
+
+    subgraph cluster_host {
+        label="the rotation's ONLY customers — no device caller since 2026-11-13 (the spin, retired)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#eaf1ef";
+        color="#0f766e";
+        fontsize=14; fontcolor="#0b5750";
+
+        mainrot [label="host_sim/main.c:97 (the gate's render_one):\nmoon_rotate(frame, ..., moon_cos15(th),\nmoon_sin15(th)) — the whole 400 px square\nper rendered PNG, angle from rot_deg",
+                   fillcolor="#d9e8e4", color="#0f766e", fontcolor="#0b5750"];
+        bench [label="host_sim/bench.c:119 — the same call in\nthe timing loop; :68 + main.c:219\nset_warm(0): the gate times and validates\nagainst the NEUTRAL dictionary",
+                fillcolor="#d9e8e4", color="#0f766e", fontcolor="#0b5750"];
+        spin [label="the burn-in spin (RETIRED 2026-11-13,\n16cd5c3..59ceeef): the only device\ncaller moon_rotate ever had, 8 fps off\none baked frame — \"the product decision\noutlived its justification\"",
+                style="rounded,filled,dashed"];
+    }
+
+    subgraph cluster_device {
+        label="the dictionary's live customers — every path that ever reaches a panel";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#eef2f8";
+        color="#2b5fb0";
+        fontsize=14; fontcolor="#1e3f70";
+
+        uiconv [label="components/ui/moon_ui.c: s_rgb[i] =\nmoon_gray565(s_frame[i]) — the bounce\nconvert :1213, the reveal band's row\n:1323, the publish block :1625, the\nhourly/orbit rows :2043 — \"every displayed\nframe goes through moon_gray565\"",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                  penwidth=1.6];
+        prod [label="the producers SET the tint before\npublishing: set_event(&ev) at the boot\nbake :1446 and the hourly producer :1563\n(hour-centre epoch), the reveal :1916",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70",
+                penwidth=1.6];
+        replay [label="boot replay runs NEUTRAL on purpose\n(moon_ui.c:1844): set_event(NULL) —\n\"the stored grays are event-independent,\nand classifying a whole cycle would cost\nmore than the animation is worth\" (:1845-1847)",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        tfc [label="the TF hour cache (moon_tfcache.c:18-21):\n\"The fetched frame goes through the SAME\nmoon_gray565() tint LUT as a baked frame\n... so cache and compute paths are pixel-\nidentical by construction\" — the card\nstores GRAY, the tint is applied on show",
+                fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+        knobm [label="the knob (knob_moon.c:9-13): its bake\nconverts \"through moon_gray565. That is\nthe EXACT LUT table the identity moon_\nrotate consults (cos(0) = 32768 ... an\nidentity gather)\" — pixel-identical to\nthe rotate path \"by construction, not\nhope\" (:13); set_event at begin :83",
+                 fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
+    }
+
+    boundary [label="the byte-order boundary — display.rst owns it:\nthe core speaks LVGL-native 565; the QSPI io's\nMSB-first order is swapped at the panel adapter,\nnever in the core",
+                style="rounded,filled,dashed"];
+
+    qtab -> fold;
+    fold -> cos15;
+    fold -> mainrot [label="sin15", color="#0f766e"];
+    cos15 -> mainrot [label="cos15", color="#0f766e"];
+    mainrot -> unroll [color="#0f766e"];
+    mainrot -> inc [style=invis];
+    spin -> mainrot [style=dashed, color="#0f766e"];
+    unroll -> invmap;
+    invmap -> rnd;
+    rnd -> test;
+    test -> fused;
+    inc -> rnd [label="per px", style=dotted];
+    fused -> pack [style=dotted, label="the dictionary\nentry"];
+    neutral -> pack;
+    warmb -> neutral [color="#b07d10", style=dotted];
+    eventb -> warmb [color="#b07d10", style=dotted, label="composed\nOVER warm"];
+    setwarm -> neutral [color="#b07d10"];
+    setevent -> eventb [color="#b07d10"];
+    pack -> fused [color="#2b5fb0", label="g565[256]"];
+    prod -> setevent [color="#2b5fb0"];
+    uiconv -> pack [color="#2b5fb0"];
+    tfc -> pack [color="#2b5fb0"];
+    knobm -> pack [color="#2b5fb0"];
+    replay -> setwarm [color="#8a8a8a", style=dotted, label="set_event(NULL)"];
+    bench -> setwarm [color="#0f766e", style=dotted, label="--neutral"];
+    pack -> boundary [style=dotted];
+}

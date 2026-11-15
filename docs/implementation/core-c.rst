@@ -413,7 +413,11 @@ of the code rather than a hope.
   ``moon_relief`` is the one entry point).
 - **No color.** The core outputs 8-bit gray. The gray→RGB565 step
   (:doc:`rotation and the LUT <rotate-lut>`) is the only place display color enters, and it is a
-  LUT, so the core never knows the panel exists.
+  LUT, so the core never knows the panel exists — and that page's
+  last-mile sketch draws who calls the dictionary from where: the
+  four device convert sites, the TF cache's replay, the knob's
+  identity gather, and the host tools that are the rotation's only
+  remaining customers.
 
 The contract that makes the host/device split safe is that
 ``moon_bake`` is a **pure function of (geometry, albedo, gradient,

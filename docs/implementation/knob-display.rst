@@ -154,7 +154,10 @@ public headers from its own components:
   drawn in :doc:`the build system <../reference/build-system>`; the
   silence those shims compile to — 16 + 28 + 0 lines against the
   5,178 the build drops — is counted in
-  :ref:`the build census <census-ladder-perf>`).
+  :ref:`the build census <census-ladder-perf>`, and the same silence
+  counted for the menu — 80 entries, the biggest menu on the bench,
+  of which 28 of the 50 inherited are clock-private — in
+  :ref:`the configuration ladder <config-ladder-perf>`).
 
 The injected mutex must be **reentrant** (bench 2026-11-10): it is
 the app-wide ``s_lvgl_mux`` that ``lvgl_task`` holds across

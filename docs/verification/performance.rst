@@ -1225,6 +1225,123 @@ the names resolve, ``build-flash.dot``
 carries*, and this counts *how many parts* each image assembles from
 — with the shims as the only segments that compile to silence.
 
+.. _config-ladder-perf:
+
+The configuration ladder (how many choices each layer hands over)
+-------------------------------------------------------------------
+
+**The short version.** The build census counted the *parts* each
+image assembles from and which of them compile to silence; it never
+priced the layer above the parts — the **options**. This ladder counts
+the knobs: every ``config`` entry the three projects' ``menuconfig``
+menus define (left), who actually reads each one (middle — the
+census's silence, re-counted for the menu), and the whole layer the
+*user* owns: the six keys on ``settings.txt`` (right). A
+configuration option is the product's cheapest component and its
+most numerous — and it can be silent four different ways.
+
+**Left: what each menu hands over.** The shared 50 (UI 40 + CLOCK 9 +
+MOON 1, every name parsed from the five first-party Kconfigs) sit
+under every bar; on top of them the S3 carries the clock's BOARD menu
+(5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
+file, counted not curated) for **67**; the P4 excludes that BSP by
+name and lands at **55**; the knob answers with 50 shared + 30
+knob-native across its six shim menus for **80**. The counting is
+per-file and name-for-name: the generator SystemExits if a single
+option is added, renamed or removed in any of the ten Kconfig files.
+
+**Middle: who reads it where.** Blue is read by code every build
+compiles; amber is read *only* by the four ``UI_BOARD_SRCS`` + the
+clock's ``main.cpp`` — the files the knob build never compiles — and
+is therefore silent *on the knob*; steel names a CMakeLists guard
+(the ``MOON_ALBEDO_W`` fit check, the ``BOARD_S3`` mismatch referee),
+dark-grey hatch a key read by no C at all (the three ``int``
+esp_hosted manifest guards, whose only consumer is the registry's
+if-clause parser), pale-grey dots read by nobody anywhere. The
+ledger's numbers: **27 of the 40 UI entries and 1 of the 9 CLOCK
+entries compile to silence on the knob** — 28 of the 50 the knob
+inherits are clock-private. Five entries are dead letters
+repo-wide: the two ``CLOCK_TIME_FORMAT_*`` (the 12/24 h choice is
+runtime — no C ever reads them), ``UI_IMU_ROLL_OFFSET_DEG`` (the
+obsolete spin-era rest angle, still stamped ``=0`` into all three
+live sdkconfigs), ``BSP_I2C_FAST_MODE``, and the knob shim's two
+*unselected legs* of ``choice BOARD`` (the choice must carry all
+three members; only ``BOARD_KNOB`` has a knob-side reader). Two
+further entries never even reach a menu: ``UI_DEMO_FULL_TOUR`` is
+hidden behind ``depends on UI_DEMO_MODE`` — off in all three
+configures — and the generator only accepts that absence when it can
+prove the gate off everywhere. Only **eleven** UI entries are read
+by shared code — and one of them is the most surprising:
+``UI_SCREEN_SWITCH_FADE``, which the knob's own ``knob_moon_render.c``
+gates its fade-to-black on.
+
+**Right: the user's whole layer.** Not dozens of knobs but **six
+keys** on ``settings.txt``. Four are live: two screen-written
+timeouts (``screens.c:1403``/:1401, both clamped to 60..1800 s by
+the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the timezone
+(``screens.c:3065``) and the alarm sound (``screens.c:3147``, range
+twin asserted against ``ALARM_SOUND_COUNT`` 4). Two are ghosts —
+``boot_anim_enable`` and ``dusk_anim_enable``, parsed and re-saved
+*only so a stale card must not break parsing* (the store's own
+words), written by no screen, read by no getter; the single writer
+repo-wide is the ``TEST settings demo`` in ``main.cpp``. Their seed
+dots are grey because the ``#ifndef`` beside them names a macro no
+Kconfig defines anymore.
+
+.. figure:: ../_static/figs/perf_config.png
+   :alt: three panels — stacked menuconfig-entry bars per board (S3 67 with the hatched vendored BSP, P4 55, knob 80 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a six-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
+   :figclass: align-center
+
+   **Left:** one bar per board (legend below the figure); the shared
+   50 under every bar, the S3's hatched BSP tail drawn only there,
+   the knob's six violet shim segments at the end. **Middle:** one
+   row per menu, coloured by who reads it — the amber 27 is the UI
+   menu's knob-inert majority, the pale 2s the dead letters, the
+   dark-grey hatch the three registry guard keys. **Right:** a
+   filled dot = the column's claim holds; the two ghost rows hang
+   grey with writer and reader open. Every number is parsed at
+   figure time — the generator refuses to draw when a Kconfig entry
+   vanishes from a ``kconfig-*.inc`` fragment, when a documented
+   option loses or gains a reader against the classification, when
+   an entry appears in no live ``sdkconfig`` without a provably-off
+   ``depends on`` gate, when the twelve BSP options leave the
+   fragments' documented-nowhere state, when a guard key stops being
+   ``int``, or when the six keys of ``settings_store.c`` stop
+   matching its save block.
+
+Three counting facts no other ladder can show:
+
+- **The menu is inverted against the product.** The smallest screen
+  (the knob, 360 px) carries the *biggest* menu — 80 entries against
+  the S3's 67 and the P4's 55 — because the seam forces it to
+  re-declare the board ``choice`` and grow six shim menus of its own,
+  while **28 of the 50 entries it inherits are clock-private**: a
+  third of the knob's menu compiles to silence in the knob build.
+- **Silence has four prices, not one.** 28 entries are read only by
+  the *other* build's files (amber); 5 are dead letters no file
+  anywhere reads; 2 are configure-time only (a CMake guard is their
+  sole reader); 3 are read by no C at all and exist to answer the
+  esp_hosted registry's ``if:`` clauses. A Kconfig entry can be
+  simultaneously documented, configured, stamped into ``sdkconfig``
+  — and inert four different ways.
+- **The user's configurability is six keys wide — and two of them
+  are kept alive by the save path alone.** Everything else about the
+  device is compiled in; the four live keys all have a screen writer
+  and a validated range, while the two LEGACY ghosts persist only
+  because dropping them would break parsing of a stale card — the
+  runtime layer's own *no such leg* rows.
+
+The generator is ``docs/tools/gen_perf_config.py``; its parsers read
+the ten Kconfig files, the ``kconfig-*.inc`` fragments (including the
+``KNOB_BATTERY_DIV_NUM`` / ``_DEN`` shared-prefix idiom), the
+``UI_BOARD_SRCS`` set out of ``components/ui/CMakeLists.txt``, the
+``CONFIG_*`` tokens of every ``.c``/``.h``/``.cpp`` under
+``components/``, ``main/`` and ``knob/``, the seeds, clamps and
+ghosts of ``settings_store.c``, the four writer sites in
+``screens.c``, and the three live ``sdkconfig`` files. The
+configuration sibling of :ref:`the build census <census-ladder-perf>`
+— that counts parts, this counts choices.
+
 .. _freshness-ladder-perf:
 
 The freshness ladder (how old every shown number is)

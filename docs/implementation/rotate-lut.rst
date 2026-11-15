@@ -39,9 +39,10 @@ answers cover it:
 4. **Color is a 256-entry dictionary.** Two hundred fifty-six
    possible grays, one panel format: the gray→RGB565 conversion is
    precomputed once and fused into the gather's instruction stream,
-   carrying the art pass's warm tint by default — with two source
-   comments recording the real bug it exists to prevent (every gray
-   rendered pink).
+   carrying the art pass's warm tint by default and, on event days,
+   the pre-calculated sky-event tint composed over it (:doc:`the C
+   API <../reference/c-api>`) — with two source comments recording
+   the real bug it exists to prevent (every gray rendered pink).
 
 Vocabulary
 ----------
@@ -96,11 +97,14 @@ also have fuller entries in the :doc:`glossary <../glossary>`:
   truncating division: ``(g * 31 + 127) / 255`` scales to a 5-bit
   field, and the pre-added half does the rounding the integer
   division cannot.
-- **Warm / neutral LUT** — the two builds of the same dictionary:
-  warm ships (the lit side tinted like the reference frames,
-  :doc:`the artistic pass <../science/art-pass>`), neutral is what
-  the image gate validates against, so no display choice enters a
-  validation number.
+- **Warm / neutral / event LUT** — the three builds of the same
+  dictionary: warm ships (the lit side tinted like the reference
+  frames, :doc:`the artistic pass <../science/art-pass>`), neutral is
+  what the image gate validates against, so no display choice enters
+  a validation number, and the sky-event tint (blood, harvest, blue,
+  super, micro) is a third layer composed *over* the warm base — the
+  neutral gate LUT is never tinted, because ``set_warm(0)`` wins over
+  ``set_event`` (``moon_render.c:29-31``).
 
 Why a rotation at all
 ---------------------
@@ -331,6 +335,15 @@ once. The neutral build is round-to-nearest:
                if (r5 > 31) r5 = 31;
                b5 = (g * 29 + 127) / 255;   /* B x0.933, capped at 31 */
                if (b5 > 31) b5 = 31;
+               /* Sky-event tint: multiply the channels by the
+                * (pre-calculated) event multipliers and cap */
+               int nr = (int)(r5 * g565_ev_r + 0.5f);
+               if (nr > 31) nr = 31;
+               int ng = (int)(g6 * g565_ev_g + 0.5f);
+               if (ng > 63) ng = 63;
+               int nb = (int)(b5 * g565_ev_b + 0.5f);
+               if (nb > 31) nb = 31;
+               r5 = nr; g6 = ng; b5 = nb;
            }
            g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
        }
@@ -351,6 +364,13 @@ Reading the build:
   where neutral used 31 — the ×1.038 / ×0.933 multipliers lifted
   and lowered around the neutral value — and the ``> 31`` caps keep
   the lifted top grays from overflowing their fields.
+- The event branch rides *inside* the warm branch: each channel is
+  multiplied by its pre-calculated sky-event multiplier
+  (``g565_ev_r/g/b``, all ``1.0f`` on an ordinary day,
+  ``moon_render.c:32``), rounded with the ``+ 0.5f`` idiom, and
+  re-capped — so an event can never escape its field, and with the
+  multipliers at unity the event build collapses to the warm one
+  exactly.
 - ``g565[g] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);`` — pack
   the three fields into one 16-bit pixel: the shifts slide each
   field to its slot (red bits 15–11, green 10–5, blue 4–0) and the
@@ -369,6 +389,25 @@ bugs this LUT exists to prevent:
   ``moon_gray565_set_warm(0)`` rebuilds the neutral LUT, and the gate
   runs the host simulator with ``--neutral`` so the tint never enters
   a validation number.
+
+The dictionary has a *third* build, and it is the one that changes
+without anyone deciding to rebuild it. ``moon_gray565_set_event(ev)``
+composes the day's sky-event multipliers over the warm base: blood is
+the copper-red of a total-eclipse disk ("deep orange-red at peak warm
+gray, ~(255, 138, 98) 8-bit", R ×1.15, G ×0.55, B ×0.42), harvest the
+golden (×1.10 / ×0.92 / ×0.62), blue the cool grey (×0.92 / ×1.00 /
+×1.12), super and micro a flat ±8 % across all channels
+(``moon_render.c:80-114``). They compose *multiplicatively* — "so one
+call per day covers all of the instant's events" (harvest + super,
+``:84-85``) — and the function "rebuilds only when the multipliers
+actually change (the device calls this once per day; an event-less
+day is a no-op)" (``:86-87``). The tint is display-only in the
+strictest sense the core offers: the neutral gate LUT is never tinted
+— ``set_warm(0)`` wins over ``set_event`` (``:29-31``) — so the one
+call that paints a blood moon on the panel leaves every gate number
+untouched. The classifier that decides which multipliers the day owns
+(``moon_event.c``, pinned by the 742-moon census) is documented under
+"The sky events" in :doc:`the C API <../reference/c-api>`.
 
 Byte order: the LUT emits **LVGL-native** RGB565 (MSB = red, as LVGL
 expects in an ``LV_COLOR_FORMAT_RGB565`` draw buffer). The panel's own
@@ -399,7 +438,46 @@ guarantees are tested.
   (``moon_convert_to_rgb``), the orbit's per-row convert, the TF
   cache's replay tint (``moon_tfcache`` runs the fetched frame
   through the *same* LUT as a computed one) and the knob's companion
-  (``knob_moon``).
+  (``knob_moon``). The producers set the event tint before
+  publishing (``moon_ui.c:1446`` the boot bake, ``:1563`` the hourly
+  producer at the hour-centre epoch, ``:1916`` the reveal); boot
+  replay deliberately resets it — ``set_event(NULL)`` at ``:1844``,
+  because the stored grays are "event-independent, and classifying a
+  whole cycle would cost more than the animation is worth"
+  (``:1845-1847``).
+
+The last mile in one picture
+----------------------------
+
+**The short version.** The prose above describes the two look-ups
+side by side; the picture draws the ownership it states in two
+separate places but never together: the rotation's only remaining
+customers are the host tools (the spin — the only device caller this
+function ever had — is dashed), while the dictionary sits under every
+device path, the producers set the event tint at publish time, and
+the TF card — which stores GRAY — never decides the color of a
+frame.
+
+.. graphviz:: ../_graphs/rotate-lut.dot
+
+Three claims the picture is drawn to make. First, teal vs blue is the
+retirement line: ``moon_rotate`` is compiled into the device images
+but called only from ``host_sim`` (``main.c:97``, ``bench.c:119``) —
+nothing on a board gathers an angle anymore — while every blue node
+is a path a shipped frame took through ``g565``. Second, the
+dictionary is three builds deep and the third layer is display-only
+by construction: the event multipliers ride *inside* the warm branch,
+``set_warm(0)`` wins over ``set_event`` (``moon_render.c:29-31``),
+and the gate times and validates against the neutral build
+(``bench.c:68``, ``main.c:219``) — a blood moon never changes a gate
+number. Third, tint is applied on show, not on store: the TF hour
+cache keeps gray frames and the show path supplies the same LUT the
+compute path used ("pixel-identical by construction",
+``moon_tfcache.c:18-21``), boot replay opts out to neutral
+(``moon_ui.c:1844``), and the knob's bake is the identity gather —
+``cos(0) = 32768`` in Q15.15 — which is what makes its frames
+pixel-identical to the host rotation path "by construction, not
+hope" (``knob_moon.c:9-13``).
 
 The core is done. The remaining question — the one that defines the
 device's character — is how a finished frame gets onto a panel whose

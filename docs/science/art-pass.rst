@@ -299,7 +299,12 @@ than overflow the field. The pack line then drops the three fields at
 their RGB565 offsets — red in the top 5 bits, green in the middle 6,
 blue in the low 5. Below the loop, ``moon_gray565_set_warm`` is the
 switch: flipping it rebuilds the table, and the gate's ``--neutral``
-path is what calls it with 0.
+path is what calls it with 0. The block above is the two decisions
+the pass owns; the dictionary has a third build — the sky-event tint
+composed over the warm base — and the full three-build stack, with
+the callers of the fused read, is drawn in the last-mile sketch:
+:doc:`rotation and the LUT <../implementation/rotate-lut>`, "The last
+mile in one picture".
 
 Measured on a full-ish frame through this LUT, the lit-region red/blue
 balance is **1.104** (R−G +4.2, G−B +7.9), bracketing the reference's
