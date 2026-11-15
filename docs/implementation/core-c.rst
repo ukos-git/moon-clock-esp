@@ -58,7 +58,10 @@ The left half of this picture — the black box ``moon_geometry`` and
 what happens *inside* it, edge by edge — is the geometry chain in
 :doc:`the science page <../science/geometry>`; the NN tap on the
 asset→bake edge is audited by :ref:`the resolution funnel
-<sharpness-funnel-perf>`.
+<sharpness-funnel-perf>`; the right half's device side — which of the
+four PSRAM buffers each leg writes under which of the two keys — is
+the relay in ``docs/_graphs/buffers-relay.dot``
+(:doc:`the architecture <architecture>`).
 
 Vocabulary
 ----------

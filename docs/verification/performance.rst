@@ -954,7 +954,9 @@ this one counts only the bytes that *move*. The staging geometry the
 transaction rows describe is drawn in
 :doc:`the display path <../implementation/display>`
 (``docs/tools/gen_perf_bus.py`` draws both panels; the strip anatomy
-shares its constants with ``gen_strip_staging.py``).
+shares its constants with ``gen_strip_staging.py``). The pixels those
+bytes carry — the same bars counted in the currency the O(N) statements
+speak — are :ref:`the pixel ladder <pixel-ladder-perf>` just below.
 
 .. figure:: ../_static/figs/perf_bus.png
    :alt: bytes per panel refresh for all three boards — full frame, hourly disk flush, one DMA transaction — against the 32 KiB SPI-DMA cap, and the raw QSPI wire time of one full frame against the 33 ms LVGL beat
@@ -969,6 +971,76 @@ shares its constants with ``gen_strip_staging.py``).
    wire floor (bytes ÷ lanes·pclk/8, derived, nothing new measured)
    against the 33 ms beat — the S3 spends two-thirds of one read-timer
    beat on its whole panel, the knob a third.
+
+.. _pixel-ladder-perf:
+
+The pixel ladder (how many pixels every stage touches)
+-------------------------------------------------------
+
+**The short version.** The bus ladder above counts the bytes that
+*move*; this counts the pixels they move *for* — the counting-work axis
+the page's complexity section has priced everything in all along
+(every per-pixel step is O(N); here is N, drawn). A battery of
+SystemExit-failing parses feeds the figure, like the rest of the
+family:
+the ``MOON_PX`` pair with the ``MOON_R = MOON_PX/2`` shape, the
+strip/reveal geometry (``MOON_STRIP_ROWS`` 25/130, ``MOON_REVEAL_ROWS``
+20/26 — divisibility re-asserted, the code's own ``#error`` guards),
+the P4's CITED 50-row DPI buffer and the knob's one-row reveal rule
+(read out of the comments that state them), the panel sizes from the
+vendored BSP header / the generated
+``CONFIG_BSP_LCD_TYPE_720_720_4_INCH`` / the knob shim, the
+``max_transfer_sz`` formulas parsed out of the vendored sources (the
+bus generator's strip-equality lesson re-applied: the S3's
+``max_transfer_sz`` rows must equal its ``buffer_height``), the knob's
+``MOON_SIZE = KNOB_LCD_H_RES`` — its bake square IS its panel — with
+its ``s_buf[2]`` double buffer and its shared-home disk geometry
+parsed, not recalled, and all three generated ``moon_consts.h`` with
+the albedo asserted 2:1 equirectangular. The one-DMA-transaction rows
+are the bus ladder's teal bars ÷ 2 — same parses, different currency;
+the same buffers in *bytes* under their *locks* are the relay sketch
+(``docs/_graphs/buffers-relay.dot``) in
+:doc:`the architecture <../implementation/architecture>`.
+
+Three counting facts the byte view cannot show:
+
+- **The flush outruns the bake.** The whole-panel screen-switch flush
+  touches 1.36× (S3) / 1.23× (P4) the pixels the bake just computed —
+  the clock row, alarm row and seconds arc ride every moon across the
+  bus. On the knob the ratio is 1.00 by construction (``MOON_SIZE`` is
+  the panel: the moon square is the screen).
+- **The hourly refresh is the flush minus the furniture**: its violet
+  bar is exactly the bake square (the bus ladder's 320,000/845,000 B
+  ÷ 2 — the while-black ``lv_refr_now`` commits the disk, not the
+  screen), the disk-only geometry that makes an hourly re-light of
+  the moon affordable every hour.
+- **The relief wall is the asset-to-work ratio**: 13.1× (S3) / 5.0×
+  (P4) / 4.0× (knob) the bake square of packed relief cells stand
+  behind every frame — yet exactly ONE cell is read per bake pixel,
+  and that one-load-per-pixel is precisely what ranked decision 1
+  priced when it bought the relief gradient cache.
+
+.. figure:: ../_static/figs/perf_pixels.png
+   :alt: pixels per stage per board — bake square, gather, hourly disk flush, whole-panel flush, one DMA transaction, one reveal state — and the pixel universe of albedo, relief pack, bake square, panel
+   :figclass: align-center
+
+   The pixel ladder. **Left:** one published frame per board — the
+   bake square, the gray→RGB565 gather, the hourly disk flush (the bus
+   ladder's violet bar ÷ 2), the whole-panel flush with the moon
+   image's share of it annotated, the one DMA transaction the bus
+   really sees, and one reveal *state* (dashed: 8,000 px per band on
+   the S3, 16,900 on the P4, ONE row on the knob); hatched = cited
+   DPI buffer, italic = the knob's two honest *no such legs* — its
+   bake writes RGB565 straight into the back buffer and it owns no
+   card. **Right:** the pixel universe each bake samples from —
+   albedo texels, the relief pack with its ×-the-bake factor, the
+   bake square, the panel. S3 blue, P4 vermillion, knob violet; the
+   generator is ``docs/tools/gen_perf_pixels.py``.
+
+The *time* these counts cost is the head of this page, the *fineness*
+of the sources they gather from is the :ref:`resolution funnel
+<sharpness-funnel-perf>` below, and the *bytes* they become on the
+wire are the bus ladder above.
 
 .. _freshness-ladder-perf:
 
@@ -1105,8 +1177,10 @@ The generator is ``docs/tools/gen_perf_sharp.py``. The sampling itself
 :doc:`the lighting model <../science/lighting>`; the vectors feeding
 the tap are :doc:`the geometry chain <../science/geometry>`; the asset
 widths are reference-tabled in :doc:`the moon constants
-<../reference/moon-consts>`; and the bake *time* these taps cost is the
-work ladder at the head of this page.
+<../reference/moon-consts>`; the bake *time* these taps cost is the
+work ladder at the head of this page; and the *count* of pixels they
+fill per published frame is :ref:`the pixel ladder <pixel-ladder-perf>`
+above.
 
 .. _taps-ladder-perf:
 

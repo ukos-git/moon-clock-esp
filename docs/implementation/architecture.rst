@@ -238,14 +238,16 @@ producers, and each producer's TWDT posture — is parsed and plotted in
 The buffers and who touches them
 --------------------------------
 
-**The short version.** Three pieces of shared memory, two keys. The
+**The short version.** Four pieces of shared memory, two keys. The
 pipeline is a two-station paint shop: a producer sketches the moon in
-grays into ``s_frame`` (8-bit, 160 KB), then prints it in color into
-``s_rgb`` (RGB565, 320 KB) — and ``s_rgb`` is the only buffer the screen
-ever reads. The relief cache is a 4 MB wall of precomputed terrain
-shading that every bake consults. The two mutexes keep the stations
-from tripping over each other: one lock for the image, one lock for the
-panel's wires.
+grays into the PSRAM bounce ``s_hourly_gray`` (8-bit, 160 KB) — the
+fetch/bake desk no key guards — and publishes it in one guarded block:
+a copy into ``s_frame`` (the complete gray frame) plus a color print
+into ``s_rgb`` (RGB565, 320 KB) — and ``s_rgb`` is the only buffer the
+screen ever reads. The relief cache is a 4 MB wall of precomputed
+terrain shading that every bake consults. The two mutexes keep the
+stations from tripping over each other: one lock for the image, one
+lock for the panel's wires.
 
 The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
 
@@ -256,10 +258,16 @@ The moon pipeline's buffers are all in PSRAM (``MALLOC_CAP_SPIRAM``):
    * - Buffer
      - Size (S3, 400 px disk)
      - Writers / readers
+   * - ``s_hourly_gray`` (bounce)
+     - 400×400 × 1 B = 160 KB
+     - the producers write it (TF hour fetch or the bake) *outside both
+       locks*; the publish block copies it into ``s_frame`` and the bake
+       reveal band-converts it into ``s_rgb``
    * - ``s_frame``
      - 400×400 × 1 B = 160 KB
-     - bake tasks write (gray 8-bit); the LUT convert
-       (``moon_convert_to_rgb``) reads it
+     - only the whole-frame boot/day-tick bake (inside the image key)
+       and the producers' publish ``memcpy`` write it; the LUT convert
+       (``moon_convert_to_rgb``) and the heal paths read it
    * - ``s_rgb``
      - 400×400 × 2 B = 320 KB
      - the LUT convert writes it (RGB565, one gather from
@@ -279,11 +287,11 @@ The two locks that order all of it:
      - Serializes
      - Held for
    * - ``s_rgb_mtx``
-     - every reader/writer of ``s_rgb`` *and* ``s_frame`` (the bake,
-       the orbit row sweep, the static LUT convert, the atomic
-       ``lv_refr_now``)
-     - one frame: a bake row sweep, a LUT gather, or the whole-panel
-       flush
+     - every reader/writer of ``s_rgb`` *and* ``s_frame`` (the
+       whole-frame boot bake, the publish block, the orbit row sweep,
+       the static LUT convert, the atomic ``lv_refr_now``)
+     - one guarded block: a boot bake, a publish memcpy + gather, a
+       LUT gather, or the whole-panel flush
    * - ``s_panel_mtx``
      - every QSPI/DSI panel transaction: LVGL flushes (via the
        ``draw_bitmap`` wrapper), the 0x51 brightness writes (fade,
@@ -292,17 +300,35 @@ The two locks that order all of it:
 
 ``s_rgb_mtx`` answers "who may read the image"; ``s_panel_mtx``
 answers "who may touch the panel's io". They are deliberately
-different resources: a bake task holds ``s_rgb_mtx`` while it fills
-``s_frame``/``s_rgb`` and releases it before the display path ever
-takes the panel lock, so the next bake can start while the current
-frame is still streaming out.
+different resources, and the shipped producers exploit the split: the
+expensive leg — the TF hour fetch or the ~1.3 s bake — runs into the
+bounce with *no key held at all*, and the producers touch
+``s_rgb_mtx`` only for the brief publish block (the ``memcpy`` plus the
+RGB565 gather) that replaces ``s_frame``/``s_rgb``; the code's own
+publish comment is the contract — "s_rgb_mtx held; no flush here (the
+tick shows it)". The display path then takes the panel lock strip by
+strip, and the next bake's expensive leg never waits on either key, so
+the next bake and the current streaming flush run at the same time.
+The boot/day-tick bake is the one shape that holds the image key
+across its whole sketch (it writes ``s_frame`` directly, and at boot
+there is no in-flight frame whose painter could be kept waiting).
 
-Read the hand-off as a relay race with two keys and no overlap: the
-baker's leg runs entirely inside the image key — sketch, print,
-release. The painter's leg starts only after, with the panel key.
-Keeping the two legs disjoint is what lets the next bake and the
+Read the hand-off as a relay race with two keys: the baker's
+*expensive* leg — fetch or bake into the bounce — runs outside both
+keys; the baker's *publish* leg is one brief image-key block. The
+painter's leg starts only after, holding the image key for its one
+atomic ``lv_refr_now`` and taking the panel key strip by strip.
+Keeping the expensive leg key-free is what lets the next bake and the
 current streaming flush run at the same time, each trusting only its
 own key.
+
+The relay in one picture
+------------------------
+
+.. graphviz:: ../_graphs/buffers-relay.dot
+   :alt: The buffer/lock relay — producers baking into the bounce outside both keys, one image-key publish block, the atomic lv_refr_now show, and every panel write riding the panel key
+   :align: center
+   :caption: The relay, drawn — every quote read out of ``components/ui/moon_ui.c`` (and the relief builder in ``components/moon/esp/moon_esp_assets.c``) at sketch time. Top left, the mill: the core-1 producers bake into the bounce lock-free (TF hour fetch or the ~1.3 s bake), and the boot/day-tick bake is the one shape that holds the image key across its whole sketch; the relief wall feeds both with one packed cell per bake pixel, built once at boot from one 2 MB partition read whose transient is freed ("steady-state relief memory is the one 4 MB packed array alone"). Centre, the four buckets and the two keys, each key labelled with the code's own ownership comment and its full list of holders; the painter then shows the published frame as one atomic ``lv_refr_now`` inside the image key with its drain witness — commit-on-show, and the owed hourly fade-in paid at the first completed strip — while the reveal leg band-converts bounce→``s_rgb``. The 0x51 ramp node exists only to show it rides the *panel* key: the strip staging, the accept-retry anatomy and the three witnesses on that key belong to ``docs/_graphs/flush-path.dot`` (:doc:`the display pipeline <display>`), and the core's data flow into the bounce to ``docs/_graphs/moon-core-flow.dot`` (:doc:`the C core <core-c>`); the knob's excluded relay is the footer. The same buckets counted in *pixels* — bake square, panel square, one DMA transaction — are :ref:`the pixel ladder <pixel-ladder-perf>`.
 
 The atomic-frame invariant
 --------------------------

@@ -165,6 +165,12 @@ in-place-heal versus budgeted-restart split) — drawn from the code:
 
 .. graphviz:: ../_graphs/flush-path.dot
 
+Who hands the pixels *to* this path — which leg fills which buffer and
+under which key before a strip ever reaches the wrapper — is the relay
+in ``docs/_graphs/buffers-relay.dot``
+(:doc:`the architecture <architecture>`); the strip staging and its
+witnesses stay here.
+
 The direct-write spin (history, removed 2026-11-13)
 ----------------------------------------------------
 
