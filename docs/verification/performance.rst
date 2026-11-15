@@ -101,8 +101,10 @@ The complexity of each step
 Before the numbers: what each step *has* to cost. The bake draws on
 the board's base albedo asset (864×432 on the S3, 2048×1024 on the
 P4 — the down-scale to disk size happens *by sampling*: the bake
-picks one bilinear tap per output pixel), and the baked disk is then
-up-scaled onto the panel. ``N`` below is the bake's pixel count
+picks one **nearest-neighbour** tap per output pixel, see
+:ref:`the resolution funnel <sharpness-funnel-perf>` for why one NN
+tap is enough), and the bake is native: the home frame lands on the
+panel 1:1, no resample. ``N`` below is the bake's pixel count
 (``size²``):
 
 - **geometry** — one ERFA series per frame: **O(1)** in every input.
@@ -127,12 +129,15 @@ up-scaled onto the panel. ``N`` below is the bake's pixel count
 - **re-project (dusk frame)** — one map tap per display pixel:
   **O(N)** in display pixels; the tap is **O(1)** whatever the map
   resolution.
-- **up-scale to the panel** — the baked ``size``-px disk drawn onto
-  the ``panel``-px round display is one bilinear sample per *display*
-  pixel: **O(display²)** in the LVGL/canvas draw and the flush strips
-  (:doc:`the display pipeline <../implementation/display>`) — the
-  reason the (pre-8954e88, retired 2026-11-13) boot sweep baked 240
-  px and let the *draw* do the up-scaling.
+- **up-scale to the panel (sweep-era only, retired 2026-11-13)** —
+  the boot sweep's 240-px baked disk drawn onto the ``panel``-px
+  round display was one bilinear LVGL transform sample per *display*
+  pixel: **O(display²)** in the canvas draw and the flush strips
+  (:doc:`the display pipeline <../implementation/display>`). The
+  sweep existed precisely to let that *draw* do the up-scaling
+  cheaply (pre-8954e88); since the native bake (``MOON_PX`` 400/650)
+  the home frame lands 1:1 and this cost is simply **gone** — the
+  step no longer exists to be measured.
 
 The measured log-log slopes in the figures below are the empirical
 signature of these classes: ~2.0 against linear size (≡ linear in
@@ -1025,6 +1030,83 @@ the pipelines actually land these values is
    as checks per day — one division, nothing new measured: the panel
    re-derives the ephemeris ~153,000 times a day and polls the three
    things that can age another ~3,000.
+
+.. _sharpness-funnel-perf:
+
+The resolution funnel (how finely each stage can speak)
+--------------------------------------------------------
+
+**The short version.** Every other ladder here counts a resource a
+refresh *consumes* — time, bytes, RAM, watts. This one counts the
+resource the picture is *made of*: how finely each stage is allowed to
+speak. The bake samples the equirect albedo and the relief gradient
+cache **nearest-neighbour** — one tap per output pixel, no filtering —
+and that is only allowed when the source is dense enough that a
+mis-chosen neighbour moves the picture by less than a pixel. The bake's
+own header comment has always justified NN with a density number ("the
+per-board equirect texture is >= 1 texel per screen px on the disk, so
+NN is sub-pixel-accurate"); this figure is that claim, audited — and
+honestly restated: the density that holds is the disk **average**, the
+disk *centre* (the worst place, because orthographic projection stretches
+texels widest there) dips below 1 for two of the six source legs, and
+what actually guarantees sub-pixel accuracy is the half-texel **pick
+error**, which never leaves the pixel on any leg on any board.
+
+The funnel narrows left to right — panel, disk, source columns — and
+the narrow point is where the NN tap lives. At the disk centre one
+radian spans exactly *R* screen px (the bake's base direction is
+``r = u*right + v*up + w*E``, ``w = sqrt(1 - r²)``), so the centre
+density of a *W*-column source is ``W / (2·pi·R)`` texels per screen
+pixel — the **orthographic worst case**, pi/2 ≈ 1.57× *below* the naive
+diameter-average ``W / (4R)`` the comment's ">= 1" rides on. Every
+value is parsed at figure time with SystemExit-failing parsers:
+``MOON_ALB_W``/``MOON_ALB_H``/``MOON_DEM_W``/``MOON_DEM_H`` from all
+three generated ``moon_consts.h`` (and asserted equal to the widths the
+bake comment itself quotes), the ``MOON_PX`` pair from
+``moon_ui.c:174-178`` with the ``MOON_R = MOON_PX/2`` shape assert, the
+knob's shared-home disk radius parsed out of
+``knob_ui_set_disk_geom(150.0f, …)`` (``knob_moon_render.c:178`` —
+150, not recalled), the panel sizes from ``BSP_LCD_H_RES``, the P4's
+generated ``CONFIG_BSP_LCD_TYPE_720_720_4_INCH`` and ``KNOB_LCD_H_RES``,
+and the two NN rounding lines asserted present in ``moon_bake.c``
+(``int col = (int)(colf + 0.5f)`` and the ``(int)(row_frac * alb_h +
+0.5f)`` row twin) — the pick error bound *is* that half-texel rounding,
+so if the sampler ever changes the generator refuses to plot.
+
+The verdict the six bars tell: at the centre, **S3 albedo 0.69** (the
+comment's 1.08 is the Ø-average), S3 relief **1.63**; P4 albedo and
+relief both **1.003** (the claim holds to 0.3 %); knob albedo **0.92**,
+knob relief **1.09**. Three legs clear the bar at the centre, two miss
+it, one holds by a hair. But the pick error — half a texel at centre
+scale, ``pi·R/W`` px — is **0.73/0.31/0.50/0.50/0.55/0.46 px: all six
+sub-pixel**. That is the honest form of the comment's guarantee (the
+code comment now says exactly this, "ON AVERAGE" qualifier and
+pick-error sentence included, citing this generator), and it is also
+why the gate re-checks "the NN/bilinear and table/atan2 differences
+against the Python model" after any change to the sampler — the
+validated model is the backstop when a density number is argued rather
+than plotted.
+
+.. figure:: ../_static/figs/perf_sharpness.png
+   :alt: source widths per board, and source texels per screen pixel at the disk centre against the 1.0 bar
+   :figclass: align-center
+
+   The resolution funnel. **Left:** parsed widths per board — panel,
+   disk diameter, albedo columns (= 360°), relief DEM columns: the
+   funnel narrows source → screen on every board. **Right:** the six
+   source legs as texels per screen pixel at the disk **centre** (the
+   orthographic worst case); teal clears the amber 1.0 bar the bake
+   comment claims, red does not, and every bar carries its half-texel
+   NN pick error — all six sub-pixel, which is what the bake's
+   "sub-pixel-accurate" actually rides on.
+
+The generator is ``docs/tools/gen_perf_sharp.py``. The sampling itself
+(the displaced-normal Lambert, the +180° texture offset) is
+:doc:`the lighting model <../science/lighting>`; the vectors feeding
+the tap are :doc:`the geometry chain <../science/geometry>`; the asset
+widths are reference-tabled in :doc:`the moon constants
+<../reference/moon-consts>`; and the bake *time* these taps cost is the
+work ladder at the head of this page.
 
 The performance decisions, ranked
 ---------------------------------

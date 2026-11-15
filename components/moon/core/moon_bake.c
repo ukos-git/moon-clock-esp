@@ -61,7 +61,12 @@
  * 0.001 deg) instead of the libm transcendentals, and the albedo is
  * sampled nearest-neighbor: the per-board equirect texture (MOON_ALB_W,
  * 864 on the S3 / 2048 on the P4, see moon_consts.h) is >= 1 texel per
- * screen px on the disk, so NN is sub-pixel-accurate. (The validated gate
+ * screen px on the disk ON AVERAGE (W/2 columns over the 2R-wide disk);
+ * at the orthographic centre the density dips below 1 (0.69 for the S3
+ * albedo), but the NN pick snaps to the texel centre, so the worst-case
+ * pick error is half a texel < 1 screen px everywhere -- that, not the
+ * density, is what makes NN sub-pixel-accurate
+ * (docs/tools/gen_perf_sharp.py plots this funnel). (The validated gate
  * re-checks the NN/bilinear and table/atan2 differences against the
  * Python model after any change here.)
  */

@@ -54,6 +54,12 @@ landing every published state as ONE atomic flush under ``s_rgb_mtx``
    :alt: The portable core's data flow — UTC epoch into moon_geometry, assets into the boot relief cache and the per-pixel bake, moon_event.classify into the gray565 tint LUT, finished rows through rotate/gray565, and the device side (core-1 producers, row watermark, bake reveal, one atomic lv_refr_now under s_rgb_mtx)
    :align: center
 
+The left half of this picture — the black box ``moon_geometry`` and
+what happens *inside* it, edge by edge — is the geometry chain in
+:doc:`the science page <../science/geometry>`; the NN tap on the
+asset→bake edge is audited by :ref:`the resolution funnel
+<sharpness-funnel-perf>`.
+
 Vocabulary
 ----------
 

@@ -341,12 +341,14 @@ Albedo, nearest-neighbor
 ------------------------
 
 **The short version.** Lighting says *how much* light; the albedo map
-says *how much of it the ground bounces back*. The map has roughly one
-texture pixel per screen pixel, so there is no detail to lose by simply
-picking the nearest texture point — and no interpolation math to pay
-for it. (The Xtensa FPU has no ``atan``/``asin`` at all, so even the
-"which map point is this?" question is answered with a tiny lookup
-table.)
+says *how much of it the ground bounces back*. The map carries roughly
+one texture pixel per screen pixel on the disk *on average*, and the
+nearest-neighbour pick can at worst mis-choose by half a texture pixel
+— under one screen pixel on every board and every source — so there is
+no detail to lose by simply picking the nearest texture point, and no
+interpolation math to pay for it. (The Xtensa FPU has no
+``atan``/``asin`` at all, so even the "which map point is this?"
+question is answered with a tiny lookup table.)
 
 The color is the **LROC WAC** albedo — an equirect map, 864×432 on
 the S3 and the knob, 2048×1024 on the P4 (row 0 = north, column 0 =
@@ -354,11 +356,17 @@ the texture longitude 0, with the 180° offset from
 :doc:`the geometry <geometry>`). The Xtensa FPU has no ``atan``/``asin``, so the texture
 longitude/latitude come from two small 257-entry internal-RAM lookup
 tables (worst-case error << one texture row) rather than libm calls.
-The albedo is sampled **nearest-neighbor**: the S3's 864-wide texture
-is ~1.05 texture pixels per screen pixel on its disk, so
-nearest-neighbor is already sub-pixel accurate and costs one byte
-load (the P4's 2048-wide texture on its 650 px disk samples
-~1.6 texels per pixel — same conclusion, more headroom).
+The albedo is sampled **nearest-neighbor**, and the guarantee behind
+that is the half-texel **pick error**, not the density: the disk-averaged
+density is 1.08 texels per screen pixel on the S3 (864 columns over the
+400 px disk) and 1.58 on the P4, but the orthographic worst case sits at
+the disk centre, where the S3 albedo dips to 0.69 — and the pick still
+never moves a feature by more than half a texel, i.e. ≤ 0.73 px (the
+relief caches, the P4 pair and the knob pair land between 0.31 and 0.55
+px). :ref:`The resolution funnel <sharpness-funnel-perf>` in the
+performance page plots all six source legs with their parsed widths;
+the bake's header comment cites it directly. The sampling itself costs
+one byte load.
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (albedo sample)

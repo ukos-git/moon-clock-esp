@@ -84,6 +84,33 @@ Twelve terms carry the page (full definitions in the :doc:`glossary
 - **Position angle** — how the lunar north pole is tilted on the sky:
   the angle from celestial north to the pole, measured eastward.
 
+The chain in one picture
+------------------------
+
+**The short version.** One ``int64`` epoch goes in, one
+``moon_geom_t`` comes out, through five stations: a time conversion,
+two vendored ERFA calls, a two-number rotation, a camera basis, and a
+bag of scalars (plus the eclipse-shadow triple the event classifier
+consumes). The page below walks each station; this is the machine they
+describe, drawn once.
+
+.. graphviz:: ../_graphs/geometry-chain.dot
+   :alt: The moon_geometry chain from epoch to struct
+   :align: center
+   :caption: ``moon_geometry`` in one picture — every arrow verified in ``components/moon/core/moon_astro.c`` at the line numbers printed inside the nodes. Blue is the path a value takes to the struct; the amber nodes are the two things easy to get backwards (the east-left flip with its sign knob, and the shadow axis the blood-moon classifier reads); gray dashed edges are *reads* of already-built values — the gate fields and the classifier re-project what the main path produced.
+
+The distance is discarded at ``unit3`` and only resurrected for the
+display ``distance_km`` — the fact that makes the cheap ephemeris not
+merely adequate but *precisely* adequate (see below).
+
+The pipeline *around* this chain — who calls ``moon_geometry``, where
+the finished frame goes, and the watchdogs around the panel write — is
+``docs/_graphs/moon-core-flow.dot`` in :doc:`the C core
+<../implementation/core-c>`; what the bake does with the four arrows
+once they exist is :doc:`the lighting model <lighting>`; how finely the
+textures these lookups hit can actually speak is :ref:`the resolution
+funnel <sharpness-funnel-perf>`.
+
 Two frames, one rotation
 ------------------------
 
@@ -354,17 +381,19 @@ real 18.6-year nodal cycle.
 Where the numbers go
 --------------------
 
-**The short version.** Everything above lands in one C struct: three
-unit arrows for the per-pixel work (:math:`\mathbf{S}`,
+**The short version.** Everything above lands in one C struct: four
+body-frame unit arrows for the per-pixel work (:math:`\mathbf{S}`,
 :math:`\mathbf{E}`, and the camera pair) plus a bag of scalars — the
 sub-solar and sub-Earth points, position angle, phase angle, illuminated
-fraction, distance — that exist for the image gate and for debugging.
+fraction, distance — that exist for the image gate and for debugging,
+and the eclipse-shadow triple the ``moon_event`` classifier turns into
+the umbra test (the blood moon).
 
 All of this lands in the ``moon_geom_t`` struct the bake consumes
 (``components/moon/include/moon.h``):
 
 .. code-block:: c
-   :caption: components/moon/include/moon.h (the geometry struct)
+   :caption: components/moon/include/moon.h (the geometry struct, verbatim)
 
    typedef struct {
        float S[3];         /* Moon->Sun, unit, body frame (pole = +z) */
@@ -379,10 +408,22 @@ All of this lands in the ``moon_geom_t`` struct the bake consumes
        float phase_angle_deg;
        float illum;        /* (1 + cos i) / 2 */
        float distance_km;
+       /* Eclipse shadow axis (body frame, meters): shadow_dir = the
+        * geocentric ANTI-solar unit direction (the umbra cone's axis
+        * points away from the Sun); shadow_off = the closest point of
+        * that axis to the Moon's center (it is perp to shadow_dir);
+        * off_ax = the point's coordinate along the axis measured FROM
+        * THE EARTH (a = (p + mg) . shadow_dir for a Moon-frame point p
+        * -- see moon_event.h). The moon_event.c classifier turns these
+        * into the per-pixel umbra/penumbra occlusion (the blood moon). */
+       float shadow_dir[3];
+       float shadow_off[3];
+       float off_ax;
    } moon_geom_t;
 
-   /* UTC epoch seconds -> body-frame geometry. Cheap ephemeris
-    * (eraEpv00 + eraMoon98), validated against NASA SVS 5415. */
+   /* UTC epoch seconds -> body-frame geometry. Cheap ephemeris (eraEpv00 +
+    * eraMoon98), validated against NASA SVS 5415: max 0.43 deg subsolar /
+    * 0.51 deg subearth / 0.44 deg posangle over the 32-frame gate set. */
    void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
 
 The next page takes those four vectors and turns them into light.

@@ -53,7 +53,7 @@ digraph mooncore {
           fillcolor="#eef0ee"];
 
     epoch -> geom;
-    asset -> bake [label="one bilinear albedo tap\n+ one packed gradient load per pixel"];
+    asset -> bake [label="one nearest-neighbour albedo tap\n+ one packed gradient load per pixel"];
     asset -> relief [label="one DEM pass at boot\nO(N_dem), size-independent"];
     relief -> bake [color="#b07d10"];
     geom -> bake [label="geom_t"];
