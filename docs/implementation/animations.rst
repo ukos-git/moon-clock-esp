@@ -514,7 +514,7 @@ The fade (no pixels written)
 
    <video src="../_static/img/fade.mp4" controls muted playsinline width="400"></video>
 
-   The fade-to-black screen switch, filmed from the bake (``fade.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
+The fade-to-black screen switch, filmed from the bake (``fade.mp4``, from the bake — :doc:`the build system <../reference/build-system>` regenerates it with ``docs/gen_media.py``).
 
 Every screen switch (except the both-moon switch — airplane / WiFi /
 the sleep screens share the one moon image) dims the **panel's own

@@ -414,7 +414,8 @@ def check_figure_orphans() -> None:
     a file with a ``.dot`` extension."""
     pages = "\n".join(p.read_text() for p in DOCS.rglob("*.rst")
                       if "_build" not in p.parts and ".venv" not in p.parts)
-    for d in (DOCS / "_graphs", DOCS / "_static" / "figs"):
+    for d in (DOCS / "_graphs", DOCS / "_static" / "figs",
+              DOCS / "img" / "nasa"):
         for art in sorted(d.iterdir()):
             if art.suffix.lower() not in (".dot", ".svg", ".png"):
                 continue
@@ -423,9 +424,46 @@ def check_figure_orphans() -> None:
                       f"embedded on no page")
 
 
+def check_raw_blocks() -> None:
+    """No RST markup inside a ``.. raw:: html`` block (the raw-block leak).
+
+    Raw content is emitted verbatim — a ``:doc:`` role or a ``literal``
+    typed inside the block is never parsed: the page ships the literal
+    ":doc:..." text the reader sees. Regression: ISSUE-001 — found by /qa
+    on 2026-11-15 (the fade caption's role and literals leaked verbatim
+    on implementation/animations.html); the prose belongs OUTSIDE the
+    block, only HTML inside. Whitelisted roles + double-backticks only:
+    the mermaid/JS raw blocks use single colons, single backticks and
+    ``**``-free labels, so this stays quiet on legitimate raw content.
+    """
+    role = re.compile(r":(?:doc|ref|numref|math|menuselection|kbd|"
+                      r"guilabel|sub|sup|samp|code):")
+    for p in DOCS.rglob("*.rst"):
+        if "_build" in p.parts or ".venv" in p.parts:
+            continue
+        lines = p.read_text().splitlines()
+        in_block, base_indent = False, 0
+        for n, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not in_block:
+                if re.match(r"\.\. raw:: html\b", stripped):
+                    in_block = True
+                    base_indent = len(line) - len(line.lstrip())
+                continue
+            if not stripped:
+                continue
+            if len(line) - len(line.lstrip()) <= base_indent:
+                in_block = False
+                continue
+            if "``" in line or role.search(line):
+                drift(f"{p.relative_to(REPO)}:{n}: RST markup inside a "
+                      f".. raw:: html block (never parsed — ships verbatim)")
+
+
 def main() -> int:
     for fn in (check_kconfig, check_moon_consts, check_partitions,
-               check_ui_matrix, check_binary_sizes, check_figure_orphans):
+               check_ui_matrix, check_binary_sizes, check_figure_orphans,
+               check_raw_blocks):
         fn()
     for d in drifts:
         print(f"DRIFT: {d}")
