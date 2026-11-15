@@ -1,0 +1,73 @@
+// The three wake doors and the one shared tail — which code guards each
+// door, and what action_wake_screen does with the press. Every edge
+// verified in components/clock/clock_idle.c, clock_cb.c, main/main.cpp
+// and components/ui/actions.c.
+// Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
+digraph wake_doors {
+    label="The wake doors: touch, tilt and the alarm ring all funnel through clock_trigger_idle_wake into action_wake_screen — the guards are per-door, the tail is shared";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=18;
+    node [fontname="Helvetica", fontsize=12, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=10, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_touch {
+        label="the touch door (clock_idle.c) — guarded by IDLE state";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        tap [label="indev_read_cb (LV_EVENT_PRESSED/PRESSING,\nclock_idle_register_indev): PRESSED while\nIDLE → clock_trigger_idle_wake; while AWAKE\nthe same tap only RESETS the idle timer —\nthis asymmetry is the one-way-door note",
+             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    }
+
+    subgraph cluster_tilt {
+        label="the tilt door — departure from the settled pose, ≤ 1/s";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        monitor [label="the 1 s tilt monitor (moon_ui) samples the\nQMI8658C and calls\nactions.c → clock_idle_notify_tilt_activity"];
+        depart [label="clock_idle_notify_tilt_activity: wakes only\non DEPARTURE from the settled-pose EMA —\ntwo bars (magnitude + direction) held for a\n2-sample streak; the ≤ 1/s rate cap is the\ncall site — raw deltas are the \"the clock\nwoke itself\" bug class",
+                  fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    }
+
+    subgraph cluster_alarm {
+        label="the alarm door — the ring screen is a wake-worthy state";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525c78";
+        fontsize=13; fontcolor="#1e3f70";
+
+        rang [label="action_alarm_triggered sets g_asleep = true\n(the alarm screen counts as asleep),\ng_alarm_active = true"];
+        bypas [label="while AWAKE at the ringing screen the idle\ndoor cannot fire (tap-while-awake only resets\nthe timer) — alarm_indev_read_cb is the\nsecond indev cb that dismisses anyway:\ng_alarm_active && !clock_is_idle()\n→ action_wake_screen on the SAME press",
+                  fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+    }
+
+    trigger [label="clock_trigger_idle_wake (clock_cb.c) — the one\nfunnel; main.cpp registers the idle-wake callback\nas action_wake_screen (clock_register_idle_wake_callback)",
+             fillcolor="#efece4"];
+
+    wake [label="action_wake_screen (actions.c, LVGL task) — the shared tail:\nalarm_audio_ring_stop (every dismiss path runs through here),\nbacklight relight if g_backlight_off, clock alpha restored,\ng_asleep CONSUMED → the stale-alarm branch (was_asleep &&\nWiFi off → normal wake, never hijacked), tick 10 ms + seconds\ntimer resumed, clock_timer_disable, moon_ui_pause(false) +\nmoon_ui_day_tick (re-bake only if the day rolled over),\nthen airplane screen OR the on-demand sync",
+          fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+
+    hold [label="the boot-replay HOLD: idle re-arm runs only when\n!moon_ui_replaying() — a touch during the boot\npresentation wakes the SCREEN but the replay's tick\nend leg re-arms the ladder when the animation is over",
+           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
+
+    sync [label="the radio off the UI task: action_start_wifi_sync\n→ background task (stack 6144) runs wifi_manager_init\n+ SNTP; the UI tick upgrades WiFi screen → airplane on\nthe done flag — the 1.7 s wake-freeze fix",
+          fillcolor="#efece4"];
+
+    tap -> trigger [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="PRESSED while idle"];
+    monitor -> depart;
+    depart -> trigger [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70", label="departure streak"];
+    rang -> bypas [label="ring up"];
+    bypas -> wake [color="#b07d10", fontcolor="#6b4e08", label="dismiss — bypasses\nthe idle guard"];
+    trigger -> wake [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
+    wake -> hold [style=dashed];
+    wake -> sync [style=dashed, label="not connected or\nRTC due for refresh"];
+}

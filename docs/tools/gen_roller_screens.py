@@ -40,8 +40,11 @@ wifi (create_screen_settings_wifi — the family's ONE lv_roller):
   share the exact y +18 band and are never visible together (the
   placeholder owns the band while the roller is hidden — one-option
   NORMAL rows pin to the window top, which read as "not centred").
-The bottom-centre exit button (90 px box, BOTTOM_MID -34 -> band top
-edge y 342) is the shared sub-screen furniture (settings_sub_screen_prepare).
+The bottom-centre exit button is the shared sub-screen furniture
+(settings_sub_screen_prepare): the call passes UI_PX(90) but
+settings_create_exit_button floors the box at UI_PX(96), anchored
+BOTTOM_MID -34 -> band top edge y 336 (the x 185..281 / y 336..432
+free band the screens.c comment reserves).
 
 Palette follows gen_menu_geom.py / gen_hub_ring.py: blue #2b5fb0,
 amber #b07d10, gray guides are geometry, not entities.
@@ -81,7 +84,7 @@ CAP_TIME_Y, CAP_POM_Y = -110, -100
 CAP_SLEEP_Y, CAP_TZ_Y = -125, -110
 SLEEP_W, TZ_W, SOUND_W = 210, 380, 260           # single-roller widths
 SOUND_X, PREVIEW_X, PREVIEW_D = -70, 150, 100    # alarm-sound line
-EXIT_SIZE, EXIT_BOTTOM = 90, 34                  # sub-screen exit button
+EXIT_SIZE, EXIT_BOTTOM = 96, 34    # UI_PX(90) call floored at UI_PX(96)
 # wifi (create_screen_settings_wifi)
 WIFI_GLYPH_Y, WIFI_TITLE_Y, WIFI_ROLL_Y = -150, -84, 18
 WIFI_W, WIFI_W_KNOB = 430, 300
@@ -139,8 +142,9 @@ def sep(ax, panel, cx, cy, glyph, fontsize=10):
 
 
 def exit_button(ax, panel, annotate):
-    """The shared sub-screen furniture: 90 px box BOTTOM_MID -34 — its
-    top edge is the y 342 line every screen comment cites."""
+    """The shared sub-screen furniture: the UI_PX(90) call floored to
+    a 96 px box, BOTTOM_MID -34 — its top edge is the y 336 line the
+    screens.c free-band comment cites."""
     R = lambda v: uipx(v, panel)
     half = panel / 2
     top_below = half - R(EXIT_SIZE + EXIT_BOTTOM)
@@ -153,7 +157,7 @@ def exit_button(ax, panel, annotate):
                            edgecolor=GRAY, linestyle="--", linewidth=0.9,
                            zorder=2))
     if annotate:
-        ax.text(0, -top_below - R(14), "exit band top y 342", fontsize=5.2,
+        ax.text(0, -top_below - R(14), "exit band top y 336", fontsize=5.2,
                 color=GRAY, ha="center", va="center", zorder=5)
 
 
@@ -180,7 +184,7 @@ def draw_settings_time(ax, panel, annotate):
                 "date row 60×70 @ ±75/0, +70 · dots ±37", fontsize=5.2,
                 color=BLUE, ha="center", va="center", zorder=5)
         ax.text(-uipx(95, panel), -(panel / 2 - uipx(EXIT_BOTTOM + EXIT_SIZE / 2, panel)),
-                "exit 90 @ −34", fontsize=5.2, color=GRAY, ha="right",
+                "exit 96 @ −34", fontsize=5.2, color=GRAY, ha="right",
                 va="center", zorder=5)
 
 

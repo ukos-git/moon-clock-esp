@@ -21,6 +21,12 @@ The alarm rules screen: the large central alarm-clock is the **master toggle** �
 
    Alarm rules — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
 
+The triangle is one of the computed menu figures: the middle row of
+:ref:`menu-geometry` (``docs/tools/gen_menu_geom.py``) draws exactly
+this screen per panel — master at (0, −``UI_PX(30)``), the entries at
+(±``UI_PX(130)``, +``UI_PX(130)``), the disks sized by the tier's FA
+icon face (96/148/74 px).
+
 Elements
 --------
 

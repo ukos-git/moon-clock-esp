@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate the computed menu-screen geometry figure for docs/ui/index.rst.
 
-The two settings-family screens with real geometry — the wheel keyboard
-(``create_screen_settings_wifi_password``) and the alarm-time day band
-(``create_screen_settings_alarm_time``) — drawn on all three family
+The three settings-family screens with real geometry — the wheel
+keyboard (``create_screen_settings_wifi_password``), the alarm-time day
+band (``create_screen_settings_alarm_time``) and the alarm-rules
+triangle (``create_screen_settings_alarm``) — drawn on all three family
 panels from the code's OWN arithmetic, the way gen_hub_ring.py does for
 the hub: every radius is ``UI_PX(x) = (x * panel) // 466`` of the
 screens.c constant, every angle the code's own angle expression.
@@ -26,8 +27,21 @@ Alarm-time screen (screens.c ALARM_TIME_* defines + the screen builder):
   y −23 — the home clock's glyph centres — with the `:` at x −10 · the
   "Mo-Fr" range summary at y −100 (NO date row on this screen: the
   DD.MM.YY row lives on the settings-time screen, see
-  gen_roller_screens.py) · the bottom-centre exit button (90 px box,
-  BOTTOM_MID −34 -> band top edge y 342).
+  gen_roller_screens.py) · the bottom-centre exit button.
+
+Alarm-rules screen (create_screen_settings_alarm): the master
+deactivate-all alarm glyph (regular FA, 96 px tier) centred at
+(0, −UI_PX(30)); the two mutually-exclusive entries on the diagonals
+at (±UI_PX(130), +UI_PX(130)) — left stopwatch (solid FA) opens the
+pomodoro screen, right alarm-clock (regular FA) opens the alarm-time
+screen; glyphs are LV_SIZE_CONTENT labels, the ink is the tier's
+96/148/74 icon face (fonts{,_p4,_knob}, as in gen_hub_ring.py).
+
+Exit button (all three screens, settings_sub_screen_prepare): the call
+passes ``UI_PX(90)`` but ``settings_create_exit_button`` FLOORS the box
+at ``UI_PX(96)`` (below 96 would clip the glyph disk), so the drawn
+tap box is the 96 px tier box anchored BOTTOM_MID −34 — free band
+x 185..281, y 336..432 exactly as the screens.c comment states.
 
 Palette follows gen_perf_figs.py / gen_hub_ring.py: blue #2b5fb0,
 amber #b07d10, gray guides are geometry, not entities.
@@ -53,8 +67,8 @@ AMBER = "#b07d10"
 GRAY = "#8a8a8a"
 LIGHT = "#c9c9c4"
 
-PANELS = (("S3 — 466 px (UI_PX 1:1)", 466), ("P4 — 720 px", 720),
-          ("knob — 360 px", 360))
+PANELS = (("S3 — 466 px (UI_PX 1:1)", 466, 96), ("P4 — 720 px", 720, 148),
+          ("knob — 360 px", 360, 74))  # third entry: the tier's FA icon face
 
 # screens.c constants (466 space; every one goes through UI_PX below)
 WHEEL_LETTERS_R, WHEEL_REVEAL_R = 168, 209
@@ -69,7 +83,9 @@ ALARM_ROLLER_W, ALARM_ROLLER_H = 140, 110  # the time rollers (96 px font)
 ALARM_HOUR_X, ALARM_MIN_X = -80, 70        # rollers' centres (home glyph centres)
 ALARM_PAIR_Y, ALARM_COLON_X = -23, -10     # pair row + the `:` x
 ALARM_RANGE_Y = -100     # the "Mo-Fr" summary row
-EXIT_SIZE, EXIT_BOTTOM = 90, 34            # settings_create_exit_button(90), BOTTOM_MID -34
+EXIT_SIZE, EXIT_BOTTOM = 96, 34            # the call passes UI_PX(90) but the
+                                           # builder floors the box at UI_PX(96)
+RULES_MASTER_Y, RULES_R = 30, 130          # create_screen_settings_alarm offsets
 
 
 def uipx(x: int, panel: int) -> int:
@@ -110,12 +126,13 @@ def roller_box(ax, panel, cx, cy, w, h, color, alpha, label=None):
 
 
 def exit_band(ax, panel):
-    """The bottom-centre exit button: 90 px box anchored BOTTOM_MID at
-    -34 (its top edge is the y 342 line every screen comment cites)."""
+    """The bottom-centre exit button: the UI_PX(90) call floored to a
+    96 px box, anchored BOTTOM_MID at -34 (its top edge is the y 336
+    line the screens.c free-band comment cites, x 185..281 y 336..432)."""
     from matplotlib.patches import Rectangle
     R = lambda v: uipx(v, panel)
     half = panel / 2
-    top_below = half - R(EXIT_SIZE + EXIT_BOTTOM)  # y 342 below centre at 466
+    top_below = half - R(EXIT_SIZE + EXIT_BOTTOM)  # y 336 below centre at 466
     chord = 2 * math.sqrt(max(half * half - top_below * top_below, 0))
     ax.plot([-chord / 2, chord / 2], [-top_below, -top_below], "--",
             color=LIGHT, linewidth=1.0, zorder=2)
@@ -200,7 +217,7 @@ def draw_alarm_band(ax, panel, annotate):
     # the dark full track 181..1 (the 360/0 wrap) and the indicator sample
     arc(ax, r_out - w / 2, w, 181, 361, LIGHT, alpha=0.9)
     arc(ax, r_out - w / 2, w, 181, 301, BLUE, alpha=0.85)  # Mon..Fri sample
-    # the exit band first (behind everything): bottom-centre 90 px button
+    # the exit band first (behind everything): bottom-centre 96 px button
     exit_band(ax, panel)
     # the two time rollers (140x110, 96 px font) at the home clock's
     # glyph centres + the `:` between them (screens.c settings_create_roller)
@@ -242,19 +259,57 @@ def draw_alarm_band(ax, panel, annotate):
                 "140×110 @ (−80/+70, −23)", fontsize=5.2, color=BLUE,
                 ha="center", va="center", zorder=5)
         ax.text(0, -(panel / 2 - uipx(EXIT_SIZE + EXIT_BOTTOM, panel)) - R(14),
-                "exit band top y 342", fontsize=5.2, color=GRAY, ha="center",
+                "exit band top y 336", fontsize=5.2, color=GRAY, ha="center",
                 va="center", zorder=5)
 
 
+def draw_alarm_rules(ax, panel, ink, annotate):
+    """create_screen_settings_alarm: master + the two diagonal entries.
+    Glyphs are LV_SIZE_CONTENT labels — the ink is the tier's FA icon
+    face (96/148/74 physical px, fonts{,_p4,_knob}), same as gen_hub_ring."""
+    from matplotlib.patches import Circle
+    R = lambda v: uipx(v, panel)
+    # the shared sub-screen furniture first (behind the content)
+    exit_band(ax, panel)
+    # thin construction diagonals centre -> entries (guides, not entities)
+    for sx in (-1, 1):
+        ax.plot([0, sx * R(RULES_R)], [0, -R(RULES_R)], ":", color=LIGHT,
+                linewidth=0.8, zorder=1)
+
+    def disk(cx, cy, color, edge, label):
+        x, y = smp(cx, panel), -smp(cy, panel)
+        ax.add_patch(Circle((x, y), ink / 2, facecolor=color, alpha=0.85,
+                            edgecolor=edge, linewidth=0.7, zorder=3))
+        ax.text(x, y - ink * 0.78, label, fontsize=6.0, color=BLUE,
+                ha="center", va="center", zorder=5)
+
+    # master deactivate-all: regular FA alarm glyph at (0, -30)
+    disk(0, -RULES_MASTER_Y, AMBER, "#6b4e08", "master — deactivate all")
+    # the two entries at (±130, +130): solid stopwatch | regular alarm-clock
+    disk(-RULES_R, RULES_R, BLUE, "#1e3f70", "stopwatch → pomodoro")
+    disk(+RULES_R, RULES_R, BLUE, "#1e3f70", "alarm-clock → alarm-time")
+
+    if annotate:
+        ax.text(0, R(RULES_MASTER_Y) + ink * 0.85, "master (0, −30)",
+                fontsize=5.6, color=AMBER, ha="center", va="center", zorder=5)
+        x, y = pt(R(RULES_R) * math.sqrt(2), 45)  # the (130, +130) entry
+        ax.text(x + ink * 0.95, y, "±(130, +130)\nsolid stopwatch /\nregular alarm-clock",
+                fontsize=5.2, color=GRAY, ha="left", va="center", zorder=5)
+
+
 def main() -> None:
-    fig, axes = plt.subplots(2, 3, figsize=(11.0, 7.4))
-    for col, (panel, size) in enumerate(PANELS):
+    fig, axes = plt.subplots(3, 3, figsize=(11.0, 10.9))
+    for col, (panel, size, ink) in enumerate(PANELS):
         for row, (fn, title) in enumerate((
                 (draw_wheel, "wheel keyboard"),
+                (draw_alarm_rules, "alarm rules"),
                 (draw_alarm_band, "alarm-time band"))):
             ax = axes[row][col]
             panel_frame(ax, size)
-            fn(ax, size, annotate=(col == 0))
+            if fn is draw_alarm_rules:
+                fn(ax, size, ink, annotate=(col == 0))
+            else:
+                fn(ax, size, annotate=(col == 0))
             ax.set_title(f"{panel}\n{title} — radii = UI_PX(code)",
                          fontsize=8, color="#3c3c3c", pad=5)
     fig.tight_layout()

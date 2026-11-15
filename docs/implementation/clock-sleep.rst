@@ -538,6 +538,11 @@ shows the alarm screen for a rule that no longer exists. The disarm
 on zero rules is the invariant; the headless device is the test that
 proves it (a phantom wake never comes back to the desk).
 
+The whole chain — the rule write, both boards' arms, the shared
+1300 ms poll, and the action it lands in — drawn from the code:
+
+.. graphviz:: ../_graphs/alarm-lifecycle.dot
+
 The tilt: activity and wake
 ---------------------------
 
@@ -593,6 +598,16 @@ Three wakes, one handler (``action_wake_screen``):
 2. **Tilt departure** — the idle-wake callback from the tilt monitor.
 3. **Alarm** — the ALM pin (S3: a real deep-sleep wake; P4: the
    software one-shot from light sleep).
+
+The guards are per-door — the idle-state test on the tap, the
+departure bars + streak on the tilt, the ``g_alarm_active`` /
+awake-bypass on the ring — and the tail is one handler. The awake
+alarm dismiss is the sketch's one edge that deliberately skips the
+``clock_trigger_idle_wake`` funnel (a tap while awake otherwise only
+resets the idle timer, which is exactly the one-way door the
+callback's comment documents):
+
+.. graphviz:: ../_graphs/wake-doors.dot
 
 .. figure:: ../img/screens/alarm.png
    :alt: The alarm screen

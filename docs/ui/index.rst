@@ -199,42 +199,52 @@ The rules the graph encodes:
 - The alarm screen has no entry either — the alarm scheduler shows
   it; a touch dismisses it.
 
+.. _menu-geometry:
+
 Menu geometry, computed per variant
 -----------------------------------
 
 The menu surfaces that carry real *geometry* beyond the ring are the
-wheel keyboard, the alarm-time day band and the six roller screens
-(settings-time, pomodoro, the single-roller family, and the Wi-Fi scan
-list). Like the hub
+wheel keyboard, the alarm-rules triangle, the alarm-time day band and
+the six roller screens (settings-time, pomodoro, the single-roller
+family, and the Wi-Fi scan list). Like the hub
 ring (:doc:`settings-hub <settings-hub>`), their layout is not
 hand-placed figures but pure ``UI_PX()`` arithmetic in
 :doc:`../code/index` (``components/ui/screens.c``) — so the figures
 below **compute** every element position per family panel the way the
 device does (the same integer division, the code's own radii, box
 sizes and ``lv_obj_align`` offsets: the wheel's WHEEL_* defines and
-design comment, the band's ALARM_TIME_* defines and
-``ALARM_DAY_ANG(d) = 181 + 30d``, the rollers' create-call arguments;
-LVGL angles, 0 = right, 90 = down). The generators are
-``docs/tools/gen_menu_geom.py`` and ``gen_roller_screens.py``; the
-hub-ring companion is ``gen_hub_ring.py``, the dial-disk one
-``gen_disk_geom.py``.
+design comment, the alarm-rules screen's ``UI_PX(30)``/``UI_PX(130)``
+align offsets and its 96/148/74 FA icon tiers, the band's
+ALARM_TIME_* defines and ``ALARM_DAY_ANG(d) = 181 + 30d``, the
+rollers' create-call arguments; LVGL angles, 0 = right, 90 = down).
+The generators are ``docs/tools/gen_menu_geom.py`` and
+``gen_roller_screens.py``; the hub-ring companion is
+``gen_hub_ring.py``, the dial-disk one ``gen_disk_geom.py``.
 
 .. figure:: ../_static/figs/menu_geom.png
-   :alt: wheel keyboard and alarm-time band geometry, computed per panel
+   :alt: wheel keyboard, alarm-rules triangle and alarm-time band geometry, computed per panel
    :figclass: align-center
 
    Top row: the :doc:`wheel keyboard <settings-wifi-password>` —
    press band r 140..panel/2, at-rest letters r 168, reveal row r 209,
    sector hairlines r 150..226, register track LVGL 150..390 at r
-   84..144, commit/discard wedges at r 114, centre box r ~55. Bottom
+   84..144, commit/discard wedges at r 114, centre box r ~55. Middle
+   row: the :doc:`alarm-rules screen <settings-alarm>` — the master
+   deactivate-all alarm glyph at (0, −30), the two diagonal entries at
+   (±130, +130) (left solid stopwatch opens pomodoro, right regular
+   alarm-clock opens alarm-time); the disks are the tier's FA icon
+   face (96/148/74 px, the same ink gen_hub_ring.py draws). Bottom
    row: the :doc:`alarm-time day band <settings-alarm-time>` — outer
    r 223, width 10 (the home seconds-arc ring), the seven 34 px day
    handles on the r 218 midline, the dark track and indicator running
    181..1 through the 360/0 wrap (sample shown: Mon–Fri), and the
    screen's own content: the two 140×110 time rollers at the home
    clock's glyph centres (−80/+70, −23), the "Mo–Fr" range summary at
-   y −100, and the shared sub-screen exit button (90 px box,
-   BOTTOM_MID −34 — top edge y 342, dashed). The S3 column carries the
+   y −100, and the shared sub-screen exit button (the ``UI_PX(90)``
+   call ``settings_create_exit_button`` floors at ``UI_PX(96)``,
+   BOTTOM_MID −34 — top edge y 336, the x 185..281 / y 336..432 free
+   band of the code comment; dashed). The S3 column carries the
    1:1 numbers; P4 and knob scale every radius through ``UI_PX``.
 
 .. figure:: ../_static/figs/roller_screens.png
@@ -268,8 +278,10 @@ hub-ring companion is ``gen_hub_ring.py``, the dial-disk one
    roller's only co-occupant — the pair toggles, since a one-option
    NORMAL roller pins its single row to the window top (which read as
    "not centred", user 2026-11-11). The wifi glyph sits at y −150 and
-   the NETWORKS title (32 px face) at y −84. The exit button (90, −34)
-   is the shared sub-screen furniture on every one of these screens.
+   the NETWORKS title (32 px face) at y −84. The exit button —
+   ``UI_PX(90)`` floored by ``settings_create_exit_button`` to the
+   96 px box, BOTTOM_MID −34 — is the shared sub-screen furniture on
+   every one of these screens.
 
 .. toctree::
    :maxdepth: 2

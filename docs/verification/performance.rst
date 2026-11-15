@@ -475,6 +475,37 @@ and Kconfig cannot drift apart:
    from ``components/ui/Kconfig`` at figure time; the capture windows
    quoted beside it).
 
+The interactive pacing ladder
+-----------------------------
+
+**The short version.** The other performance axis is not how long an
+event costs but how often the device wakes *itself*. Nine timers carry
+the product: the 10 ms LVGL adapter park and UI tick, the 50 ms bake
+reveal tick, the two Kconfig-paced moon rates (125 ms replay floor,
+240 ms fade legs), the 1 Hz idle trio (idle check, tilt monitor,
+seconds increment) and the 1300 ms RTC interrupt poll. The two shared
+rhythms are deliberate — the adapter park *is* the UI tick's floor,
+and the sleep ladder beats at one heart — everything else holds its
+own slot, spanning two orders of magnitude from 10 ms to 1300 ms.
+Every value is **parsed from the live sources** at figure time —
+including the ``UI_MOON_HOURLY_FADE_MS → UI_SCREEN_SWITCH_FADE``
+symbol indirection (resolved exactly like Kconfig does) — so the
+ladder cannot drift from the firmware.
+
+.. figure:: ../_static/figs/perf_pacing.png
+   :alt: the device's self-wake periods on one log axis, and the same rows as events per second
+   :figclass: align-center
+
+   The pacing ladder. **Left:** every shipped timer period on one log
+   millisecond axis, colour-coded by subsystem (blue = LVGL-side,
+   violet = moon pipeline, amber = the idle/sleep ladder, red = the
+   RTC poll), each row annotated with its source provenance (hatched
+   = Kconfig-paced). **Right:** the same rows as events per second —
+   derived (1000 / period), nothing new measured: the adapter parks
+   the LVGL task at 100 Hz, the RTC poll runs below 1 Hz, and the
+   reveal tick lands at exactly the 20 Hz the bake-reveal design
+   specifies. The generator is ``docs/tools/gen_perf_pacing.py``.
+
 The device CPU (one-core shares)
 --------------------------------
 
