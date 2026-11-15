@@ -3,11 +3,18 @@ Manual time entry (P4)
 
 Manual time entry — **P4 only**: the S3's PCF85063A is the time base and needs no manual entry, while the P4 (the crystal RTC timer + SNTP) carries the clock icon first on its hub ring (7 icons) to reach this screen. Two rows: the **time** HH:MM (the 96 px clock font, at the home clock label's position — no seconds: the home label shows none either, and adjusting them here would have no visible effect) and the **date** DD.MM.YY (the 48 px font, below). Releasing any ONE roller commits the whole value (the exit button's click commits it too, ``event_handler_cb_settings_time_exit``).
 
+The screen itself compiles unconditionally (only the hub *icon* is
+``CONFIG_BOARD_P4``-gated), so the uisim renders it on every panel —
+the S3 shot below is the shared layout at 466 px, shown here to
+document the geometry; on real hardware only the P4 can open it.
+
 .. figure:: ../img/screens/annot/settings-time_s3.png
    :alt: manual time entry (p4) — the S3 panel (466, annotated)
    :align: center
 
-   Manual time entry (P4) — S3 466×466 (the badges are the legend numbers)
+   Manual time entry (P4) — S3 466×466, the shared layout at the S3's
+   scale (the badges are the legend numbers; no S3 icon reaches this
+   screen)
 
 .. figure:: ../img/screens/annot/settings-time_p4.png
    :alt: manual time entry (p4) — the P4 panel (720, annotated)

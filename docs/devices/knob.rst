@@ -113,6 +113,25 @@ corrects: the vendor demo drives the panel with
 schematic's LEDA/LEDK nets show a **backlit LCD** (the product
 name's "LCD" is literal, not an AMOLED).
 
+The schematic below traces the app MCU to each component it drives
+and keeps the board's two silences visible: the inter-MCU UART and
+the audio/mic/SD/haptics block are dashed — the firmware uses
+neither — and the green box is the wake-up story that makes the knob
+the family's only *real* deep sleeper: no RTC IC, so the alarm is an
+internal-RTC TIMER (never an early ring), and the wake inputs are
+the dial's A channel (EXT0), the touch INT (EXT1) and that TIMER.
+
+.. graphviz:: ../_graphs/knob-wiring.dot
+   :alt: Knob board component wiring schematic
+   :align: center
+   :caption: The knob's component wiring — QSPI (SH8601 round LCD + GPIO 47 backlight PWM), I²C (CST816S touch, DRV2605 haptics — unused), the EC1 dial, the battery ADC; the U4WDH peer on its own with the inter-MCU UART unused.
+
+The U4WDH box is deliberately drawn as a **peer, not a peripheral**:
+it runs factory firmware, owns its encoder and the CH340-family USB
+bridge, and the only wire between the chips — the inter-MCU UART —
+is dashed because this firmware never uses it (the two *factory*
+demos talk over it; we do not).
+
 The ESP32-S3 side (vendor-demo-confirmed, schematic cross-checked):
 
 .. list-table::

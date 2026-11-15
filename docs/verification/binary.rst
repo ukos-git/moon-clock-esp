@@ -10,9 +10,17 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-15, HEAD ``7bc7e8f`` — the
-recent commits are docs-only, so these are the family-build binaries;
-the knob's tree is the sibling project's own ``../build/knob`` outside
+Measured from the build trees (2026-11-15): the S3/P4 trees were
+configured at HEAD ``830adbd``, the knob's sibling tree at
+``7bc7e8f-dirty`` (uncommitted docs files were in the tree at
+configure time). Until the first commitizen bump there is no
+``version`` line in ``.cz.toml``, so each binary embeds the
+git-describe short hash as the TF-cache calcver string (the root
+``CMakeLists`` comment and :doc:`the build system <../reference/build-system>`);
+the commits since these builds are docs/host-sim-only, and the
+firmware delta to the current HEAD is that embedded string alone —
+constant length, so the sizes below carry to HEAD unchanged. The
+knob's tree is the sibling project's own ``../build/knob`` outside
 the repo, never ``build/knob``):
 
 .. list-table::
@@ -118,7 +126,10 @@ the app's growth history:
                                               keyboard's widened font + code)
    binary    1,462,560 B  (0x165120)  the 2026-11-02 take — +240 B over
                                               wheel v2; 30% under the ceiling
-   binary    1,706,960 B  (0x1a0bd0)  current (2026-11-15, HEAD 830adbd) —
+   binary    1,706,960 B  (0x1a0bd0)  current (measured 2026-11-15, built at
+                                              HEAD 830adbd — the docs-only
+                                              commits after it change only the
+                                              embedded calcver hash string) —
                                               the three-board family build
                                               (shared hub + sky events + the
                                               settings stack over the 11-02

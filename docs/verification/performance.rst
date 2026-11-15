@@ -146,7 +146,7 @@ The bake, across sizes and engines
    :figclass: align-center
 
    Single-frame bake time vs disk size — host data re-measured
-   2026-11-07 (median of 5), the knob point from the 2026-11-14
+   2026-11-15 (median of 5), the knob point from the 2026-11-14
    reveal-bench capture. The two host C builds sit together at the
    bottom (their marker *shape* tells S3-asset from P4-asset); the
    device points (hollow markers — circles S3, squares P4, diamonds
@@ -162,21 +162,21 @@ The bake, across sizes and engines
    The same data against *input count* (pixels = size²) on linear
    axes: every engine is a straight line through the origin — the
    O(N)-in-pixels claim, shown rather than asserted. The host C fit
-   is 13.2 ns per pixel.
+   is 13.7 ns per pixel.
 
 The plot's story, in five facts:
 
 1. **The C core is the fastest engine at the device's sizes — by a
-   wide margin.** At 400 px the host C bake is 2.34 ms; the Python
-   reference is 54.3 ms (23×); the JS port is 10.4 ms (4.4×). The C
+   wide margin.** At 400 px the host C bake is 2.25 ms; the Python
+   reference is 47.6 ms (21×); the JS port is 10.3 ms (4.6×). The C
    core is not a *re-implementation* of the Python model for speed —
    it is the *same model* written for the constraint (float32, a
    gradient cache, no per-pixel allocation), and it runs the model
    faster on a 2025 desktop than the vectorized reference does.
 2. **The device cost is memory, not math.** The S3's 400 px bake is
    ~1.2–1.35 s (measured 2026-11-08, 864 albedo; an earlier capture
-   read ~0.72 s) against the host's 2.34 ms — ~500×. The FPU work is
-   identical (the host C bake *is* the FPU work, at 2.34 ms); the
+   read ~0.72 s) against the host's 2.25 ms — ~500×. The FPU work is
+   identical (the host C bake *is* the FPU work, at 2.25 ms); the
    300× is the PSRAM: each pixel issues an albedo byte + a 2-byte
    gradient load from octal PSRAM at ~100s of ns of random-access
    latency, and the unroll (:doc:`the C core <../implementation/core-c>`) only overlaps, never
@@ -194,10 +194,10 @@ The plot's story, in five facts:
    bake is still memory-bound (0.96 s at 650 px), but it has ~15× the
    S3's headroom for the same frame.
 4. **JS and Python bracket the C core from above.** The JS port
-   (V8, scalar, float64) is 4.4× slower than the host C at 400 px —
+   (V8, scalar, float64) is 4.6× slower than the host C at 400 px —
    the scalar port pays the float64 + no-cache cost without a FPU
    head start — and the Python reference (SIMD, float64, but the
-   full-resolution per-pixel gradient *without* the cache) is 23×.
+   full-resolution per-pixel gradient *without* the cache) is 21×.
    The cache is worth ~6× of the C core's speed against the
    reference model, on the same silicon. (The JS port is *faster
    than the Python reference* at every size — the browser sim runs
@@ -281,15 +281,15 @@ Three structure-of-cost facts:
 - **Geometry is free** (``0.0 ms`` = < 0.05 ms, one ERFA series per
   frame). The ephemeris is a rounding error against the bake — the
   cheap-model decision (:doc:`the geometry <../science/geometry>`) is a non-issue at this resolution.
-- **The shade-map build is size-independent** (~2.5 ms on the
-  S3-asset build, ~13 ms on the P4-asset build, at every bake size):
+- **The shade-map build is size-independent** (~2.4 ms on the
+  S3-asset build, ~12.5 ms on the P4-asset build, at every bake size):
   it builds the *asset* map (864×432 S3 / 2048×1024 P4 — the 5.2×
   ratio is 5.6× the pixels), and the display size only affects the
   re-project. That is the dusk's economics in one curve — a one-time
-  ~2.5 ms (host) / ~1.6 s (S3) build buys a per-frame re-project that
+  ~2.4 ms (host) / ~1.6 s (S3) build buys a per-frame re-project that
   scales with display size (0.3–3.0 ms host, ~50 ms S3) instead of a
   per-frame *bake* (which would be 0.7–1.3 s on the S3).
-- **The rotate is ~1/13th of the bake** (0.18 ms vs 2.34 ms at 400
+- **The rotate is ~1/13th of the bake** (0.18 ms vs 2.25 ms at 400
   px). The Q15.15 gather + fused LUT (:doc:`rotation and the LUT <../implementation/rotate-lut>`) is why the spin
   can display at 8 fps off a *once-baked* frame: the per-frame cost
   is the gather (~8 ms on the S3, 40× the host, again the PSRAM),
@@ -306,19 +306,19 @@ The A/B variants (host C)
    of 5) at every disk size: the gate path (relief on), relief off,
    and the display path (``dark_zero=1`` + neutral LUT — the
    product's backlit-night + soft-terminator branch). At the 400 px
-   product size: **relief off saves 37 %, the display path costs
-   +27 %** — and the shape of the trade-off holds across the size
+   product size: **relief off saves 31 %, the display path costs
+   +24 %** — and the shape of the trade-off holds across the size
    range, which is why the sweep (retired 2026-11-13) could trade
    resolution for frames.
 
-The display path's +27 % is the backlit night side (a large fraction
+The display path's +24 % is the backlit night side (a large fraction
 of the disk at a crescent) running the ``moon_backlit_night`` branch
 per dark pixel, plus the soft-terminator smoothstep at the terminator.
-That 27 % is the *art pass's* performance cost (:doc:`the artistic pass <../science/art-pass>`), paid by the S3 at
-~0.19 s per 400 px frame — a price the sweep's 240 px bake (0.28 s
+That 24 % is the *art pass's* performance cost (:doc:`the artistic pass <../science/art-pass>`), paid by the S3 at
+~0.17 s per 400 px frame — a price the sweep's 240 px bake (0.28 s
 wall) and the spin's once-baked model used to make affordable (both
 retired 2026-11-13). The relief
-cache's 37 % is the cheap side of that trade: the one-time ~1.3 s
+cache's 31 % is the cheap side of that trade: the one-time ~1.3 s
 gradient-cache build (S3) buys back ~2 s per frame of naive
 6-loads-per-pixel DEM sampling.
 
@@ -417,7 +417,7 @@ mattered:
    win: ~3.3 s → ~1.3 s (S3, 466 px) by turning six dependent
    PSRAM loads per pixel into one packed 2-byte load. Worth ~2 s
    per frame on the S3; on the host (where loads are free) the same
-   cache is worth the 37 % the A/B plot measures.
+   cache is worth the 31 % the A/B plot measures.
 2. **The once-baked spin** (:doc:`rotation and the LUT <../implementation/rotate-lut>` and :doc:`the animation pipelines <../implementation/animations>`, retired
    2026-11-13) — the 8 ms gather against the 1.3 s bake is what made
    the burn-in rotation free; without it, the spin was a 1.3 s

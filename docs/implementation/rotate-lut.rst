@@ -260,6 +260,21 @@ Reading the loop, line by line:
   integer additions are exact, so no rounding error can drift along
   the row (the comment's "exact integer math").
 
+.. figure:: ../_static/figs/rotate_gather.png
+   :alt: The gather standing at destination pixels pulling source bytes through the inverse map, and the stored quarter turn folded into the full circle
+   :align: center
+
+   The two lookups, drawn (``docs/tools/gen_rotate_gather.py``).
+   Left: the dashed square is the baked source frame turned
+   −θ, the solid blue square the destination — each blue dot is a
+   destination pixel, the amber dot the source byte it names
+   through ``R(−θ)``; the hollow four are one unroll group, whose
+   members are one ``fx += c15`` / ``fy −= s15`` pair apart.
+   Right: the lazily built ``moon_fixp`` table — one quarter turn
+   stored (1024 entries, 8 KB), the remaining three quadrants
+   folded in by mirror and sign flip, Q15.15 so ``cos 0`` is the
+   integer 32768.
+
 Four properties make this function the performance anchor of the
 rotation (a full 400×400 gather is **~8 ms** on the S3 — the number
 that made the spin's 125 ms frame budget work):

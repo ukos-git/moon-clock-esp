@@ -57,6 +57,13 @@ a transcription bug; a frame that fails the second but not the first
 is the model's residual (the ephemeris, the reference's own
 processing).
 
+The whole gate in one picture — one subject, two references, two
+thresholded comparisons, three board textures:
+
+.. graphviz:: ../_graphs/image-gate.dot
+   :alt: The gate's dataflow — C core, Python prototype and NASA references converge on two MAE comparisons feeding check_gate.py per target
+   :align: center
+
 The 32-frame set
 ----------------
 

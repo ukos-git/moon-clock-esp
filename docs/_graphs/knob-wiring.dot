@@ -1,0 +1,88 @@
+digraph Knob {
+    label="Waveshare ESP32-S3-Knob-Touch-LCD-1.8 — component wiring";
+    labelloc="t";
+    fontname="Helvetica"; fontsize=20;
+    node [fontname="Helvetica", fontsize=13, style="rounded,filled",
+          shape=box, width=1.8, height=0.5,
+          fillcolor="#f2f2ef", color="#525252", penwidth=1.1];
+    edge [fontname="Helvetica", fontsize=11, color="#8a8a8a", penwidth=1.3];
+
+    subgraph cluster_soc {
+        label="app MCU — ESP32-S3R8";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#e8e8e4";
+        color="#525252";
+        fontsize=14; fontcolor="#3c3c3c";
+        s3 [label="ESP32-S3R8\ndual-core Xtensa LX7 · 240 MHz\n16 MB flash + 8 MB in-package PSRAM\nWi-Fi/BLE internal — the join is SNTP-only",
+            fillcolor="#e8e8e4"];
+    }
+
+    subgraph cluster_qspi {
+        label="QSPI x4 display bus";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f4f2ec";
+        color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+        sh8601 [label="SH8601 · 360×360 round LCD\nRGB565 · backlit (LEDA to 3V3)\nCLK 13 · CS 14 · D0–3 15–18 · RST 21\nTE not wired", fillcolor="#efece4"];
+        bl [label="backlight PWM\nGPIO 47 → AO3400A PMOS\nLEDC (the only dimmer —\nno 0x51 register)", fillcolor="#efece4"];
+    }
+
+    subgraph cluster_i2c {
+        label="I²C bus  ·  SDA = GPIO11 · SCL = GPIO12";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#eef0ee";
+        color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+        cst816s [label="CST816S touch @ 0x15\nINT 9 · RST 10\n(5K1 pull-ups · polled,\nINT otherwise unused)", fillcolor="#eef0ee"];
+        drv2605 [label="DRV2605 haptics\n(LRA motor)", fillcolor="#f2f2f0",
+                 color="#b0b0ac", fontcolor="#8a8a86"];
+    }
+
+    dial [label="encoder EC1 (this chip's dial)\nA = GPIO 8 · B = GPIO 7 · 10K pull-ups\nUP/DOWN pulse pair (one channel per detent)\nsoftware-poll decoder, 3 ms tick",
+          fillcolor="#efece4"];
+
+    battery [label="battery 'voltage' ADC\nGPIO 1 (ADC1_CH0)\n10K/10K divider, top rail drawn 5V\n— placeholder calibration until the\nmultimeter verdict lands",
+             fillcolor="#efece4"];
+
+    subgraph cluster_unused {
+        label="on the board, untouched by the firmware";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f5f5f3";
+        color="#b0b0ac";
+        fontsize=13; fontcolor="#8a8a86";
+        unused [label="PDM mic (CLK 45 · DATA 46)\nSDMMC (CMD 3 · CLK 4 · D0–3 5/6/42/2)\nI²S to the CH445P mux → PCM5100APWR DAC\n(native USB D+/D− 19/20 = the 303a:1001 flash path)",
+                fillcolor="#f2f2f0", color="#b0b0ac", fontcolor="#8a8a86"];
+    }
+
+    subgraph cluster_u4 {
+        label="knob-side MCU — ESP32-U4WDH (factory firmware, peer not peripheral)";
+        labeljust="l";
+        style="rounded,filled";
+        fillcolor="#f0eef3";
+        color="#8a8a8a";
+        fontsize=13; fontcolor="#6e6e6e";
+        u4 [label="ESP32-U4WDH · classic-ESP32 core\ndual-core 240 MHz · 4 MB flash\nown EC2 (A 19 · B 22) · own I²S (25/26/27)\nCH340 bridge U10 (1a86:7523) on UART0\n= the working USB side in one plug orientation",
+              fillcolor="#efeef2"];
+    }
+
+    s3  -> sh8601  [label="QSPI x4", dir=both];
+    s3  -> bl      [label="LEDC PWM"];
+    s3  -> cst816s [label="I²C (polled)", dir=both];
+    s3  -> drv2605 [label="I²C", dir=both, style=dashed, color="#b0b0ac"];
+    s3  -> dial    [label="GPIO 7/8 poll", dir=both];
+    s3  -> battery [label="ADC1_CH0"];
+    s3  -> unused  [style=dashed, color="#b0b0ac", label=""];
+    s3  -> u4      [label="inter-MCU UART  TX 38 / RX 48 ↔ 23 / 18 — unused\n(the factory demos' channel; this firmware never talks to the U4)",
+                   style=dashed, color="#b0b0ac", fontcolor="#8a8a86", dir=both];
+
+    /* the wake story: the knob is the family's only REAL deep sleeper */
+    sw_wake [label="real esp_deep_sleep_start · internal RTC TIMER wake\n(no RTC IC — the alarm is a timer, never an early ring)\n\nwake inputs: EXT0 = dial-A GPIO 8 (active-LOW, the primary)\nEXT1 = CST816S INT GPIO 9 ANY_LOW (KNOB_TOUCH_WAKE)\nTIMER = next fixed alarm rule (KNOB_ALARM_TIMER_WAKE)\nEC1 pulses ONE channel per detent — a detent that pulses\nonly B (GPIO 7) does not wake; the next detent does",
+              fillcolor="#e4efe7", color="#3a7d5c", penwidth=2.2,
+              fontcolor="#1f5c40", fontsize=12];
+
+    s3 -> sw_wake [label="rtc_io EXT0/EXT1 + esp_sleep_enable_timer", style=dashed, color="#3a7d5c", fontcolor="#1f5c40"];
+}

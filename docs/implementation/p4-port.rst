@@ -48,6 +48,15 @@ The architecture (:doc:`the architecture <architecture>`) is what makes "a secon
 is panel-scaled, and the board shim is the only place "S3" and "P4"
 coexist as an ``#if``.
 
+The whole port as seams in one picture — one app tree above, the
+P4's two chips below, the ``esp_wifi`` call leaving
+``wifi_manager.c`` unchanged and arriving at the C6 through
+``esp_wifi_remote`` + ``esp_hosted``:
+
+.. graphviz:: ../_graphs/p4-port-seams.dot
+   :alt: The P4 port as seams — board-blind app tree above, the shim as the only #if, the JD9365 panel and the remote C6 (esp_wifi_remote + esp_hosted over SDIO) below, the 3-file defaults split beside it
+   :align: center
+
 The board shim
 --------------
 

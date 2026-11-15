@@ -193,10 +193,14 @@ The wheel is verified in the UI simulator (``host_sim/uisim``) the same
 way every other screen is — the indev read re-driven with simulated
 timestamps so the long-press state machine ages: the ``--wheel`` flow
 taps the hub's WiFi icon at the equal-arc ring position per board (S3
-n=5 i=3 / P4 n=6 i=4), drives the touch-down → sweep → release commit,
-and the ``wheel_hold`` variant drives the 400 ms centre long press
-back to the WiFi list. The 17-shot screenshot set at both panel sizes
-(466 and 720) is committed to ``docs/img/screens/``. The uisim pass
+n=6 i=3 / P4 n=7 i=4 — the ring indices of
+:cfunc:`create_screen_settings_hub`'s array), drives the touch-down →
+sweep → release commit, and the ``wheel_hold`` variant drives the 400
+ms centre long press back to the WiFi list. The 5-shot wheel set (the
+list, the four register states — rest, ``123``, ``ABC``, ``sym`` —
+and the press in flight) is committed for all three panels:
+``docs/img/screens/``, ``docs/img/screens/p4/`` and the knob's
+``docs/img/screens/knob/``. The uisim pass
 proves the *state machine* (hit-test, reveal, commit, backspace,
 long-press, register switch); it cannot prove the *feel* on the
 CST9217's real glass — which is the pending device check (the

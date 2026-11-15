@@ -1,7 +1,7 @@
 The settings hub
 ================
 
-The settings root: a black screen, a central concentric exit (the 150 px circle-xmark ring) back to the calling level, and a ring of sub-screen icons at EQUAL arc distances — 360/n degrees apart (S3: 6 icons × 60°, P4: 7 icons × ~51.4°; the P4 ring opens with the clock icon for manual time entry). The deep-sleep icon is anchored at the bottom (180°) and found **by target**, not by index, so the anchor cannot drift when the ring's count differs between the boards. Moon weight distinguishes the two sleep screens (regular = light sleep, solid = deep sleep); the ring radius is ``UI_PX(140)`` (216 on the P4) — balanced against the 96 px exit disk with equal breathing room both sides.
+The settings root: a black screen, a central exit — the fa-circle-xmark glyph IS the button (the white disk is the 96 px font's ink, the ``UI_PX(150)`` argument only widens the tap box) — back to the calling level, and a ring of sub-screen icons at EQUAL arc distances — 360/n degrees apart (S3 and knob: 6 icons × 60°, P4: 7 icons × ~51.4°; the P4 ring opens with the clock icon for manual time entry). The deep-sleep icon is anchored at the bottom (180°) and found **by target**, not by index, so the anchor cannot drift when the ring's count differs between the boards. Moon weight distinguishes the two sleep screens (regular = light sleep, solid = deep sleep); the ring radius is ``UI_PX(140)`` — 140 / 216 / 108 px on the three panels — balanced against the exit disk with equal breathing room both sides.
 
 .. figure:: ../img/screens/annot/settings-hub_s3.png
    :alt: the settings hub — the S3 panel (466, annotated)
@@ -27,6 +27,91 @@ The settings root: a black screen, a central concentric exit (the 150 px circle-
 
    The same hub after one clockwise dial detent — ``screens_dial_step(+1)``: the focused ring icon goes white (grey = unfocused), the central exit carries the focus ring when it is the cursor. Touch the knob's EC1 encoder, the cursor rides the shared handlers (:ref:`dial-semantics-knob <dial-semantics-knob>`)
 
+The ring, computed per variant
+------------------------------
+
+Every hub dimension is a ``UI_PX()`` literal of the 466 px design
+(``UI_PX(x) = x · panel / 466``, integer division) except the icon
+ink, which comes from the per-panel pre-baked font tier — 96 / 148 /
+74 px is the same 466 → 720 → 360 ratio, baked once into
+``fonts{,_p4,_knob}/`` (:doc:`the knob display <../implementation/knob-display>`
+records the tiers). So the ring geometry is not three designs, it is
+**one design read at three scales** — and the balance it was tuned at
+466 px (inner gap 44 vs outer 45, the 2026-11-04 "stacked icons"
+report) holds on every board:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22 22
+
+   * - Hub quantity (code source)
+     - S3 466
+     - P4 720
+     - knob 360
+   * - ring icons ``n`` (ring array; clock icon only under ``CONFIG_BOARD_P4``)
+     - 6
+     - 7
+     - 6
+   * - angle step ``360/n``
+     - 60.0°
+     - 51.43°
+     - 60.0°
+   * - ring radius ``R = UI_PX(140)``
+     - 140
+     - 216
+     - 108
+   * - icon ink ⌀ (icon font tier)
+     - 96
+     - 148
+     - 74
+   * - centre exit tap box ``UI_PX(150)``
+     - 150
+     - 231
+     - 115
+   * - exit disk ink ⌀ (same glyph tier)
+     - 96
+     - 148
+     - 74
+   * - exit rim → icon inner edge ``R − ink``
+     - 44
+     - 68
+     - 34
+   * - icon outer edge → panel rim ``panel/2 − R − ink/2``
+     - 45
+     - 70
+     - 35
+   * - adjacent chord ``2R·sin(step/2)``
+     - 140
+     - 187
+     - 108
+   * - chord clearance ``chord − ink`` (icons never crowd)
+     - 44
+     - 39
+     - 34
+   * - sub-screen exit tap box (call passes ``UI_PX(90)``, floored at ``UI_PX(96)``)
+     - 96
+     - 148
+     - 74
+
+The chord clearance is the crowding margin: every ring keeps at least
+34 px of air between neighbouring icons — the P4's 7-icon ring runs
+the tightest (39 px ≈ a quarter of one icon). Integer division floors
+each literal separately, so the gaps are exact ``UI_PX`` differences,
+not ``UI_PX`` of a difference (``216 − 148 = 68`` while ``UI_PX(44)``
+would floor to 67).
+
+The figure is drawn by ``docs/tools/gen_hub_ring.py`` straight from
+the code's ring arithmetic — the icon centres are the positions
+``create_screen_settings_hub`` computes (θ clockwise from 12 o'clock,
+``θ = 180° + step·(i − deep)``, position ``(R·sin θ, −R·cos θ)``),
+not a schematic guess:
+
+.. figure:: ../_static/figs/hub_ring.png
+   :alt: The hub ring geometry on the three panels — panel edge, ring circle, exit disk, icon centres at the computed angles
+   :align: center
+
+   The three rings to scale: panel edge (solid), ring circle at ``R`` (dashed), exit disk (amber, with its tap box dotted), icon centres (blue) with the clock-face they land on. The 6-icon ring puts the speaker at 12 o'clock and runs spk → alarm → light-sleep → **deep-sleep at exactly 6 o'clock** → WiFi → timezone; the 7-icon P4 ring inserts the clock icon at ~26° past 12 and pulls the speaker back to ~11 o'clock — the deep-sleep anchor holds because it is found by target, not index.
+
 The wheel keyboard (:doc:`settings-wifi-password <settings-wifi-password>`) has no hub icon of its own — it is reached by tapping an AP row on the WiFi screen, and its only way back is the centre long press.
 
 Elements
@@ -48,7 +133,7 @@ Elements
 
    * - 2
      - Alarm sound (speaker, solid)
-     - The 4-loop sound picker (both boards — the ES8311 is on both).
+     - The 4-loop sound picker (the ES8311 codec is on both clocks; the knob reaches the screen on the shared ring but its silent ``esp_codec_dev`` shim previews nothing).
      - :doc:`settings-alarm-sound <settings-alarm-sound>` — option ``alarm_sound_id``
 
    * - 3
@@ -75,3 +160,8 @@ Elements
      - Timezone (globe, solid)
      - The UTC-offset / Europe-Berlin picker.
      - :doc:`settings-tz <settings-tz>` — option ``timezone_idx``
+
+   * - —
+     - Time (clock, regular) — **P4 only**
+     - The ring's manual-time-entry icon, compiled in only under ``CONFIG_BOARD_P4`` (the S3's PCF85063A needs no manual entry; the knob has no such flow) — which is what makes the P4 ring 7-icon and the other two 6-icon.
+     - ``#if defined(CONFIG_BOARD_P4)`` in the ring array → :doc:`settings-time <settings-time>`
