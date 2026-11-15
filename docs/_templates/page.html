@@ -1,0 +1,22 @@
+{#- Head injection for the reader theme carry (docs/_static/theme_sync.js).
+
+    The script MUST run before furo's top-of-body reader
+    (``document.body.dataset.theme = localStorage.getItem("theme")``), and
+    ``extrahead`` is the only hook there is — furo renders every
+    ``html_js_files`` entry at the body's end regardless of priority, too
+    late to seed the reader flash-free. A plain (non-deferred) head
+    script parses and runs before the body opens.
+
+    The override targets page.html because furo's page.html extends
+    base.html DIRECTLY (its layout.html is a decoy that renders an error
+    text), and every other furo template — genindex, search, domainindex
+    — extends page.html, so this one file covers the whole site.
+
+    See the script header for why the carry exists at all (Firefox
+    partitions localStorage per file:// document; documented on the
+    build-system reference page). -#}
+{% extends "!page.html" %}
+{% block extrahead %}
+    {{ super() }}
+    <script src="{{ pathto('_static/theme_sync.js', 1) }}"></script>
+{% endblock %}

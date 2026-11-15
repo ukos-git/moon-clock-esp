@@ -57,6 +57,12 @@ graphviz_dot = "dot"
 html_theme = "furo"
 # SWAP → "sphinx_rtd_theme" (sphinx-rtd-theme is in requirements.txt).
 html_static_path = ["_static"]
+# _templates/page.html head-injects _static/theme_sync.js (the file://
+# theme carry; see the html_js_files note below). page.html is the
+# right override point for furo: its page.html extends base.html
+# directly (its layout.html is a decoy), and genindex/search/domainindex
+# all extend page.html.
+templates_path = ["_templates"]
 html_title = "The Moon Phase Clock"
 
 # Furo theming: the theme follows the reader's OS preference (furo's
@@ -96,6 +102,16 @@ html_js_files = [
     # doubled ``_static/_static/`` path (404, the init script never loads).
     "mermaid_init.js",
 ]
+
+# The reader's Light/Dark/Auto pick is carried across pages by
+# ``_static/theme_sync.js`` as ``?m=`` — deliberately NOT an
+# ``html_js_files`` entry: furo renders every one of those at the body's
+# end, too late to seed its top-of-body theme reader, so the script is
+# head-injected through ``docs/_templates/layout.html`` instead. (The
+# carry exists because Firefox partitions localStorage per ``file://``
+# document, which kills furo's own persistence at every navigation —
+# the mechanism and the ``make -C docs serve`` way around it are on
+# reference/build-system.)
 
 # autodoc: the moon package is small and fully documented; show everything.
 autodoc_default_options = {

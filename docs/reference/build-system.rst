@@ -376,6 +376,10 @@ The non-IDF build lives in ``host_sim/`` (CMake, the same core):
    python3 docs/gen_media.py                            # the docs videos
    docs/.venv/bin/sphinx-build -b html docs docs/_build/html
    # (the site build — 0 warnings is the gate, the standing rule)
+   make -C docs serve                             # browse it over http
+   # (one origin, so furo's theme toggle survives navigation — under
+   #  file:// Firefox partitions storage per document, see the section
+   #  below)
 
 The ``uisim`` is the one host tool that runs the *device's UI code*
 (not just the core): it links the real ``screens.c`` / ``moon_ui.c``
@@ -383,6 +387,37 @@ against an LVGL build and re-drives the indev with simulated
 timestamps — which is how the wheel's long-press state machine
 (:doc:`the round keyboard <../keyboard>`) and every screen's layout are
 verified without the panel.
+
+The reader's theme under ``file://``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The site is furo: the reader's Light/Dark/Auto pick lives in
+``localStorage`` and furo's top-of-body reader re-reads it on every
+page. Over http that is one shared origin and just works; opened
+straight from the filesystem it does not — Firefox's stock default
+(``privacy.file_unique_origin``) gives every ``file://`` document its
+own storage partition, so a page under
+``docs/_build/html/…html`` starts each navigation back at ``auto``
+and follows the OS ("some pages auto-switch to bright, the same the
+other way around"; headless automation profiles flip that pref, which
+is why the loss looks unreproducible under a test driver). The answer
+is ``docs/_static/theme_sync.js``: it rides the choice in the URL as
+``?m=``, stamps it onto every in-site link the reader follows, seeds
+it back into ``localStorage`` before furo's reader runs (head-injected
+through a ``docs/_templates/page.html`` ``extrahead`` override —
+furo's page.html extends base.html directly, its layout.html is a
+decoy, and every other furo template extends page.html; furo also
+renders every ``html_js_files`` entry at the body's end, too late for
+the seed), and
+re-stamps the address bar when the toggle is clicked — state the
+storage partition cannot lose. The same click also dispatches
+``furo:theme-change``, which the vendored furo never dispatches
+itself: that missing event is why the mermaid diagrams used to sit in
+the old theme after a toggle. A reader who prefers to skip the
+mechanism entirely browses through ``make -C docs serve`` (one http
+origin at ``127.0.0.1:8123``, ``DOCS_PORT=`` to move it, storage shared
+as designed) — over http the script degenerates to re-affirming what
+the storage already knows.
 
 The standing rule (the doc)
 ---------------------------
