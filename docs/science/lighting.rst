@@ -8,8 +8,74 @@ looks like the ragged, mountain-shadowed edge in NASA's frames, not a
 smooth mathematical arc. That is what separates a physically rendered
 moon from a shaded circle.
 
+The short version
+-----------------
+
+The picture on the panel is not a stored photo — it is computed, pixel
+by pixel, on the device. Every pixel goes through the same recipe, and
+the recipe has just five ingredients:
+
+1. **Find the point.** Work out which spot on the Moon's ball the pixel
+   is looking at.
+2. **Ask how directly the Sun hits it** — as if the Moon were a perfect
+   ball with no mountains.
+3. **Correct for the local tilt.** The real surface has mountains and
+   crater walls; a surface tilted *toward* the Sun catches more light
+   than the ball says, one tilted *away* catches less (and can sit in a
+   shadow the ball model knows nothing about). The tilt comes from a
+   terrain height map measured by lunar orbiters.
+4. **Multiply by the paint.** A sunlit basalt sea is still darker than
+   a sunlit highland — the albedo (reflectivity) map supplies that.
+5. **Fix the lookups.** Push the raw brightness through a calibrated
+   brightness table so it matches NASA's rendered frames, and add the
+   faint Earth-reflected glow (*earthshine*) to the night side.
+
+Every section below takes one of these ingredients, says the plain
+version first, and then gives the math and the actual code from
+``moon_bake.c``. The four input vectors the recipe needs — where the
+Sun is (:math:`\mathbf{S}`), where the Earth is (:math:`\mathbf{E}`),
+and the screen's :math:`\mathbf{right}`/:math:`\mathbf{up}` axes — are
+built on the previous page, :doc:`the geometry <geometry>`.
+
+Vocabulary
+----------
+
+Seven terms carry the whole page (the full definitions live in the
+:doc:`glossary <../glossary>`):
+
+- **Terminator** — the day/night boundary line on the visible disk.
+- **Albedo** — how much light the surface material itself reflects: a
+  dark lava sea has low albedo, a bright highland rock high. It is the
+  Moon's *paint*, independent of lighting.
+- **Surface normal** — an arrow standing straight up out of the surface
+  at a point. How much sunlight a patch catches depends on the angle
+  between this arrow and the Sun's direction.
+- **Dot product** — the vector multiply ``A · B`` of two unit arrows.
+  It equals the cosine of the angle between them: ``1`` when they point
+  the same way, ``0`` at right angles, negative when they point apart.
+  It is how "how directly does the surface face the Sun?" gets computed
+  with three multiplies and two adds.
+- **Lambert** (Lambert's cosine law) — a surface's brightness is
+  proportional to how directly it faces the light:
+  ``L = max(0, cos(angle to the Sun))``. Surfaces facing away are dark.
+- **DEM / gradient** — the *Digital Elevation Model*: a map of surface
+  heights in meters (here: laser-altimeter data from the LOLA
+  instrument). Its **gradient** at a point is the pair of numbers
+  saying how fast the ground rises going east, and going north — the
+  local slope, in two numbers.
+- **LUT** — a *Look-Up Table*: a fixed array of numbers, here
+  256 of them, where entry ``n`` says "turn raw value ``n`` into display
+  brightness ``T[n]``". One array read replaces a whole curve
+  evaluation.
+
 The orthographic view
 ---------------------
+
+**The short version.** The pixel grid is a flat shadow of the ball. A
+pixel's position in the disk (measured from the center, in units of the
+disk radius) says exactly which point of the sphere sits behind it —
+the farther from the center, the more the surface has curved away from
+the viewer. The only geometry needed is the Pythagorean theorem.
 
 The camera is, for our purposes, at infinity: it is 384,400 km away and
 the Moon's radius is 1,737 km, so the view is effectively **orthographic**.
@@ -53,13 +119,21 @@ In the C core, per pixel:
    float d  = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
 
 The dot :math:`d = \hat{\mathbf{r}}\cdot\mathbf{S}` is the **base-sphere**
-sub-solar cosine. On a perfect sphere with no relief, the lit/dark
+sub-solar cosine — plain-language: *"how directly does the perfect ball,
+at this point, face the Sun?"* On a perfect sphere with no relief, the lit/dark
 terminator is exactly :math:`d = 0`, and the Lambert term would be
 :math:`\max(0, d)`. That is the cheap model — and it is *wrong* in exactly
 the place it matters: the terminator.
 
 Why the flat model fails at the terminator
 ------------------------------------------
+
+**The short version.** The Moon has mountains. Right at the day/night
+line the Sun skims the surface almost sideways, so a ridge a few
+kilometers tall casts a long visible shadow into the valley behind it —
+and a crater's inner wall can catch sunlight while its floor stays
+dark. A model that ignores the terrain paints those spots the wrong
+color, and the eye reads the difference instantly as a "cartoon moon".
 
 The real surface is not a sphere. A mountain ridge standing at the
 terminator throws a shadow: the sunlit face of the ridge is bright while
@@ -82,7 +156,15 @@ normal. That is the **displaced-normal** model.
    Why the flat model fails, in one cross-section. The flat model's terminator is the straight line :math:`d = 0` (blue); the true lit/dark boundary (red) is jagged. M sits *day* side of the flat line but in the ridge's cast shadow — the flat model calls it lit, the true surface is dark. N sits *night* side of the flat line, but its inner wall turns toward the Sun — the flat model calls it black, the true surface is lit. These are exactly the jagged-edge details NASA's frames show.
 
 The displaced-normal Lambert
------------------------------
+----------------------------
+
+**The short version.** Instead of asking how the *ball* faces the Sun,
+ask how the *actual tilted ground* faces it. The ground's tilt at each
+point is read from the terrain height map (two slope numbers per map
+cell: how fast the ground rises eastward, how fast northward). Tilt the
+"straight up" arrow by that slope, take the dot product with the Sun,
+and you get the honest brightness — which is exactly what the one
+division in the formula below does.
 
 For a height field :math:`h` on the sphere, a point's true surface normal
 is the base-sphere normal displaced by the height gradient. Let
@@ -104,6 +186,12 @@ normalization — and for the small slopes the Moon actually has
 
    \mathbf{N}\cdot\mathbf{S} = \frac{\hat{\mathbf{r}}\cdot\mathbf{S} - \mathbf{G}\cdot\mathbf{S}}{\sqrt{1 + \lVert\mathbf{G}\rVert^2}}
    = \frac{d - \mathbf{G}\cdot\mathbf{S}}{\sqrt{1 + |\mathbf{G}|^2}}
+
+Reading the formula piece by piece: ``d`` is the ball's answer from the
+previous section; ``G · S`` subtracts the extra (or missing) sun facing
+the slope provides; the square root merely re-scales the tilted arrow
+back to unit length (it barely moves at real slopes — which is why the
+cheap approximation is safe).
 
 The C core calls the unclipped quantity :math:`lns`:
 
@@ -140,6 +228,17 @@ terminator contrast.
 The relief DEM and its gradient cache
 -------------------------------------
 
+**The short version.** All the terrain knowledge lives in one height
+map downloaded from lunar orbiters. The bake doesn't need the heights
+themselves — only how steep the ground is, in two numbers per point.
+Computing the steepness fresh for every screen pixel is six separate
+reads from the ESP32-S3's slow external RAM (PSRAM), which measured at
+~3.3 s per frame. But steepness depends only on the height map, not on
+the Moon's phase — so the device computes it **once** for every map cell
+at boot, packs the two slope numbers into one 16-bit word, and the
+bake reads just one word per pixel. That drops the frame time to
+~1.3 s.
+
 The height data is the **LOLA** (Lunar Orbital Laser Altimeter) DEM,
 stored on the device as a **2048×1024 int8** equirect map. Each cell is
 the LOLA height quantized to 8 bits over a fixed meter range:
@@ -170,6 +269,19 @@ per DEM cell**, into a packed cache:
    int8_t qn = slope_q(dhlon * inv_glon), qt = slope_q(dhlat * inv_glat);
    gpack[c] = (uint16_t)((uint16_t)(uint8_t)qn | ((uint16_t)(uint8_t)qt << 8));
 
+What that code does line by line, for a new reader: the east-west slope
+starts as "the height one cell east, minus the height one cell west"
+(likewise north-south). The stored bytes first become meters — the full
+height range is spread over 254 quantization steps, and the ``mps``
+factor is the meters-per-step decoder. The height difference is then
+divided by the ground distance those cells cover on the sphere;
+``inv_glon``/``inv_glat`` are those reciprocals, and the east-west one
+carries the ``rho`` = cos(lat) factor, because a cell of longitude
+narrows toward the poles and the same height difference then means a
+steeper slope. Each slope is then rounded to a single signed byte
+(quantization step 0.003 rad) and the two bytes are packed low-and-high
+into one 16-bit word.
+
 Each cache cell packs the quantized east (glon) and north (glat) slopes
 into a single 16-bit word (one in the low byte, one in the high byte).
 The bake then reads **one** 16-bit load per pixel instead of six
@@ -188,6 +300,13 @@ orbit re-bakes cheap.
 
 The tangent basis
 -----------------
+
+**The short version.** "Slope east" and "slope north" are only
+meaningful once you draw an east arrow and a north arrow on the sphere
+at that exact point — the two arrows that lie flat on the surface there.
+Instead of computing the point's latitude and longitude and calling
+trigonometry on them, the core builds those two arrows directly from
+the direction vector it already has, with one square root.
 
 The gradient :math:`\mathbf{G}` lives in the local east–north tangent
 plane of the unit sphere. Those two unit vectors are built from the base
@@ -219,6 +338,14 @@ inert).
 Albedo, nearest-neighbor
 ------------------------
 
+**The short version.** Lighting says *how much* light; the albedo map
+says *how much of it the ground bounces back*. The map has roughly one
+texture pixel per screen pixel, so there is no detail to lose by simply
+picking the nearest texture point — and no interpolation math to pay
+for it. (The Xtensa FPU has no ``atan``/``asin`` at all, so even the
+"which map point is this?" question is answered with a tiny lookup
+table.)
+
 The color is the **LROC WAC** albedo, an 864×432 equirect map (row 0 =
 north, column 0 = the texture longitude 0, with the 180° offset from
 :doc:`the geometry <geometry>`). The Xtensa FPU has no ``atan``/``asin``, so the texture
@@ -240,10 +367,17 @@ is already sub-pixel accurate and costs one byte load.
 Earthshine (the validated dark-side model)
 ------------------------------------------
 
+**The short version.** The night side of the Moon is not pitch black:
+sunlight bounces off the Earth and faintly backlights it (the same
+effect that lets you sometimes see the unlit crescent in a photograph).
+The model adds a deliberately faint glow to the dark half that grows
+with distance from the terminator toward the anti-solar point — three
+tuned numbers in a cubic polynomial, fitted so the result matches
+NASA's reference frames.
+
 With :math:`dark_zero = 0` — the path the image gate validates — the
 dark side is not flat black. It carries a faint, **phase-independent**
-anti-solar gradient, a fit to the reference frames' Earthlight. It is a
-cubic in :math:`x = \max(0, -d)`:
+anti-solar gradient, a fit to the reference frames' Earthlight. It is a cubic in :math:`x = \max(0, -d)`:
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (earthshine)
@@ -275,6 +409,13 @@ as a real moon is :doc:`the artistic pass <art-pass>`.
 
 The tone LUT
 ------------
+
+**The short version.** The raw physics number (paint × sunlight, 0–255)
+does not *look* like NASA's rendered frames, which were themselves
+beautified. Rather than invent a curve, the project stores a 256-entry
+table — one entry per possible raw brightness — that says exactly what
+display value each raw value should become, fitted to the reference. A
+pixel's final brightness is one table read plus the earthshine.
 
 The raw product is :math:`A \cdot L` (albedo times the lit-side
 Lambert), in 8-bit units. The reference frames are "optimized for
@@ -312,7 +453,10 @@ tuned for the lit side would over-brighten it.
 The full per-pixel model, assembled
 -----------------------------------
 
-Putting the pieces together, one lit pixel is:
+Here is the five-ingredient recipe from the top of the page again, now
+as the exact ten steps the code takes. Everything above was a detour
+into one of these lines; everything below is the same, in one place.
+One lit pixel is:
 
 .. code-block:: text
    :caption: The complete per-pixel bake (lit side)
@@ -353,3 +497,7 @@ dark side, which is where this product made its most deliberate choices.
 The figure is generated from the same code the reader drives:
 ``node docs/tools/gen_bake_intermediates.js`` dumps the eight
 intermediate maps, ``docs/tools/gen_bake_strip.py`` lays them out.
+
+To put the model through its own paces — change the phase, the date, the
+camera, and watch each intermediate — see :doc:`the interactive
+simulator <interactive>`.
