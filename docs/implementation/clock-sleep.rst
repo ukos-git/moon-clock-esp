@@ -279,6 +279,82 @@ label instead, so the string is a constant width and only the ink moves.
    own centred slot, so the string never shifts), over the date; the
    X commits the time.
 
+The wall clock's chain of trust
+-------------------------------
+
+**The short version.** Every minute the clock shows and every phase
+the moon bakes traces back to one of **three time bases** — the S3's
+PCF85063A, the P4's system clock over the internal RTC timer, the
+knob's NVS snapshot — and exactly **one flag** (``s_time_trusted``,
+``clock_sntp.c``) decides how far any of them may be trusted. The S3
+**trusts its chip** (its gate is the range validator alone); the P4
+and the knob **trust the last fix** (restored digits are
+plausible-but-untrusted by design). The flag has exactly two raisers:
+the SNTP sync callback and the manual time entry that mirrors it. A
+never-fixed clock **can** show the moon on the S3, **never** rings an
+alarm on the P4, and **never** shows a silently-wrong moon on the
+knob.
+
+Four facts carry the chain — all of them the code's own:
+
+- **The boot order is the trust order** (``main.cpp``): WiFi first,
+  then ``settings_store_load`` (:508 — *before* ``clock_init``, because
+  the timezone comes from the store and must be set before any moon
+  use, the comment in ``clock.c``'s epoch function says it plainly),
+  then the boot NTP **synchronously inside ``clock_init``** (:512,
+  timeout ``CLOCK_NTP_TIMEOUT_MS`` = 10 s), then the radio is dropped
+  *before the panel ever wakes* — an associated modem's DTIM beacon
+  steals QSPI DMA completions (task #29), so the boot sync is done and
+  gone before the first flush.
+- **Two plausibility floors, both parsed, never invented.** The NVS
+  restore accepts only ``epoch >= 1609459200`` (pre-2021 is junk); a
+  still-invalid system clock lands on the DEFAULT 2026-01-24 12:00
+  (``clock_sntp.c``'s fallback chain). The knob's deep-sleep alarm gate
+  uses its own floor — ``EPOCH_PLAUSIBLE_MIN`` 1600000000
+  (``knob_power.c``) — and a restored-but-never-fixed instant arms the
+  static moon through the **wall bool** ("a restore happened"), never
+  through the raw clock's plausibility: the trust flag stays down until
+  an SNTP fix, and "a factory default clock never shows a
+  silently-wrong moon" is the code's own sentence for why.
+- **One door to the sky** — ``clock_get_utc_epoch`` (``clock.c:257``):
+  read the digits (an I2C transaction on the S3, ``time()`` on the
+  P4/knob), run ``validate_time`` (year 2000..2099 plus the field
+  ranges), reject implausible answers with ``ESP_ERR_INVALID_STATE``,
+  else ``mktime`` the *local* digits into the UTC epoch under the TZ
+  that ``clock_sntp_init`` set from the store. Five call sites in
+  ``moon_ui.c`` (start, boot replay, the core-1 event scan, the day
+  tick, the wake stale re-bake) each skip or defer on a reject —
+  "Reject implausible dates so callers (moon phase) show nothing
+  rather than a wrong phase" is the function's own comment, and the
+  panel going black on a blank RTC is its visible half.
+- **The flag gates what hurts to get wrong**: the P4's software alarm
+  poll fires only while trusted (a default 2026-01-24 12:00 can never
+  ring a phantom — ``clock_interrupt.c:183``), the P4's time label sits
+  at ``LV_OPA_50`` until the flag flips (``screens.c:3644``, compiled
+  out on the S3), and the manual-entry commit (``screens.c:2901``) sets
+  the time, the flag *and* the day tick together. ``clock_tz_apply``
+  rewrites the S3's RTC local digits epoch-consistently (``mktime``
+  **before** the env change) or re-derives the P4's, then re-arms the
+  scheduler.
+
+The whole chain — three bases, the fallback floors, the fixers, the
+epoch door and what the flag gates — drawn from the code:
+
+.. graphviz:: ../_graphs/time-chain.dot
+
+One honest bench note on the P4's clock source. The curated
+``sdkconfig.defaults.esp32p4`` pins ``CONFIG_RTC_CLK_SRC_EXT_CRYS=y``
+("the internal RC oscillator is only a few % accurate and is unusable
+as a clock time base", the defaults file's own comment — see
+:doc:`the P4 board <../devices/p4>`), and ``-B build/p4`` treats the
+**live** ``sdkconfig.p4`` as authoritative: a stale
+``CONFIG_RTC_CLK_SRC_INT_RC=y`` pin in that gitignored file shadows the
+default (a hand-edited live ``sdkconfig`` line beats every ``default``
+line — CLAUDE.md's pin trap), which the generated
+``build/p4/config/sdkconfig.h`` betrays. Grep the live file before
+believing a built binary runs on the crystal; the documented remedy is
+the deletion of the stale pin, not a doc edit.
+
 The 90° orientation steps
 -------------------------
 

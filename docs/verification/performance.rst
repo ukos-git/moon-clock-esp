@@ -564,6 +564,61 @@ ladder cannot drift from the firmware.
    reveal tick lands at exactly the 20 Hz the bake-reveal design
    specifies. The generator is ``docs/tools/gen_perf_pacing.py``.
 
+The patience ladder (how long a wait is allowed)
+------------------------------------------------
+
+**The short version.** The pacing ladder measures the device's heart;
+this one measures its **patience** — the other side of the same
+currency. Where the pacing rows are *periods* (things that repeat),
+these rows are *deadlines*: one-shot waits the firmware sits in
+before it acts. Eleven of them carry the product, spanning 1 s to
+240 s: the drain witness gating on the panel mutex (**2 s**), the
+panel-io watchdog owning the true-stall case (**3 s**), the traffic
+hold's tail (**4 s**) behind its cap (**15 s**), the deliberate
+orientation press (**2 s**), the scan-retry gap (**1 s × 4
+attempts**), the two NTP fix windows (**10 s** clock, **20 s** knob),
+the knob's join wait (**15 s**) — and the two budgets the hourly and
+boot ladders measure against (**5 s**, **240 s**). Every value is
+**parsed from the live sources** at figure time; nothing is measured
+on the bench, because none of these needs to be — they are the
+firmware's own promises.
+
+The figure's real content is the *pairing*: the drain-witness gate
+and the orientation press are both 2 s with opposite intent — one is
+a guard giving up on a lost GPSPI completion so LVGL proceeds (the
+function's own log line: "bus still busy >2000 ms (lost trans-done
+hand …)"), the other is a *deliberate* hold the user times by feel;
+and the 2 s/3 s guard pair is exactly the split the flush path's
+design keeps honest (``moon_flush_wait_cb``'s comment: the 2 s cap
+"only fires on a genuinely stuck bus … the panel-io watchdog keeps
+owning the true-stall case: still ``s_panel_mtx``-stuck, still 3 s" —
+:doc:`the display pipeline <../implementation/display>`,
+``flush-path.dot``). The radio rows are the same waits the
+:doc:`clock machine <../implementation/clock-sleep>` shows as trust
+raisers: the boot fix window is the 10 s spent *inside* ``clock_init``
+before the panel ever wakes, and the knob's 20 s fix window is what
+the "last known" NVS arming races against.
+
+.. figure:: ../_static/figs/perf_guards.png
+   :alt: every one-shot wait in the firmware on one log axis, and the
+       same rows as multiples of the 5 s hourly producer budget
+   :figclass: align-center
+
+   The patience ladder. **Left:** every shipped deadline on one log
+   millisecond axis, colour-coded by family (red = the panel-bus
+   guards, amber = the human press, teal = the radio's fix windows,
+   violet = the two budgets; hatched = Kconfig-paced), each row
+   annotated with its source provenance. **Right:** the same rows as
+   multiples of ``HOURLY_BUDGET_MS`` — derived (one division against
+   the parsed constant), nothing new measured: the bus guards are
+   all *fractions* of a producer cycle (0.2–0.8×; the worst stall
+   response costs less than one hour's refresh), the two budgets sit
+   at their identities (1×, 48×), and the radio waits — 2× to 4× —
+   are why the syncs run on background tasks instead of the UI tick
+   (:doc:`the wake-freeze fix <../implementation/clock-sleep>`,
+   *The wake paths*). The generator is
+   ``docs/tools/gen_perf_guards.py``.
+
 The brightness ladder (ramp vs single write)
 --------------------------------------------
 

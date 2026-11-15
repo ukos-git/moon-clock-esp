@@ -315,6 +315,12 @@ The P4 build merges the shared defaults with
    # accurate and is unusable as a clock time base.
    CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 
+What the *live* ``sdkconfig.p4`` pins is what ``-B build/p4`` builds —
+a stale line there shadows every defaults-file default; the built
+binary's clock source is verified in ``build/p4/config/sdkconfig.h``,
+and the bench-note lives in
+:doc:`the clock and the sleep machine <../implementation/clock-sleep>`.
+
 **The board line asymmetry, the P4 half:** this file **does** carry
 ``CONFIG_BOARD_P4=y`` — the Kconfig ``choice``'s default is the S3,
 so selecting the P4 must override it, while the S3 file needs no
