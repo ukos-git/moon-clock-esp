@@ -270,6 +270,11 @@ The rules the graph encodes:
   :c:func:`event_handler_cb_home_tap`, awake-only — the wake tap
   never opens the hub).
 
+The *timing* of this chain — how soon each path lands a visible
+change, and how the knob's dedicated encoder path alone beats the
+shared 33 ms read timer — is plotted as the response ladder in
+:doc:`the performance page <../verification/performance>`.
+
 .. _menu-geometry:
 
 Menu geometry, computed per variant

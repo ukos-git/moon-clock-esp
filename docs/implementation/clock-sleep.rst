@@ -621,6 +621,13 @@ The whole chain — the rule write, both boards' arms, the shared
 
 .. graphviz:: ../_graphs/alarm-lifecycle.dot
 
+The interval (pomodoro) rule's settings-side half — the three-glyph
+entry screen, the twin-roller screen whose RELEASED handler *is* the
+commit, and the ``*/N`` midnight-anchored day-grid arithmetic — is
+drawn in :doc:`the pomodoro interval <../ui/settings-pomodoro>`
+(``pomodoro-cycle.dot``); the lifecycle above is where both rule
+kinds land.
+
 The tilt: activity and wake
 ---------------------------
 

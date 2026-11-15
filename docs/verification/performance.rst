@@ -852,6 +852,61 @@ the footprint figure above.
    over each family's own LVGL task — the clocks' producers clear the
    renderer by +16, the knob's by −5, the inversion one subtraction.
 
+The response ladder (how soon the user is noticed)
+--------------------------------------------------
+
+**The short version.** The pacing ladder plots the device's own
+heartbeat, the patience ladder its allowed waits — this third column
+of the same currency family plots the **human side**: how quickly a
+finger, a tilt or a dial detent becomes a visible change. Ten rows
+span 3 ms to 2 s on one log millisecond axis, every value parsed from
+the live sources at figure time: the knob encoder's ``ENC_POLL_MS``
+poll (with the honest tick note — ``pdMS_TO_TICKS(3)`` lands at one
+tick, 10 ms, at the knob's parsed ``CONFIG_FREERTOS_HZ``), the
+debounce pair behind it, the 20 ms ``dial_task``, the one
+``CONFIG_LV_DEF_REFR_PERIOD`` read timer every touch path shares,
+the 10 ms UI tick, the 2 × ``UI_SCREEN_SWITCH_FADE`` navigation
+round-trip, and the three human-scale rows.
+
+The figure's real content is a *two-way race between input paths*.
+The knob's dedicated encoder chain — poll, ``ENC_DEBOUNCE`` 2-tick
+streak, ``dial_task`` consume, 33 ms repaint — is the **only** input
+path in the family that is faster than the LVGL read timer: every
+touch on both clocks is *detected* no sooner than
+``CONFIG_LV_DEF_REFR_PERIOD``, parsed here from **all three**
+generated headers and asserted equal (the one-beat claim of
+``input-chain.dot``, re-verified at figure time; on the P4 that
+timer is the whole story — the GT911's INT is NC and nothing wakes
+it early). And the three teal rows are the same 2000 ms with three
+opposite intents: the 90° step's visible cost is the code's own
+sentence — "the 1 s window lags the step changes by ~1 s, and the
+sustained confirmation needs a second ~1 s on top" (the row is
+derived as ``2 × ORI_SAMPLE_MS × ORI_WINDOW``) — the wake's is two
+consecutive above-bar samples at the 1 Hz monitor, and the press is
+the one wait the *user* owns (the patience ladder's same constant,
+drawn here with human intent). Right panel: the same rows as
+multiples of the beat (one division, nothing new measured) — the
+encoder chain clears it at 0.09–0.61×, the beat row lands at 1× by
+definition, navigation pays 15× for its fade round-trip, and every
+human confirmation sits at 61×: **no human ever waits on the beat,
+the machine always waits on the human**. The mechanism — who reads
+and how — is :ref:`the input chain <input-chain-ui>`; the
+``docs/tools/gen_perf_response.py`` generator draws both panels.
+
+.. figure:: ../_static/figs/perf_response.png
+   :alt: every detection-to-visible-response latency on one log axis, and the same rows as multiples of the 33 ms LVGL read timer
+   :figclass: align-center
+
+   The response ladder. **Left:** every shipped input path as its
+   detection-to-visible-response latency on one log millisecond axis,
+   colour-coded by family (amber = the knob's dedicated encoder path,
+   blue = the shared LVGL beats, violet = the fade round-trip, teal =
+   the human-scale holds), hatched = Kconfig-paced, each row annotated
+   with its parsed provenance. **Right:** the same rows as multiples
+   of ``CONFIG_LV_DEF_REFR_PERIOD`` — derived (one division), nothing
+   new measured: the knob's chain beats the beat, everything else
+   rides it, and the human holds tower 61× over it by design.
+
 The performance decisions, ranked
 ---------------------------------
 

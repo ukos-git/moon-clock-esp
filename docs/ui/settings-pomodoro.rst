@@ -52,3 +52,34 @@ Elements
      - Exit → alarm settings
      - The shared bottom-centre exit back to the CALLING level — the alarm screen (not the hub).
      - :cfunc:`settings_sub_screen_prepare`
+
+The cycle behind the rollers
+-----------------------------
+
+The rollers are the top of a chain that ends in a hardware interrupt.
+A RELEASED writes the **one** rule file whole
+(:cfile:`components/clock/clock_alarm_scheduler.c`): the interval rule
+is ``*/N * * * *`` — an *alarm* rule with a minute interval, not a
+separate subsystem — so the two entries on the alarm screen stay
+mutually exclusive by construction, and a 0 (``00:00``) never reaches
+the file (``clock_alarm_set_pomodoro_interval`` also gates
+``1..1440``; the screen's 0-reject is the friendly half of that gate).
+The parser's pomodoro corner is the minute field's ``*/N``, which may
+span the **whole day** — N up to 1440, the grid anchored at midnight:
+the next ring is the first total-minutes-of-day multiple of N strictly
+after now, and once today's grid is exhausted it is ``00:00`` of the
+next day (an N ≤ 59 rule instead rings at multiples of N *within* the
+hour; minute-and-hour intervals together are rejected). The arming
+funnel caches the computed next ring and arms the PCF85063A ALM on the
+S3 or the ``esp_timer`` one-shot on the P4/knob, and the home alarm
+row is a pure **view of that cache** — ``H:MM`` with an unpadded hour,
+a 2-letter weekday prefix only while the ring is more than 24 h away,
+``--:--`` when nothing is scheduled; the minute tick re-reads it
+because the prefix flips exactly at the 24 h boundary. On the knob the
+dial commit *sends* ``LV_EVENT_RELEASED`` to the focused roller — the
+drag path and the detent path are the same commit. The fire itself (the
+shared 1300 ms poll, the trigger, the ring, the fire-then-reschedule)
+is :doc:`the alarm lifecycle <../implementation/clock-sleep>`;
+this figure owns the settings-side machine and the grid arithmetic:
+
+.. graphviz:: ../_graphs/pomodoro-cycle.dot
