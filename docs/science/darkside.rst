@@ -9,8 +9,84 @@ a flat floor, the anti-solar lighting that makes crater rims readable in
 the dark, and the ``dk_sup`` sliver-kill that keeps the sleep screen
 from showing a phantom bright rim.
 
+The short version
+-----------------
+
+The previous page ended every *lit* pixel at the tone LUT. This page is
+about the other pixels — the ones the Sun rejects, where the solar
+Lambert came out zero or negative — and it comes down to three
+decisions:
+
+1. **There are two dark sides, and a flag picks one.** The image gate
+   (:doc:`the image gate <../verification/image-gate>`) validates a
+   *physics* dark side: a faint earthshine glow fitted to NASA's
+   frames. The panel shows a *product* dark side: the actual lunar
+   surface rendered again, as if a dim lamp sat on exactly the opposite
+   side of the Moon from the Sun. One parameter switches between them;
+   everything else about a frame is identical.
+2. **The displayed dark side is computed, not painted.** The first
+   version painted the night half in one constant gray, and it was
+   rejected: beside a real-textured crescent, a textureless half-disk
+   reads as a broken renderer, not as the Moon.
+3. **Its level is one honest number.** The backlit brightness is
+   ``albedo × anti-solar Lambert × 0.20`` — deliberately *linear*,
+   skipping the lit side's tone LUT, so the constant means exactly what
+   it says (the brightest possible dark-side pixel is about 51 of 255)
+   and can be calibrated against NASA's dark side as a single
+   measurement.
+
+Two later sections describe edge-case machinery built for the dusk
+animation — a rim-sliver killer and a sampling margin. The dusk was
+retired 2026-11-13; the code stays, inert: every caller passes zero,
+so the night test reduces to the plain ``lns <= 0``.
+
+Everything this page leans on — the vectors, ``lns``, the tone LUT,
+the body frame — was built on :doc:`the geometry <geometry>` and
+:doc:`the lighting model <lighting>`.
+
+Vocabulary
+----------
+
+Nine terms carry the page (the full definitions live in the
+:doc:`glossary <../glossary>`):
+
+- **Dark side** — the pixels of the visible disk where the Sun
+  contributes nothing: the solar Lambert ``lns`` is zero or negative
+  there.
+- **Backlit** — the display model's word for "computed, not painted":
+  the same surface (albedo *and* relief) rendered as if lit from the
+  anti-solar direction, then dimmed.
+- **Anti-solar direction** — :math:`-\mathbf{S}`, the direction exactly
+  opposite the Sun. The imaginary lamp that lights the dark side in the
+  backlit model sits there.
+- **Earthshine** — sunlight reflected off the Earth back onto the
+  Moon's night side; the *physics* model's faint glow (the lighting
+  page's cubic), which the image gate validates.
+- **Lambert** — cosine-law brightness: how directly a surface faces a
+  light source, clipped to the 0–1 range. The *solar* Lambert is the
+  previous page's ``lns``; the backlit one is its sign flip.
+- **Tone LUT** — the lit side's 256-entry calibration table from raw
+  brightness to display brightness. The backlit side deliberately
+  bypasses it.
+- **Sliver** — the thin strip of geometrically lit pixels that can
+  cling to the disk rim in a view that should be fully dark — the
+  "white ray" bug.
+- **dk_sup** — a threshold on the sub-solar cosine ``d``: below it the
+  bake is told to write the night side, killing the sliver. A dusk
+  remnant; every caller passes ``0.0`` today.
+- **Nearest-neighbor (NN)** — sampling a map by taking the *closest*
+  cell rather than blending the neighbors; fast, and the reason a
+  pixel at a map's lit/dark boundary can grab the wrong side's color.
+
 Two models, one flag
 --------------------
+
+**The short version.** One bake function serves two customers, and the
+customer picks the night half with a single switch, ``dark_zero``. The
+image gate asks for the physics answer (``0`` — earthshine); the panel
+asks for the product (``1`` — the computed backlit surface). The lit
+side, the terrain, the vectors: all shared. Only the night pixels
+differ.
 
 The bake's ``dark_zero`` flag selects which dark side is written:
 
@@ -30,6 +106,12 @@ else changes between the two paths.
 
 Why not a black overlay
 -----------------------
+
+**The short version.** The cheapest dark side is paint: fill the night
+half with one gray and be done. That was version one, and it failed
+twice over — the half-disk had no surface, and next to a real-textured
+crescent it looked like a rendering bug. The design goal that came out
+of it: *the unlit side is fully calculated, just like the lit side.*
 
 The obvious dark side is a flat black disk behind the lit crescent. The
 project's first version used a constant floor (``MOON_NIGHT_FLOOR``) —
@@ -51,6 +133,13 @@ direction.
 The anti-solar Lambert
 ----------------------
 
+**The short version.** Every pixel already carries the number that
+decided its daytime brightness — ``lns``, how directly its ground
+faces the Sun. Flip that number's sign and it answers the night-side
+question instead: *how directly does the same ground face the point
+exactly opposite the Sun?* Clip it the same way, and you have the
+backlit Lambert.
+
 The backlit surface is lit from the **anti-solar** direction
 (:math:`-\mathbf{S}`). A surface point's backlit Lambert is the mirror
 of its solar Lambert:
@@ -68,6 +157,14 @@ rims that face the viewer catch the faint anti-solar light, valleys fall
 off — at a dim scale. That is what makes the dark side read as a real
 moon rather than a blob.
 
+Reading the formula piece by piece: ``lns`` is the unclipped *solar*
+Lambert from the previous page — on the night side it is negative, by
+exactly the amount the Sun rejects that ground; the ``-`` turns that
+rejection into acceptance (the more the Sun rejects a patch, the more
+directly the patch faces the anti-solar lamp); and the ``clip`` floors
+the lit side at zero (sunlit ground contributes no backlit value) and
+caps the most anti-sun-facing ground at full.
+
 The level is set by a single constant, :math:`MOON_NIGHT_BACKLIT_K`, and
 the backlit gray is a *direct linear* gray (not the tone LUT):
 
@@ -84,6 +181,14 @@ the backlit gray is a *direct linear* gray (not the tone LUT):
        return (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
    }
 
+What those lines do, one by one: ``l = -lns`` takes the Sun-rejection
+value the night side carries; the ``if``/``else if`` pair is the clip —
+it pins ``l`` into 0–1. ``out = A * l * MOON_NIGHT_BACKLIT_K`` then
+multiplies three factors: the ground's paint (the albedo byte, in 0–255
+units), how far the slope faces the anti-solar lamp (``l``), and the
+dimming constant. The return line rounds to the nearest byte and
+clamps to the display range. Three multiplies — no table read.
+
 The peak dark-side gray is :math:`255 \times K` — with :math:`K = 0.20`
 that is a peak of about **51**, a level at which the maria and highland
 structure are clearly visible without the dark side competing with the
@@ -93,6 +198,14 @@ computed surface, and why :math:`K` was doubled — is the artistic pass,
 
 Why linear gray, not the tone LUT
 ---------------------------------
+
+**The short version.** The lit side pushes its raw brightness through
+the tone LUT — a calibrated curve with deliberate distortions (a shadow
+lift, a highlight compression) tuned for *sunlit* pixels. Running the
+already-faint backlit side through those distortions would ruin it, so
+the backlit path skips the LUT entirely. A side effect is a gift: the
+dimming constant stays an honest dial, and calibrating it against
+NASA's dark side is one number's job.
 
 The backlit side deliberately bypasses ``MOON_TONE_LUT``. Two reasons:
 
@@ -112,6 +225,14 @@ single, honest number.
 The constant-projection property
 --------------------------------
 
+**The short version.** Which half of the disk is dark depends on where
+the viewer stands — that is the camera's choice. But the *color* a dark
+pixel gets depends only on the ground under it and the epoch's fixed
+Sun; the camera never enters the formula. So the dark-side colors can
+be computed once into a body-frame map and reused for every camera
+angle, and a given crater keeps its exact color from frame to frame.
+That is what made the retired dusk spin cheap and flicker-free.
+
 A subtle but load-bearing fact: the backlit color is a function of the
 body-frame surface direction and the epoch's fixed Sun only. The camera
 basis (which direction the viewer sees) selects *which* direction is on
@@ -127,6 +248,16 @@ sphere it is projected onto rotates.
 
 The dusk's rim sliver: ``dk_sup`` and the "white ray" (retired with the dusk)
 ------------------------------------------------------------------------------
+
+**The short version.** At the end of the retired dusk animation the
+screen was meant to go fully dark — but because the spin never changed
+the view latitude, a hairline at the disk rim kept grazing the Sun and
+stayed lit: a bright arc nicknamed the "white ray". The cure rides a
+free property of the backlit model: a *sunlit* pixel drawn in the
+backlit style is **black**. So you don't fight the sliver's lighting —
+you just re-classify those pixels as night, and black comes out the
+other side. The re-classifier is ``dk_sup``, a bound every caller
+passes as 0 today.
 
 The backlit model has one edge case the earthshine model never had. The
 dusk spun the camera about the pole toward a fully-dark endpoint. But
@@ -156,12 +287,28 @@ killed without a special case:
     * pure black. Every other caller passes 0.0f. */
    int is_night = c->dark_zero ? (d < c->dk_sup) || (lns <= 0.0f) : (lns <= 0.0f);
 
+Reading the conditional: with the earthshine model (``dark_zero = 0``,
+the false branch) the night test is the plain ``lns <= 0``; with the
+backlit model the night region additionally starts at ``d < dk_sup`` —
+the grazing sliver is routed through ``moon_backlit_night``, and
+because its ``lns`` is positive (that sliver *is* sun-lit), the clip
+inside the function makes it pure black. With ``dk_sup`` at 0 the extra
+test is dead and both branches agree.
+
 Every caller passes ``dk_sup = 0.0f`` today (the dusk was the only
 non-zero caller, retired 2026-11-13), so the test reduces to
 :math:`lns \le 0` — byte-identical to the pre-backlit bake.
 
 The shade-map margin (NN aliasing)
 -----------------------------------
+
+**The short version.** The re-projected frames read the pre-shaded map
+cell by cell — nearest cell wins. At the map's lit/dark boundary that
+is a hazard: a night pixel just below the boundary can round *up* into
+a lit cell and come back lit, re-creating the white ray one layer
+down. The fix is preventive erosion: when the map is built, the dark
+region is extended outward *just more* than a nearest-neighbor lookup
+can possibly jump — so the wrong cell is unreachable by construction.
 
 The dusk's *intermediate* frames did not re-bake — they re-projected
 the pre-shaded body-frame map (:doc:`the animation pipelines <../implementation/animations>`). That map is sampled
@@ -197,6 +344,14 @@ so the last re-projected frame and the dark-side bake match with no pop.
 
 Where each path runs
 --------------------
+
+**The short version.** Three callers share this one bake: the image
+gate asks for the physics night side, the display bakes ask for the
+backlit one, and the dusk (retired) was the only caller that ever set
+``dk_sup``. The table is the guest list. The point of recording it is
+the isolation: the gate never sees the backlit path, so its image-diff
+numbers certify the lit-side physics no matter how the display's dark
+side is tuned.
 
 .. list-table::
    :header-rows: 1
