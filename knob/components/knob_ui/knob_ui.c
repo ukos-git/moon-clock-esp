@@ -705,12 +705,26 @@ static void start_tasks(void) {
      * bake by rows -- so sdkconfig.defaults keeps CPU1's
      * idle check ON with panic on expiry (bench 2026-11-11: the silent
      * TG1WDT boots were an unyielding scan with the check off),
-     * pinned to CPU1 so the bake never starves the render/Wi-Fi core,
-     * stack in PSRAM. 12 KB, not 8: the classify scan + the upcase sm[]
-     * overflowed 8 KB on the clock (stack-protection fault, 2026-11-04).
-     * The swap task stays a plain registered xTaskCreate (it polls and
-     * delays -- a watchdog on it is a feature). */
-    xTaskCreatePinnedToCoreWithCaps(moon_task, "knob_moon", 12288, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
+     * pinned to CPU1 so the bake never starves the render/Wi-Fi core.
+     * STACK IN INTERNAL RAM (was MALLOC_CAP_SPIRAM): the b924abf
+     * systimer-tick family came back on the bench as a coredump -- the
+     * core-0 tick ISR died jumping to a garbage return inside
+     * prvTaskExitCriticalSafeSMPOnly (&xKernelLock) while knob_moon sat
+     * hot in erfa (eraEpv00) on CPU1, and six other tasks were parked at
+     * the identical cross-core critical-exit (vPortClearInterruptMask-
+     * FromISR). On the original (non-SMP) FreeRTOS kernel every critical
+     * section snoops the OTHER core over IPC, and the knob's moon_task
+     * is a RESIDENT task that re-enters the 20 s erfa scan on every day/
+     * event tick -- unlike the S3 clock, whose classify runs on a
+     * spawn-per-job worker that exits (moon_ui.c:2755), so the S3 rarely
+     * leaves a PSRAM stack live under a tick snoop. A PSRAM-backed stack
+     * is the unsupported combination there (IDF: ISR/cache caveats) ->
+     * internal DRAM, which has ~190 KB free (DIRAM 43 %). 12 KB, not 8:
+     * the classify scan + the upcase sm[] overflowed 8 KB on the clock
+     * (stack-protection fault, 2026-11-04). The swap task stays a plain
+     * registered xTaskCreate (it polls and delays -- a watchdog on it is
+     * a feature). */
+    xTaskCreatePinnedToCoreWithCaps(moon_task, "knob_moon", 12288, NULL, 5, NULL, 1, MALLOC_CAP_INTERNAL);
     xTaskCreate(swap_task, "knob_swap", 8192, NULL, 7, NULL);
 }
 
