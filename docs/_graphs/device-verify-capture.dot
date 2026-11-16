@@ -8,21 +8,21 @@
 //   stalled. First line of the boot: "panel-io watchdog armed
 //   (3000 ms stuck limit)" (moon_ui.c:2600).
 //   idle: "Idle monitoring enabled" (components/clock/clock_idle.c:138,
-//   re-arm variant components/ui/actions.c:1373) then "Idle timeout
+//   re-arm variant components/ui/actions.c:1472) then "Idle timeout
 //   reached after X ms" (clock_idle.c:121) at
 //   CONFIG_CLOCK_IDLE_TIMEOUT_SEC = 60 s (components/clock/Kconfig:68).
 //   light sleep (static dim — nothing animates between the switch and
-//   the arm): "Switching to light sleep screen" (actions.c:1476),
-//   "Seconds timer paused for light sleep" (:1497), "panel dim ramp:
+//   the arm): "Switching to light sleep screen" (actions.c:1575),
+//   "Seconds timer paused for light sleep" (:1596), "panel dim ramp:
 //   brightness 100 -> 25% (240 ms)" (moon_ui.c:3116), "RTC countdown
-//   %u s to deep sleep armed" (actions.c:1513 — the ENTRY arms the
+//   %u s to deep sleep armed" (actions.c:1612 — the ENTRY arms the
 //   RTC one-shot itself).
-//   deep sleep: "Deep sleep: panel backlight off" (actions.c:1261),
-//   "UI tick timer paused for deep sleep" (:1270), "Seconds timer
-//   paused for deep sleep" (:1276).
+//   deep sleep: "Deep sleep: panel backlight off" (actions.c:1348),
+//   "UI tick timer paused for deep sleep" (:1357), "Seconds timer
+//   paused for deep sleep" (:1363).
 //   wake: shows the current phase STATIC; the acceptance SIGNATURE is
 //   the seconds arc advancing WHILE the background wifi_sync reconnect
-//   runs (task at actions.c:71/:132) — the old freeze's signature was
+//   runs (task at actions.c:85/:146) — the old freeze's signature was
 //   the wake screen frozen for the sync's whole duration.
 //   TIMING: the bake's wall time vs the atomic shown delta — a shown
 //   delta that tracks the bake (~1.3 s) instead of the display
@@ -53,7 +53,7 @@ digraph device_verify_capture {
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     idle [label="idle — monitoring on, then\nthe 60 s timeout\n(clock_idle.c:138/:121)",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    lsl [label="light sleep — switch,\nseconds pause, dim to 25 %,\nRTC countdown armed at\nENTRY (actions.c:1476-1513)",
+    lsl [label="light sleep — switch,\nseconds pause, dim to 25 %,\nRTC countdown armed at\nENTRY (actions.c:1575-1612)",
          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     deep [label="deep sleep — backlight off,\nUI tick + seconds timers\npaused (:1261/:1270/:1276)",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];

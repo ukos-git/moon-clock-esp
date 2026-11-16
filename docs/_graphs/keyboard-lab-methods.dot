@@ -5,7 +5,7 @@
 // 1 s), the four off-hardware cards, and the violet dashed keeps —
 // what the shipped sweep wheel took from the alternatives it
 // rejected. The pairing record: the keys are the house circle-check
-// commit and circle-xmark discard since 2026-11-08 (screens.c:1806);
+// commit and circle-xmark discard since 2026-11-08 (screens.c:1813);
 // the frozen mock still draws the older xmark-on-commit / trash-on-
 // discard. The thirteen in black boxes is
 // docs/_graphs/keyboard-lab.dot (this page); vouches are

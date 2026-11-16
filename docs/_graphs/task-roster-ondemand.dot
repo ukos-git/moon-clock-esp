@@ -1,11 +1,11 @@
 // The ON-DEMAND band opened: the three self-deleting one-shots the
 // clocks spawn when asked. Every edge read out of the live source
 // before drawing: the WiFi screen load arms the panel traffic hold and
-// kicks off wifi_sync (components/ui/actions.c:817, "on-demand sync";
+// kicks off wifi_sync (components/ui/actions.c:885, "on-demand sync";
 // 6144 words, prio 10, unpinned — "6144: wifi_manager_init + the SNTP
 // stack run here", vTaskDelete(NULL) at the fn tail); wifi.c:551
 // wifi_scan_begin spawns wifi_scan (6144, prio 5, self-deletes);
-// alarm_audio.c:319/:348 spawn play_task (6144, prio 4) from ring_start
+// alarm_audio.c:337/:366 spawn play_task (6144, prio 4) from ring_start
 // and the settings preview, one at a time. wifi_sync sets the done flag
 // that "the wake handler (action_wake_screen) consumes (clears)"
 // (actions.c:46 comment). The crew in black boxes is
@@ -25,7 +25,7 @@ digraph task_roster_ondemand {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    wload [label="WiFi screen load\n(actions.c:817 — hold\narmed first)"];
+    wload [label="WiFi screen load\n(actions.c:885 — hold\narmed first)"];
     ring [label="alarm ring / settings\npreview — one at a time"];
     wsync [label="wifi_sync · p10 · unpinned · 6 KiB\n\"the SNTP stack run here\"\nself-deletes",
            fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];

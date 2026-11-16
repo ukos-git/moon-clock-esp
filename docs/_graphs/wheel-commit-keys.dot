@@ -32,7 +32,7 @@
 // above the mode arc; at 360 px the arc's annulus answered presses on
 // the INNER half of the letter band as "mode 3"/"mode 0" and a register
 // rebuild ended in a task-WDT reset (bench 2026-11-11). The global 2 s
-// press orientation re-sync (actions.c:230, the indev callback :357)
+// press orientation re-sync (actions.c:265, the indev callback :419)
 // fires on long sweeps too — pose-stability gated, transform-aware,
 // cannot move the letter under the finger (stated, not suppressed).
 // Demo mode (:2375): demo.c injects a SECOND virtual pointer through
@@ -69,13 +69,13 @@ digraph wheel_commit_keys {
                  fillcolor="#efece4"];
     discardpress [label="DISCARD :2332 —\nnon-empty CLEAR;\nempty EXITS to\nthe list",
                   fillcolor="#efece4"];
-    centerpress [label="centre :2352 — tap\nBACKSPACE, long-press\n(400 ms) → list,\nthe only in-ring exit",
+    centerpress [label="centre :2359 — tap\nBACKSPACE, long-press\n(400 ms) → list,\nthe only in-ring exit",
                   fillcolor="#efece4"];
     knobpath [label="knob :2635 — catch\nZ-above mode arc;\ninner-half \"mode 3\"\nbug, WDT 2026-11-11",
               fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    resync [label="2 s press re-sync\n(actions.c:230, :357)\n— pose-gated, can-\nnot move the letter",
+    resync [label="2 s press re-sync\n(actions.c:265, :419)\n— pose-gated, can-\nnot move the letter",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    demoptr [label="demo :2375 — second\npointer, real touch\npath; wheel exposes\nband middle + r 114",
+    demoptr [label="demo :2407 — second\npointer, real touch\npath; wheel exposes\nband middle + r 114",
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
     ring -> modearc [style=dashed, label="same sector\nboundaries"];

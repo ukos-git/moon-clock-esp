@@ -18,7 +18,7 @@ screenshots):
   light_sleep PNGs carry the 20 %-alpha digits (zero pixels >= 245 in
   the time row vs 7335 on modem-sleep).
 * deep-sleep: moon + sleep glyph (solid FA face); the clock container
-  is LV_OBJ_FLAG_HIDDEN (actions.c:1249, mirrored by the sim at
+  is LV_OBJ_FLAG_HIDDEN (actions.c:1336, mirrored by the sim at
   main.c:361 — the committed deep_sleep PNGs have zero >= 245 pixels
   in the time row) and the backlight is off.
 * alarm: clock + alarm glyph (REGULAR FA face) — NO moon

@@ -1584,7 +1584,7 @@ seconds-tick timer and the 1300 ms clock-interrupt poll that owns
 the digits (each annotated with the render beat, parsed and asserted
 equal in all three generated ``sdkconfig.h`` files), the wall-minute
 reload that lands the alarm row's 24 h-boundary prefix flip
-(``actions.c:959``), the knob's 60 s gauge timer
+(``actions.c:1042``), the knob's 60 s gauge timer
 ("the cell moves on the minute scale, not the second", the code's
 own comment), the 900 s NVS snapshot gate of the two boards without
 an RTC (forced on every SNTP fix), the SNTP correction interval

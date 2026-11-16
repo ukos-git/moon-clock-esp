@@ -9,15 +9,15 @@ rows, every value parsed from the live sources at figure time (the
 house pattern), on one log millisecond axis:
 
   lv_timer_create(seconds_increment_timer_cb, 1000, NULL)
-      components/ui/actions.c:862 (+1000/1351/1426 siblings) — the
-      seconds var counts +1 per tick (actions.c:1060) and is
-      re-synced to the clock at the minute callback (:955)
+      components/ui/actions.c:945 (+1450/1525 siblings) — the
+      seconds var counts +1 per tick (actions.c:1143) and is
+      re-synced to the clock at the minute callback (:1038)
   s_rtc_poll_interval_ms = 1300    components/clock/clock_interrupt.c:26
       (the poll that notices the wall-minute rollover — the code's own
       comment: "the 1.3 s poll cannot straddle one rollover twice";
       the digits then repaint from the callback the app registered at
       main.cpp:616 -> action_update_clock_display, :954)
-  (the minute tick's own reloads)   components/ui/actions.c:959
+  (the minute tick's own reloads)   components/ui/actions.c:1042
       (refresh_alarm_display at the minute tick — the weekday prefix
       flips at the 24 h boundary and lands within one minute)
   lv_timer_create(battery_timer_cb, 60000, NULL)
@@ -44,7 +44,7 @@ house pattern), on one log millisecond axis:
       age is never stale-by-accumulation (hatched row)
   (sky events' calendar-day scan)   components/ui/moon_ui.c:1090
       (s_ev_warm_day; probed from the minute path via
-      moon_ui_day_tick, components/ui/actions.c:967 — "the one
+      moon_ui_day_tick, components/ui/actions.c:1050 — "the one
       untinted bake self-heals", the code's own words)
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
@@ -55,8 +55,8 @@ house pattern), on one log millisecond axis:
 
 Two rows carry NO bar because the code has no timer for them (the
 honest *no such leg*, the bus ladder's precedent): the Wi-Fi state is
-on demand only (kickoffs at actions.c:733 screen change, :1395 wake,
-:944 the modem-sleep minute-top sync — no poll), and the moon
+on demand only (kickoffs at actions.c:816 screen change, :1494 wake,
+:1027 the modem-sleep minute-top sync — no poll), and the moon
 albedo/DEM blob is a pure function of the pipeline vintage keyed by
 calcver + width guard (the CMake FATAL_ERRORs).
 
@@ -205,11 +205,11 @@ def main() -> None:
     # staleness_ms == None → the honest no-bar rows (no timer exists).
     rows = [
         (f"seconds arc\nseconds_increment_timer_cb", secs, secs, BLUE, False,
-         f"actions.c:862 (+{beat} ms beat)"),
+         f"actions.c:945 (+{beat} ms beat)"),
         (f"clock digits HH:MM\ns_rtc_poll_interval_ms", poll, poll, BLUE,
          False, f"clock_interrupt.c:26 (+{beat} ms beat)"),
         (f"alarm row prefix\nwall-minute reload", MINUTE_MS, MINUTE_MS, BLUE,
-         False, "actions.c:959 (24 h-boundary flip)"),
+         False, "actions.c:1042 (24 h-boundary flip)"),
         (f"battery gauge (knob)\nbattery_timer_cb", gauge, gauge, AMBER,
          False, "knob_battery_ui.c:204"),
         (f"NVS epoch snapshot\nCLOCK_NVS_SAVE_INTERVAL_SEC", nvs_s * 1000,
@@ -222,9 +222,9 @@ def main() -> None:
         (f"TF hour cache\nsame pin, pure content", centre_off_s * 1000,
          HOUR_MS, VIOLET, True, "moon_ui.c:1530-32 byte-identical"),
         (f"sky event tint\ncalendar-day scan", DAY_MS, DAY_MS, VIOLET, False,
-         "moon_ui.c:1090 via actions.c:967"),
+         "moon_ui.c:1090 via actions.c:1050"),
         (f"Wi-Fi connection state\nno timer at all", None, None, TEAL, False,
-         "on demand: actions.c:733/1395/944"),
+         "on demand: actions.c:816/1494/1027"),
         (f"moon albedo/DEM blob\npure function", None, None, MUTED, False,
          "calcver+width guard, CMake CONFIGURE"),
     ]

@@ -19,12 +19,12 @@
 // (s_next_alarm + s_alarm_scheduled), then arm — S3 -> the PCF85063A ALM
 // registers + AIE; P4/knob (no PCF) -> clock_alarm_arm_esp_timer
 // one-shot. Finally clock_trigger_alarm_update -> the registered
-// home-row updater (main.cpp:617). The home alarm row (actions.c:1020-
-// 1037): clock_alarm_get_next_scheduled ANSWERS THE CACHE — print
+// home-row updater (main.cpp:617). The home alarm row (actions.c:1103-
+// 1120): clock_alarm_get_next_scheduled ANSWERS THE CACHE — print
 // "%d:%02d" (hour WITHOUT leading zero, the 'Mo 7:00' rule); the
 // 2-letter weekday prefix appears only while the ring is MORE than 24 h
 // away (next_s - now_s > 86400); no scheduled rule -> "--:--". The
-// minute tick re-runs it (actions.c:956-959) because "the alarm's
+// minute tick re-runs it (actions.c:1039-1042) because "the alarm's
 // weekday prefix flips exactly at the 24 h boundary and the time after
 // a fire/re-arm" — the row is a VIEW of the cache, never a second
 // schedule. The FIRE is alarm-lifecycle.dot.

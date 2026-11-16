@@ -1,5 +1,5 @@
 // The pomodoro settings machine opened (companion to
-// pomodoro-cycle.dot). The alarm-rules screen (screens.c:702): three
+// pomodoro-cycle.dot). The alarm-rules screen (screens.c:706): three
 // glyphs with colors straight from clock_alarm_rule_types() — bit 0
 // interval (stopwatch), bit 1 fixed (alarm clock); the central
 // alarm-clock is white while ANY rule is loaded, moon grey when

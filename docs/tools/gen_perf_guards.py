@@ -25,7 +25,7 @@ house pattern):
   #define PANEL_TRAFFIC_TAIL_MS 4000       components/ui/moon_ui.c:373
       (the scan-following traffic hold: a cap on the hold itself and
        the tail the last holder's drop lags behind)
-  #define ORI_RESYNC_PRESS_MS 2000         components/ui/actions.c:230
+  #define ORI_RESYNC_PRESS_MS 2000         components/ui/actions.c:265
       (the deliberate 2 s press that re-anchors the orientation)
   const int WIFI_SCAN_MAX_ATTEMPTS = 4     components/wifi/wifi.c:478
       + vTaskDelay(pdMS_TO_TICKS(1000))    components/wifi/wifi.c:531
@@ -171,7 +171,7 @@ def main() -> None:
         (f"traffic hold cap\nPANEL_TRAFFIC_HOLD_MS", hold, RED, False,
          "moon_ui.c:362"),
         (f"orientation press\nORI_RESYNC_PRESS_MS", press, AMBER, False,
-         "actions.c:230"),
+         "actions.c:265"),
         (f"scan retry gap (x {attempts})\nWIFI_SCAN_MAX_ATTEMPTS @ 1 s", retry_gap,
          TEAL, False, "wifi.c:478/531"),
         (f"boot NTP fix window\nCLOCK_NTP_TIMEOUT_MS", ntp, TEAL, True,

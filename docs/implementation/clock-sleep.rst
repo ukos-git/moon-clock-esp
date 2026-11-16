@@ -334,7 +334,7 @@ Four facts carry the chain — all of them the code's own:
   poll fires only while trusted (a default 2026-01-24 12:00 can never
   ring a phantom — ``clock_interrupt.c:183``), the P4's time label sits
   at ``LV_OPA_50`` until the flag flips (``screens.c:3867-3879``, compiled
-  out on the S3), and the manual-entry commit (``screens.c:2901``) sets
+  out on the S3), and the manual-entry commit (``screens.c:2908``) sets
   the time, the flag *and* the day tick together. ``clock_tz_apply``
   rewrites the S3's RTC local digits epoch-consistently (``mktime``
   **before** the env change) or re-derives the P4's, then re-arms the

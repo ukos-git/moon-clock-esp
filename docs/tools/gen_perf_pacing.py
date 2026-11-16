@@ -159,7 +159,7 @@ def main() -> None:
         (f"LVGL adapter park\ntask_min_delay_ms = {adapter}", adapter, BLUE, False,
          "esp32_s3_touch_amoled_1_75.c:605"),
         (f"UI tick (awake state)\nlv_timer_create(ui_tick_timer_cb)", uitick,
-         BLUE, False, "actions.c:856"),
+         BLUE, False, "actions.c:939"),
         (f"moon reveal tick\nMOON_TICK_MS", moon_tick, VIOLET, False,
          "moon_ui.c:186"),
         (f"replay frame floor\n1000 / UI_MOON_REPLAY_FPS", 1000 / replay_fps,
@@ -171,7 +171,7 @@ def main() -> None:
         (f"tilt monitor\nlv_timer_create(moon_tilt_monitor_cb)", tilt, AMBER,
          False, "moon_ui.c:2588"),
         (f"seconds increment\nlv_timer_create(seconds_increment_timer_cb)",
-         seconds, BLUE, False, "actions.c:862"),
+         seconds, BLUE, False, "actions.c:945"),
         (f"RTC interrupt poll\nRTC_POLL_INTERVAL_MS", rtc, RED, False,
          "main.cpp:30"),
     ]

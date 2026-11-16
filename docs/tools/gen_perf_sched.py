@@ -38,8 +38,8 @@ Every number is PARSED at figure time (the house pattern):
        main/main.cpp:565) and its painter keeps core -1, "no affinity";
        the generator asserts the BSP line AND the absence of a P4-side
        task_core_id, so the split is re-read every figure time)
-  play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:319,
-                              wifi.c:551, actions.c:132
+  play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:337,
+                              wifi.c:551, actions.c:146
   knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, SPIRAM,
   "unregistered from TWDT"), enc 5, dial 5, power 4      knob/main/main.c:487
                               /:499, knob_ui.c:711/:714,
@@ -295,10 +295,10 @@ def main() -> None:
     sync = task_at(ACTIONS, "wifi_sync", "wifi sync")
     clocks.append(("wifi sync\naction_start_wifi_sync",
                    resolve(sync["prio_expr"]), sync["stack"], None, TEAL, "",
-                   "actions.c:132"))
+                   "actions.c:146"))
     knob.append(("wifi sync\n(shared actions.c)",
                  resolve(sync["prio_expr"]), sync["stack"], None, TEAL, "",
-                 "actions.c:132"))
+                 "actions.c:146"))
     clocks.append(("LVGL worker\n(esp_lv_adapter)", lv_prio, lv_stack,
                    None, BLUE,
                    f"S3 core {s3_lv_core} (BSP :{s3_lv_line}) · P4 core "
@@ -316,7 +316,7 @@ def main() -> None:
     play = task_at(ALARM_AUDIO, "alarm_audio", "alarm ring")
     clocks.append(("alarm ring\nplay_task", resolve(play["prio_expr"]),
                    play["stack"], None, BLUE, "ES8311 stream",
-                   "alarm_audio.c:319"))
+                   "alarm_audio.c:337"))
     wdg = task_at(MOON_UI, "panel_wdg", "panel-io watchdog")
     clocks.append(("panel-io watchdog\n3 s limit", resolve(wdg["prio_expr"]),
                    wdg["stack"], wdg["core"], RED, "", "moon_ui.c:2595"))

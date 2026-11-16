@@ -37,13 +37,13 @@ pattern):
        generated headers and asserted equal; the CST9217's INT-mode IRQ
        wakes the read ONTO this timer, the P4's GT911 INT is NC and
        polls on it — input-chain.dot)
-  lv_timer_create(ui_tick_timer_cb, 10)  components/ui/actions.c:856
+  lv_timer_create(ui_tick_timer_cb, 10)  components/ui/actions.c:939
       (the UI tick under the beat)
   UI_SCREEN_SWITCH_FADE (Kconfig default 240)  components/ui/Kconfig:649
       (the round-trip is fade-out + while-black flush + fade-in =
        2 x 240 — derived, screen-switch.dot)
-  #define ORI_SAMPLE_MS 100        components/ui/actions.c:183
-  #define ORI_WINDOW 10            components/ui/actions.c:184
+  #define ORI_SAMPLE_MS 100        components/ui/actions.c:197
+  #define ORI_WINDOW 10            components/ui/actions.c:198
       (the 90-deg step's visible cost is the code's OWN sentence: "the
        1 s window lags the step changes by ~1 s, and the sustained
        confirmation needs a second ~1 s on top" — :279-:280 — so the
@@ -52,7 +52,7 @@ pattern):
   if (++s_motion_streak >= 2)      components/ui/moon_ui.c:2337
       (the wake's confirmation: two consecutive above-bar samples at
        the 1 Hz monitor — derived 1000 x 2)
-  #define ORI_RESYNC_PRESS_MS 2000 components/ui/actions.c:230
+  #define ORI_RESYNC_PRESS_MS 2000 components/ui/actions.c:265
       (the deliberate 2 s press — same constant as the patience
        ladder's row, drawn here with the human-intent colour)
 
@@ -205,15 +205,15 @@ def main() -> None:
          False, "derived: dial + beat"),
         ("LVGL indev read timer\nCONFIG_LV_DEF_REFR_PERIOD", beat, BLUE,
          True, "sdkconfig.h x3, equal"),
-        ("UI tick\nui_tick_timer_cb", uitick, BLUE, False, "actions.c:856"),
+        ("UI tick\nui_tick_timer_cb", uitick, BLUE, False, "actions.c:939"),
         ("screen-switch round-trip\n2 x UI_SCREEN_SWITCH_FADE", 2 * fade,
          VIOLET, True, "ui/Kconfig:649 (x2)"),
         ("tilt 90-degree step visible\n2 x ORI_SAMPLE_MS x ORI_WINDOW",
-         2 * ori_ms * ori_win, TEAL, False, "actions.c:183/:184 (x2)"),
+         2 * ori_ms * ori_win, TEAL, False, "actions.c:197/:198 (x2)"),
         ("tilt wake confirm\nmonitor x streak", tilt_ms * streak, TEAL,
          False, f"moon_ui.c:2588 x :2337 ({streak})"),
         ("orientation press (held)\nORI_RESYNC_PRESS_MS", press, TEAL,
-         False, "actions.c:230"),
+         False, "actions.c:265"),
     ]
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3))

@@ -348,10 +348,10 @@ ypos = list(range(len(ROWS)))[::-1]
 bar_h = 0.26
 for y, (label, slug, kind) in zip(ypos, ROWS):
     if kind == "machine":
-        drivers = {"alarm": "actions.c:1230/:1673",
-                   "wifi": "actions.c:885",
-                   "light-sleep": "actions.c:1617",
-                   "deep-sleep": "actions.c:1330"}[slug]
+        drivers = {"alarm": "actions.c:1163/:1246",
+                   "wifi": "actions.c:876",
+                   "light-sleep": "actions.c:1575",
+                   "deep-sleep": "actions.c:1273"}[slug]
         axl.text(0.06, y, f"no tap leg — machine-driven ({drivers})",
                  va="center", ha="left", style="italic", color=GRAY,
                  fontsize=8.6)
