@@ -10,6 +10,7 @@
 #include "clock_sntp.h"
 #include "clock_tz.h"
 #include "esp_log.h"
+#include "esp_timer.h" /* [DEBUG-wf2] latency witness only */
 #include "fonts.h"
 #include "images.h"
 #include "moon_ui.h"
@@ -114,6 +115,8 @@ static void unclickable_recursive(lv_obj_t *obj) {
 static void event_handler_cb_home_tap(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED && !clock_is_idle()) {
+        /* [DEBUG-wf2] latency witness: hub-open instant vs the tap. */
+        ESP_LOGI("ui_screens", "[DEBUG-wf2] hub opened by tap at %lld us", (long long)esp_timer_get_time());
         loadScreen(SCREEN_ID_SETTINGS_HUB);
         ui_tick();
     }

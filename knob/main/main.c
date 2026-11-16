@@ -81,6 +81,9 @@ static void lvgl_lock(void) { knob_ui_lvgl_lock(); }
 
 static void lvgl_unlock(void) { knob_ui_lvgl_unlock(); }
 
+/* [DEBUG-wf2] synthetic-press switch for the wifi-screen touch loop. */
+static volatile bool s_dbg_fake_press;
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
@@ -90,6 +93,13 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     static uint32_t s_ok, s_err, s_press_logged;
     static int64_t s_hb_us;
     esp_err_t rd = knob_board_touch_read(&x, &y, &pressed);
+    /* [DEBUG-wf2] fake the finger (real LVGL indev chain drives CLICKED). */
+    if (s_dbg_fake_press) {
+        rd = ESP_OK;
+        x = 180;
+        y = 120;
+        pressed = true;
+    }
     if (rd == ESP_OK) {
         s_ok++;
     } else {
@@ -113,6 +123,67 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+}
+
+/* [DEBUG-wf2] Throwaway harness for the family-wide wifi-screen touch
+ * starvation (user 2026-11-16: on the wifi screen "touch does not work
+ * or takes more than 2s", all boards). Sequence on the LVGL task:
+ * t=12 s action_start_wifi_sync (wifi screen + sync kickoff), t=16 s
+ * hold a synthetic centre press 400 ms, release -> CLICKED should
+ * reach the hub. Witnesses: hub-open stamp (screens.c) vs PRESS OFF,
+ * and the 100 ms gap probe below (LVGL-task starvation from the
+ * inside). Delete this block when the loop closes. */
+static int64_t s_dbg_press_on_us, s_dbg_press_off_us;
+static void dbg_wifi_touch_cb(lv_timer_t *t) {
+    static uint8_t s_stage;
+    const int64_t us = esp_timer_get_time();
+    switch (s_stage) {
+    case 0:
+        if (us < 12000000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-wf2] t=%lld start wifi sync", (long long)us);
+        action_start_wifi_sync();
+        s_stage = 1;
+        return;
+    case 1:
+        if (us < 16000000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-wf2] t=%lld PRESS ON", (long long)us);
+        s_dbg_press_on_us = us;
+        s_dbg_fake_press = true;
+        s_stage = 2;
+        return;
+    case 2:
+        if (us - s_dbg_press_on_us < 400000) {
+            return;
+        }
+        s_dbg_fake_press = false;
+        s_dbg_press_off_us = us;
+        ESP_LOGI(TAG, "[DEBUG-wf2] t=%lld PRESS OFF", (long long)us);
+        s_stage = 3;
+        return;
+    default:
+        if (us - s_dbg_press_off_us < 15000000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-wf2] harness done");
+        lv_timer_delete(t);
+    }
+}
+
+/* [DEBUG-wf2] starvation probe: one tick of a 100 ms LVGL timer should
+ * never be silent for >400 ms — a gap names the parking of the very
+ * task that polls the indev. */
+static void dbg_gap_cb(lv_timer_t *t) {
+    (void)t;
+    static int64_t s_last;
+    const int64_t us = esp_timer_get_time();
+    if (s_last && (us - s_last) > 400000) {
+        ESP_LOGI(TAG, "[DEBUG-wf2] lvgl timer gap %lld ms", (long long)((us - s_last) / 1000));
+    }
+    s_last = us;
 }
 
 /* The dial is an INPUT since P2 (knob_dial.c: cursor step + ladder
@@ -485,6 +556,9 @@ void app_main(void) {
      * seconds arc sat frozen between minute ticks (user 2026-11-10).
      * Creation-phase call (lvgl_task does not exist yet), like ui_init. */
     action_ensure_ui_timers();
+    /* [DEBUG-wf2] wifi-screen touch-starvation harness (see above). */
+    lv_timer_create(dbg_wifi_touch_cb, 500, NULL);
+    lv_timer_create(dbg_gap_cb, 100, NULL);
     /* P1 dim parity: the ladder's dim rung drops the clock widget to
      * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
      * dusk posture; knob_power.c calls it from the supervisor task). */
