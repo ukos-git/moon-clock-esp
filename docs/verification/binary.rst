@@ -35,19 +35,19 @@ project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,714,832 B (0x1a2a90)
+     - 1,714,080 B (0x1a27a0)
      - 2,097,152 B (2048 K)
-     - 382,320 B (18 %)
+     - 383,072 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,874,224 B (0x1c9930)
+     - 1,873,440 B (0x1c9620)
      - 9,437,184 B (9216 K)
-     - 7,562,960 B (80 %)
+     - 7,563,744 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,563,344 B (0x17dad0)
+     - 1,562,432 B (0x17d740)
      - 4,194,304 B (4096 K)
-     - 2,632,112 B (63 %)
+     - 2,631,872 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the

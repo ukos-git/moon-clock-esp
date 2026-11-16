@@ -172,10 +172,11 @@ alarm audio table (``ALARM_SOUND_COUNT`` = 4 in
 ``components/ui/alarm_audio.h``); the store keeps its own copy of
 the range so the clock component does not depend on ui.
 ``display_rotation_deg`` is the wall-mount base angle: the Settings
-display screen's arc slider drags the panel live and persists on
+display screen's roller scrolls the panel live and persists on
 RELEASED; ``action_orientation_init`` seeds it into the orientation
-pipeline, where the effective root rotation is the per-board compile
-base ``UI_ORI_BASE_V10`` *plus* this trim in deci-degrees — so the
+pipeline, where the effective root rotation is the shared compile
+base ``UI_ORI_BASE_V10`` (single ``900`` = +90° on all three panels)
+*plus* this trim in deci-degrees — so the
 clock reads level however the board sits on the wall, and the live
 commit re-anchors every root by the delta so the current tilt rides
 along (:doc:`the rotate screen <../ui/settings-display>`).

@@ -1213,8 +1213,8 @@ parsers die when a source drifts.
   the file belongs to the spiffs image, not the runtime.
   ``settings.txt`` — 2 comment + 7 key lines, 265 B computed from the
   asserted ``fprintf`` template — is written only by four
-  settings-screen actions (sleep ``screens.c:1413``, timezone
-  ``:3073``, alarm sound ``:3155``, display trim ``:3324``) and the
+  settings-screen actions (sleep ``screens.c:1426``, timezone
+  ``:3086``, alarm sound ``:3168``, display trim ``:3298``) and the
   TEST settings demo
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
   provisioning wheel's commit (``screens.c:2308``, its single caller,

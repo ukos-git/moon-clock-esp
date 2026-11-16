@@ -234,13 +234,18 @@ IMU and tilt coupling
        quadrant decision via integer dot/cross); if the UI rotates the
        wrong way when tilted, set −1.
    * - ``UI_ORI_BASE_V10``
-     - ``1800`` S3 / ``900`` P4
+     - ``900``
      - Base screen orientation in 1/10 deg (clockwise) at step 0: the
-       per-board panel mount offset, the single source for it — the
-       shared clock widget and every screen root carry it — applied at
-       init and on the 2 s press re-sync (the burn-in spin's
-       pre-rotation it once also fed was removed 2026-11-13). Multiple
-       of 900.
+       panel mount offset — all three moon-clock panels are mounted the
+       same 90° CW off the bezel's 12 o'clock, so it is a single shared
+       value, not a per-board cascade (verified on the bench 2026-11-16;
+       the S3 had sat at 1800 since 37ee73b and the knob fell through to
+       1800 — both regressions, undone by reaching 90 only by hand). It
+       is the single source for the offset — the shared clock widget and
+       every screen root carry it — applied at init and on the 2 s press
+       re-sync (the burn-in spin's pre-rotation it once also fed was
+       removed 2026-11-13). Multiple of 900; the ZERO ANGLE roller trims
+       it per clock on top.
    * - ``UI_MOON_ORBIT_ENABLE``
      - ``n``
      - Sphere model: peek at the dark side via out-of-plane tilt.

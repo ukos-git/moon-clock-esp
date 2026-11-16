@@ -121,7 +121,7 @@ storm and closed with the sync-storm panel-traffic hold
 (:ref:`display-lost-dma` — see the closeout below).
 
 Tap-point geometry: the screen roots carry the base orientation
-(``UI_ORI_BASE_V10`` — 180° on the S3, 90° on the P4) and the roll
+(``UI_ORI_BASE_V10`` — 90° on all three panels) and the roll
 steps, always multiples of 90° about the panel centre. A widget's AABB
 centre is therefore rotation-safe for ordinary taps; the wheel's
 annulus/sector points (which live in the wheel's LOCAL space, the

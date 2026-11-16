@@ -23,10 +23,10 @@
 //   transient or I2C glitch is diluted out; a deliberate move costs
 //   at most ~1 s of latency.
 //   v10 = (ORI_BASE_V10 + s_user_base_v10) - step x 10 (sign flipped
-//   by UI_CLOCK_ROLL_SIGN; base 900 = +90 deg if BOARD_P4, else 1800
-//   = +180 deg — the panel-mount offset; s_user_base_v10 the
-//   persisted wall-mount trim display_rotation_deg x 10, the Settings
-//   display slider); ori_apply_v10 pushes LVGL
+//   by UI_CLOCK_ROLL_SIGN; base 900 = +90 deg on ALL THREE panels —
+//   the single shared panel-mount offset, bench-verified 2026-11-16;
+//   s_user_base_v10 the persisted wall-mount trim
+//   display_rotation_deg x 10, the Settings display roller); ori_apply_v10 pushes LVGL
 //   transform_rotation to ALL 17 screen roots, pivot centre; the
 //   rotated root's layer is panel-sized RGB565 (~0.4 MB @466,
 //   ~1.0 MB @720) from the CLIB malloc -> PSRAM (the 64 KB LVGL pool

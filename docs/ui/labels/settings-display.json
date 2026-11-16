@@ -5,32 +5,25 @@
       "id": 1,
       "text": "Caption",
       "x": 233,
-      "y": 123,
+      "y": 62,
       "dir": "n"
     },
     {
       "id": 2,
-      "text": "Value ring + handle",
-      "x": 233,
-      "y": 15,
+      "text": "Roller",
+      "x": 300,
+      "y": 133,
       "dir": "e"
     },
     {
       "id": 3,
       "text": "Preview card + tip",
-      "x": 163,
-      "y": 196,
+      "x": 150,
+      "y": 233,
       "dir": "w"
     },
     {
       "id": 4,
-      "text": "Readout",
-      "x": 233,
-      "y": 250,
-      "dir": "s"
-    },
-    {
-      "id": 5,
       "text": "Exit → hub",
       "x": 233,
       "y": 387,
