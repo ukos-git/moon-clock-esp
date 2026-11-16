@@ -1175,13 +1175,13 @@ parsers die when a source drifts.
   ``UI_MOON_TFCACHE`` are all ``default y``
   (``components/ui/Kconfig:137/:169/:271``), so the steady state is one
   ``tfcache_store`` write-through per new hour
-  (``components/ui/moon_ui.c:1704`` — the ONLY store call site, and
+  (``components/ui/moon_ui.c:1755`` — the ONLY store call site, and
   the parser asserts it sits inside its
   ``#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE``
   guard) plus ~24 eviction unlinks a day once the 709-file window is
   full: ``cache_floor`` (``moon_tfcache.c:693``) walks one hour per
   hour, so one file per hour falls below it, and the producers call
-  ``tfcache_evict`` every hour (``moon_ui.c:1677/:1705``; the store's
+  ``tfcache_evict`` every hour (``moon_ui.c:1728/:1756``; the store's
   own ``> 24``-hour gate, ``moon_tfcache.c:684`` — "one scan per day
   of new hours" — just guarantees the scan even when the producers
   idle). ``meta.txt`` rewrites ride the new-moon crossing — **one per
@@ -1856,7 +1856,7 @@ a registry entry appears or vanishes:
   sub-screens, no more), exactly **4** ``moon_screen_prepare`` call
   sites (``screens.c:41``, the airplane/wifi/light/deep roots that
   share the ONE moon image via ``moon_ui_create_image``,
-  ``moon_ui.c:2712``), and **zero** creations in the knob's P2 dial
+  ``moon_ui.c:2763``), and **zero** creations in the knob's P2 dial
   block — the dial cursor only restyles existing objects.
 
 What the bars say: **the wheel is the bill**. One screen — entered
@@ -2197,7 +2197,7 @@ The graph is not hand-drawn; the generator **parses the whole census
 out of the live sources** — and its parsers are the gate, SystemExit-
 failing when a guard appears, vanishes, or changes its mind:
 
-* exactly **3** mutex-creation sites (``moon_ui.c:2643-2644`` and the
+* exactly **3** mutex-creation sites (``moon_ui.c:2694-2695`` and the
   knob's ``main.c:366``) and ``xQueueCreate`` **zero** in app code —
   the zero is an assertion, not an absence of evidence;
 * all **17** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
@@ -2227,8 +2227,8 @@ failing when a guard appears, vanishes, or changes its mind:
 * the two event groups are pinned to their waits (``WaitBits`` bounded
   ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
   ``clock.c`` + ``actions.c``, 20000/2000 on the knob; 8000 ms join);
-  four fences in two files; the notify pair at ``moon_ui.c:1120``/
-  ``:1146``;
+  four fences in two files; the notify pair at ``moon_ui.c:1170``/
+  ``:1196``;
 * the compiled-out facts come from the build, not the prose: four
   ``UI_BOARD_SRCS`` entries emptied by ``if(KNOB_BOARD)``, the S3
   header carrying ``CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH 1`` where the P4

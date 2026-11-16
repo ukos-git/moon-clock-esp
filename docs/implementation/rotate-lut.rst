@@ -496,7 +496,7 @@ number. Third, tint is applied on show, not on store: the TF hour
 cache keeps gray frames and the show path supplies the same LUT the
 compute path used ("pixel-identical by construction",
 ``moon_tfcache.c:18-21``), boot replay opts out to neutral
-(``moon_ui.c:1934``), and the knob's bake is the identity gather —
+(``moon_ui.c:1985``), and the knob's bake is the identity gather —
 ``cos(0) = 32768`` in Q15.15 — which is what makes its frames
 pixel-identical to the host rotation path "by construction, not
 hope" (``knob_moon.c:9-13``).
