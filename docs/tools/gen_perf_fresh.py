@@ -9,8 +9,8 @@ rows, every value parsed from the live sources at figure time (the
 house pattern), on one log millisecond axis:
 
   lv_timer_create(seconds_increment_timer_cb, 1000, NULL)
-      components/ui/actions.c:945 (+1450/1525 siblings) — the
-      seconds var counts +1 per tick (actions.c:1143) and is
+      components/ui/actions.c:945 (+1451/1526 siblings) — the
+      seconds var counts +1 per tick (actions.c:1144) and is
       re-synced to the clock at the minute callback (:1038)
   s_rtc_poll_interval_ms = 1300    components/clock/clock_interrupt.c:26
       (the poll that notices the wall-minute rollover — the code's own
@@ -55,7 +55,7 @@ house pattern), on one log millisecond axis:
 
 Two rows carry NO bar because the code has no timer for them (the
 honest *no such leg*, the bus ladder's precedent): the Wi-Fi state is
-on demand only (kickoffs at actions.c:816 screen change, :1494 wake,
+on demand only (kickoffs at actions.c:816 screen change, :1495 wake,
 :1027 the modem-sleep minute-top sync — no poll), and the moon
 albedo/DEM blob is a pure function of the pipeline vintage keyed by
 calcver + width guard (the CMake FATAL_ERRORs).
@@ -224,7 +224,7 @@ def main() -> None:
         (f"sky event tint\ncalendar-day scan", DAY_MS, DAY_MS, VIOLET, False,
          "moon_ui.c:1090 via actions.c:1050"),
         (f"Wi-Fi connection state\nno timer at all", None, None, TEAL, False,
-         "on demand: actions.c:816/1494/1027"),
+         "on demand: actions.c:816/1495/1027"),
         (f"moon albedo/DEM blob\npure function", None, None, MUTED, False,
          "calcver+width guard, CMake CONFIGURE"),
     ]

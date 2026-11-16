@@ -1810,7 +1810,7 @@ milliseconds. None of them has priced the **population** — the LVGL
 objects that exist at boot, before a finger has touched anything.
 This ladder counts it out of ``screens.c``: seventeen detached roots
 and **265 object instances** (266 on the P4), assembled exactly once
-by ``create_screens()`` (``screens.c:4117``) inside ``ui_init``
+by ``create_screens()`` (``screens.c:4115``) inside ``ui_init``
 (``ui.c:77``) *before* the first ``loadScreen`` — and then prices the
 build-once model that makes visiting them free. The code's own
 comment is the contract, at ``screens.c:1375``: *"The widgets are
@@ -1836,7 +1836,7 @@ a registry entry appears or vanishes:
   claim is asserted, not quoted: add a ``*_create(`` inside it and
   the figure refuses to draw;
 * exactly 17 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
-  (``screens.c:4094``) in enum order — ``ui_tick`` (``ui.c:87``)
+  (``screens.c:4092``) in enum order — ``ui_tick`` (``ui.c:87``)
   dispatches **only the current screen**, so the sixteen off-screen
   roots tick zero times;
 * helper bodies are resolved **transitively** (the exit button is
@@ -1936,7 +1936,7 @@ parsers:
   annotations: digits ``0-9 : -`` (12), digits ``+ .`` (13), the two
   SSID faces the full printable 0x20–0x7E (95 each), the weekday face
   **derived from the two weekday tables themselves** (``s_day_abbr``
-  ``actions.c:1069`` + ``ALARM_DAY_ABBR`` ``screens.c:1040`` plus
+  ``actions.c:1070`` + ``ALARM_DAY_ABBR`` ``screens.c:1040`` plus
   ``-``) and asserted EQUAL to the 12 baked codepoints both ways,
   and the icon faces from the decoded UTF-8 of the ``GLYPH_*``
   defines (escape bytes vs their own ``U+XXXX`` comments);

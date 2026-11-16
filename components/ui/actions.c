@@ -1057,10 +1057,11 @@ void action_update_clock_display(lv_event_t *e) {
     // tick functions no longer tick it): a minute flip redraws the
     // digits wherever the widget is attached (a settings screen keeps
     // it computed-but-unrendered on the last moon screen).
-    /* 17 = the shared flex widget's objects_t slot (shifted +1 when
-     * settings_alarm_sound joined the screen roots); +1 inside the tick
-     * is the HH:MM slot row. */
-    tick_user_widget_clock(17);
+    /* Base derived from objects_t (OBJECTS_CLOCK_WIDGET_SLOT in
+     * screens.h) — the stale hand-pinned 17 survived the
+     * settings_display shift and read the HH:MM row container as a
+     * label: minute-tick LoadProhibited (bench 2026-11-16). */
+    tick_user_widget_clock(OBJECTS_CLOCK_WIDGET_SLOT);
 }
 
 /* Two-letter weekday of the next fire, for the main-screen alarm prefix

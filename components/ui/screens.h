@@ -2,6 +2,7 @@
 #define EEZ_LVGL_UI_SCREENS_H
 
 #include <lvgl.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,6 +155,17 @@ typedef struct _objects_t {
     lv_obj_t *settings_tz_roller;          /* the timezone / UTC offset (clock_tz option list) */
     lv_obj_t *settings_alarm_sound_roller; /* the alarm sound name (alarm_audio's 4 loops) */
 } objects_t;
+
+/* The tick_user_widget_clock base DERIVED from the struct: the pointer
+ * slots before the shared flex widget — every objects_t field is an
+ * lv_obj_t *, so the division is exact. Never hand-pin this number:
+ * it has shifted twice as screen roots joined (settings_alarm_sound
+ * 2026-11-04, settings_display 2026-11-16), and both times a stale
+ * hand-pinned call site silently read the HH:MM slot ROW container as
+ * an lv_label — LoadProhibited at the first minute boundary after boot
+ * (bench 2026-11-16, the knob crash-loop; the clocks carried the same
+ * latent bug until the re-anchor). */
+#define OBJECTS_CLOCK_WIDGET_SLOT ((int)(offsetof(objects_t, modem_sleep_clock__clock) / sizeof(lv_obj_t *)))
 
 extern objects_t objects;
 

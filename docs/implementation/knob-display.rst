@@ -476,7 +476,7 @@ side lives in ``components/ui/screens.c`` behind
 knob's board-shim ``choice BOARD`` defines, so in the clocks' builds
 the block is not preprocessed at all and their UI is structurally
 untouched. And even in the knob's *own* build the block adds no
-objects: between ``screens.c:4142`` and its ``#endif`` at :4564 there
+objects: between ``screens.c:4140`` and its ``#endif`` at :4562 there
 is not one ``lv_*_create`` — the dial cursor only **restyles** the
 existing shared population (the 255-object build-once city it
 restyles is counted in :ref:`the assembly ladder

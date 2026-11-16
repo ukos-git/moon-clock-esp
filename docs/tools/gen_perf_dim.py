@@ -18,7 +18,7 @@ fabricated device measurements):
   #define FADE_STEPS 12                         components/ui/moon_ui.c
   each step = one 0x51 SPI param transaction, fade_ramp's own comment
       puts it at ~100 us — the single writes (deep-sleep backlight
-      off actions.c:1346, wake relight :1387) are ONE such step.
+      off actions.c:1347, wake relight :1388) are ONE such step.
 
 Left panel: the brightness timeline — awake 100 %, the light-sleep
 entry RAMPING to UI_LIGHT_SLEEP_DIM_PCT (moon_ui_panel_dim_ramp: the
@@ -191,9 +191,9 @@ def main() -> None:
         (f"hourly fade leg (each)\nUI_MOON_HOURLY_FADE_MS", hourly_ms, VIOLET,
          hourly_prov),
         ("deep-sleep backlight off\nmoon_ui_panel_brightness_set(0)", step_us,
-         AMBER, "actions.c:1346"),
+         AMBER, "actions.c:1347"),
         ("alarm/wake relight\nbrightness_set(100)", step_us, BLUE,
-         "actions.c:1387"),
+         "actions.c:1388"),
     ]
     ys = range(len(rows))
     for y, (label, ms, color, prov) in enumerate(rows):

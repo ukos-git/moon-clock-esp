@@ -4065,11 +4065,9 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
-    /* 18 = the shared flex widget's slot (shifted +1 when
-     * settings_alarm_sound joined the roots and +1 again when
-     * settings_display joined); +1 inside the tick is the HH:MM slot
-     * row. */
-    tick_user_widget_clock(18);
+    /* Base derived from objects_t (OBJECTS_CLOCK_WIDGET_SLOT) — never
+     * hand-pinned; see the screens.h contract. */
+    tick_user_widget_clock(OBJECTS_CLOCK_WIDGET_SLOT);
 }
 
 void change_color_theme(uint32_t theme_index) {

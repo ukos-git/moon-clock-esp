@@ -25,7 +25,7 @@ favour with the askers, or when an ask escapes a face's charset:
       exception: S3 {62286,61830} vs P4+knob {62286,61830,61463,…}
   carried glyph sets     the /* U+XXXX */ bitmap annotations, per file
       (12 / 13 / 95 / 95 / 12 / 7 / 2-3); the 12-glyph weekday face is
-      derived FROM the two weekday tables (s_day_abbr actions.c:1069,
+      derived FROM the two weekday tables (s_day_abbr actions.c:1070,
       ALARM_DAY_ABBR screens.c:1040 plus '-') and asserted EQUAL to
       the baked set, both directions
   raster bytes           the glyph_bitmap[] hex token count (raw 4 bpp,
