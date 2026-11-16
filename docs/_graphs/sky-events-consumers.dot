@@ -17,7 +17,7 @@
 //   subsumes the re-bake. s_baked_event commits ON SHOW — a cycle
 //   that never shows stays due and self-heals.
 // And the two entry legs the sealed graph folds into classify_here
-// (moon_ui.c:1122 / :1097 / :2707+):
+// (moon_ui.c:1186 / :1161 / :2848+):
 //   The minute day-tick runs the pipeline-busy guard BEFORE the
 //   classify on purpose — a running core-1 pipeline task classifies
 //   its own epoch and warms the day cache for free; classify_here
@@ -30,7 +30,7 @@
 //   wrong-looking frame SELF-HEALS because the next minute probe sees
 //   the signature change); warm day -> the cheap path (geometry evals
 //   only, no scan).
-//   The worker (moon_event_task :1103, spawn :2614) is core 1 (IDLE1
+//   The worker (moon_event_task :1167, spawn :2755) is core 1 (IDLE1
 //   unwatched — the 15-20 s scan can never trip a watchdog), 12 KiB
 //   era-chain stack in SPIRAM, prio MAX-4 (BELOW the bake tasks: a
 //   hungry bake outranks a warm-up), plain notify-take loop: re-reads

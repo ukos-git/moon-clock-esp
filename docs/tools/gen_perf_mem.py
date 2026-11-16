@@ -15,7 +15,7 @@ every runtime watermarks story stays on the device's own heap log lines):
     the LVGL draw buffers (S3: buffer_height 25, require_double_buffer,
       466*25*2 = 23,300 B each — the vendored BSP; P4: three 50-row
       MIPI buffers per the published strip-staging figure)
-    knob: the producer's double buffer 2 x 360^2 x 2  (knob_ui.c:724;
+    knob: the producer's double buffer 2 x 360^2 x 2  (knob_ui.c:768;
       the knob EXCLUDES moon_ui.c — components/ui/CMakeLists.txt drops
       the four board TUs, so its working set lives in knob_ui instead)
     hatched overlay: the rotated root's layer while rotated (panel^2 x 2
@@ -23,8 +23,11 @@ every runtime watermarks story stays on the device's own heap log lines):
   Middle — internal-RAM commitments (the resource that caused both
     NO_MEM families): the LVGL pool (lvgl Kconfig default 65536, unpin-
     ned in every sdkconfig) + the task stacks (xTaskCreate sites in
-    moon_ui.c / actions.c / main.cpp / knob_ui.c; the two WithCaps-SPIRAM
-    stacks are drawn as PSRAM call-outs, not RAM debt) + the S3 drain
+    moon_ui.c / actions.c / main.cpp / knob_ui.c; a stack whose OWN create
+    call passes MALLOC_CAP_SPIRAM is drawn as a PSRAM call-out, not RAM
+    debt (parsed from the caps argument, pinned to moon_event alone —
+    knob_moon's stack moved to internal RAM on 2026-11-16, the tick-ISR
+    flash-write family) + the S3 drain
     row (DRAM uint16[466])
   Right — flash moon assets vs their partition: alb_bytes + dem_bytes +
     combined_bytes PARSED from the three moon_assets_manifest.json, bars
@@ -122,8 +125,30 @@ def stacks(text):
 
 stacks_clock = stacks(moon_ui) + stacks(read(ACTIONS)) + stacks(read(MAIN_CPP))
 stacks_knob = stacks(knob_src)
-# The two SPIRAM-stack tasks (WithCaps MALLOC_CAP_SPIRAM) are not internal-RAM debt.
-SPIRAM_STACK_TASKS = {"moon_event", "knob_moon"}
+
+
+def spiram_stack_tasks(*texts):
+    """Task names whose OWN create call passes MALLOC_CAP_SPIRAM — parsed from
+    the caps argument, so a stack that moves to internal RAM (knob_moon,
+    2026-11-16, the tick-ISR flash-write family) re-anchors itself here
+    instead of ageing into a wrong bar. Only ``WithCaps`` calls carry caps, so
+    every plain ``xTaskCreate`` stack is internal-RAM debt by definition."""
+    out = set()
+    for text in texts:
+        for call in re.findall(r"xTaskCreate\w*\(([^;]*);", text, re.S):
+            if "MALLOC_CAP_SPIRAM" in call:
+                mn = re.search(r'"([a-z_]+)"', call)
+                if mn:
+                    out.add(mn.group(1))
+    return out
+
+
+# The SPIRAM-stack tasks (WithCaps MALLOC_CAP_SPIRAM) are not internal-RAM debt.
+SPIRAM_STACK_TASKS = spiram_stack_tasks(moon_ui, read(ACTIONS), read(MAIN_CPP), knob_src)
+if SPIRAM_STACK_TASKS != {"moon_event"}:
+    raise SystemExit(f"gen_perf_mem: SPIRAM-stack roster {sorted(SPIRAM_STACK_TASKS)} — expected "
+                     "['moon_event'] (the S3's sky-event worker only; knob_moon's stack is internal "
+                     "RAM since the 2026-11-16 tick-ISR fix)")
 
 man = {t: json.load(open(os.path.join(MANIFEST, t, "moon_assets_manifest.json")))
        for t in ("s3", "p4", "knob")}
@@ -212,7 +237,7 @@ for bi, (nm, d) in enumerate(zip(names, data)):
 ax_m.text(0.5, -0.24,
           "clock stacks: wifi_sync 6144 · hang_watch 6144 · panel_wdg 4096 ·\n"
           "rebake/hourly/orbit/replay 4×12288 · moon_event 12288 (PSRAM)\n"
-          "knob stacks: knob_moon 12288 (PSRAM) · knob_swap 8192\n"
+          "knob stacks: knob_moon 12288 (internal RAM) · knob_swap 8192\n"
           "S3-only: drain row DRAM 932 B · LVGL pool = static .bss array",
           transform=ax_m.transAxes, ha="center", va="top", fontsize=5.6, color=MUTED)
 ax_m.set_xticks(range(len(names)))

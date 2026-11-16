@@ -16,7 +16,7 @@ house pattern), on one log millisecond axis:
       (the poll that notices the wall-minute rollover — the code's own
       comment: "the 1.3 s poll cannot straddle one rollover twice";
       the digits then repaint from the callback the app registered at
-      main.cpp:616 -> action_update_clock_display, :954)
+      main.cpp:616 -> action_update_clock_display (actions.c:1005))
   (the minute tick's own reloads)   components/ui/actions.c:1042
       (refresh_alarm_display at the minute tick — the weekday prefix
       flips at the 24 h boundary and lands within one minute)
@@ -33,16 +33,16 @@ house pattern), on one log millisecond axis:
       figure value, it is the 32k-crystal bench question in
       docs/devices/p4.rst)
   s_hourly_epoch = hour * 3600 + 1800
-      components/ui/moon_ui.c:1667 — the hour-centre pin: the shown
+      components/ui/moon_ui.c:1808 — the hour-centre pin: the shown
       frame depicts the hour centre, so it is "at most 30 min stale at
-      the show" (:1531, the code's own sentence); the cycle is the
-      hour (due = hour != s_baked_hour, :1649). The offset 1800 is
+      the show" (:1672, the code's own sentence); the cycle is the
+      hour (due = hour != s_baked_hour, :1790). The offset 1800 is
       PARSED, not assumed.
-  (the TF hour cache)                components/ui/moon_ui.c:1530-1532
+  (the TF hour cache)                components/ui/moon_ui.c:1671-1672
       the same pin, but "byte-identical across boots and boards" — the
       content is a pure function of (hour-centre, calcver), so its
       age is never stale-by-accumulation (hatched row)
-  (sky events' calendar-day scan)   components/ui/moon_ui.c:1090
+  (sky events' calendar-day scan)   components/ui/moon_ui.c:1152
       (s_ev_warm_day; probed from the minute path via
       moon_ui_day_tick, components/ui/actions.c:1050 — "the one
       untinted bake self-heals", the code's own words)
@@ -218,11 +218,11 @@ def main() -> None:
          ntp_h * HOUR_MS, ntp_h * HOUR_MS, TEAL, True,
          "clock/Kconfig × clock_sntp.c:268"),
         (f"home moon disk\nhour-centre pin", centre_off_s * 1000, HOUR_MS,
-         VIOLET, False, "moon_ui.c:1667 (:1531 own words)"),
+         VIOLET, False, "moon_ui.c:1808 (:1672 own words)"),
         (f"TF hour cache\nsame pin, pure content", centre_off_s * 1000,
-         HOUR_MS, VIOLET, True, "moon_ui.c:1530-32 byte-identical"),
+         HOUR_MS, VIOLET, True, "moon_ui.c:1671-72 byte-identical"),
         (f"sky event tint\ncalendar-day scan", DAY_MS, DAY_MS, VIOLET, False,
-         "moon_ui.c:1090 via actions.c:1050"),
+         "moon_ui.c:1152 via actions.c:1050"),
         (f"Wi-Fi connection state\nno timer at all", None, None, TEAL, False,
          "on demand: actions.c:816/1495/1027"),
         (f"moon albedo/DEM blob\npure function", None, None, MUTED, False,

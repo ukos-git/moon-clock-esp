@@ -6,7 +6,7 @@
 // ±MOON_TERM_SOFT (0.03 ≈ 6 px each side at the 400 px disk, :193 —
 // "NASA adds a gaussian blur at the boundary"); out = darkv +
 // (litv − darkv)·t (:487-493). The three display bake sites pass this
-// branch: moon_ui.c:1288 the hourly strip, :1545 the boot bake, :2125
+// branch: moon_ui.c:1339 the hourly strip, :1596 the boot bake, :2176
 // the bake-reveal strip — all dark_zero=1, dk_sup=0. The blend's WHY —
 // the cutout-edge report behind the soft terminator — is
 // science/art-pass.rst. The sealed version is dark-side.dot (this

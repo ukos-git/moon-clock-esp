@@ -13,7 +13,7 @@
 //   hourly gate.
 //   Manual entry (P4 only — the hub's clock icon): the settings-time
 //   commit runs clock_set_time + clock_sntp_set_time_trusted(true) +
-//   moon_ui_day_tick (screens.c:2908-2914) — a user-entered time IS
+//   moon_ui_day_tick (screens.c:2921-2927) — a user-entered time IS
 //   trusted; the rejected path logs "manual time ... rejected".
 //   What the flag gates:
 //     the moon door (clock.c:257): clock_get_time (I2C read on the
@@ -39,7 +39,7 @@
 //     next_epoch) — the default/unsynced 2026-01-24 12:00 can never
 //     ring a phantom. The S3 needs no such gate: its AF flag is
 //     hardware (alarm-lifecycle.dot).
-//     the P4 unsynced dim (screens.c:3867-3879, compiled out on the
+//     the P4 unsynced dim (screens.c:3813-3825, compiled out on the
 //     S3): the time label sits at LV_OPA_50 while !trusted and
 //     brightens on the next tick after the flag flips — an
 //     approximate value READS as approximate.

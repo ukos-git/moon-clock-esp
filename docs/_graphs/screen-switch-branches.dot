@@ -1,4 +1,4 @@
-// The three branches of moon_ui_screen_switched (moon_ui.c:3119;
+// The three branches of moon_ui_screen_switched (moon_ui.c:3260;
 // verified before drawing). Entry bookkeeping first:
 //   s_moon_screen = moon_screen_has_image() (the pipelines' display
 //   gate); leaving the moon mid-replay ABORTS the replay (show/final/

@@ -1,26 +1,26 @@
 // THE CLOCKS' TWO KEYS opened (S3 + P4, one moon_ui.c): every
 // xSemaphoreTake site as an ask edge carrying its timeout on the wire,
 // the one-way order between the keys, the drain witness and the red
-// watchdog. Creations sit together at moon_ui.c:2643-2644 under the
-// code's own ownership comment (:2636-2642); the draw_bitmap wrapper
-// lands at :2656. All SEVENTEEN s_rgb_mtx takes are portMAX_DELAY
+// watchdog. Creations sit together at moon_ui.c:2694-2695 under the
+// code's own ownership comment (:2687-2693); the draw_bitmap wrapper
+// lands at :2707. All SEVENTEEN s_rgb_mtx takes are portMAX_DELAY
 // ("a publish block never fails"). The NINE s_panel_mtx takes carry the
-// whole timeout policy of the app: wrapper :684 forever; the 0x51 legs
-// fade_ramp :3041 + brightness_set :3165 forever; the traffic-hold
-// quiesce :526 bounded 500 ms; moon_flush_wait_cb :450 bounded 2 s
-// ("observed quiescence only" :451); the drain verify :919 forever —
+// whole timeout policy of the app: wrapper :728 forever; the 0x51 legs
+// fade_ramp :3092 + brightness_set :3216 forever; the traffic-hold
+// quiesce :556 bounded 500 ms; moon_flush_wait_cb :477 bounded 2 s
+// ("observed quiescence only" :478); the drain verify :970 forever —
 // rule 3 holds across the WHOLE submit+witness window ("no drain call
-// site holds it -- audited 2026-11-13" :891; the hold now ~50 ms -- one
-// grace + heal, the NORMAL path :901-913; S3 nine takes, P4 EIGHT — drain_verify is
-// #if !defined(CONFIG_BOARD_P4)); watchdog probe :2559 bounded 3 s.
-// moon_ui_screen_switched :3209 is the both-keys case and takes them
-// SEQUENTIALLY — panel :3245, give, then rgb :3274; no panel take ever
-// nests an rgb take. The heal branch runs tx_param(io, -1) at :978
-// ("runs the driver's own drain loop over ALL" :964). panel_wdg is born
-// at :2685 (prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at
-// a time"), its take is "the ONLY work" (:2550), and on timeout it
+// site holds it -- audited 2026-11-13" :935; the hold now ~50 ms -- one
+// grace + heal, the NORMAL path :945-958; S3 nine takes, P4 EIGHT — drain_verify is
+// #if !defined(CONFIG_BOARD_P4)); watchdog probe :2610 bounded 3 s.
+// moon_ui_screen_switched :3260 is the both-keys case and takes them
+// SEQUENTIALLY — panel :3296, give, then rgb :3323; no panel take ever
+// nests an rgb take. The heal branch runs tx_param(io, -1) at :1028
+// ("runs the driver's own drain loop over ALL" :1015). panel_wdg is born
+// at :2736 (prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at
+// a time"), its take is "the ONLY work" (:2601), and on timeout it
 // names the holder through xSemaphoreGetMutexHolder and restarts under
-// "PANEL IO STUCK" (:2579-2583). The guards in black boxes is
+// "PANEL IO STUCK" (:2622-2625). The guards in black boxes is
 // docs/_graphs/guards.dot (this page); the knob's single key is
 // docs/_graphs/guards-knob.dot; the key-free band is
 // docs/_graphs/guards-flags.dot. The strip staging and the witnesses

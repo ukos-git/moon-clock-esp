@@ -146,7 +146,7 @@ time — is :ref:`the certainty ladder <certainty-ladder-perf>`.
 .. graphviz:: _graphs/keyboard-lab-methods.dot
    :align: center
    :alt: The methods opened — the twelve non-wheel cards in a column coloured by recorded verdict, the violet dashed keeps from multi-tap, dwell and glide plus the amber HOLD from swipe all landing on the sealed sweep wheel v2.
-   :caption: The methods opened — fill colour is the lab's recorded verdict (CARDS ranks 1..9 with chips keep/ship/ship/ship-setting/hold/rej/rej-primary/exp/v2, plus the OFF trio and the T9 card — 13 total), and the widgets run the device's own timings: multi-tap ``const T = 700`` ms, the dwell checks ``< 400 / >= 400``, the scan step ``Math.floor((t - t0) / 1000) % 12``. The pairing record on the ship: "the earlier xmark-on-commit / trash-on-discard pairing is" gone — the keys are the house circle-check commit and circle-xmark discard, 2026-11-08 (``screens.c:1806``); the frozen mock's bottom band still shows the older "commit"/"trash-can discard" pair. The wheel's own machine (handlers, hit-test, keys) is ``wheel-commit.dot`` on :doc:`keyboard <keyboard>`; what each of these would cost the finger in characters per minute is :ref:`the certainty ladder <certainty-ladder-perf>`.
+   :caption: The methods opened — fill colour is the lab's recorded verdict (CARDS ranks 1..9 with chips keep/ship/ship/ship-setting/hold/rej/rej-primary/exp/v2, plus the OFF trio and the T9 card — 13 total), and the widgets run the device's own timings: multi-tap ``const T = 700`` ms, the dwell checks ``< 400 / >= 400``, the scan step ``Math.floor((t - t0) / 1000) % 12``. The pairing record on the ship: "the earlier xmark-on-commit / trash-on-discard pairing is" gone — the keys are the house circle-check commit and circle-xmark discard, 2026-11-08 (``screens.c:1819``); the frozen mock's bottom band still shows the older "commit"/"trash-can discard" pair. The wheel's own machine (handlers, hit-test, keys) is ``wheel-commit.dot`` on :doc:`keyboard <keyboard>`; what each of these would cost the finger in characters per minute is :ref:`the certainty ladder <certainty-ladder-perf>`.
 
 The operable lab — every panel in its own widget
 ------------------------------------------------
@@ -199,7 +199,7 @@ letter, and release-only commit. Four 60° shift keys on the top arc,
 ⊗ commit and trash discard in the bottom 120° (the mock's pairing,
 frozen at the proposal — the firmware has since paired the
 circle-**check** with COMMIT and the circle-**xmark** with DISCARD,
-2026-11-08, ``screens.c:1806``; see :doc:`the round keyboard
+2026-11-08, ``screens.c:1819``; see :doc:`the round keyboard
 <keyboard>` for the shipped bottom band), centre tap = backspace.
 
 **Pros.** Coarse targets — the 27.7°/41.5° sectors are well above a

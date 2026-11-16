@@ -26,14 +26,14 @@ favour with the askers, or when an ask escapes a face's charset:
   carried glyph sets     the /* U+XXXX */ bitmap annotations, per file
       (12 / 13 / 95 / 95 / 12 / 7 / 2-3); the 12-glyph weekday face is
       derived FROM the two weekday tables (s_day_abbr actions.c:1070,
-      ALARM_DAY_ABBR screens.c:1040 plus '-') and asserted EQUAL to
+      ALARM_DAY_ABBR screens.c:1053 plus '-') and asserted EQUAL to
       the baked set, both directions
   raster bytes           the glyph_bitmap[] hex token count (raw 4 bpp,
       --no-compress); must be > 0 and strictly monotone in px per face
   askers                 a repo-wide scan for &ui_font_ must hit
       EXACTLY components/ui/screens.c (46) + styles.c (4) with the
       parsed per-face reference counts equal to the table
-      (12/6/15/4/2/6/5 across the faces); every face asked ≥ 1
+      (12/7/15/3/2/6/5 across the faces); every face asked ≥ 1
   hub ring               7 unconditional entries + exactly 1 under
       #if defined(CONFIG_BOARD_P4) (clock → settings-time); the ring's
       per-board asked glyph sets ⊆ the tier's carried icon sets
@@ -105,9 +105,13 @@ FACE_NAMES = [f[1] for f in FACES]
 EXPECT_ASKS = {
     "screens.c": {
         "ui_font_montserrat_bold_96_numbers": 11,
-        "ui_font_montserrat_regular_48_numbers": 5,
+        # 6 since the wall-mount trim's 0..359 roller (89afd8d): the five
+        # time-screen asks + the display screen's angle roller.
+        "ui_font_montserrat_regular_48_numbers": 6,
         "ui_font_montserrat_regular_32_ssid": 15,
-        "ui_font_montserrat_regular_48_ssid": 4,
+        # 3 since the same wave: the display screen's angle readout left the
+        # SSID face with the roller's digits.
+        "ui_font_montserrat_regular_48_ssid": 3,
         "ui_font_montserrat_regular_32_range": 2,
         "ui_font_fontawesome7_solid_96_icons": 5,
         "ui_font_fontawesome7_regular_96_icons": 4,

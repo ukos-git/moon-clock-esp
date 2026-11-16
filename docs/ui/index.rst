@@ -228,7 +228,7 @@ each rooted at exactly one detached ``lv_obj_create(0)`` — and only
 city exists before the first frame is ever shown.** The city is 265
 object instances under 17 roots (266 on the P4 — the hub's 8th
 ``ring[]`` label is the whole per-board delta), and the code's own
-contract sits at ``screens.c:1375``: *"The widgets are created once
+contract sits at ``screens.c:1388``: *"The widgets are created once
 (loadScreen never destroys them), so the pointers live here."* The
 awake user sees 17 of the 265; a visit creates nothing, destroys
 nothing, and at most pays an entry refresh.
@@ -241,24 +241,24 @@ nothing, and at most pays an entry refresh.
 .. graphviz:: ../_graphs/screen-population-city.dot
    :align: center
    :alt: The hidden city opened — create_screens feeding the four moon roots (with the shared moon image and the one reparented clock widget), the hub, the amber wheel at 150, and the eleven small screens.
-   :caption: The hidden city opened. ``create_screens()`` (``screens.c:4115``) calls exactly the 17 ``create_screen_*`` in enum order; EACH creator roots at exactly ONE detached ``lv_obj_create(0)`` — layout contract 1, and the twin parser dies on a second root or a missing creator. The four moon roots carry 17 (modem-sleep, including the clock widget), 5 (wifi), 3 (light-sleep), 4 (deep-sleep) objects and are the ONLY ``moon_screen_prepare`` call sites (``screens.c:41-45``); ONE moon image serves all four (``moon_ui_create_image``, ``moon_ui.c:2763`` — "s_images[] stays at the four moon screens"), the 12 settings screens + alarm are moon-less by design. The hub's 10: seven ``ring[]`` labels (``screens.c:597-608``) + exit + root, and the ``#if defined(CONFIG_BOARD_P4)`` leg adds an 8th (clock icon → settings-time) — the ONLY per-board delta in the whole bill. The wheel's 150 = 57 %: 42 arcs + 49 containers + 59 labels from the 12-sector loop (``WHEEL_N_SECTORS``, ``screens.c:1870``) and the 26 letters × 2 — NOT a roller. The other 11 screens run 3 to 12 objects each (alarm view lightest at 3; settings-time 12, P4-reachable only); ALL 14 ``lv_roller`` instances live there, none in the wheel. The clock widget is created exactly ONCE (layout contract 2 — 13 of the home's 17) and ``ui_clock_attach_to`` (``screens.c:4047``) REPARENTS it onto every moon root: "computed, not rendered" for settings screens.
+   :caption: The hidden city opened. ``create_screens()`` (``screens.c:4061``) calls exactly the 17 ``create_screen_*`` in enum order; EACH creator roots at exactly ONE detached ``lv_obj_create(0)`` — layout contract 1, and the twin parser dies on a second root or a missing creator. The four moon roots carry 17 (modem-sleep, including the clock widget), 5 (wifi), 3 (light-sleep), 4 (deep-sleep) objects and are the ONLY ``moon_screen_prepare`` call sites (``screens.c:41-45``); ONE moon image serves all four (``moon_ui_create_image``, ``moon_ui.c:2763`` — "s_images[] stays at the four moon screens"), the 12 settings screens + alarm are moon-less by design. The hub's 10: seven ``ring[]`` labels (``screens.c:597-608``) + exit + root, and the ``#if defined(CONFIG_BOARD_P4)`` leg adds an 8th (clock icon → settings-time) — the ONLY per-board delta in the whole bill. The wheel's 150 = 57 %: 42 arcs + 49 containers + 59 labels from the 12-sector loop (``WHEEL_N_SECTORS``, ``screens.c:1883``) and the 26 letters × 2 — NOT a roller. The other 11 screens run 3 to 12 objects each (alarm view lightest at 3; settings-time 12, P4-reachable only); ALL 14 ``lv_roller`` instances live there, none in the wheel. The clock widget is created exactly ONCE (layout contract 2 — 13 of the home's 17) and ``ui_clock_attach_to`` (``screens.c:3993``) REPARENTS it onto every moon root: "computed, not rendered" for settings screens.
 
 .. graphviz:: ../_graphs/screen-population-visit.dot
    :align: center
    :alt: A visit opened — loadScreen with zero creator calls feeding the exactly-eleven-case entry refresh and the current-screen-only tick dispatch, with the dashed 0x51 fade pointer beside it.
-   :caption: A visit opened — the build-once bill. ``loadScreen(old→new)`` (``ui.c:51``): ``lv_scr_load`` swaps roots (:63), then ``ui_clock_attach_to`` (:69) and ``moon_ui_screen_switched`` (:74) land the atomic frame — NO creator call sits inside it (the twin parser DIES on any ``*_create(`` there); the code's own contract, "The widgets are created once (loadScreen never destroys them)" (``screens.c:1375``). ``settings_screen_refresh_for`` (``screens.c:734``) has exactly 11 cases: the 11 sub-screens pay an entry REFRESH (rollers re-seed from model state), never a rebuild. ``ui_tick`` (``ui.c:87``) dispatches through ``tick_screen_funcs[]`` (``screens.c:4092``, the 17 tickers in enum order): the sixteen off-screen roots tick ZERO times, every frame. The switch rides the 0x51 fade-to-black (``UI_SCREEN_SWITCH_FADE``, internals in ``docs/_graphs/screen-switch.dot``); the both-moon test (``ui.c:57``) skips the fade between moon roots — "a fade with nothing to fade". The knob's P2 dial block (``screens.c:4140-4562``) contains ZERO ``lv_*_create`` — the dial cursor only restyles existing objects.
+   :caption: A visit opened — the build-once bill. ``loadScreen(old→new)`` (``ui.c:51``): ``lv_scr_load`` swaps roots (:63), then ``ui_clock_attach_to`` (:69) and ``moon_ui_screen_switched`` (:74) land the atomic frame — NO creator call sits inside it (the twin parser DIES on any ``*_create(`` there); the code's own contract, "The widgets are created once (loadScreen never destroys them)" (``screens.c:1388``). ``settings_screen_refresh_for`` (``screens.c:747``) has exactly 11 cases: the 11 sub-screens pay an entry REFRESH (rollers re-seed from model state), never a rebuild. ``ui_tick`` (``ui.c:87``) dispatches through ``tick_screen_funcs[]`` (``screens.c:4038``, the 17 tickers in enum order): the sixteen off-screen roots tick ZERO times, every frame. The switch rides the 0x51 fade-to-black (``UI_SCREEN_SWITCH_FADE``, internals in ``docs/_graphs/screen-switch.dot``); the both-moon test (``ui.c:57``) skips the fade between moon roots — "a fade with nothing to fade". The knob's P2 dial block (``screens.c:4086-4495``) contains ZERO ``lv_*_create`` — the dial cursor only restyles existing objects.
 
 The rules the graph encodes:
 
 - **Built once, before the first frame.** ``create_screens()``
-  (``screens.c:4115``) runs inside ``ui_init`` *before* the first
+  (``screens.c:4061``) runs inside ``ui_init`` *before* the first
   ``loadScreen``; each of the 17 creators owns exactly one detached
   root (layout contract 1).
 - **Never destroyed.** ``loadScreen`` (``ui.c:51``) contains no
   creator call and no destroy — the twin parser refuses to draw if a
   ``*_create(`` ever appears inside it. A switch swaps roots,
   reparents the ONE clock widget (``ui_clock_attach_to``,
-  ``screens.c:4047``, "computed, not rendered" for settings screens),
+  ``screens.c:3993``, "computed, not rendered" for settings screens),
   and lands the atomic frame.
 - **The bill is concentrated, not spread.** One screen — the round
   keyboard — assembles 150 of the 265 (57 %), and it is not a
@@ -266,13 +266,13 @@ The rules the graph encodes:
   list screens. The four sleep-state roots share the ONE moon image
   (``s_images[]`` stays at the four, ``screens.c:48``).
 - **Only the current screen ticks.** ``ui_tick`` (``ui.c:87``)
-  dispatches through ``tick_screen_funcs[]`` (``screens.c:4092``) to
+  dispatches through ``tick_screen_funcs[]`` (``screens.c:4038``) to
   the loaded screen alone; the sixteen off-screen roots do no work
   per frame. The 11 sub-screens additionally pay one entry REFRESH
-  (``settings_screen_refresh_for``, ``screens.c:734``, exactly 11
+  (``settings_screen_refresh_for``, ``screens.c:747``, exactly 11
   cases — rollers re-seed, nothing rebuilds).
 - **The knob adds no widgets.** Its P2 dial block
-  (``screens.c:4140-4562``) contains zero ``lv_*_create`` calls — the
+  (``screens.c:4086-4495``) contains zero ``lv_*_create`` calls — the
   dial cursor only restyles existing objects. The dial's *input* path
   is its own story, :ref:`below <input-chain-ui>`.
 
@@ -318,7 +318,7 @@ three tiers with their choosers, and the two askers.
 .. graphviz:: ../_graphs/type-family-faces.dot
    :align: center
    :alt: The seven faces opened — the two digit faces, the two SSID faces and the amber weekday face on the left, the two violet icon faces on the right, each with its glyph count and what it inks.
-   :caption: The seven faces opened. The digit faces are Montserrat: ``montserrat_bold_96_numbers`` carries 12 glyphs (Opts ``--symbols - --range 48-58`` — digits, ':' from the range, '-'; the home clock's HH:MM ink) and ``montserrat_regular_48_numbers`` carries 13 (adds the dot) — the settings-time DATE editor's face: three day/month/year rollers (``screens.c:3002-3011``) plus the two "." separators (:3005/:3009). The two SSID faces cover the full printable range, Opts ``-r 32-126``, 95 glyphs. ``montserrat_regular_32_range`` is the hand-tuned 12-glyph weekday alphabet, Opts ``-r 45,70,77,83,84,87,97,101,104,111,114,117`` = '-' F M S T W a e h o r u — exactly the alphabet the two weekday tables can spell (``s_day_abbr[7]`` ``actions.c:1070`` + ``ALARM_DAY_ABBR[7]`` ``screens.c:1040``). The solid icon face carries 7 (Opts range 61480,61527,61612,61830,61931,62193,62194 = speaker U+F028, xmark U+F057, globe U+F0AC, moon U+F186, wifi U+F1EB, rotate U+F2F1, stopwatch U+F2F2); the regular icon face carries 2 on the S3 (62286,61830 = alarm U+F34E, moon U+F186) and 3 on the P4 and knob — the clock U+F017 joins as the P4 ring's 8th entry.
+   :caption: The seven faces opened. The digit faces are Montserrat: ``montserrat_bold_96_numbers`` carries 12 glyphs (Opts ``--symbols - --range 48-58`` — digits, ':' from the range, '-'; the home clock's HH:MM ink) and ``montserrat_regular_48_numbers`` carries 13 (adds the dot) — the settings-time DATE editor's face: three day/month/year rollers (``screens.c:3015-3024``) plus the two "." separators (:3018/:3022). The two SSID faces cover the full printable range, Opts ``-r 32-126``, 95 glyphs. ``montserrat_regular_32_range`` is the hand-tuned 12-glyph weekday alphabet, Opts ``-r 45,70,77,83,84,87,97,101,104,111,114,117`` = '-' F M S T W a e h o r u — exactly the alphabet the two weekday tables can spell (``s_day_abbr[7]`` ``actions.c:1070`` + ``ALARM_DAY_ABBR[7]`` ``screens.c:1053``). The solid icon face carries 7 (Opts range 61480,61527,61612,61830,61931,62193,62194 = speaker U+F028, xmark U+F057, globe U+F0AC, moon U+F186, wifi U+F1EB, rotate U+F2F1, stopwatch U+F2F2); the regular icon face carries 2 on the S3 (62286,61830 = alarm U+F34E, moon U+F186) and 3 on the P4 and knob — the clock U+F017 joins as the P4 ring's 8th entry.
 
 .. graphviz:: ../_graphs/type-family-tiers.dot
    :align: center
@@ -328,7 +328,7 @@ three tiers with their choosers, and the two askers.
 .. graphviz:: ../_graphs/type-family-asks.dot
    :align: center
    :alt: The askers opened — screens.c and styles.c plus the wheel, the hub ring and the weekday tables funneling their per-face ask counts into the five face groups; the dashed knob node rides screens.c.
-   :caption: The askers opened — a repo-wide grep for ``&ui_font_`` finds exactly two files: ``screens.c`` (46 references) + ``styles.c`` (4); the knob's and main's sources ask NOTHING directly, they ride ``screens.c``. Per face: bold96 12 (11+1), 48-numbers 6 (5+1), 48-SSID 4 (Wi-Fi roller MAIN+SELECTED ``screens.c:1691-1692`` + placeholder :1739 + the display angle readout :3424), 32-SSID 15 (wheel pw label + the 26+26 sector letters "both 32 px (the SSID font)" ``screens.c:2589-2600`` + the Wi-Fi text rows + the display caption :3345), 32-range 2 (``screens.c:1344`` range summary + :3710 alarm-row weekday prefix), solid 6 (5 ring entries + the style installer), regular 5 (3 ring entries + the weight-routing comparison ``screens.c:159`` + 1 style installer). ``styles.c``'s two installers (``add_style_label_icon_regular``/``_solid``) set the font onto the icon style. The hub ring (``screens.c:597-608``): seven unconditional entries — alarm (regular), light-sleep moon (regular), deep-sleep moon (SOLID — "Moon weight distinguishes the two sleep screens"), wifi, globe, speaker (solid), rotate (solid) — plus the P4-only 8th, clock (regular) → settings-time; the xmark U+F057 exit button and the stopwatch U+F2F2 join from the same solid face.
+   :caption: The askers opened — a repo-wide grep for ``&ui_font_`` finds exactly two files: ``screens.c`` (46 references) + ``styles.c`` (4); the knob's and main's sources ask NOTHING directly, they ride ``screens.c``. Per face: bold96 12 (11+1), 48-numbers 7 (6+1), 48-SSID 3 (Wi-Fi roller MAIN+SELECTED ``screens.c:1704-1705`` + placeholder :1752), 32-SSID 15 (wheel pw label + the 26+26 sector letters "both 32 px (the SSID font)" ``screens.c:2602-2613`` + the Wi-Fi text rows + the display caption :3319), 32-range 2 (``screens.c:1357`` range summary + :3656 alarm-row weekday prefix), solid 6 (5 ring entries + the style installer), regular 5 (3 ring entries + the weight-routing comparison ``screens.c:159`` + 1 style installer). ``styles.c``'s two installers (``add_style_label_icon_regular``/``_solid``) set the font onto the icon style. The hub ring (``screens.c:597-608``): seven unconditional entries — alarm (regular), light-sleep moon (regular), deep-sleep moon (SOLID — "Moon weight distinguishes the two sleep screens"), wifi, globe, speaker (solid), rotate (solid) — plus the P4-only 8th, clock (regular) → settings-time; the xmark U+F057 exit button and the stopwatch U+F2F2 join from the same solid face.
 
 The rules the graph encodes:
 
@@ -344,9 +344,9 @@ The rules the graph encodes:
   (``montserrat_regular_32_range``) is a 12-codepoint hand-picked set
   — ``- F M S T W a e h o r u`` — which is *exactly* the alphabet of
   the two weekday tables (``s_day_abbr`` ``actions.c:1070``,
-  ``ALARM_DAY_ABBR`` ``screens.c:1040``) spelling "Mo", "Mo-Fr",
+  ``ALARM_DAY_ABBR`` ``screens.c:1053``) spelling "Mo", "Mo-Fr",
   "Fr-Mo"; the wheel's four registers
-  (``s_wheel_sets``, ``screens.c:1875-1880``) stay inside the SSID
+  (``s_wheel_sets``, ``screens.c:1888-1893``) stay inside the SSID
   face's 95 by construction.
 - **The icons are per-board, and one glyph proves it.** The hub's
   ring (``screens.c:597-608``) carries seven entries on every board and
@@ -362,7 +362,7 @@ The rules the graph encodes:
 - **The font is ink; the wheel is a consumer like any other.** The
   round keyboard's 26+26 sector letters and its password preview all
   draw on the 32 px SSID face — "both 32 px (the SSID font)"
-  (``screens.c:2589``) — so the character face is named for Wi-Fi and
+  (``screens.c:2602``) — so the character face is named for Wi-Fi and
   paints the wheel's alphabet.
 - **Provenance lives in the file.** All 21 carry an ``lv_font_conv``
   header (Size/Bpp/Opts — the file's own birth certificate), every
@@ -421,7 +421,7 @@ hit-test while the BSP indev stays live for the human — created
 .. graphviz:: ../_graphs/input-chain-knob.dot
    :align: center
    :alt: The knob opened — the polled CST816S and the pulse-pair dial at top, feeding the own POINTER indev, the tick-safe floor and the dial task, which land root-CLICKED commits, dim steps and hit-tests on the shared lock.
-   :caption: The knob opened (every pin, cadence and story the sealed box hides). ``CST816S`` @ 0x15 (SDA 11 · SCL 12 · INT 9 · RST 10): hard-reset pulse, normal-mode write once, then 7-byte polls from reg 0 — contact count at [2], x/y nibble-joined (``knob_board_touch.c``); the INT line is wired but POLLED anyway (vendor style). Our own ``touch_read_cb`` (``knob/main/main.c:84``) → ``lv_indev_create`` POINTER (:389) — the one difference from the clocks: WE supply the read callback; every press also calls ``knob_power_notify_activity`` (K7e: touch is activity), and the ok/err heartbeat probe logs a dead chip vs a silent panel vs a live one. The dial: EC1 A = GPIO 8 · B = GPIO 7, 10K pull-ups — NOT quadrature, an UP/DOWN PULSE PAIR (one channel pulses per detent and WHICH channel is the direction; bench + vendor 2026-11-08); ``enc_task`` (``knob_board_encoder.c:58``) polls 3 ms in the vendor ``process_knob_channel`` shape — LOW samples only re-arm, the detent fires on the debounced RISE (2 ticks), the count moves under ``portMUX``. The tick-safe floor is the amber footnote: at the knob's 100 Hz systick ``pdMS_TO_TICKS(3)`` == 0 and ``vTaskDelay(0)`` does NOT yield — the priority-5 poller then busy-spins, starves IDLE0 and the task WDT aborts the boot (bench 2026-11-11: "CPU 0: knob_enc" died at t ≈ 6.4 s); one tick = 10 ms, and detents are ≥ 30 ms apart anyway. ``dial_task`` 20 ms (``knob_dial.c:81``) consumes the count ONE detent at a time; off home → activity reported BEFORE the lock (a contended dial must never delay the un-dim), then ``knob_ui_lvgl_lock`` → ``screens_dial_step`` → unlock. On home the dial is BRIGHTNESS, not input: ±5 % steps through ``moon_ui_panel_brightness_set``, floored at the ladder's own dim rung — ``DIAL_DIM_MIN_PCT`` from ``CONFIG_KNOB_DIM_DUTY`` 64 = 25 % (user 2026-11-10). Tap-to-commit: a background CLICKED lands on the screen root (LVGL's no-target fallback) → ``screens_dial_commit`` (``knob_dial.c:38``), already inside the LVGL task's lock; ``knob_dial_start`` re-adds CLICKABLE to every settings root knob-side only (LVGL 9 needs CLICKABLE to make a press TARGET at all) — moon roots excluded, their tap opens the hub. And the reentrant lock (``knob_ui.c:225-:266``): holder+depth, a same-task take is a depth bump — a FreeRTOS mutex is NOT recursively takable by its owner, so the plain take self-deadlocked on the first tap when a CLICKED handler re-took it (loadScreen → seam); the dial task and the indev path meet at exactly this wrapper.
+   :caption: The knob opened (every pin, cadence and story the sealed box hides). ``CST816S`` @ 0x15 (SDA 11 · SCL 12 · INT 9 · RST 10): hard-reset pulse, normal-mode write once, then 7-byte polls from reg 0 — contact count at [2], x/y nibble-joined (``knob_board_touch.c``); the INT line is wired but POLLED anyway (vendor style). Our own ``touch_read_cb`` (``knob/main/main.c:84``) → ``lv_indev_create`` POINTER (:389) — the one difference from the clocks: WE supply the read callback; every press also calls ``knob_power_notify_activity`` (K7e: touch is activity), and the ok/err heartbeat probe logs a dead chip vs a silent panel vs a live one. The dial: EC1 A = GPIO 8 · B = GPIO 7, 10K pull-ups — NOT quadrature, an UP/DOWN PULSE PAIR (one channel pulses per detent and WHICH channel is the direction; bench + vendor 2026-11-08); ``enc_task`` (``knob_board_encoder.c:58``) polls 3 ms in the vendor ``process_knob_channel`` shape — LOW samples only re-arm, the detent fires on the debounced RISE (2 ticks), the count moves under ``portMUX``. The tick-safe floor is the amber footnote: at the knob's 100 Hz systick ``pdMS_TO_TICKS(3)`` == 0 and ``vTaskDelay(0)`` does NOT yield — the priority-5 poller then busy-spins, starves IDLE0 and the task WDT aborts the boot (bench 2026-11-11: "CPU 0: knob_enc" died at t ≈ 6.4 s); one tick = 10 ms, and detents are ≥ 30 ms apart anyway. ``dial_task`` 20 ms (``knob_dial.c:81``) consumes the count ONE detent at a time; off home → activity reported BEFORE the lock (a contended dial must never delay the un-dim), then ``knob_ui_lvgl_lock`` → ``screens_dial_step`` → unlock. On home the dial is BRIGHTNESS, not input: ±5 % steps through ``moon_ui_panel_brightness_set``, floored at the ladder's own dim rung — ``DIAL_DIM_MIN_PCT`` from ``CONFIG_KNOB_DIM_DUTY`` 64 = 25 % (user 2026-11-10). Tap-to-commit: a background CLICKED lands on the screen root (LVGL's no-target fallback) → ``screens_dial_commit`` (``knob_dial.c:38``), already inside the LVGL task's lock; ``knob_dial_start`` re-adds CLICKABLE to every settings root knob-side only (LVGL 9 needs CLICKABLE to make a press TARGET at all) — moon roots excluded, their tap opens the hub. And the reentrant lock (``knob_ui.c:226-:267``): holder+depth, a same-task take is a depth bump — a FreeRTOS mutex is NOT recursively takable by its owner, so the plain take self-deadlocked on the first tap when a CLICKED handler re-took it (loadScreen → seam); the dial task and the indev path meet at exactly this wrapper.
 
 The rules the graph encodes:
 

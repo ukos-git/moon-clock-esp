@@ -15,14 +15,14 @@ beside a deliberate press (also 2 s) — same length, opposite intent.
 Every number is PARSED from the live sources at figure time (the
 house pattern):
 
-  #define FLUSH_WAIT_TIMEOUT_MS 2000       components/ui/moon_ui.c:437
+  #define FLUSH_WAIT_TIMEOUT_MS 2000       components/ui/moon_ui.c:471
       (the drain witness — moon_flush_wait_cb's gate on s_panel_mtx,
        the lost-trans-done hand of task #29/#30; docs/_graphs/
       flush-path.dot draws the machine this wait belongs to)
-  #define PANEL_IO_WATCHDOG_LIMIT_MS 3000  components/ui/moon_ui.c:588
+  #define PANEL_IO_WATCHDOG_LIMIT_MS 3000  components/ui/moon_ui.c:625
       (the true-stall case: the 3 s panel-io watchdog restart)
-  #define PANEL_TRAFFIC_HOLD_MS 15000      components/ui/moon_ui.c:362
-  #define PANEL_TRAFFIC_TAIL_MS 4000       components/ui/moon_ui.c:373
+  #define PANEL_TRAFFIC_HOLD_MS 15000      components/ui/moon_ui.c:369
+  #define PANEL_TRAFFIC_TAIL_MS 4000       components/ui/moon_ui.c:380
       (the scan-following traffic hold: a cap on the hold itself and
        the tail the last holder's drop lags behind)
   #define ORI_RESYNC_PRESS_MS 2000         components/ui/actions.c:265
@@ -38,7 +38,7 @@ house pattern):
        snapshot as "last known")
   while (!connected) <= 15000              knob/main/main.c:225
       (the join wait before any NTP attempt)
-  #define HOURLY_BUDGET_MS 5000            components/ui/moon_ui.c:1006
+  #define HOURLY_BUDGET_MS 5000            components/ui/moon_ui.c:1070
   UI_MOON_REPLAY_BUDGET_MS (Kconfig)       components/ui/Kconfig
       (the two budgets — right panel draws them at exactly 1x)
 

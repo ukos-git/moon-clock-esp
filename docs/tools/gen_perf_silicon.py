@@ -40,7 +40,7 @@ Every bar parsed at figure time (the house pattern):
       accel "@ 1000 Hz" / "1000 Hz = 3" (the parsed chip ODR), the
       not-found line "QMI8658 not found on the I2C bus (0x6A/0x6B);
       moon tilt disabled" (:254), and the ask side — lv_timer_create
-      (moon_tilt_monitor_cb, 1000) at moon_ui.c:2588. P4 zero: the
+      (moon_tilt_monitor_cb, 1000) at moon_ui.c:2729. P4 zero: the
       chip is not on the board — asserted by docs/devices/p4.rst
       NEVER mentioning QMI8658 while docs/devices/s3.rst does; knob
       zero: imu_stub.c "imu_is_ready(void) { return false; }".
@@ -55,7 +55,7 @@ Every bar parsed at figure time (the house pattern):
       lv_timer_create(clock_rtc_interrupt_handler_cb, 1300) at
       knob/main/main.c:526 ("RTC_POLL_INTERVAL_MS on the clocks is
       1300", :525).
-  microSD: hour centre hour * 3600 + 1800 (moon_ui.c:1664, the hourly
+  microSD: hour centre hour * 3600 + 1800 (moon_ui.c:1808, the hourly
       probe's own epoch); S3 legs SPI3_HOST x2 + GPIO_NUM_41 CS +
       BSP_SD_CMD/D0/CLK (moon_tfcache.c:415-:440, "SPI2 is the QSPI
       panel's"); P4 leg "#if defined(CONFIG_BOARD_P4) ... return
@@ -65,7 +65,7 @@ Every bar parsed at figure time (the house pattern):
       empties it — the module never compiles there ("no SD socket").
   radio: the hourly airplane re-sync gate — current_time.minute == 0
       + clock_sntp_needs_sync + SCREEN_ID_MODEM_SLEEP (actions.c
-      ~:938); P4 crosses to the C6 (CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE
+      ~:1023); P4 crosses to the C6 (CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE
       =y in the P4 header, parsed); the knob cell stays open — the
       gate is shared code but fires on the airplane screen only.
   EC1: #define ENC_POLL_MS 3 (knob_board_encoder.c:32 "vendor
@@ -76,7 +76,7 @@ Every bar parsed at figure time (the house pattern):
       knob_battery_ui.c:204; adc_oneshot on "GPIO 1 (ADC1_CH0"
       (knob_battery.c header comment).
   classify: xTaskCreatePinnedToCoreWithCaps "moon_event" at
-      configMAX_PRIORITIES - 4 with MALLOC_CAP_SPIRAM (moon_ui.c:2614,
+      configMAX_PRIORITIES - 4 with MALLOC_CAP_SPIRAM (moon_ui.c:2755,
       "IDLE1 is not WDT-watched") — the 15-20 s day scan, 1/day; the
       knob has no worker (no moon_event_task token under knob/ —
       moon_ui.c is the excluded side of the CMake branch above).

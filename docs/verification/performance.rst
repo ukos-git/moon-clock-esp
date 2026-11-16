@@ -702,8 +702,10 @@ Runtime watermarks (free heap, largest block) are the device's own
    the full 360² square (``moon_ui.c`` is *excluded* from the knob
    build — its working set lives in ``knob_ui``). **Middle:** the
    internal-RAM commitments — the static LVGL pool and the task
-   stacks; the two ``MALLOC_CAP_SPIRAM`` stack tasks are dotted, not
-   RAM debt. **Right:** the flash moon assets against their own
+   stacks; the ONE ``MALLOC_CAP_SPIRAM`` stack task (``moon_event``) is
+   dotted, not RAM debt — the knob producer's stack joined
+   internal RAM on 2026-11-16 (the tick-ISR flash-write
+   family). **Right:** the flash moon assets against their own
    partition rows — the S3's 2 MiB DEM pushes the combined image to
    94 % of its 2,560 KiB partition, the P4's 4 MiB combined sits at
    80 %, the knob's half-axis DEM (1024×512) leaves it at 34 %
@@ -1213,11 +1215,11 @@ parsers die when a source drifts.
   the file belongs to the spiffs image, not the runtime.
   ``settings.txt`` — 2 comment + 7 key lines, 265 B computed from the
   asserted ``fprintf`` template — is written only by four
-  settings-screen actions (sleep ``screens.c:1426``, timezone
+  settings-screen actions (sleep ``screens.c:1439``, timezone
   ``:3086``, alarm sound ``:3168``, display trim ``:3298``) and the
   TEST settings demo
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
-  provisioning wheel's commit (``screens.c:2308``, its single caller,
+  provisioning wheel's commit (``screens.c:2321``, its single caller,
   87 B with a sample SSID). The knob's 64 K coredump partition
   (``knob/partitions.csv:18``) sees its first bytes on a crash — the
   coredump row the storage ladder drew italic *no bytes until a crash*
@@ -1503,11 +1505,11 @@ gates its fade-to-black on.
 
 **Right: the user's whole layer.** Not dozens of knobs but **seven
 keys** on ``settings.txt``. Five are live: two screen-written
-timeouts (``screens.c:1410``/:1408, both clamped to 60..1800 s by
+timeouts (``screens.c:1423``/:1421, both clamped to 60..1800 s by
 the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the timezone
-(``screens.c:3072``), the alarm sound (``screens.c:3154``, range
+(``screens.c:3085``), the alarm sound (``screens.c:3167``, range
 twin asserted against ``ALARM_SOUND_COUNT`` 4) — and the display
-trim added for the wall mount (``screens.c:3323``, parsed-clamped
+trim added for the wall mount (``screens.c:3297``, parsed-clamped
 0..359°, seeded from ``SETTINGS_DISPLAY_ROT_DEFAULT`` 0). Two are ghosts —
 ``boot_anim_enable`` and ``dusk_anim_enable``, parsed and re-saved
 *only so a stale card must not break parsing* (the store's own
@@ -1810,10 +1812,10 @@ milliseconds. None of them has priced the **population** — the LVGL
 objects that exist at boot, before a finger has touched anything.
 This ladder counts it out of ``screens.c``: seventeen detached roots
 and **265 object instances** (266 on the P4), assembled exactly once
-by ``create_screens()`` (``screens.c:4115``) inside ``ui_init``
+by ``create_screens()`` (``screens.c:4061``) inside ``ui_init``
 (``ui.c:77``) *before* the first ``loadScreen`` — and then prices the
 build-once model that makes visiting them free. The code's own
-comment is the contract, at ``screens.c:1375``: *"The widgets are
+comment is the contract, at ``screens.c:1388``: *"The widgets are
 created once (loadScreen never destroys them), so the pointers live
 here."* The awake home **shows 17** objects; the other 248 are the
 hidden city. A screen visit costs **zero creations and zero
@@ -1836,7 +1838,7 @@ a registry entry appears or vanishes:
   claim is asserted, not quoted: add a ``*_create(`` inside it and
   the figure refuses to draw;
 * exactly 17 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
-  (``screens.c:4092``) in enum order — ``ui_tick`` (``ui.c:87``)
+  (``screens.c:4038``) in enum order — ``ui_tick`` (``ui.c:87``)
   dispatches **only the current screen**, so the sixteen off-screen
   roots tick zero times;
 * helper bodies are resolved **transitively** (the exit button is
@@ -1844,17 +1846,17 @@ a registry entry appears or vanishes:
   one roller), and ``create_user_widget_clock`` — the ONE clock
   widget, called exactly once, from the airplane creator (layout
   contract 2, ``ui_clock_attach_to`` reparents it onto every moon
-  root, ``screens.c:4047``) — counts toward the home;
+  root, ``screens.c:3993``) — counts toward the home;
 * object creation inside a loop is priced by the parsed bound —
-  ``WHEEL_N_SECTORS`` 12 (``screens.c:1870``), literal bounds, and
+  ``WHEEL_N_SECTORS`` 12 (``screens.c:1883``), literal bounds, and
   the hub's ``sizeof(ring)`` loop at the parsed 7/8 ring table — and
   **any loop bound the generator cannot model is a SystemExit**: a
   loop nobody modelled cannot ship a bar;
 * the structural tables re-derive the tap ladder's own: exactly 10
   ``settings_sub_screen_prepare`` exits, exactly 11 cases in
-  ``settings_screen_refresh_for`` (``screens.c:734`` — the 11
+  ``settings_screen_refresh_for`` (``screens.c:747`` — the 11
   sub-screens, no more), exactly **4** ``moon_screen_prepare`` call
-  sites (``screens.c:41``, the airplane/wifi/light/deep roots that
+  sites (``screens.c:242/:322/:422/:452``, the airplane/wifi/light/deep roots that
   share the ONE moon image via ``moon_ui_create_image``,
   ``moon_ui.c:2763``), and **zero** creations in the knob's P2 dial
   block — the dial cursor only restyles existing objects.
@@ -1936,7 +1938,7 @@ parsers:
   annotations: digits ``0-9 : -`` (12), digits ``+ .`` (13), the two
   SSID faces the full printable 0x20–0x7E (95 each), the weekday face
   **derived from the two weekday tables themselves** (``s_day_abbr``
-  ``actions.c:1070`` + ``ALARM_DAY_ABBR`` ``screens.c:1040`` plus
+  ``actions.c:1070`` + ``ALARM_DAY_ABBR`` ``screens.c:1053`` plus
   ``-``) and asserted EQUAL to the 12 baked codepoints both ways,
   and the icon faces from the decoded UTF-8 of the ``GLYPH_*``
   defines (escape bytes vs their own ``U+XXXX`` comments);

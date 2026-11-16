@@ -44,7 +44,7 @@ sweep, release. One fidelity note before you press: its bottom band is
 **frozen at the 2026-11-02 proposal** — ⊗ commit, trash discard, the
 lab's pairing — while the firmware has drawn the house circle-**check**
 COMMIT and circle-**xmark** DISCARD since 2026-11-08
-(``screens.c:1806``; the uisim captures further down are the real
+(``screens.c:1819``; the uisim captures further down are the real
 thing).
 
 .. raw:: html

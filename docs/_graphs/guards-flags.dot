@@ -6,12 +6,12 @@
 // (wifi.c:284) sets CONNECTED :183 / FAIL :171 and waits :329 for 8 s
 // (WIFI_CONNECTION_TIMEOUT_MS). The FOUR SEQ_CST fences are the knob's
 // row hand-off without any key: the producer's knob_moon.c:135 pairs
-// with the swap reader's knob_ui.c:607 ("pair with the producer's row
-// fences"), plus :380 and :643 on the swap side. The app's ONE
+// with the swap reader's knob_ui.c:637 ("pair with the producer's row
+// fences"), plus :381 and :673 on the swap side. The app's ONE
 // task-notify pair is the day-scan doorbell: moon_event_classify_here
-// rings xTaskNotifyGive(s_event_task) at moon_ui.c:1146 and
+// rings xTaskNotifyGive(s_event_task) at moon_ui.c:1196 and
 // moon_event_task blocks on ulTaskNotifyTake(pdTRUE, portMAX_DELAY) at
-// :1120. xQueueCreate fires ZERO times in app code (the vendored BSP's
+// :1170. xQueueCreate fires ZERO times in app code (the vendored BSP's
 // trans queue is cited, never ours: CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH =
 // 1, S3 header, used at the BSP's :412 — the 32 KiB SPI DMA
 // invariant). The adapter's LVGL mutex is VENDORED — the app takes it

@@ -17,7 +17,7 @@ Left panel — the work ONE published frame touches:
                                        write (moon_convert_to_rgb; the
                                        knob has NO such leg — its bake
                                        writes RGB565 straight into the
-                                       back buffer, knob_ui.c:367)
+                                       back buffer, knob_ui.c:368)
   hourly disk flush    MOON_PX²        the while-black whole-panel
                                        lv_refr_now with the moon image
                                        invalidated (perf_bus's violet row
@@ -59,7 +59,7 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
   CONFIG_BSP_LCD_TYPE_720_720_4_INCH                build/p4/config/sdkconfig.h
   #define KNOB_LCD_H_RES / _V_RES / _ROWS_PER_BUF   knob/components/knob_board/include/knob_board.h
   .max_transfer_sz = KNOB_LCD_H_RES * KNOB_LCD_ROWS_PER_BUF * sizeof(uint16_t)   knob_board_display.c (shape-asserted)
-  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       knob/components/knob_ui/knob_ui.c:78/:96 (the bake square IS the panel)
+  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       knob/components/knob_ui/knob_ui.c:79/:97 (the bake square IS the panel)
   knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2) knob/components/knob_ui/knob_moon_render.c (the drawn disk, as gen_perf_sharp parses it)
   MOON_ALB_W/_H + MOON_DEM_W/_H                     components/moon/generated/{s3,p4,knob}/moon_consts.h (albedo asserted 2:1 equirect)
 
@@ -204,7 +204,7 @@ def main() -> None:
          "the knob's bake square is no longer the panel "
          "(#define MOON_SIZE KNOB_LCD_H_RES)")
     must(r"static uint16_t \*s_buf\[2\];", KNOB_UI_C,
-         "the knob's RGB565 double buffer moved (knob_ui.c:96)")
+         "the knob's RGB565 double buffer moved (knob_ui.c:97)")
     must(r"one atomic band lv_refr_now per completed row", KNOB_UI_C,
          "the knob's per-ROW reveal rule was reworded (knob_ui.c:31)")
     m = must(r"knob_ui_set_disk_geom\((\d+(?:\.\d+)?)f, KNOB_LCD_H_RES / 2\)",
@@ -275,10 +275,10 @@ def main() -> None:
     # buffer, no hourly, no SD socket (the bus ladder's *no such leg*)
     left += [
         ("knob · bake square", k_w * k_w, VIOLET, False,
-         "MOON_SIZE² — the bake square IS the panel (knob_ui.c:78)"),
+         "MOON_SIZE² — the bake square IS the panel (knob_ui.c:79)"),
         ("knob · publish/convert", None, None, False,
          "no such leg — the bake writes RGB565 straight into the back "
-         "buffer (knob_ui.c:367)"),
+         "buffer (knob_ui.c:368)"),
         ("knob · hourly disk flush", None, None, False,
          "no such leg — no hourly, no SD socket"),
         ("knob · whole-panel flush", k_w * k_w, VIOLET, False,

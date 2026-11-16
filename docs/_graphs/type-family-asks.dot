@@ -38,8 +38,8 @@ digraph type_family_asks {
     g_solid [label="the solid icon face"];
     g_regular [label="the regular icon face"];
 
-    screens -> g_digits [label="11 + 5"];
-    screens -> g_ssid [label="4 + 15"];
+    screens -> g_digits [label="11 + 6"];
+    screens -> g_ssid [label="3 + 15"];
     screens -> g_range [label="2"];
     screens -> g_solid [label="5"];
     screens -> g_regular [label="4"];

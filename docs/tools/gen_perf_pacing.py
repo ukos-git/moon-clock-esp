@@ -169,7 +169,7 @@ def main() -> None:
         (f"idle check\nCLOCK_IDLE_CHECK_INTERVAL_MS", idle_check, AMBER, True,
          "clock/Kconfig"),
         (f"tilt monitor\nlv_timer_create(moon_tilt_monitor_cb)", tilt, AMBER,
-         False, "moon_ui.c:2588"),
+         False, "moon_ui.c:2729"),
         (f"seconds increment\nlv_timer_create(seconds_increment_timer_cb)",
          seconds, BLUE, False, "actions.c:945"),
         (f"RTC interrupt poll\nRTC_POLL_INTERVAL_MS", rtc, RED, False,

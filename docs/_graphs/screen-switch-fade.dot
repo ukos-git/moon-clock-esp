@@ -1,4 +1,4 @@
-// The fade-out leg, opened (moon_ui.c:3019 fade_out, :2946 fade_ramp;
+// The fade-out leg, opened (moon_ui.c:3160 fade_out, :3086 fade_ramp;
 // verified before drawing):
 //   moon_ui_fade_out is self-guarded: !s_ready || !moon_on_lvgl() ||
 //   FADE<=0 || s_orbit_baking -> RETURN WITHOUT PENDING (the switch
@@ -14,11 +14,11 @@
 //   panel_hold_live() (the scan storm) -> DROP ALL STEPS: the panel
 //   stays at its tracked level; s_panel_pct untouched is the truthful
 //   bookkeeping.
-//   The loadScreen both-moon test (ui.c:51): fade every switch
+//   The loadScreen both-moon test (ui.c:57): fade every switch
 //   EXCEPT old != new && is_moon(old) && is_moon(new) — airplane /
 //   WiFi / the sleep screens share the one moon image: dimming it
 //   would be a fade with nothing to fade (moon_ui_screen_is_moon
-//   walks s_moon_roots, :3078).
+//   walks s_moon_roots, :3176).
 //   The reparent: lv_scr_load + ui_clock_attach_to(screenId) — the
 //   ONE shared clock widget reparents onto the new root and refreshes
 //   from the RTC while the panel is BLACK, so the wake shows the

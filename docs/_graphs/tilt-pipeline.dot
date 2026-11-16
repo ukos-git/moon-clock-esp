@@ -4,10 +4,10 @@
 // default. The monitor's settled state gates the orientation anchor's
 // re-tracking: the one edge between the two consumers. Every edge
 // verified in components/imu/imu_qmi8658.c (burst read, |g| band),
-// components/ui/moon_ui.c (monitor cb :2375, timer :2678,
-// moon_imu_tick :2252), components/clock/clock_idle.c:92 and
-// components/ui/actions.c (screen_orientation_apply :409, ori_apply_v10
-// :315, ORI_* defines :183-:240). The internals are in the details:
+// components/ui/moon_ui.c (monitor cb :2426, timer :2729,
+// moon_imu_tick :2303), components/clock/clock_idle.c:92 and
+// components/ui/actions.c (screen_orientation_apply :467, ori_apply_v10
+// :350, ORI_* defines :197-:210). The internals are in the details:
 //   tilt-pipeline-monitor.dot  both EMAs, the departure, the two
 //                              bars, the streak, the sink
 //   tilt-pipeline-orient.dot   the 100 ms gate, int4 quantization,

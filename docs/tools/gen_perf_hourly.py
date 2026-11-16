@@ -19,7 +19,7 @@ against, so the ladder reads as the producer's actual decision space:
   knob revealed boot bake  2028–2059 ms  (vs its 991 ms baseline)
 
   producer budget          5000 ms      (HOURLY_BUDGET_MS,
-                           components/ui/moon_ui.c:1006)
+                           components/ui/moon_ui.c:1070)
   pre-fix hourly cycle     ~8200 ms     (cache-policy leg re-ran the
                            ~8.2 s ephemeris scan every cycle — the
                            bench-#44 catch that blew the budget every

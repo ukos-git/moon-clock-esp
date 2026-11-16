@@ -161,8 +161,8 @@ blend, the hard night test, the backlit color.
 
 Three claims the picture is drawn to make. First, the device's night
 side never reaches the hard test while ``dk_sup`` is 0: the three
-display bake sites (``moon_ui.c:1288`` the hourly strip, ``:1545`` the
-boot bake, ``:2125`` the bake-reveal strip) all pass ``dark_zero=1,
+display bake sites (``moon_ui.c:1339`` the hourly strip, ``:1596`` the
+boot bake, ``:2176`` the bake-reveal strip) all pass ``dark_zero=1,
 dk_sup=0`` and return from the blend. Second, the gate's isolation is
 structural, not stylistic — ``dark_zero=0`` is *byte-identical* to the
 old earthshine bake for every :math:`d` (``moon.h:101-102``), so the

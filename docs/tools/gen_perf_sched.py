@@ -40,9 +40,9 @@ Every number is PARSED at figure time (the house pattern):
        task_core_id, so the split is re-read every figure time)
   play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:337,
                               wifi.c:551, actions.c:146
-  knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, SPIRAM,
+  knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, INTERNAL-RAM,
   "unregistered from TWDT"), enc 5, dial 5, power 4      knob/main/main.c:505
-                              /:517, knob_ui.c:711/:714,
+                              /:517, knob_ui.c:757/:758,
                               knob_board_encoder.c:88, knob_dial.c:140,
                               knob_power.c:283
   CONFIG_ESP_TASK_WDT_TIMEOUT_S 5, CHECK_IDLE_TASK_CPU0 1
@@ -331,11 +331,13 @@ def main() -> None:
     km = task_at(KNOB_UI, "knob_moon", "knob producer")
     knob.append(("knob producer\nknob_moon (back buffer)",
                  resolve(km["prio_expr"]), km["stack"], km["core"], VIOLET,
-                 "TWDT-unregistered · SPIRAM", "knob_ui.c:711"))
+                 "TWDT-unregistered · "
+                  + ("SPIRAM stack" if km["spiram"] else "internal-RAM stack"),
+                  "knob_ui.c:757"))
     swap = task_at(KNOB_UI, "knob_swap", "knob swap")
     knob.append(("swap publisher\nknob_swap", resolve(swap["prio_expr"]),
                  swap["stack"], None, BLUE, "registered on purpose",
-                 "knob_ui.c:714"))
+                 "knob_ui.c:758"))
     boot = task_at(KNOB_MAIN, "knob_boot", "boot arm")
     knob.append(("boot arm\nknob_boot (one-shot)", resolve(boot["prio_expr"]),
                  boot["stack"], None, GRAY, "boot-only", "knob/main/main.c:517"))
@@ -413,7 +415,7 @@ def main() -> None:
             "not drawn: hang_watch (main.cpp:748, #if CONFIG_TEST_HANG_WATCH —\n"
             "test hook, never shipped); the knob's alarm is its silent stub\n"
             "(no play_task). Dotted edge = TWDT-unregistered (the knob's\n"
-            "producer, knob_ui.c:701 comment). S3 and P4 share the clock\n"
+            "producer, knob_ui.c:730 comment). S3 and P4 share the clock\n"
             "column — its two deltas ride the LVGL row: the P4's 12 KiB\n"
             "stack, and the painter's core (S3 pinned to 0 by the BSP's own\n"
             "line, P4 kept at the adapter default).",

@@ -3,10 +3,10 @@
 // drawing):
 //   boot: the bake pair "bake | phase %.1f%% illum, subsolar (…) |
 //   geo Xms bake Yms" + "bake | rgb565 Xms (total Yms)"
-//   (components/ui/moon_ui.c:1467/:1471) — one pair per boot AND per
+//   (components/ui/moon_ui.c:1608/:1612) — one pair per boot AND per
 //   day-roll; a bake that never logs its rgb565 line is a bake that
 //   stalled. First line of the boot: "panel-io watchdog armed
-//   (3000 ms stuck limit)" (moon_ui.c:2600).
+//   (3000 ms stuck limit)" (moon_ui.c:2741).
 //   idle: "Idle monitoring enabled" (components/clock/clock_idle.c:138,
 //   re-arm variant components/ui/actions.c:1473) then "Idle timeout
 //   reached after X ms" (clock_idle.c:121) at
@@ -14,7 +14,7 @@
 //   light sleep (static dim — nothing animates between the switch and
 //   the arm): "Switching to light sleep screen" (actions.c:1576),
 //   "Seconds timer paused for light sleep" (:1597), "panel dim ramp:
-//   brightness 100 -> 25% (240 ms)" (moon_ui.c:3116), "RTC countdown
+//   brightness 100 -> 25% (240 ms)" (moon_ui.c:3257), "RTC countdown
 //   %u s to deep sleep armed" (actions.c:1613 — the ENTRY arms the
 //   RTC one-shot itself).
 //   deep sleep: "Deep sleep: panel backlight off" (actions.c:1349),
@@ -30,7 +30,7 @@
 //   bake-paced).
 //   FAILURE lines: WDT reset / panic (the ROM's own lines),
 //   "PANEL IO STUCK: panel mutex held X ms after a Y ms wait by task
-//   Z" (moon_ui.c:2481), "panel draw not accepted: …" (moon_ui.c:652),
+//   Z" (moon_ui.c:2622), "panel draw not accepted: …" (moon_ui.c:702),
 //   ESP_ERR_NO_MEM from the flush (the BSP's return) — ANY one is a
 //   verification failure; the count over the window must be 0.
 // The sealed box is device-verify.dot; the surfaces are
@@ -49,7 +49,7 @@ digraph device_verify_capture {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    boot [label="boot — the BAKE PAIR:\nthe phase+geo line, then\nthe rgb565 line\n(moon_ui.c:1467/:1471)",
+    boot [label="boot — the BAKE PAIR:\nthe phase+geo line, then\nthe rgb565 line\n(moon_ui.c:1608/:1612)",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     idle [label="idle — monitoring on, then\nthe 60 s timeout\n(clock_idle.c:138/:121)",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];

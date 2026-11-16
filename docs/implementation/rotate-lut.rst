@@ -439,12 +439,12 @@ guarantees are tested.
   cache's replay tint (``moon_tfcache`` runs the fetched frame
   through the *same* LUT as a computed one) and the knob's companion
   (``knob_moon``). The producers set the event tint before
-  publishing (``moon_ui.c:1536`` the boot bake, ``:1653`` the hourly
-  producer at the hour-centre epoch, ``:2006`` the reveal); boot
-  replay deliberately resets it — ``set_event(NULL)`` at ``:1844``,
+  publishing (``moon_ui.c:1587`` the boot bake, ``:1704`` the hourly
+  producer at the hour-centre epoch, ``:2057`` the reveal); boot
+  replay deliberately resets it — ``set_event(NULL)`` at ``:1985``,
   because the stored grays are "event-independent, and classifying a
   whole cycle would cost more than the animation is worth"
-  (``:1845-1847``).
+  (``:1986-1988``).
 
 The last mile in one picture
 ----------------------------
@@ -480,7 +480,7 @@ its live users.
 .. graphviz:: ../_graphs/rotate-lut-dict.dot
    :align: center
    :alt: Two stacked columns — the blue live users (converts, the TF card, the knob, the producers, the replay) on the left; the amber build ladder set_event, set_warm, event branch, warm branch, neutral base in the middle; the blue pack box on the right.
-   :caption: The build ledger (:34-69): neutral base (:41-43) ``r5 = (g·31+127)/255``, ``g6 = (g·63+127)/255``, ``b5 = r5`` — the round-to-nearest idiom, and ``b5 = r5`` is what "gray" MEANS: neutrality is structural; the pink bug this prevents, verbatim (:37-39) — the 5-bit value in the 6-bit green field "caps green at 31/63 (~49%) and renders every gray as magenta/pink". Warm branch (:44-50): ``r5 = (g·32+127)/255``, ``b5 = (g·29+127)/255`` capped at 31 — R ×1.038, B ×0.933 calibrated to NASA's lit-region RGB (164,160,153), R/B = 1.07 (:15-21): "a warm moon reads as a real moon photo against the AMOLED's true black" — the SHIPPED default (:26). Sky-event branch (:51-64): the pre-calculated multipliers ride the WARM base — blood 1.15/0.55/0.42 (:91-95), harvest 1.10/0.92/0.62, blue 0.92/1.00/1.12, super/micro ×1.08/×0.92 (:96-114), each round(+0.5) and capped (31/63/31). Pack (:66) ``(r5 << 11) | (g6 << 5) | b5`` — "the panel's format made literal"; the build is lazy, on first call (:124-128). The switches: ``set_warm`` (:71-76) rebuilds only when the flag CHANGES; ``set_event`` (:88-122) — "the device calls this once per day; an event-less day is a no-op" (:86-87). The live users: the converts at ``moon_ui.c`` :1213/:1323/:1625/:2043 — "every displayed frame goes through ``moon_gray565``"; the producers' ``set_event(&ev)`` at :1446/:1563 (hour-centre epoch)/:1916; boot replay's ``set_event(NULL)`` (:1844) and the TF card's :18-21 quote are the tint-on-show pair; the knob converts through "the EXACT LUT table the identity ``moon_rotate`` consults" (:9-13) and sets the event tint at begin :83.
+   :caption: The build ledger (:34-69): neutral base (:41-43) ``r5 = (g·31+127)/255``, ``g6 = (g·63+127)/255``, ``b5 = r5`` — the round-to-nearest idiom, and ``b5 = r5`` is what "gray" MEANS: neutrality is structural; the pink bug this prevents, verbatim (:37-39) — the 5-bit value in the 6-bit green field "caps green at 31/63 (~49%) and renders every gray as magenta/pink". Warm branch (:44-50): ``r5 = (g·32+127)/255``, ``b5 = (g·29+127)/255`` capped at 31 — R ×1.038, B ×0.933 calibrated to NASA's lit-region RGB (164,160,153), R/B = 1.07 (:15-21): "a warm moon reads as a real moon photo against the AMOLED's true black" — the SHIPPED default (:26). Sky-event branch (:51-64): the pre-calculated multipliers ride the WARM base — blood 1.15/0.55/0.42 (:91-95), harvest 1.10/0.92/0.62, blue 0.92/1.00/1.12, super/micro ×1.08/×0.92 (:96-114), each round(+0.5) and capped (31/63/31). Pack (:66) ``(r5 << 11) | (g6 << 5) | b5`` — "the panel's format made literal"; the build is lazy, on first call (:124-128). The switches: ``set_warm`` (:71-76) rebuilds only when the flag CHANGES; ``set_event`` (:88-122) — "the device calls this once per day; an event-less day is a no-op" (:86-87). The live users: the converts at ``moon_ui.c`` :1453/:1509/:1766/:2088 — "every displayed frame goes through ``moon_gray565``"; the producers' ``set_event(&ev)`` at :1587/:1704 (hour-centre epoch)/:2057; boot replay's ``set_event(NULL)`` (:1985) and the TF card's :18-21 quote are the tint-on-show pair; the knob converts through "the EXACT LUT table the identity ``moon_rotate`` consults" (:9-13) and sets the event tint at begin :83.
 
 Three claims the picture is drawn to make. First, teal vs blue is the
 retirement line: ``moon_rotate`` is compiled into the device images

@@ -17,8 +17,8 @@ line — a cap its bus never has.
 
 Every number is PARSED from the live sources at figure time (the house
 pattern); the only non-parsed length is the P4 buffer height, which is
-CITED (hatched) because the XC BSP is target-gated and absent from the
-shared managed_components/ tree:
+CITED (hatched) because the XC BSP is target-gated — managed_components/
+carries it only while a P4 build is the most recent component solve:
 
   #define BSP_LCD_BITS_PER_PIXEL (16)   components/esp32_s3_touch_amoled_1_75/
       include/bsp/display.h:16  (+ BSP_LCD_H_RES/:V_RES :20/:21)
@@ -32,11 +32,11 @@ shared managed_components/ tree:
       include/esp_lcd_co5300.h:136 (inside CO5300_PANEL_IO_QSPI_CONFIG :131)
   CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH 1    build/config/sdkconfig.h:1006
       (set at esp32_s3_touch_amoled_1_75.c:412)
-  CONFIG_BSP_LCD_TYPE_720_720_4_INCH    build/p4/config/sdkconfig.h:1386
+  CONFIG_BSP_LCD_TYPE_720_720_4_INCH    build/p4/config/sdkconfig.h:1387
       (curated sdkconfig.defaults.esp32p4:39) — the P4 panel size
-  CONFIG_BSP_LCD_DPI_BUFFER_NUMS 1      build/p4/config/sdkconfig.h:1383
+  CONFIG_BSP_LCD_DPI_BUFFER_NUMS 1      build/p4/config/sdkconfig.h:1384
   the BSP's 50-row buffer strips        components/ui/moon_ui.c:193
-      (CITED — the xc BSP itself is target-gated, absent from disk)
+      (CITED from the moon_ui.c comment; the xc BSP is target-gated — its 50 rows live at esp32_p4_wifi6_touch_lcd_xc.c:1013 when a P4 build populates the tree)
   #define MOON_PX 650 / 400             components/ui/moon_ui.c:175/:177
       (the hourly disk-only flush is MOON_PX² * 2 B)
   #define KNOB_LCD_H_RES 360, KNOB_LCD_ROWS_PER_BUF 30
@@ -46,9 +46,9 @@ shared managed_components/ tree:
   .data0_io_num .. .data3_io_num        same file :237 — four lanes
   .pclk_hz = 40 * 1000 * 1000           knob/managed_components/espressif__esp_lcd_sh8601/
       include/esp_lcd_sh8601.h:102 (inside SH8601_PANEL_IO_QSPI_CONFIG :97)
-  CONFIG_LV_DEF_REFR_PERIOD 33          build/config/sdkconfig.h:1086,
-      build/p4/config/sdkconfig.h:1307, /home/matthias/esp/build/knob/config/
-      sdkconfig.h:1084 — parsed from ALL THREE and asserted equal (the same
+  CONFIG_LV_DEF_REFR_PERIOD 33          build/config/sdkconfig.h:1087,
+      build/p4/config/sdkconfig.h:1308, /home/matthias/esp/build/knob/config/
+      sdkconfig.h:1086 — parsed from ALL THREE and asserted equal (the same
       beat gen_perf_response.py and gen_perf_figs assert)
 
 Derived (one division / one product, nothing new measured): the raw
@@ -210,7 +210,7 @@ def main() -> None:
         ("P4 hourly disk\nMOON_PX² x 2 B", moon_p4 * moon_p4 * 2, VIOLET, False,
          f"{moon_p4}² · 2 = the while-black flush (moon_ui.c:175)"),
         ("P4 one DMA transaction\n720 x 50 x 2", p4_h * p4_buf_rows * 2, TEAL, True,
-         f"CITED {p4_buf_rows}-row DPI buffer (moon_ui.c:193; xc BSP absent) · "
+         f"CITED {p4_buf_rows}-row DPI buffer (moon_ui.c:193; xc BSP target-gated) · "
          f"DPI_BUFFER_NUMS {p4_dpi_bufs}"),
         ("knob full frame\n360x360x2 RGB565", k_h * k_v * 2, BLUE, False,
          f"{k_h}·{k_v}·2 (knob_board.h:22/:23)"),
