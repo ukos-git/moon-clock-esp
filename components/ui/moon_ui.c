@@ -389,7 +389,35 @@ static volatile bool s_panel_repaint;      /* a whole-screen repaint is queued *
  * which pixels the panel never saw, and whether the restore repaint is
  * the only thing between that and a permanently stale screen. */
 static volatile uint32_t s_hold_flush_drops;
+static volatile uint32_t s_hold_flush_drops2; /* seam-2 (draw_wait) drops, same cap/log */
+static volatile bool s_hold_pass_switch;      /* the atomic switch-frame window */
+static lv_display_flush_cb_t s_flush_cb_real; /* captured at moon_ui_init */
+/* The switch-frame pass (user 2026-11-16: "cannot enter settings from the
+ * wifi screen with touch" -- bench RED 3/3, hub opened in LVGL in 20 ms
+ * but the panel never showed it). Dropping the SCREEN-SWITCH frame was
+ * never the hold's job: a screen switch is user presence, and freezing it
+ * strands the panel on the stale frame until the release repaint -- the
+ * bench measured 7 s (sync + 4 s tail), the user's "takes more than 2s /
+ * does not work". moon_ui_screen_switched brackets its atomic lv_refr_now
+ * legs with the flag below; the periodic repaints (seconds arc, clock
+ * row) stay dropped and self-heal at the release repaint as designed.
+ * The passed frame rides the storm bus -- the sanctioned-exception family
+ * (0x51 ramp steps already do): task #31's bounded flush wait, task #32's
+ * drain witness and the panel-io watchdog own a lost completion, one
+ * frame per user action. */
+static volatile uint32_t s_hold_pass_flushes;
+static volatile bool s_hold_pass_pending; /* forwarded strips await their drain witness */
 static void hold_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+    if (s_hold_pass_switch && s_flush_cb_real) {
+        const uint32_t n = ++s_hold_pass_flushes;
+        if (n <= 4)
+            ESP_LOGI(TAG, "flush PASSED (hold): switch frame strip (%ld,%ld)-(%ld,%ld)", (long)area->x1, (long)area->y1,
+                     (long)area->x2, (long)area->y2);
+        s_hold_pass_pending = true;          /* the strip goes to the bus: its drain
+                                              * witness must run (rule 2 amendment) */
+        s_flush_cb_real(disp, area, px_map); /* drives flushing/ready itself */
+        return;
+    }
     (void)px_map;
     const uint32_t n = ++s_hold_flush_drops;
     if (n <= 4)
@@ -397,7 +425,6 @@ static void hold_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
                  (long)area->x2, (long)area->y2);
     lv_display_flush_ready(disp);
 }
-static lv_display_flush_cb_t s_flush_cb_real; /* captured at moon_ui_init */
 
 /* Probe wrapper around the adapter's flush: logs every flush that really
  * goes to the bus, with the hold flag as seen at entry. A real flush at
@@ -465,6 +492,7 @@ static bool panel_hold_live(void) {
         s_panel_hold = false;
         s_panel_hold_release = false;
         s_panel_repaint = true;
+        s_hold_pass_pending = false; /* never carry a passed strip into a later hold */
         if (drained)
             ESP_LOGI(TAG, "panel traffic hold OFF (radio tail drained, repaint queued)");
         else
@@ -502,6 +530,8 @@ void moon_ui_panel_traffic_hold_ext(bool hold, int cap_ms, int tail_ms) {
         }
         ESP_LOGI(TAG, "panel traffic hold ON (%d ms cap)", cap_ms);
         s_hold_flush_drops = 0;
+        s_hold_flush_drops2 = 0;
+        s_hold_pass_pending = false; /* the hold always starts with a clean drain debt */
         s_panel_hold_release = false;
         s_panel_hold_until = want;
         s_panel_hold = true;
@@ -628,8 +658,21 @@ static char s_last_accept_desc[40];
  * ever touching the bus -- the capture-8 hold series). */
 static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end,
                                       const void *color_data, bool strict) {
-    if (!strict && panel_hold_live())
+    if (!strict && panel_hold_live() && !s_hold_pass_switch) {
+        /* Seam-2 field evidence. The switch-frame pass (s_hold_pass_switch,
+         * screen_switched's atomic window) is exempt: a screen switch is
+         * user presence -- dropping its frame strands the panel on the
+         * stale frame until the release repaint (the user's "touch does
+         * nothing"). A switch strip dying here would be the anomaly --
+         * the gate excludes the pass window, so it cannot (the bus-side
+         * failure it would have caught is the rejected-attempt log
+         * below). */
+        if (s_hold_flush_drops2 < 4)
+            ESP_LOGI(TAG, "strip dropped at draw_wait (hold) #%u: task %s (%d,%d)-(%d,%d)",
+                     (unsigned)(s_hold_flush_drops2 + 1), pcTaskGetName(NULL), x_start, y_start, x_end, y_end);
+        s_hold_flush_drops2++;
         return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
+    }
     for (int attempt = 0; attempt < 100; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK) {
@@ -680,7 +723,8 @@ static esp_err_t moon_panel_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int
     /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
      * transaction's trans-done notify, so a drop at this seam breaks its
      * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
-     * nothing reaches this wrapper at all. */
+     * nothing reaches this wrapper except the switch-frame pass
+     * (s_hold_pass_switch -- screen_switched's atomic window). */
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
     esp_err_t r = moon_panel_draw_bitmap_locked(panel, x_start, y_start, x_end, y_end, color_data, false);
     xSemaphoreGive(s_panel_mtx);
@@ -914,8 +958,15 @@ static void drain_recovery(const char *site, int probe, const char *why) {
 static void moon_panel_drain_verify(const char *site) {
 #if !defined(CONFIG_BOARD_P4)
     static DRAM_ATTR uint16_t s_drain_row[BSP_LCD_H_RES];
-    if (panel_hold_live())
-        return;                                 /* rule 2: the preceding flush never reached the bus */
+    /* Rule 2 (amended 2026-11-16 with the switch-frame pass): under a live
+     * hold the preceding flush was dropped -- UNLESS it was a switch frame
+     * that passed the guard (s_hold_pass_pending: forwarded at hold_flush_cb,
+     * released at draw_wait). A passed strip has a REAL trans-done hand to
+     * consume, so the witness runs; a dropped one has none (the capture-8
+     * phantom accept). */
+    if (!s_hold_pass_pending && panel_hold_live())
+        return; /* rule 2: the preceding flush never reached the bus */
+    s_hold_pass_pending = false;
     xSemaphoreTake(s_panel_mtx, portMAX_DELAY); /* rule 3, see audit note above */
     /* One probe, one short grace, straight to the heal (see the header
      * note: post-flush probes swallow deterministically). */
@@ -3268,18 +3319,22 @@ void moon_ui_screen_switched(void) {
          * keeps the other 0x51 writers off, so the only panel-io
          * traffic in flight is the flush's own. */
         s_fade_pending = false;
+        s_hold_pass_switch = true; /* the switch frame passes the hold guard */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         lv_refr_now(NULL);
         xSemaphoreGive(s_rgb_mtx);
+        s_hold_pass_switch = false;
         moon_panel_drain_verify("switch fade-in");
         fade_ramp(0, 100, CONFIG_UI_SCREEN_SWITCH_FADE);
         s_fade_busy = false; /* the other 0x51 writers may run again */
         ESP_LOGI(TAG, "screen switch fade-in: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_SCREEN_SWITCH_FADE);
         return;
     }
+    s_hold_pass_switch = true; /* the switch frame passes the hold guard */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
+    s_hold_pass_switch = false;
     moon_panel_drain_verify("screen switch");
 }
 

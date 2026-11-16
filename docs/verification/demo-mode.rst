@@ -334,10 +334,12 @@ alarm wake with the moon paused — clean; and the 0x51-rides-alone
 guard on the brightness API (22c87ad) changed nothing — the flush
 traffic, not the 0x51, was the racing writer. The fix is the
 **sync-storm panel-traffic hold** (:ref:`display-lost-dma`): armed at
-sync kickoff (quiescing the bus first), every panel write *dropped*
-(never blocked) until the sync task has taken the radio fully down,
-15 s self-healing cap, 4 s radio tail, whole-screen repaint on
-release. The hammer then caught two more thieves in the same window —
+sync kickoff (quiescing the bus first), every *routine* panel write
+*dropped* (never blocked) until the sync task has taken the radio fully
+down, 15 s self-healing cap, 4 s radio tail, whole-screen repaint on
+release; the screen-switch frame is exempt at both drop seams (the
+**switch-frame pass**, 2026-11-16 — a screen switch is user presence
+and freezing its frame stranded the panel, see :ref:`display-lost-dma`). The hammer then caught two more thieves in the same window —
 the still-associated station's ~300 ms DTIM beacon wake stealing
 completions after the release (fixed: the sync task itself
 deinitialises the radio before releasing the hold, boot likewise

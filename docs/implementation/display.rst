@@ -109,7 +109,8 @@ vtable's ``draw_bitmap`` member:
        /* No hold gate HERE: a vtable caller (the adapter's blit) expects the
         * transaction's trans-done notify, so a drop at this seam breaks its
         * hand. LVGL flushes drop at hold_flush_cb instead; during a hold
-        * nothing reaches this wrapper at all. */
+        * nothing reaches this wrapper except the switch-frame pass
+        * (s_hold_pass_switch -- screen_switched's atomic window). */
        xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
        esp_err_t r = moon_panel_draw_bitmap_locked(panel, x_start, y_start, x_end, y_end,
                                                    color_data, false);
@@ -350,7 +351,19 @@ write is *dropped*: the 0x51 brightness API is gated in
 ``moon_ui_panel_brightness_set``, the fade/dim ramps skip whole, and
 the LVGL flushes drop at a **stub flush callback swapped into the
 display** (``moon_ui_panel_repaint_pending``, polled on the UI tick —
-the swap happens on the task that runs the flushes). The LVGL drop
+the swap happens on the task that runs the flushes). The one
+exception is the **switch-frame pass** (user 2026-11-16: "cannot
+enter settings from the wifi screen with touch" — bench RED 3/3: the
+tap opened the hub in LVGL in 20 ms, the panel never showed it until
+the release repaint, 7 s later): a screen switch is user presence, so
+``moon_ui_screen_switched`` brackets both atomic ``lv_refr_now`` legs
+with ``s_hold_pass_switch`` and the switch frame is exempt at BOTH
+drop seams — ``hold_flush_cb`` forwards its strips (``flush PASSED
+(hold)``) and ``moon_panel_draw_wait`` submits them through the live
+hold. The periodic repaints (seconds arc, clock row) stay dropped and
+self-heal at the release repaint as designed; the passed frame rides
+the storm bus exactly as the 0x51 ramp steps do, with the drain
+witness and panel watchdog owning a lost completion. The LVGL drop
 point is the seam's one hard-learned constraint: dropping a flush
 inside the panel ``draw_bitmap`` wrapper instead wedges the board —
 the esp_lvgl_adapter's ``double_direct`` flush completes its LVGL hand
@@ -608,6 +621,10 @@ capture: **shape** — a DMA-capable DRAM single-chunk row (above);
 dropped (``hold_flush_cb`` / ``moon_panel_draw_wait``'s shortcut never
 touched the bus), so the drain no-ops entirely (probing anyway would
 ride the shortcut into a phantom accept — the capture-8 hold series);
+the switch-frame pass is exempt (amended 2026-11-16 with the pass:
+a forwarded strip sets ``s_hold_pass_pending``, its trans-done hand is
+REAL, and the witness runs for it — the bench caught the sync screen's
+own pre-arm wedge healing exactly there);
 probes that start healthy submit **strict**, bypassing the shortcut,
 so a hold beginning mid-drain can never phantom-accept; and
 **serialization** — the drain holds ``s_panel_mtx`` across the whole
@@ -669,9 +686,9 @@ either an in-place heal or a bounded restart, never a silent wedge:
 
    <pre class="mermaid">
    flowchart TB
-     SITE["atomic show site — panel still dark, drain called"] --> HOLDQ{"live panel hold?"}
+     SITE["atomic show site — panel still dark, drain called"] --> HOLDQ{"live panel hold AND no passed strip pending?"}
      HOLDQ -- "yes — preceding flush was itself dropped" --> NOOP["drain no-ops entirely (probing would phantom-accept)"]
-     HOLDQ -- "no" --> SUBMIT["submit probe strict — single DRAM row, s_panel_mtx held across submit + witness"]
+     HOLDQ -- "no / switch frame passed, real hand to consume" --> SUBMIT["submit probe strict — single DRAM row, s_panel_mtx held across submit + witness"]
      SUBMIT --> ACC{"probe accepted by the io queue?"}
      ACC -- "rejected — WEDGED queue" --> RST["restart AT THE SITE, budgeted — RTC_NOINIT magic, 3 per boot"]
      RST --> DEGRADE["budget spent — degrade to a working clock instead of a restart storm"]

@@ -163,13 +163,13 @@ def main() -> None:
     # (label, ms, color, hatched?, provenance)
     rows = [
         (f"drain-witness gate\nFLUSH_WAIT_TIMEOUT_MS", flush, RED, False,
-         "moon_ui.c:437"),
+         "moon_ui.c:471"),
         (f"panel-io watchdog\nPANEL_IO_WATCHDOG_LIMIT_MS", wdg, RED, False,
-         "moon_ui.c:588"),
+         "moon_ui.c:625"),
         (f"traffic hold tail\nPANEL_TRAFFIC_TAIL_MS", tail, RED, False,
-         "moon_ui.c:373"),
+         "moon_ui.c:380"),
         (f"traffic hold cap\nPANEL_TRAFFIC_HOLD_MS", hold, RED, False,
-         "moon_ui.c:362"),
+         "moon_ui.c:369"),
         (f"orientation press\nORI_RESYNC_PRESS_MS", press, AMBER, False,
          "actions.c:265"),
         (f"scan retry gap (x {attempts})\nWIFI_SCAN_MAX_ATTEMPTS @ 1 s", retry_gap,
@@ -181,7 +181,7 @@ def main() -> None:
         (f"knob NTP fix window\nKNOB_TIME_BOOT_SYNC_MS", knob_fix, TEAL, True,
          "knob_time/Kconfig"),
         (f"hourly producer budget\nHOURLY_BUDGET_MS", hourly, VIOLET, False,
-         "moon_ui.c:1006"),
+         "moon_ui.c:1070"),
         (f"boot replay budget\nUI_MOON_REPLAY_BUDGET_MS", replay, VIOLET, True,
          "ui/Kconfig"),
     ]

@@ -76,7 +76,7 @@ reads it* — every quoted line verified against its emitting
 **The capture** is
 the defined flow the acceptance is read on: the boot bake's
 ``bake | phase … | geo … bake …`` + ``bake | rgb565 …`` pair
-(``moon_ui.c:1467``/``:1471``, one per boot and per day-roll — the
+(``moon_ui.c:1608``/``:1612``, one per boot and per day-roll — the
 bake that never logs its rgb565 line stalled), the idle pair
 (``clock_idle.c:138``/``:121`` at the parsed 60 s
 ``CONFIG_CLOCK_IDLE_TIMEOUT_SEC``), the light-sleep quartet (switch,
@@ -105,7 +105,7 @@ own right.
 
 .. graphviz:: ../_graphs/device-verify-capture.dot
    :alt: The boot-to-wake capture flow with its three line classes feeding the acceptance triple
-   :caption: Every line quoted against its ``ESP_LOG`` site: boot logs ``bake | phase %.1f%% illum, subsolar (…) | geo Xms bake Yms`` plus ``bake | rgb565 Xms (total Yms)`` (``moon_ui.c:1467``/``:1471`` — one pair per boot and per day-roll; a bake that never logs its rgb565 line stalled) behind ``panel-io watchdog armed (3000 ms stuck limit)`` (``:2600``); idle logs ``Idle monitoring enabled`` (``clock_idle.c:138``; re-arm variant ``actions.c:1473``) then ``Idle timeout reached after X ms`` (``:121``) at ``CONFIG_CLOCK_IDLE_TIMEOUT_SEC`` = 60 s (``clock/Kconfig:68``); light sleep logs the switch (``actions.c:1576``), the seconds pause (``:1597``), ``panel dim ramp: brightness 100 -> 25% (240 ms)`` (``moon_ui.c:3116``) and ``RTC countdown %u s to deep sleep armed`` (``actions.c:1613`` — the ENTRY arms the RTC one-shot itself); deep sleep the trio at ``actions.c:1349``/``:1358``/``:1364``. PROGRESS is witnessed by the boot pair, the dim+arm pair and the wake arc signature; TIMING reads the boot bake against the shown delta (~304 ms display-paced, not the ~1.3 s bake — backpressure failing would show bake-paced); FAILURE means any WDT/panic line, ``PANEL IO STUCK`` (``moon_ui.c:2481``), ``panel draw not accepted`` (``:652``) or ``ESP_ERR_NO_MEM`` — the count over the window must be 0.
+   :caption: Every line quoted against its ``ESP_LOG`` site: boot logs ``bake | phase %.1f%% illum, subsolar (…) | geo Xms bake Yms`` plus ``bake | rgb565 Xms (total Yms)`` (``moon_ui.c:1608``/``:1612`` — one pair per boot and per day-roll; a bake that never logs its rgb565 line stalled) behind ``panel-io watchdog armed (3000 ms stuck limit)`` (``:2741``); idle logs ``Idle monitoring enabled`` (``clock_idle.c:138``; re-arm variant ``actions.c:1473``) then ``Idle timeout reached after X ms`` (``:121``) at ``CONFIG_CLOCK_IDLE_TIMEOUT_SEC`` = 60 s (``clock/Kconfig:68``); light sleep logs the switch (``actions.c:1576``), the seconds pause (``:1597``), ``panel dim ramp: brightness 100 -> 25% (240 ms)`` (``moon_ui.c:3257``) and ``RTC countdown %u s to deep sleep armed`` (``actions.c:1613`` — the ENTRY arms the RTC one-shot itself); deep sleep the trio at ``actions.c:1349``/``:1358``/``:1364``. PROGRESS is witnessed by the boot pair, the dim+arm pair and the wake arc signature; TIMING reads the boot bake against the shown delta (~304 ms display-paced, not the ~1.3 s bake — backpressure failing would show bake-paced); FAILURE means any WDT/panic line, ``PANEL IO STUCK`` (``moon_ui.c:2622``), ``panel draw not accepted`` (``:702``) or ``ESP_ERR_NO_MEM`` — the count over the window must be 0.
    :align: center
 
 .. graphviz:: ../_graphs/device-verify-surfaces.dot
