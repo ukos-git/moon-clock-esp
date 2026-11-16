@@ -54,4 +54,21 @@ config KNOB_DIAG_PANIC_AT_FRAME
         the boot sweep loop; it moved onto the static boot bake when
         the sweep retired 2026-11-14.) Production default 0 = dead.
 
+config KNOB_TEST_CLASSIFY_STRESS
+    int "Bench: hammer the erfa classify pass N times on boot (0 = off) — tick-ISR crash repro"
+    default 0
+    help
+        Bench-only repro loop for the b924abf systimer-tick family (the
+        knob_moon tick-ISR crash). After the boot presentation, the
+        moon_task calls knob_moon_classify_signature() N times over a
+        swept epoch range — the EXACT chain the coredump caught (
+        moon_event_classify -> full_moments -> se_argmax -> se_dot ->
+        moon_geometry -> eraEpv00) — with no bake side effects, keeping
+        core 1 hot in erfa so the core-0 tick's cross-core critical
+        snoop collides. Logs progress every 50 passes and a
+        "classify-stress: PASS N" line on survival. Use it to A/B the
+        knob_moon PSRAM-vs-internal stack and to raise the rate for the
+        H2 (tick rate) / H3 (erfa buffer) hypotheses. Production default
+        0 = dead.
+
 endmenu

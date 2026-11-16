@@ -56,6 +56,7 @@
 #include "knob_moon.h"
 #include "knob_power.h"
 #include "lvgl.h"
+#include "settings_store.h"
 
 static const char *TAG = "knob_ui";
 
@@ -522,6 +523,35 @@ static void moon_task(void *arg) {
      * idle display. */
     knob_power_set_hold(true);
     static_once_body();
+#if CONFIG_KNOB_TEST_CLASSIFY_STRESS > 0
+    /* Bench repro for the knob_moon tick-ISR crash (b924abf family):
+     * hammer the exact coredumped erfa chain on this core-1 task so the
+     * core-0 tick's cross-core critical snoop keeps finding it hot. The
+     * classify carries its own 20 ms yield budget (moon_event.c), so
+     * IDLE1's watchdog stays fed; power stays held so nothing dims
+     * mid-run. Sweeping the epoch varies the day/event signature, hence
+     * the erfa recursion depth, for coverage. */
+    {
+        const int64_t base = ui_now_epoch();
+        const int n = CONFIG_KNOB_TEST_CLASSIFY_STRESS;
+        ESP_LOGW(TAG, "classify-stress: hammering %d passes (tick-ISR repro)", n);
+        for (int k = 0; k < n; k++) {
+            const int64_t epoch = base + (int64_t)k * 3600; /* 1 h steps, varied sig */
+            /* The adjustment's real catalyst: the RELEASED save is a
+             * spiffs flash write that drops the cache — interleave it
+             * with the erfa so a PSRAM-backed stack faults in the
+             * cache-disable window if that is the trigger. */
+            settings_store_save();
+            knob_moon_classify_signature(epoch);
+            vTaskDelay(1); /* feed core-1 idle (TWDT watches IDLE1); the
+                            * classify keeps core 1 hot within each call */
+            if ((k % 50) == 49) {
+                ESP_LOGW(TAG, "classify-stress: %d/%d", k + 1, n);
+            }
+        }
+        ESP_LOGW(TAG, "classify-stress: PASS %d (no tick-ISR crash)", n);
+    }
+#endif
 #ifdef CONFIG_KNOB_DEMO_MODE
     demo_tour(); /* never returns; the power ladder stays held */
 #endif
