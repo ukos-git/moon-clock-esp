@@ -1,3 +1,64 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:45cb6f4c727a1e5465b818039784908c838d938d94e58d821841b4861fb79c72
-size 4484
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The displaced normal (docs/science/lighting.rst).
+     (a) a point P on a flank rising toward the Sun: the flat model's radial
+         normal reads d = r-hat . S ~= 0.07 (barely lit), the slope-tilted
+         true normal reads lns = n . S ~= 0.22 — three times brighter;
+     (b) the small-slope form: n = (1+s) r-hat - G, so
+         lns = (d - G.S)/sqrt(1 + |G|^2) — no normalization needed,
+         under 0.5% error at the Moon's real slopes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 380" role="img"
+     aria-label="The displaced normal: (a) radial vs slope-tilted normal on a flank; (b) the small-slope linear form.">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a63b2a"/>
+    </marker>
+    <marker id="arwB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3a5fa0"/>
+    </marker>
+    <marker id="arwS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c98a2d"/>
+    </marker>
+    <marker id="arwG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+  </defs>
+  <g font-family="sans-serif" font-size="15" fill="#555">
+    <!-- (a) a point on a flank -->
+    <text x="240" y="26" text-anchor="middle" font-size="16">(a)  a point on a flank — two normals, two answers</text>
+    <!-- the flank: a single slope rising toward the Sun (right) -->
+    <line x1="80" y1="244" x2="400" y2="176" stroke="#8a8a8a" stroke-width="1.5"/>
+    <path d="M 80 244 L 400 176 L 400 300 L 80 300 Z" fill="#e2dfd6" opacity="0.6"/>
+    <!-- the body centre below P (the radial direction runs centre -> P) -->
+    <circle cx="240" cy="296" r="4" fill="#555"/>
+    <text x="232" y="290" text-anchor="end" font-size="13">body centre</text>
+    <!-- P -->
+    <circle cx="240" cy="210" r="5" fill="#555"/>
+    <text x="240" y="196" text-anchor="middle" font-weight="bold" font-size="13">P</text>
+    <!-- radial (flat-model) normal: straight up -->
+    <line x1="240" y1="210" x2="240" y2="90" stroke="#3a5fa0" stroke-width="2.2" marker-end="url(#arwB)"/>
+    <text x="232" y="88" text-anchor="end" fill="#3a5fa0">r&#770; (flat-model normal)</text>
+    <!-- slope-tilted true normal: leans toward the Sun -->
+    <line x1="240" y1="210" x2="265" y2="93" stroke="#a63b2a" stroke-width="2.2" marker-end="url(#arw)"/>
+    <text x="273" y="88" fill="#a63b2a">n (surface normal, tilted by the slope)</text>
+    <!-- Sun direction: grazing, from the right -->
+    <line x1="300" y1="196" x2="390" y2="170" stroke="#c98a2d" stroke-width="2" marker-end="url(#arwS)"/>
+    <text x="398" y="166" fill="#c98a2d">S (toward the Sun, grazing)</text>
+    <!-- the two answers -->
+    <text x="240" y="336" text-anchor="middle" fill="#3a5fa0" font-size="14">d = r&#770; &#183; S &#8776; 0.07 — barely lit (flat model)</text>
+    <text x="240" y="358" text-anchor="middle" fill="#a63b2a" font-size="14">lns = n &#183; S &#8776; 0.22 — 3&#215; brighter (true normal)</text>
+
+    <!-- (b) the small-slope form -->
+    <text x="660" y="26" text-anchor="middle" font-size="16">(b)  the small-slope form</text>
+    <!-- O, r-hat at 60 deg, n tilted 12 deg toward the Sun, G up-slope -->
+    <circle cx="580" cy="230" r="4" fill="#555"/>
+    <line x1="580" y1="230" x2="635" y2="134" stroke="#3a5fa0" stroke-width="2.2" marker-end="url(#arwB)"/>
+    <text x="642" y="128" fill="#3a5fa0">r&#770;</text>
+    <line x1="580" y1="230" x2="669" y2="150" stroke="#a63b2a" stroke-width="2.2" marker-end="url(#arw)"/>
+    <text x="676" y="146" fill="#a63b2a">n = (1+s) r&#770; &#8722; G</text>
+    <path d="M 610 178 A 60 60 0 0 0 624 190" fill="none" stroke="#555" stroke-width="1.2"/>
+    <line x1="580" y1="230" x2="533" y2="178" stroke="#555" stroke-width="1.8" marker-end="url(#arwG)"/>
+    <text x="526" y="170" text-anchor="end">G (up-slope)</text>
+    <text x="660" y="300" text-anchor="middle">lns = (d &#8722; G &#183; S) / &#8730;(1 + &#8214;G&#8214;&#178;)</text>
+    <text x="660" y="328" text-anchor="middle" font-size="14">exact for small slopes — &lt; 0.5 % at the Moon's real slopes</text>
+  </g>
+</svg>

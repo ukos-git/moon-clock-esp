@@ -1,3 +1,46 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:430a46857f58d08e4589e34223ce23e1d54fb5c22c5ee9aa277687acd1b5332d
-size 3160
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The orthographic view construction (docs/science/lighting.rst).
+     (a) top view: the pixel's screen offset (u, v) plus the out-of-page
+         component w form the base direction;
+     (b) side view: the pixel sits off the line of sight by angle phi, so
+         w = cos(phi) — 1 at the disk centre and 0 at the limb. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" role="img"
+     aria-label="The orthographic view: (a) top view of the disk with the pixel offset (u, v); (b) side view with w = cos(phi).">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a63b2a"/>
+    </marker>
+  </defs>
+  <g font-family="sans-serif" font-size="15" fill="#555">
+    <!-- (a) top view -->
+    <text x="200" y="26" text-anchor="middle" font-size="16">(a)  top view — the disk and the pixel offset</text>
+    <circle cx="200" cy="195" r="115" fill="#ececea" stroke="#8a8a8a" stroke-width="1.5"/>
+    <circle cx="200" cy="195" r="4" fill="#555"/>
+    <text x="208" y="216">centre</text>
+    <circle cx="288" cy="121" r="5" fill="none" stroke="#a63b2a" stroke-width="2"/>
+    <line x1="203" y1="192" x2="279" y2="129" stroke="#a63b2a" stroke-width="2" marker-end="url(#arw)"/>
+    <text x="216" y="152" fill="#a63b2a">(u, v)</text>
+    <line x1="292" y1="117" x2="316" y2="103" stroke="#8a8a8a" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="320" y="100">limb (R)</text>
+    <text x="200" y="330" text-anchor="middle">E — out of the page (the missing 3rd component)</text>
+    <text x="200" y="350" text-anchor="middle">r = u·right + v·up + w·E</text>
+
+    <!-- (b) side view -->
+    <text x="660" y="26" text-anchor="middle" font-size="16">(b)  side view — the line of sight and w = cos φ</text>
+    <rect x="436" y="158" width="70" height="44" rx="6" fill="#f6f6f3" stroke="#8a8a8a"/>
+    <text x="471" y="185" text-anchor="middle">camera</text>
+    <line x1="506" y1="180" x2="856" y2="180" stroke="#8a8a8a" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="640" y="204" text-anchor="middle" font-size="13">line of sight</text>
+    <line x1="742" y1="88" x2="742" y2="272" stroke="#8a8a8a" stroke-width="1.5"/>
+    <text x="742" y="80" text-anchor="middle" font-size="13">limb</text>
+    <text x="742" y="292" text-anchor="middle" font-size="13">w = cos 90° = 0</text>
+    <circle cx="640" cy="180" r="4" fill="#555"/>
+    <text x="640" y="224" text-anchor="middle" font-size="13">centre:  w = cos 0° = 1</text>
+    <line x1="508" y1="172" x2="682" y2="114" stroke="#a63b2a" stroke-width="1.8" marker-end="url(#arw)"/>
+    <circle cx="690" cy="110" r="5" fill="none" stroke="#a63b2a" stroke-width="2"/>
+    <text x="745" y="58" text-anchor="middle" fill="#a63b2a">the pixel:  w = cos φ</text>
+    <line x1="728" y1="66" x2="695" y2="103" stroke="#8a8a8a" stroke-width="1" stroke-dasharray="3 3"/>
+    <path d="M 552 180 A 46 46 0 0 0 551 166" fill="none" stroke="#555" stroke-width="1.2"/>
+    <text x="560" y="170" font-size="14">φ</text>
+  </g>
+</svg>

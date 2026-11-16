@@ -3,6 +3,14 @@
 Two jobs:
 
 * a ``media`` Sphinx builder — ``sphinx-build -b media`` regenerates the
+  site's ENTIRE binary media set, all of it gitignored build output
+  (2026-11-16: untracked from git + purged from history — the generators
+  and the uisim are the sources of truth, never the pixels). It runs the
+  scripted figures (every ``docs/tools/gen_*.py`` + the node isomorphic
+  pipeline: ``gen_figures.js`` → ``assemble_figures.py``,
+  ``gen_bake_intermediates.js`` → ``gen_bake_strip.py``; with
+  ``MEDIA_NASA=1`` the NASA answer-key art: gate run → ``nasa_figs.py``
+  → ``gen_nasa_quarters.py``, needs the gitignored SVS 5415 key), the
   uisim screenshots for ALL THREE boards (``host_sim/uisim/build.sh run``
   + ``--panel 720`` + ``--panel 360``, the ``--wheel`` capture flow for
   the password keyboard on every panel, and the knob's ``--dial``
@@ -13,13 +21,13 @@ Two jobs:
   rendered inside the round product housing, alpha outside —
   ``annotate.py`` still holds the badge/leader drawing primitives it
   imports), rebuilds the device composites
-  (``docs/tools/composite_dark.py``), and — with ``--videos``
+  (``docs/tools/composite_dark.py``), and — with ``MEDIA_VIDEOS=1``
   — the mp4 set (``docs/gen_media.py``). The builder performs ONLY these
   side effects; it reads no doctree and writes no HTML, so a media run
   is fast even on a cold tree.
 
 * a ``builder-inited`` staleness check for the normal builds: every
-  committed screenshot (``docs/img/screens{,/p4,/knob}/*.png``), annotated
+  generated screenshot (``docs/img/screens{,/p4,/knob}/*.png``), annotated
   callout (``docs/img/screens/annot/*.png``), device composite
   (``docs/_static/photos/sim_*.png``) and film (``docs/img/*.mp4``,
   vs ``docs/gen_media.py`` + the uisim inputs) must EXIST and must not
@@ -54,6 +62,7 @@ ROOT = _DOCS.parent                                 # repo root
 UISIM = ROOT / "host_sim" / "uisim"
 OUT = UISIM / "out"
 PY = sys.executable                                  # the docs venv python
+HOSTPY = ROOT / "host_sim" / ".venv" / "bin" / "python"  # the gate venv
 
 # The animation film, referenced by implementation/animations.rst via
 # ``.. raw:: html`` ``<video>``. Raw HTML never triggers Sphinx's image
@@ -156,8 +165,10 @@ def _mtime(path: Path) -> float:
 # --------------------------------------------------------------------------
 
 def _stale_check(app):
-    """Warn on any committed output that is missing or older than its
-    render inputs. Skipped for the media builder (which regenerates)."""
+    """Warn on any generated media file that is missing or older than its
+    render inputs — media are gitignored build outputs, so "missing" means
+    ``-b media`` was never run on this tree. Skipped for the media builder
+    (which regenerates)."""
     if app.builder.name == "media":
         return
     logger.info("moonmedia: checking screenshots for staleness", type="moonmedia")
@@ -219,8 +230,9 @@ def _stale_check(app):
         shown = problems[:12]
         more = len(problems) - len(shown)
         logger.warning(
-            "moonmedia: %d committed screenshot(s) are missing or older "
-            "than their render inputs — regenerate with `sphinx-build -b media` "
+            "moonmedia: %d docs media file(s) are missing or older than "
+            "their render inputs — they are gitignored build outputs, run "
+            "`sphinx-build -b media docs docs/_build/media` to regenerate "
             "(or `make -C docs media`)\n  %s%s",
             len(problems),
             "\n  ".join(shown),
@@ -304,12 +316,76 @@ def _annotate_all() -> None:
                  f"enclose {out.relative_to(ROOT)}")
 
 
+# --------------------------------------------------------------------------
+# scripted figures (docs/_static/figs + docs/img/nasa — all build outputs)
+# --------------------------------------------------------------------------
+
+# Scratch dirs pinned to the recipe in docs/science/interactive.rst
+# (gen_bake_strip.py defaults to /tmp/bake_inter too).
+BOOKFIGS = "/tmp/bookfigs"
+BAKE_INTER = "/tmp/bake_inter"
+# NOT part of the plain figs sweep: gen_moonjs.py regenerates the TRACKED
+# docs/_static/moonjs/moonlab_data.js — a source INPUT here, run by hand
+# when a C-core constant changed (interactive.rst step 1) — and needs the
+# gate venv's astropy. gen_bake_strip.py has an explicit node producer
+# step before it. gen_nasa_quarters.py belongs to the MEDIA_NASA slot.
+FIGS_SKIP = {"gen_moonjs.py", "gen_nasa_quarters.py", "gen_bake_strip.py"}
+
+
+def _regen_figs() -> None:
+    """Regenerate every scripted figure the pages embed under
+    docs/_static/figs — independent of the uisim frames, so it runs FIRST
+    in the pipeline. Fail-loud: a broken generator must not silently leave
+    yesterday's figure in place (the f8d8506 film lesson, applied to figs)."""
+    # The isomorphic moon figures (art_ab/k_ab/tint_ab/phase_strip): the
+    # same moonlab.js bake the reader-facing simulator runs — the
+    # 3-step recipe of docs/science/interactive.rst, minus its step 1
+    # (moonlab_data.js is tracked, regenerated by hand when the core moves).
+    _run(["node", "docs/tools/gen_figures.js", BOOKFIGS], "gen_figures.js")
+    _run([PY, "docs/tools/assemble_figures.py", BOOKFIGS], "assemble_figures.py")
+    # The bake-pipeline intermediates figure (node raw-buffer dump ->
+    # numpy labeled strip).
+    _run(["node", "docs/tools/gen_bake_intermediates.js", BAKE_INTER],
+         "gen_bake_intermediates.js")
+    _run([PY, "docs/tools/gen_bake_strip.py", BAKE_INTER], "gen_bake_strip.py")
+    # The matplotlib figures: every remaining docs/tools/gen_*.py, in name
+    # order (the 27 gen_perf_<topic> + gen_perf_figs, bake/binary/disk/
+    # home/hub/lighting/menu/roller/rotate/strip figs).
+    for script in sorted((_DOCS / "tools").glob("gen_*.py")):
+        if script.name in FIGS_SKIP:
+            continue
+        _run([PY, f"docs/tools/{script.name}"], script.name)
+
+
+def _regen_nasa() -> None:
+    """The NASA answer-key art (docs/img/nasa/): the gate run writes the
+    32 C-runtime frames nasa_figs.py registers against the SVS 5415 crops.
+    Needs the gate venv (numpy/PIL + the moon package) AND the gitignored
+    answer key under assets/images/moon/final_400x400/ — hence the opt-in
+    MEDIA_NASA=1 slot rather than the default path."""
+    _run([HOSTPY, "host_sim/check_gate.py", "--target", "s3"],
+         "check_gate.py --target s3")
+    _run([HOSTPY, "docs/nasa_figs.py"], "nasa_figs.py")
+    _run([HOSTPY, "docs/tools/gen_nasa_quarters.py"], "gen_nasa_quarters.py")
+
+
 def _media_pipeline(app) -> None:
-    """Run the full regeneration: uisim both panels, the --wheel capture
-    for both, the annotations, the device composites, and (if --videos)
-    the mp4 set. Sequential — the two uisim builds share out/."""
+    """Run the full regeneration: the scripted figures (then the NASA art
+    if MEDIA_NASA=1), uisim both panels, the --wheel capture for both, the
+    annotations, the device composites, and (if MEDIA_VIDEOS=1) the mp4
+    set. Sequential — the uisim builds share out/."""
     s3_dir = _DOCS / "img" / "screens"
     p4_dir = s3_dir / "p4"
+
+    print("moonmedia: scripted figures (docs/_static/figs)")
+    _regen_figs()
+
+    if os.environ.get("MEDIA_NASA"):
+        print("moonmedia: NASA answer-key art (docs/img/nasa)")
+        _regen_nasa()
+    else:
+        print("moonmedia: skipping the NASA art (set MEDIA_NASA=1; needs "
+              "the gitignored final_400x400 answer key)")
 
     print("moonmedia: uisim S3 (466) — base screens")
     _run(["bash", "host_sim/uisim/build.sh", "run"], "build.sh run")

@@ -32,7 +32,7 @@ from astropy.time import Time
 import astropy.units as u
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 MOON_DIR = os.path.join(REPO, "assets", "images", "moon")
 sys.path.insert(0, MOON_DIR)
 OUT = os.path.join(HERE, "..", "_static", "moonjs", "moonlab_data.js")

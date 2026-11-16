@@ -414,9 +414,27 @@ The non-IDF build lives in ``host_sim/`` (CMake, the same core):
    # (renders the real screens to PNG; --wheel for the keyboard,
    #  --dial <screen> for the knob's dial-cursor shot,
    #  --panel 466/720/360 for the three family panels)
-   python3 docs/gen_media.py                            # the docs videos
+   docs/.venv/bin/sphinx-build -b media docs docs/_build/media
+   # (THE media builder — regenerates the site's ENTIRE binary media set:
+   #  the scripted figures (every docs/tools/gen_*.py + the node
+   #  isomorphic pipeline gen_figures.js -> assemble_figures.py and
+   #  gen_bake_intermediates.js -> gen_bake_strip.py), all three boards'
+   #  uisim screenshots + the --wheel/--dial captures, the annotated
+   #  callouts (enclose.py over docs/ui/labels/*.json), the device
+   #  composites; MEDIA_VIDEOS=1 adds the film (docs/gen_media.py) and
+   #  MEDIA_NASA=1 the NASA answer-key art (a gate run + nasa_figs.py +
+   #  gen_nasa_quarters.py — needs the gitignored final_400x400 key).
+   #  The media is gitignored BUILD OUTPUT — the generators are the
+   #  sources of truth, never the pixels — so -b html's 0-warning gate
+   #  presumes a media run on the tree. The vendor-leg figures
+   #  (perf_bus, perf_silicon) parse managed_components/, which holds
+   #  the LAST-resolved target's set — reconfigure the P4 build for the
+   #  gt911 leg.)
+   python3 docs/gen_media.py                            # the docs film alone
    docs/.venv/bin/sphinx-build -b html docs docs/_build/html
-   # (the site build — 0 warnings is the gate, the standing rule)
+   # (the site build — 0 warnings is the gate, the standing rule; the
+   #  moonmedia staleness check warns when any generated media is
+   #  missing or older than its render inputs)
    make -C docs serve                             # browse it over http
    # (one origin, so furo's theme toggle survives navigation — under
    #  file:// Firefox partitions storage per document, see the section
@@ -466,11 +484,13 @@ The standing rule (the doc)
 The project's standing rule (CLAUDE.md) closes the loop on this
 page: **after every change** (code, Kconfig, screens, timings,
 hardware facts, test system, build steps) the documentation is
-updated — the affected RST pages are fixed, and if screens or UI
-geometry changed the uisim screenshots are regenerated for both clock
-panels (the per-screen pages live in
-:doc:`the user interface <../ui/index>`) — and docs and code are
-committed together. A change
+updated — the affected RST pages are fixed, and if screens, UI
+geometry or a figure changed, ``sphinx-build -b media`` regenerates
+them (all three panels' screenshots, the annotated callouts, the
+figures — every embedded bitmap is a gitignored build output, never
+committed; the per-screen pages live in
+:doc:`the user interface <../ui/index>`) — and the doc change is
+committed with the code change (the media itself never is). A change
 that does not update the doc is a *half-finished* change.
 
 The docs drift check

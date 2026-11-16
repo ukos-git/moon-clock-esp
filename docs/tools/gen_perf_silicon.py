@@ -153,7 +153,11 @@ BOARD_C = {"S3": BLUE, "P4": TEAL, "knob": AMBER}
 
 def _read(path: str) -> str:
     if not os.path.exists(path):
-        raise SystemExit(f"missing source for the ladder: {path}")
+        raise SystemExit(
+            f"missing source for the ladder: {path}\n"
+            "managed_components/ holds the LAST-RESOLVED target's set — the "
+            "vendor legs here need the P4 side, so run first:\n"
+            "  idf.py -D IDF_TARGET=esp32p4 -B build/p4 reconfigure")
     with open(path, encoding="utf-8") as f:
         return f.read()
 

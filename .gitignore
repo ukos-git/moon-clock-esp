@@ -40,3 +40,16 @@ bench/recordings/
 
 # resident crash-catch daemon logs (live files, not evidence)
 .debug-sleep/crashlog/
+
+# docs media: regenerated build outputs (docs/.venv/bin/sphinx-build -b
+# media + the docs/tools gen scripts + MEDIA_NASA/MEDIA_VIDEOS slots).
+# Sources of truth are the generators + uisim + the vendored hero photos
+# (docs/tools/*.webp) + the hand-authored docs/_graphs SVGs — the media
+# itself is rebuilt, never committed. LFS now only serves the hero photos.
+docs/img/screens/
+docs/img/nasa/
+docs/img/fade.mp4
+docs/_static/photos/
+docs/_static/figs/
+.debug-touch/coredump.bin
+.debug-touch/coredump_raw.bin

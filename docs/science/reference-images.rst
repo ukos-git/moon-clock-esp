@@ -96,16 +96,18 @@ below is the exact download-and-reduce recipe, line by line after it.
    :alt: five NASA SVS 5415 reference frames spanning 2025, new moon to gibbous
    :figclass: align-center
 
-   The answer key, literally: five tracked crops from the 8,760-frame
-   series (``docs/img/nasa/nasa_HHHHH.png`` — the 0-based *hour index*
-   into 2025), the four quarter marks plus the final frame. Each
-   caption's illumination is computed by the project's own
-   ``moon.astro.geometry`` — the same physics the devices run — and
-   was cross-checked against the frame's measured lit-pixel fraction
-   (agreement to ±0.003; at the new-moon frame the pixel threshold
-   also counts earthshine). The strip is composited by
-   ``docs/tools/gen_nasa_quarters.py`` from the tracked frames — the
-   frames themselves are never re-rendered.
+   The answer key, literally: five crops from the 8,760-frame series
+   — the four quarter marks plus the final frame — read straight from
+   the gitignored SVS 5415 frames under
+   ``assets/images/moon/final_400x400/`` (``moon.NNNN.png``, 1-based;
+   hour *h* → ``moon.{h+1:04d}.png``, the gate's own reference
+   mapping). Each caption's illumination is computed by the project's
+   own ``moon.astro.geometry`` — the same physics the devices run —
+   and was cross-checked against the frame's measured lit-pixel
+   fraction (agreement to ±0.003; at the new-moon frame the pixel
+   threshold also counts earthshine). The strip is composited by
+   ``docs/tools/gen_nasa_quarters.py`` from those frames — the frames
+   themselves are never re-rendered.
 
 The validation reference is NASA's
 `"Moon Phases for 2025" <https://svs.gsfc.nasa.gov/5415/>`_ — 8,760

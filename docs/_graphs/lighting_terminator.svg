@@ -1,3 +1,57 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:653b8d93d423d8362ff72cdd9c815e8093491f65231d3cc76692a9d0fe466746
-size 3795
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The terminator failure, one cross-section (docs/science/lighting.rst).
+     The flat model's terminator is the straight line d = 0 (blue); the true
+     lit/dark boundary (red) is jagged — the ridge's shadow reaches past the
+     flat line, and the inner wall behind it is lit again. M and N are the
+     two counterexamples. Sun at the right, rays travel left. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" role="img"
+     aria-label="Terrain cross-section: the flat model's straight d = 0 terminator versus the jagged true boundary, with the M and N counterexamples.">
+  <defs>
+    <marker id="arwAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c98a2d"/>
+    </marker>
+  </defs>
+  <g font-family="sans-serif" font-size="15" fill="#555">
+    <text x="490" y="28" text-anchor="middle" font-size="16">A cross-section through a ridge — why the flat model fails</text>
+
+    <!-- sun at the right, rays travel left -->
+    <text x="940" y="106" text-anchor="end">Sun</text>
+    <line x1="920" y1="95" x2="770" y2="95" stroke="#c98a2d" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <line x1="920" y1="120" x2="770" y2="120" stroke="#c98a2d" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <line x1="920" y1="130" x2="436" y2="130" stroke="#c98a2d" stroke-width="1.5" stroke-dasharray="6 4"/>
+
+    <!-- terrain: base, the notch (night side, left), the ridge straddling the flat line -->
+    <path d="M 30 255 L 95 245 L 160 295 L 225 245 L 340 250 L 430 130 L 520 250 L 700 246 L 800 238 L 800 330 L 30 330 Z"
+          fill="#e2dfd6" stroke="#8a8a8a" stroke-width="1.5"/>
+    <!-- the ridge's cast shadow: below the grazing ray, above the terrain -->
+    <path d="M 430 130 L 100 130 L 95 245 L 160 295 L 225 245 L 340 250 L 430 250 L 470 249 L 470 132 Z"
+          fill="#000" opacity="0.15"/>
+
+    <!-- flat-model terminator -->
+    <line x1="430" y1="55" x2="430" y2="330" stroke="#3a5fa0" stroke-width="2"/>
+    <text x="430" y="47" text-anchor="middle" fill="#3a5fa0">flat model:  d = 0</text>
+
+    <!-- true boundary: the grazing line, the ridge flank, and the dip into the notch -->
+    <line x1="100" y1="130" x2="430" y2="130" stroke="#a63b2a" stroke-width="2.5"/>
+    <line x1="430" y1="130" x2="520" y2="250" stroke="#a63b2a" stroke-width="2.5"/>
+    <polyline points="95,245 160,295 225,245" fill="none" stroke="#a63b2a" stroke-width="2.5"/>
+    <text x="280" y="122" text-anchor="middle" fill="#a63b2a">the ridge's shadow line — the true boundary is jagged</text>
+
+    <!-- the notch's sunlit inner wall (faces the Sun) -->
+    <line x1="160" y1="295" x2="225" y2="245" stroke="#c98a2d" stroke-width="4"/>
+    <line x1="310" y1="210" x2="197" y2="264" stroke="#c98a2d" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#arwAmber)"/>
+
+    <!-- M: day side of the blue line, in the ridge's shadow -->
+    <circle cx="470" cy="249" r="5" fill="#a63b2a"/>
+    <text x="470" y="276" text-anchor="middle" font-weight="bold" fill="#a63b2a">M</text>
+
+    <!-- N: night side, on the inner wall that faces the Sun -->
+    <circle cx="192" cy="270" r="5" fill="#3a5fa0"/>
+    <text x="176" y="262" text-anchor="end" font-weight="bold" fill="#3a5fa0">N</text>
+
+    <text x="300" y="368" text-anchor="middle">M sits day side of the blue line — the flat model says LIT,</text>
+    <text x="300" y="388" text-anchor="middle">but the ridge's shadow lands here: the true surface is dark.</text>
+    <text x="720" y="368" text-anchor="middle">N sits night side — the flat model says BLACK,</text>
+    <text x="720" y="388" text-anchor="middle">but the inner wall turns toward the Sun and is lit.</text>
+  </g>
+</svg>

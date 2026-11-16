@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 OUT = os.path.abspath(os.path.join(HERE, "..", "_static", "figs"))
 
 # --- house style -----------------------------------------------------------

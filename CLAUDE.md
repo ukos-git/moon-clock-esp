@@ -40,19 +40,32 @@ system, build steps) **update the site** — do not let it drift:
    constants, partitions) are single-sourced; regenerate them from the current
    sources, and keep the per-board pages (`docs/devices/{s3,p4}.rst`) in sync
    with their `sdkconfig.defaults*` files.
-2. If the change adds/reworks a screen or UI geometry, regenerate the
-   screenshots BOTH panels — `docs/.venv/bin/sphinx-build -b media` (the
-   `moonmedia` builder: `host_sim/uisim/build.sh run` + `--panel 720` + the
-   `--wheel` capture, `docs/tools/enclose.py` (numbered callouts inside the
-   round product housing, alpha outside) over every `docs/ui/labels/*.json`
-   spec, the device composites) or by hand (`build.sh run` →
-   `docs/img/screens/`, `build.sh run --panel 720` → `docs/img/screens/p4/`,
-   then re-run `enclose.py` for the affected label specs). If the change only
-   touches the moon bake path, the host image gate must pass before the doc's
-   numbers are trustworthy — ALL THREE board textures (the knob sibling
-   included): `host_sim/.venv/bin/python host_sim/check_gate.py --target s3`
-   and `--target p4` and `--target knob` (the gate exits 2 on a stale sim
-   binary built against the other target's texture).
+2. If the change adds/reworks a screen, UI geometry, or figure, regenerate the
+   media — `docs/.venv/bin/sphinx-build -b media` (the `moonmedia` builder: the
+   scripted figs — every `docs/tools/gen_*.py` + the node isomorphic pipeline
+   `gen_figures.js` → `assemble_figures.py` and `gen_bake_intermediates.js` →
+   `gen_bake_strip.py` — then `host_sim/uisim/build.sh run` + `--panel 720` +
+   `--panel 360` + the `--wheel`/`--dial` captures, `docs/tools/enclose.py`
+   (numbered callouts inside the round product housing, alpha outside) over
+   every `docs/ui/labels/*.json` spec, the device composites; `MEDIA_VIDEOS=1`
+   adds the film, `MEDIA_NASA=1` the NASA answer-key art (gate run +
+   `nasa_figs.py` + `gen_nasa_quarters.py`, needs the gitignored
+   `assets/images/moon/final_400x400`). ALL docs media
+   (`docs/img/screens{,/p4,/knob,/annot}`, `docs/_static/photos`,
+   `docs/_static/figs`, `docs/img/nasa`, `docs/img/fade.mp4`) is gitignored
+   build output — regenerated, NEVER committed (2026-11-16); the pages embed
+   the files on disk, so `-b html` 0-warnings presumes a media run. The vendor
+   legs of `perf_bus`/`perf_silicon` parse `managed_components/` — it holds
+   only the LAST-resolved target's set, so reconfigure the P4 build for the
+   gt911 header. The by-hand path (`build.sh run` → `docs/img/screens/`,
+   `build.sh run --panel 720` → `docs/img/screens/p4/`, `--panel 360` →
+   `knob/`, then re-run `enclose.py` for the affected label specs) stays fine
+   for single-screen iterations. If the change only touches the moon bake path,
+   the host image gate must pass before the doc's numbers are trustworthy — ALL
+   THREE board textures (the knob sibling included):
+   `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` and
+   `--target p4` and `--target knob` (the gate exits 2 on a stale sim binary
+   built against the other target's texture).
 3. If the change alters an animation, regenerate the videos:
    `python3 docs/gen_media.py` (needs `host_sim/.venv`, PIL, ffmpeg; the fade
    film is pinned to the S3 466 uisim set — run `host_sim/uisim/build.sh run`
@@ -60,12 +73,13 @@ system, build steps) **update the site** — do not let it drift:
    that in the right pipeline slot).
 4. Verify clean: `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`
    must finish with **0 warnings** (the `moonmedia` staleness check warns at
-   build time if a committed screenshot or film is missing or older than its
-   render inputs), and `docs/.venv/bin/python docs/tools/check_docs_drift.py`
+   build time if a generated screenshot or film is missing or older than its
+   render inputs — media are build outputs, so "missing" = `-b media` was never
+   run on the tree), and `docs/.venv/bin/python docs/tools/check_docs_drift.py`
    must exit **0** — it is the drift gate for the hand-kept-in-sync
    single-sourced fragments (Kconfig/consts/partitions), the UI reachability
    matrix and its screenshots, and the binary-size rows. Commit docs with the
-   code change.
+   code change (the generated media stays out — it is gitignored).
 
 ## Hard invariants (violations ship visible bugs)
 
@@ -148,7 +162,11 @@ docs/.venv/bin/python docs/tools/check_docs_drift.py           # drift gate: the
                                                                # matrix + its screenshots, and the
                                                                # binary-size rows vs the live
                                                                # sources (exit 1 = DRIFT: lines)
-docs/.venv/bin/sphinx-build -b media docs docs/_build/media     # regenerate the docs screenshots + composites
+docs/.venv/bin/sphinx-build -b media docs docs/_build/media     # THE media regen: scripted figs + all three
+                                                               # boards' screens/annot + composites
+                                                               # (MEDIA_VIDEOS=1 adds the film, MEDIA_NASA=1
+                                                               # the NASA art); ALL docs media is
+                                                               # gitignored build output — never committed
 ```
 
 ### Identifying the boards

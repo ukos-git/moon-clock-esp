@@ -252,10 +252,12 @@ is:
    node docs/tools/gen_figures.js /tmp/bookfigs
 
    # 3. The montages (PIL, from the same gate venv)
+   host_sim/.venv/bin/python docs/tools/assemble_figures.py /tmp/bookfigs
 
 ``gen_figures.js`` calls ``MoonLab.bake`` with explicit parameter sets
-(K, soft, relief, backlit, warm) and writes PPM frames; a small PIL
-script composes them into the labeled montages you see in the other
+(K, soft, relief, backlit, warm) and writes PPM frames;
+``docs/tools/assemble_figures.py`` (a small PIL script) composes them
+into the labeled montages you see in the other
 pages. If you change a constant in the C core, you change it here too
 — and the figures, the sim, and the device all agree.
 
