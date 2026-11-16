@@ -586,13 +586,17 @@ menu "UI Component Configuration"
 
     config UI_ORI_BASE_V10
         int "Base screen orientation in 1/10 deg (panel mount offset)"
-        # Per-board panel mount offset, first-match-wins order (the
-        # moon asset-res precedent): the P4's panel is mounted 90 deg
-        # CW off (tuned on the bench, task #54); the S3 AMOLED housing
-        # needs a further quarter turn clockwise (bench 2026-11-08: at
-        # rest its content sat 90 deg CCW of true up).
-        default 900 if BOARD_P4
-        default 1800
+        # All three moon-clock panels are mounted the SAME 90 deg CW off
+        # the bezel's "12 o'clock" -- the S3 AMOLED, the P4 (task #54)
+        # and the knob alike -- so the offset is the single value 900,
+        # not a per-board cascade. The S3 sat at 1800 since commit
+        # 37ee73b (2026-11-08, the "further quarter turn") and the knob
+        # fell through to 1800; both were regressions against the 90 the
+        # user verified on the bench 2026-11-16 (on the S3 they had been
+        # reaching 90 only by hand-setting the ZERO ANGLE trim to 270 on
+        # the 1800 build -- 1800+2700 == 900 mod 3600). The ZERO ANGLE
+        # roller is the per-clock fine trim on top of this shared base.
+        default 900
         range 0 2700
         help
             The whole-screen rotation at orientation step 0 (the pose
