@@ -53,8 +53,8 @@ Every bar parsed at figure time (the house pattern):
       zero: NO pcf85063a token in the knob's OWN sources (the vendored
       managed_components package is never linked) AND the literal
       lv_timer_create(clock_rtc_interrupt_handler_cb, 1300) at
-      knob/main/main.c:493 ("RTC_POLL_INTERVAL_MS on the clocks is
-      1300", :492).
+      knob/main/main.c:526 ("RTC_POLL_INTERVAL_MS on the clocks is
+      1300", :525).
   microSD: hour centre hour * 3600 + 1800 (moon_ui.c:1664, the hourly
       probe's own epoch); S3 legs SPI3_HOST x2 + GPIO_NUM_41 CS +
       BSP_SD_CMD/D0/CLK (moon_tfcache.c:415-:440, "SPI2 is the QSPI

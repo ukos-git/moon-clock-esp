@@ -14,7 +14,7 @@
 // arrows are the hand-offs: the producer marks its back buffer, the
 // swapper publishes, the encoder forwards count deltas. The knob has NO
 // IMU (the imu shim answers ready=false) and NO RTC — the 1300 ms tick
-// is software-synthesized (knob/main/main.c:492-493). The crew in black
+// is software-synthesized (knob/main/main.c:525-526). The crew in black
 // boxes is docs/_graphs/task-roster.dot (this page); what these hands
 // ask of the silicon is docs/_graphs/task-roster-chips.dot; the panel
 // side is docs/implementation/knob-display. FONTS: 12 pt = the page's

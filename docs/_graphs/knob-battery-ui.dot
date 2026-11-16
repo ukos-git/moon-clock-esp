@@ -1,7 +1,7 @@
 // The knob battery gauge's view, in full (companion to
 // knob-battery.dot) — knob/components/knob_ui/knob_battery_ui.c
 // (attach :157, timer_cb :127, geometry + palette defines :52-70),
-// attach site knob/main/main.c:469. The gauge is the knob's ONLY
+// attach site knob/main/main.c:502. The gauge is the knob's ONLY
 // home-screen addition, a knob-side OVERLAY (the shared home stays
 // byte-identical). Gauge off (KNOB_BATTERY_GAUGE=n or ADC init failed)
 // -> log "gauge off", the icon NEVER appears (the component still

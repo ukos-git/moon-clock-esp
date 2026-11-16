@@ -41,8 +41,8 @@ Every number is PARSED at figure time (the house pattern):
   play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:337,
                               wifi.c:551, actions.c:146
   knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, SPIRAM,
-  "unregistered from TWDT"), enc 5, dial 5, power 4      knob/main/main.c:487
-                              /:499, knob_ui.c:711/:714,
+  "unregistered from TWDT"), enc 5, dial 5, power 4      knob/main/main.c:505
+                              /:517, knob_ui.c:711/:714,
                               knob_board_encoder.c:88, knob_dial.c:140,
                               knob_power.c:283
   CONFIG_ESP_TASK_WDT_TIMEOUT_S 5, CHECK_IDLE_TASK_CPU0 1
@@ -307,7 +307,7 @@ def main() -> None:
     klv = task_at(KNOB_MAIN, "knob_lvgl", "knob LVGL task")
     knob_prio = resolve(klv["prio_expr"])
     knob.append(("LVGL\nknob_lvgl_task", knob_prio, klv["stack"], None, BLUE,
-                 "own task", "knob/main/main.c:487"))
+                 "own task", "knob/main/main.c:505"))
     scan = task_at(WIFI, "wifi_scan", "wifi scan")
     clocks.append(("wifi scan\nbounded retry", resolve(scan["prio_expr"]),
                    scan["stack"], None, TEAL, "", "wifi.c:551"))
@@ -338,7 +338,7 @@ def main() -> None:
                  "knob_ui.c:714"))
     boot = task_at(KNOB_MAIN, "knob_boot", "boot arm")
     knob.append(("boot arm\nknob_boot (one-shot)", resolve(boot["prio_expr"]),
-                 boot["stack"], None, GRAY, "boot-only", "knob/main/main.c:499"))
+                 boot["stack"], None, GRAY, "boot-only", "knob/main/main.c:517"))
     sup = task_at(KNOB_POWER, "knob_power", "power supervisor")
     knob.append(("power supervisor\nknob_power", resolve(sup["prio_expr"]),
                  sup["stack"], None, GRAY, "ladder rungs",

@@ -17,7 +17,7 @@
 // 9 is wired but unused there — it is the EXT1 tap-wake instead); the
 // battery lv_timer asks the ADC every 60 s (knob_battery_ui.c:204);
 // the knob has NO IMU (the imu shim answers ready=false) and NO RTC
-// (the 1300 ms tick is software-synthesized, knob/main/main.c:492-493).
+// (the 1300 ms tick is software-synthesized, knob/main/main.c:525-526).
 // The crew in black boxes is docs/_graphs/task-roster.dot (this page);
 // the crews themselves are docs/_graphs/task-roster-clocks.dot and
 // task-roster-knob.dot. FONTS: 12 pt = the page's 16 px body text at
