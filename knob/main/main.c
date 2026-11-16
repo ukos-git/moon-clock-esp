@@ -81,6 +81,9 @@ static void lvgl_lock(void) { knob_ui_lvgl_lock(); }
 
 static void lvgl_unlock(void) { knob_ui_lvgl_unlock(); }
 
+/* [DEBUG-ad1] synthetic-press switch for the alarm one-way-door loop. */
+static volatile bool s_dbg_fake_press;
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x = 0, y = 0;
@@ -90,6 +93,14 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     static uint32_t s_ok, s_err, s_press_logged;
     static int64_t s_hb_us;
     esp_err_t rd = knob_board_touch_read(&x, &y, &pressed);
+    /* [DEBUG-ad1] fake the finger: force a centre press so the real
+     * LVGL indev read timer drives the genuine event chain. */
+    if (s_dbg_fake_press) {
+        rd = ESP_OK;
+        x = 180;
+        y = 120;
+        pressed = true;
+    }
     if (rd == ESP_OK) {
         s_ok++;
     } else {
@@ -112,6 +123,46 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
+    }
+}
+
+/* [DEBUG-ad1] Throwaway harness for the knob's alarm one-way-door bug
+ * (user 2026-11-16: "the knob was stuck on alarm screen"). Everything
+ * on the LVGL task: fire the shared alarm screen at t=12 s, then hold
+ * a synthetic touch press t=18..21 s so the real indev read timer
+ * produces the RELEASED->PRESSED transition and the real
+ * LV_EVENT_PRESSED chain -- exactly what a finger drives. Without an
+ * action_register_alarm_touch() registration the press does nothing
+ * (red: FIRE, no DISMISS); with it, "Alarm dismissed by touch" +
+ * "Switching to the airplane screen" follow (green). Delete this whole
+ * block when the loop closes. */
+static void dbg_alarm_door_cb(lv_timer_t *t) {
+    const int64_t ms = esp_timer_get_time() / 1000;
+    static uint8_t s_stage;
+    if (s_stage == 0) {
+        if (ms < 12000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-ad1] stage 0: firing alarm screen");
+        action_alarm_triggered(NULL);
+        s_stage = 1;
+    } else if (s_stage == 1) {
+        if (ms < 18000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-ad1] stage 1: synthetic press ON");
+        s_dbg_fake_press = true;
+        s_stage = 2;
+    } else if (s_stage == 2) {
+        if (ms < 21000) {
+            return;
+        }
+        ESP_LOGI(TAG, "[DEBUG-ad1] stage 2: synthetic press OFF");
+        s_dbg_fake_press = false;
+        s_stage = 3;
+    } else {
+        ESP_LOGI(TAG, "[DEBUG-ad1] harness done");
+        lv_timer_delete(t);
     }
 }
 
@@ -470,6 +521,8 @@ void app_main(void) {
      * seconds arc sat frozen between minute ticks (user 2026-11-10).
      * Creation-phase call (lvgl_task does not exist yet), like ui_init. */
     action_ensure_ui_timers();
+    /* [DEBUG-ad1] alarm one-way-door harness (see dbg_alarm_door_cb). */
+    lv_timer_create(dbg_alarm_door_cb, 500, NULL);
     /* P1 dim parity: the ladder's dim rung drops the clock widget to
      * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
      * dusk posture; knob_power.c calls it from the supervisor task). */
