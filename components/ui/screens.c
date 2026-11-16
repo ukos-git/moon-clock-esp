@@ -3222,91 +3222,52 @@ void create_screen_settings_alarm_sound() {
 void tick_screen_settings_alarm_sound() {}
 
 /* --- display base orientation (all three boards): the wall-mount trim
- * arc slider ----------------------------------------------------------
+ * roller --------------------------------------------------------------
  *
  * The 90-degree-step orientation pipeline treats the pose held at boot
  * (or at the 2 s press resync) as HOME and rotates every screen root
  * by the Kconfig mount offset plus the persisted user trim. A clock
  * hung on a wall whose "up" is neither 0 nor a multiple of 90 degrees
  * needs that trim -- this screen is its editor (the hub's rotate
- * icon). A full-panel value ring is inked right at the rim (the
- * alarm-time band pattern), the indicator sweeping CW from the top;
- * the 34 px handle sits AT the trim angle. Dragging is live: the
- * centre card tips by the same amount (that is how the content will
- * lean) and the readout says the number. RELEASED persists --
- * settings.txt + action_orientation_set_user_base_deg re-pushes all
- * 17 screen roots right away, so the effect is visible with the
- * finger still on the dial. On the knob the dial steps the angle in
- * 5-degree detents and a tap commits through the handle's own
- * RELEASED save. */
+ * icon). A 0..359-degree house roller (settings_create_roller, the
+ * alarm/time/pomodoro picker) IS the value display: it replaced the
+ * old rim-handle drag, which was too fiddly to hit on a touch panel.
+ * Scrolling is live -- the centre card tips by the same amount, that
+ * is how the content will lean. RELEASED persists -- settings.txt +
+ * action_orientation_set_user_base_deg re-pushes all 17 screen roots
+ * right away, so the whole display tilts for real the way it will on
+ * the wall. On the knob the dial steps the angle in 5-degree detents
+ * and a tap commits through the roller's own RELEASED save. */
 
-static lv_obj_t *s_display_band;    /* the full-panel value ring (at the rim) */
-static lv_obj_t *s_display_handle;  /* the drag knob, AT the angle on the ring */
+static lv_obj_t *s_display_roller;  /* the 0..359 degree picker (a house roller) */
 static lv_obj_t *s_display_preview; /* the centre card that tips with the trim */
-static lv_obj_t *s_display_deg_label;
-static int s_display_deg; /* working value: degrees CW from 12 o'clock */
+static int s_display_deg;           /* working value: degrees CW from 12 o'clock */
 
-/* Indicator + handle + card from the working angle. The angle
- * convention: 0 deg = TOP (12 o'clock), CW positive -- a wall clock's
- * face. The arc's own space (the alarm-time one: atan2, y-DOWN, 0 =
- * right, 90 = down) is that shifted by -90; the indicator spans arc
- * 270..(270+deg)%360, the wrap (start > end) drawing through 360/0
- * exactly like the alarm day-range band's wrap case. */
+/* Sync the picker + the tilting card to the working angle. The card
+ * tips the way the screen's CONTENT will lean (0.1-deg units, centre
+ * pivot -- the setter ori_apply_v10 uses). The roller is skipped when
+ * it already shows the value (the finger-flick path), so apply never
+ * yanks the roller mid-scroll; the dial and the entry refresh are the
+ * only callers that actually move it. */
 static void settings_display_apply(void) {
-    if (!s_display_band) {
+    if (!s_display_roller) {
         return;
     }
-    const float PI = 3.14159265f; /* the LVGL math macro is config-gated */
-    lv_arc_set_angles(s_display_band, (lv_value_precise_t)270, (lv_value_precise_t)((270 + s_display_deg) % 360));
-    float ang = (float)(s_display_deg - 90) * PI / 180.0f;
-    lv_obj_align(s_display_handle, LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_HANDLE_R * cosf(ang)),
-                 (int32_t)(ALARM_TIME_HANDLE_R * sinf(ang)));
-    /* The card tips the way the screen's CONTENT will lean (0.1-deg
-     * units, centre pivot -- the setter ori_apply_v10 uses). */
+    if ((int)lv_roller_get_selected(s_display_roller) != s_display_deg) {
+        lv_roller_set_selected(s_display_roller, s_display_deg, LV_ANIM_OFF);
+    }
     lv_obj_set_style_transform_rotation(s_display_preview, (int32_t)s_display_deg * 10, 0);
-    char buf[16];
-    snprintf(buf, sizeof buf, "%d DEG", s_display_deg);
-    lv_label_set_text(s_display_deg_label, buf);
 }
 
-/* Map the indev point to the ring's LOCAL frame, then to degrees CW
- * from the top. The root may carry the orientation roll (after a
- * commit it does -- the whole screen, ring included, tilts), so
- * inverse it first. Whole degrees (the drag is free-form; the knob
- * dial adds the 5-deg detents). */
-static bool display_point_to_deg(int *out_deg) {
-    lv_indev_t *indev = lv_indev_active();
-    if (indev == NULL) {
-        return false;
-    }
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-    lv_obj_transform_point(objects.settings_display, &p, LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE);
-    int32_t dx = p.x - ALARM_TIME_ARC_CX;
-    int32_t dy = p.y - ALARM_TIME_ARC_CY;
-    if (dx == 0 && dy == 0) {
-        return false;
-    }
-    float theta = atan2f((float)dy, (float)dx) * 180.0f / 3.14159265f + 90.0f; /* 0 = top, CW */
-    int deg = (int)lroundf(theta);
-    deg %= 360;
-    if (deg < 0) {
-        deg += 360;
-    }
-    *out_deg = deg;
-    return true;
-}
-
-/* Drag: PRESSED + PRESSING move the angle under the finger (PRESS_LOCK
- * keeps the press on the handle while the finger wanders off the ring;
- * a press at the handle's own angle is a no-op). */
-static void event_handler_cb_settings_display_handle(lv_event_t *e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) {
+/* Scroll: the roller's VALUE_CHANGED moves the working angle live (the
+ * centre card tips for real as you roll; the screen itself re-pushes on
+ * RELEASED). A no-op when the value did not change. */
+static void event_handler_cb_settings_display_roller(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) {
         return;
     }
-    int deg = 0;
-    if (!display_point_to_deg(&deg) || deg == s_display_deg) {
+    int deg = (int)lv_roller_get_selected(s_display_roller);
+    if (deg == s_display_deg) {
         return;
     }
     s_display_deg = deg;
@@ -3327,7 +3288,7 @@ static void event_handler_cb_settings_display_save(lv_event_t *e) {
 }
 
 static void settings_display_screen_refresh(void) {
-    if (!s_display_band) {
+    if (!s_display_roller) {
         return;
     }
     s_display_deg = settings_display_rotation_deg();
@@ -3345,58 +3306,36 @@ void create_screen_settings_display() {
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(caption, "ZERO ANGLE");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(140));
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
-    /* The value ring: the FULL 360-degree track right at the rim (the
-     * zeroed-pad alarm-time band pattern -- stroke inked INWARD from
-     * panel/2), the indicator starting at the top (arc 270). Track =
-     * the theme's dark, indicator = the moon grey. */
-    lv_obj_t *band = lv_arc_create(obj);
-    s_display_band = band;
-    lv_obj_set_pos(band, 0, 0);
-    lv_obj_set_size(band, UI_PANEL_PX, UI_PANEL_PX);
-    lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_bottom(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_arc_set_bg_angles(band, 0, 360); /* the dark full track */
-    lv_arc_set_angles(band, 270, 270);  /* the indicator: seeded on entry */
-    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_color(band, SETTINGS_GREY, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_rounded(band, false, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_arc_rounded(band, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(band, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
-
-    /* The handle ON the ring at the angle (the day handles' look, the
-     * home knob's grey): the editor itself. */
-    s_display_handle = lv_obj_create(band);
-    lv_obj_set_size(s_display_handle, UI_PX(34), UI_PX(34));
-    lv_obj_set_style_radius(s_display_handle, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(s_display_handle, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(s_display_handle, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(s_display_handle, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(s_display_handle, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_ext_click_area(s_display_handle, UI_PX(4));
-    lv_obj_add_flag(s_display_handle, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_display_handle, LV_OBJ_FLAG_PRESS_LOCK);
-    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_handle, LV_EVENT_PRESSED, 0);
-    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_handle, LV_EVENT_PRESSING, 0);
-    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_save, LV_EVENT_RELEASED, 0);
+    /* The picker: a 0..359-degree house roller (the alarm/time/pomodoro
+     * settings_create_roller -- the roller IS the value display, so no
+     * separate "N DEG" readout). This replaces the old rim-handle drag,
+     * which was too fiddly to hit on a touch panel. Scrolling moves the
+     * working angle live (VALUE_CHANGED tips the card); RELEASED
+     * persists the trim + re-pushes every screen root, so the whole
+     * display tilts for real the way it will on the wall. Upper-centre,
+     * above the preview card. */
+    static char opts[360 * 5]; /* "0\n".."359\n" */
+    int pos = 0;
+    for (int d = 0; d < 360; d++) {
+        pos += snprintf(opts + pos, sizeof(opts) - pos, "%d\n", d);
+    }
+    s_display_roller =
+        settings_create_roller(obj, opts, &ui_font_montserrat_regular_48_numbers, UI_PX(66), 0, UI_PX(120));
+    lv_obj_align(s_display_roller, LV_ALIGN_CENTER, 0, -UI_PX(40));
+    lv_obj_add_event_cb(s_display_roller, event_handler_cb_settings_display_roller, LV_EVENT_VALUE_CHANGED, 0);
+    lv_obj_add_event_cb(s_display_roller, event_handler_cb_settings_display_save, LV_EVENT_RELEASED, 0);
 
     /* The preview: a grey-outlined card whose WHITE TIP BAR (a child,
      * top-centre) is "up". The card tips with the trim the way the
-     * screen content will; its centre stays put (centre pivot), so the
-     * tip reads around the readout. The bar is a CHILD -- the card's
-     * transform_rotation carries it along. */
+     * screen content will; its centre stays put (centre pivot). A live
+     * hint of the lean while the finger is on the roller. Lower-centre. */
     s_display_preview = lv_obj_create(obj);
-    lv_obj_set_size(s_display_preview, UI_PX(140), UI_PX(140));
-    lv_obj_center(s_display_preview);
+    lv_obj_set_size(s_display_preview, UI_PX(128), UI_PX(128));
+    lv_obj_align(s_display_preview, LV_ALIGN_CENTER, 0, UI_PX(78));
     lv_obj_set_style_bg_opa(s_display_preview, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(s_display_preview, UI_PX(16), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(s_display_preview, UI_PX(2), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -3417,17 +3356,6 @@ void create_screen_settings_display() {
     lv_obj_set_style_border_width(tip, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(tip, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(tip, LV_OBJ_FLAG_CLICKABLE);
-
-    /* The readout, upright, centred IN the tilting card (a sibling --
-     * it must not rotate with the preview). */
-    s_display_deg_label = lv_label_create(obj);
-    lv_obj_set_style_text_font(s_display_deg_label, &ui_font_montserrat_regular_48_ssid,
-                               LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(s_display_deg_label, "0 DEG");
-    lv_obj_set_size(s_display_deg_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_center(s_display_deg_label);
-    lv_obj_set_style_text_color(s_display_deg_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_clear_flag(s_display_deg_label, LV_OBJ_FLAG_CLICKABLE);
 
     settings_display_screen_refresh();
 }
@@ -4244,18 +4172,19 @@ static void dial_roller_pair(enum ScreensEnum id, lv_obj_t **a, lv_obj_t **b) {
     case SCREEN_ID_SETTINGS_ALARM_SOUND:
         *a = objects.settings_alarm_sound_roller;
         break;
+    case SCREEN_ID_SETTINGS_DISPLAY:
+        *a = s_display_roller;
+        break;
     default:
         break;
     }
 }
 
-/* The day handle object of focus slot 2/3 (NULL elsewhere), plus the
- * display-trim screen's ring handle as ITS focus slot 0 (the screen's
- * only cursor -- no roller on it). */
+/* The day handle object of focus slot 2/3 (NULL elsewhere) -- the
+ * alarm-time screen's two day-range handles. The display-trim screen
+ * has NO handle now (its cursor is a real roller; see
+ * dial_roller_pair), so it is not part of this set. */
 static lv_obj_t *dial_handle_obj(enum ScreensEnum id, int focus) {
-    if (id == SCREEN_ID_SETTINGS_DISPLAY) {
-        return focus == 0 ? s_display_handle : NULL;
-    }
     if (id != SCREEN_ID_SETTINGS_ALARM_TIME || focus < 2) {
         return NULL;
     }
@@ -4272,10 +4201,6 @@ static void dial_roller_apply(enum ScreensEnum id) {
     dial_ring(h2, h2 != NULL && s_dial_roller_focus == 2);
     lv_obj_t *h3 = dial_handle_obj(id, 3);
     dial_ring(h3, h3 != NULL && s_dial_roller_focus == 3);
-    /* The display-trim screen's single slot: the ring handle (NULL
-     * everywhere else -- the alarm-time focus 0 is the hour ROLLER). */
-    lv_obj_t *h0 = dial_handle_obj(id, 0);
-    dial_ring(h0, h0 != NULL && s_dial_roller_focus == 0);
 }
 
 /* P3: press focus for the alarm-time day handles (drag path untouched:
@@ -4286,15 +4211,6 @@ static void event_handler_cb_dial_handle_press(lv_event_t *e) {
         return;
     }
     s_dial_roller_focus = 2 + (int)(intptr_t)lv_event_get_user_data(e);
-}
-
-/* Focus for the display-trim screen (its only cursor is the ring
- * handle; pressing it also lands the drag's own angle set). */
-static void event_handler_cb_dial_display_press(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
-        return;
-    }
-    s_dial_roller_focus = 0;
 }
 
 /* Focus defaults on entry (the dial task notices the switch itself via
@@ -4344,10 +4260,9 @@ void screens_dial_init(void) {
                         (void *)(intptr_t)0);
     lv_obj_add_event_cb(objects.settings_alarm_time_handle_end, event_handler_cb_dial_handle_press, LV_EVENT_PRESSED,
                         (void *)(intptr_t)1);
-    /* The display-trim screen: the ring handle is the only cursor. */
-    if (s_display_handle) {
-        lv_obj_add_event_cb(s_display_handle, event_handler_cb_dial_display_press, LV_EVENT_PRESSED, 0);
-    }
+    /* The display-trim screen's roller needs no press-focus handler:
+     * it is a single-slot screen, focus 0 from dial_screen_reset (the
+     * other single-roller screens work the same way). */
     dial_screen_reset(ui_current_screen());
 }
 
@@ -4528,10 +4443,10 @@ void screens_dial_commit(void) {
         break;
     }
     case SCREEN_ID_SETTINGS_DISPLAY: {
-        /* The handle's own RELEASED is the save (settings.txt + the
+        /* The roller's own RELEASED is the save (settings.txt + the
          * root re-push) -- same as lifting a finger off a drag. */
-        if (s_display_handle) {
-            lv_obj_send_event(s_display_handle, LV_EVENT_RELEASED, NULL);
+        if (s_display_roller) {
+            lv_obj_send_event(s_display_roller, LV_EVENT_RELEASED, NULL);
         }
         break;
     }
