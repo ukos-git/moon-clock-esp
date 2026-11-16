@@ -11,12 +11,12 @@ The current binaries
 --------------------
 
 Measured from the build trees (2026-11-16): all three trees were
-configured at HEAD ``883f90d`` with this wave's code in the tree —
-the 17th screen (the settings-display wall-mount base-angle trim,
-all three boards) and the ``UI_ALARM_RING_MAX_MIN`` ring cap
-(:doc:`the alarm screen <../ui/alarm>`) — and built from it (the
+configured at HEAD ``ba1e2bf`` with this wave's code in the tree —
+the wifi-screen **switch-frame pass** (the sync-storm traffic hold no
+longer eats the screen switch's atomic frame; :doc:`the display
+pipeline <../implementation/display>`) — and built from it (the
 sizes below are those bench binaries; each embeds the git-describe
-short hash ``883f90d`` as the TF-cache calcver string — verified by
+short hash ``ba1e2bf`` as the TF-cache calcver string — verified by
 ``strings``, the root ``CMakeLists`` comment and :doc:`the build
 system <../reference/build-system>`). Until the first commitizen bump
 there is no ``version`` line in ``.cz.toml``; docs-only commits after
@@ -35,14 +35,14 @@ project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,714,384 B (0x1a28d0)
+     - 1,714,832 B (0x1a2a90)
      - 2,097,152 B (2048 K)
-     - 382,768 B (18 %)
+     - 382,320 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,873,696 B (0x1c9720)
+     - 1,874,224 B (0x1c9930)
      - 9,437,184 B (9216 K)
-     - 7,563,488 B (80 %)
+     - 7,562,960 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
      - 1,563,344 B (0x17dad0)
@@ -159,14 +159,17 @@ the app's growth history:
                                               (shared hub + sky events + the
                                               settings stack over the 11-02
                                               base); 19% under the ceiling
-   binary    1,714,384 B  (0x1a28d0)  current (measured 2026-11-16, built at
-                                              HEAD 883f90d with this wave in
-                                              the tree) — the 17th screen
+   binary    1,714,384 B  (0x1a28d0)  the 2026-11-16 take — the 17th screen
                                               (settings-display) + the ring
-                                              cap over the 11-15 base; 18%
-                                              under the ceiling — rule 3
-                                              below is now the next expected
-                                              step, not a last resort
+                                              cap over the 11-15 base
+   binary    1,714,832 B  (0x1a2a90)  current (measured 2026-11-16) — the
+                                              wifi-screen switch-frame pass
+                                              (the traffic hold no longer
+                                              eats the screen-switch's atomic
+                                              frame) over the 17th-screen
+                                              base; 18% under the ceiling —
+                                              rule 3 below is now the next
+                                              expected step, not a last resort
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
