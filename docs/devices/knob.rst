@@ -377,6 +377,13 @@ Layout and commands:
   ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` on with
   ``CONFIG_ESP_TASK_WDT_PANIC`` — the 2026-11-11 bench lesson: an
   unyielding stretch must die as a backtrace, not a naked reset.
+  Its **stack is internal RAM**, not PSRAM (``MALLOC_CAP_INTERNAL``,
+  12 KiB on the same ``WithCaps`` call): the day-tick path writes
+  spiffs, and a task whose stack lives in PSRAM must never be the
+  running task while a flash write has the caches down — the
+  condition IDF asserts outright, and the one the 2026-11-16 coredump
+  caught on this board
+  (:doc:`the knob display <../implementation/knob-display>`).
   Every frame bakes crisp at 360 with the event passed —
   the boot sweep's reduced-size intermediates retired with the sweep
   on 2026-11-14, so the one crisp path is all that is left (the

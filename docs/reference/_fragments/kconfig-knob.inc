@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Twenty-seven keys across five menus (the sibling project's own
+Twenty-eight keys across five menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
 the page above):
 
@@ -171,3 +171,16 @@ the page above):
        print the gasp line and the
        flash coredump must be readable — proves the crash witness
        end to end; ``0`` = dead (production)
+   * - ``KNOB_TEST_CLASSIFY_STRESS``
+     - ``0`` (bench)
+     - The deterministic repro of the tick-ISR crash family: the
+       ``moon_task`` hammers ``knob_moon_classify_signature()`` N
+       times (a swept epoch per pass), each pass preceded by a
+       ``settings_store_save()`` — the spiffs write that drops the
+       cache and is what turned the field crash on. Red on a
+       PSRAM-backed ``knob_moon`` stack (the IDF
+       ``esp_task_stack_is_sane_cache_disabled()`` assert), green on
+       the internal-RAM stack the producer boots with today;
+       logs progress every 50 passes and ``classify-stress: PASS N``
+       on survival (:doc:`the knob display
+       <../implementation/knob-display>`)

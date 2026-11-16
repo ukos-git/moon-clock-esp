@@ -72,6 +72,17 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   budget caps every stretch at ~20 ms + one evaluation;
   ``full_moments`` then logs its cost (``N evals in M ms``, once per
   calendar day through the cache);
+- the producer's **stack lives in internal RAM**, not PSRAM — the
+  same ``xTaskCreatePinnedToCoreWithCaps`` call passes
+  ``MALLOC_CAP_INTERNAL`` and asks for 12 KiB. The rule it encodes:
+  **a task that can perform a flash write must never be the running
+  task whose stack the cache is holding up**, and the producer can —
+  its day-tick path saves settings, and every spiffs write drops both
+  caches (IDF asserts the condition outright,
+  ``esp_task_stack_is_sane_cache_disabled()`` in
+  ``spi_flash_disable_interrupts_caches_and_other_cpu``). The
+  coredump and the bench repro that proved it:
+  :ref:`the field-crash witness <knob-crash-witness>` below;
 - a **swap** task (plain registered) applies each frame as ONE
   atomic ``lv_refr_now`` under the main-injected LVGL mutex, with
   publish/apply ``seq_cst`` fences and an ack-before-reuse cap (a
@@ -629,6 +640,8 @@ appears, and the log says ``gauge off``. The first read logs
 ``raw -> mV sense -> mV cell`` — the bench line the multimeter ritual
 will check against.
 
+.. _knob-crash-witness:
+
 The field-crash witness (gasp + coredump)
 -----------------------------------------
 
@@ -670,10 +683,14 @@ its own black box, armed in every production build:
   (:ref:`the write ladder <write-ladder-perf>`). Read back on the
   bench:
   ``esptool.py --port <port> read_flash 0x710000 0x10000 core.bin``,
-  strip the 24-byte flash header, then
-  ``espcoredump.py --chip esp32s3 info_corefile -t elf -c core.elf
-  knob/knob.elf`` (this IDF tree registers no ``idf.py
-  coredump-read`` action). The partition table must be flashed once
+  then ``espcoredump.py info_corefile -t raw -c core.bin
+  /home/matthias/esp/build/knob/knob.elf`` — the **whole partition
+  file**, format ``raw``. (An earlier note here said to strip a
+  24-byte flash header and pass ``-t elf``; on IDF 5.5.1 that
+  StreamErrors partway through the ELF. The ELF is the sibling
+  build's, outside the repo — ``../build/knob/knob.elf``. This IDF
+  tree registers no ``idf.py coredump-read`` action.) The partition
+  table must be flashed once
   with the new table — the added partition sits after
   ``moon_assets``, so nvs/SPIFFS/assets stay intact.
 * **The witness self-test** — ``KNOB_DIAG_PANIC_AT_FRAME`` aborts
@@ -692,6 +709,48 @@ its own black box, armed in every production build:
   production default off; the synthetic-tap hook
   (``KNOB_DIAG_TOUCH_INJECT_S``) retired with the sweep — its
   scenario (a tap into a running sweep) is gone.
+* **The crash the witness caught (2026-11-16).** The field report was
+  *the knob crashed during adjustment* (the Settings **display**
+  roller) — and unlike the 2026-11-11 event, this one left a
+  coredump. Decoded per the recipe above: an IllegalInstruction
+  inside the SYSTICK **tick ISR on IDLE0** —
+  ``xTaskIncrementTick`` → ``prvTaskExitCriticalSafeSMPOnly``
+  returning to a garbage PC (``0x75805c38``, with ``a7 = 0xcdcd``,
+  the stack-poison signature), "Crash happened in the interrupt
+  context" — while ``knob_moon`` sat deep in erfa (``moon_task`` →
+  ``static_once_body`` → ``knob_moon_display_begin`` →
+  ``moon_event_classify`` → ``full_moments`` → ``se_argmax`` →
+  ``se_dot`` → ``moon_geometry`` → ``eraEpv00``). ``knob_moon`` was
+  the **only task with a PSRAM-backed stack**, and with
+  ``CONFIG_FREERTOS_SMP`` unset (the original kernel) every critical
+  section snoops the *other* core over IPC — so the core-0 tick walks
+  that PSRAM stack while the cache underneath it is the thing in
+  question. The adjustment is what turns it on: the roller's commit
+  is a ``settings_store_save()``, a spiffs write, and a spiffs write
+  drops both caches — the exact condition IDF's assert names. The
+  task table in the dump killed the other suspect (``knob_moon`` had
+  touched 2624 B of its 12288; no overflow), and the re-push
+  hypothesis was falsified in code (``ori_apply_v10`` NULL-guards all
+  17 roots). This is the ``b924abf`` systimer-tick family with its
+  *why* finally in hand: a PSRAM-stack task must not be the running
+  task on the side of a flash write. The fix is the internal-RAM
+  stack above — 12 KiB taken from the 194,817 B of DIRAM the build
+  reports free (its DIRAM row: 146,943 B used of 341,760, 43 %).
+* **The repro that proved it** — ``KNOB_TEST_CLASSIFY_STRESS`` (bench
+  Kconfig, production ``0`` = dead) replays the chain at boot: N
+  passes of ``knob_moon_classify_signature()`` over a swept epoch
+  range, each preceded by a ``settings_store_save()``. Building it
+  taught two things: erfa **alone** never went red (400 passes clean
+  — the crash needs the flash write, not merely a hot core 1), and a
+  loop without a ``vTaskDelay(1)`` per pass starves the core-1 idle
+  and earns a naked ``TG1WDT_SYS_RST`` instead of the bug under test.
+  Pinned to 400, the **PSRAM-stack build asserted inside a single
+  pass** — ``assert failed:
+  spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:127
+  (esp_task_stack_is_sane_cache_disabled())`` — while the
+  internal-RAM build ran 200+ passes with no assert. That A/B *is*
+  the regression test here: re-pin the key, flip the stack cap back to
+  ``MALLOC_CAP_SPIRAM``, watch it go red.
 
 With the witness shipped, the next field occurrence is answerable
 without repro: read the gasp line from the boot log after the crash

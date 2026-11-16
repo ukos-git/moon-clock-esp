@@ -3,8 +3,10 @@
 // read out of the live source before drawing (knob/main/main.c and the
 // knob's components): app_main starts knob_lvgl (p10, 8 KiB, unpinned —
 // painter, indev and the 1300 ms software clock tick in one task);
-// start_tasks spawns knob_moon (p5, core 1, 12 KiB PSRAM,
-// "unregistered from TWDT", knob_ui.c:701) and knob_swap (p7, 8 KiB,
+// start_tasks spawns knob_moon (p5, core 1, 12 KiB INTERNAL RAM —
+// never PSRAM: a task that can perform a spiffs flash write must not
+// have its stack under the cache, knob_ui.c:757; the tick-ISR crash
+// family, docs/implementation/knob-display) and knob_swap (p7, 8 KiB,
 // "a watchdog on it is a feature" — registered); encoder_init spawns
 // knob_enc (p5, 3 KiB — asks the dial every 3 ms NOMINAL, 10 ms
 // EFFECTIVE under the 100 Hz tick clamp); dial_start spawns knob_dial
@@ -35,7 +37,7 @@ digraph task_roster_knob {
            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     klvgl [label="knob_lvgl · p10 · 8 KiB\nunpinned — painter, indev,\n1300 ms clock tick",
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-    kmoon [label="knob_moon · p5 · core 1 ·\n12 KiB PSRAM — \"unregistered\nfrom TWDT\"",
+    kmoon [label="knob_moon · p5 · core 1 ·\n12 KiB INTERNAL RAM —\n\"unregistered from TWDT\"",
            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
     kswap [label="knob_swap · p7 · 8 KiB\n\"a watchdog on it is a feature\"",
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
