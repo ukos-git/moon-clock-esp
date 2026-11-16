@@ -65,6 +65,7 @@ def main() -> None:
         raise SystemExit(f"SVS 5415 series missing: {REF} — the answer-key crops are "
                          "gitignored; regenerate them with the assets package "
                          "(assets/images/moon/moon/, see docs/reference/sources.rst)")
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)  # clean tree has no docs/img/nasa
     for i, hr in enumerate(HOURS):
         im = Image.open(os.path.join(REF, f"moon.{hr + 1:04d}.png"))
         # the tracked crops are round disks on transparency — flatten on black

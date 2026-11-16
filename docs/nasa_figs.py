@@ -51,6 +51,7 @@ def load_gray(path) -> np.ndarray:
 
 
 def main():
+    os.makedirs(OUT, exist_ok=True)  # media is build output — a clean tree has no dir
     for k, nasaid, phase, label in PICKS:
         sim = load_gray(f"{GATE}/sim.{k:04d}.png")
         ref = load_gray(f"{REF}/moon.{nasaid:04d}.png")

@@ -12,11 +12,11 @@ Outputs (committed):
                             UI_SCREEN_SWITCH_FADE legs, one whole-panel
                             flush per step)
 
-The committed docs/img/nasa/ set is NOT generated here -- it is curated
-verification art from docs/tools/gen_nasa_quarters.py + the gate's
-nasa_figs.py (the 33946fe answer-key pass). This script's old
+The docs/img/nasa/ set is NOT generated here -- it is build output of the
+moonmedia MEDIA_NASA slot (docs/nasa_figs.py + docs/tools/gen_nasa_quarters.py
+after a gate run -- the answer-key pass). This script's old
 glob-and-rename copy of that step wrote differently-named frames no page
-embeds while clear()-ing the curated ones the pages do embed; /qa
+embeds while clear()-ing the ones the pages do embed; /qa
 2026-11-15 detonated it on a film regen, so the step is gone.
 
 Frame PNGs land in docs/img/frames/ (gitignored). Needs: uisim screenshots

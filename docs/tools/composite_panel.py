@@ -104,6 +104,13 @@ def composite(screen_name, out_path, dim=None):
     hero = Image.open(HERO).convert("RGB")
     d, alpha, shade, spec = make_glass(R_A)
     img = Image.open(UISIM / f"{screen_name}.png").convert("RGB")
+    if img.size != (466, 466):
+        raise SystemExit(
+            f"uisim frame {screen_name} is {img.size[0]}x{img.size[1]}, not 466 — "
+            "host_sim/uisim/out/ holds another panel's captures (the knob 360 or "
+            "P4 720 set; out/ is one dir, last run wins) but the sim_* device "
+            "composites are the S3 one. Run host_sim/uisim/build.sh run first "
+            "(the moonmedia pipeline orders this right automatically).")
     rgb = quant565(np.asarray(img, dtype=np.uint8))
     if dim:
         rgb = hard_dim(rgb, dim)

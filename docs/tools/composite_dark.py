@@ -62,6 +62,7 @@ def dark_backdrop(path):
 if __name__ == "__main__":
     scratch = HERE / "scratch"
     scratch.mkdir(exist_ok=True)
+    PHOTOS.mkdir(parents=True, exist_ok=True)  # media is build output — a clean tree has no dir
     for name, out, dim in cp.JOBS:
         tmp = scratch / f"dark_{out}"
         cp.composite(name, tmp, dim)
