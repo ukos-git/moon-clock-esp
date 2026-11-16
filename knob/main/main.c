@@ -354,6 +354,49 @@ static void boot_arm_task(void *arg) {
     vTaskDelete(NULL);
 }
 
+/* [DEBUG-tch2] THROWAWAY harness (cleanup: grep DEBUG-tch2). The coredump
+ * froze MID seam fade-in ramp -- gasp stage=41 FLUSH_DONE, duty=204 (one
+ * step below full) -- and the only code that runs that ramp is a SCREEN
+ * SWITCH; hammer boots never switch screens, so the loop drives the
+ * switches from the inside instead of waiting for an operator. From the
+ * LVGL timer context every 1100 ms, starting at t=12 s (right where
+ * crash #2 died, mid full_moments scan) for ~99 s: airplane(home) /
+ * home-wheel commit / wifi-sync screen (traffic hold) / silent alarm
+ * screen -- the real switch flows, one per step. The ladder is held via
+ * knob_power_notify_activity so the deep-sleep leg cannot end a round. */
+void screens_dial_commit(void); /* shared ui screens.c (screens.h) */
+static uint8_t s_dbg_steps;
+static void dbg_autoswitch_cb(lv_timer_t *t) {
+    if (esp_timer_get_time() / 1000 < 12000) {
+        return;
+    }
+    knob_power_notify_activity();
+    const char *name = "airplane";
+    switch (s_dbg_steps % 4) {
+    case 1:
+        screens_dial_commit();
+        name = "commit";
+        break;
+    case 2:
+        action_start_wifi_sync();
+        name = "wifi-sync";
+        break;
+    case 3:
+        action_alarm_triggered(NULL);
+        name = "alarm";
+        break;
+    default:
+        break;
+    }
+    if (s_dbg_steps % 4 == 0) {
+        action_switch_to_airplane_screen(NULL);
+    }
+    ESP_LOGI(TAG, "[DEBUG-tch2] autoswitch step %u (%s)", (unsigned)s_dbg_steps, name);
+    if (++s_dbg_steps >= 90) {
+        lv_timer_delete(t);
+    }
+}
+
 /* ---- entry point ------------------------------------------------------- */
 
 void app_main(void) {
@@ -470,6 +513,9 @@ void app_main(void) {
      * seconds arc sat frozen between minute ticks (user 2026-11-10).
      * Creation-phase call (lvgl_task does not exist yet), like ui_init. */
     action_ensure_ui_timers();
+    /* [DEBUG-tch2] throwaway harness -- unattended screen-switch stressor
+     * (dbg_autoswitch_cb above). Remove with the [DEBUG-tch2] grep. */
+    lv_timer_create(dbg_autoswitch_cb, 1100, NULL);
     /* P1 dim parity: the ladder's dim rung drops the clock widget to
      * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
      * dusk posture; knob_power.c calls it from the supervisor task). */
