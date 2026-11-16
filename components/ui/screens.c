@@ -615,7 +615,20 @@ void create_screen_settings_hub() {
      * 720 the same UI_PX ratio gives R = 216 (inner 68 / outer 70). The
      * 7-icon S3 ring's chord at 140 is 121 px > the 96 px icon width, so
      * the icons never crowd each other. */
+    /* The P4 carries an 8th icon (the manual-time clock), so its ring's
+     * angular step is 45 deg, not the 51.4 deg of the 7-icon S3/knob
+     * ring -- and the adjacent chord (2 R sin(pi/n)) at R=140 is only
+     * ~107 px (466 space) vs the ~121 px the 7-icon ring gets: the icon
+     * ink boxes then touch (the 2026-11-16 "speaker + rotate overlap on
+     * the P4" report). Push the P4 ring out to R=162 so its chord (~124)
+     * matches the S3's clearance; the inner/outer margins still clear
+     * (central disk + panel rim) with headroom. The 7-icon boards keep
+     * 140. */
+#if defined(CONFIG_BOARD_P4)
+    const int32_t R = UI_PX(162);
+#else
     const int32_t R = UI_PX(140);
+#endif
     const size_t n = sizeof(ring) / sizeof(ring[0]);
     const float step = 360.0f / (float)n;
     /* The deep-sleep entry's index: the icon anchored at the bottom
@@ -3306,7 +3319,7 @@ void create_screen_settings_display() {
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(caption, "ZERO ANGLE");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(140));
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(158));
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
@@ -3316,8 +3329,10 @@ void create_screen_settings_display() {
      * which was too fiddly to hit on a touch panel. Scrolling moves the
      * working angle live (VALUE_CHANGED tips the card); RELEASED
      * persists the trim + re-pushes every screen root, so the whole
-     * display tilts for real the way it will on the wall. Upper-centre,
-     * above the preview card. */
+     * display tilts for real the way it will on the wall. Above the
+     * preview card (below the caption) — clear of the bottom-centre
+     * exit disk, which settings_sub_screen_prepare anchors at
+     * BOTTOM_MID -90/-34 (its top edge sits at y 342 in 466-space). */
     static char opts[360 * 5]; /* "0\n".."359\n" */
     int pos = 0;
     for (int d = 0; d < 360; d++) {
@@ -3325,17 +3340,20 @@ void create_screen_settings_display() {
     }
     s_display_roller =
         settings_create_roller(obj, opts, &ui_font_montserrat_regular_48_numbers, UI_PX(66), 0, UI_PX(120));
-    lv_obj_align(s_display_roller, LV_ALIGN_CENTER, 0, -UI_PX(40));
+    lv_obj_align(s_display_roller, LV_ALIGN_CENTER, 0, -UI_PX(100));
     lv_obj_add_event_cb(s_display_roller, event_handler_cb_settings_display_roller, LV_EVENT_VALUE_CHANGED, 0);
     lv_obj_add_event_cb(s_display_roller, event_handler_cb_settings_display_save, LV_EVENT_RELEASED, 0);
 
     /* The preview: a grey-outlined card whose WHITE TIP BAR (a child,
      * top-centre) is "up". The card tips with the trim the way the
      * screen content will; its centre stays put (centre pivot). A live
-     * hint of the lean while the finger is on the roller. Lower-centre. */
+     * hint of the lean while the finger is on the roller. Centre of the
+     * panel (NOT lower-centre: at +78 the card's lower edge overlapped
+     * the bottom-centre exit disk) — its bottom at y 292 clears the
+     * exit band top at 342, its top at 174 clears the roller above. */
     s_display_preview = lv_obj_create(obj);
-    lv_obj_set_size(s_display_preview, UI_PX(128), UI_PX(128));
-    lv_obj_align(s_display_preview, LV_ALIGN_CENTER, 0, UI_PX(78));
+    lv_obj_set_size(s_display_preview, UI_PX(118), UI_PX(118));
+    lv_obj_align(s_display_preview, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_opa(s_display_preview, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(s_display_preview, UI_PX(16), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(s_display_preview, UI_PX(2), LV_PART_MAIN | LV_STATE_DEFAULT);
