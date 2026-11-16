@@ -12,57 +12,57 @@ Every number is PARSED at figure time (SystemExit on any disagreement —
 the house pattern), nothing hand-placed:
 
   the graph's TAP edges (components/ui/screens.c):
-    home -> hub            event_handler_cb_home_tap :113, guard
-                           `LV_EVENT_CLICKED && !clock_is_idle()` :115,
-                           loadScreen(SETTINGS_HUB) :116; registered on
-                           exactly TWO roots (the two home views, :288
-                           and :384); the handler's own comment: "the
+    home -> hub            event_handler_cb_home_tap :114, guard
+                           `LV_EVENT_CLICKED && !clock_is_idle()` :116,
+                           loadScreen(SETTINGS_HUB) :117; registered on
+                           exactly TWO roots (the two home views, :290
+                           and :386); the handler's own comment: "the
                            wake tap itself never opens the hub -- a
                            deliberate second tap"
-    hub -> ring            the ring[] table :594-604; the CLOCK entry
+    hub -> ring            the ring[] table :597-608; the CLOCK entry
                            sits inside `#if defined(CONFIG_BOARD_P4)`
-                           (the per-variant difference: 6 icons S3/knob,
-                           7 P4); one handler for the whole ring (:146)
-    hub -> home            event_handler_cb_hub_exit :212 (the central
-                           exit disk, loadScreen(MODEM_SLEEP) :216)
-    alarm -> subtree       the two user_data entries :801 (pomodoro)
-                           and :810 (alarm-time)
+                           (the per-variant difference: 7 icons S3/knob,
+                           8 P4); one handler for the whole ring (:146)
+    hub -> home            event_handler_cb_hub_exit :214 (the central
+                           exit disk, loadScreen(MODEM_SLEEP) :218)
+    alarm -> subtree       the two user_data entries :808 (pomodoro)
+                           and :817 (alarm-time)
     wifi -> password       event_handler_cb_wifi_roller's
-                           loadScreen(SETTINGS_WIFI_PASSWORD) :1574
-    password -> wifi       settings_wheel_exit_to_list :2323
-    every sub-screen -> its exit target  the nine
+                           loadScreen(SETTINGS_WIFI_PASSWORD) :1581
+    password -> wifi       settings_wheel_exit_to_list :2331
+    every sub-screen -> its exit target  the ten
                            settings_sub_screen_prepare(obj, SCREEN_ID_X)
                            sites (alarm->HUB, pomodoro->ALARM,
                            alarm_time->ALARM, light_sleep->HUB,
                            deep_sleep->HUB, wifi->HUB, time->HUB,
-                           tz->HUB, alarm_sound->HUB)
+                           tz->HUB, alarm_sound->HUB, display->HUB)
     ACCOUNTING             EVERY literal loadScreen(SCREEN_ID_*) call in
                            screens.c must be one of the above or the
-                           demo hook settings_wheel_demo_open (:2449) —
+                           demo hook settings_wheel_demo_open (:2454) —
                            an unexplained edge is a SystemExit
 
   the NO-tap-leg rows (components/ui/actions.c): the four machine-only
     views are loaded by the machine, never by a finger — alarm
-    (:1143/:1574 action_alarm_triggered), deep sleep (:1243), light
-    sleep (:1518), the transient WiFi sync screen (:802); MODEM_SLEEP
-    re-entries are machine bookkeeping (:671/:737/:1456). The bus
+    (:1230/:1673 action_alarm_triggered), deep sleep (:1330), light
+    sleep (:1617), the transient WiFi sync screen (:885); MODEM_SLEEP
+    re-entries are machine bookkeeping (:730/:820/:1555). The bus
     ladder's italic "no such leg" precedent.
 
   the matrix cross-check (docs/ui/index.rst): the same list-table the
-    drift gate parses — per-panel reachability, asserted at 16/16 P4,
-    15/16 S3, 13/16 knob with exactly the documented absences
+    drift gate parses — per-panel reachability, asserted at 17/17 P4,
+    16/17 S3, 14/17 knob with exactly the documented absences
     (settings-time off the S3/knob ring; the two sleep VIEWS absent on
     the knob, which dims its real backlight and really deep-sleeps).
     A disagreement between the code-parsed graph and the drift-gated
     matrix is a SystemExit.
 
   the wheel price (components/ui/screens.c + components/wifi/wifi.c):
-    4 registers parsed VERBATIM from s_wheel_sets[] :1867-1872 (slot
+    4 registers parsed VERBATIM from s_wheel_sets[] :1875-1880 (slot
     counts from strlen — never hand-counted); letters is the register
-    the first set_mode draws (the s_wheel_mode comment, :1888); one
+    the first set_mode draws (the s_wheel_mode comment, :1895); one
     character = one press-and-release on a frequency sector
-    (wheel-commit.dot's machine, commit guard :2215 bounded by
-    WHEEL_PW_MAX 63 :1860); register key, commit key = 1 tap each;
+    (wheel-commit.dot's machine, commit guard :2222 bounded by
+    WHEEL_PW_MAX 63 :1867); register key, commit key = 1 tap each;
     wifi.c rejects password_len == 0 || >= MAX_PASSWORD_LEN 64 (:24,
     :127) — so the firmware floor is 1 char, no 8-char minimum exists.
 
@@ -154,7 +154,8 @@ ring_p4 = ring_targets(re.sub(r"#if defined\(CONFIG_BOARD_P4\)|#endif",
                               "", ring_blk))
 if ring_s3 != ["SCREEN_ID_SETTINGS_ALARM", "SCREEN_ID_SETTINGS_LIGHT_SLEEP",
                "SCREEN_ID_SETTINGS_DEEP_SLEEP", "SCREEN_ID_SETTINGS_WIFI",
-               "SCREEN_ID_SETTINGS_TZ", "SCREEN_ID_SETTINGS_ALARM_SOUND"]:
+               "SCREEN_ID_SETTINGS_TZ", "SCREEN_ID_SETTINGS_ALARM_SOUND",
+               "SCREEN_ID_SETTINGS_DISPLAY"]:
     raise SystemExit(f"tap ladder: S3/knob ring parsed {ring_s3}")
 if ring_p4 != ["SCREEN_ID_SETTINGS_TIME"] + ring_s3:
     raise SystemExit(f"tap ladder: P4 ring parsed {ring_p4}")
@@ -192,6 +193,7 @@ EXPECT_EXIT = {
     "create_screen_settings_time": "SETTINGS_HUB",
     "create_screen_settings_tz": "SETTINGS_HUB",
     "create_screen_settings_alarm_sound": "SETTINGS_HUB",
+    "create_screen_settings_display": "SETTINGS_HUB",
 }
 if exits != EXPECT_EXIT:
     raise SystemExit(f"tap ladder: sub-screen exits drifted: {exits}")
@@ -239,7 +241,7 @@ want_slugs = {e.removeprefix("SCREEN_ID_").lower().replace("_", "-")
 if set(matrix) != want_slugs:
     raise SystemExit(f"tap ladder: matrix slugs vs screens.h drifted: "
                      f"{set(matrix) ^ want_slugs}")
-for panel, col, want_reach in (("P4", 1, 16), ("S3", 0, 15), ("knob", 2, 13)):
+for panel, col, want_reach in (("P4", 1, 17), ("S3", 0, 16), ("knob", 2, 14)):
     reach = sum(1 for v in matrix.values() if v[col] == "✓")
     if reach != want_reach:
         raise SystemExit(f"tap ladder: matrix {panel} reach {reach} != "
@@ -331,6 +333,7 @@ ROWS = [
     ("settings wifi (AP roller)", "settings-wifi", "tap"),
     ("settings timezone", "settings-tz", "tap"),
     ("settings alarm sound", "settings-alarm-sound", "tap"),
+    ("settings display trim", "settings-display", "tap"),
     ("settings time (P4-only ring entry)", "settings-time", "tap"),
     ("settings pomodoro", "settings-pomodoro", "tap"),
     ("settings alarm time", "settings-alarm-time", "tap"),
@@ -345,10 +348,10 @@ ypos = list(range(len(ROWS)))[::-1]
 bar_h = 0.26
 for y, (label, slug, kind) in zip(ypos, ROWS):
     if kind == "machine":
-        drivers = {"alarm": "actions.c:1143/:1574",
-                   "wifi": "actions.c:802",
-                   "light-sleep": "actions.c:1518",
-                   "deep-sleep": "actions.c:1243"}[slug]
+        drivers = {"alarm": "actions.c:1230/:1673",
+                   "wifi": "actions.c:885",
+                   "light-sleep": "actions.c:1617",
+                   "deep-sleep": "actions.c:1330"}[slug]
         axl.text(0.06, y, f"no tap leg — machine-driven ({drivers})",
                  va="center", ha="left", style="italic", color=GRAY,
                  fontsize=8.6)
@@ -432,9 +435,9 @@ fig.suptitle("The tap ladder — the ladder family's human side: after the "
              fontsize=12.5, color=INK, y=0.985)
 fig.text(0.5, 0.022,
          "left: BFS over the code-parsed graph (ring table screens.c:"
-         "594-604 with the P4-only entry, alarm entries :801/:810, roller "
-         ":1574, home tap :113-116); bars cross-checked vs the drift-gated "
-         "ui/index.rst matrix (16/15/13). knob 'tap' = a dial-click.",
+         "597-608 with the P4-only entry, alarm entries :808/:817, roller "
+         ":1581, home tap :114-117); bars cross-checked vs the drift-gated "
+         "ui/index.rst matrix (17/16/14). knob 'tap' = a dial-click.",
          ha="center", fontsize=7.2, color=MUTED)
 fig.text(0.5, 0.005,
          "right: derived sum — press-and-release per char + register key + "

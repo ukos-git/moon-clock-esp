@@ -1,0 +1,68 @@
+{
+  "screen": "settings-hub",
+  "labels": [
+    {
+      "id": 1,
+      "text": "Exit (centre circle-xmark)",
+      "x": 233,
+      "y": 233,
+      "dir": "n"
+    },
+    {
+      "id": 2,
+      "text": "Alarm sound (speaker)",
+      "x": 134,
+      "y": 134,
+      "dir": "w"
+    },
+    {
+      "id": 3,
+      "text": "Alarm (clock)",
+      "x": 373,
+      "y": 233,
+      "dir": "e"
+    },
+    {
+      "id": 4,
+      "text": "Light sleep (regular moon)",
+      "x": 332,
+      "y": 332,
+      "dir": "e"
+    },
+    {
+      "id": 5,
+      "text": "Deep sleep (solid moon)",
+      "x": 233,
+      "y": 373,
+      "dir": "s"
+    },
+    {
+      "id": 6,
+      "text": "WiFi",
+      "x": 134,
+      "y": 332,
+      "dir": "w"
+    },
+    {
+      "id": 7,
+      "text": "Timezone (globe)",
+      "x": 93,
+      "y": 233,
+      "dir": "w"
+    },
+    {
+      "id": 8,
+      "text": "Display base angle (rotate)",
+      "x": 233,
+      "y": 93,
+      "dir": "n"
+    },
+    {
+      "id": 9,
+      "text": "Time (clock, P4 only)",
+      "x": 332,
+      "y": 134,
+      "dir": "e"
+    }
+  ]
+}

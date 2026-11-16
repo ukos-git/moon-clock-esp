@@ -380,9 +380,9 @@ translations, 5,178 lines) against what answers its three board-side
 names (44 lines and one CMakeLists), and which four ``REQUIRES``
 literals oblige the early pass at all — counted in **parts** at
 :ref:`the build census <census-ladder-perf>`. The same seam counted
-in **choices** — the 67/55/80 menuconfig entries the three menus
-define, the 28 inherited options that stay silent in the knob build,
-the dead letters, the configure-only guards and the six keys of
+in **choices** — the 69/57/82 menuconfig entries the three menus
+define, the 29 inherited options that stay silent in the knob build,
+the dead letters, the configure-only guards and the seven keys of
 ``settings.txt`` — is
 :ref:`the configuration ladder <config-ladder-perf>`. And the table
 transposed — **how many of the twelve link images compile each

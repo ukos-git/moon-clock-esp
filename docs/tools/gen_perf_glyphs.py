@@ -24,17 +24,17 @@ favour with the askers, or when an ask escapes a face's charset:
       faces (only --size differs); the regular icon face is the parsed
       exception: S3 {62286,61830} vs P4+knob {62286,61830,61463,…}
   carried glyph sets     the /* U+XXXX */ bitmap annotations, per file
-      (12 / 13 / 95 / 95 / 12 / 6 / 2-3); the 12-glyph weekday face is
-      derived FROM the two weekday tables (s_day_abbr actions.c:986,
-      ALARM_DAY_ABBR screens.c:1033 plus '-') and asserted EQUAL to
+      (12 / 13 / 95 / 95 / 12 / 7 / 2-3); the 12-glyph weekday face is
+      derived FROM the two weekday tables (s_day_abbr actions.c:1069,
+      ALARM_DAY_ABBR screens.c:1040 plus '-') and asserted EQUAL to
       the baked set, both directions
   raster bytes           the glyph_bitmap[] hex token count (raw 4 bpp,
       --no-compress); must be > 0 and strictly monotone in px per face
   askers                 a repo-wide scan for &ui_font_ must hit
-      EXACTLY components/ui/screens.c (43) + styles.c (4) with the
+      EXACTLY components/ui/screens.c (46) + styles.c (4) with the
       parsed per-face reference counts equal to the table
-      (11/12/3/14/2/5/5 across the faces); every face asked ≥ 1
-  hub ring               6 unconditional entries + exactly 1 under
+      (12/6/15/4/2/6/5 across the faces); every face asked ≥ 1
+  hub ring               7 unconditional entries + exactly 1 under
       #if defined(CONFIG_BOARD_P4) (clock → settings-time); the ring's
       per-board asked glyph sets ⊆ the tier's carried icon sets
   GLYPH defines          UTF-8 escape bytes decoded == the U+XXXX the
@@ -106,10 +106,10 @@ EXPECT_ASKS = {
     "screens.c": {
         "ui_font_montserrat_bold_96_numbers": 11,
         "ui_font_montserrat_regular_48_numbers": 5,
-        "ui_font_montserrat_regular_32_ssid": 14,
-        "ui_font_montserrat_regular_48_ssid": 3,
+        "ui_font_montserrat_regular_32_ssid": 15,
+        "ui_font_montserrat_regular_48_ssid": 4,
         "ui_font_montserrat_regular_32_range": 2,
-        "ui_font_fontawesome7_solid_96_icons": 4,
+        "ui_font_fontawesome7_solid_96_icons": 5,
         "ui_font_fontawesome7_regular_96_icons": 4,
     },
     "styles.c": {
@@ -211,7 +211,7 @@ def parse_glyph_defines(screens_raw: str) -> dict:
         out[name] = cp
     want = {"GLYPH_XMARK": 0xF057, "GLYPH_MOON": 0xF186, "GLYPH_WIFI": 0xF1EB,
             "GLYPH_STOPWATCH": 0xF2F2, "GLYPH_ALARM": 0xF34E, "GLYPH_CLOCK": CLOCK,
-            "GLYPH_GLOBE": 0xF0AC, "GLYPH_SPEAKER": 0xF028}
+            "GLYPH_GLOBE": 0xF0AC, "GLYPH_SPEAKER": 0xF028, "GLYPH_ROTATE": 0xF2F1}
     if set(want) - set(out):
         die(f"missing GLYPH defines: {sorted(set(want) - set(out))}")
     for k, v in want.items():
@@ -296,10 +296,11 @@ def main() -> None:
 
     glyphs = parse_glyph_defines(screens_raw)
     solid_expect = {glyphs["GLYPH_XMARK"], glyphs["GLYPH_MOON"], glyphs["GLYPH_WIFI"],
-                    glyphs["GLYPH_STOPWATCH"], glyphs["GLYPH_GLOBE"], glyphs["GLYPH_SPEAKER"]}
+                    glyphs["GLYPH_STOPWATCH"], glyphs["GLYPH_GLOBE"], glyphs["GLYPH_SPEAKER"],
+                    glyphs["GLYPH_ROTATE"]}
     for tk in TIERS:
         if data[tk]["ui_font_fontawesome7_solid_96_icons"]["cps"] != solid_expect:
-            die(f"solid icons {tk}: carried set != the six asked icon codepoints")
+            die(f"solid icons {tk}: carried set != the seven asked icon codepoints")
     for tk in TIERS:
         want = REGULAR_BASE | ({CLOCK} if tk != "s3" else set())
         if data[tk]["ui_font_fontawesome7_regular_96_icons"]["cps"] != want:
@@ -334,10 +335,10 @@ def main() -> None:
         for stem, want in table.items():
             if per_file[fbase][stem] != want:
                 die(f"{fbase} asks {stem} {per_file[fbase][stem]} times, expected {want}")
-    if sum(sum(v.values()) for v in (per_file[b] for b in ("screens.c", "styles.c"))) != 47:
-        die("total ask references drifted from 47")
+    if sum(sum(v.values()) for v in (per_file[b] for b in ("screens.c", "styles.c"))) != 50:
+        die("total ask references drifted from 50")
 
-    # ---- hub ring: 6 unconditional + 1 P4-only; asked ⊆ carried per board -------
+    # ---- hub ring: 7 unconditional + 1 P4-only; asked ⊆ carried per board -------
     mring = re.search(r"struct hub_icon ring\[\]\s*=\s*\{(.*?)\};", strip_comments(screens_raw), re.S)
     if not mring:
         die("ring[] table not found")
@@ -359,7 +360,7 @@ def main() -> None:
     all_entries = ring_entries(ring_src, 0)
     p4only = [(g, f, s) for g, f, s, pos in all_entries if guard_lo <= pos < guard_hi]
     uncond = [(g, f, s) for g, f, s, pos in all_entries if not (guard_lo <= pos < guard_hi)]
-    if len(uncond) != 6 or len(p4only) != 1:
+    if len(uncond) != 7 or len(p4only) != 1:
         die(f"ring table drifted: {len(uncond)} unconditional + {len(p4only)} P4-only")
     if not (p4only[0][0] == "GLYPH_CLOCK"
             and p4only[0][1] == "ui_font_fontawesome7_regular_96_icons"
@@ -492,7 +493,7 @@ def main() -> None:
         elif kind == "glyphs-solid":
             ax_r.plot([len(asked_solid)], [y], marker="o", ms=8, mfc="none", mew=1.6,
                       color="#2b5fb0", zorder=5)
-            ax_r.text(2, y - 0.36, "asked = xmark + ring 3 + stopwatch (6 = 6, no dead glyph)",
+            ax_r.text(2, y - 0.36, "asked = xmark + ring 5 + stopwatch (7 = 7, no dead glyph)",
                       fontsize=6.8, color="#2b5fb0")
         elif kind == "glyphs-regular":
             for k, tk in enumerate(("s3", "p4", "knob")):
@@ -528,7 +529,7 @@ def main() -> None:
     for tk in TIERS:
         print(f"  {TIERS[tk][2]:>9}: {tot[tk]:>4} glyphs, "
               f"{sum(data[tk][st]['bytes'] for _, st, _, _, _ in FACES):>7} raster B")
-    print(f"  asks: 47 references in screens.c(43)+styles.c(4); "
+    print(f"  asks: 50 references in screens.c(46)+styles.c(4); "
           f"knob regular dead glyph: U+{CLOCK:04X}")
 
 

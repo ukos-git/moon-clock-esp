@@ -313,6 +313,24 @@ void alarm_audio_select(int id) { settings_set_alarm_sound_id(id); }
 
 int alarm_audio_selected(void) { return s_alarm_sound; }
 
+/* ---- display base-orientation trim (device: settings_store + the
+   actions.c orientation pipeline) ----
+   The sim holds the stored trim so the rotate screen seeds + saves it
+   like the device; applying it is a printf line (the sim has no tilt
+   pipeline to re-push). */
+
+static int s_display_rot_deg = 0; /* the device default */
+
+int settings_display_rotation_deg(void) { return s_display_rot_deg; }
+void settings_set_display_rotation_deg(int deg) {
+    deg %= 360;
+    if (deg < 0)
+        deg += 360;
+    s_display_rot_deg = deg;
+}
+
+void action_orientation_set_user_base_deg(int deg) { printf("[stub] orientation base trim -> %d deg\n", deg); }
+
 void alarm_audio_preview(int id) {
     if (id < 0 || id >= STUB_ALARM_SOUNDS)
         return;

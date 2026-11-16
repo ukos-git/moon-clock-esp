@@ -37,18 +37,21 @@ LIGHT = "#c9c9c4"
 # name -> (glyph label, ring-array index) is keyed by TARGET so the
 # deep-sleep anchor is found by target, exactly like the device.
 RING = {
-    "s3": dict(panel=466, ink=96, order=["alarm", "light", "deep", "wifi", "tz", "sound"],
-               title="S3 — 466 px\n6 icons × 60° · R = 140"),
+    "s3": dict(panel=466, ink=96,
+               order=["alarm", "light", "deep", "wifi", "tz", "sound", "display"],
+               title="S3 — 466 px\n7 icons × ~51.4° · R = 140"),
     "p4": dict(panel=720, ink=148,
-               order=["clock", "alarm", "light", "deep", "wifi", "tz", "sound"],
-               title="P4 — 720 px\n7 icons × ~51.4° · R = 216"),
-    "knob": dict(panel=360, ink=74, order=["alarm", "light", "deep", "wifi", "tz", "sound"],
-                 title="knob — 360 px\n6 icons × 60° · R = 108"),
+               order=["clock", "alarm", "light", "deep", "wifi", "tz", "sound", "display"],
+               title="P4 — 720 px\n8 icons × 45° · R = 216"),
+    "knob": dict(panel=360, ink=74,
+                 order=["alarm", "light", "deep", "wifi", "tz", "sound", "display"],
+                 title="knob — 360 px\n7 icons × ~51.4° · R = 108"),
 }
 
 # short label per target (the screenshot pages carry the real glyphs)
 SHORT = {"alarm": "alarm", "light": "light\nsleep", "deep": "deep\nsleep",
-         "wifi": "wifi", "tz": "tz", "sound": "sound", "clock": "time\n(P4)"}
+         "wifi": "wifi", "tz": "tz", "sound": "sound", "clock": "time\n(P4)",
+         "display": "display\ntrim"}
 
 
 def uipx(x: int, panel: int) -> int:

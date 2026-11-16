@@ -5,7 +5,7 @@ them are silent): **how many choices each layer hands over, and how many of
 them read no C file at all**. The census counts the components an image
 assembles from; the storage ladder counts the bytes that lie in the flash;
 nobody has yet counted the KNOBS — the entries each project's menuconfig
-defines, which of them any compiled file ever reads, and the six keys the
+defines, which of them any compiled file ever reads, and the seven keys the
 user actually owns on the card.
 
 Nothing is recalled. Every number is parsed at figure time with
@@ -35,18 +35,19 @@ documented option vanishes or a new one appears unread:
   the DROPPED set                  the four UI_BOARD_SRCS + main/main.cpp +
       the host assets TU — exactly what the knob build never compiles;
       the classification's yardstick, re-parsed from components/ui/CMakeLists.txt
-  settings_store.c                 exactly the six settings.txt keys (the
+  settings_store.c                 exactly the seven settings.txt keys (the
       parse_kv set == the save block's set); the two #ifndef Kconfig seeds,
-      the two constant seeds, the two LEGACY ghost seeds; the store's own
+      the three constant seeds, the two LEGACY ghost seeds; the store's own
       "LEGACY no-ops" + "stale card ... must not break parsing" comments;
       the two timeouts' 60..1800 s clamp; the sound range twin (store's
-      SETTINGS_ALARM_SOUND_MAX == alarm_audio.h ALARM_SOUND_COUNT == 4)
-  screens.c                        the four writer sites by token (the sleep
+      SETTINGS_ALARM_SOUND_MAX == alarm_audio.h ALARM_SOUND_COUNT == 4);
+      the rotation key's 0..359 clamp
+  screens.c                        the five writer sites by token (the sleep
       roller's RELEASED handler writes both timeouts, the tz commit, the
-      sound commit); ZERO callers of settings_set_boot/dusk_anim_enable
-      repo-wide (the ghost claim)
+      sound commit, the display-trim commit); ZERO callers of
+      settings_set_boot/dusk_anim_enable repo-wide (the ghost claim)
   getter readers                   settings_boot/dusk_anim_enable read by
-      nobody (the ghosts), the four live keys read at least once outside
+      nobody (the ghosts), the five live keys read at least once outside
       the store
   the live sdkconfigs              every parsed name present in sdkconfig,
       sdkconfig.p4, or knob/sdkconfig (value or "is not set") — the menu's
@@ -129,7 +130,7 @@ BSP_SOURCE = "BSP (vendored)"
 
 EXPECTED = {
     "UI": ["UI_DEEP_SLEEP_COUNTDOWN_SEC", "UI_LIGHT_SLEEP_TICK_MS",
-           "UI_LIGHT_SLEEP_DIM_PCT", "UI_CLOCK_ALPHA_PCT", "UI_CLOCK_ROLL_ENABLE",
+           "UI_LIGHT_SLEEP_DIM_PCT", "UI_CLOCK_ALPHA_PCT", "UI_CLOCK_ROLL_ENABLE", "UI_ALARM_RING_MAX_MIN",
            "UI_DEMO_MODE", "UI_DEMO_SCREEN_SEC", "UI_DEMO_FULL_TOUR",
            "UI_MOON_HOURLY_ENABLE", "UI_MOON_HOURLY_FADE_MS", "UI_MOON_HOURLY_TFCACHE",
            "UI_MOON_BAKE_REVEAL", "TEST_HOURLY_FORCE_S", "UI_MOON_BOOT_REPLAY",
@@ -137,7 +138,8 @@ EXPECTED = {
            "UI_MOON_TFCACHE_JPEG_Q", "TEST_AUTO_WAKE_SEC", "TEST_SETTINGS_DEMO_SEC",
            "TEST_SETTINGS_RETURN_SEC", "TEST_WIFI_SCAN_SEC", "TEST_CPU_STATS_SEC",
            "TEST_ROLL_TILT_SEC", "TEST_ALARM_RING_SEC", "TEST_HANG_WATCH",
-           "TEST_BAKE_NO_RELIEF", "UI_IMU_ENABLE", "UI_IMU_ACTIVITY_DEG",
+           "TEST_BAKE_NO_RELIEF", "TEST_BAKE_REVEAL_TRACE", "UI_IMU_ENABLE",
+           "UI_IMU_ACTIVITY_DEG",
            "UI_IMU_WAKE_DEG", "UI_IMU_ANGLE_SIGN", "UI_IMU_ROLL_OFFSET_DEG",
            "UI_CLOCK_ROLL_SIGN", "UI_ORI_BASE_V10", "UI_MOON_ORBIT_ENABLE",
            "UI_MOON_ORBIT_MAX_DEG", "UI_MOON_ORBIT_STEP_DEG",
@@ -309,13 +311,16 @@ def category(name: str, menu: str) -> str:
 CAT = {"alive": "alive", "clock-only": "silent", "dead": "dead",
        "configure": "configure", "registry": "registry", "s3-only": "s3-only"}
 EXPECTED_CAT = {
-    # 40 UI: eleven are read by files every build compiles (actions.c,
+    # 42 UI: twelve are read by files every build compiles (actions.c,
     # screens.c, settings_store.c, and — fade — even the knob's own
     # knob_moon_render.c); the moon/orbit/reveal block and the main-only
     # TEST hooks are silent on the knob; two are read nowhere.
     "UI_DEEP_SLEEP_COUNTDOWN_SEC": "alive", "UI_LIGHT_SLEEP_TICK_MS": "alive",
     "UI_LIGHT_SLEEP_DIM_PCT": "alive", "UI_CLOCK_ALPHA_PCT": "alive",
     "UI_CLOCK_ROLL_ENABLE": "alive", "UI_DEMO_MODE": "alive",
+    # the ring cap self-silences in the dropped alarm_audio.c play_task, but
+    # the UI-tick auto-dismiss in the shared actions.c keeps it alive
+    "UI_ALARM_RING_MAX_MIN": "alive",
     "UI_CLOCK_ROLL_SIGN": "alive", "UI_ORI_BASE_V10": "alive",
     "UI_IMU_ENABLE": "alive", "TEST_ROLL_TILT_SEC": "alive",
     # the knob reads the fade flag too: knob_moon_render.c gates its own
@@ -418,11 +423,12 @@ store = _read("components/clock/settings_store.c")
 parse_keys = set(re.findall(r'parse_kv\(line,\s*"([a-z_]+)"', store))
 save_keys = set(re.findall(r'"([a-z_]+) = %', store))
 KEYS = ["idle_timeout_sec", "deep_sleep_countdown_sec", "boot_anim_enable",
-        "dusk_anim_enable", "timezone_idx", "alarm_sound_id"]
+        "dusk_anim_enable", "timezone_idx", "alarm_sound_id",
+        "display_rotation_deg"]
 if parse_keys != set(KEYS) or save_keys != set(KEYS):
     raise SystemExit(f"settings.txt keys drifted: parse={sorted(parse_keys)} "
                      f"save={sorted(save_keys)} — the right panel draws "
-                     f"exactly these six")
+                     f"exactly these seven")
 SEEDS = {
     "idle_timeout_sec": ("#ifndef CONFIG_CLOCK_IDLE_TIMEOUT_SEC", "kconfig"),
     "deep_sleep_countdown_sec": ("#ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC", "kconfig"),
@@ -430,6 +436,8 @@ SEEDS = {
     "dusk_anim_enable": ("#ifndef CONFIG_UI_MOON_DUSK_ENABLE", "ghost"),
     "timezone_idx": ("static int s_timezone_idx = CLOCK_TZ_BERLIN_IDX", "const"),
     "alarm_sound_id": ("static int s_alarm_sound_id = SETTINGS_ALARM_SOUND_DEFAULT", "const"),
+    "display_rotation_deg": ("static int s_display_rotation_deg = SETTINGS_DISPLAY_ROT_DEFAULT",
+                             "const"),
 }
 for key, (tok, kind) in SEEDS.items():
     if tok not in store:
@@ -444,6 +452,9 @@ if not re.search(r"#define SETTINGS_TIMEOUT_MIN_SEC 60", store) or \
                      "column states it")
 if not re.search(r"#define SETTINGS_ALARM_SOUND_MAX 4", store):
     raise SystemExit("SETTINGS_ALARM_SOUND_MAX is no longer 4")
+if not re.search(r'"display_rotation_deg", &v\) && v >= 0 && v <= 359', store):
+    raise SystemExit("the rotation key's 0..359 parse clamp changed — the "
+                     "range column states it")
 aa_h = _read("components/ui/alarm_audio.h")
 if not re.search(r"#define ALARM_SOUND_COUNT 4", aa_h):
     raise SystemExit("alarm_audio.h's ALARM_SOUND_COUNT is no longer 4 — the "
@@ -456,6 +467,7 @@ WRITERS = {
     "deep_sleep_countdown_sec": "settings_set_deep_sleep_countdown_sec(sec)",
     "timezone_idx": "settings_set_timezone_idx((int)sel)",
     "alarm_sound_id": "settings_set_alarm_sound_id((int)sel)",
+    "display_rotation_deg": "settings_set_display_rotation_deg(s_display_deg)",
 }
 for key, tok in WRITERS.items():
     if tok not in screens_txt:
@@ -481,7 +493,8 @@ for ghost in ("settings_boot_anim_enable", "settings_dusk_anim_enable"):
         raise SystemExit(f"{ghost}() is suddenly read by {sorted(rs)} — the "
                          f"ghost row's 'nothing reads them' is dead")
 for live in ("settings_idle_timeout_sec", "settings_deep_sleep_countdown_sec",
-             "settings_timezone_idx", "settings_alarm_sound_id"):
+             "settings_timezone_idx", "settings_alarm_sound_id",
+             "settings_display_rotation_deg"):
     rs = {rel for rel, txt in C_SRC
           if re.search(rf"\b{live}\(\)", txt) and "settings_store" not in rel}
     if not rs:
@@ -525,16 +538,20 @@ ax_l.set_xlim(0, 95)
 ax_l.set_xlabel("menuconfig entries DEFINED (project menus solid; the "
                 "vendored BSP hatched — upstream's file, counted not curated)",
                 fontsize=6.8)
+shared_n = len(parsed["UI"]) + len(parsed["CLOCK"]) + len(parsed["MOON"])
+proj_n = shared_n + len(parsed["BOARD"])
+knob_native_n = sum(len(parsed[k]) for k in KNOB_SOURCES)
 ax_l.set_title("left: how many choices each menu hands over\n"
-               "(the shared 50 sit under every bar)", loc="left", fontsize=8.6)
+               f"(the shared {shared_n} sit under every bar)",
+               loc="left", fontsize=8.6)
 ax_l.grid(axis="x", color=HAIR, linewidth=0.6, zorder=0)
 ax_l.set_axisbelow(True)
 for s in ("top", "right"):
     ax_l.spines[s].set_visible(False)
 ax_l.set_ylim(3.05, -0.6)
-notes = ["+12 vendored BSP options ride ONLY here;\nthe P4 excludes the BSP by name",
-         "same 55 project entries as the S3;\nno vendored menu at all",
-         "50 shared + 30 knob-native (six shims) —\nthe SMALLEST screen carries the BIGGEST menu"]
+notes = [f"+{len(parsed[BSP_SOURCE])} vendored BSP options ride ONLY here;\nthe P4 excludes the BSP by name",
+         f"same {proj_n} project entries as the S3;\nno vendored menu at all",
+         f"{shared_n} shared + {knob_native_n} knob-native (six shims) —\nthe SMALLEST screen carries the BIGGEST menu"]
 for y, (_, _, _) in enumerate(rows):
     ax_l.text(0.5, y + 0.32, notes[y], fontsize=5.8, color=MUTED, va="top")
 
@@ -576,20 +593,38 @@ for s in ("top", "right"):
     ax_m.spines[s].set_visible(False)
 
 # ------------------------------------------------ right: the runtime layer
+def line_of(tok, what):
+    """1-based line of a writer token in screens.c — the matrix quotes the
+    live position, never a remembered one."""
+    if tok not in screens_txt:
+        raise SystemExit(f"screens.c lost the writer '{tok}' ({what})")
+    return screens_txt.count("\n", 0, screens_txt.index(tok)) + 1
+
+
 KEY_ROWS = [
     ("idle_timeout_sec", "settings light-sleep", "kconfig", True, True,
-     "screens.c:1403 · clamp 60..1800 s"),
+     f"screens.c:{line_of(WRITERS['idle_timeout_sec'], 'light-sleep timeout')} "
+     "· clamp 60..1800 s"),
     ("deep_sleep_countdown_sec", "settings deep-sleep", "kconfig", True, True,
-     "screens.c:1401 · clamp 60..1800 s"),
+     f"screens.c:{line_of(WRITERS['deep_sleep_countdown_sec'], 'deep-sleep timeout')} "
+     "· clamp 60..1800 s"),
     ("timezone_idx", "settings-tz", "const", True, True,
-     "screens.c:3065 · 0..CLOCK_TZ_COUNT"),
+     f"screens.c:{line_of(WRITERS['timezone_idx'], 'timezone commit')} "
+     "· 0..CLOCK_TZ_COUNT"),
     ("alarm_sound_id", "settings-alarm-sound", "const", True, True,
-     "screens.c:3147 · < ALARM_SOUND_COUNT 4"),
+     f"screens.c:{line_of(WRITERS['alarm_sound_id'], 'alarm-sound commit')} "
+     "· < ALARM_SOUND_COUNT 4"),
+    ("display_rotation_deg", "settings-display", "const", True, True,
+     f"screens.c:{line_of(WRITERS['display_rotation_deg'], 'display-trim commit')} "
+     "· clamp 0..359°"),
     ("boot_anim_enable", None, "ghost", False, False,
      "SAVED for stale cards · the TEST settings\ndemo is its only writer · no reader"),
     ("dusk_anim_enable", None, "ghost", False, False,
      "SAVED for stale cards · the TEST settings\ndemo is its only writer · no reader"),
 ]
+if {k for k, *_ in KEY_ROWS} != set(KEYS):
+    raise SystemExit("the drawn matrix and the store's key set drifted apart — "
+                     "the right panel draws exactly the parsed keys")
 COLS = ["writer", "seed", "range", "reader"]
 seed_sym = {"kconfig": BLUE, "const": INDIGO, "ghost": HAIR}
 for r, (key, screen, seed, rng, read, note) in enumerate(KEY_ROWS):
@@ -606,7 +641,7 @@ for r, (key, screen, seed, rng, read, note) in enumerate(KEY_ROWS):
               style="italic" if ghost else "normal")
 ax_r.set_xticks(range(4))
 ax_r.set_xticklabels(COLS, fontsize=6.4)
-ax_r.set_yticks(range(6))
+ax_r.set_yticks(range(len(KEY_ROWS)))
 ax_r.set_yticklabels([k for k, _, _, _, _, _ in KEY_ROWS], fontsize=6.6)
 for lab in ax_r.get_yticklabels():
     if "anim" in lab.get_text():
@@ -614,8 +649,8 @@ for lab in ax_r.get_yticklabels():
         lab.set_color(MUTED)
 ax_r.invert_yaxis()
 ax_r.set_xlim(-0.5, 8.6)
-ax_r.set_ylim(5.7, -0.6)
-ax_r.set_title("right: the user's whole layer — six keys on\n"
+ax_r.set_ylim(len(KEY_ROWS) - 0.3, -0.6)
+ax_r.set_title(f"right: the user's whole layer — {len(KEY_ROWS)} keys on\n"
                "settings.txt; the two ghosts stay for the card",
                loc="left", fontsize=8.6)
 ax_r.set_xlabel("seed: blue = #ifndef Kconfig default · indigo = in-code "

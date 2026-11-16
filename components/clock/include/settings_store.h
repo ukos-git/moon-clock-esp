@@ -69,6 +69,16 @@ void settings_set_timezone_idx(int idx);
 int settings_alarm_sound_id(void);
 void settings_set_alarm_sound_id(int id);
 
+/* Display base-orientation trim in degrees, 0..359, clockwise, default 0
+ * (the settings hub's rotate entry). ADDED on top of the board's Kconfig
+ * UI_ORI_BASE_V10 mount offset: the 90-degree-step orientation pipeline
+ * treats the pose held at the 2 s press (or the settled boot pose) as
+ * home and displays it rotated by base+trim -- for a clock hung on a
+ * wall whose "up" is neither 0 nor 90 degrees. The setter normalises
+ * into 0..359 (negative wraps). */
+int settings_display_rotation_deg(void);
+void settings_set_display_rotation_deg(int deg);
+
 #ifdef __cplusplus
 }
 #endif

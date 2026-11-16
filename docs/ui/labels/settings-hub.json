@@ -11,22 +11,22 @@
     {
       "id": 2,
       "text": "Alarm sound (speaker)",
-      "x": 233,
-      "y": 93,
-      "dir": "n"
+      "x": 172,
+      "y": 107,
+      "dir": "w"
     },
     {
       "id": 3,
       "text": "Alarm (clock)",
-      "x": 354,
-      "y": 163,
+      "x": 369,
+      "y": 202,
       "dir": "e"
     },
     {
       "id": 4,
       "text": "Light sleep (regular moon)",
-      "x": 354,
-      "y": 303,
+      "x": 342,
+      "y": 320,
       "dir": "e"
     },
     {
@@ -39,16 +39,23 @@
     {
       "id": 6,
       "text": "WiFi",
-      "x": 112,
-      "y": 303,
+      "x": 124,
+      "y": 320,
       "dir": "w"
     },
     {
       "id": 7,
       "text": "Timezone (globe)",
-      "x": 112,
-      "y": 163,
+      "x": 97,
+      "y": 202,
       "dir": "w"
+    },
+    {
+      "id": 8,
+      "text": "Display base angle (rotate)",
+      "x": 294,
+      "y": 107,
+      "dir": "e"
     }
   ]
 }

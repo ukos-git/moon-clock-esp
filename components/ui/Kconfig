@@ -81,6 +81,22 @@ menu "UI Component Configuration"
             never-animated hard-swap branch is exactly what a
             disabled roll takes).
 
+    config UI_ALARM_RING_MAX_MIN
+        int "Maximum alarm ring duration (minutes)"
+        default 30
+        range 1 240
+        help
+            Hard cap on how long one alarm may ring (user decision
+            2026-11-16: "the alarm should not fire longer than 30min").
+            Two layers enforce it: the alarm_audio play_task breaks on
+            its OWN elapsed deadline (unconditional -- the audio stops
+            even if the UI is parked in a sleep state), and the UI tick
+            auto-dismisses at the same cap: the ring is silenced, the
+            alarm-active state is cleared, and -- only when the device
+            is awake -- the alarm screen hands over to the home screen.
+            While idle nobody is looking at the panel, so the cap only
+            silences it and the sleep ladder keeps ownership.
+
     config UI_DEMO_MODE
         bool "Demo mode: full on-device tour of every screen and function"
         default n

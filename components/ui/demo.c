@@ -253,6 +253,9 @@ static const lv_obj_t *sub_exit_of(enum ScreensEnum screen) {
     case SCREEN_ID_SETTINGS_ALARM_SOUND:
         root = objects.settings_alarm_sound;
         break;
+    case SCREEN_ID_SETTINGS_DISPLAY:
+        root = objects.settings_display;
+        break;
     default:
         return NULL;
     }

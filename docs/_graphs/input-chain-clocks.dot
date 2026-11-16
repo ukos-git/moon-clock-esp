@@ -32,7 +32,7 @@ digraph input_chain_clocks {
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
     resil [label="2 s press — acts\nonly stable AND\non-axis",
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
-    alarml [label="alarm dismiss —\nonly while ringing\nand awake",
+    alarml [label="alarm tap — stops\nthe ring, heads home\n(only ringing+awake)",
             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
 
     boot -> s3dev [label="esp32s3"];

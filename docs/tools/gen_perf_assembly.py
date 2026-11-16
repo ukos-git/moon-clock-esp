@@ -4,7 +4,7 @@ the counting axis no other ladder prices: **how many LVGL objects every
 screen assembles, and what the build-once model then charges per visit
 (zero)**. The tap ladder counts taps (the finger's bill), the static
 footprint counts bytes (the RAM's bill), screen-switch.dot draws the
-switch's fade — nobody has counted the *population*: the sixteen detached
+switch's fade — nobody has counted the *population*: the seventeen detached
 roots that ``create_screens()`` builds once at boot, before the first
 ``loadScreen``, and that ``loadScreen`` never destroys (the code's own
 comment: "The widgets are created once (loadScreen never destroys them),
@@ -16,7 +16,7 @@ parsers double as docs-side twins of the UI's structural rules — the
 figure refuses to draw when a screen, a ticker, or a registry entry
 appears or vanishes:
 
-  ScreensEnum (screens.h)      the 16 ids, in enum order — the census rows
+  ScreensEnum (screens.h)      the 17 ids, in enum order — the census rows
   create_screen_* bodies       exactly one per id, each rooted at exactly
       ONE detached ``lv_obj_create(0)`` (layout contract 1); bodies are
       brace-matched, not regex-sliced
@@ -34,28 +34,28 @@ appears or vanishes:
       exactly once from the modem-sleep creator); an object inside a loop
       whose bound cannot be parsed is a SystemExit — a loop nobody
       modelled cannot ship a bar
-  tick registry                16 ``tick_screen_*`` definitions + the
+  tick registry                17 ``tick_screen_*`` definitions + the
       ``tick_screen_funcs[]`` table in enum order (ui.c ui_tick dispatches
-      ONLY the current screen — the fifteen off-screen roots tick zero
+      ONLY the current screen — the sixteen off-screen roots tick zero
       times)
-  create_screens()             calls exactly the 16 creators, in enum order
+  create_screens()             calls exactly the 17 creators, in enum order
   ui.c                         ui_init: create_screens() THEN
       loadScreen(SCREEN_ID_MODEM_SLEEP) — every object exists before the
       first frame; loadScreen contains NO creator call (the build-once
       claim is asserted, not quoted)
-  hub ring                     6 unconditional entries (each target a
+  hub ring                     7 unconditional entries (each target a
       ScreensEnum member) + exactly one ``#if defined(CONFIG_BOARD_P4)``
-      entry (clock icon -> settings-time) — 6/7/6 on S3/P4/knob
-  bottom exits                 exactly 9 ``settings_sub_screen_prepare``
+      entry (clock icon -> settings-time) — 7/8/7 on S3/P4/knob
+  bottom exits                 exactly 10 ``settings_sub_screen_prepare``
       call sites; pomodoro + alarm-time return to the alarm screen, the
-      seven hub children to the hub (the tap ladder's exit table, twin)
+      eight hub children to the hub (the tap ladder's exit table, twin)
   entry refresh                ``settings_screen_refresh_for`` dispatches
-      exactly the 10 sub-screens — the per-visit cost is a refresh, never
+      exactly the 11 sub-screens — the per-visit cost is a refresh, never
       a rebuild
   moon family                  exactly 4 ``moon_screen_prepare`` call
       sites (airplane / wifi / light / deep — the four roots that share
       the ONE moon texture; the code's own "s_images[] stays at the four
-      moon screens"); the alarm and the eleven settings screens are
+      moon screens"); the alarm and the twelve settings screens are
       moon-less by design
   the knob's P2 dial block     between its ``#ifdef CONFIG_BOARD_KNOB``
       and its #endif: ZERO object creations (the dial cursor restyles
@@ -139,8 +139,8 @@ enum_ids: list[str] = []
 for e in re.findall(r"\bSCREEN_ID_\w+\b", h_code.split("enum ScreensEnum", 1)[1].split("}", 1)[0]):
     if e not in enum_ids:
         enum_ids.append(e)
-if len(enum_ids) != 16:
-    die(f"screens.h enum has {len(enum_ids)} ids, expected 16")
+if len(enum_ids) != 17:
+    die(f"screens.h enum has {len(enum_ids)} ids, expected 17")
 
 c_code = strip_comments(open(SCREENS_C).read())
 slug = lambda e: e.removeprefix("SCREEN_ID_").lower()  # noqa: E731
@@ -163,12 +163,12 @@ for e, fname in CREATORS.items():
 
 cs = FUNCS.get("create_screens", (None, None, ""))[2]
 if re.findall(r"\bcreate_screen_\w+\(\)", cs) != [f"{f}()" for f in CREATORS.values()]:
-    die("create_screens() does not call the 16 creators in enum order")
+    die("create_screens() does not call the 17 creators in enum order")
 
 tick_defs = sorted(n for n in FUNCS if n.startswith("tick_screen_")
                    and n not in ("tick_screen_by_id",))
-if len(tick_defs) != 16:
-    die(f"{len(tick_defs)} tick_screen_* definitions, expected 16 "
+if len(tick_defs) != 17:
+    die(f"{len(tick_defs)} tick_screen_* definitions, expected 17 "
         f"(the dispatcher tick_screen/tick_screen_by_id are excluded): {tick_defs}")
 tbl = re.search(r"tick_screen_func_t tick_screen_funcs\[\]\s*=\s*\{", c_code)
 if not tbl:
@@ -176,7 +176,7 @@ if not tbl:
 tbl_end = brace_end(c_code, tbl.end() - 1)
 tbl_entries = re.findall(r"\btick_screen_\w+\b", c_code[tbl.end() : tbl_end])
 if tbl_entries != [f"tick_screen_{slug(e)}" for e in enum_ids]:
-    die("tick_screen_funcs[] is not the 16 tickers in enum order")
+    die("tick_screen_funcs[] is not the 17 tickers in enum order")
 
 ui_code = strip_comments(open(UI_C).read())
 # ui.c carries a never-shipped EEZ-generated twin of ui_init/ui_tick behind
@@ -218,7 +218,7 @@ if not ring_block:
 rb = ring_block.group(1)
 p4 = re.search(r"#if defined\(CONFIG_BOARD_P4\)(.*?)#endif", rb, flags=re.S)
 if not p4:
-    die("the ring's P4-only clock entry vanished — the 6/7 split is a lie")
+    die("the ring's P4-only clock entry vanished — the 7/8 split is a lie")
 p4_entries = re.findall(r"\{GLYPH_\w+,\s*&\w+,\s*(SCREEN_ID_\w+)\}", p4.group(1))
 base_entries = re.findall(r"\{GLYPH_\w+,\s*&\w+,\s*(SCREEN_ID_\w+)\}",
                           rb[: p4.start(0)] + rb[rb.index("#endif", p4.start(0)) + 6 :])
@@ -227,8 +227,8 @@ if len(p4_entries) != 1 or p4_entries[0] != "SCREEN_ID_SETTINGS_TIME":
 if not all(t in enum_ids for t in p4_entries + base_entries):
     die("a ring target is not a ScreensEnum member")
 RING_BASE, RING_P4 = len(base_entries), len(base_entries) + 1
-if RING_BASE != 6:
-    die(f"hub ring carries {RING_BASE} unconditional entries, expected 6")
+if RING_BASE != 7:
+    die(f"hub ring carries {RING_BASE} unconditional entries, expected 7")
 
 FOR_HEAD = re.compile(r"for\s*\(\s*(?:int|size_t)\s+(\w+)\s*=\s*0\s*;\s*\1\s*<\s*"
                       r"(WHEEL_N_SECTORS|\d+|\w+)\s*;\s*[^)]*\)")
@@ -262,7 +262,7 @@ def loop_multiplier(body: str, body_start: int, token_off: int, owner: str) -> i
                             mult *= int(bound)
                         elif bound == "n" and owner == "create_screen_settings_hub" \
                                 and "sizeof(ring)" in body:
-                            mult *= RING_BASE  # the hub ring: 6 entries per build
+                            mult *= RING_BASE  # the hub ring: 7 entries per build
                         else:
                             die(f"unmodelled loop bound '{bound}' around an object "
                                 f"creation in {owner}")
@@ -348,15 +348,16 @@ expected_exit = {
     "SCREEN_ID_SETTINGS_TIME": "SCREEN_ID_SETTINGS_HUB",
     "SCREEN_ID_SETTINGS_TZ": "SCREEN_ID_SETTINGS_HUB",
     "SCREEN_ID_SETTINGS_ALARM_SOUND": "SCREEN_ID_SETTINGS_HUB",
+    "SCREEN_ID_SETTINGS_DISPLAY": "SCREEN_ID_SETTINGS_HUB",
 }
-if len(ssp) != 9 or owner_exit != expected_exit:
-    die(f"bottom-exit table drifted (9 expected): found {len(ssp)} — {owner_exit}")
+if len(ssp) != 10 or owner_exit != expected_exit:
+    die(f"bottom-exit table drifted (10 expected): found {len(ssp)} — {owner_exit}")
 rf = FUNCS["settings_screen_refresh_for"][2]
 rf_cases = sorted(set(re.findall(r"case (SCREEN_ID_\w+):", rf)))
 rf_expected = sorted(e for e in enum_ids if e.startswith("SCREEN_ID_SETTINGS_")
                      and e != "SCREEN_ID_SETTINGS_HUB")
 if rf_cases != rf_expected:
-    die(f"settings_screen_refresh_for dispatches {rf_cases}, expected the 10 sub-screens {rf_expected}")
+    die(f"settings_screen_refresh_for dispatches {rf_cases}, expected the 11 sub-screens {rf_expected}")
 
 # knob dial block creates nothing
 c_raw = open(SCREENS_C).read()
@@ -408,13 +409,13 @@ ax_l.set_yticklabels([e.removeprefix("SCREEN_ID_").replace("_", "-").lower() for
 ax_l.set_xlabel("object instances assembled at boot (create_screen_* + resolved helpers)",
                 fontsize=9)
 ax_l.set_xlim(0, max(totals.values()) * 1.30)
-ax_l.set_title("THE BILL — 16 SCREENS, BUILT ONCE AT BOOT", fontsize=10, color=INK, pad=8)
+ax_l.set_title("THE BILL — 17 SCREENS, BUILT ONCE AT BOOT", fontsize=10, color=INK, pad=8)
 ax_l.legend(loc="lower right", fontsize=7.2, framealpha=0.95)
 ax_l.grid(axis="y", visible=False)
 
 IDENT = {"S3": BLUE, "P4": VERM, "knob": VIOLET}
 by = [2, 1, 0]
-bx = ["S3 — 6 ring icons", "P4 — 7 ring icons\n(clock icon, CONFIG_BOARD_P4)", "knob — 6 ring icons"]
+bx = ["S3 — 7 ring icons", "P4 — 8 ring icons\n(clock icon, CONFIG_BOARD_P4)", "knob — 7 ring icons"]
 ax_r.barh(by, [grand - RING_BASE] * 3, color=[IDENT[b] for b in ("S3", "P4", "knob")],
           alpha=0.5, edgecolor="white", height=0.62,
           label="the shared assembly (one screens.c on all three)")
@@ -441,7 +442,7 @@ ax_r.text(0.02, 0.985,
           f"  {grand} EXIST from boot — the hidden city\n"
           f"  the wheel alone: {wheel} ({100.0 * wheel / grand:.0f} % of the bill)\n"
           "  per visit: 0 created, 0 destroyed — loadScreen\n"
-          "  swaps roots; the 10 sub-screens pay an entry\n"
+          "  swaps roots; the 11 sub-screens pay an entry\n"
           "  REFRESH (rollers re-seed), never a rebuild\n"
           "  ui_tick dispatches ONLY the current screen;\n"
           "  4 roots share the ONE moon image; the clock\n"

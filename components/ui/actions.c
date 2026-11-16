@@ -51,6 +51,20 @@ static bool g_backlight_off = false;
 // family is gone (the boot sweep retired 2026-11-13).
 static bool g_asleep = false;
 
+/* The hard ring cap (UI_ALARM_RING_MAX_MIN, user decision 2026-11-16:
+ * "the alarm should not fire longer than 30min"). The alarm_audio
+ * play_task enforces the AUDIO half of it unconditionally (its own
+ * elapsed deadline -- the sound stops even while the UI tick is parked
+ * in a sleep state); this timestamp drives the UI half: the ui tick
+ * auto-dismisses at the same cap (see ui_tick_timer_cb). Stamped by
+ * action_alarm_triggered, zeroed by every dismiss path. The #ifndef
+ * seed only serves hosts without the generated sdkconfig. */
+#ifndef CONFIG_UI_ALARM_RING_MAX_MIN
+#define CONFIG_UI_ALARM_RING_MAX_MIN 30
+#endif
+#define ALARM_RING_CAP_US ((int64_t)CONFIG_UI_ALARM_RING_MAX_MIN * 60000000LL)
+static int64_t s_alarm_ring_started_us;
+
 /* The WiFi + NTP sync runs on a dedicated task, never on the LVGL task:
  * the wake handler (action_wake_screen) runs in the LVGL task (indev
  * event / moon tilt timer / the RTC minute tick), and the old blocking
@@ -194,6 +208,27 @@ static void wifi_sync_kickoff(void) {
 #define CONFIG_UI_ORI_BASE_V10 900
 #endif
 #define ORI_BASE_V10 CONFIG_UI_ORI_BASE_V10
+/* The user's wall-mount trim (the settings hub's rotate screen, persisted
+ * as settings.txt key display_rotation_deg, user decision 2026-11-16:
+ * "be able to set the default orientation (zero degree angle) of the
+ * display ... to be able to have the clock on the wall adjustable to the
+ * actual position it was placed on the wall"). Whole degrees CLOCKWISE,
+ * LVGL 1/10-deg units, added to the Kconfig mount offset BEFORE the
+ * roll sign is applied (sign < 0 mirrors the whole orientation, trim
+ * included). Seed 0 = the documented boards-only behaviour; the stored
+ * value is picked up in action_orientation_init (post settings_store_load)
+ * and live-updated through action_orientation_set_user_base_deg. */
+static int32_t s_user_base_v10;
+
+/* The orientation the pipeline displays at step 0: mount base + user
+ * trim, sign-applied. All three base sites (init / resync / step) go
+ * through here so the trim is a single-source addend. */
+static int32_t ori_base_v10(void) {
+    int32_t v = ORI_BASE_V10 + s_user_base_v10;
+    if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
+        v = -v;
+    return v;
+}
 
 static int32_t s_win_x[ORI_WINDOW]; /* the sample window (int4-quantized) */
 static int32_t s_win_y[ORI_WINDOW];
@@ -299,7 +334,7 @@ static uint32_t s_ori_test_elapsed_s;
 static int8_t s_ori_test_gx, s_ori_test_gy;
 #endif /* ROLL_SCRIPT */
 
-/* Push one orientation to all 12 screen roots (LVGL transform units:
+/* Push one orientation to all 17 screen roots (LVGL transform units:
  * 1/10 deg, positive = clockwise). The pivot is the panel centre (LVGL's
  * default is the top-left, which swung the full-screen container off the
  * panel -- the old roll's first crash). A 90-degree step of the square
@@ -313,7 +348,7 @@ static int8_t s_ori_test_gx, s_ori_test_gy;
  * transform (lv_indev_search_obj), so touch lands on the right widget in
  * any orientation. */
 static void ori_apply_v10(int32_t v10) {
-    lv_obj_t *roots[16] = {
+    lv_obj_t *roots[17] = {
         objects.modem_sleep,
         objects.wifi,
         objects.light_sleep,
@@ -330,8 +365,9 @@ static void ori_apply_v10(int32_t v10) {
         objects.settings_time,
         objects.settings_tz,
         objects.settings_alarm_sound,
+        objects.settings_display,
     };
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 17; i++) {
         if (!roots[i])
             continue;
         lv_obj_set_style_transform_pivot_x(roots[i], LV_PCT(50), 0);
@@ -347,11 +383,33 @@ static void ori_apply_v10(int32_t v10) {
  * from frame one. Seeds s_last_v10 so the pipeline's first step-0
  * evaluation dedupes (no double push). */
 void action_orientation_init(void) {
-    int32_t v10 = ORI_BASE_V10;
-    if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
-        v10 = -v10;
+    /* Seed the user's wall-mount trim from the store (app_main runs
+     * settings_store_load long before this). */
+    s_user_base_v10 = (int32_t)settings_display_rotation_deg() * 10;
+    int32_t v10 = ori_base_v10();
     s_last_v10 = v10;
     ori_apply_v10(v10);
+}
+
+/* Set the wall-mount trim live (the rotate screen's RELEASED commit,
+ * LVGL task): re-anchor every root by the delta so the CURRENT tilt
+ * (a non-zero step) rides along unchanged -- the applied value carries
+ * the exact same step correction before and after. No-op when the trim
+ * did not change (a RELEASED with no drag). */
+void action_orientation_set_user_base_deg(int deg) {
+    deg %= 360; /* normalise into 0..359 (negative wraps) */
+    if (deg < 0)
+        deg += 360;
+    int32_t sign = (CONFIG_UI_CLOCK_ROLL_SIGN < 0) ? -1 : 1;
+    int32_t delta = sign * ((int32_t)deg * 10 - s_user_base_v10);
+    s_user_base_v10 = (int32_t)deg * 10;
+    if (delta == 0) {
+        return;
+    }
+    int32_t old = s_last_v10;
+    s_last_v10 += delta;
+    ori_apply_v10(s_last_v10);
+    ESP_LOGI(TAG, "display base trim %d deg (applied %+d -> %+d deg)", deg, old / 10, s_last_v10 / 10);
 }
 
 /* Indev callback for the 2 s press re-sync: fires on every press
@@ -528,9 +586,7 @@ static void screen_orientation_apply(void) {
         s_ref_qx = fx;
         s_ref_qy = fy;
         s_have_ref = true;
-        int32_t v10 = ORI_BASE_V10;
-        if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
-            v10 = -v10;
+        int32_t v10 = ori_base_v10();
         s_pending_step = 0;
         s_pending_count = 0;
         if (v10 != s_last_v10) {
@@ -623,7 +679,10 @@ static void screen_orientation_apply(void) {
      * panel's 90 deg CW mount offset; step 0 shows the base, not 0).
      * LVGL units: 1/10 deg, positive = clockwise. UI_CLOCK_ROLL_SIGN flips
      * the whole orientation for a mirrored board mount. */
-    int32_t v10 = ORI_BASE_V10 - (int32_t)step * 10;
+    /* (base + user trim) counter-rotated by the step, then sign-flipped
+     * as a whole -- the trim rides the mirrored mount too (see the
+     * s_user_base_v10 declaration). */
+    int32_t v10 = (ORI_BASE_V10 + s_user_base_v10) - (int32_t)step * 10;
     if (CONFIG_UI_CLOCK_ROLL_SIGN < 0)
         v10 = -v10;
     if (v10 == s_last_v10)
@@ -716,6 +775,30 @@ bool action_roll_test_busy(void) { return !s_ori_test_done; }
 
 // Callback for UI tick timer
 static void ui_tick_timer_cb(lv_timer_t *timer) {
+    // The hard ring cap's UI half (UI_ALARM_RING_MAX_MIN, user decision
+    // 2026-11-16): an alarm never fires longer than that many minutes.
+    // The play_task already silenced itself at its own deadline; this
+    // branch drops the UI state with it: the alarm-active flag clears,
+    // and -- ONLY when someone is actually at the panel -- the alarm
+    // screen hands over to the home screen. While idle nobody is
+    // watching, so the cap merely silences: no panel light-up for an
+    // empty room, the sleep ladder keeps ownership (and the touch
+    // wake's dismiss lands on the home screen through action_wake_screen
+    // like any other alarm dismiss). The ring stop is idempotent --
+    // usually the audio deadline got here first.
+    if (g_alarm_active && s_alarm_ring_started_us != 0 &&
+        esp_timer_get_time() - s_alarm_ring_started_us >= ALARM_RING_CAP_US) {
+        ESP_LOGW(TAG, "Alarm ring hit the %d min cap: auto-dismissing (idle %d)", CONFIG_UI_ALARM_RING_MAX_MIN,
+                 (int)clock_is_idle());
+        alarm_audio_ring_stop();
+        g_alarm_active = false;
+        s_alarm_ring_started_us = 0;
+        if (!clock_is_idle()) {
+            action_switch_to_airplane_screen(NULL);
+        }
+        return;
+    }
+
     // Keep the UI upright: whole-screen 90-degree-step orientation from the
     // screen-plane gravity (no-op at the resting orientation: transform 0
     // -> LVGL direct draw path).
@@ -1100,6 +1183,10 @@ void action_alarm_triggered(lv_event_t *e) {
 
     // Mark alarm as active so wake callback knows we're dismissing alarm
     g_alarm_active = true;
+    // Arm the UI half of the hard ring cap (UI_ALARM_RING_MAX_MIN; the
+    // play_task carries its own audio deadline -- see the timestamp's
+    // declaration).
+    s_alarm_ring_started_us = esp_timer_get_time();
 
     // The ring (both clocks: the board's ES8311 speaker with the gradual
     // volume ramp -- the S3 rings too, bench-verified with the Two-Tone
@@ -1320,14 +1407,26 @@ void action_wake_screen(lv_event_t *e) {
     bool was_asleep = g_asleep;
     g_asleep = false;
 
-    // If we're dismissing an alarm and WiFi was off, return to modem
-    // sleep instead -- but only when the user was actually AT the
-    // alarm (awake). A stale alarm (rang while the user slept, so the
-    // user never saw it) must not hijack the wake: it follows the
-    // normal wake flow below (static current phase, no animation).
-    if (g_alarm_active && g_wifi_deinited && !was_asleep) {
-        ESP_LOGI(TAG, "Dismissing alarm from modem sleep - returning to the airplane screen");
+    // Dismissing the alarm screen goes straight home (user decision
+    // 2026-11-16: "Clicking the alarm screen should immediately stop
+    // the alarm and transition to the home screen (black fade if
+    // loading the home screen takes too long)"). The ring was already
+    // killed at the top of this handler; the airplane screen IS the
+    // home screen, and the alarm (moon-less) -> airplane (moon) switch
+    // is a FADE switch in loadScreen -- a slow home frame (the
+    // day-rollover re-bake) shows as the black fade / bake reveal,
+    // never a half-drawn composite. This REPLACES the old narrower
+    // branch (home only when WiFi was already off and the user awake;
+    // a stale alarm took the on-demand WiFi-sync detour): the ringing
+    // panel now always lands on the clock, no sync hand-off. The sync
+    // is not skipped forever -- any later wake that is not an alarm
+    // dismiss (touch/tilt off a sleep screen) still runs the on-demand
+    // flow below.
+    if (g_alarm_active) {
+        ESP_LOGI(TAG, "Alarm dismissed - straight to the home screen (no sync detour%s)",
+                 was_asleep ? ", stale-alarm wake" : "");
         g_alarm_active = false;
+        s_alarm_ring_started_us = 0;
         action_switch_to_airplane_screen(e);
         return;
     }

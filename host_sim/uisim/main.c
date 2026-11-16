@@ -333,6 +333,7 @@ static const struct screen_entry s_entries[] = {
     {SCREEN_ID_SETTINGS_TIME, "settings_time"},
     {SCREEN_ID_SETTINGS_TZ, "settings_tz"},
     {SCREEN_ID_SETTINGS_ALARM_SOUND, "settings_alarm_sound"},
+    {SCREEN_ID_SETTINGS_DISPLAY, "settings_display"},
 };
 
 static int snapshot_one(lv_display_t *disp, enum ScreensEnum id) {

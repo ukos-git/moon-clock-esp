@@ -140,13 +140,16 @@ a bad/missing value falling back to the Kconfig-seeded default
    * - ``alarm_sound_id``
      - 0..3
      - ``SETTINGS_ALARM_SOUND_DEFAULT`` (0, the two-tone)
+   * - ``display_rotation_deg``
+     - 0–359
+     - ``SETTINGS_DISPLAY_ROT_DEFAULT`` (0)
 
-These six keys are the user's whole layer — the configuration ladder
+These seven keys are the user's whole layer — the configuration ladder
 draws the table as a dot matrix (writer, seed origin, validated
 range, still-read) with the two ghosts as the only open rows
 (:ref:`the configuration ladder <config-ladder-perf>`). The file is
-*human-paced* storage: the write ladder counts its writers — three
-settings-screen actions and the TEST settings demo, 240 B rewritten
+*human-paced* storage: the write ladder counts its writers — four
+settings-screen actions and the TEST settings demo, 265 B rewritten
 per call, no scheduled leg at all
 (:ref:`the write ladder <write-ladder-perf>`).
 
@@ -168,8 +171,16 @@ before the switch (epoch-consistent). ``alarm_sound_id`` indexes the
 alarm audio table (``ALARM_SOUND_COUNT`` = 4 in
 ``components/ui/alarm_audio.h``); the store keeps its own copy of
 the range so the clock component does not depend on ui.
+``display_rotation_deg`` is the wall-mount base angle: the Settings
+display screen's arc slider drags the panel live and persists on
+RELEASED; ``action_orientation_init`` seeds it into the orientation
+pipeline, where the effective root rotation is the per-board compile
+base ``UI_ORI_BASE_V10`` *plus* this trim in deci-degrees — so the
+clock reads level however the board sits on the wall, and the live
+commit re-anchors every root by the delta so the current tilt rides
+along (:doc:`the rotate screen <../ui/settings-display>`).
 
 The save path (:cfunc:`settings_store_save`) rewrites the whole file
 with a two-line header ("Runtime settings … do not edit by hand — a
-full flash resets this file") plus the six keys, so the file is always
+full flash resets this file") plus the seven keys, so the file is always
 self-describing.

@@ -286,6 +286,29 @@ Clock widget
        hard-swap branch is exactly what a disabled roll takes; LVGL's
        ``lv_arc_set_value`` itself is instant — the arc never animated).
 
+Alarm
+-----
+.. list-table::
+   :header-rows: 1
+   :widths: 30 14 56
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``UI_ALARM_RING_MAX_MIN``
+     - ``30``
+     - Hard cap on how long one alarm may ring, 1–240 min (user
+       decision 2026-11-16: "the alarm should not fire longer than
+       30min"). Two layers enforce it: the ``alarm_audio`` play_task
+       breaks on its OWN elapsed deadline (unconditional — the audio
+       stops even if the UI is parked in a sleep state), and the UI
+       tick auto-dismisses at the same cap: the ring is silenced, the
+       alarm-active state is cleared, and — only when the device is
+       awake — the alarm screen hands over to the home screen. While
+       idle nobody is looking at the panel, so the cap only silences
+       it and the sleep ladder keeps ownership
+       (:doc:`the alarm screen <../ui/alarm>`).
+
 Demo mode
 ----------
 .. list-table::

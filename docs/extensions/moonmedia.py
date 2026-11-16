@@ -7,7 +7,9 @@ Two jobs:
   + ``--panel 720`` + ``--panel 360``, the ``--wheel`` capture flow for
   the password keyboard on every panel, and the knob's ``--dial``
   dial-cursor shot), runs ``docs/tools/enclose.py`` over every
-  ``ui/labels/*.json`` spec for both panels (the annotated callouts
+  ``ui/labels/*.json`` spec for both panels (a ``<screen>-p4.json``
+  override replaces the shared spec on the 720 pass when present) —
+  the annotated callouts
   rendered inside the round product housing, alpha outside —
   ``annotate.py`` still holds the badge/leader drawing primitives it
   imports), rebuilds the device composites
@@ -63,13 +65,13 @@ PY = sys.executable                                  # the docs venv python
 VIDEOS = ["fade.mp4"]
 
 
-# The 16 base screen shots uisim names them (the ScreensEnum, underscored).
+# The 17 base screen shots uisim names them (the ScreensEnum, underscored).
 BASE_SCREENS = [
     "modem_sleep", "wifi", "light_sleep", "deep_sleep", "alarm",
     "settings_hub", "settings_alarm", "settings_pomodoro",
     "settings_alarm_time", "settings_light_sleep", "settings_deep_sleep",
     "settings_wifi", "settings_wifi_password", "settings_time",
-    "settings_tz", "settings_alarm_sound",
+    "settings_tz", "settings_alarm_sound", "settings_display",
 ]
 # The --wheel capture flow's wheel_<name>.png -> the committed docs name.
 WHEEL_MAP = {
@@ -80,7 +82,7 @@ WHEEL_MAP = {
     "sym": "settings_wifi_password_sym",
 }
 
-# The knob's raw uisim set (docs/img/screens/knob/): the 13 screens the
+# The knob's raw uisim set (docs/img/screens/knob/): the 14 screens the
 # knob REACHES (ui/index.rst reachability matrix) — only the light-/
 # deep-sleep states and the P4-only manual-time screen are not captured
 # (the knob dims its real backlight, deep-sleeps for real and has no
@@ -186,8 +188,10 @@ def _stale_check(app):
     ]
     if annot_dir.is_dir():
         for png in sorted(annot_dir.glob("*.png")):
-            spec = labels_dir / (png.name.rsplit("_", 1)[0] + ".json")
-            spec_deps = [spec] if spec.exists() else []
+            stem = png.name.rsplit("_", 1)[0]
+            spec = labels_dir / (stem + ".json")
+            p4spec = labels_dir / (stem + "-p4.json")
+            spec_deps = [p for p in (spec, p4spec) if p.exists()]
             jobs.append((png, inputs + spec_deps + enclose_deps))
     # device composites (the uisim-in-photo frames)
     if photos_dir.is_dir():
@@ -245,7 +249,7 @@ def _copy_panel(panel_dir: Path) -> None:
     """Copy one panel's uisim shots from out/ into the docs tree.
 
     ``panel_dir`` is docs/img/screens (S3) or docs/img/screens/p4 (P4).
-    The 16 base screens are copied by name (out/ also carries
+    The 17 base screens are copied by name (out/ also carries
     verification shots that must NOT land in the docs); the password
     keyboard's base shot is the ``--wheel rest`` capture (the prefilled
     SSID), not the plain bare screen."""
@@ -256,7 +260,7 @@ def _copy_panel(panel_dir: Path) -> None:
 
 
 def _copy_knob_panel(panel_dir: Path) -> None:
-    """The knob set: only the 13 REACHABLE base screens (never the
+    """The knob set: only the 14 REACHABLE base screens (never the
     light-/deep-sleep states or the P4-only manual-time screen — the
     knob dims its real backlight, deep-sleeps for real and has no
     manual time entry; the transient WiFi screen IS reachable), the
@@ -278,14 +282,25 @@ def _annotate_all() -> None:
     labels = sorted((_DOCS / "ui" / "labels").glob("*.json"))
     annot = _DOCS / "img" / "screens" / "annot"
     annot.mkdir(parents=True, exist_ok=True)
+    # *-p4.json stems are per-panel spec OVERRIDES, not screens — they
+    # are consumed by the 720 pass below and must never spawn a phantom
+    # screen of their own.
+    labels = sorted(p for p in (_DOCS / "ui" / "labels").glob("*.json")
+                    if not p.stem.endswith("-p4"))
+    annot = _DOCS / "img" / "screens" / "annot"
+    annot.mkdir(parents=True, exist_ok=True)
     for spec in labels:
         screen = spec.stem                       # e.g. "settings-hub"
         shot = screen.replace("-", "_")          # e.g. "settings_hub"
         for panel, tag in (("466", "s3"), ("720", "p4")):
             base = _DOCS / "img" / "screens" / ("" if tag == "s3" else "p4") / f"{shot}.png"
             out = annot / f"{screen}_{tag}.png"
+            # a screen may author <screen>-p4.json (e.g. the 8-icon P4
+            # hub ring) — the 720 pass prefers it over the shared spec.
+            p4_spec = spec.with_name(spec.stem + "-p4.json")
+            use = p4_spec if (tag == "p4" and p4_spec.exists()) else spec
             _run([PY, "docs/tools/enclose.py", base,
-                  "--spec", str(spec), "--panel", panel, "-o", out],
+                  "--spec", str(use), "--panel", panel, "-o", out],
                  f"enclose {out.relative_to(ROOT)}")
 
 

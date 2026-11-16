@@ -89,6 +89,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 regular set only) */
 #define GLYPH_GLOBE "\xEF\x82\xAC"     /* U+F0AC (timezone entry; the solid set -- both boards) */
 #define GLYPH_SPEAKER "\xEF\x80\xA8"   /* U+F028 (alarm-sound entry; the solid set -- both boards) */
+#define GLYPH_ROTATE "\xEF\x8B\xB1"    /* U+F2F1 (display base-orientation entry; the solid set -- all three boards) */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
 #define SETTINGS_WHITE lv_color_white()
@@ -131,6 +132,7 @@ static void settings_wheel_screen_refresh(void);
 static void settings_time_screen_refresh(void);
 static void settings_tz_screen_refresh(void);
 static void settings_alarm_sound_screen_refresh(void);
+static void settings_display_screen_refresh(void);
 /* settings_screen_refresh_for is non-static (declared in screens.h; the
  * TEST_WIFI_SCAN_SEC hook calls it directly). */
 
@@ -140,7 +142,7 @@ static char s_wheel_ssid[33];
 
 /* One icon of the hub's ring: a clickable 96 px FA glyph. The target
  * screen rides in the event's user_data (one handler for the whole
- * ring -- 6 entries on the S3 and the knob, 7 on the P4). */
+ * ring -- 7 entries on the S3 and the knob, 8 on the P4). */
 static void event_handler_cb_hub_icon(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -252,10 +254,11 @@ void create_screen_modem_sleep() {
             lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            /* 17 = objects.modem_sleep_clock__clock (the widget
+            /* 18 = objects.modem_sleep_clock__clock (the widget
              * container) -- objects_t shifted +1 when settings_alarm_sound
-             * joined the screen roots; 16 is the <screen>_clock parent. */
-            create_user_widget_clock(obj, 17);
+             * joined the screen roots and +1 again when settings_display
+             * joined; 17 is the <screen>_clock parent. */
+            create_user_widget_clock(obj, 18);
         }
         {
             // arc-clock-seconds-modem
@@ -325,7 +328,7 @@ void create_screen_wifi() {
              * created once, on the modem-sleep screen, and
              * ui_clock_attach_to() reparents it here at the switch.
              * Only the container is created; the alias rows
-             * (wifi_clock__clock & co = objects[17/18/19]) are
+             * (wifi_clock__clock & co = objects[18/19/20]) are
              * assigned in create_screen_modem_sleep. */
             lv_obj_t *obj = lv_obj_create(parent_obj);
             objects.wifi_clock = obj;
@@ -579,13 +582,13 @@ void create_screen_settings_hub() {
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
     /* Icon ring: EQUAL ARC DISTANCES -- the icons sit 360/n degrees apart
-     * on the ring (S3: 6 icons, 60 deg; P4: 7 icons, ~51.4 deg), the
+     * on the ring (S3: 7 icons, ~51.4 deg; P4: 8 icons, 45 deg), the
      * deep-sleep icon anchored at the bottom (180 deg). On the P4 the
      * ring carries the clock (manual time entry, U+F017 -- the P4
      * fonts_p4 regular set only) first. Moon weight distinguishes the
      * two sleep screens (regular / solid); the globe (timezone, U+F0AC,
-     * solid) and the speaker (alarm sound, U+F028, solid) are on both
-     * boards. */
+     * solid), the speaker (alarm sound, U+F028, solid) and the rotate
+     * arrow (display trim, U+F2F1, solid) are on all three boards. */
     struct hub_icon {
         const char *glyph;
         const lv_font_t *font;
@@ -601,6 +604,7 @@ void create_screen_settings_hub() {
         {GLYPH_WIFI, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_WIFI},
         {GLYPH_GLOBE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_TZ},
         {GLYPH_SPEAKER, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_ALARM_SOUND},
+        {GLYPH_ROTATE, &ui_font_fontawesome7_solid_96_icons, SCREEN_ID_SETTINGS_DISPLAY},
     };
     /* Ring radius, balanced against the central exit disk (96 px ink at
      * the 96 px font, 148 px on the P4's scaled icon font): at 140 (466)
@@ -609,7 +613,7 @@ void create_screen_settings_hub() {
      * both sides (117 huddled the icons against the disk with ~68 px of
      * free margin outside; the 2026-11-04 "stacked icons" report). At
      * 720 the same UI_PX ratio gives R = 216 (inner 68 / outer 70). The
-     * 6-icon S3 ring's chord at 140 is 140 px > the 96 px icon width, so
+     * 7-icon S3 ring's chord at 140 is 121 px > the 96 px icon width, so
      * the icons never crowd each other. */
     const int32_t R = UI_PX(140);
     const size_t n = sizeof(ring) / sizeof(ring[0]);
@@ -758,6 +762,9 @@ void settings_screen_refresh_for(enum ScreensEnum target) {
         break;
     case SCREEN_ID_SETTINGS_ALARM_SOUND:
         settings_alarm_sound_screen_refresh();
+        break;
+    case SCREEN_ID_SETTINGS_DISPLAY:
+        settings_display_screen_refresh();
         break;
     default:
         break;
@@ -3214,12 +3221,225 @@ void create_screen_settings_alarm_sound() {
 
 void tick_screen_settings_alarm_sound() {}
 
+/* --- display base orientation (all three boards): the wall-mount trim
+ * arc slider ----------------------------------------------------------
+ *
+ * The 90-degree-step orientation pipeline treats the pose held at boot
+ * (or at the 2 s press resync) as HOME and rotates every screen root
+ * by the Kconfig mount offset plus the persisted user trim. A clock
+ * hung on a wall whose "up" is neither 0 nor a multiple of 90 degrees
+ * needs that trim -- this screen is its editor (the hub's rotate
+ * icon). A full-panel value ring is inked right at the rim (the
+ * alarm-time band pattern), the indicator sweeping CW from the top;
+ * the 34 px handle sits AT the trim angle. Dragging is live: the
+ * centre card tips by the same amount (that is how the content will
+ * lean) and the readout says the number. RELEASED persists --
+ * settings.txt + action_orientation_set_user_base_deg re-pushes all
+ * 17 screen roots right away, so the effect is visible with the
+ * finger still on the dial. On the knob the dial steps the angle in
+ * 5-degree detents and a tap commits through the handle's own
+ * RELEASED save. */
+
+static lv_obj_t *s_display_band;    /* the full-panel value ring (at the rim) */
+static lv_obj_t *s_display_handle;  /* the drag knob, AT the angle on the ring */
+static lv_obj_t *s_display_preview; /* the centre card that tips with the trim */
+static lv_obj_t *s_display_deg_label;
+static int s_display_deg; /* working value: degrees CW from 12 o'clock */
+
+/* Indicator + handle + card from the working angle. The angle
+ * convention: 0 deg = TOP (12 o'clock), CW positive -- a wall clock's
+ * face. The arc's own space (the alarm-time one: atan2, y-DOWN, 0 =
+ * right, 90 = down) is that shifted by -90; the indicator spans arc
+ * 270..(270+deg)%360, the wrap (start > end) drawing through 360/0
+ * exactly like the alarm day-range band's wrap case. */
+static void settings_display_apply(void) {
+    if (!s_display_band) {
+        return;
+    }
+    const float PI = 3.14159265f; /* the LVGL math macro is config-gated */
+    lv_arc_set_angles(s_display_band, (lv_value_precise_t)270, (lv_value_precise_t)((270 + s_display_deg) % 360));
+    float ang = (float)(s_display_deg - 90) * PI / 180.0f;
+    lv_obj_align(s_display_handle, LV_ALIGN_CENTER, (int32_t)(ALARM_TIME_HANDLE_R * cosf(ang)),
+                 (int32_t)(ALARM_TIME_HANDLE_R * sinf(ang)));
+    /* The card tips the way the screen's CONTENT will lean (0.1-deg
+     * units, centre pivot -- the setter ori_apply_v10 uses). */
+    lv_obj_set_style_transform_rotation(s_display_preview, (int32_t)s_display_deg * 10, 0);
+    char buf[16];
+    snprintf(buf, sizeof buf, "%d DEG", s_display_deg);
+    lv_label_set_text(s_display_deg_label, buf);
+}
+
+/* Map the indev point to the ring's LOCAL frame, then to degrees CW
+ * from the top. The root may carry the orientation roll (after a
+ * commit it does -- the whole screen, ring included, tilts), so
+ * inverse it first. Whole degrees (the drag is free-form; the knob
+ * dial adds the 5-deg detents). */
+static bool display_point_to_deg(int *out_deg) {
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == NULL) {
+        return false;
+    }
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_obj_transform_point(objects.settings_display, &p, LV_OBJ_POINT_TRANSFORM_FLAG_INVERSE);
+    int32_t dx = p.x - ALARM_TIME_ARC_CX;
+    int32_t dy = p.y - ALARM_TIME_ARC_CY;
+    if (dx == 0 && dy == 0) {
+        return false;
+    }
+    float theta = atan2f((float)dy, (float)dx) * 180.0f / 3.14159265f + 90.0f; /* 0 = top, CW */
+    int deg = (int)lroundf(theta);
+    deg %= 360;
+    if (deg < 0) {
+        deg += 360;
+    }
+    *out_deg = deg;
+    return true;
+}
+
+/* Drag: PRESSED + PRESSING move the angle under the finger (PRESS_LOCK
+ * keeps the press on the handle while the finger wanders off the ring;
+ * a press at the handle's own angle is a no-op). */
+static void event_handler_cb_settings_display_handle(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) {
+        return;
+    }
+    int deg = 0;
+    if (!display_point_to_deg(&deg) || deg == s_display_deg) {
+        return;
+    }
+    s_display_deg = deg;
+    settings_display_apply();
+}
+
+/* Persist on RELEASED (the SPIFFS write + the root re-push stay off
+ * the drag path). The trim lands immediately -- the screen under the
+ * finger tilts for real, which is the whole point of the screen. */
+static void event_handler_cb_settings_display_save(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
+        return;
+    }
+    settings_set_display_rotation_deg(s_display_deg);
+    esp_err_t r = settings_store_save();
+    ESP_LOGW("settings_display", "display base trim %d deg saved -> %s", s_display_deg, esp_err_to_name(r));
+    action_orientation_set_user_base_deg(s_display_deg);
+}
+
+static void settings_display_screen_refresh(void) {
+    if (!s_display_band) {
+        return;
+    }
+    s_display_deg = settings_display_rotation_deg();
+    settings_display_apply();
+}
+
+void create_screen_settings_display() {
+    lv_obj_t *obj = lv_obj_create(0);
+    objects.settings_display = obj;
+    settings_sub_screen_prepare(obj, SCREEN_ID_SETTINGS_HUB);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The caption. */
+    lv_obj_t *caption = lv_label_create(obj);
+    lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(caption, "ZERO ANGLE");
+    lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
+    lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The value ring: the FULL 360-degree track right at the rim (the
+     * zeroed-pad alarm-time band pattern -- stroke inked INWARD from
+     * panel/2), the indicator starting at the top (arc 270). Track =
+     * the theme's dark, indicator = the moon grey. */
+    lv_obj_t *band = lv_arc_create(obj);
+    s_display_band = band;
+    lv_obj_set_pos(band, 0, 0);
+    lv_obj_set_size(band, UI_PANEL_PX, UI_PANEL_PX);
+    lv_obj_set_style_pad_left(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_right(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_top(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_bottom(band, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_arc_set_bg_angles(band, 0, 360); /* the dark full track */
+    lv_arc_set_angles(band, 270, 270);  /* the indicator: seeded on entry */
+    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_width(band, ALARM_TIME_ARC_WIDTH, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_color(band, SETTINGS_GREY, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_opa(band, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(band, false, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_arc_rounded(band, false, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(band, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The handle ON the ring at the angle (the day handles' look, the
+     * home knob's grey): the editor itself. */
+    s_display_handle = lv_obj_create(band);
+    lv_obj_set_size(s_display_handle, UI_PX(34), UI_PX(34));
+    lv_obj_set_style_radius(s_display_handle, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_display_handle, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_display_handle, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_display_handle, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_display_handle, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_ext_click_area(s_display_handle, UI_PX(4));
+    lv_obj_add_flag(s_display_handle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_display_handle, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_handle, LV_EVENT_PRESSED, 0);
+    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_handle, LV_EVENT_PRESSING, 0);
+    lv_obj_add_event_cb(s_display_handle, event_handler_cb_settings_display_save, LV_EVENT_RELEASED, 0);
+
+    /* The preview: a grey-outlined card whose WHITE TIP BAR (a child,
+     * top-centre) is "up". The card tips with the trim the way the
+     * screen content will; its centre stays put (centre pivot), so the
+     * tip reads around the readout. The bar is a CHILD -- the card's
+     * transform_rotation carries it along. */
+    s_display_preview = lv_obj_create(obj);
+    lv_obj_set_size(s_display_preview, UI_PX(140), UI_PX(140));
+    lv_obj_center(s_display_preview);
+    lv_obj_set_style_bg_opa(s_display_preview, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_display_preview, UI_PX(16), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_display_preview, UI_PX(2), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_side(s_display_preview, LV_BORDER_SIDE_FULL, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(s_display_preview, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(s_display_preview, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(s_display_preview, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_display_preview, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_transform_pivot_x(s_display_preview, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_display_preview, LV_PCT(50), 0);
+
+    lv_obj_t *tip = lv_obj_create(s_display_preview);
+    lv_obj_set_size(tip, UI_PX(64), UI_PX(6));
+    lv_obj_align(tip, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_radius(tip, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(tip, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(tip, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(tip, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(tip, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(tip, LV_OBJ_FLAG_CLICKABLE);
+
+    /* The readout, upright, centred IN the tilting card (a sibling --
+     * it must not rotate with the preview). */
+    s_display_deg_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(s_display_deg_label, &ui_font_montserrat_regular_48_ssid,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_label_set_text(s_display_deg_label, "0 DEG");
+    lv_obj_set_size(s_display_deg_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_center(s_display_deg_label);
+    lv_obj_set_style_text_color(s_display_deg_label, SETTINGS_WHITE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_clear_flag(s_display_deg_label, LV_OBJ_FLAG_CLICKABLE);
+
+    settings_display_screen_refresh();
+}
+
+void tick_screen_settings_display() {}
+
 /* The shared clock widget's alarm weekday prefix row (the prefix
  * label is its first child). ONE row for the one widget: the five
  * moon screens alias the same objects (layout contract 2), so there
  * is no per-screen set any more. Not part of objects_t: the layout
- * contract names only the slot row at 17+1 and the alarm label at
- * 17+2; the prefix row is internal to the widget. */
+ * contract names only the slot row at 18+1 and the alarm label at
+ * 18+2; the prefix row is internal to the widget. */
 static lv_obj_t *s_alarm_prefix;
 
 /* The shared clock widget's HH:MM pair labels (see
@@ -3305,8 +3525,8 @@ static lv_obj_t *clock_row_cell(lv_obj_t *row, int32_t w, int32_t line_h) {
  * within 24 h of the fire) and the RIGHT box left-aligns the HH:MM
  * label (48 px) -- each label's inner edge is pinned to the centre
  * (see the row block + alarm_row_half below). Called exactly once
- * (BASE 17, the modem-sleep screen); the other four moon screens'
- * bases ALIAS objects[17/18/19] (the last block below), so all five
+ * (BASE 18, the modem-sleep screen); the other four moon screens'
+ * bases ALIAS objects[18/19/20] (the last block below), so all five
  * screens read and tick the same three objects -- the clock is always
  * current on whichever screen it is attached to. */
 void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
@@ -3512,14 +3732,15 @@ void create_user_widget_clock(lv_obj_t *parent_obj, int startWidgetIndex) {
     }
     /* The four other moon screens ALIAS the same three objects at
      * their own bases (layout contract 2): one widget, five screens.
-     * The <screen>_clock containers (16/21/26/30/35) stay distinct
+     * The <screen>_clock containers (17/22/27/31/36) stay distinct
      * (the attach targets + the unclickable_recursive targets). */
     lv_obj_t *w[3] = {objects.modem_sleep_clock__clock, objects.modem_sleep_clock__label_clock_time,
                       objects.modem_sleep_clock__label_clock_alarm};
     /* __clock slots: +1 each when settings_alarm_sound joined the screen
-     * roots (the flex is now at objects[17], the slot row [18], the alarm
-     * [19]); the four screens alias the shared widget at their __clock. */
-    int bases[4] = {22, 27, 31, 36};
+     * roots and +1 again when settings_display joined (the flex is now at
+     * objects[18], the slot row [19], the alarm [20]); the four screens
+     * alias the shared widget at their __clock. */
+    int bases[4] = {23, 28, 32, 37};
     for (int b = 0; b < 4; b++) {
         for (int i = 0; i < 3; i++) {
             ((lv_obj_t **)&objects)[bases[b] + i] = w[i];
@@ -3844,10 +4065,11 @@ void ui_clock_attach_to(enum ScreensEnum screenId) {
         set_var_clock_seconds(now.second);
     }
     action_update_alarm_display(NULL);
-    /* 17 = the shared flex widget's slot (shifted +1 when
-     * settings_alarm_sound joined the roots); +1 inside the tick is the
-     * HH:MM slot row. */
-    tick_user_widget_clock(17);
+    /* 18 = the shared flex widget's slot (shifted +1 when
+     * settings_alarm_sound joined the roots and +1 again when
+     * settings_display joined); +1 inside the tick is the HH:MM slot
+     * row. */
+    tick_user_widget_clock(18);
 }
 
 void change_color_theme(uint32_t theme_index) {
@@ -3887,6 +4109,7 @@ tick_screen_func_t tick_screen_funcs[] = {
     tick_screen_settings_time,
     tick_screen_settings_tz,
     tick_screen_settings_alarm_sound,
+    tick_screen_settings_display,
 };
 void tick_screen(int screen_index) { tick_screen_funcs[screen_index](); }
 void tick_screen_by_id(enum ScreensEnum screenId) { tick_screen_funcs[screenId - 1](); }
@@ -3913,6 +4136,7 @@ void create_screens() {
     create_screen_settings_time();
     create_screen_settings_tz();
     create_screen_settings_alarm_sound();
+    create_screen_settings_display();
 }
 
 #ifdef CONFIG_BOARD_KNOB
@@ -4027,8 +4251,13 @@ static void dial_roller_pair(enum ScreensEnum id, lv_obj_t **a, lv_obj_t **b) {
     }
 }
 
-/* The day handle object of focus slot 2/3 (NULL elsewhere). */
+/* The day handle object of focus slot 2/3 (NULL elsewhere), plus the
+ * display-trim screen's ring handle as ITS focus slot 0 (the screen's
+ * only cursor -- no roller on it). */
 static lv_obj_t *dial_handle_obj(enum ScreensEnum id, int focus) {
+    if (id == SCREEN_ID_SETTINGS_DISPLAY) {
+        return focus == 0 ? s_display_handle : NULL;
+    }
     if (id != SCREEN_ID_SETTINGS_ALARM_TIME || focus < 2) {
         return NULL;
     }
@@ -4045,6 +4274,10 @@ static void dial_roller_apply(enum ScreensEnum id) {
     dial_ring(h2, h2 != NULL && s_dial_roller_focus == 2);
     lv_obj_t *h3 = dial_handle_obj(id, 3);
     dial_ring(h3, h3 != NULL && s_dial_roller_focus == 3);
+    /* The display-trim screen's single slot: the ring handle (NULL
+     * everywhere else -- the alarm-time focus 0 is the hour ROLLER). */
+    lv_obj_t *h0 = dial_handle_obj(id, 0);
+    dial_ring(h0, h0 != NULL && s_dial_roller_focus == 0);
 }
 
 /* P3: press focus for the alarm-time day handles (drag path untouched:
@@ -4055,6 +4288,15 @@ static void event_handler_cb_dial_handle_press(lv_event_t *e) {
         return;
     }
     s_dial_roller_focus = 2 + (int)(intptr_t)lv_event_get_user_data(e);
+}
+
+/* Focus for the display-trim screen (its only cursor is the ring
+ * handle; pressing it also lands the drag's own angle set). */
+static void event_handler_cb_dial_display_press(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
+        return;
+    }
+    s_dial_roller_focus = 0;
 }
 
 /* Focus defaults on entry (the dial task notices the switch itself via
@@ -4104,6 +4346,10 @@ void screens_dial_init(void) {
                         (void *)(intptr_t)0);
     lv_obj_add_event_cb(objects.settings_alarm_time_handle_end, event_handler_cb_dial_handle_press, LV_EVENT_PRESSED,
                         (void *)(intptr_t)1);
+    /* The display-trim screen: the ring handle is the only cursor. */
+    if (s_display_handle) {
+        lv_obj_add_event_cb(s_display_handle, event_handler_cb_dial_display_press, LV_EVENT_PRESSED, 0);
+    }
     dial_screen_reset(ui_current_screen());
 }
 
@@ -4168,6 +4414,15 @@ void screens_dial_step(int dir) {
         lv_obj_t *a = NULL, *b = NULL;
         dial_roller_pair(id, &a, &b);
         dial_roller_step(s_dial_roller_focus == 1 ? b : a, dir);
+        dial_roller_apply(id);
+        s_dial_dirty = true;
+        break;
+    }
+    case SCREEN_ID_SETTINGS_DISPLAY: {
+        /* The wall-mount trim: 5-degree detents (a finger drag on the
+         * panels is free-form; the dial quantises). */
+        s_display_deg = (int)(((int64_t)s_display_deg + (int64_t)dir * 5 + 360 * 8) % 360);
+        settings_display_apply();
         dial_roller_apply(id);
         s_dial_dirty = true;
         break;
@@ -4271,6 +4526,14 @@ void screens_dial_commit(void) {
             /* The roller's RELEASED handler IS the commit (store save /
              * reschedule) -- same as lifting a finger off a drag. */
             lv_obj_send_event(r, LV_EVENT_RELEASED, NULL);
+        }
+        break;
+    }
+    case SCREEN_ID_SETTINGS_DISPLAY: {
+        /* The handle's own RELEASED is the save (settings.txt + the
+         * root re-push) -- same as lifting a finger off a drag. */
+        if (s_display_handle) {
+            lv_obj_send_event(s_display_handle, LV_EVENT_RELEASED, NULL);
         }
         break;
     }

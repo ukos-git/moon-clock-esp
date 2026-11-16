@@ -1211,12 +1211,13 @@ parsers die when a source drifts.
   ``alarm.txt``'s writer (``clock_alarm_scheduler_write``,
   ``clock_alarm_scheduler.c:504``) has **zero call sites repo-wide**:
   the file belongs to the spiffs image, not the runtime.
-  ``settings.txt`` — 2 comment + 6 key lines, 240 B computed from the
-  asserted ``fprintf`` template — is written only by three
-  settings-screen actions (sleep ``screens.c:1406``, timezone
-  ``:3066``, alarm sound ``:3148``) and the TEST settings demo
+  ``settings.txt`` — 2 comment + 7 key lines, 265 B computed from the
+  asserted ``fprintf`` template — is written only by four
+  settings-screen actions (sleep ``screens.c:1413``, timezone
+  ``:3073``, alarm sound ``:3155``, display trim ``:3324``) and the
+  TEST settings demo
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
-  provisioning wheel's commit (``screens.c:2301``, its single caller,
+  provisioning wheel's commit (``screens.c:2308``, its single caller,
   87 B with a sample SSID). The knob's 64 K coredump partition
   (``knob/partitions.csv:18``) sees its first bytes on a crash — the
   coredump row the storage ladder drew italic *no bytes until a crash*
@@ -1232,7 +1233,7 @@ third zero, decided by one ``#if`` that three sdkconfig layers answer
 differently; and the knob — the board with the smallest screen —
 writes flash on a tap and on a crash, and on nothing else, because
 its largest media subsystem is excluded at CMake level rather than
-disabled at runtime. The human-paced writers (three screen actions,
+disabled at runtime. The human-paced writers (four screen actions,
 one provisioning commit, one TEST demo) are call-site counts, not
 frequencies, and deliberately contribute zero to the day bar.
 
@@ -1248,14 +1249,14 @@ frequencies, and deliberately contribute zero to the day bar.
    legs are annotated where their bars are absent (the RTC ``#if``,
    the ``KNOB_BOARD`` source exclusion). **Right:** bytes per ONE
    write, log — the 8-byte NVS value, the 87 B credentials write, the
-   240 B settings rewrite, the ~82 B meta rewrite (both boards'
+   265 B settings rewrite, the ~82 B meta rewrite (both boards'
    asserted templates), the 64 K coredump partition bound, and the
    encoder's own file bound ``S²+S²/2+1024`` — 241,024 B at 400 px,
    634,774 B at 650 (hatched: the storage ladder's twin, never a
    measured JPEG). alarm.txt draws a zero stub: its writer exists at
    ``clock_alarm_scheduler.c:504`` with no caller. The generator is
    ``docs/tools/gen_perf_writes.py`` — caps, the fprintf templates,
-   every call-site count (1 store, 3+1 settings writers, 1 credentials
+   every call-site count (1 store, 4+1 settings writers, 1 credentials
    writer, 0 alarm writers, 1 ``maybe_save`` caller), the Kconfig
    defaults, the ``CLOCK_USE_PCF85063A`` state across all three
    sdkconfig layers and the partition rows are **parsed from the live
@@ -1461,17 +1462,17 @@ priced the layer above the parts — the **options**. This ladder counts
 the knobs: every ``config`` entry the three projects' ``menuconfig``
 menus define (left), who actually reads each one (middle — the
 census's silence, re-counted for the menu), and the whole layer the
-*user* owns: the six keys on ``settings.txt`` (right). A
+*user* owns: the seven keys on ``settings.txt`` (right). A
 configuration option is the product's cheapest component and its
 most numerous — and it can be silent four different ways.
 
-**Left: what each menu hands over.** The shared 50 (UI 40 + CLOCK 9 +
+**Left: what each menu hands over.** The shared 52 (UI 42 + CLOCK 9 +
 MOON 1, every name parsed from the five first-party Kconfigs) sit
 under every bar; on top of them the S3 carries the clock's BOARD menu
 (5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
-file, counted not curated) for **67**; the P4 excludes that BSP by
-name and lands at **55**; the knob answers with 50 shared + 30
-knob-native across its six shim menus for **80**. The counting is
+file, counted not curated) for **69**; the P4 excludes that BSP by
+name and lands at **57**; the knob answers with 52 shared + 30
+knob-native across its six shim menus for **82**. The counting is
 per-file and name-for-name: the generator SystemExits if a single
 option is added, renamed or removed in any of the ten Kconfig files.
 
@@ -1483,8 +1484,8 @@ is therefore silent *on the knob*; steel names a CMakeLists guard
 dark-grey hatch a key read by no C at all (the three ``int``
 esp_hosted manifest guards, whose only consumer is the registry's
 if-clause parser), pale-grey dots read by nobody anywhere. The
-ledger's numbers: **27 of the 40 UI entries and 1 of the 9 CLOCK
-entries compile to silence on the knob** — 28 of the 50 the knob
+ledger's numbers: **28 of the 42 UI entries and 1 of the 9 CLOCK
+entries compile to silence on the knob** — 29 of the 52 the knob
 inherits are clock-private. Five entries are dead letters
 repo-wide: the two ``CLOCK_TIME_FORMAT_*`` (the 12/24 h choice is
 runtime — no C ever reads them), ``UI_IMU_ROLL_OFFSET_DEG`` (the
@@ -1495,17 +1496,19 @@ three members; only ``BOARD_KNOB`` has a knob-side reader). Two
 further entries never even reach a menu: ``UI_DEMO_FULL_TOUR`` is
 hidden behind ``depends on UI_DEMO_MODE`` — off in all three
 configures — and the generator only accepts that absence when it can
-prove the gate off everywhere. Only **eleven** UI entries are read
+prove the gate off everywhere. Only **twelve** UI entries are read
 by shared code — and one of them is the most surprising:
 ``UI_SCREEN_SWITCH_FADE``, which the knob's own ``knob_moon_render.c``
 gates its fade-to-black on.
 
-**Right: the user's whole layer.** Not dozens of knobs but **six
-keys** on ``settings.txt``. Four are live: two screen-written
-timeouts (``screens.c:1403``/:1401, both clamped to 60..1800 s by
+**Right: the user's whole layer.** Not dozens of knobs but **seven
+keys** on ``settings.txt``. Five are live: two screen-written
+timeouts (``screens.c:1410``/:1408, both clamped to 60..1800 s by
 the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the timezone
-(``screens.c:3065``) and the alarm sound (``screens.c:3147``, range
-twin asserted against ``ALARM_SOUND_COUNT`` 4). Two are ghosts —
+(``screens.c:3072``), the alarm sound (``screens.c:3154``, range
+twin asserted against ``ALARM_SOUND_COUNT`` 4) — and the display
+trim added for the wall mount (``screens.c:3323``, parsed-clamped
+0..359°, seeded from ``SETTINGS_DISPLAY_ROT_DEFAULT`` 0). Two are ghosts —
 ``boot_anim_enable`` and ``dusk_anim_enable``, parsed and re-saved
 *only so a stale card must not break parsing* (the store's own
 words), written by no screen, read by no getter; the single writer
@@ -1514,7 +1517,7 @@ dots are grey because the ``#ifndef`` beside them names a macro no
 Kconfig defines anymore.
 
 .. figure:: ../_static/figs/perf_config.png
-   :alt: three panels — stacked menuconfig-entry bars per board (S3 67 with the hatched vendored BSP, P4 55, knob 80 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a six-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
+   :alt: three panels — stacked menuconfig-entry bars per board (S3 69 with the hatched vendored BSP, P4 57, knob 82 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a seven-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
    :figclass: align-center
 
    **Left:** one bar per board (legend below the figure); the shared
@@ -1531,7 +1534,7 @@ Kconfig defines anymore.
    an entry appears in no live ``sdkconfig`` without a provably-off
    ``depends on`` gate, when the twelve BSP options leave the
    fragments' documented-nowhere state, when a guard key stops being
-   ``int``, or when the six keys of ``settings_store.c`` stop
+   ``int``, or when the seven keys of ``settings_store.c`` stop
    matching its save block.
 
 Three counting facts no other ladder can show:
@@ -1540,7 +1543,7 @@ Three counting facts no other ladder can show:
   (the knob, 360 px) carries the *biggest* menu — 80 entries against
   the S3's 67 and the P4's 55 — because the seam forces it to
   re-declare the board ``choice`` and grow six shim menus of its own,
-  while **28 of the 50 entries it inherits are clock-private**: a
+  while **29 of the 52 entries it inherits are clock-private**: a
   third of the knob's menu compiles to silence in the knob build.
 - **Silence has four prices, not one.** 28 entries are read only by
   the *other* build's files (amber); 5 are dead letters no file
@@ -1549,9 +1552,9 @@ Three counting facts no other ladder can show:
   esp_hosted registry's ``if:`` clauses. A Kconfig entry can be
   simultaneously documented, configured, stamped into ``sdkconfig``
   — and inert four different ways.
-- **The user's configurability is six keys wide — and two of them
+- **The user's configurability is seven keys wide — and two of them
   are kept alive by the save path alone.** Everything else about the
-  device is compiled in; the four live keys all have a screen writer
+  device is compiled in; the five live keys all have a screen writer
   and a validated range, while the two LEGACY ghosts persist only
   because dropping them would break parsing of a stale card — the
   runtime layer's own *no such leg* rows.
@@ -1562,8 +1565,8 @@ the ten Kconfig files, the ``kconfig-*.inc`` fragments (including the
 ``UI_BOARD_SRCS`` set out of ``components/ui/CMakeLists.txt``, the
 ``CONFIG_*`` tokens of every ``.c``/``.h``/``.cpp`` under
 ``components/``, ``main/`` and ``knob/``, the seeds, clamps and
-ghosts of ``settings_store.c``, the four writer sites in
-``screens.c``, and the three live ``sdkconfig`` files. The
+ghosts of ``settings_store.c``, the five writer sites in
+``screens.c`` (their line numbers quoted live), and the three live ``sdkconfig`` files. The
 configuration sibling of :ref:`the build census <census-ladder-perf>`
 — that counts parts, this counts choices.
 
@@ -1727,9 +1730,9 @@ edges out of ``screens.c``** — the home tap
 (``event_handler_cb_home_tap``, registered on exactly the two home
 roots and opening the hub only while ``!clock_is_idle()`` — the wake
 tap is a deliberate second tap), the ``ring[]`` table with its
-``#if defined(CONFIG_BOARD_P4)`` clock entry (6 icons on the S3 and
-the knob, 7 on the P4), the alarm screen's two ``user_data`` entries,
-the roller row that opens the wheel, the wheel's exit, and all nine
+``#if defined(CONFIG_BOARD_P4)`` clock entry (7 icons on the S3 and
+the knob, 8 on the P4), the alarm screen's two ``user_data`` entries,
+the roller row that opens the wheel, the wheel's exit, and all ten
 bottom-exit buttons — under an **accounting rule**: any literal
 ``loadScreen(SCREEN_ID_*)`` in ``screens.c`` outside this set is a
 SystemExit, so navigation nobody has explained cannot silently
@@ -1737,9 +1740,10 @@ appear. The four machine-only views (alarm, transient sync,
 light-sleep, deep-sleep) are then italic **"no tap leg"** rows with
 their ``actions.c`` drivers cited — the bus ladder's *no such leg*
 precedent — because you cannot tap *into* the alarm view; it taps its
-way out (touch dismisses). The per-panel bars are cross-checked
-against the **drift-gated reachability matrix** of :doc:`the UI index
-<../ui/index>` (16/15/13, with the exact absentee set asserted: the
+way out (touch stops the ring and returns home). The per-panel bars
+are cross-checked against the **drift-gated reachability matrix** of
+:doc:`the UI index <../ui/index>` (17/16/14, with the exact absentee
+set asserted: the
 P4-only ``settings-time``; the knob's two sleep views, which it
 replaces with a real dimmed backlight and a real ``esp_deep_sleep_start``).
 The knob's "tap" is a dial-click — who *reads* the finger is
@@ -1804,14 +1808,14 @@ ladder prices the finger's labour, the bus and pixel ladders price
 movement, the static footprint prices bytes, the work ladder prices
 milliseconds. None of them has priced the **population** — the LVGL
 objects that exist at boot, before a finger has touched anything.
-This ladder counts it out of ``screens.c``: sixteen detached roots
-and **255 object instances** (256 on the P4), assembled exactly once
-by ``create_screens()`` (``screens.c:3894``) inside ``ui_init``
+This ladder counts it out of ``screens.c``: seventeen detached roots
+and **265 object instances** (266 on the P4), assembled exactly once
+by ``create_screens()`` (``screens.c:4117``) inside ``ui_init``
 (``ui.c:77``) *before* the first ``loadScreen`` — and then prices the
 build-once model that makes visiting them free. The code's own
-comment is the contract, at ``screens.c:1368``: *"The widgets are
+comment is the contract, at ``screens.c:1375``: *"The widgets are
 created once (loadScreen never destroys them), so the pointers live
-here."* The awake home **shows 17** objects; the other 238 are the
+here."* The awake home **shows 17** objects; the other 248 are the
 hidden city. A screen visit costs **zero creations and zero
 destructions** — ``loadScreen`` (``ui.c:51``) swaps roots, and the
 sub-screens pay only an entry REFRESH.
@@ -1821,65 +1825,65 @@ the live sources** — and its parsers double as docs-side twins of the
 UI's structural rules, SystemExit-failing when a screen, a ticker or
 a registry entry appears or vanishes:
 
-* the 16 ``SCREEN_ID_*`` ids in enum order (``screens.h``); exactly
+* the 17 ``SCREEN_ID_*`` ids in enum order (``screens.h``); exactly
   one ``create_screen_*`` per id, each rooted at exactly **one
   detached** ``lv_obj_create(0)`` (layout contract 1) — bodies are
   brace-matched, not regex-sliced;
-* ``create_screens()`` calls exactly those 16 creators in enum order,
+* ``create_screens()`` calls exactly those 17 creators in enum order,
   and ``ui_init`` runs it *before* ``loadScreen(SCREEN_ID_MODEM_SLEEP)``
   — every object exists before the first frame;
 * ``loadScreen`` contains **no creator call at all** — the build-once
   claim is asserted, not quoted: add a ``*_create(`` inside it and
   the figure refuses to draw;
-* exactly 16 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
-  (``screens.c:3872``) in enum order — ``ui_tick`` (``ui.c:87``)
-  dispatches **only the current screen**, so the fifteen off-screen
+* exactly 17 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
+  (``screens.c:4094``) in enum order — ``ui_tick`` (``ui.c:87``)
+  dispatches **only the current screen**, so the sixteen off-screen
   roots tick zero times;
 * helper bodies are resolved **transitively** (the exit button is
   container + glyph, the hub icon is one label, the roller helper is
   one roller), and ``create_user_widget_clock`` — the ONE clock
   widget, called exactly once, from the airplane creator (layout
   contract 2, ``ui_clock_attach_to`` reparents it onto every moon
-  root, ``screens.c:3826``) — counts toward the home;
+  root, ``screens.c:4047``) — counts toward the home;
 * object creation inside a loop is priced by the parsed bound —
-  ``WHEEL_N_SECTORS`` 12 (``screens.c:1863``), literal bounds, and
-  the hub's ``sizeof(ring)`` loop at the parsed 6/7 ring table — and
+  ``WHEEL_N_SECTORS`` 12 (``screens.c:1870``), literal bounds, and
+  the hub's ``sizeof(ring)`` loop at the parsed 7/8 ring table — and
   **any loop bound the generator cannot model is a SystemExit**: a
   loop nobody modelled cannot ship a bar;
-* the structural tables re-derive the tap ladder's own: exactly 9
-  ``settings_sub_screen_prepare`` exits, exactly 10 cases in
-  ``settings_screen_refresh_for`` (``screens.c:730`` — the 10
+* the structural tables re-derive the tap ladder's own: exactly 10
+  ``settings_sub_screen_prepare`` exits, exactly 11 cases in
+  ``settings_screen_refresh_for`` (``screens.c:734`` — the 11
   sub-screens, no more), exactly **4** ``moon_screen_prepare`` call
   sites (``screens.c:41``, the airplane/wifi/light/deep roots that
   share the ONE moon image via ``moon_ui_create_image``,
-  ``moon_ui.c:2717``), and **zero** creations in the knob's P2 dial
+  ``moon_ui.c:2712``), and **zero** creations in the knob's P2 dial
   block — the dial cursor only restyles existing objects.
 
 What the bars say: **the wheel is the bill**. One screen — entered
-once per provisioning — assembles **150 of the 255 objects (59 %)**:
+once per provisioning — assembles **150 of the 265 objects (57 %)**:
 42 arcs + 49 containers + 59 labels, dominated by the 12-sector loop
 (36 box arcs, 24 box dividers, 12 sector dividers) and the 26 letters
 drawn twice (52 in/out labels). The wheel is also *not* a roller —
 the round keyboard is hand-assembled from arcs and boxes; the
 family's 14 ``lv_roller`` instances all live on the list screens.
 Everything else is small: the home 17 (13 of them the shared clock
-widget), the hub 9 (6 of them ring labels), the lightest screen the
-alarm view at 3. The awake user of a home screen sees 17 of the 255 —
+widget), the hub 10 (7 of them ring labels), the lightest screen the
+alarm view at 3. The awake user of a home screen sees 17 of the 265 —
 **under seven percent of the city is ever on screen at once** — and
 that is exactly what the build-once model buys: paying for the whole
 city once at boot beats building and tearing down a screen per visit,
 because the visit then pays *nothing*. **Right:** the three
 panels carry identical bills because there is exactly one
 ``screens.c``; the only per-board delta the parser finds is the hub's
-7th ``ring[]`` label (the P4's clock entry, the same
+8th ``ring[]`` label (the P4's clock entry, the same
 ``#if defined(CONFIG_BOARD_P4)`` the tap ladder walks), making the
-P4's city 256. The ledger box states the lifecycle the parsers
-proved: 0 created / 0 destroyed per visit, entry refresh on the 10
+P4's city 266. The ledger box states the lifecycle the parsers
+proved: 0 created / 0 destroyed per visit, entry refresh on the 11
 sub-screens, tick dispatch to the current screen only, four roots
 sharing one moon image.
 
 .. figure:: ../_static/figs/perf_assembly.png
-   :alt: per-screen object budgets as stacked class bars, and the identical per-board totals of 255/256/255
+   :alt: per-screen object budgets as stacked class bars, and the identical per-board totals of 265/266/265
    :figclass: align-center
 
    The assembly ladder. **Left:** every screen's object budget, one
@@ -1888,7 +1892,7 @@ sharing one moon image.
    multipliers are parsed at figure time, so the wheel's 150 is
    arithmetic over the parsed loop, not a hand count. **Right:** the
    per-board totals — identical shared bars in each board's identity
-   colour, the hub-ring labels the only delta (6/7/6), and the
+   colour, the hub-ring labels the only delta (7/8/7), and the
    build-once ledger beside them.
 
 The generator is ``docs/tools/gen_perf_assembly.py``. What this
@@ -1912,8 +1916,8 @@ the S3), ``fonts_p4/`` (148/74/50, the P4), ``fonts_knob/`` (74/37/25,
 the knob) — 21 ``lv_font_conv`` files with identical ``lv_font_t``
 symbol names, so the tier is a CMake directory choice and no consumer
 ever mentions a panel. This ladder prices what the 21 files carry:
-**235 glyphs and 81 KiB of raw 4 bpp raster on the S3, 236 and 213
-KiB on the P4, 236 and 44 KiB on the knob** — the same copy, three
+**236 glyphs and 83 KiB of raw 4 bpp raster on the S3, 237 and 218
+KiB on the P4, 237 and 46 KiB on the knob** — the same copy, three
 densities — and what the firmware statically asks them to paint. The
 bill is not recalled: every number is parsed from the 21 files and
 the two asker files (``screens.c`` + ``styles.c`` — a repo-wide scan
@@ -1932,7 +1936,7 @@ parsers:
   annotations: digits ``0-9 : -`` (12), digits ``+ .`` (13), the two
   SSID faces the full printable 0x20–0x7E (95 each), the weekday face
   **derived from the two weekday tables themselves** (``s_day_abbr``
-  ``actions.c:986`` + ``ALARM_DAY_ABBR`` ``screens.c:1033`` plus
+  ``actions.c:1069`` + ``ALARM_DAY_ABBR`` ``screens.c:1040`` plus
   ``-``) and asserted EQUAL to the 12 baked codepoints both ways,
   and the icon faces from the decoded UTF-8 of the ``GLYPH_*``
   defines (escape bytes vs their own ``U+XXXX`` comments);
@@ -1942,15 +1946,15 @@ parsers:
   distinct) sits inside the 32 SSID face's 95 — an escaping register
   char is a SystemExit (the charset bug the stopwatch define still
   mourns: *"was U+F9F2, absent -> a box"*, ``screens.c:87``);
-* **ask counts**: ``screens.c`` 43 + ``styles.c`` 4 references, per
-  face exactly 12/6/17/3/2/5/5 across the seven faces (the digits
+* **ask counts**: ``screens.c`` 46 + ``styles.c`` 4 references, per
+  face exactly 12/6/15/4/2/6/5 across the seven faces (the digits
   faces are the workhorses, the weekday face is two labels), and the
   repo-wide scan refuses to draw if a third asker appears — the knob
   and the clocks' main ask **nothing**; they ride ``screens.c``.
 
 What the bars say: **the P4 pays for pixels, the knob for ink** — the
 P4's tier costs **2.6×** the S3's where the pure density square
-(720/466)² would predict 2.39×, and the knob pays **54 %** of the
+(720/466)² would predict 2.39×, and the knob pays **55 %** of the
 S3's bill where (360/466)² predicts 60 %: 4 bpp rasters track the
 square of density but not by the letter (per-glyph box rounding at
 bake time), and the P4/knob regular icon set additionally carries
@@ -1958,7 +1962,7 @@ one glyph the S3 never asked for. The same-face pairs read as
 constant-projection: the 48 SSID face costs 34.0 / 78.4 / 20.4 KiB
 at 48 / 74 / 37 px. **Right:** carried-vs-asked per face — the
 weekday face is **12 = 12** (the alphabet of "Mo-Fr", nothing
-carried that the tables can't spell), the solid icons **6 = 6**, and
+carried that the tables can't spell), the solid icons **7 = 7**, and
 the 32 SSID face holds its 88 register chars inside 95; the digits
 and 48 SSID faces carry no static stub because their content is
 runtime-formatted (italic, honest). The one strike the ladder draws
@@ -1970,7 +1974,7 @@ per-board asked sets are S3 2 · P4 3 · knob 2 against carried 2 · 3 ·
 3).
 
 .. figure:: ../_static/figs/perf_glyphs.png
-   :alt: Left, grouped raster-byte bars for the seven faces across the three tiers; right, carried-vs-statically-asked glyph counts per face and per-board totals 235/236/236 glyphs at 81/213/44 KiB
+   :alt: Left, grouped raster-byte bars for the seven faces across the three tiers; right, carried-vs-statically-asked glyph counts per face and per-board totals 236/237/237 glyphs at 83/218/46 KiB
    :figclass: align-center
 
    The glyph ladder. **Left:** every bake's raster bytes (4 bpp,

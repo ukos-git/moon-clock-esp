@@ -23,7 +23,7 @@ digraph type_family {
 
     srcs [label="THE FOUNDRY —\nlv_font_conv,\nBpp 4, no-compress",
           style="rounded,filled,dashed", fillcolor="#eef0ee", color="#5c7fb8", fontcolor="#27405e"];
-    askers [label="TWO ASKERS —\nscreens.c 43 ·\nstyles.c 4, nobody else",
+    askers [label="TWO ASKERS —\nscreens.c 46 ·\nstyles.c 4, nobody else",
             fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
     faces [label="SEVEN FACES —\nfonts.h externs\nexactly these seven",
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];

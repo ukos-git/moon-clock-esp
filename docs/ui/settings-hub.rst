@@ -1,7 +1,7 @@
 The settings hub
 ================
 
-The settings root: a black screen, a central exit — the fa-circle-xmark glyph IS the button (the white disk is the 96 px font's ink, the ``UI_PX(150)`` argument only widens the tap box) — back to the calling level, and a ring of sub-screen icons at EQUAL arc distances — 360/n degrees apart (S3 and knob: 6 icons × 60°, P4: 7 icons × ~51.4°; the P4 ring opens with the clock icon for manual time entry). The deep-sleep icon is anchored at the bottom (180°) and found **by target**, not by index, so the anchor cannot drift when the ring's count differs between the boards. Moon weight distinguishes the two sleep screens (regular = light sleep, solid = deep sleep); the ring radius is ``UI_PX(140)`` — 140 / 216 / 108 px on the three panels — balanced against the exit disk with equal breathing room both sides.
+The settings root: a black screen, a central exit — the fa-circle-xmark glyph IS the button (the white disk is the 96 px font's ink, the ``UI_PX(150)`` argument only widens the tap box) — back to the calling level, and a ring of sub-screen icons at EQUAL arc distances — 360/n degrees apart (S3 and knob: 7 icons × ~51.4°, P4: 8 icons × 45°; the P4 ring opens with the clock icon for manual time entry). The deep-sleep icon is anchored at the bottom (180°) and found **by target**, not by index, so the anchor cannot drift when the ring's count differs between the boards. Moon weight distinguishes the two sleep screens (regular = light sleep, solid = deep sleep); the ring radius is ``UI_PX(140)`` — 140 / 216 / 108 px on the three panels — balanced against the exit disk with equal breathing room both sides.
 
 .. figure:: ../img/screens/annot/settings-hub_s3.png
    :alt: the settings hub — the S3 panel (466, annotated)
@@ -19,7 +19,7 @@ The settings root: a black screen, a central exit — the fa-circle-xmark glyph 
    :alt: the settings hub — the knob panel (360)
    :align: center
 
-   The settings hub — knob 360×360 at rest (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; six icons like the S3, centre exit white)
+   The settings hub — knob 360×360 at rest (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; seven icons like the S3, centre exit white)
 
 .. figure:: ../img/screens/knob/settings_hub_dial.png
    :alt: the settings hub with the dial cursor focused — the knob panel (360)
@@ -49,13 +49,13 @@ report) holds on every board:
      - P4 720
      - knob 360
    * - ring icons ``n`` (ring array; clock icon only under ``CONFIG_BOARD_P4``)
-     - 6
      - 7
-     - 6
+     - 8
+     - 7
    * - angle step ``360/n``
-     - 60.0°
      - 51.43°
-     - 60.0°
+     - 45.0°
+     - 51.43°
    * - ring radius ``R = UI_PX(140)``
      - 140
      - 216
@@ -81,21 +81,21 @@ report) holds on every board:
      - 70
      - 35
    * - adjacent chord ``2R·sin(step/2)``
-     - 140
-     - 187
-     - 108
+     - 121
+     - 165
+     - 93
    * - chord clearance ``chord − ink`` (icons never crowd)
-     - 44
-     - 39
-     - 34
+     - 25
+     - 17
+     - 19
    * - sub-screen exit tap box (call passes ``UI_PX(90)``, floored at ``UI_PX(96)``)
      - 96
      - 148
      - 74
 
 The chord clearance is the crowding margin: every ring keeps at least
-34 px of air between neighbouring icons — the P4's 7-icon ring runs
-the tightest (39 px ≈ a quarter of one icon). Integer division floors
+17 px of air between neighbouring icons — the P4's 8-icon ring runs
+the tightest (17 px ≈ one-ninth of one icon). Integer division floors
 each literal separately, so the gaps are exact ``UI_PX`` differences,
 not ``UI_PX`` of a difference (``216 − 148 = 68`` while ``UI_PX(44)``
 would floor to 67).
@@ -110,7 +110,7 @@ not a schematic guess:
    :alt: The hub ring geometry on the three panels — panel edge, ring circle, exit disk, icon centres at the computed angles
    :align: center
 
-   The three rings to scale: panel edge (solid), ring circle at ``R`` (dashed), exit disk (amber, with its tap box dotted), icon centres (blue) with the clock-face they land on. The 6-icon ring puts the speaker at 12 o'clock and runs spk → alarm → light-sleep → **deep-sleep at exactly 6 o'clock** → WiFi → timezone; the 7-icon P4 ring inserts the clock icon at ~26° past 12 and pulls the speaker back to ~11 o'clock — the deep-sleep anchor holds because it is found by target, not index.
+   The three rings to scale: panel edge (solid), ring circle at ``R`` (dashed), exit disk (amber, with its tap box dotted), icon centres (blue) with the clock-face they land on. The 7-icon ring anchors **deep-sleep at exactly 6 o'clock** and runs alarm → light-sleep → deep-sleep → WiFi → timezone → speaker (~11 o'clock) → rotate (~26° past 12); the 8-icon P4 ring inserts the clock icon at 45° (~1:30) and lands rotate exactly at 12 — the deep-sleep anchor holds because it is found by target, not index.
 
 The wheel keyboard (:doc:`settings-wifi-password <settings-wifi-password>`) has no hub icon of its own — it is reached by tapping an AP row on the WiFi screen, and its only way back is the centre long press.
 
@@ -161,7 +161,12 @@ Elements
      - The UTC-offset / Europe-Berlin picker.
      - :doc:`settings-tz <settings-tz>` — option ``timezone_idx``
 
+   * - 8
+     - Display base angle (rotate, solid)
+     - The wall-mount base-angle trim: drag the rim handle to set the dial's zero angle, the value saves on release (settings.txt ``display_rotation_deg``).
+     - :doc:`settings-display <settings-display>`
+
    * - —
      - Time (clock, regular) — **P4 only**
-     - The ring's manual-time-entry icon, compiled in only under ``CONFIG_BOARD_P4`` (the S3's PCF85063A needs no manual entry; the knob has no such flow) — which is what makes the P4 ring 7-icon and the other two 6-icon.
+     - The ring's manual-time-entry icon, compiled in only under ``CONFIG_BOARD_P4`` (the S3's PCF85063A needs no manual entry; the knob has no such flow) — which is what makes the P4 ring 8-icon and the other two 7-icon.
      - ``#if defined(CONFIG_BOARD_P4)`` in the ring array → :doc:`settings-time <settings-time>`

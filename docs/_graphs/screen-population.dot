@@ -1,5 +1,5 @@
 // The UI population as a BLACK-BOX OVERVIEW: the boot spine, the
-// hidden city of 16 roots / 255 objects, and the zero-cost visit. No
+// hidden city of 17 roots / 265 objects, and the zero-cost visit. No
 // per-screen counts, no object bills, no tick/refresh mechanics on
 // this figure: the boxes open into their own sketches on this page
 // (screen-population-city.dot, screen-population-visit.dot). This
@@ -15,7 +15,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph screen_population {
     rankdir=LR;
-    label="The population in black boxes — 16 roots, 255 objects, built once";
+    label="The population in black boxes — 17 roots, 265 objects, built once";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.5, ranksep=0.5];
@@ -24,9 +24,9 @@ digraph screen_population {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    uiinit [label="ui_init — all 16\ncreators BEFORE\nthe first load",
+    uiinit [label="ui_init — all 17\ncreators BEFORE\nthe first load",
             fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-    city [label="THE HIDDEN CITY\n16 roots, 255 obj\n(256 on the P4)",
+    city [label="THE HIDDEN CITY\n17 roots, 265 obj\n(266 on the P4)",
           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
     visit [label="A VISIT: creates\nnothing; at most\none entry refresh",
            fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];

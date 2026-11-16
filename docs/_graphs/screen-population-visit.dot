@@ -1,6 +1,6 @@
 // A VISIT opened: what a screen switch costs — which is nothing.
 // loadScreen contains no creator call (the twin parser dies if one
-// ever appears), the ten sub-screens pay at most an entry refresh,
+// ever appears), the eleven sub-screens pay at most an entry refresh,
 // and only the current screen's ticker runs per frame. Every line
 // ref and quote sits in the page caption; the counts are re-derived
 // by docs/tools/gen_perf_assembly.py. The population in black boxes
@@ -22,9 +22,9 @@ digraph screen_population_visit {
 
     load [label="loadScreen: swap,\nattach, atomic show\n— ZERO creators",
           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-    refresh [label="exactly 10 cases —\nrollers re-seed,\nnothing rebuilds",
+    refresh [label="exactly 11 cases —\nrollers re-seed,\nnothing rebuilds",
               fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    tick [label="ui_tick dispatches\nthe 16 tickers —\nonly CURRENT ticks",
+    tick [label="ui_tick dispatches\nthe 17 tickers —\nonly CURRENT ticks",
           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70"];
     fade [label="0x51 fade-to-black —\nmoon→moon skips\n(screen-switch.dot)",
           style="rounded,filled,dashed", color="#9a9a9a", fontcolor="#6b6b6b"];

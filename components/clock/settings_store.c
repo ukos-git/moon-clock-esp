@@ -49,12 +49,19 @@ static const char *TAG = "settings_store";
 #define SETTINGS_ALARM_SOUND_MAX 4
 #define SETTINGS_ALARM_SOUND_DEFAULT 0
 
+/* Display base-orientation trim (the hub's rotate screen): whole degrees
+ * CW, stored 0..359, default 0 = exactly the board's Kconfig mount
+ * offset. The store owns the range; the ui reads it at orientation init
+ * and after every RELEASED drag (components/ui/actions.c). */
+#define SETTINGS_DISPLAY_ROT_DEFAULT 0
+
 static uint32_t s_idle_timeout_sec = CONFIG_CLOCK_IDLE_TIMEOUT_SEC;
 static uint32_t s_deep_sleep_countdown_sec = CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC;
 static bool s_boot_anim_enable = (CONFIG_UI_MOON_ANIM_ENABLE != 0);
 static bool s_dusk_anim_enable = (CONFIG_UI_MOON_DUSK_ENABLE != 0);
 static int s_timezone_idx = CLOCK_TZ_BERLIN_IDX; /* the Kconfig default zone */
 static int s_alarm_sound_id = SETTINGS_ALARM_SOUND_DEFAULT;
+static int s_display_rotation_deg = SETTINGS_DISPLAY_ROT_DEFAULT;
 
 /* Parse one "key = value" line into a numeric field; returns true when
  * the line is recognized (the value is validated by the caller). */
@@ -82,9 +89,10 @@ esp_err_t settings_store_load(void) {
     if (!f) {
         ESP_LOGI(TAG,
                  "no %s (or missing SPIFFS entry); using Kconfig defaults "
-                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, alarm_sound_id=%d)",
+                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, alarm_sound_id=%d, "
+                 "display_rotation_deg=%d)",
                  SETTINGS_PATH, (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                 s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id);
+                 s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
         return ESP_ERR_NOT_FOUND;
     }
     char line[128];
@@ -107,15 +115,17 @@ esp_err_t settings_store_load(void) {
             s_timezone_idx = (int)v;
         else if (parse_kv(line, "alarm_sound_id", &v) && v >= 0 && v < SETTINGS_ALARM_SOUND_MAX)
             s_alarm_sound_id = (int)v;
+        else if (parse_kv(line, "display_rotation_deg", &v) && v >= 0 && v <= 359)
+            s_display_rotation_deg = (int)v;
         else if (lines < 10)
             ESP_LOGD(TAG, "unrecognized settings line: %s", line);
     }
     fclose(f);
     ESP_LOGI(TAG,
              "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, "
-             "alarm_sound_id=%d)",
+             "alarm_sound_id=%d, display_rotation_deg=%d)",
              (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone_idx, s_alarm_sound_id);
+             s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -133,9 +143,10 @@ esp_err_t settings_store_save(void) {
                     "boot_anim_enable = %d\n"
                     "dusk_anim_enable = %d\n"
                     "timezone_idx = %d\n"
-                    "alarm_sound_id = %d\n",
+                    "alarm_sound_id = %d\n"
+                    "display_rotation_deg = %d\n",
                     (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                    s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id);
+                    s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
     fclose(f);
     if (n < 0) {
         ESP_LOGE(TAG, "settings write failed");
@@ -143,9 +154,9 @@ esp_err_t settings_store_save(void) {
     }
     ESP_LOGI(TAG,
              "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, "
-             "alarm_sound_id=%d)",
+             "alarm_sound_id=%d, display_rotation_deg=%d)",
              (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone_idx, s_alarm_sound_id);
+             s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -191,4 +202,13 @@ void settings_set_alarm_sound_id(int id) {
     if (id < 0 || id >= SETTINGS_ALARM_SOUND_MAX)
         return;
     s_alarm_sound_id = id;
+}
+
+int settings_display_rotation_deg(void) { return s_display_rotation_deg; }
+
+void settings_set_display_rotation_deg(int deg) {
+    deg %= 360; /* normalise any int into 0..359 (negative wraps) */
+    if (deg < 0)
+        deg += 360;
+    s_display_rotation_deg = deg;
 }

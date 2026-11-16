@@ -52,6 +52,17 @@ static const char *TAG = "alarm_audio";
 #define PREV_VOL_FULL 75                                 // the preview's full level
 #define PREV_RAMP_MS 300                                 // the preview's short ramp
 #define RING_FADE_STEP_MS 10                             // the stop fade-out granularity (~150 ms total)
+/* The hard ring cap (user decision 2026-11-16: "the alarm should not
+ * fire longer than 30min"): the play_task breaks on its OWN elapsed
+ * deadline, so the audio stops unconditionally -- even while the UI
+ * tick is parked in a sleep state (the UI-tick auto-dismiss in
+ * actions.c rides the same Kconfig value). The #ifndef seed only serves
+ * hosts without the generated sdkconfig (the Kconfig-`n`-leaves-the-
+ * macro-undefined gotcha; on device the Kconfig value always wins). */
+#ifndef CONFIG_UI_ALARM_RING_MAX_MIN
+#define CONFIG_UI_ALARM_RING_MAX_MIN 30
+#endif
+#define RING_CAP_MS ((uint32_t)CONFIG_UI_ALARM_RING_MAX_MIN * 60000u)
 
 static esp_codec_dev_handle_t s_codec_dev = NULL;
 static int16_t *s_loops = NULL; // ALARM_SOUND_COUNT x LOOP_SAMPLES (PSRAM)
@@ -249,6 +260,13 @@ static void play_task(void *arg) {
         }
         if (s_play.looping && s_stop) {
             break; // the touch snooze
+        }
+        if (s_play.looping && (uint32_t)((xTaskGetTickCount() - start) * (uint32_t)portTICK_PERIOD_MS) >= RING_CAP_MS) {
+            // The hard cap: one alarm never rings longer than
+            // UI_ALARM_RING_MAX_MIN minutes (see the define; the fade
+            // below + the codec close run the same way as a dismiss).
+            ESP_LOGW(TAG, "Alarm ring reached the %d min cap", CONFIG_UI_ALARM_RING_MAX_MIN);
+            break;
         }
         if (ret != 0) {
             ESP_LOGW(TAG, "play write failed (%d); stopping", ret);

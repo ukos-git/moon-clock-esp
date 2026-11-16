@@ -32,7 +32,7 @@ digraph type_family_faces {
                    fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
     }
     {   rank=same;
-        f_solid [label="FA7 solid icons\n6 — speaker xmark\nglobe moon wifi\nstopwatch",
+        f_solid [label="FA7 solid icons\n7 — speaker xmark\nglobe moon wifi\nrotate stopwatch",
                  fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];
         f_regular [label="FA7 regular icons\nS3 2 · P4+knob 3\nthe clock is the delta",
                    fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];

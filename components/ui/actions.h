@@ -38,6 +38,12 @@ esp_err_t action_register_alarm_touch(void);
  * before the first frame: the IMU's first sample arrives late, and the
  * orientation pipeline only pushes on a change. */
 extern void action_orientation_init(void);
+/* Set the persisted wall-mount trim (degrees CW, 0..359, wraps) that
+ * action_orientation_init seeds from settings_display_rotation_deg and
+ * apply on top of the Kconfig mount offset. The rotate settings screen
+ * commits it on RELEASED (the caller persists the settings.txt line
+ * too). LVGL task context; re-pushes all screen roots on a real change. */
+extern void action_orientation_set_user_base_deg(int deg);
 /* Register the input-device callback for the 2 s press re-sync: a press
  * of 2 s or more re-anchors the orientation pipeline's home pose to the
  * pose held while pressing (and restores the base orientation). Needed

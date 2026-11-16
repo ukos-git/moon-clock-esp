@@ -49,10 +49,10 @@ Parsed at figure time (a drifted source kills the run):
     knob knob/sdkconfig (fallback: ../build/knob/config/sdkconfig.h
         absence)  "# CONFIG_CLOCK_USE_PCF85063A is not set"
   components/clock/settings_store.c
-    SETTINGS_PATH; the 8 fprintf lines asserted verbatim (2 comment +
-    6 keys) -> byte size computed from the asserted literals
-  settings_store_save call sites == exactly 4: screens.c sleep / tz /
-    alarm-sound + main.cpp's TEST settings demo (line must say so)
+    SETTINGS_PATH; the 9 fprintf lines asserted verbatim (2 comment +
+    7 keys) -> byte size computed from the asserted literals
+  settings_store_save call sites == exactly 5: screens.c sleep / tz /
+    alarm-sound / display-trim + main.cpp's TEST settings demo (line must say so)
   components/wifi/wifi.c
     WIFI_CREDENTIALS_FILE; the exact fprintf template; call sites == 1
     (the provisioning wheel commit)
@@ -261,6 +261,7 @@ def main() -> None:
         r'"dusk_anim_enable = %d\n"',
         r'"timezone_idx = %d\n"',
         r'"alarm_sound_id = %d\n"',
+        r'"display_rotation_deg = %d\n"',
     ]
     for line in st_lines:
         if line not in st:
@@ -274,12 +275,13 @@ def main() -> None:
         "dusk_anim_enable = %d\n",
         "timezone_idx = %d\n",
         "alarm_sound_id = %d\n",
+        "display_rotation_deg = %d\n",
     ]
     settings_bytes = len("".join(settings_tpl).replace("%u", "300")
                          .replace("%d", "1"))
     count(st, r"settings_store_save\(void\)", 1, "one definition", SETTINGS)
-    if scr.count("settings_store_save();") != 3:
-        raise SystemExit(f"screens.c settings writers: expected 3, found "
+    if scr.count("settings_store_save();") != 4:
+        raise SystemExit(f"screens.c settings writers: expected 4, found "
                          f"{scr.count('settings_store_save();')}")
     if mn.count("settings_store_save();") != 1:
         raise SystemExit("main.cpp settings writer must be exactly the TEST demo")
@@ -427,7 +429,7 @@ def main() -> None:
               framealpha=0.95)
     ax.text(0.02, 0.02,
             "settings.txt / wifi_credentials.txt / coredump are EVENT\n"
-            "writes: 3 screen writers + 1 TEST demo / 1 provisioning\n"
+            "writes: 4 screen writers + 1 TEST demo / 1 provisioning\n"
             "commit / 0 bytes until a crash — never the day bar.",
             transform=ax.transAxes, ha="left", va="bottom", fontsize=6.0,
             color=MUTED)
@@ -438,7 +440,7 @@ def main() -> None:
         (f"TF hourly frame — P4 cap\nS²+S²/{div}+{tail}", cap_p4, VERM, True, ""),
         (f"TF hourly frame — S3 cap\nS²+S²/{div}+{tail}", cap_s3, BLUE, True, ""),
         ("coredump partition — knob\n(only on a crash)", cd_bytes, VIOLET, False, ""),
-        ("settings.txt rewrite\n(2 comments + 6 keys)", settings_bytes, AMBER, False, ""),
+        ("settings.txt rewrite\n(2 comments + 7 keys)", settings_bytes, AMBER, False, ""),
         (f"meta.txt rewrite (7 lines)\nS3 {m_s3} B / P4 {m_p4} B", m_p4, AMBER, False, ""),
         ("wifi_credentials.txt\n(3 comments + SSID + pw)", wifi_bytes, AMBER, False, ""),
         ("NVS epoch commit\n(nvs_set_i64 value)", 8, STEEL, False, ""),

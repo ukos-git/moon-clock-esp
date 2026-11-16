@@ -24,7 +24,10 @@ The comparisons the ladder makes visible:
     witness ("observed quiescence only"), the 500 ms traffic-hold
     quiesce, and the 3 s panel-io watchdog probe that names its
     holder (xSemaphoreGetMutexHolder) and esp_restart()s on overrun.
-    The healthy drain hold is ~40 ms — 75x under the watchdog limit.
+    The pacing-build drain holds the key for a 20 ms lead-in, ONE
+    parsed grace window and the straight-away heal (~50 ms) — ~60x
+    under the watchdog limit; the pre-pacing ladder burned a de-facto
+    ~640 ms per verified flush.
   * The knob's single mutex takes ONE physical take site but serves
     ELEVEN wrapper entries — the owner-recursion depth counter is
     what the TAP deadlock (bench 2026-11-10) forced, because "a
@@ -337,8 +340,17 @@ def main() -> None:
                re.escape(site), f"drain site {site}", re.S)
     expect(mu, r"drain call site holds it -- audited 2026-11-13",
            "the rule-3 audit note")
-    expect(mu, r"healthy hold\s*\n?\s*\*\s*~40 ms, full-anomaly hold "
-               r"~620 ms", "the drain hold durations", re.S)
+    # the pacing build retired the two-300 ms-poll ladder: the drain
+    # now grants ONE parsed grace window and heals straight away
+    m_grace = expect(mu, r"grants ONE (\d+) ms grace",
+                     "the drain's single grace window")
+    m_heal = expect(mu, r"heals straight away -- ~(\d+) ms",
+                    "the drain heal duration")
+    m_oldl = expect(mu, r"a de-facto ~(\d+) ms per verified flush",
+                    "the retired ladder's per-flush cost")
+    grace_ms, drain_ms, old_ladder_ms = (int(m_grace.group(1)),
+                                         int(m_heal.group(1)),
+                                         int(m_oldl.group(1)))
     # the watchdog
     expect(mu, r"\"panel_wdg\", 4096, NULL, 3, &s_panel_watchdog, 0",
            "the panel_wdg spawn (4096, prio 3, core 0)")
@@ -444,9 +456,9 @@ def main() -> None:
            "the knob's explicit orbit opt-out")
 
     # ---- comparisons computed at figure time (nothing invented) --------
-    watchdog_ms, drain_ms = 3000, 40
-    headroom = watchdog_ms / drain_ms            # 75x
-    anomaly_head = watchdog_ms / 620             # ~4.8x
+    watchdog_ms = 3000                           # asserted against the define
+    headroom = watchdog_ms / drain_ms            # ~60x under the pacing build
+    old_head = watchdog_ms / old_ladder_ms       # the retired ladder's ratio
     mux_ratio = 11 / 1                            # entries per physical take
 
     # ---- draw ------------------------------------------------------------
@@ -529,9 +541,10 @@ def main() -> None:
         spine.set_visible(False)
     ax.grid(axis="x", color=HAIR, linewidth=0.5, zorder=0)
     ax.text(12.2, len(rows) - 1.32,
-            f"watchdog headroom: healthy drain ~{drain_ms} ms against the\n"
+            f"watchdog headroom: drain hold ~{drain_ms} ms against the\n"
             f"{watchdog_ms} ms bounded probe = {headroom:.0f}x "
-            f"(anomaly ~620 ms: {anomaly_head:.1f}x)",
+            f"(one {grace_ms} ms grace;\nthe retired ladder burned "
+            f"~{old_ladder_ms} ms: {old_head:.1f}x)",
             fontsize=5.6, color=RED, va="top")
     ax.text(12.2, len(rows) - 0.62,
             f"the knob's one physical take serves {mux_ratio:.0f} wrapper "

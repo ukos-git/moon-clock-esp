@@ -10,23 +10,19 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-15): the S3/P4 trees were
-configured at HEAD ``830adbd`` and built, flashed and boot-verified
-from the bake-reveal pacing change of this commit (the reveal band
-heights, the drain witness, the bench trace option — the sizes below
-are those bench binaries). The knob's sibling tree is unchanged at
-``7bc7e8f-dirty`` (uncommitted docs files were in the tree at
-configure time). Until the first commitizen bump there is no
-``version`` line in ``.cz.toml``, so each binary embeds the
-git-describe short hash as the TF-cache calcver string (the root
-``CMakeLists`` comment and :doc:`the build system <../reference/build-system>`);
-docs-only commits after these builds do not move a size. The
-knob row is the exception to that last clause: it is a rebuild
-carrying the minute-tick enable (``knob/main/main.c``, the
-alarm-screen clock fix of 2026-11-15 — one call, one log line and
-their string, +256 B), committed together with this page. The
-knob's tree is the sibling project's own ``../build/knob`` outside
-the repo, never ``build/knob``):
+Measured from the build trees (2026-11-16): all three trees were
+configured at HEAD ``883f90d`` with this wave's code in the tree —
+the 17th screen (the settings-display wall-mount base-angle trim,
+all three boards) and the ``UI_ALARM_RING_MAX_MIN`` ring cap
+(:doc:`the alarm screen <../ui/alarm>`) — and built from it (the
+sizes below are those bench binaries; each embeds the git-describe
+short hash ``883f90d`` as the TF-cache calcver string — verified by
+``strings``, the root ``CMakeLists`` comment and :doc:`the build
+system <../reference/build-system>`). Until the first commitizen bump
+there is no ``version`` line in ``.cz.toml``; docs-only commits after
+these builds do not move a size. The knob's tree is the sibling
+project's own ``../build/knob`` outside the repo, never
+``build/knob``):
 
 .. list-table::
    :header-rows: 1
@@ -39,21 +35,21 @@ the repo, never ``build/knob``):
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,707,120 B (0x1a0c70)
+     - 1,714,384 B (0x1a28d0)
      - 2,097,152 B (2048 K)
-     - 390,032 B (19 %)
+     - 382,768 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,859,616 B (0x1c6020)
+     - 1,873,696 B (0x1c9720)
      - 9,437,184 B (9216 K)
-     - 7,577,568 B (80 %)
+     - 7,563,488 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,555,888 B (0x17bdb0)
+     - 1,562,192 B (0x17d650)
      - 4,194,304 B (4096 K)
-     - 2,638,416 B (63 %)
+     - 2,632,112 B (63 %)
 
-The three numbers are asymmetric on purpose, and the S3's 19 % is the
+The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the
 chronology below), and the project rule is to **check the binary size
 after every build** and keep the S3 comfortably under its ceiling.
@@ -76,7 +72,7 @@ been approached either.
 
    The budget, drawn. **Left:** each current binary against its
    ``factory`` partition (gray = the partition, filled = the app) —
-   the S3's 81 % is the live constraint, the P4's 20 % and the knob's
+   the S3's 82 % is the live constraint, the P4's 20 % and the knob's
    37 % are headroom by design. The bars are **parsed from the table
    above** (``docs/tools/gen_binary_figs.py`` reads this page), and
    :doc:`the docs drift check <../reference/build-system>`
@@ -84,7 +80,7 @@ been approached either.
    binaries on disk — figure, table and disk are one chain.
    **Right:** the chronology below as a step history — the production
    build punching through the original 1392 KiB ceiling, the widening
-   to 2048 K, and the family build growing to 81 % under it.
+   to 2048 K, and the family build growing to 82 % under it.
 
 The partition tables
 --------------------
@@ -156,18 +152,21 @@ the app's growth history:
                                               widened ceiling; the same day's P4
                                               sibling measured 1,605,984 B
                                               (0x188160), docs/devices/p4.rst
-   binary    1,706,992 B  (0x1a0bf0)  current (measured 2026-11-15, built at
-                                              HEAD b0b9e68 + this pass's two
+   binary    1,706,992 B  (0x1a0bf0)  the 2026-11-15 take, built at
+                                              HEAD b0b9e68 + that pass's two
                                               comment-only C edits — the
-                                              docs-only commits after it
-                                              change only the embedded
-                                              calcver hash string) —
-                                              the three-board family build
+                                              three-board family build
                                               (shared hub + sky events + the
                                               settings stack over the 11-02
-                                              base); 19% under the ceiling —
-                                              rule 3 below is now the next
-                                              expected step, not a last resort
+                                              base); 19% under the ceiling
+   binary    1,714,384 B  (0x1a28d0)  current (measured 2026-11-16, built at
+                                              HEAD 883f90d with this wave in
+                                              the tree) — the 17th screen
+                                              (settings-display) + the ring
+                                              cap over the 11-15 base; 18%
+                                              under the ceiling — rule 3
+                                              below is now the next expected
+                                              step, not a last resort
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
