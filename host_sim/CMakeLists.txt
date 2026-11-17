@@ -26,7 +26,8 @@ if(NOT EXISTS ${MOON_ASSETS_GEN} OR NOT IS_DIRECTORY ${MOON_CONSTS_DIR})
     message(FATAL_ERROR
         "Missing generated assets for target '${MOON_ASSETS_TARGET}'\n"
         "(need ${MOON_ASSETS_GEN} and ${MOON_CONSTS_DIR}/).\n"
-        "Regenerate with: assets/images/moon/.venv/bin/python -m moon.assets --target ${MOON_ASSETS_TARGET}")
+        "Regenerate with: assets/images/moon/.venv/bin/python -m moon.assets --target ${MOON_ASSETS_TARGET}\n"
+        "(fresh clone: python3 assets/images/moon/get_assets.py --target ${MOON_ASSETS_TARGET})")
 endif()
 
 set(CMAKE_C_STANDARD 11)

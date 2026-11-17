@@ -89,9 +89,20 @@ def main() -> int:
                          "per SIM_BUILD_DIRS)")
     ap.add_argument("--out", default="/tmp/moon-sim-gate")
     ap.add_argument("--frames", type=int, default=32)
-    ap.add_argument("--json", default="/tmp/moon-research/mooninfo_2025.json")
+    # The gate frame list: the fetched mooninfo beside the pipeline
+    # (assets/images/moon/get_assets.py --refs), falling back to the legacy
+    # research scratch location for old checkouts.
+    ap.add_argument("--json", default=None,
+                    help="mooninfo_2025.json (default: the fetched one in "
+                         "assets/images/moon/, else /tmp/moon-research)")
     args = ap.parse_args()
 
+    if args.json is None:
+        args.json = next(
+            (p for p in (os.path.join(MOON_PKG, "mooninfo_2025.json"),
+                         "/tmp/moon-research/mooninfo_2025.json")
+             if os.path.exists(p)),
+            os.path.join(MOON_PKG, "mooninfo_2025.json"))
     spec = C.TARGETS[args.target]
     alb_w, alb_h = spec["alb"]
     dem_w, dem_h = spec["dem"]
@@ -169,6 +180,12 @@ def main() -> int:
         c_vs_py = float(np.mean(np.abs(sim - py)))
         rows.append((i + 1, phase, m["mae"], m["ssim"], c_vs_py))
 
+    if not rows:
+        print("  no frame could be scored: the NASA reference frames are missing"
+              " (and/or the simulator rendered nothing).\n"
+              "  Acquire them from the repo root: python3 assets/images/moon/get_assets.py --refs\n"
+              "  (fetches mooninfo_2025.json + the SVS 5415 frames, crops them to final_400x400/)")
+        return 2
     print("\n== C-simulator gate (32-frame set) ==")
     print("  frame  phase    C-NASA   SSIM   C-Python")
     for i, phase, mae, ssim, cp in rows:

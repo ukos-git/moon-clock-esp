@@ -59,15 +59,16 @@ set(MOON_ASSETS_MANIFEST ${MOON_ASSET_DIR}/moon_assets_manifest.json)
 set(MOON_ASSETS_BIN ${MOON_ASSET_DIR}/moon_assets.bin)
 if(NOT EXISTS ${MOON_ASSETS_MANIFEST})
     message(FATAL_ERROR
-        "Missing knob moon assets (${MOON_ASSETS_MANIFEST}). Generate them "
-        "from the repo root: cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob")
+        "Missing knob moon assets (${MOON_ASSETS_MANIFEST}). Acquire + bake "
+        "from the repo root: python3 assets/images/moon/get_assets.py --target knob "
+        "(re-bake alone: cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob)")
 endif()
 file(READ ${MOON_ASSETS_MANIFEST} MOON_ASSET_MANIFEST)
 # Single-line JSON (the pipeline writes it that way). CMake MATCHES is
 # ECMAScript regex; the compact manifest's only whitespace is after colons.
 if(NOT MOON_ASSET_MANIFEST MATCHES "\"combined_bytes\" *: *([0-9]+)")
     message(FATAL_ERROR "Malformed manifest ${MOON_ASSETS_MANIFEST} (no combined_bytes): "
-        "regenerate with cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob")
+        "regenerate with cd assets/images/moon && .venv/bin/python -m moon.assets --target knob")
 endif()
 math(EXPR MOON_ASSET_COMBINED ${CMAKE_MATCH_1})
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/partitions.csv MOON_PART_CSV_CONTENT)

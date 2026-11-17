@@ -13,7 +13,24 @@ sdkconfig.p4
 # dependency set than the S3; the tracked dependencies.lock is the S3 one).
 dependencies.lock.p4
 dependencies.lock.knob
-assets
+# Moon assets: the binaries are acquired/baked build output (assets/images/
+# moon/get_assets.py re-fetches everything from NASA, checksum-pinned) --
+# only the pipeline CODE under assets/images/moon/ is tracked.
+assets/**
+!assets/images/
+assets/images/**
+!assets/images/moon/
+assets/images/moon/**
+!assets/images/moon/moon/
+!assets/images/moon/moon/**
+assets/images/moon/**/__pycache__/
+!assets/images/moon/requirements.txt
+!assets/images/moon/README.md
+!assets/images/moon/get_assets.py
+!assets/images/moon/alpha_mask.py
+!assets/images/moon/term_compare.py
+!assets/images/moon/term_local.py
+!assets/images/moon/term_tune.py
 warnings.txt
 spiffs/*
 knob/spiffs/*
