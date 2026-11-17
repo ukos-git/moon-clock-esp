@@ -552,12 +552,17 @@ hand — the drain witness, in-place heal and budgeted
 returns TIMEOUT and the watchdog resumes normal ownership — the
 fourth NO_MEM give-up restarts exactly as before. The next accepted
 strip zeroes the give-up budget, so one storm cannot tax a later one.
-Bench (fix build, 20-min re-capture of the boot-sync storm):
-``strip bounce no-mem (storm pressure): task lvgl (y 0..24),
-largest-DMA 9728 B -- riding out`` at 19.4 s — accepted without a
-give-up, no ``PANEL IO STUCK``, the drain verify healed the swallowed
-completion at 53 s and the clock ran on. Shared code — S3 and P4
-alike.
+Bench (fix build, 2026-11-17 — the user's own repro: wake off deep
+sleep into the sync screen, touch *during* the sync): the switch
+frame met the squeeze at the ride-out seam
+(``strip bounce no-mem (storm pressure): task lvgl (y 0..24),
+largest-DMA 18432 B -- riding out`` pacing the ~7 s ride) and the
+watchdog logged ``panel mutex held 3000 ms by task lvgl riding out a
+no-mem strip bounce (storm pressure, bus healthy) -- not
+restarting`` — the same hold that previously ended in
+``PANEL IO STUCK`` + ``rst:0xc``. The strip was accepted before any
+give-up, the sync task ran to its end and the release repaint healed
+the screen; no restart. Shared code — S3 and P4 alike.
 
 The class's sixth member was caught on the **light-sleep dusk
 replay** (the dusk itself was retired 2026-11-13; the discovery bench,
