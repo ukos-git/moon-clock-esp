@@ -270,10 +270,19 @@ The fix is three layers:
                xSemaphoreGive(s_panel_mtx);
                continue;
            }
-           /* Still held after 3 s of waiting, on top of 3 s of idle --
-            * the holder is parked inside spi_device_acquire_bus on a
-            * bus lock that will never clear. Restart: a clean reboot
+           /* Still held after 3 s of waiting, on top of 3 s of idle.
+            * First ask the holder what it waits for: a strip riding
+            * out the storm's internal-RAM squeeze (every rejected
+            * attempt was NO_MEM -- see the sixth member below) is NOT
+            * a wedged bus; LOG and keep watching. Anything else -- the
+            * holder parked inside spi_device_acquire_bus on a bus lock
+            * that will never clear -- restarts: a clean reboot
             * instead of a dead screen. */
+           if (s_panel_no_mem) {
+               ESP_LOGW(TAG, "panel mutex held ... riding out a no-mem strip "
+                            "bounce (storm pressure, bus healthy) -- not restarting");
+               continue;
+           }
            ESP_LOGE(TAG, "PANEL IO STUCK: ... restarting");
            vTaskDelay(pdMS_TO_TICKS(100));
            esp_restart();
@@ -299,7 +308,11 @@ The fix is three layers:
   ms). A test take that overruns 3 s *can only mean the bus is
   stuck* — no legitimate path waits that long — and the watchdog
   restarts the device. Priority 3 (above every UI task);
-  the take is its only work, so it starves nothing.
+  the take is its only work, so it starves nothing. One sanctioned
+  exception (the sixth member): while the holder is a flush strip
+  riding out a storm-pressure ``ESP_ERR_NO_MEM`` (``s_panel_no_mem``),
+  the bus is provably healthy and the watchdog logs instead of
+  restarting.
 
 The design philosophy: the bus lock is a *shared hardware resource
 with a known failure mode*, so it gets (a) one owner at a time by
@@ -363,7 +376,9 @@ drop seams — ``hold_flush_cb`` forwards its strips (``flush PASSED
 hold. The periodic repaints (seconds arc, clock row) stay dropped and
 self-heal at the release repaint as designed; the passed frame rides
 the storm bus exactly as the 0x51 ramp steps do, with the drain
-witness and panel watchdog owning a lost completion. The LVGL drop
+witness and panel watchdog owning a lost completion — and the
+watchdog's no-mem exception (the sixth member below) owning the
+storm's memory squeeze on that same passed frame. The LVGL drop
 point is the seam's one hard-learned constraint: dropping a flush
 inside the panel ``draw_bitmap`` wrapper instead wedges the board —
 the esp_lvgl_adapter's ``double_direct`` flush completes its LVGL hand
@@ -499,6 +514,50 @@ proceed. The healthy path never runs the callback:
 ``wait_for_flushing`` calls it only while ``flushing`` is still set.
 Shared code — S3 and P4 alike; the knob's render seam has no shared
 bus lock to wedge.
+
+The class's sixth member is neither a stolen hand nor a wedge — it is
+an allocation the storm **refuses**: the strip's own DMA staging.
+Every PSRAM strip's transaction bounces through a contiguous 23,300 B
+internal-RAM block (``setup_priv_desc``; the S3's PSRAM is not
+SPI-DMA-capable), and ``esp_wifi_init`` can hold the internal heap
+below that size. Bench 2026-11-17 (user: "pressing x on the settings
+crashed it" — exit settings into the sync screen, touch mid-sync): the
+switch-frame pass did its job and forwarded the user's frame under the
+hold, but the radio storm had the largest free DMA block at 20,480 B,
+so every submission of every strip was rejected at the door — the
+``moon_panel_draw_wait`` tally read ``io errors: 100×0x101``
+(``ESP_ERR_NO_MEM``), ``largest-DMA 20480 B`` — while the bus itself
+was provably healthy: each attempt's tiny CASET/RASET polling writes
+completed, only the bounce died. Each strip then burned ~1.5–2 s of
+the classic 100-attempt cap holding ``s_panel_mtx``, the watchdog's
+test take overran 3 s on top, and the board restarted with a false
+lost-completion diagnosis.
+
+A wedge and a squeeze are not the same failure, so the seam now tells
+them apart by the error code itself. ``moon_panel_draw_wait`` sets
+``s_panel_no_mem`` while a rejected strip's attempts are all
+``ESP_ERR_NO_MEM``, and the strip then **rides the storm out** instead
+of burning the 100-attempt cap: up to ``PANEL_NO_MEM_RETRY_MS``
+(8000 — the measured init/calibrate/connect/teardown window runs
+5–8 s), rate-limited to one ``strip bounce no-mem (storm pressure)
+... riding out`` line per 2 s with the live largest-DMA witness. The
+flag simultaneously tells the watchdog the holder is healthy: the
+multi-second hold that used to end in ``PANEL IO STUCK`` now logs
+``riding out a no-mem strip bounce ... not restarting`` and keeps
+watching. The ride-out cannot chain across a whole panel: at most
+``PANEL_NO_MEM_GIVEUP_CAP`` (3) strips may spend the 8 s, any
+non-NO_MEM error clears the flag at once (a lost hand stays a lost
+hand — the drain witness, in-place heal and budgeted
+``drain_recovery`` own it), and past either bound the classic cap
+returns TIMEOUT and the watchdog resumes normal ownership — the
+fourth NO_MEM give-up restarts exactly as before. The next accepted
+strip zeroes the give-up budget, so one storm cannot tax a later one.
+Bench (fix build, 20-min re-capture of the boot-sync storm):
+``strip bounce no-mem (storm pressure): task lvgl (y 0..24),
+largest-DMA 9728 B -- riding out`` at 19.4 s — accepted without a
+give-up, no ``PANEL IO STUCK``, the drain verify healed the swallowed
+completion at 53 s and the clock ran on. Shared code — S3 and P4
+alike.
 
 The class's sixth member was caught on the **light-sleep dusk
 replay** (the dusk itself was retired 2026-11-13; the discovery bench,

@@ -162,14 +162,21 @@ the app's growth history:
    binary    1,714,384 B  (0x1a28d0)  the 2026-11-16 take — the 17th screen
                                               (settings-display) + the ring
                                               cap over the 11-15 base
-   binary    1,714,832 B  (0x1a2a90)  current (measured 2026-11-16) — the
-                                              wifi-screen switch-frame pass
-                                              (the traffic hold no longer
-                                              eats the screen-switch's atomic
-                                              frame) over the 17th-screen
-                                              base; 18% under the ceiling —
-                                              rule 3 below is now the next
-                                              expected step, not a last resort
+   binary    1,714,832 B  (0x1a2a90)  the 2026-11-16 take — the wifi-screen
+                                              switch-frame pass (the traffic
+                                              hold no longer eats the
+                                              screen-switch's atomic frame)
+                                              over the 17th-screen base
+   binary    1,714,848 B  (0x1a2aa0)  current (measured 2026-11-17) — the
+                                              draw_wait io-error tally plus
+                                              the storm-pressure no-mem
+                                              ride-out (``ESP_ERR_NO_MEM``
+                                              strips retry while the panel
+                                              watchdog stands down) over the
+                                              switch-frame-pass base; 18%
+                                              under the ceiling — rule 3
+                                              below is now the next expected
+                                              step, not a last resort
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),

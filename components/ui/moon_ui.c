@@ -626,6 +626,30 @@ bool moon_ui_panel_repaint_pending(void) {
 static TaskHandle_t s_panel_watchdog;
 static volatile bool s_panel_watchdog_armed; /* moon_ui_init succeeded */
 
+/* The storm-pressure NO_MEM family (field 2026-11-17, the wifi-screen wedge):
+ * the flush strip is a PSRAM buffer, so spi_master's setup_priv_desc bounces
+ * every strip through a CONTIGUOUS 23,300-B internal-RAM DMA block. While
+ * esp_wifi_init loads the radio firmware the largest free DMA block drops
+ * under that size (bench: 100×ESP_ERR_NO_MEM, largest-DMA 20,480 B) and
+ * every strip is rejected at the door -- while the bus itself stays provably
+ * healthy (each attempt's CASET/RASET polling commands land; only the bounce
+ * allocation dies). The old loop burned its 100 attempts (~1.5 s/strip) with
+ * the mutex held, tripped the 3 s watchdog, and the board restarted under
+ * the false "a DMA completion was lost" diagnosis. NO_MEM is transient:
+ * retry out the storm (radio init/cal/connect/teardown) instead, and while
+ * this flag names the reason the watchdog LOGS instead of restarting -- a
+ * truly wedged queue (any other error, or no progress after the budget)
+ * still owns the restart. */
+#define PANEL_NO_MEM_RETRY_MS 8000
+/* Give-up cap: three strips may ride a storm out (the normal case is ONE
+ * long ride ending at the radio teardown; three covers staggered memory
+ * return). The fourth give-up means the memory is not coming back -- the
+ * classic 100-attempt cap and the watchdog restart resume, and the hold's
+ * release repaint heals the gaps. Cleared by the next accepted strip. */
+#define PANEL_NO_MEM_GIVEUP_CAP 3
+static volatile bool s_panel_no_mem;
+static volatile uint32_t s_nomem_giveups;
+
 /* The draw_bitmap wrapper (installed on the panel vtable at init):
  * LVGL's flushes (and the moon pipeline's own lv_refr_now paths)
  * reach the panel here. Under the panel mutex it calls the real
@@ -683,9 +707,13 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
     esp_err_t tally_code[4] = {0};
     uint32_t tally_n[4] = {0};
     int tally_cnt = 0;
-    for (int attempt = 0; attempt < 100; attempt++) {
+    const uint32_t wait_t0 = lv_tick_get();
+    s_panel_no_mem = false;
+    for (int attempt = 0; attempt < 100 || s_panel_no_mem; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK) {
+            s_panel_no_mem = false;
+            s_nomem_giveups = 0; /* the bus is flowing again: fresh storm budget */
             snprintf(s_last_accept_desc, sizeof(s_last_accept_desc), "%s y%d..%d", pcTaskGetName(NULL), y_start, y_end);
             s_last_accept_tick = lv_tick_get();
             return ESP_OK;
@@ -701,6 +729,24 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
                 tally_code[i] = r;
                 tally_n[i] = 1;
                 tally_cnt++;
+            }
+        }
+        /* Storm-pressure NO_MEM is transient (see PANEL_NO_MEM_RETRY_MS):
+         * ride it out past the 100-attempt cap and keep the watchdog off
+         * the restart path while it is the named reason. ANY other error
+         * (the not-terminated-polling check, a truly parked depth-1 slot)
+         * drops the flag and leaves the loop under the classic cap -- the
+         * drain witness / heal / restart ladder owns those. */
+        s_panel_no_mem = (r == ESP_ERR_NO_MEM) && s_nomem_giveups < PANEL_NO_MEM_GIVEUP_CAP &&
+                         ((int32_t)(lv_tick_get() - wait_t0) < PANEL_NO_MEM_RETRY_MS);
+        if (r == ESP_ERR_NO_MEM) {
+            static uint32_t s_nomem_log;
+            const uint32_t now = lv_tick_get();
+            if (now - s_nomem_log >= 2000) {
+                s_nomem_log = now;
+                ESP_LOGW(TAG, "strip bounce no-mem (storm pressure): task %s (y %d..%d), largest-DMA %u B -- riding out",
+                         pcTaskGetName(NULL), y_start, y_end,
+                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
             }
         }
         if (attempt == 0) {
@@ -722,6 +768,9 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
     }
     /* ~100 ms is stale: each rejected attempt costs the io onFly poll
      * (~10 ms) plus the delay tick, so the loop is ~2 s per strip. */
+    s_panel_no_mem = false; /* give-up: the watchdog owns the case again */
+    if (tally_code[0] == ESP_ERR_NO_MEM)
+        s_nomem_giveups++; /* the ride-out cap counts NO_MEM give-ups only */
     ESP_LOGW(TAG,
              "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit); "
              "io errors: %d×0x%x %d×0x%x %d×0x%x %d×0x%x; largest-DMA %u B",
@@ -2640,11 +2689,24 @@ static void moon_panel_watchdog_task(void *arg) {
             continue;
         }
         /* Still held after PANEL_IO_WATCHDOG_LIMIT_MS of waiting, on top
-         * of PANEL_IO_WATCHDOG_LIMIT_MS of idle -- the holder (a flush
-         * strip or a 0x51 write) is parked inside
-         * spi_device_acquire_bus on a bus lock that will never clear.
-         * Restart so the user gets a working clock instead of a dead
+         * of PANEL_IO_WATCHDOG_LIMIT_MS of idle. First ask the holder
+         * what it is waiting for: a flush strip riding out the storm's
+         * internal-RAM squeeze (every rejected attempt was NO_MEM -- the
+         * polling commands land, the bounce just cannot get 23,300
+         * contiguous DMA bytes right now) is NOT a wedged bus; restarting
+         * there traded a few seconds of late pixels for a full reboot
+         * (field 2026-11-17). Anything else -- the holder parked inside
+         * spi_device_acquire_bus on a bus lock that will never clear --
+         * restarts so the user gets a working clock instead of a dead
          * one; the log marks it unambiguously for the field. */
+        if (s_panel_no_mem) {
+            ESP_LOGW(TAG,
+                     "panel mutex held %lu ms by task %s riding out a no-mem strip bounce (storm pressure, "
+                     "bus healthy) -- not restarting",
+                     (unsigned long)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS,
+                     pcTaskGetName(xSemaphoreGetMutexHolder(s_panel_mtx)));
+            continue;
+        }
         ESP_LOGE(TAG,
                  "PANEL IO STUCK: panel mutex held %lu ms after a %lu ms wait by task %s -- the QSPI "
                  "bus lock is stuck (a DMA completion was lost); restarting",
