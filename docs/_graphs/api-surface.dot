@@ -18,7 +18,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph api_surface {
     rankdir=TB;
-    label="The core's surface in one picture — 23 entries, three headers";
+    label="The core's surface in one picture — 24 entries, three headers";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.5, ranksep=0.6];
@@ -27,11 +27,11 @@ digraph api_surface {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    device [label="THE DEVICE CALLERS —\nmoon_ui.c + knob_moon.c;\n17 of the 23 have a live caller",
+    device [label="THE DEVICE CALLERS —\nmoon_ui.c + knob_moon.c;\n18 of the 24 have a live caller",
             fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
-    host [label="THE HOST TOOLS — main.c (the\ngate), bench.c, uisim/stubs.c —\nplus two probes linked by nobody",
+    host [label="THE HOST TOOLS — main.c (the\ngate), bench.c, uisim/stubs.c —\nplus three probes linked by nobody",
           fillcolor="#d7ecef", color="#0e7490", fontcolor="#155e75"];
-    headers [label="THE CONTRACT — three headers in\ncomponents/moon/include: moon.h\n16 · moon_event.h 4 · moon_assets.h 3",
+    headers [label="THE CONTRACT — three headers in\ncomponents/moon/include: moon.h\n17 · moon_event.h 4 · moon_assets.h 3",
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     core [label="THE DEFINITIONS — core + the two\nseam backends; pure C, no esp_/\nlv_ call in the math path"];
     seam [label="THE ASSET SEAM — one seam, two\nbackends — the bake's caller\nnever sees who answers",

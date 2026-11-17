@@ -193,7 +193,7 @@ with **no Kconfig mirror**: its sizes (albedo 864, relief DEM halved to
 ``TARGETS["knob"]`` row, written into its generated header and guarded
 by ``knob/CMakeLists.txt`` against its own partition table.
 
-Only *re*generate when you change the pipeline or ``MOON_ALBEDO_W`` —
+Only regenerate when you change the pipeline or ``MOON_ALBEDO_W`` —
 the sources stay cached under ``moon-kit/``, so the bake leg needs no
 network, and the root ``CMakeLists`` fails the configure
 (``FATAL_ERROR``) on a width/manifest/partition mismatch:

@@ -274,6 +274,15 @@ void moon_ui_refresh(void) { knob_ui_invalidate_all(); }
 
 void moon_ui_bake_now(int64_t utc_epoch) { (void)knob_ui_show_moon(utc_epoch); }
 
+void moon_ui_tz_changed(void) {
+    /* NO-OP: the knob's viewport is the fixed north-up bake (the
+     * knob_display posture -- its producer core owns the frame and has
+     * no observer gather wired; the clocks' UI_MOON_OBSERVER_* knobs
+     * are a moon_ui.c thing). The settings_tz roller commit still
+     * applies + persists the zone (clock component); only the moon
+     * tilt is not adopted here. */
+}
+
 void moon_ui_start(void) {
     s_started = true;
     ESP_LOGI(TAG, "moon started (static posture; the boot arm owns the phase)");

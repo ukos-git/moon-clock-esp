@@ -147,6 +147,7 @@
 #include "clock.h"
 #include "clock_idle.h"
 #include "clock_timer.h"
+#include "clock_tz.h"
 #include "imu.h"
 #include "moon.h"
 #include "moon_assets.h"
@@ -230,6 +231,23 @@ static const char *TAG = "moon_ui";
 #endif
 #ifndef CONFIG_UI_MOON_ORBIT_LPF_ALPHA
 #define CONFIG_UI_MOON_ORBIT_LPF_ALPHA 30
+#endif
+/* Observer view (the observer-view section): the north-up baked frame is
+ * gathered through the in-plane rotation at the Moon's parallactic angle
+ * for the ACTIVE timezone's reference city (moon_viewport_rot_deg, the
+ * clock_tz zone table). The 0 fallback for ENABLE follows the
+ * n-undefined rule (the Kconfig default is y). SIGN follows the
+ * UI_IMU_ANGLE_SIGN precedent: the screen handedness is not known at
+ * code level. DEADBAND: below it the plain LUT pass runs (a sub-degree
+ * gather would resample the frame for no visible tilt). */
+#ifndef CONFIG_UI_MOON_OBSERVER_ENABLE
+#define CONFIG_UI_MOON_OBSERVER_ENABLE 0
+#endif
+#ifndef CONFIG_UI_MOON_OBSERVER_SIGN
+#define CONFIG_UI_MOON_OBSERVER_SIGN 1
+#endif
+#ifndef CONFIG_UI_MOON_OBSERVER_DEADBAND_DEG
+#define CONFIG_UI_MOON_OBSERVER_DEADBAND_DEG 2
 #endif
 /* Once-per-hour moon refresh (the hourly section). All four fall back to
  * 0/off so a Kconfig "n" (which leaves the macro UNDEFINED) can never
@@ -1354,6 +1372,64 @@ static volatile int64_t s_trace_arm_us; /* producer's arm stamp (the trace's t0)
          * longer = the tick was parked (a gate) -> resume collapses to the watermark instead of                       \
          * dripping strips a parked viewer never saw */
 
+/* ---------------- observer view (UI_MOON_OBSERVER_ENABLE) ----------------
+ *
+ * The bake stays NORTH-UP (gate-validated, the TF hour cache is zone-
+ * agnostic gray); the gray->RGB565 leg gathers it through the in-plane
+ * rotation by the Moon's parallactic angle at the ACTIVE timezone's
+ * reference city -- the moon as seen standing in that city (the crescent
+ * lies down at dusk, stands up at midnight, and follows the zone's
+ * local time). moon_fill_rgb_from_frame(epoch) is the single s_rgb build
+ * leg now: every path that publishes s_frame -> s_rgb (convert, heal,
+ * hourly/replay publish, orbit) runs it with the epoch the frame was
+ * baked for, so any frame the pipeline lands carries the tilt. The
+ * reveal drip is the ONE north-up display path left -- it is therefore
+ * suppressed whenever a tilt is actually applied (the hourly cold-bake
+ * leg and the replay final fall back to the monolithic bake; the drip
+ * would otherwise show unbaked-tilt strips of the bounce).
+ * moon_ui_tz_changed() re-gathers the resting frame when the zone
+ * changes without a re-bake.
+ */
+
+/* The observer tilt for one UTC epoch: false when the feature is off,
+ * the epoch is unset (no time yet), the active zone carries no
+ * reference city (a custom POSIX zone), or |q| sits inside the dead-
+ * band (the plain LUT pass is exact there; the gather would resample
+ * the frame for no visible tilt). q is deg, sign already folded
+ * through CONFIG_UI_MOON_OBSERVER_SIGN (screen handedness knob). */
+static bool moon_observer_theta(int64_t epoch, float *deg) {
+    if (!CONFIG_UI_MOON_OBSERVER_ENABLE || epoch <= 0)
+        return false;
+    float lat, lon;
+    if (!clock_tz_observer(&lat, &lon))
+        return false;
+    float q = (float)CONFIG_UI_MOON_OBSERVER_SIGN * moon_viewport_rot_deg(epoch, lat, lon);
+    float aq = (q < 0.0f) ? -q : q;
+    if (aq <= (float)CONFIG_UI_MOON_OBSERVER_DEADBAND_DEG)
+        return false;
+    *deg = q;
+    return true;
+}
+
+/* Fill s_rgb from s_frame: the plain gray->565 LUT pass, or the
+ * observer gather when the zone's city carries a tilt at this epoch.
+ * moon_rotate rides the same gray->565 LUT internally (event tint
+ * included) and blacks the corners the rotation pulls in from outside
+ * the square (the disk margin makes that invisible). CALLER HOLDS
+ * s_rgb_mtx (non-reentrant, like every other s_rgb writer). */
+static void moon_fill_rgb_from_frame(int64_t epoch) {
+    float q;
+    if (moon_observer_theta(epoch, &q)) {
+        const float rad = q * (float)M_PI / 180.0f;
+        const int32_t c15 = (int32_t)lroundf(cosf(rad) * 32768.0f);
+        const int32_t s15 = (int32_t)lroundf(sinf(rad) * 32768.0f);
+        moon_rotate(s_frame, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, c15, s15);
+        return;
+    }
+    for (int i = 0; i < MOON_PX * MOON_PX; i++)
+        s_rgb[i] = moon_gray565(s_frame[i]);
+}
+
 #if CONFIG_UI_MOON_BAKE_REVEAL
 
 /* Heal the last committed frame over a half-revealed square: full
@@ -1365,8 +1441,11 @@ static volatile int64_t s_trace_arm_us; /* producer's arm stamp (the trace's t0)
 static void moon_reveal_restore(void) {
     s_reveal_dirty = false;
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    for (int i = 0; i < MOON_PX * MOON_PX; i++)
-        s_rgb[i] = moon_gray565(s_frame[i]);
+    moon_fill_rgb_from_frame(s_orbit_epoch); /* the committed frame's epoch
+                                              * (observer tilt applies --
+                                              * though an active tilt keeps
+                                              * the reveal suppressed, so
+                                              * this is the plain pass) */
     moon_invalidate_all();
     lv_refr_now(NULL);
     xSemaphoreGive(s_rgb_mtx);
@@ -1486,8 +1565,7 @@ static void moon_bake_reveal_service(void) {
                                * designed exits; this catches a producer that
                                * died with strips up (screen left mid-reveal --
                                * healed on the way back) */
-            for (int i = 0; i < MOON_PX * MOON_PX; i++)
-                s_rgb[i] = moon_gray565(s_frame[i]);
+            moon_fill_rgb_from_frame(s_orbit_epoch);
             s_reveal_dirty = false;
             moon_invalidate_all();
             lv_refr_now(NULL);
@@ -1570,9 +1648,11 @@ static void moon_bake_reveal_service(void) {
 }
 #endif /* CONFIG_UI_MOON_BAKE_REVEAL */
 
-/* Static (angle-0) display of the baked frame: the 8-bit bake maps
- * straight to the RGB565 buffer through the LUT -- no gather. Used for
- * the first display and after every re-bake (day rollover / wake).
+/* Display of the baked frame: the 8-bit bake maps to the RGB565 buffer
+ * through the LUT -- or through the observer-view gather when the
+ * ACTIVE timezone's city tilts this frame (s_orbit_epoch, the observer-
+ * view section; the bake itself stays north-up). Used for the first
+ * display and after every re-bake (day rollover / wake).
  * Under the buffer mutex like every other s_rgb writer, so it cannot
  * race a pipeline's row-wise rewrite. The fresh frame is DISPLAYED
  * here, atomically (one whole-panel flush): the invalidate alone would
@@ -1581,8 +1661,7 @@ static void moon_bake_reveal_service(void) {
  * re-bake. */
 static void moon_convert_to_rgb(void) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    for (int i = 0; i < MOON_PX * MOON_PX; i++)
-        s_rgb[i] = moon_gray565(s_frame[i]);
+    moon_fill_rgb_from_frame(s_orbit_epoch);
     moon_invalidate_all();
     /* Atomic flush only on the LVGL task (8 KB stack). This runs on the
      * 3.5 KB main task at boot (moon_ui_start -> moon_bake_epoch), where
@@ -1820,12 +1899,19 @@ static void moon_hourly_task(void *arg) {
 #if CONFIG_UI_MOON_BAKE_REVEAL
         /* Reveal the computation (the reveal section): the same bake,
          * strip by strip with a watermark the tick displays -- the panel
-         * is dark for the fade window only, not for the whole bake. */
-        moon_reveal_bake(REVEAL_HOURLY, &g, alb, grel, bev, NULL);
-#else
-        moon_bake(&g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
-                  MOON_ALB_H, 1, 0.0f, bev);
+         * is dark for the fade window only, not for the whole bake.
+         * Observer view: when the zone's city tilts this epoch the drip
+         * would display NORTH-UP strips of the bounce (the gather runs
+         * at publish), so the cold-bake leg takes the monolithic path
+         * instead -- the frame still lands as the done leg's one atomic
+         * flush behind the fade. */
+        float obs_q;
+        if (!moon_observer_theta(epoch, &obs_q))
+            moon_reveal_bake(REVEAL_HOURLY, &g, alb, grel, bev, NULL);
+        else
 #endif
+            moon_bake(&g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
+                       MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
 #if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
         if (tfcache_ready()) {
             tfcache_store(hour, s_hourly_gray, MOON_PX); /* write-through */
@@ -1835,11 +1921,12 @@ static void moon_hourly_task(void *arg) {
     }
     /* Publish: ONE guarded block replaces the whole frame (s_frame + s_rgb),
      * so no reader ever sees a half-written frame (same rule as
-     * moon_bake_epoch). s_rgb_mtx held; no flush here (the tick shows it). */
+     * moon_bake_epoch). s_rgb_mtx held; no flush here (the tick shows it).
+     * The observer gather runs at the hour centre (the epoch this frame
+     * was baked for) -- the tilt belongs to the frame, not the moment. */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
-    for (int i = 0; i < MOON_PX * MOON_PX; i++)
-        s_rgb[i] = moon_gray565(s_frame[i]);
+    moon_fill_rgb_from_frame(epoch);
     xSemaphoreGive(s_rgb_mtx);
     s_frame_stale = false;
     s_orbit_epoch = epoch; /* a later orbit peek re-bakes this same phase */
@@ -2102,11 +2189,13 @@ static void moon_boot_replay_task(void *arg) {
              * hourly publish shape). NO s_orbit_epoch here -- replay
              * frames are HISTORIC phases; only the final bake may move
              * it (an orbit peek after an aborted replay must not re-bake
-             * a stored hour's phase). */
+             * a stored hour's phase). The observer gather rides the
+             * hour CENTRE the frame was baked at (the hourly producer's
+             * key), so the animation tilts each historic frame the way
+             * the city saw it then. */
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
-            for (int j = 0; j < MOON_PX * MOON_PX; j++)
-                s_rgb[j] = moon_gray565(s_frame[j]);
+            moon_fill_rgb_from_frame(hours[i] * 3600 + 1800);
             xSemaphoreGive(s_rgb_mtx);
             s_frame_stale = false;
             s_replay_show = true;
@@ -2136,19 +2225,28 @@ static void moon_boot_replay_task(void *arg) {
         moon_geom_t g;
         moon_geometry(now, &g);
         const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief();
+        bool aborted_mid = false;
 #if CONFIG_UI_MOON_BAKE_REVEAL
         /* The reveal rides the "during re-calculation" leg (the reveal
          * section): with no usable cache this IS the boot display -- the
          * moon draws itself over the boot black at the bake rate instead
          * of the panel waiting ~1.3-2.4 s for it. The mid-bake abort
          * check is the reveal's alone -- the monolithic bake below never
-         * checked (today's posture: a late abort still published). */
-        moon_reveal_bake(REVEAL_REPLAY_FINAL, &g, moon_albedo(), grel, bev, &s_replay_abort);
-        const bool aborted_mid = s_replay_abort;
+         * checked (today's posture: a late abort still published).
+         * Observer view: with the zone's city tilting this epoch the
+         * drip would animate NORTH-UP strips (the gather runs at
+         * publish), so the leg bakes monolithically instead. */
+        float obs_q;
+        if (!moon_observer_theta(now, &obs_q)) {
+            moon_reveal_bake(REVEAL_REPLAY_FINAL, &g, moon_albedo(), grel, bev, &s_replay_abort);
+            aborted_mid = s_replay_abort;
+        } else {
+            moon_bake(&g, moon_albedo(), grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2),
+                      (float)(MOON_PX / 2), MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
+        }
 #else
         moon_bake(&g, moon_albedo(), grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                   MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
-        const bool aborted_mid = false;
 #endif
         if (aborted_mid) { /* stopped mid-reveal (sleep hand-off): the bounce
                             * holds partial rows -- do NOT publish;
@@ -2160,8 +2258,8 @@ static void moon_boot_replay_task(void *arg) {
         } else {
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
             memcpy(s_frame, s_hourly_gray, (size_t)MOON_PX * MOON_PX);
-            for (int i = 0; i < MOON_PX * MOON_PX; i++)
-                s_rgb[i] = moon_gray565(s_frame[i]);
+            moon_fill_rgb_from_frame(now); /* the now-frame carries the
+                                            * city's tilt at NOW */
             xSemaphoreGive(s_rgb_mtx);
             s_frame_stale = false;
             s_orbit_epoch = now; /* orbit peeks re-bake this same phase */
@@ -2242,22 +2340,17 @@ static void moon_orbit_task(void *arg) {
     const moon_bake_ev_t *bev = moon_event_any(&ev) ? &ev : NULL;
     int64_t t0 = esp_timer_get_time();
     for (int y = 0; y < MOON_PX && !s_orbit_cancel; y++) {
-        /* One lock per row: this replaces the WHOLE frame (s_frame + the
-         * s_rgb sweep), so every reader that blocks on the mutex sees
-         * each new row only after it is complete, and can never tear the
-         * sweep. The short per-row critical sections also keep the bake
-         * yielding often, so a cancel is honored quickly. */
+        /* One lock per row: this replaces the WHOLE frame (s_frame first,
+         * then s_rgb in the single convert block below), so every reader
+         * that blocks on the mutex sees each new row only after it is
+         * complete. The short per-row critical sections also keep the
+         * bake yielding often, so a cancel is honored quickly. */
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
         moon_bake_rows(&g, alb, grel, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2), MOON_ALB_W,
                        MOON_ALB_H, y, y + 1, 1, 0.0f, bev); /* dark_zero (T3); dk_sup 0.0f = the plain d < 0
                                                               terminator (the true orbit phase); bev = the
                                                               blood-moon occlusion (same phase as the last
                                                               static bake) */
-        /* Fixed viewport: the row maps straight to RGB565 (no rotation). */
-        const uint8_t *frow = &s_frame[(size_t)y * MOON_PX];
-        uint16_t *rrow = &s_rgb[(size_t)y * MOON_PX];
-        for (int x = 0; x < MOON_PX; x++)
-            rrow[x] = moon_gray565(frow[x]);
         xSemaphoreGive(s_rgb_mtx);
         if ((y & 15) == 15)
             vTaskDelay(1); /* a FULL tick (10 ms at HZ=100): pdMS_TO_TICKS(1)
@@ -2268,6 +2361,15 @@ static void moon_orbit_task(void *arg) {
     }
     int64_t t1 = esp_timer_get_time();
     if (!s_orbit_cancel) {
+        /* Convert the finished frame in ONE guarded block: the observer
+         * gather samples the WHOLE s_frame, so it must not run while
+         * rows are still being baked (the old per-row straight convert
+         * could not gather -- the s_rgb content it wrote is identical
+         * when no tilt applies, the plain LUT pass runs then). The tick
+         * sweep only starts once s_orbit_pub opens below. */
+        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+        moon_fill_rgb_from_frame(epoch);
+        xSemaphoreGive(s_rgb_mtx);
         s_orbit_pub = MOON_PX;      /* the tick sweeps the finished frame in */
         s_orbit_baked = target_deg; /* the on-screen frame IS this viewport */
         s_frame_stale = false;      /* the frame is complete and consistent */
@@ -2874,6 +2976,40 @@ void moon_ui_bake_now(int64_t utc_epoch) {
         return;
     s_baked_day = utc_epoch / 86400;
     moon_bake_epoch(utc_epoch);
+}
+
+void moon_ui_tz_changed(void) {
+    /* The observer-view re-gather on a zone change (the settings_tz
+     * commit, LVGL task): the phase did not move, only the city the
+     * frame is shown FROM -- re-fill s_rgb from the resting s_frame at
+     * its own epoch (which also heals the other direction: a tilted
+     * frame from the old zone falls back to the plain LUT pass when the
+     * new zone's q sits in the dead-band). */
+    if (!CONFIG_UI_MOON_OBSERVER_ENABLE || !s_ready || !s_started)
+        return;
+    /* A pipeline owns s_frame/s_rgb (or its result is still owed its
+     * atomic show / a heal): its publish leg already gathers with the
+     * ACTIVE zone -- the producers re-read it at produce time -- so
+     * nothing is owed here. Bail rather than tear its buffers. */
+    if (s_orbit_epoch <= 0 || s_frame_stale || s_orbit_baking || s_orbit_sweeping || s_rebake_baking ||
+        s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed || moon_ui_replaying() ||
+        s_reveal_owner != REVEAL_NONE || s_reveal_dirty)
+        return;
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    moon_fill_rgb_from_frame(s_orbit_epoch);
+    moon_invalidate_all();
+    /* The atomic whole-panel flush only when the moon is what the panel
+     * actually shows (the commit rides the settings screen -- there the
+     * refreshed image rides the screen-switch's atomic flush on the way
+     * back to home, and lv_refr_now would pay a full drain for pixels
+     * behind another screen). */
+    const bool flush = s_moon_screen && moon_on_lvgl() && !panel_hold_live() && !s_fade_pending && !s_fade_busy;
+    if (flush)
+        lv_refr_now(NULL);
+    xSemaphoreGive(s_rgb_mtx);
+    if (flush)
+        moon_panel_drain_verify("tz re-gather");
+    ESP_LOGI(TAG, "tz re-gather: observer view re-applied (%s)", flush ? "flushed" : "deferred to switch");
 }
 
 void moon_ui_start(void) {

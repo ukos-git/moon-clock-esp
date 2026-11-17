@@ -144,6 +144,8 @@ EXPECTED = {
            "UI_CLOCK_ROLL_SIGN", "UI_ORI_BASE_V10", "UI_MOON_ORBIT_ENABLE",
            "UI_MOON_ORBIT_MAX_DEG", "UI_MOON_ORBIT_STEP_DEG",
            "UI_MOON_ORBIT_DEADZONE_DEG", "UI_MOON_ORBIT_LPF_ALPHA",
+           "UI_MOON_OBSERVER_ENABLE", "UI_MOON_OBSERVER_SIGN",
+           "UI_MOON_OBSERVER_DEADBAND_DEG",
            "UI_SCREEN_SWITCH_FADE"],
     "CLOCK": ["CLOCK_USE_PCF85063A", "CLOCK_TIME_FORMAT_24H", "CLOCK_TIME_FORMAT_12H",
               "CLOCK_DEFAULT_TIMEZONE", "CLOCK_NTP_SERVER",
@@ -311,7 +313,7 @@ def category(name: str, menu: str) -> str:
 CAT = {"alive": "alive", "clock-only": "silent", "dead": "dead",
        "configure": "configure", "registry": "registry", "s3-only": "s3-only"}
 EXPECTED_CAT = {
-    # 42 UI: twelve are read by files every build compiles (actions.c,
+    # 45 UI: twelve are read by files every build compiles (actions.c,
     # screens.c, settings_store.c, and — fade — even the knob's own
     # knob_moon_render.c); the moon/orbit/reveal block and the main-only
     # TEST hooks are silent on the knob; two are read nowhere.
@@ -420,12 +422,14 @@ for n in parsed[BSP_SOURCE]:
 
 # ------------------------------------------------------------- the runtime layer
 store = _read("components/clock/settings_store.c")
-parse_keys = set(re.findall(r'parse_kv\(line,\s*"([a-z_]+)"', store))
+parse_keys = set(re.findall(r'parse_kv(?:_str)?\(line,\s*"([a-z_]+)"', store))
 save_keys = set(re.findall(r'"([a-z_]+) = %', store))
 KEYS = ["idle_timeout_sec", "deep_sleep_countdown_sec", "boot_anim_enable",
-        "dusk_anim_enable", "timezone_idx", "alarm_sound_id",
+        "dusk_anim_enable", "timezone", "alarm_sound_id",
         "display_rotation_deg"]
-if parse_keys != set(KEYS) or save_keys != set(KEYS):
+# the parser additionally accepts the RETIRED numeric timezone_idx (the
+# pre-2026-11-17 key, migrated once at load and never re-saved)
+if parse_keys != set(KEYS) | {"timezone_idx"} or save_keys != set(KEYS):
     raise SystemExit(f"settings.txt keys drifted: parse={sorted(parse_keys)} "
                      f"save={sorted(save_keys)} — the right panel draws "
                      f"exactly these seven")
@@ -434,7 +438,7 @@ SEEDS = {
     "deep_sleep_countdown_sec": ("#ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC", "kconfig"),
     "boot_anim_enable": ("#ifndef CONFIG_UI_MOON_ANIM_ENABLE", "ghost"),
     "dusk_anim_enable": ("#ifndef CONFIG_UI_MOON_DUSK_ENABLE", "ghost"),
-    "timezone_idx": ("static int s_timezone_idx = CLOCK_TZ_BERLIN_IDX", "const"),
+    "timezone": ('static char s_timezone[40] = CONFIG_CLOCK_DEFAULT_TIMEZONE', "kconfig"),
     "alarm_sound_id": ("static int s_alarm_sound_id = SETTINGS_ALARM_SOUND_DEFAULT", "const"),
     "display_rotation_deg": ("static int s_display_rotation_deg = SETTINGS_DISPLAY_ROT_DEFAULT",
                              "const"),
@@ -465,7 +469,7 @@ screens_txt = _read("components/ui/screens.c")
 WRITERS = {
     "idle_timeout_sec": "settings_set_idle_timeout_sec(sec)",
     "deep_sleep_countdown_sec": "settings_set_deep_sleep_countdown_sec(sec)",
-    "timezone_idx": "settings_set_timezone_idx((int)sel)",
+    "timezone": "settings_set_timezone(z->name)",
     "alarm_sound_id": "settings_set_alarm_sound_id((int)sel)",
     "display_rotation_deg": "settings_set_display_rotation_deg(s_display_deg)",
 }
@@ -493,7 +497,7 @@ for ghost in ("settings_boot_anim_enable", "settings_dusk_anim_enable"):
         raise SystemExit(f"{ghost}() is suddenly read by {sorted(rs)} — the "
                          f"ghost row's 'nothing reads them' is dead")
 for live in ("settings_idle_timeout_sec", "settings_deep_sleep_countdown_sec",
-             "settings_timezone_idx", "settings_alarm_sound_id",
+             "settings_timezone", "settings_alarm_sound_id",
              "settings_display_rotation_deg"):
     rs = {rel for rel, txt in C_SRC
           if re.search(rf"\b{live}\(\)", txt) and "settings_store" not in rel}
@@ -608,9 +612,9 @@ KEY_ROWS = [
     ("deep_sleep_countdown_sec", "settings deep-sleep", "kconfig", True, True,
      f"screens.c:{line_of(WRITERS['deep_sleep_countdown_sec'], 'deep-sleep timeout')} "
      "· clamp 60..1800 s"),
-    ("timezone_idx", "settings-tz", "const", True, True,
-     f"screens.c:{line_of(WRITERS['timezone_idx'], 'timezone commit')} "
-     "· 0..CLOCK_TZ_COUNT"),
+    ("timezone", "settings-tz", "kconfig", True, True,
+     f"screens.c:{line_of(WRITERS['timezone'], 'timezone commit')} "
+     "· IANA name (clock_tz table)"),
     ("alarm_sound_id", "settings-alarm-sound", "const", True, True,
      f"screens.c:{line_of(WRITERS['alarm_sound_id'], 'alarm-sound commit')} "
      "· < ALARM_SOUND_COUNT 4"),

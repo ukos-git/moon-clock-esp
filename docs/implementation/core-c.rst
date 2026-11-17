@@ -145,6 +145,9 @@ it — and each of those has its section further down this page.
   │   └── moon_assets.h   — the albedo/DEM embedded assets + loaders
   └── core/
       ├── moon_astro.c    — moon_geometry: ERFA ephemeris -> moon_geom_t
+      ├── moon_viewport.c — moon_viewport_rot_deg: the parallactic
+      │                     angle for one city + instant (the observer
+      │                     view's angle; ERFA + topocentric)
       ├── moon_bake.c     — moon_bake/moon_reproject/shade map + the
       │                     relief gradient cache (the hot path)
       ├── moon_render.c   — moon_rotate (Q15.15 gather) + the gray->565
@@ -159,6 +162,8 @@ The public surface is deliberately small:
    :caption: components/moon/include/moon.h (abridged)
 
    void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
+   float moon_viewport_rot_deg(int64_t utc_epoch, float lat_deg,
+                               float lon_deg);  /* the observer-view q */
    const uint8_t *moon_albedo(void);
    moon_grel_t *moon_relief(void);                       /* builds the cache once */
    void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *grel,
@@ -226,6 +231,26 @@ do: no trigonometric libm calls on the hot path (the ephemeris itself
 uses ``sinf``/``cosf`` in tabled or inline form), no allocation, no
 globals. The core is stateless except for two lazily built tables in
 ``moon_bake.c``.
+
+The observer viewport step
+--------------------------
+
+**The short version.** Geometry answers *what the Moon looks like*;
+it knows nothing about who is looking. The view from the active
+timezone's reference city is one more small step:
+``moon_viewport_rot_deg`` (:cfile:`components/moon/core/moon_viewport.c`)
+takes a UTC instant and the zone's reference lat/lon and answers the
+Moon's **parallactic angle** — the turn the UI's ``moon_rotate``
+gather applies to the north-up frame so the disk shows as an observer
+standing there sees it. It is astronomy, not rendering: the IAU-2000
+Earth Rotation Angle (eraMoon98 answers in ICRF — a GMST reckoning
+would silently add ~0.34° of accumulated precession), a *topocentric*
+Moon direction (the observer's geocentric vector subtracted,
+spherical Earth), then the ``atan2`` of the hour-angle triangle. It
+runs once per publish for microseconds, and it is stateless like the
+rest of the core; its golden test against astropy 8 (16 entries,
+max \|Δ\| 0.29°) lives in :cfile:`host_sim/viewport_test.c`
+(:doc:`the observer view <observer-view>`).
 
 The lookup tables
 ------------------

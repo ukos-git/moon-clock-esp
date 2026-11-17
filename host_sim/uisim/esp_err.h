@@ -11,6 +11,9 @@ typedef int esp_err_t;
 #define ESP_FAIL -1
 #define ESP_ERR_TIMEOUT -2
 #define ESP_ERR_NOT_FOUND -3
+/* clock_tz.c's argument guards (true IDF values) */
+#define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_INVALID_STATE 0x103
 
 #ifdef __cplusplus
 extern "C" {

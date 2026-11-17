@@ -968,10 +968,10 @@ BSP_LCD_BITS_PER_PIXEL / 8`` (``:501``) with ``buffer_height`` the same
 the "one strip = one buffer = one QSPI transfer" fact of the NO_MEM
 fix), and the knob's ``max_transfer_sz`` formula (``knob_board_display.c:243``)
 carries the clock board's lesson in its own comment. The P4's 72,000 B
-DPI transaction — the cited 50-row buffer (``moon_ui.c:193``, hatched)
+DPI transaction — the cited 50-row buffer (``moon_ui.c:194``, hatched)
 — towers over the line: a cap its bus never has, which is exactly why
 its 130-row strip height is "a pacing choice, not a hard limit"
-(``moon_ui.c:191``'s own words). Every parsed constant carries its
+(``moon_ui.c:192``'s own words). Every parsed constant carries its
 ``file:line`` as a bar annotation; the per-transaction command overhead
 the raw floor excludes is the vendored BSP's own "*only* the
 per-transaction command overhead goes up slightly". The bytes the
@@ -1175,15 +1175,15 @@ parsers die when a source drifts.
 - **The hourly producer is the churn: 48 media operations a day.**
   ``UI_MOON_HOURLY_ENABLE`` / ``UI_MOON_HOURLY_TFCACHE`` /
   ``UI_MOON_TFCACHE`` are all ``default y``
-  (``components/ui/Kconfig:137/:169/:271``), so the steady state is one
+  (``components/ui/Kconfig:153/:185/:287``), so the steady state is one
   ``tfcache_store`` write-through per new hour
-  (``components/ui/moon_ui.c:1755`` — the ONLY store call site, and
+  (``components/ui/moon_ui.c:1917`` — the ONLY store call site, and
   the parser asserts it sits inside its
   ``#if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE``
   guard) plus ~24 eviction unlinks a day once the 709-file window is
   full: ``cache_floor`` (``moon_tfcache.c:693``) walks one hour per
   hour, so one file per hour falls below it, and the producers call
-  ``tfcache_evict`` every hour (``moon_ui.c:1728/:1756``; the store's
+  ``tfcache_evict`` every hour (``moon_ui.c:1883/:1918``; the store's
   own ``> 24``-hour gate, ``moon_tfcache.c:684`` — "one scan per day
   of new hours" — just guarantees the scan even when the producers
   idle). ``meta.txt`` rewrites ride the new-moon crossing — **one per
@@ -1193,13 +1193,13 @@ parsers die when a source drifts.
   ``meta_write`` site fires once per fresh/wiped folder.
 - **The most frequent write is the cheapest — and the RTC decides who
   pays it.** The 15-minute NVS epoch snapshot
-  (``CLOCK_NVS_SAVE_INTERVAL_SEC`` 900, ``clock_sntp.c:52`` — the
+  (``CLOCK_NVS_SAVE_INTERVAL_SEC`` 900, ``clock_sntp.c:51`` — the
   code's comment: "one commit per quarter hour") fires from the minute
   tick (``clock_interrupt.c:171``, its ONLY caller): **96 commits/day**
   of an 8-byte ``int64`` (``nvs_set_i64`` + ``nvs_commit``), plus one
   forced save per SNTP sync — but only on the RTC-less boards. The
   whole ``clock_nvs_*`` family sits under ``#if
-  !CONFIG_CLOCK_USE_PCF85063A`` (``clock_sntp.c:45``) and the calling
+  !CONFIG_CLOCK_USE_PCF85063A`` (``clock_sntp.c:44``) and the calling
   minute-tick branch lives inside the same guard's RTC-less block in
   ``clock_interrupt.c`` (:124 to the ``#else`` at :200) — the S3's
   built ``sdkconfig.h`` defines the RTC, so **the S3's daily NVS bill
@@ -1213,10 +1213,10 @@ parsers die when a source drifts.
   ``alarm.txt``'s writer (``clock_alarm_scheduler_write``,
   ``clock_alarm_scheduler.c:504``) has **zero call sites repo-wide**:
   the file belongs to the spiffs image, not the runtime.
-  ``settings.txt`` — 2 comment + 7 key lines, 265 B computed from the
+  ``settings.txt`` — 2 comment + 7 key lines, 273 B computed from the
   asserted ``fprintf`` template — is written only by four
-  settings-screen actions (sleep ``screens.c:1439``, timezone
-  ``:3086``, alarm sound ``:3168``, display trim ``:3298``) and the
+  settings-screen actions (sleep ``screens.c:1426``, timezone
+  ``:3097``, alarm sound ``:3181``, display trim ``:3311``) and the
   TEST settings demo
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
   provisioning wheel's commit (``screens.c:2321``, its single caller,
@@ -1251,7 +1251,7 @@ frequencies, and deliberately contribute zero to the day bar.
    legs are annotated where their bars are absent (the RTC ``#if``,
    the ``KNOB_BOARD`` source exclusion). **Right:** bytes per ONE
    write, log — the 8-byte NVS value, the 87 B credentials write, the
-   265 B settings rewrite, the ~82 B meta rewrite (both boards'
+   273 B settings rewrite, the ~82 B meta rewrite (both boards'
    asserted templates), the 64 K coredump partition bound, and the
    encoder's own file bound ``S²+S²/2+1024`` — 241,024 B at 400 px,
    634,774 B at 650 (hatched: the storage ladder's twin, never a
@@ -1382,25 +1382,26 @@ tools built per target — ``moon_sim`` ×3, ``moon_bench`` ×3, the uisim
 ×3 (the gate and the bench are one ``add_executable`` pair configured
 once per target dir, so every moon source is compiled three times over
 on the host alone). **Left**, one bar per source (or family of
-sources): the 16 portable-core TUs — five math plus eleven vendored
+sources): the 17 portable-core TUs — six math plus eleven vendored
 ERFA — are the only repo-owned files that touch the dotted
 "every image" line at 12/12; the vendored LVGL's 412 TUs (cited,
 hatched) stop at 6 (firmwares + uisims, the sim/bench never link it);
 the four ``UI_BOARD_SRCS`` top out at **2**. **Right**, the same
 model read per image — repo-owned TUs per link image, recomputed from
-the rows and asserted: S3 **47**, P4 **47**, knob **57**, each sim
-**19**, each bench **19**, each uisim **31** (+412 vendored). Every
+the rows and asserted: S3 **48**, P4 **48**, knob **58**, each sim
+**20**, each bench **20**, each uisim **32** (+412 vendored). Every
 count is parsed at figure time from ``components/moon/CMakeLists.txt``,
 ``host_sim/CMakeLists.txt``, ``host_sim/uisim/build.sh``, the four
 shared component ``CMakeLists``, and the knob's component listing —
 and the parser asserts the three core source lists are **name-for-name
 equal** (the "shared verbatim" invariant made mechanical: if a host
 list drifts from the component list, the figure refuses to draw), that
-the two probes are tracked-but-never-linked, and that the font tiers
+the throwaway probes stay off the build (the two proven ones also
+tracked in git), and that the font tiers
 are 7 files each with identical names.
 
 .. figure:: ../_static/figs/perf_share.png
-   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the sixteen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the two throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 47, P4 47, knob 57, each sim 19, each bench 19, each uisim 31 with a plus-412-vendored annotation
+   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the seventeen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the three throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 48, P4 48, knob 58, each sim 20, each bench 20, each uisim 32 with a plus-412-vendored annotation
    :figclass: align-center
 
    **Left:** the file side — who compiles this, with the "every
@@ -1410,7 +1411,7 @@ are 7 files each with identical names.
    four the knob drops; violet the knob's own fifteen; teal the host
    tools' own files; the grey hatched row is the cited 412-TU LVGL
    walk (``drivers/`` excluded, counted from the uisim's own find);
-   the dashed ghost at zero is the throwaway pair. **Right:** the
+   the dashed ghost at zero is the throwaway trio. **Right:** the
    image side — the same rows summed per link image, never
    hand-summed: three firmwares, three gates, three benches, three
    screenshot rigs.
@@ -1418,8 +1419,8 @@ are 7 files each with identical names.
 Three counting facts the census's part-view cannot show:
 
 - **The core is the family's only everywhere-code, and the figure is
-  its guard.** 16 of the ~47 repo-owned TUs in a device image belong
-  to ``components/moon/core`` — five math files and eleven public-
+  its guard.** 17 of the ~48 repo-owned TUs in a device image belong
+  to ``components/moon/core`` — six math files and eleven public-
   domain ERFA files — and they are the ONLY repo-owned files compiled
   into all twelve images. The parser reads the core list out of three
   places (the component's ``SRCS``, ``host_sim/CMakeLists.txt``'s
@@ -1427,7 +1428,7 @@ Three counting facts the census's part-view cannot show:
   three are name-for-name equal, so the "shared verbatim" promise the
   project instructions make is now also a *figure-time* promise.
 - **The knob builds the largest repo-owned image while re-using the
-  least of itself.** 57 TUs beat the clocks' 47 — the shared clock's
+  least of itself.** 58 TUs beat the clocks' 48 — the shared clock's
   whole 11-TU body arrives through ``EXTRA_COMPONENT_DIRS``, plus the
   knob's fifteen own files, plus the inherited core and UI. Yet the
   violet row tops out at **1**: nothing knob-owned compiles twice,
@@ -1436,15 +1437,16 @@ Three counting facts the census's part-view cannot show:
   finding mirrored: the smallest screen carries the biggest menu *and*
   the biggest one-shot image.
 - **Screenshots are the most expensive host artefact — and the dead
-  code's bill is exactly zero.** Each uisim panel compiles 31
+  code's bill is exactly zero.** Each uisim panel compiles 32
   repo-owned TUs *plus* the 412-TU vendored LVGL (cited), so the
   docs' three panel sets cost 1,236 vendored compiles, while
   ``moon_sim``/``moon_bench`` — the image gate's own numbers — link
-  no LVGL at all. And the two tracked throwaway probes
-  (``dark_test.c``, ``newmoon_test.c``, plus a stale gitignored
-  ``pole_test`` ELF that is all the third ever left) draw the dashed
-  ghost bar at **0**: tracked by git, called in code, linked by
-  nobody.
+  no LVGL at all. And the throwaway probes
+  (``dark_test.c``, ``newmoon_test.c`` and the tz wave's
+  ``viewport_test.c``, plus a stale gitignored ``pole_test`` ELF that is
+  all an even earlier probe ever left) draw the dashed ghost bar at
+  **0**: never linked — the proven pair tracked by git and called in
+  code, ``viewport_test.c`` joining them with the wave's commit.
 
 The sharing ladder is the census's transpose and the surface sketch's
 ledger: :ref:`the surface in one picture <c-api-surface>` names who
@@ -1468,13 +1470,13 @@ census's silence, re-counted for the menu), and the whole layer the
 configuration option is the product's cheapest component and its
 most numerous — and it can be silent four different ways.
 
-**Left: what each menu hands over.** The shared 52 (UI 42 + CLOCK 9 +
+**Left: what each menu hands over.** The shared 55 (UI 45 + CLOCK 9 +
 MOON 1, every name parsed from the five first-party Kconfigs) sit
 under every bar; on top of them the S3 carries the clock's BOARD menu
 (5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
-file, counted not curated) for **69**; the P4 excludes that BSP by
-name and lands at **57**; the knob answers with 52 shared + 30
-knob-native across its six shim menus for **82**. The counting is
+file, counted not curated) for **72**; the P4 excludes that BSP by
+name and lands at **60**; the knob answers with 55 shared + 31
+knob-native across its six shim menus for **86**. The counting is
 per-file and name-for-name: the generator SystemExits if a single
 option is added, renamed or removed in any of the ten Kconfig files.
 
@@ -1486,8 +1488,8 @@ is therefore silent *on the knob*; steel names a CMakeLists guard
 dark-grey hatch a key read by no C at all (the three ``int``
 esp_hosted manifest guards, whose only consumer is the registry's
 if-clause parser), pale-grey dots read by nobody anywhere. The
-ledger's numbers: **28 of the 42 UI entries and 1 of the 9 CLOCK
-entries compile to silence on the knob** — 29 of the 52 the knob
+ledger's numbers: **31 of the 45 UI entries and 1 of the 9 CLOCK
+entries compile to silence on the knob** — 32 of the 55 the knob
 inherits are clock-private. Five entries are dead letters
 repo-wide: the two ``CLOCK_TIME_FORMAT_*`` (the 12/24 h choice is
 runtime — no C ever reads them), ``UI_IMU_ROLL_OFFSET_DEG`` (the
@@ -1507,9 +1509,9 @@ gates its fade-to-black on.
 keys** on ``settings.txt``. Five are live: two screen-written
 timeouts (``screens.c:1423``/:1421, both clamped to 60..1800 s by
 the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the timezone
-(``screens.c:3085``), the alarm sound (``screens.c:3167``, range
+(``screens.c:3096``), the alarm sound (``screens.c:3180``, range
 twin asserted against ``ALARM_SOUND_COUNT`` 4) — and the display
-trim added for the wall mount (``screens.c:3297``, parsed-clamped
+trim added for the wall mount (``screens.c:3310``, parsed-clamped
 0..359°, seeded from ``SETTINGS_DISPLAY_ROT_DEFAULT`` 0). Two are ghosts —
 ``boot_anim_enable`` and ``dusk_anim_enable``, parsed and re-saved
 *only so a stale card must not break parsing* (the store's own
@@ -1519,13 +1521,13 @@ dots are grey because the ``#ifndef`` beside them names a macro no
 Kconfig defines anymore.
 
 .. figure:: ../_static/figs/perf_config.png
-   :alt: three panels — stacked menuconfig-entry bars per board (S3 69 with the hatched vendored BSP, P4 57, knob 82 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a seven-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
+   :alt: three panels — stacked menuconfig-entry bars per board (S3 72 with the hatched vendored BSP, P4 60, knob 86 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a seven-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
    :figclass: align-center
 
    **Left:** one bar per board (legend below the figure); the shared
-   50 under every bar, the S3's hatched BSP tail drawn only there,
+   55 under every bar, the S3's hatched BSP tail drawn only there,
    the knob's six violet shim segments at the end. **Middle:** one
-   row per menu, coloured by who reads it — the amber 27 is the UI
+   row per menu, coloured by who reads it — the amber 31 is the UI
    menu's knob-inert majority, the pale 2s the dead letters, the
    dark-grey hatch the three registry guard keys. **Right:** a
    filled dot = the column's claim holds; the two ghost rows hang
@@ -1665,7 +1667,7 @@ value is parsed at figure time with SystemExit-failing parsers:
 ``MOON_ALB_W``/``MOON_ALB_H``/``MOON_DEM_W``/``MOON_DEM_H`` from all
 three generated ``moon_consts.h`` (and asserted equal to the widths the
 bake comment itself quotes), the ``MOON_PX`` pair from
-``moon_ui.c:174-178`` with the ``MOON_R = MOON_PX/2`` shape assert, the
+``moon_ui.c:175-179`` with the ``MOON_R = MOON_PX/2`` shape assert, the
 knob's shared-home disk radius parsed out of
 ``knob_ui_set_disk_geom(150.0f, …)`` (``knob_moon_render.c:178`` —
 150, not recalled), the panel sizes from ``BSP_LCD_H_RES``, the P4's
@@ -1812,7 +1814,7 @@ milliseconds. None of them has priced the **population** — the LVGL
 objects that exist at boot, before a finger has touched anything.
 This ladder counts it out of ``screens.c``: seventeen detached roots
 and **265 object instances** (266 on the P4), assembled exactly once
-by ``create_screens()`` (``screens.c:4061``) inside ``ui_init``
+by ``create_screens()`` (``screens.c:4074``) inside ``ui_init``
 (``ui.c:77``) *before* the first ``loadScreen`` — and then prices the
 build-once model that makes visiting them free. The code's own
 comment is the contract, at ``screens.c:1388``: *"The widgets are
@@ -1838,7 +1840,7 @@ a registry entry appears or vanishes:
   claim is asserted, not quoted: add a ``*_create(`` inside it and
   the figure refuses to draw;
 * exactly 17 ``tick_screen_*`` definitions plus ``tick_screen_funcs[]``
-  (``screens.c:4038``) in enum order — ``ui_tick`` (``ui.c:87``)
+  (``screens.c:4051``) in enum order — ``ui_tick`` (``ui.c:87``)
   dispatches **only the current screen**, so the sixteen off-screen
   roots tick zero times;
 * helper bodies are resolved **transitively** (the exit button is
@@ -1846,7 +1848,7 @@ a registry entry appears or vanishes:
   one roller), and ``create_user_widget_clock`` — the ONE clock
   widget, called exactly once, from the airplane creator (layout
   contract 2, ``ui_clock_attach_to`` reparents it onto every moon
-  root, ``screens.c:3993``) — counts toward the home;
+  root, ``screens.c:4006``) — counts toward the home;
 * object creation inside a loop is priced by the parsed bound —
   ``WHEEL_N_SECTORS`` 12 (``screens.c:1883``), literal bounds, and
   the hub's ``sizeof(ring)`` loop at the parsed 7/8 ring table — and
@@ -2199,10 +2201,10 @@ The graph is not hand-drawn; the generator **parses the whole census
 out of the live sources** — and its parsers are the gate, SystemExit-
 failing when a guard appears, vanishes, or changes its mind:
 
-* exactly **3** mutex-creation sites (``moon_ui.c:2694-2695`` and the
+* exactly **3** mutex-creation sites (``moon_ui.c:2885-2886`` and the
   knob's ``main.c:366``) and ``xQueueCreate`` **zero** in app code —
   the zero is an assertion, not an absence of evidence;
-* all **17** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
+* all **19** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
   ``s_panel_mtx`` take-policy **multiset** matches exactly
   ``[6x portMAX_DELAY, 2 s witness, 500 ms quiesce, 3 s probe]`` — a
   new take or a retimed one stops the figure;
@@ -2214,7 +2216,7 @@ failing when a guard appears, vanishes, or changes its mind:
   is one take inside ``#if !defined(CONFIG_BOARD_P4)`` with the P4 leg
   ``(void)site;`` — the presence matrix bills the S3 **9** panel takes
   and the P4 **8**, the same "same shared component bills zero,
-  compiled out" shape the write ladder draws for the RTC; the 9 drain
+  compiled out" shape the write ladder draws for the RTC; the 10 drain
   call sites and their site strings are enumerated;
 * the watchdog is pinned to its literals — the spawn line
   ``"panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0``, the
@@ -2229,8 +2231,8 @@ failing when a guard appears, vanishes, or changes its mind:
 * the two event groups are pinned to their waits (``WaitBits`` bounded
   ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
   ``clock.c`` + ``actions.c``, 20000/2000 on the knob; 8000 ms join);
-  four fences in two files; the notify pair at ``moon_ui.c:1170``/
-  ``:1196``;
+  four fences in two files; the notify pair at ``moon_ui.c:1264``/
+  ``:1290``;
 * the compiled-out facts come from the build, not the prose: four
   ``UI_BOARD_SRCS`` entries emptied by ``if(KNOB_BOARD)``, the S3
   header carrying ``CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH 1`` where the P4
@@ -2238,7 +2240,7 @@ failing when a guard appears, vanishes, or changes its mind:
   ``sdkconfig.h`` files (the ghost leg stays a ghost).
 
 What the bars say: **the clocks hold two keys, the knob holds one,
-and nobody holds a queue**. The image key is the wide bar — seventeen
+and nobody holds a queue**. The image key is the wide bar — nineteen
 sites, all forever — because the family's invariant (one atomic
 whole-panel ``lv_refr_now``) *requires* a publish block that cannot
 half-fail. The panel key is where every bounded wait in the firmware

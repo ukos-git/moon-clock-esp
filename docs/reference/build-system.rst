@@ -393,13 +393,13 @@ translations, 5,178 lines) against what answers its three board-side
 names (44 lines and one CMakeLists), and which four ``REQUIRES``
 literals oblige the early pass at all — counted in **parts** at
 :ref:`the build census <census-ladder-perf>`. The same seam counted
-in **choices** — the 69/57/82 menuconfig entries the three menus
-define, the 29 inherited options that stay silent in the knob build,
+in **choices** — the 72/60/86 menuconfig entries the three menus
+define, the 32 inherited options that stay silent in the knob build,
 the dead letters, the configure-only guards and the seven keys of
 ``settings.txt`` — is
 :ref:`the configuration ladder <config-ladder-perf>`. And the table
 transposed — **how many of the twelve link images compile each
-source**: the 16 portable-core TUs alone at 12/12, the 412-TU vendored
+source**: the 17 portable-core TUs alone at 12/12, the 412-TU vendored
 LVGL stopping at 6 (the three screenshot rigs cost 1,236 vendored
 compiles the gate and bench never pay), the four dropped ``UI_BOARD_SRCS``
 at 2, and the knob's fifteen own files at exactly 1 apiece — is

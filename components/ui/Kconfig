@@ -677,6 +677,50 @@ menu "UI Component Configuration"
             eliminates sensor stutter; raise it for a snappier
             (jitterier) response, lower it for a heavier low-pass.
 
+    config UI_MOON_OBSERVER_ENABLE
+        bool "Observer view: tilt the moon for the timezone's city"
+        default y
+        help
+            The moon shows as an observer in the ACTIVE timezone's
+            reference city sees it: every gray->RGB565 build leg
+            gathers the north-up baked frame through the in-plane
+            rotation at the Moon's parallactic angle for that city
+            (moon_viewport_rot_deg, the clock_tz zone table) -- the
+            crescent lies down at dusk and stands up at midnight, and
+            it follows the zone's local time. The bake itself stays
+            north-up (gate-validated; the TF hour cache stays zone-
+            agnostic); the gather rides the same gray->565 LUT, so the
+            event tint is kept. A changed zone re-gathers the resting
+            frame in place (moon_ui_tz_changed -- no re-bake). The
+            bake reveal is suppressed while a tilt applies (the drip
+            would animate north-up strips). Off = the fixed north-up
+            viewport (the pre-2026-11-17 behavior).
+
+    config UI_MOON_OBSERVER_SIGN
+        int "Observer view rotation sign (+1 or -1)"
+        default 1
+        range -1 1
+        depends on UI_MOON_OBSERVER_ENABLE
+        help
+            Direction knob, same precedent as UI_IMU_ANGLE_SIGN: the
+            screen handedness vs the astronomical east-of-north
+            convention is not fixed at code level. If the crescent
+            tilts mirrored (e.g. lying down at DAWN instead of dusk),
+            set this to -1.
+
+    config UI_MOON_OBSERVER_DEADBAND_DEG
+        int "Observer view dead band in degrees"
+        default 2
+        range 0 30
+        depends on UI_MOON_OBSERVER_ENABLE
+        help
+            Below this |parallactic angle| the plain LUT pass runs
+            (the exact pre-observer path): a sub-band gather would
+            resample the frame through the nearest-neighbor rotation
+            for a tilt the eye cannot see. Quantization of the Q15.15
+            gather is ~0.01 deg, so this is a crispness choice, not a
+            precision one.
+
     config UI_SCREEN_SWITCH_FADE
         int "Screen switch: fade-to-black time in ms (0 = plain atomic switch)"
         default 240

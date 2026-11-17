@@ -91,7 +91,11 @@ entries in the :doc:`glossary <../glossary>`:
   shared buffers.
 - **LUT convert** — the pipeline's last step: a 256-entry look-up
   turns each 8-bit gray pixel into a 16-bit RGB565 color — one
-  "gather" over the frame.
+  "gather" over the frame. With the observer view active it is the
+  same gather *turned* by the Moon's parallactic angle for the
+  timezone's reference city (``moon_rotate``) — the bake stays
+  north-up and the tilt rides this one step
+  (:doc:`the observer view <observer-view>`).
 - **Relief gradient cache** — the 4 MB wall of precomputed terrain
   shading, built once at boot and read by every bake (glossary:
   *relief gradient cache*).

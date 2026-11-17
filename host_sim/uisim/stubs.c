@@ -15,6 +15,7 @@
  * RGB565 buffer, exactly where the device's moon image sits (33,33 on
  * the 466x466 panel).
  */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@
 
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
+#include "clock_tz.h"
 #include "clock_types.h"
 #include "esp_err.h"
 #include "lvgl.h"
@@ -48,6 +50,10 @@ const char *esp_err_to_name(esp_err_t code) {
         return "ESP_ERR_TIMEOUT";
     case ESP_ERR_NOT_FOUND:
         return "ESP_ERR_NOT_FOUND";
+    case ESP_ERR_INVALID_ARG:
+        return "ESP_ERR_INVALID_ARG";
+    case ESP_ERR_INVALID_STATE:
+        return "ESP_ERR_INVALID_STATE";
     default:
         return "ESP_ERR_UNKNOWN";
     }
@@ -248,40 +254,27 @@ void settings_set_dusk_anim_enable(bool on) {
 esp_err_t settings_store_save(void) { return ESP_OK; }
 
 /* ---- timezone selection (device: components/clock/clock_tz.c) -------
-   The option list mirrors the device: 53 fixed 30-min UTC offsets
-   (-12:00..+14:00) + Europe/Berlin (idx 53). The sim holds the stored
-   index so the screen seeds + persists it like the device. */
+   The REAL clock_tz.c links into the sim (build.sh) -- the curated zone
+   table, roller labels, apply and the observer-city lookup are device
+   code, so the roller screenshot shows the device's list verbatim. The
+   sim holds only the persisted NAME (the device's settings.txt job):
+   apply_stored seeds it at boot, the roller commit writes it.
+   clock_tz_apply's setenv+tzset is the P4 shape on the host too (the
+   PCF digit-rewrite leg is CONFIG_CLOCK_USE_PCF85063A-gated, undefined
+   in the sim). */
 
-#define STUB_TZ_FIXED 53
-static int s_tz_idx = STUB_TZ_FIXED; /* the device default (Europe/Berlin) */
+static char s_timezone[40] = "Europe/Berlin"; /* the Kconfig default */
 
-int clock_tz_offset_minutes(int idx) { return (idx < 0 || idx >= STUB_TZ_FIXED) ? -1 : -720 + idx * 30; }
-
-const char *clock_tz_option_name(int idx) {
-    static char buf[16];
-    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
-        return NULL;
-    if (idx == STUB_TZ_FIXED)
-        return "Europe/Berlin";
-    int off = clock_tz_offset_minutes(idx);
-    int am = (off < 0) ? -off : off;
-    snprintf(buf, sizeof buf, "UTC%c%02d:%02d", off < 0 ? '-' : '+', am / 60, am % 60);
-    return buf;
-}
-
-esp_err_t clock_tz_apply(int idx) {
-    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
-        return ESP_FAIL;
-    s_tz_idx = idx;
-    printf("[stub] tz apply %s (idx %d)\n", clock_tz_option_name(idx), idx);
-    return ESP_OK;
-}
-
-int settings_timezone_idx(void) { return s_tz_idx; }
-void settings_set_timezone_idx(int idx) {
-    if (idx < 0 || idx >= STUB_TZ_FIXED + 1)
+const char *settings_timezone(void) { return s_timezone; }
+void settings_set_timezone(const char *name) {
+    if (!name)
         return;
-    s_tz_idx = idx;
+    snprintf(s_timezone, sizeof s_timezone, "%s", name);
+}
+
+esp_err_t clock_alarm_scheduler_reload(void) { /* re-arm seam is a device
+                                                * RTC/software-oneshot thing */
+    return ESP_OK;
 }
 
 /* ---- alarm sound selection (device: components/ui/alarm_audio.c +
@@ -458,12 +451,29 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         printf("[stub] black moon (wobble A/B)\n");
     } else if (!s_dsc.data) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
+        clock_tz_apply_stored(); /* device posture: boot applies the
+                                  * persisted zone (clock_sntp init) */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
         moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
                   MOON_ALB_H, 1, 0.0f, NULL);
-        for (int i = 0; i < MOON_PX * MOON_PX; i++)
-            s_rgb[i] = moon_gray565(s_gray[i]);
+        /* Observer view (mirrors moon_ui.c's fill leg): the north-up
+         * bake is gathered through the parallactic angle of the stored
+         * zone's reference city at the frame's epoch -- what the clock
+         * shows at that instant. Below the device's 2 deg dead band the
+         * plain LUT pass runs (same rule). */
+        float lat, lon;
+        float q = clock_tz_observer(&lat, &lon) ? moon_viewport_rot_deg(utc_epoch, lat, lon) : 0.0f;
+        float aq = (q < 0.0f) ? -q : q;
+        if (aq > 2.0f) {
+            const float rad = q * (float)M_PI / 180.0f;
+            moon_rotate(s_gray, MOON_PX, s_rgb, MOON_PX, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2, MOON_PX / 2,
+                        (int32_t)lroundf(cosf(rad) * 32768.0f), (int32_t)lroundf(sinf(rad) * 32768.0f));
+            printf("[stub] observer view: q=%+.1f deg\n", q);
+        } else {
+            for (int i = 0; i < MOON_PX * MOON_PX; i++)
+                s_rgb[i] = moon_gray565(s_gray[i]);
+        }
         s_dsc = (lv_image_dsc_t){
             .header = {.magic = LV_IMAGE_HEADER_MAGIC,
                        .cf = LV_COLOR_FORMAT_RGB565,
@@ -485,6 +495,11 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
 void moon_ui_refresh(void) {}
 void moon_ui_init(void) {}
 void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
+/* Observer-view re-gather on a zone commit (device: the moon_ui.c
+ * fill-leg helper + atomic flush). The sim bakes once at screen-create
+ * with the stored zone's tilt, so a mid-session roller commit only
+ * shows its tilt on the next sim run -- accept + log. */
+void moon_ui_tz_changed(void) { printf("[stub] tz changed: moon re-gather (next bake)\n"); }
 void moon_ui_day_tick(void) {} /* the manual time-entry commit re-bakes (device) */
 void moon_ui_start(void) {}
 bool moon_ui_replaying(void) {

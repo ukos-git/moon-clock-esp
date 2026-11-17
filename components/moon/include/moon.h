@@ -16,6 +16,8 @@
  *     (libration + posangle exact), then the phase-independent
  *     earthshine, then the 256-entry tone LUT.
  *   - rotate: fixed-point in-plane gather ("ball in hand").
+ *   - viewport: parallactic angle for the observer view (one reference
+ *     city + UTC instant -> the rotate angle; see moon_viewport_rot_deg).
  */
 #ifndef MOON_H
 #define MOON_H
@@ -56,6 +58,19 @@ typedef struct {
  * eraMoon98), validated against NASA SVS 5415: max 0.43 deg subsolar /
  * 0.51 deg subearth / 0.44 deg posangle over the 32-frame gate set. */
 void moon_geometry(int64_t utc_epoch, moon_geom_t *g);
+
+/* Observer-view disk tilt: the parallactic angle of the Moon (deg,
+ * -180..180, EAST of celestial north) for an observer at (lat_deg N +,
+ * lon_deg E +) at one UTC instant — the angle at the Moon between the
+ * observer's zenith and celestial north. The north-up baked frame is
+ * turned into "the moon as seen from that city" by the moon_rotate
+ * gather at the gray->RGB565 leg (the UI owns the rotation sign —
+ * Kconfig UI_MOON_OBSERVER_SIGN); the bake itself stays north-up and
+ * gate-identical. Cheap: one eraMoon98 call + trig. The clock feeds it
+ * the ACTIVE timezone's reference city (clock_tz_observer).
+ * Validated against astropy 8 (PA of the zenith from the Moon) in
+ * host_sim/viewport_test.c. */
+float moon_viewport_rot_deg(int64_t utc_epoch, float lat_deg, float lon_deg);
 
 /* The per-cell relief gradient cache (see moon_relief_build): ONE
  * uint16 array of MOON_DEM_W x MOON_DEM_H packed cells, the DEM's

@@ -58,10 +58,15 @@ void settings_set_boot_anim_enable(bool on);
 bool settings_dusk_anim_enable(void);
 void settings_set_dusk_anim_enable(bool on);
 
-/* Timezone selection, the index into the clock_tz option list (clock_tz.h:
- * 0..52 = the fixed UTC offsets, 53 = Europe/Berlin = the default). */
-int settings_timezone_idx(void);
-void settings_set_timezone_idx(int idx);
+/* Timezone selection: the IANA zone name of the clock_tz table
+ * (clock_tz.h), persisted as "timezone = Europe/Berlin". The name is the
+ * stable key (a zone list edit never shifts the stored choice). Legacy
+ * migration on load: a settings.txt that still carries the numeric
+ * "timezone_idx" line from before the 2026-11-17 rework maps the old
+ * Europe/Berlin entry (idx 53) to the name; the retired generic UTC
+ * offsets (old 0..52) fall back to the Kconfig default zone. */
+const char *settings_timezone(void);
+void settings_set_timezone(const char *name);
 
 /* Alarm sound selection, the index into the alarm_audio sound table
  * (components/ui/alarm_audio.h's ALARM_SOUND_COUNT: 0..3 = two-tone,

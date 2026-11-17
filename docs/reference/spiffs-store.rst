@@ -134,9 +134,9 @@ a bad/missing value falling back to the Kconfig-seeded default
        the dusk retired 2026-11-13 and its ``UI_MOON_DUSK_ENABLE``
        seed was deleted in the same config sweep (kept so the store
        round-trips unchanged)
-   * - ``timezone_idx``
-     - 0..53
-     - ``CLOCK_TZ_BERLIN_IDX`` (53)
+   * - ``timezone``
+     - IANA zone name (≤39 chars)
+     - ``CONFIG_CLOCK_DEFAULT_TIMEZONE`` (``Europe/Berlin``)
    * - ``alarm_sound_id``
      - 0..3
      - ``SETTINGS_ALARM_SOUND_DEFAULT`` (0, the two-tone)
@@ -149,7 +149,7 @@ draws the table as a dot matrix (writer, seed origin, validated
 range, still-read) with the two ghosts as the only open rows
 (:ref:`the configuration ladder <config-ladder-perf>`). The file is
 *human-paced* storage: the write ladder counts its writers — four
-settings-screen actions and the TEST settings demo, 265 B rewritten
+settings-screen actions and the TEST settings demo, 273 B rewritten
 per call, no scheduled leg at all
 (:ref:`the write ladder <write-ladder-perf>`).
 
@@ -160,14 +160,22 @@ idle-ladder supervisor reads this pair live — dim after
 ``idle_timeout_sec``, ``esp_deep_sleep_start`` one
 ``deep_sleep_countdown_sec`` later — so the knob's sleep-screen
 rollers (dial-step + tap-commit) are the real editors of its idle
-behaviour. ``timezone_idx`` indexes the runtime timezone option list:
-indices 0–52 are the fixed 30-minute UTC offsets (UTC−12:00 …
-UTC+14:00) and index 53 is Europe/Berlin (DST-aware, the Kconfig
-default) — :cfile:`components/clock/clock_tz.c` rewrites the POSIX TZ
-env var (+``tzset``) when an option is applied, which is all the P4's
-system clock needs; the S3's PCF85063A stores *local* digits, so the
-same moment is re-derived into the new zone's digits and written back
-before the switch (epoch-consistent). ``alarm_sound_id`` indexes the
+behaviour. ``timezone`` is the IANA *name* of one of the curated
+zones in :cfile:`components/clock/clock_tz.c`'s table — every entry
+carries a city label, its DST rule and the reference lat/lon that
+drives the moon's observer view
+(:doc:`the timezone screen <../ui/settings-tz>`,
+:doc:`observer view <../implementation/observer-view>`). Applying a
+zone rewrites the POSIX TZ env var (+``tzset``), which is all the
+P4's system clock needs; the S3's PCF85063A stores *local* digits, so
+the same moment is re-derived into the new zone's digits and written
+back before the switch (epoch-consistent), and the resting moon frame
+is re-gathered in place (``moon_ui_tz_changed``, no re-bake). A file
+still carrying the retired numeric ``timezone_idx`` (the pre-2026-11-17
+option list: generic 30-minute UTC offsets plus one Berlin entry)
+migrates once at load — 53 → ``Europe/Berlin``, any generic offset →
+the Kconfig default — and the name is written back on the next save.
+``alarm_sound_id`` indexes the
 alarm audio table (``ALARM_SOUND_COUNT`` = 4 in
 ``components/ui/alarm_audio.h``); the store keeps its own copy of
 the range so the clock component does not depend on ui.

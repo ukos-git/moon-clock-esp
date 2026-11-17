@@ -57,6 +57,19 @@ void moon_ui_refresh(void);
 /** Bake + display the moon for the given UTC epoch. */
 void moon_ui_bake_now(int64_t utc_epoch);
 
+/**
+ * The timezone selection changed (settings_tz roller commit; LVGL task):
+ * re-gather the resting frame through the observer-view rotation for the
+ * NEW zone's reference city (UI_MOON_OBSERVER_ENABLE -- no-op with it
+ * off). The phase is unchanged, so there is no re-bake: s_rgb is filled
+ * from s_frame at the frame's own epoch and shown as one atomic flush
+ * when the moon is on screen (otherwise the screen-switch's atomic flush
+ * carries it). While a pipeline owns the buffers nothing is owed: its
+ * publish leg already gathers with the active zone (producers re-read it
+ * at produce time).
+ */
+void moon_ui_tz_changed(void);
+
 /** Start the moon: boot replay producer (UI_MOON_BOOT_REPLAY) or, with
  *  the replay off, a synchronous bake of the current phase (static boot). */
 void moon_ui_start(void);

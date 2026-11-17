@@ -3,8 +3,8 @@ The C API
 
 The portable core (``components/moon/core``) exposes a small C API —
 three headers in ``components/moon/include``: ``moon.h`` (the
-geometry, the bake, the rotation, the fixed-point trig, and the tone
-LUT), ``moon_event.h`` (the sky-event classifier — harvest, blue,
+geometry, the observer viewport, the bake, the rotation, the
+fixed-point trig, and the tone LUT), ``moon_event.h`` (the sky-event classifier — harvest, blue,
 super, micro, blood), and ``moon_assets.h`` (the asset backend seam,
 device partition vs host array). It is the
 device's interface *and* the host simulator's (the same translation
@@ -23,8 +23,9 @@ Three properties make the core *portable*, and the API is shaped by
 them:
 
 - **Pure C, no ESP- or LVGL-dependency.** The core's translation units
-  (``moon_astro.c``, ``moon_bake.c``, ``moon_render.c``,
-  ``moon_fixp.c`` + the vendored public-domain ERFA) compile into the
+  (``moon_astro.c``, ``moon_viewport.c``, ``moon_bake.c``,
+  ``moon_render.c``, ``moon_fixp.c`` + the vendored public-domain
+  ERFA) compile into the
   device (Xtensa and RISC-V) and the host (x86) unchanged. No
   ``esp_`` call, no ``lv_`` call, no PSRAM-specific allocator in the
   math path — the *buffers are the caller's* (the core never
@@ -61,54 +62,62 @@ called by no one.
 
 .. graphviz:: ../_graphs/api-surface.dot
    :align: center
-   :alt: Five sealed boxes — THE DEVICE CALLERS and THE HOST TOOLS side by side above THE CONTRACT (three headers, 23 entries), which hangs over THE DEFINITIONS and the amber THE ASSET SEAM box — joined by blue, teal and dashed legs.
-   :caption: The core's public surface as the family actually uses it — the black-box pass, no internals. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the rotation since 2026-11-13, the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``). Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call. The boxes open below; the three claims that follow are checkable at the cited line.
+   :alt: Five sealed boxes — THE DEVICE CALLERS and THE HOST TOOLS side by side above THE CONTRACT (three headers, 24 entries), which hangs over THE DEFINITIONS and the amber THE ASSET SEAM box — joined by blue, teal and dashed legs.
+   :caption: The core's public surface as the family actually uses it — the black-box pass, no internals. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``) — the rotation's dashed era (the spin's removal 2026-11-13) ended 2026-11-17, when the observer-view gather brought it back into every shipped frame. Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call. The boxes open below; the three claims that follow are checkable at the cited line.
 
-**The contract** opens into the census — the three headers, their 23
+**The contract** opens into the census — the three headers, their 24
 entries, and where each definition lives:
 
 .. graphviz:: ../_graphs/api-surface-headers.dot
    :align: center
-   :alt: Three amber header nodes (moon.h 16 entries, moon_event.h 4, moon_assets.h 3) fanning grey right to eleven entry boxes — geometry, the bake pair, the relief builder, the tone trio, the dashed rotation, the dashed rows siblings, the dashed dusk pair, the event classifier, the dashed deinit, and the two backend boxes.
-   :caption: ``moon.h`` — 16 entries (:58-:262): float32 in, 8-bit out, Q15.15 for the rotation, and every pixel-passing function ships a ``*_rows`` sibling. ``moon_event.h`` — 4 entries (classify :119; ``any``/``signature``/``occ`` are static INLINE at :124/:132/:143 — "the bake hot path and the host tools share it without a link dependency" :100-102). ``moon_assets.h`` — 3 entries (:23/:29/:32): one seam, two backends, and the bake's caller never sees who answers. The definitions sit behind them: geometry at ``moon_astro.c``:80 (the cheap ``eraEpv00`` + ``eraMoon98`` ephemeris); the bake family in ``moon_bake.c`` (``bake`` :572 delegating the full square to ``bake_rows(0,size)`` at :574; ``relief_build`` :317 calling ``relief_row`` per row at :322; ``shade_map_build`` :773 and ``reproject`` :903 wrapping their rows at :776/:905; the blood occlusion via inline ``occ`` at :450/:735); the tone trio + rotation in ``moon_render.c`` (``gray565`` :124, ``set_warm`` :71, ``set_event`` :88 — ``set_warm(0)`` wins over ``set_event`` :29-31; the first rotate call builds the LUT lazily at :167 and delegates to ``moon_rotate_range``); the trig pair at ``moon_fixp.c``:35/:52; classify at ``moon_event.c``:221. The dashed islands are the third claim below.
+   :alt: Three amber header nodes (moon.h 17 entries, moon_event.h 4, moon_assets.h 3) fanning grey right to twelve entry boxes — geometry, the bake pair, the relief builder, the tone trio, the viewport, the rotation, the dashed rows siblings, the dashed dusk pair, the event classifier, the dashed deinit, and the two backend boxes.
+   :caption: ``moon.h`` — 17 entries (:60-:277): float32 in, 8-bit out, Q15.15 for the rotation, and every pixel-passing function ships a ``*_rows`` sibling. ``moon_event.h`` — 4 entries (classify :119; ``any``/``signature``/``occ`` are static INLINE at :124/:132/:143 — "the bake hot path and the host tools share it without a link dependency" :100-102). ``moon_assets.h`` — 3 entries (:23/:29/:32): one seam, two backends, and the bake's caller never sees who answers. The definitions sit behind them: geometry at ``moon_astro.c``:80 (the cheap ``eraEpv00`` + ``eraMoon98`` ephemeris); the bake family in ``moon_bake.c`` (``bake`` :572 delegating the full square to ``bake_rows(0,size)`` at :574; ``relief_build`` :317 calling ``relief_row`` per row at :322; ``shade_map_build`` :773 and ``reproject`` :903 wrapping their rows at :776/:905; the blood occlusion via inline ``occ`` at :450/:735); the tone trio + rotation in ``moon_render.c`` (``gray565`` :124, ``set_warm`` :71, ``set_event`` :88 — ``set_warm(0)`` wins over ``set_event`` :29-31; the first rotate call builds the LUT lazily at :167 and delegates to ``moon_rotate_range``); the trig pair at ``moon_fixp.c``:35/:52; the viewport at ``moon_viewport.c``:60 (ERA + ``eraMoon98`` + the topocentric subtraction); classify at ``moon_event.c``:221. The dashed islands are the third claim below.
 
 **The device callers** — blue edges are paths a shipped frame took;
 amber prices the guard:
 
 .. graphviz:: ../_graphs/api-surface-device.dot
    :align: center
-   :alt: moon_ui.c and knob_moon.c on the left, the amber classify_here guard beside the clock, fanning blue to the entry boxes — geometry, whole bake, bake_rows, the tone trio, classify, the amber device backend.
-   :caption: The first claim's line numbers beyond the bullets below: ``bake_rows``' two sites are the hourly bounce :1248 and the orbit rows :2034, both ``dark_zero`` 1; ``set_event`` runs four times on the clock (producers :1446/:1563/:1916 plus the replay's ``set_event(NULL)`` :1844); the seam reads sit at :1430/:1435 with the eager warmup at :2530 (the "moon assets unavailable" guard). The knob file is the same shape compressed — its event trio runs ``any`` :119 and ``signature`` :85/:95 alongside classify :82/:94, its seam reads are :55/:56, and its row bakes are ``dark_zero`` 1 like the clock's. Neither device file calls ``moon_rotate`` or ``moon_gray565_set_warm`` — warm is the shipped default and the identity gather is by construction.
+   :alt: moon_ui.c and knob_moon.c on the left, the amber classify_here guard beside the clock, fanning blue to the entry boxes — geometry, whole bake, bake_rows, the tone trio, the viewport, the rotation, classify, the amber device backend.
+   :caption: The first claim's line numbers beyond the bullets below: ``bake_rows``' two sites are the hourly bounce :1493 and the orbit rows :2349, both ``dark_zero`` 1; ``set_event`` runs four times on the clock (producers :1742/:1859/:2222 plus the replay's ``set_event(NULL)`` :2148); the seam reads sit at :1726/:1731 with the eager warmup at :2863 (the "moon assets unavailable" guard). The knob file is the same shape compressed — its event trio runs ``any`` :119 and ``signature`` :85/:95 alongside classify :82/:94, its seam reads are :55/:56, and its row bakes are ``dark_zero`` 1 like the clock's. Only the clock calls ``moon_rotate`` (the observer gather, :1426) — the knob keeps its fixed north-up viewport; neither device file calls ``moon_gray565_set_warm`` — warm is the shipped default and the knob's identity gather is by construction.
 
 **The host tools** — teal edges; the gate and the bench link the EXACT
 core source list (the sharing ladder checks the set equality):
 
 .. graphviz:: ../_graphs/api-surface-host.dot
    :align: center
-   :alt: Four host boxes (main.c, bench.c, uisim/stubs.c, the dashed never-linked probes) fanning teal to the entry boxes — geometry, bake, the dashed rotation, the tone trio, classify, the dashed dusk pair, the amber host backend.
-   :caption: ``main.c`` drives the gate's posture (``bake`` :168 with ``dark_zero`` 0 / ``dk_sup`` 0.0, ``set_warm(0)`` :219 — the ``--neutral`` stance, classify :161, seam :134/:135); ``bench.c`` runs the A/B timing (``set_warm(0)`` :68, ``bake`` :111, ``rotate`` :119) and is the dusk pair's ONLY caller (:125/:129); ``uisim/stubs.c`` is the sim's whole home moon — geometry :444, bake :445 with the seam inline, ``gray565`` :448 — the file header calls it "bakes the REAL current-phase moon … ``dark_zero`` = 1 like the device static/wake frame".
+   :alt: Four host boxes (main.c, bench.c, uisim/stubs.c, the dashed never-linked probes) fanning teal to the entry boxes — geometry, bake, the rotation, the viewport, the tone trio, classify, the dashed dusk pair, the amber host backend.
+   :caption: ``main.c`` drives the gate's posture (``bake`` :168 with ``dark_zero`` 0 / ``dk_sup`` 0.0, ``set_warm(0)`` :219 — the ``--neutral`` stance, classify :161, seam :134/:135); ``bench.c`` runs the A/B timing (``set_warm(0)`` :68, ``bake`` :111, ``rotate`` :119) and is the dusk pair's ONLY caller (:125/:129); ``uisim/stubs.c`` is the sim's whole home moon — geometry :457, bake :458 with the seam inline, then the observer gather mirrored from the device leg (``moon_viewport_rot_deg`` :466 behind ``clock_tz_observer``, ``moon_rotate`` :470, else the plain LUT ``gray565`` :475; boot applies the stored zone first, :454) — the file header calls it "bakes the REAL current-phase moon … ``dark_zero`` = 1 like the device static/wake frame". The third probe, ``viewport_test.c``, drives only ``moon_viewport_rot_deg`` (:110) against its astropy golden table.
 
 Three claims the picture makes, each checkable at the cited line:
 
-- **The device owns the bake, not the rotation.** ``moon_ui.c`` drives
-  the geometry at six sites, the whole bake at three (:1454 boot,
-  :1609 hourly producer, :1932 orbit batch), ``moon_bake_rows`` at two
-  (the hourly bounce :1248, the orbit rows :2034) and the tone
-  dictionary at **eight** convert sites in four roles — the canonical
-  ``moon_convert_to_rgb`` (:1368), the three publishes after the
-  ``s_hourly_gray``→``s_frame`` memcpy (:1625/:1892/:1947), the two
-  heals (:1213/:1298), the two row converts (:1323/:2043). The knob
-  file is the same shape compressed: geometry :118, ``bake_rows``
-  row-by-row :128/:145, ``gray565`` per row :133/:157. Neither device
-  file calls ``moon_rotate`` or ``moon_gray565_set_warm`` — warm is
-  the shipped default and the identity gather is "by construction, not
-  hope" (``knob_moon.c``:9-13).
+- **The device owns the bake — and, since 2026-11-17, the rotation
+  again.** ``moon_ui.c`` drives the geometry at six sites (:1722 boot,
+  :1890 hourly producer, :2226 replay final, :2332 orbit, plus the
+  new-moon scan :2066/:2081), the whole bake at four (:1750 boot,
+  :1913 the hourly monolithic path under reveal-suppression,
+  :2244/:2248 the replay final's two branches), ``moon_bake_rows`` at
+  two (the hourly bounce :1493, the orbit rows :2349) — and the tone
+  dictionary is down to **two** sites: the single ``s_rgb`` build leg
+  ``moon_fill_rgb_from_frame`` (:1420), whose **eight** callers are
+  reveal restore :1444, tick backstop heal :1568, the canonical
+  ``moon_convert_to_rgb`` :1664, the hourly publish :1929, the replay
+  mids at their hour centres :2198, the replay final at ``now`` :2261,
+  the orbit publish :2371 and the tz re-gather :2999 — internally the
+  exact LUT (:1430) or the observer gather (``moon_rotate`` :1426 at
+  the ``moon_viewport_rot_deg`` q, :1406); the one convert outside it
+  is the reveal band (:1607). The knob file is the same shape
+  compressed: geometry :118, ``bake_rows`` row-by-row :128/:145,
+  ``gray565`` per row :133/:157 — no rotation, no viewport (fixed
+  north-up). ``moon_gray565_set_warm`` is never called on a device —
+  warm is the shipped default and the knob's identity gather is "by
+  construction, not hope" (``knob_moon.c``:9-13).
 - **Classify never runs on the LVGL task.** ``moon_event_classify``'s
   only device callers are ``knob_moon.c`` :82/:94 and, on the clock,
-  the static wrapper ``moon_event_classify_here`` (:1122-1136), which
-  routes a cold day's 60-day peak scan to the core-1 worker (:1112,
-  day tick :2609) and takes the cached path inline when the day is
-  warm (:1136) — the freeze this guard prevents is the day-scan story
+  the static wrapper ``moon_event_classify_here`` (:1280), which
+  routes a cold day's 60-day peak scan to the core-1 worker (:1270,
+  day tick :3073) and takes the cached path inline when the day is
+  warm (:1294) — the freeze this guard prevents is the day-scan story
   in :doc:`the animation pipelines <../implementation/animations>`
   ("Who pays for the day scan").
 - **Six entries are exported for a caller that no longer exists (or
@@ -322,6 +331,30 @@ separate gray->565 pass). ``cx/cy`` are the *output* centre,
 ``f_cx/f_cy`` the *frame* centre — the spin integrated theta
 time-based and converted it through this pair; ``host_sim`` uses the
 same shape.
+
+The observer viewport (the parallactic tilt)
+--------------------------------------------
+
+.. code-block:: c
+   :caption: moon.h — the timezone's disk tilt
+
+   float moon_viewport_rot_deg(int64_t utc_epoch,
+                               float lat_deg, float lon_deg);
+
+Pure C + the same vendored ``eraMoon98`` as the geometry: the Moon's
+**parallactic angle** in degrees (−180..180, east of north) at the
+UTC instant for an observer at (lat, lon) — the angle the UI's
+``moon_rotate`` gather turns the north-up baked frame by, so the
+disk shows as that city sees it. The sidereal reference is the
+IAU-2000 Earth Rotation Angle (eraMoon98 answers in ICRF — GMST
+would silently add ~0.34° of precession), and the Moon direction is
+**topocentric** (the observer's geocentric vector subtracted;
+spherical Earth, R = 6371 km) so the lunar parallax rides along.
+Golden-tested against astropy 8 in ``host_sim/viewport_test.c``
+(16/16, max \|Δ\| 0.29°). The core is display-agnostic about the
+image's rotation direction — that is the UI's sign knob. The bake
+stays north-up and the TF hour cache zone-agnostic: the gather is
+the only tilt path (:doc:`the observer view <../implementation/observer-view>`).
 
 The tone LUT
 ------------

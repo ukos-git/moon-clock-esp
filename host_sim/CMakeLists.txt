@@ -45,6 +45,7 @@ set(MOON_HOST ${CMAKE_CURRENT_SOURCE_DIR})
 # host asset table.
 set(MOON_CORE_SRCS
     ${MOON_CORE}/core/moon_astro.c
+    ${MOON_CORE}/core/moon_viewport.c
     ${MOON_CORE}/core/moon_bake.c
     ${MOON_CORE}/core/moon_render.c
     ${MOON_CORE}/core/moon_fixp.c

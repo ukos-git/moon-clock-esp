@@ -17,7 +17,6 @@
 
 #include "clock_sntp.h"
 #include "clock_tz.h"
-#include "settings_store.h"
 #include "wifi.h"
 
 static const char *TAG = "clock_sntp";
@@ -129,12 +128,9 @@ esp_err_t clock_sntp_init(void) {
     }
 
     // Set the timezone from the runtime selection (settings store; loaded
-    // before clock_init in main). The default (no settings file yet) is the
-    // Europe/Berlin entry = the Kconfig value, so a fresh boot is unchanged.
-    const char *tz = clock_tz_string_for_index(settings_timezone_idx());
-    setenv("TZ", tz ? tz : CONFIG_CLOCK_DEFAULT_TIMEZONE, 1);
-    tzset();
-    ESP_LOGI(TAG, "Timezone set to: %s (idx %d)", tz ? tz : CONFIG_CLOCK_DEFAULT_TIMEZONE, settings_timezone_idx());
+    // before clock_init in main). No settings file yet: the Kconfig
+    // default zone is applied, so a fresh boot is unchanged.
+    clock_tz_apply_stored();
 
     // Create event group for synchronization
     s_sntp_event_group = xEventGroupCreate();

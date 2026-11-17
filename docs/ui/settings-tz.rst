@@ -1,7 +1,7 @@
 The timezone
 ============
 
-The timezone / UTC offset: one roller over ALL offsets — every 30-minute UTC offset (UTC−12:00 … UTC+14:00, indices 0–52) plus Europe/Berlin (index 53, DST-aware, the Kconfig default). Releasing the roller applies the zone (``clock_tz_apply``: the P4 re-derives its local digits from the same epoch via the POSIX TZ env var + ``tzset``; the S3 rewrites the PCF85063A's *local* digits epoch-consistently before the switch), re-arms the alarm, and persists the selection. The option list is :cfile:`components/clock/clock_tz.h`'s; reached by the hub's globe icon on BOTH boards.
+The timezone: one roller over the curated zone table — :cfile:`components/clock/clock_tz.c`'s 67 named IANA zones, shown by reference city ("Berlin", "Tokyo", "New York", …). The generic UTC±hh:mm offsets were retired 2026-11-17: a zone must carry a DST rule *and* the reference lat/lon the moon's observer view is computed from, which the fixed offsets never had. Releasing the roller applies the zone (``clock_tz_apply``: the P4 re-derives its local digits from the same epoch via the POSIX TZ env var + ``tzset``; the S3 rewrites the PCF85063A's *local* digits epoch-consistently before the switch), re-arms the alarm, persists the zone **name** (``timezone = Europe/Berlin`` in the store — a legacy numeric ``timezone_idx`` file migrates once at load), and re-gathers the moon in place for the new city (``moon_ui_tz_changed`` — no re-bake, :doc:`observer view <../implementation/observer-view>`). The option list is :cfile:`components/clock/clock_tz.h`'s; reached by the hub's globe icon on BOTH boards (on the knob it applies and persists as here; its fixed north-up viewport keeps the moon un-tilted — the ``moon_ui_tz_changed`` seam is a no-op there, :doc:`../implementation/knob-display`).
 
 .. figure:: ../img/screens/annot/settings-tz_s3.png
    :alt: the timezone — the S3 panel (466, annotated)
@@ -34,14 +34,14 @@ Elements
      - Code / option
 
    * - 1
-     - Caption (TIMEZONE / UTC OFFSET)
+     - Caption (TIMEZONE)
      - The 32 px SSID font.
      - :cfunc:`create_screen_settings_tz`
 
    * - 2
-     - Offset roller
-     - The 32 px SSID font (the only font covering letters + ``+``/``:``/``/``), centred and wide enough for "Europe/Berlin"; the selected index IS the option index (the options were generated in index order — no string parsing).
-     - ``event_handler_cb_settings_tz_commit`` → :cfunc:`clock_tz_apply` (:cfile:`components/clock/clock_tz.c`) — option ``timezone_idx`` (the store), ``CLOCK_DEFAULT_TIMEZONE`` (the seed)
+     - City roller
+     - The 32 px SSID font (the only font covering letters + spaces), centred and wide enough for the longest labels (Johannesburg, Buenos Aires); the selected index IS the table index — the option strings are generated from the table in order, no string parsing. Refresh selects ``clock_tz_index_of(settings_timezone())``, falling back to the default index when the stored name is not in the table (a custom POSIX zone).
+     - ``event_handler_cb_settings_tz_commit`` → :cfunc:`clock_tz_apply` (:cfile:`components/clock/clock_tz.c`) → ``settings_set_timezone`` + ``settings_store_save`` + :cfunc:`moon_ui_tz_changed` — key ``timezone`` (the store, the zone's IANA name), ``CLOCK_DEFAULT_TIMEZONE`` (the seed)
 
    * - 3
      - Exit → hub

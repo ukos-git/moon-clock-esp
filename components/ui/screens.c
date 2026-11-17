@@ -3038,26 +3038,32 @@ void create_screen_settings_time() {
 
 void tick_screen_settings_time() {}
 
-/* --- timezone / UTC offset (S3 + P4): one roller, all offsets --------
+/* --- timezone (S3 + P4 + knob): one roller, curated named zones ----
  *
- * Every 30-minute UTC offset (UTC-12:00 .. UTC+14:00) plus Europe/
- * Berlin (the Kconfig default, DST-aware) as the final entry -- the
- * option list is clock_tz.h's. Releasing the roller applies the zone
- * (clock_tz_apply: the P4 re-derives its local digits from the same
- * epoch; the S3 rewrites the PCF digits epoch-consistently), re-arms
- * the alarm arming, and persists the selection. Reached by the hub's
- * globe icon on BOTH boards. */
+ * The selectable list is clock_tz.h's 67 curated IANA zones (one
+ * entry per major city/region, west to east), shown as CITY labels --
+ * the generic "UTC+02"-style offsets were dropped 2026-11-17: every
+ * zone must carry its reference city, because the moon's observer-view
+ * viewport (moon_viewport_rot_deg) tilts the disk as an observer in
+ * that city sees it, and a bare offset has no city, no lat/lon and no
+ * DST rule. Releasing the roller applies the zone (clock_tz_apply: the
+ * P4 re-derives its local digits from the same epoch; the S3 rewrites
+ * the PCF digits epoch-consistently), re-arms the alarm arming,
+ * persists the name (settings.txt "timezone = Europe/Berlin"), and
+ * re-gathers the resting moon frame for the new city
+ * (moon_ui_tz_changed -- the phase does not move, only the view).
+ * Reached by the hub's globe icon on all three boards. */
 
-static char s_tz_options[800];
+static char s_tz_options[2048];
 
-/* One option string per clock_tz entry ("UTC-12:00" .. "UTC+14:00",
- * "Europe/Berlin"). */
+/* One option string per clock_tz entry (the reference-city labels:
+ * "Pago Pago" .. "Auckland"). */
 static void settings_tz_options(void) {
     int pos = 0;
-    for (int i = 0; i < CLOCK_TZ_COUNT; i++) {
-        const char *n = clock_tz_option_name(i);
-        if (n)
-            pos += snprintf(s_tz_options + pos, sizeof(s_tz_options) - pos, "%s\n", n);
+    for (int i = 0; i < clock_tz_count(); i++) {
+        const clock_tz_zone_t *z = clock_tz_get(i);
+        if (z && z->label)
+            pos += snprintf(s_tz_options + pos, sizeof(s_tz_options) - pos, "%s\n", z->label);
     }
 }
 
@@ -3065,26 +3071,32 @@ static void settings_tz_screen_refresh(void) {
     if (!objects.settings_tz_roller) {
         return;
     }
-    int idx = settings_timezone_idx();
-    if (idx < 0 || idx >= CLOCK_TZ_COUNT) {
-        idx = CLOCK_TZ_BERLIN_IDX;
+    /* The roller shows the PERSISTED selection; a stored name outside
+     * the table (a custom CONFIG_CLOCK_DEFAULT_TIMEZONE) selects the
+     * default zone -- what clock_tz_apply_name falls back to. */
+    int idx = clock_tz_index_of(settings_timezone());
+    if (idx < 0) {
+        idx = clock_tz_default_index();
     }
     lv_roller_set_selected(objects.settings_tz_roller, idx, LV_ANIM_OFF);
 }
 
 /* Commit on RELEASED (the zone switch + re-arm + store save stay off
  * the drag path). The selected index IS the option index (the options
- * were generated in the index order), so no string parsing. */
+ * were generated in the index order), so no string parsing; the IANA
+ * NAME is what persists. */
 static void settings_tz_commit_value(void) {
     int32_t sel = lv_roller_get_selected(objects.settings_tz_roller);
-    if (sel < 0 || sel >= CLOCK_TZ_COUNT) {
+    const clock_tz_zone_t *z = clock_tz_get((int)sel);
+    if (!z) {
         return;
     }
     esp_err_t r = clock_tz_apply((int)sel);
     if (r == ESP_OK) {
-        settings_set_timezone_idx((int)sel);
+        settings_set_timezone(z->name);
         settings_store_save();
-        ESP_LOGW("settings_tz", "timezone %s (idx %d) applied + saved", clock_tz_option_name((int)sel), (int)sel);
+        moon_ui_tz_changed(); /* the moon re-gathers for the new city */
+        ESP_LOGW("settings_tz", "timezone %s (idx %d) applied + saved", z->name, (int)sel);
     } else {
         ESP_LOGW("settings_tz", "timezone idx %d rejected: %s", (int)sel, esp_err_to_name(r));
     }
@@ -3107,15 +3119,16 @@ void create_screen_settings_tz() {
     /* The caption. */
     lv_obj_t *caption = lv_label_create(obj);
     lv_obj_set_style_text_font(caption, &ui_font_montserrat_regular_32_ssid, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_label_set_text(caption, "TIMEZONE / UTC OFFSET");
+    lv_label_set_text(caption, "TIMEZONE");
     lv_obj_set_size(caption, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_align(caption, LV_ALIGN_CENTER, 0, -UI_PX(110));
     lv_obj_set_style_text_color(caption, SETTINGS_GREY, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
-    /* The offset roller (the 32 px ssid font -- full printable ASCII:
-     * the entries carry letters, `+`, `:` and `/`, which the digits
-     * fonts lack), centred and wide enough for "Europe/Berlin". */
+    /* The zone roller (the 32 px ssid font -- full printable ASCII: the
+     * city labels carry letters and spaces, which the digits fonts
+     * lack), centred and wide enough for the longest label
+     * ("Johannesburg" / "Buenos Aires"). */
     settings_tz_options();
     objects.settings_tz_roller =
         settings_create_roller(obj, s_tz_options, &ui_font_montserrat_regular_32_ssid, UI_PX(110), 0, UI_PX(380));

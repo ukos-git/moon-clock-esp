@@ -259,7 +259,7 @@ def main() -> None:
         r'"deep_sleep_countdown_sec = %u\n"',
         r'"boot_anim_enable = %d\n"',
         r'"dusk_anim_enable = %d\n"',
-        r'"timezone_idx = %d\n"',
+        r'"timezone = %s\n"',
         r'"alarm_sound_id = %d\n"',
         r'"display_rotation_deg = %d\n"',
     ]
@@ -273,12 +273,12 @@ def main() -> None:
         "deep_sleep_countdown_sec = %u\n",
         "boot_anim_enable = %d\n",
         "dusk_anim_enable = %d\n",
-        "timezone_idx = %d\n",
+        "timezone = %s\n",
         "alarm_sound_id = %d\n",
         "display_rotation_deg = %d\n",
     ]
     settings_bytes = len("".join(settings_tpl).replace("%u", "300")
-                         .replace("%d", "1"))
+                         .replace("%d", "1").replace("%s", "Europe/Berlin"))
     count(st, r"settings_store_save\(void\)", 1, "one definition", SETTINGS)
     if scr.count("settings_store_save();") != 4:
         raise SystemExit(f"screens.c settings writers: expected 4, found "

@@ -2,29 +2,35 @@
 // run moon from, and every site they call (blue edges are paths a
 // shipped frame took; amber prices the day-scan guard). Verified in
 // code before drawing (comment-stripped greps):
-//   components/ui/moon_ui.c: geometry six sites (boot bake :1516,
-//     hourly producer :1684, replay warmup :2010, orbit :2107, plus the
-//     new-moon scan :1852/:1867); whole bake three (:1544 boot, :1699
-//     hourly producer, :2022 orbit batch); bake_rows two (hourly bounce
-//     :1287, orbit rows :2124, both dark_zero 1); gray565 EIGHT convert
-//     sites in four roles — canonical convert moon_convert_to_rgb
-//     :1458, publishes :1715/:1982/:2037 (after the s_hourly_gray ->
-//     s_frame memcpy), heals :1242 (moon_reveal_restore) and :1363
-//     (designed exit), row converts :1402 (reveal band) and :2133
-//     (orbit rows); set_event four (producers :1536/:1653/:2006 + the
-//     replay's set_event(NULL) :1934); classify is NEVER called
+//   components/ui/moon_ui.c: geometry six sites (boot bake :1722,
+//     hourly producer :1890, replay final :2226, orbit :2332, plus the
+//     new-moon scan :2066/:2081); whole bake four (:1750 boot, :1913
+//     hourly monolithic under reveal-suppression, :2244/:2248 the replay
+//     final's two branches); bake_rows two (hourly bounce :1493, orbit
+//     rows :2349, both dark_zero 1); the s_rgb build is ONE leg —
+//     moon_fill_rgb_from_frame :1420, internally the plain LUT
+//     (moon_gray565 :1430) or the observer gather (moon_rotate :1426 at
+//     the q from moon_viewport_rot_deg :1406) — and EIGHT legs run
+//     through it: reveal restore :1444, tick backstop heal :1568,
+//     convert :1664, hourly publish :1929, replay mid (own hour centre)
+//     :2198, replay final (now) :2261, orbit publish :2371, tz
+//     re-gather :2999; the one direct convert outside it is the reveal
+//     band :1607; set_event four (producers :1742/:1859/:2222 + the
+//     replay's set_event(NULL) :2148); classify is NEVER called
 //     directly on the LVGL task — the static wrapper
-//     moon_event_classify_here :1136-1150 routes cold day scans to
-//     core 1 (worker :1126, day tick :2699); seam reads :1520/:1525,
-//     eager warmup :2620 ("moon assets unavailable" guard).
+//     moon_event_classify_here :1280 routes cold day scans to
+//     core 1 (worker :1270, day tick :3073); seam reads :1726/:1731,
+//     eager warmup guard :2863 ("moon assets unavailable").
 //   knob/components/knob_moon/knob_moon.c (the knob's whole moon
 //     caller): geometry :118, bake_rows row-by-row :128/:145
 //     (dark_zero 1), gray565 per row :133/:157, set_event :83,
 //     classify :82/:94, any :119, signature :85/:95, seam :55/:56 —
 //     its header comment :9-13 calls the bake path the identity
 //     moon_rotate "by construction, not hope".
-//   Neither device file calls moon_rotate or moon_gray565_set_warm —
-//     warm is the shipped default.
+//   Only the clock calls moon_rotate + moon_viewport_rot_deg (the
+//     observer-view gather, moon_ui.c:1426/:1406) — the knob keeps its
+//     fixed north-up viewport. Neither device file calls
+//     moon_gray565_set_warm — warm is the shipped default.
 // The sealed version is api-surface.dot (this page); the host tools
 // are api-surface-host.dot; the contract census is
 // api-surface-headers.dot.
@@ -49,11 +55,14 @@ digraph api_surface_device {
     geom [label="geometry — ×6\non the clock"];
     bake [label="whole bake — ×3"];
     bakerows [label="bake_rows — ×2;\nknob: one row\nper lock"];
-    lut [label="the tone trio —\n8 converts, ×4\nevent"];
+    lut [label="the tone trio —\nfill leg + band,\n×4 event"];
+    vp [label="viewport — q"];
+    rot [label="rotate — the\nobserver gather"];
     evclass [label="classify"];
     esp_be [label="the device\nbackend", fillcolor="#f6f1e2", color="#b07d10"];
 
     ui -> geom; ui -> bake; ui -> bakerows; ui -> lut;
+    ui -> vp; ui -> rot;
     ui -> guard [color="#b07d10", penwidth=1.6];
     ui -> esp_be;
     guard -> evclass [color="#b07d10"];

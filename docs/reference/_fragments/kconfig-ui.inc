@@ -270,6 +270,25 @@ IMU and tilt coupling
      - ``30``
      - Orbit low-pass coefficient in percent (5–95) at the 20 Hz UI
        tick.
+   * - ``UI_MOON_OBSERVER_ENABLE``
+     - ``y``
+     - Observer view: every gray→RGB565 build leg gathers the
+       north-up baked frame through the in-plane rotation at the
+       Moon's parallactic angle for the active timezone's reference
+       city (:doc:`observer view <../implementation/observer-view>`).
+       The bake stays north-up; the bake reveal is suppressed while a
+       tilt applies; a changed zone re-gathers in place.
+       ``n`` = the fixed north-up viewport.
+   * - ``UI_MOON_OBSERVER_SIGN``
+     - ``1``
+     - Observer view rotation sign, +1 or −1 (screen handedness vs
+       the astronomical east-of-north convention; same precedent as
+       ``UI_IMU_ANGLE_SIGN``). Mirrored crescent tilt → set ``-1``.
+   * - ``UI_MOON_OBSERVER_DEADBAND_DEG``
+     - ``2``
+     - Below this :doc:`parallactic angle <../implementation/observer-view>` the plain LUT pass runs (a
+       sub-band nearest-neighbor resample buys nothing the eye can
+       see), 0–30°.
 
 Clock widget
 ------------

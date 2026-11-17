@@ -158,8 +158,8 @@ Elements
 
    * - 7
      - Timezone (globe, solid)
-     - The UTC-offset / Europe-Berlin picker.
-     - :doc:`settings-tz <settings-tz>` — option ``timezone_idx``
+     - The named-zone picker (67 curated cities).
+     - :doc:`settings-tz <settings-tz>` — key ``timezone``
 
    * - 8
      - Display base angle (rotate, solid)

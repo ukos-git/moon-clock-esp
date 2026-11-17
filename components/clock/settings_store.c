@@ -9,7 +9,6 @@
 
 #include "esp_log.h"
 
-#include "clock_tz.h"
 #include "settings_store.h"
 
 static const char *TAG = "settings_store";
@@ -59,7 +58,12 @@ static uint32_t s_idle_timeout_sec = CONFIG_CLOCK_IDLE_TIMEOUT_SEC;
 static uint32_t s_deep_sleep_countdown_sec = CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC;
 static bool s_boot_anim_enable = (CONFIG_UI_MOON_ANIM_ENABLE != 0);
 static bool s_dusk_anim_enable = (CONFIG_UI_MOON_DUSK_ENABLE != 0);
-static int s_timezone_idx = CLOCK_TZ_BERLIN_IDX; /* the Kconfig default zone */
+/* The timezone selection: the IANA name of a clock_tz table zone (see
+ * clock_tz.h), seeded with the Kconfig default. The old numeric
+ * timezone_idx (generic UTC offsets + one Berlin entry) was retired
+ * 2026-11-17 together with the offset options -- the moon observer view
+ * needs a named zone with a reference city. */
+static char s_timezone[40] = CONFIG_CLOCK_DEFAULT_TIMEZONE;
 static int s_alarm_sound_id = SETTINGS_ALARM_SOUND_DEFAULT;
 static int s_display_rotation_deg = SETTINGS_DISPLAY_ROT_DEFAULT;
 
@@ -84,19 +88,59 @@ static bool parse_kv(const char *line, const char *key, long *out) {
     return true;
 }
 
+/* Parse one "key = value" line into a string field (value trimmed of
+ * surrounding spaces and trailing newline; truncated at outsz-1). */
+static bool parse_kv_str(const char *line, const char *key, char *out, size_t outsz) {
+    char k[32];
+    const char *eq = strchr(line, '=');
+    if (!eq || (size_t)(eq - line) >= sizeof(k))
+        return false;
+    memcpy(k, line, (size_t)(eq - line));
+    k[eq - line] = 0;
+    size_t len = strlen(k);
+    while (len > 0 && k[len - 1] == ' ')
+        k[--len] = 0;
+    if (strcmp(k, key) != 0)
+        return false;
+    const char *v = eq + 1;
+    while (*v == ' ')
+        v++;
+    size_t n = strcspn(v, "\r\n");
+    while (n > 0 && v[n - 1] == ' ')
+        n--;
+    if (n == 0 || n >= outsz)
+        return false;
+    memcpy(out, v, n);
+    out[n] = 0;
+    return true;
+}
+
+/* Legacy migration for the retired numeric timezone_idx (the pre-2026-11-17
+ * option list: 0..52 = generic UTC offsets, 53 = Europe/Berlin). The
+ * generic offsets are gone (the moon observer view needs a city); the
+ * Berlin entry maps to its name, everything else keeps the default.
+ * Returns NULL = keep the current value. */
+static const char *legacy_timezone_idx(long v) {
+    if (v == 53)
+        return "Europe/Berlin";
+    return NULL;
+}
+
 esp_err_t settings_store_load(void) {
     FILE *f = fopen(SETTINGS_PATH, "r");
     if (!f) {
         ESP_LOGI(TAG,
                  "no %s (or missing SPIFFS entry); using Kconfig defaults "
-                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, alarm_sound_id=%d, "
+                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, alarm_sound_id=%d, "
                  "display_rotation_deg=%d)",
                  SETTINGS_PATH, (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                 s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
+                 s_dusk_anim_enable, s_timezone, s_alarm_sound_id, s_display_rotation_deg);
         return ESP_ERR_NOT_FOUND;
     }
     char line[128];
     long v;
+    long legacy_tz_idx = -1; /* legacy numeric timezone_idx, if the file has one */
+    bool tz_named = false;   /* the name-based timezone= line was seen */
     int lines = 0;
     while (fgets(line, sizeof(line), f)) {
         lines++;
@@ -111,8 +155,10 @@ esp_err_t settings_store_load(void) {
             s_boot_anim_enable = (v != 0);
         else if (parse_kv(line, "dusk_anim_enable", &v))
             s_dusk_anim_enable = (v != 0);
-        else if (parse_kv(line, "timezone_idx", &v) && v >= 0 && v < CLOCK_TZ_COUNT)
-            s_timezone_idx = (int)v;
+        else if (parse_kv_str(line, "timezone", s_timezone, sizeof(s_timezone)))
+            tz_named = true;
+        else if (parse_kv(line, "timezone_idx", &v) && v >= 0 && v <= 53)
+            legacy_tz_idx = v; /* applied after the loop (never beats a timezone= line) */
         else if (parse_kv(line, "alarm_sound_id", &v) && v >= 0 && v < SETTINGS_ALARM_SOUND_MAX)
             s_alarm_sound_id = (int)v;
         else if (parse_kv(line, "display_rotation_deg", &v) && v >= 0 && v <= 359)
@@ -121,11 +167,19 @@ esp_err_t settings_store_load(void) {
             ESP_LOGD(TAG, "unrecognized settings line: %s", line);
     }
     fclose(f);
+    if (!tz_named && legacy_tz_idx >= 0) {
+        const char *mig = legacy_timezone_idx(legacy_tz_idx);
+        if (mig) {
+            strncpy(s_timezone, mig, sizeof(s_timezone) - 1);
+            s_timezone[sizeof(s_timezone) - 1] = 0;
+            ESP_LOGI(TAG, "migrated legacy timezone_idx=%ld -> %s", legacy_tz_idx, s_timezone);
+        }
+    }
     ESP_LOGI(TAG,
-             "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, "
+             "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, "
              "alarm_sound_id=%d, display_rotation_deg=%d)",
              (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
+             s_timezone, s_alarm_sound_id, s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -142,21 +196,21 @@ esp_err_t settings_store_save(void) {
                     "deep_sleep_countdown_sec = %u\n"
                     "boot_anim_enable = %d\n"
                     "dusk_anim_enable = %d\n"
-                    "timezone_idx = %d\n"
+                    "timezone = %s\n"
                     "alarm_sound_id = %d\n"
                     "display_rotation_deg = %d\n",
                     (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                    s_dusk_anim_enable, s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
+                    s_dusk_anim_enable, s_timezone, s_alarm_sound_id, s_display_rotation_deg);
     fclose(f);
     if (n < 0) {
         ESP_LOGE(TAG, "settings write failed");
         return ESP_FAIL;
     }
     ESP_LOGI(TAG,
-             "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone_idx=%d, "
+             "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, "
              "alarm_sound_id=%d, display_rotation_deg=%d)",
              (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone_idx, s_alarm_sound_id, s_display_rotation_deg);
+             s_timezone, s_alarm_sound_id, s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -188,12 +242,12 @@ bool settings_dusk_anim_enable(void) { return s_dusk_anim_enable; }
 
 void settings_set_dusk_anim_enable(bool on) { s_dusk_anim_enable = on; }
 
-int settings_timezone_idx(void) { return s_timezone_idx; }
+const char *settings_timezone(void) { return s_timezone; }
 
-void settings_set_timezone_idx(int idx) {
-    if (idx < 0 || idx >= CLOCK_TZ_COUNT)
+void settings_set_timezone(const char *name) {
+    if (!name || !name[0] || strlen(name) >= sizeof(s_timezone))
         return;
-    s_timezone_idx = idx;
+    strcpy(s_timezone, name);
 }
 
 int settings_alarm_sound_id(void) { return s_alarm_sound_id; }

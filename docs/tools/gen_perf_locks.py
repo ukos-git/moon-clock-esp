@@ -18,7 +18,7 @@ The comparisons the ladder makes visible:
     The clocks' moon pipeline runs on two mutexes (moon_ui.c); the
     knob's runs on ONE reentrant wrapper plus four SEQ_CST fences and
     a volatile watermark (its moon pipeline has no lock at all).
-  * The wait policy splits: s_rgb_mtx takes are 17-of-17 unbounded
+  * The wait policy splits: s_rgb_mtx takes are 19-of-19 unbounded
     (portMAX_DELAY) — a publish block is never allowed to fail; the
     panel mutex is the one guard with BOUNDED takes: the 2 s drain
     witness ("observed quiescence only"), the 500 ms traffic-hold
@@ -43,13 +43,13 @@ The comparisons the ladder makes visible:
 Every dot parsed at figure time (the house pattern); every parser
 SystemExits when its fact moved:
 
-  components/ui/moon_ui.c — 17 s_rgb_mtx takes, all portMAX_DELAY;
+  components/ui/moon_ui.c — 19 s_rgb_mtx takes, all portMAX_DELAY;
       9 s_panel_mtx takes with the exact policy multiset
       {portMAX_DELAY x6, FLUSH_WAIT_TIMEOUT_MS (=2000), 500,
       PANEL_IO_WATCHDOG_LIMIT_MS (=3000)}; none of the nine enclosing
       functions contains an s_rgb_mtx take (the one-way order); the
       drain body inside #if !defined(CONFIG_BOARD_P4) with its
-      audited rule 3; 9 drain call sites; the panel_wdg spawn
+      audited rule 3; 10 drain call sites; the panel_wdg spawn
       literal; the draw_bitmap wrapper install; the notify pair.
   knob/components/knob_ui/knob_ui.c — the reentrant wrapper
       (s_lvgl_holder/s_lvgl_depth, owner bump, non-owner give
@@ -269,11 +269,11 @@ def main() -> None:
     # ---- moon_ui.c: the clocks' two keys, site by site ------------------
     rgb_takes = re.findall(r"xSemaphoreTake\(\s*s_rgb_mtx\s*,\s*([^)]*)\)",
                            mu)
-    if len(rgb_takes) != 17 or not all("portMAX_DELAY" in a
+    if len(rgb_takes) != 19 or not all("portMAX_DELAY" in a
                                        for a in rgb_takes):
         raise SystemExit(f"s_rgb_mtx takes: {len(rgb_takes)} with policies "
                          f"{sorted(set(a.strip() for a in rgb_takes))} — "
-                         "expected 17 all-portMAX_DELAY")
+                         "expected 19 all-portMAX_DELAY")
     pan_takes = re.findall(
         r"xSemaphoreTake\(\s*s_panel_mtx\s*,\s*"
         r"(pdMS_TO_TICKS\([^)]*\)|portMAX_DELAY)\s*\)", mu)
@@ -329,11 +329,12 @@ def main() -> None:
            "the P4 no-op leg", re.S)
     count(drain_body, r"xSemaphoreTake\(\s*s_panel_mtx", "the drain take", 1)
     n_calls = len(re.findall(r"moon_panel_drain_verify\(", mu)) - 1
-    if n_calls != 9:
-        raise SystemExit(f"drain call sites: {n_calls}, expected 9")
+    if n_calls != 10:
+        raise SystemExit(f"drain call sites: {n_calls}, expected 10")
     for site in ("\"bake reveal restore\"", "\"bake reveal clear\"",
                  "\"bake reveal\"", "\"re-bake\"", "\"boot replay final\"",
                  "\"boot replay\"", "\"rebake\"", "\"orbit batch\"",
+                 "\"tz re-gather\"",
                  "\"hourly fade-in\"", "\"switch fade-in\"",
                  "\"screen switch\""):
         expect(mu, re.escape(f"moon_panel_drain_verify(") + r".*" +
@@ -466,9 +467,9 @@ def main() -> None:
     #        per-board matrix cells {board: (n_or_None, kind, short_note)})
     #   kind: "n" filled dot with count, "open" zero-with-reason, "x" absent
     rows = [
-        ("s_rgb_mtx  (moon_ui.c)", 17, 0,
-         "17x portMAX_DELAY — a publish block never fails", VIOLET,
-         {"S3": (17, "n", "17 takes"), "P4": (17, "n", "17 takes"),
+        ("s_rgb_mtx  (moon_ui.c)", 19, 0,
+         "19x portMAX_DELAY — a publish block never fails", VIOLET,
+         {"S3": (19, "n", "19 takes"), "P4": (19, "n", "19 takes"),
           "knob": (None, "x", "")}),
         ("s_panel_mtx  (moon_ui.c)", 6, 3,
          "6x forever + witness 2 s + quiesce 500 ms + probe 3 s", VIOLET,
@@ -588,9 +589,9 @@ def main() -> None:
     fig.tight_layout()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     fig.savefig(OUT, dpi=200, bbox_inches="tight")
-    print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 17 forever; panel 6+3 "
+    print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 19 forever; panel 6+3 "
           f"[2000/500/3000 ms]; mux 1 take / 11 entries; fences 4; notify "
-          f"1+1; drain 9 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
+          f"1+1; drain 10 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
           f"queue sites 0; P4 drain takes 8)")
 
 

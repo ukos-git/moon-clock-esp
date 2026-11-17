@@ -35,19 +35,19 @@ project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,714,848 B (0x1a2aa0)
+     - 1,721,968 B (0x1a4670)
      - 2,097,152 B (2048 K)
-     - 382,304 B (18 %)
+     - 375,184 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,874,256 B (0x1c9950)
+     - 1,883,296 B (0x1cbca0)
      - 9,437,184 B (9216 K)
-     - 7,562,928 B (80 %)
+     - 7,553,888 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,555,952 B (0x17dbf0)
+     - 1,559,728 B (0x17ccf0)
      - 4,194,304 B (4096 K)
-     - 2,638,352 B (63 %)
+     - 2,634,576 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the
@@ -167,13 +167,22 @@ the app's growth history:
                                               hold no longer eats the
                                               screen-switch's atomic frame)
                                               over the 17th-screen base
-   binary    1,714,848 B  (0x1a2aa0)  current (measured 2026-11-17) — the
-                                              draw_wait io-error tally plus
+   binary    1,714,848 B  (0x1a2aa0)  the draw_wait io-error tally plus
                                               the storm-pressure no-mem
                                               ride-out (``ESP_ERR_NO_MEM``
                                               strips retry while the panel
                                               watchdog stands down) over the
-                                              switch-frame-pass base; 18%
+                                              switch-frame-pass base
+   binary    1,721,968 B  (0x1a4670)  current (measured 2026-11-17) — the
+                                              timezone rework over the
+                                              io-tally base: 67 curated
+                                              IANA zones persisted by name
+                                              (clock_tz), the observer-view
+                                              gather in every ``s_rgb``
+                                              build leg
+                                              (``moon_viewport_rot_deg`` +
+                                              ``moon_rotate``) and the
+                                              tz-change re-gather seam; 18%
                                               under the ceiling — rule 3
                                               below is now the next expected
                                               step, not a last resort

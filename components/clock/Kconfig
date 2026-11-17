@@ -29,16 +29,18 @@ menu "Clock Component Configuration"
     endchoice
 
     config CLOCK_DEFAULT_TIMEZONE
-        string "Default timezone (POSIX TZ format)"
-        default "CET-1CEST,M3.5.0/2,M10.5.0/3"
+        string "Default timezone (IANA zone name)"
+        default "Europe/Berlin"
         help
-            Default timezone in POSIX TZ format.
-            Examples:
-            - "CET-1CEST,M3.5.0/2,M10.5.0/3" (Central European Time with DST)
-            - "EST5EDT,M3.2.0,M11.1.0" (Eastern Time US with DST)
-            - "UTC0" (UTC time)
-            - "JST-9" (Japan Standard Time, no DST)
-            - "PST8PDT,M3.2.0,M11.1.0" (Pacific Time US with DST)
+            The zone applied at boot until the user picks one on the
+            settings TIMEZONE screen (that selection persists in
+            /spiffs/settings.txt as a name). Value = the IANA name of a
+            zone in the clock_tz table (components/clock/clock_tz.c --
+            e.g. "Europe/Berlin", "Asia/Tokyo", "America/New_York");
+            the zone's reference city also anchors the moon's observer
+            view. A value outside the table is applied verbatim as a
+            raw POSIX TZ string (north-up viewport, no observer city),
+            e.g. "CET-1CEST,M3.5.0/2,M10.5.0/3".
 
     config CLOCK_NTP_SERVER
         string "NTP server hostname"

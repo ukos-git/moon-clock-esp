@@ -138,7 +138,12 @@ TUs (``moon_ui.c``, ``moon_tfcache.c``, ``alarm_audio.c``,
 public headers from its own components:
 
 - ``knob_moon_render.c`` implements the **``moon_ui.h`` seam** — the
-  thirteen functions the shared screens/actions call. The physics
+  eighteen functions the shared screens/actions call (since
+  2026-11-17 including ``moon_ui_tz_changed``, a **deliberate no-op**:
+  the knob's viewport stays fixed north-up — the TIMEZONE screen still
+  applies and persists its zone through the clock component, only the
+  moon's disk tilt is not adopted,
+  :doc:`the observer view <observer-view>`). The physics
   honest to this board: fades and dim ramps become **LEDC duty
   ramps** (10 ms steps on GPIO 47 — there is no 0x51 QSPI brightness
   path to wedge, and no 0x51 is ever sent); ``moon_ui_screen_switched``

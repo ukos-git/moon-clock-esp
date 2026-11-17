@@ -23,6 +23,7 @@ endif()
 idf_component_register(
     SRCS
         core/moon_astro.c
+        core/moon_viewport.c
         core/moon_bake.c
         core/moon_render.c
         core/moon_fixp.c

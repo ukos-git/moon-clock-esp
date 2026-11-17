@@ -17,16 +17,18 @@ stops being shared verbatim between the device component and the host tools:
   core set-equality (the founding invariant)
       components/moon/CMakeLists.txt SRCS == host_sim/CMakeLists.txt
       MOON_CORE_SRCS == host_sim/uisim/build.sh's explicit core list — the
-      five math TUs and the eleven ERFA TUs, name-for-name on all three
+      six math TUs and the eleven ERFA TUs, name-for-name on all three
       sides. "shared verbatim" (CLAUDE.md) becomes a machine-checked set
       equality: the day someone forks the core for the host, the figure dies.
-  the moon component's 17 = 16 core + 1 device glue
+  the moon component's 18 = 17 core + 1 device glue
       esp/moon_esp_assets.c is the only non-core SRCS entry; the host side
       carries host/moon_host_assets.c + the generated per-target asset table
   the twelve images                     exactly two add_executable targets in
       host_sim/CMakeLists.txt (moon_sim, moon_bench — dark_test.c and
-      newmoon_test.c are asserted TRACKED by git and asserted ABSENT from
-      the build file: throwaway probes, drawn at zero), configured once per
+      newmoon_test.c are asserted present and ABSENT from
+      the build file: throwaway probes, drawn at zero (viewport_test.c, the tz
+      wave's golden probe, joins the zero row; dark/newmoon additionally must
+      stay tracked, viewport_test rides the wave's commit)), configured once per
       target build dir so each executable exists three times; host_sim/
       pole_test is asserted to be a stale gitignored ELF with no source
       behind it
@@ -97,22 +99,22 @@ def _read(rel: str) -> str:
 
 
 # ------------------------------------------------------------- the core truth
-CORE_MATH = ["moon_astro.c", "moon_bake.c", "moon_render.c", "moon_fixp.c",
-             "moon_event.c"]
+CORE_MATH = ["moon_astro.c", "moon_viewport.c", "moon_bake.c", "moon_render.c",
+             "moon_fixp.c", "moon_event.c"]
 ERFA = ["moon98.c", "epv00.c", "s2pv.c", "pfw06.c", "obl06.c", "rx.c", "rz.c",
         "cp.c", "ir.c", "rxp.c", "rxpv.c"]
 
 moon_cm = _read(os.path.join("components", "moon", "CMakeLists.txt"))
 m = re.search(r'idf_component_register\(\s*SRCS(.*?)INCLUDE_DIRS', moon_cm, re.S)
 if not m:
-    raise SystemExit("components/moon: the SRCS block vanished — the 17-file "
-                     "inventory (16 core + 1 device glue) cannot be parsed")
+    raise SystemExit("components/moon: the SRCS block vanished — the 18-file "
+                     "inventory (17 core + 1 device glue) cannot be parsed")
 moon_srcs = re.findall(r'"?([A-Za-z_0-9/.]+\.c)"?', m.group(1))
 core_dev = [s for s in moon_srcs if s.startswith("core/") and "erfa" not in s]
 erfa_dev = [s for s in moon_srcs if "core/erfa/" in s]
 glue_dev = [s for s in moon_srcs if s.startswith("esp/")]
 if sorted(os.path.basename(s) for s in core_dev) != sorted(CORE_MATH):
-    raise SystemExit(f"components/moon core set drifted {core_dev} — the five "
+    raise SystemExit(f"components/moon core set drifted {core_dev} — the six "
                      f"math TUs are the figure's top bar")
 if sorted(os.path.basename(s) for s in erfa_dev) != sorted(ERFA):
     raise SystemExit(f"components/moon ERFA set drifted {erfa_dev}")
@@ -137,7 +139,7 @@ exes = re.findall(r'add_executable\((\w+)', host_cm)
 if sorted(exes) != ["moon_bench", "moon_sim"]:
     raise SystemExit(f"host_sim links {exes} — the figure models exactly two "
                      f"linked executables (moon_sim, moon_bench)")
-for probe in ("dark_test", "newmoon_test"):
+for probe in ("dark_test", "newmoon_test", "viewport_test"):
     if probe in host_cm:
         raise SystemExit(f"{probe} is now linked by CMakeLists — it is no longer "
                          f"a throwaway probe; move it off the zero row")
@@ -146,6 +148,9 @@ for probe in ("dark_test", "newmoon_test"):
                          f"documents a file that no longer exists")
 tracked = subprocess.run(["git", "-C", ROOT, "ls-files", "host_sim"],
                          capture_output=True, text=True).stdout.splitlines()
+# dark/newmoon are the proven probes; viewport_test joined the zero row
+# with the 2026-11-17 tz wave and rides that wave's commit (its existence
+# and its absence from CMakeLists are asserted above either way)
 for probe in ("host_sim/dark_test.c", "host_sim/newmoon_test.c"):
     if probe not in tracked:
         raise SystemExit(f"{probe} is untracked — 'tracked, never linked' would "
@@ -167,11 +172,11 @@ else:
 # --------------------------------------------------------------- uisim build
 uisim_sh = _read(os.path.join("host_sim", "uisim", "build.sh"))
 for must in ("$UI/screens.c", "$UI/styles.c", "$UI/images.c",
-             "moon_astro.c", "moon_bake.c", "moon_render.c", "moon_fixp.c",
-             "moon_event.c", "moon_host_assets.c", "$MOON_GEN_C",
+             "moon_astro.c", "moon_viewport.c", "moon_bake.c", "moon_render.c",
+             "moon_fixp.c", "moon_event.c", "moon_host_assets.c", "$MOON_GEN_C",
              "$PWD/stubs.c", "$PWD/main.c", "$PWD/stb_impl.c"):
     if must not in uisim_sh:
-        raise SystemExit(f"uisim/build.sh no longer compiles {must} — the 31-TU "
+        raise SystemExit(f"uisim/build.sh no longer compiles {must} — the 32-TU "
                          f"bar was parsed from this list")
 for never in ("$UI/ui.c", "$UI/actions.c", "$UI/vars.c", "$UI/moon_ui.c",
               "$UI/demo.c", "$UI/moon_tfcache.c", "$UI/alarm_audio.c",
@@ -272,7 +277,7 @@ for comp, expected in KNOB_SRCS.items():
     knob_total += len(srcs)
 if knob_total != 14:
     raise SystemExit(f"knob-native TU count {knob_total} != 14 — the violet "
-                     f"single-build bar and the 57-TU knob bar both move")
+                     f"single-build bar and the 58-TU knob bar both move")
 
 # the generated per-target asset tables are real files on disk (gitignored)
 for t in ("s3", "p4", "knob"):
@@ -301,7 +306,7 @@ def add(label, n, images, colour, note="", hatch=False, dashed=False):
     rows.append(dict(label=label, n=n, imgs=list(images), colour=colour,
                      note=note, hatch=hatch, dashed=dashed))
 
-add("core math (moon_astro/bake/render/fixp/event)", 5, ALL, BLUE,
+add("core math (moon_astro/viewport/bake/render/fixp/event)", 6, ALL, BLUE,
     "the only repo-owned TUs in EVERY image")
 add("vendored ERFA (moon98, epv00, ...)", 11, ALL, BLUE)
 add("vendored LVGL — 412 TUs, cited", LV_TUS, DEV + UIS, GREY,
@@ -331,9 +336,9 @@ add("bench.c (one source, three bench builds)", 1, BENCHES, TEAL,
     "moon_bench is linked into every target build dir")
 add("knob main + native 14 (nine components)", 15, (KN,), VIOLET,
     "every knob-owned TU compiles ONCE")
-add("throwaway probes dark_test.c / newmoon_test.c", 2, (), GHOST,
+add("throwaway probes dark_test.c / newmoon_test.c / viewport_test.c", 3, (), GHOST,
     "tracked by git, called in code, linked by nobody"
-    + (" — a stale pole_test ELF is all that remains of the third" if STALE_ELF else ""),
+    + (" — a stale pole_test ELF is all that remains of an even earlier probe" if STALE_ELF else ""),
     dashed=True)
 
 # per-image repo-owned TU totals, recomputed from the model (never hand-summed)
@@ -343,9 +348,9 @@ for r in rows:
         continue  # vendored + never-linked live on their own axis
     for i in r["imgs"]:
         per_image[i] += r["n"]
-EXPECTED = {S3: 47, P4: 47, KN: 57, "sim_s3": 19, "sim_p4": 19, "sim_knob": 19,
-            "bench_s3": 19, "bench_p4": 19, "bench_knob": 19,
-            "uisim466": 31, "uisim720": 31, "uisim360": 31}
+EXPECTED = {S3: 48, P4: 48, KN: 58, "sim_s3": 20, "sim_p4": 20, "sim_knob": 20,
+            "bench_s3": 20, "bench_p4": 20, "bench_knob": 20,
+            "uisim466": 32, "uisim720": 32, "uisim360": 32}
 for i, want in EXPECTED.items():
     if per_image[i] != want:
         raise SystemExit(f"{i} compiles {per_image[i]} repo-owned TUs, not {want} "
@@ -436,7 +441,7 @@ fig.suptitle(
     fontsize=12.5, color=INK, weight="bold", y=0.985)
 fig.text(0.5, 0.935,
          "parsed live: core set-equality across the three build systems, the two "
-         "linked host executables, the uisim's 31+412 list, the four dropped UI "
+         "linked host executables, the uisim's 32+412 list, the four dropped UI "
          "TUs, the knob's 14+1",
          ha="center", fontsize=8.6, color=MUTED)
 fig.tight_layout(rect=(0, 0.055, 1, 0.925))

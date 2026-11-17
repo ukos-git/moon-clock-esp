@@ -127,7 +127,8 @@ mkdir -p "$BUILD/obj"
     printf '%s\n' \
         "$MOON/core/moon_astro.c" "$MOON/core/moon_bake.c" \
         "$MOON/core/moon_render.c" "$MOON/core/moon_fixp.c" \
-        "$MOON/core/moon_event.c"
+        "$MOON/core/moon_event.c" "$MOON/core/moon_viewport.c" \
+        "$ROOT/components/clock/clock_tz.c"
     find "$MOON/core/erfa" -name '*.c'
     echo "$MOON/host/moon_host_assets.c"
     echo "$MOON_GEN_C"

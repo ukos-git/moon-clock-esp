@@ -241,24 +241,24 @@ nothing, and at most pays an entry refresh.
 .. graphviz:: ../_graphs/screen-population-city.dot
    :align: center
    :alt: The hidden city opened — create_screens feeding the four moon roots (with the shared moon image and the one reparented clock widget), the hub, the amber wheel at 150, and the eleven small screens.
-   :caption: The hidden city opened. ``create_screens()`` (``screens.c:4061``) calls exactly the 17 ``create_screen_*`` in enum order; EACH creator roots at exactly ONE detached ``lv_obj_create(0)`` — layout contract 1, and the twin parser dies on a second root or a missing creator. The four moon roots carry 17 (modem-sleep, including the clock widget), 5 (wifi), 3 (light-sleep), 4 (deep-sleep) objects and are the ONLY ``moon_screen_prepare`` call sites (``screens.c:41-45``); ONE moon image serves all four (``moon_ui_create_image``, ``moon_ui.c:2763`` — "s_images[] stays at the four moon screens"), the 12 settings screens + alarm are moon-less by design. The hub's 10: seven ``ring[]`` labels (``screens.c:597-608``) + exit + root, and the ``#if defined(CONFIG_BOARD_P4)`` leg adds an 8th (clock icon → settings-time) — the ONLY per-board delta in the whole bill. The wheel's 150 = 57 %: 42 arcs + 49 containers + 59 labels from the 12-sector loop (``WHEEL_N_SECTORS``, ``screens.c:1883``) and the 26 letters × 2 — NOT a roller. The other 11 screens run 3 to 12 objects each (alarm view lightest at 3; settings-time 12, P4-reachable only); ALL 14 ``lv_roller`` instances live there, none in the wheel. The clock widget is created exactly ONCE (layout contract 2 — 13 of the home's 17) and ``ui_clock_attach_to`` (``screens.c:3993``) REPARENTS it onto every moon root: "computed, not rendered" for settings screens.
+   :caption: The hidden city opened. ``create_screens()`` (``screens.c:4074``) calls exactly the 17 ``create_screen_*`` in enum order; EACH creator roots at exactly ONE detached ``lv_obj_create(0)`` — layout contract 1, and the twin parser dies on a second root or a missing creator. The four moon roots carry 17 (modem-sleep, including the clock widget), 5 (wifi), 3 (light-sleep), 4 (deep-sleep) objects and are the ONLY ``moon_screen_prepare`` call sites (``screens.c:41-45``); ONE moon image serves all four (``moon_ui_create_image``, ``moon_ui.c:2954`` — "s_images[] stays at the four moon screens"), the 12 settings screens + alarm are moon-less by design. The hub's 10: seven ``ring[]`` labels (``screens.c:597-608``) + exit + root, and the ``#if defined(CONFIG_BOARD_P4)`` leg adds an 8th (clock icon → settings-time) — the ONLY per-board delta in the whole bill. The wheel's 150 = 57 %: 42 arcs + 49 containers + 59 labels from the 12-sector loop (``WHEEL_N_SECTORS``, ``screens.c:1883``) and the 26 letters × 2 — NOT a roller. The other 11 screens run 3 to 12 objects each (alarm view lightest at 3; settings-time 12, P4-reachable only); ALL 14 ``lv_roller`` instances live there, none in the wheel. The clock widget is created exactly ONCE (layout contract 2 — 13 of the home's 17) and ``ui_clock_attach_to`` (``screens.c:4006``) REPARENTS it onto every moon root: "computed, not rendered" for settings screens.
 
 .. graphviz:: ../_graphs/screen-population-visit.dot
    :align: center
    :alt: A visit opened — loadScreen with zero creator calls feeding the exactly-eleven-case entry refresh and the current-screen-only tick dispatch, with the dashed 0x51 fade pointer beside it.
-   :caption: A visit opened — the build-once bill. ``loadScreen(old→new)`` (``ui.c:51``): ``lv_scr_load`` swaps roots (:63), then ``ui_clock_attach_to`` (:69) and ``moon_ui_screen_switched`` (:74) land the atomic frame — NO creator call sits inside it (the twin parser DIES on any ``*_create(`` there); the code's own contract, "The widgets are created once (loadScreen never destroys them)" (``screens.c:1388``). ``settings_screen_refresh_for`` (``screens.c:747``) has exactly 11 cases: the 11 sub-screens pay an entry REFRESH (rollers re-seed from model state), never a rebuild. ``ui_tick`` (``ui.c:87``) dispatches through ``tick_screen_funcs[]`` (``screens.c:4038``, the 17 tickers in enum order): the sixteen off-screen roots tick ZERO times, every frame. The switch rides the 0x51 fade-to-black (``UI_SCREEN_SWITCH_FADE``, internals in ``docs/_graphs/screen-switch.dot``); the both-moon test (``ui.c:57``) skips the fade between moon roots — "a fade with nothing to fade". The knob's P2 dial block (``screens.c:4086-4495``) contains ZERO ``lv_*_create`` — the dial cursor only restyles existing objects.
+   :caption: A visit opened — the build-once bill. ``loadScreen(old→new)`` (``ui.c:51``): ``lv_scr_load`` swaps roots (:63), then ``ui_clock_attach_to`` (:69) and ``moon_ui_screen_switched`` (:74) land the atomic frame — NO creator call sits inside it (the twin parser DIES on any ``*_create(`` there); the code's own contract, "The widgets are created once (loadScreen never destroys them)" (``screens.c:1388``). ``settings_screen_refresh_for`` (``screens.c:747``) has exactly 11 cases: the 11 sub-screens pay an entry REFRESH (rollers re-seed from model state), never a rebuild. ``ui_tick`` (``ui.c:87``) dispatches through ``tick_screen_funcs[]`` (``screens.c:4051``, the 17 tickers in enum order): the sixteen off-screen roots tick ZERO times, every frame. The switch rides the 0x51 fade-to-black (``UI_SCREEN_SWITCH_FADE``, internals in ``docs/_graphs/screen-switch.dot``); the both-moon test (``ui.c:57``) skips the fade between moon roots — "a fade with nothing to fade". The knob's P2 dial block (``screens.c:4099-4508``) contains ZERO ``lv_*_create`` — the dial cursor only restyles existing objects.
 
 The rules the graph encodes:
 
 - **Built once, before the first frame.** ``create_screens()``
-  (``screens.c:4061``) runs inside ``ui_init`` *before* the first
+  (``screens.c:4074``) runs inside ``ui_init`` *before* the first
   ``loadScreen``; each of the 17 creators owns exactly one detached
   root (layout contract 1).
 - **Never destroyed.** ``loadScreen`` (``ui.c:51``) contains no
   creator call and no destroy — the twin parser refuses to draw if a
   ``*_create(`` ever appears inside it. A switch swaps roots,
   reparents the ONE clock widget (``ui_clock_attach_to``,
-  ``screens.c:3993``, "computed, not rendered" for settings screens),
+  ``screens.c:4006``, "computed, not rendered" for settings screens),
   and lands the atomic frame.
 - **The bill is concentrated, not spread.** One screen — the round
   keyboard — assembles 150 of the 265 (57 %), and it is not a
@@ -266,13 +266,13 @@ The rules the graph encodes:
   list screens. The four sleep-state roots share the ONE moon image
   (``s_images[]`` stays at the four, ``screens.c:48``).
 - **Only the current screen ticks.** ``ui_tick`` (``ui.c:87``)
-  dispatches through ``tick_screen_funcs[]`` (``screens.c:4038``) to
+  dispatches through ``tick_screen_funcs[]`` (``screens.c:4051``) to
   the loaded screen alone; the sixteen off-screen roots do no work
   per frame. The 11 sub-screens additionally pay one entry REFRESH
   (``settings_screen_refresh_for``, ``screens.c:747``, exactly 11
   cases — rollers re-seed, nothing rebuilds).
 - **The knob adds no widgets.** Its P2 dial block
-  (``screens.c:4086-4495``) contains zero ``lv_*_create`` calls — the
+  (``screens.c:4099-4508``) contains zero ``lv_*_create`` calls — the
   dial cursor only restyles existing objects. The dial's *input* path
   is its own story, :ref:`below <input-chain-ui>`.
 

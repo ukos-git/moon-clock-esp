@@ -218,12 +218,13 @@ The sub-screens:
    (the one-shot armed at the light-sleep entry itself).
 
 .. figure:: ../img/screens/settings_tz.png
-   :alt: The timezone / UTC-offset settings screen
+   :alt: The timezone settings screen
    :figclass: align-center
 
-   The **timezone / UTC offset** screen — one of 53 thirty-minute
-   offsets (Europe/Berlin here); committing rewrites the RTC
-   epoch-consistently and re-arms the alarm (:doc:`the architecture <architecture>`,
+   The **timezone** screen — one of the 67 curated named zones
+   (Europe/Berlin here); committing rewrites the RTC
+   epoch-consistently, re-arms the alarm and re-gathers the moon for
+   the zone's city (:doc:`the architecture <architecture>`,
    ``clock_tz``).
 
 .. figure:: ../img/screens/settings_wifi.png

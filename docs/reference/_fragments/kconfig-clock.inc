@@ -29,10 +29,12 @@ Eight keys:
        ``CLOCK_TIME_FORMAT_12H`` (12-hour with AM/PM). The RTC always
        stores 24-hour time internally; the choice only affects display.
    * - ``CLOCK_DEFAULT_TIMEZONE``
-     - ``CET-1CEST,M3.5.0/2,M10.5.0/3``
-     - Default timezone in POSIX TZ format (the compile-time fallback;
-       the *runtime* selection is the settings store's
-       ``timezone_idx`` — :doc:`the SPIFFS store <../reference/spiffs-store>`).
+     - ``Europe/Berlin``
+     - Default timezone as the IANA name of a zone in the
+       ``clock_tz`` table (the compile-time fallback applied at boot
+       until the user picks one; the *runtime* selection is the
+       settings store's ``timezone`` key —
+       :doc:`the SPIFFS store <../reference/spiffs-store>`).
    * - ``CLOCK_NTP_SERVER``
      - ``pool.ntp.org``
      - Primary NTP server to synchronize with.

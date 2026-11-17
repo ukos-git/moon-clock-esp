@@ -22,6 +22,12 @@ Lunar astronomy
 - **Position angle (posangle)** — the angle of celestial north east
   of the observer's zenith, in degrees; the camera basis' in-plane
   rotation (:doc:`the geometry <science/geometry>` and :doc:`the dark side <science/darkside>`).
+- **Parallactic angle** — the angle of celestial north east of the
+  vertical at the *observer's* horizon, ``q = atan2(sin H, tan φ cos δ
+  − sin δ cos H)`` from the hour angle ``H``, the site latitude ``φ``
+  and the Moon's declination ``δ``; what turns a north-up disk into
+  the view an observer at that city has (the in-plane rotation of the
+  *observer view*, :doc:`the observer view <implementation/observer-view>`).
 - **Phase angle** — the Sun–Moon–observer angle ``i``; the
   illumination is ``(1 + cos i) / 2`` (the ``illum``).
 - **Libration** — the Moon's apparent wobble (geometric, not
@@ -152,6 +158,16 @@ The device pipeline
   knob's boot bake (producer-interleaved, boot only); fetch hits never
   arm it
   (:doc:`the bake reveal <implementation/bake-reveal>`).
+- **Observer view** *(``UI_MOON_OBSERVER_ENABLE``, added 2026-11-17)*
+  — the timezone's payoff: every gray→RGB565 build leg gathers the
+  north-up baked frame through the Q15.15 in-plane rotation at the
+  Moon's parallactic angle for the active timezone's reference city,
+  so the crescent lies down at dusk and stands up at midnight and the
+  tilt follows the zone's local time. The bake stays north-up (the
+  gate's frames, the TF hour cache zone-agnostic); the bake reveal is
+  suppressed while a tilt applies; a changed zone re-gathers the
+  resting frame in place (``moon_ui_tz_changed``)
+  (:doc:`the observer view <implementation/observer-view>`).
 - **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
   cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row
   strip fix, :doc:`the P4 port <implementation/p4-port>`).
