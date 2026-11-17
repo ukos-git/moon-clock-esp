@@ -673,12 +673,35 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
         s_hold_flush_drops2++;
         return ESP_OK; /* dropped: the sync storm owns the bus (the hold) */
     }
+    /* Diagnostic tally (wifi-sync wedge hunt): which esp_err_t the io
+     * layer ACTUALLY returned is the discriminator between the two
+     * suspected families -- ESP_ERR_NO_MEM from setup_priv_desc's
+     * internal-RAM DMA bounce (radio storm squeezes internal heap) vs
+     * ESP_ERR_INVALID_STATE from the "previous polling transaction not
+     * terminated" check / a truly parked depth-1 slot (the lost
+     * completion family). The give-up log names the codes + counts. */
+    esp_err_t tally_code[4] = {0};
+    uint32_t tally_n[4] = {0};
+    int tally_cnt = 0;
     for (int attempt = 0; attempt < 100; attempt++) {
         esp_err_t r = s_orig_draw(panel, x_start, y_start, x_end, y_end, color_data);
         if (r == ESP_OK) {
             snprintf(s_last_accept_desc, sizeof(s_last_accept_desc), "%s y%d..%d", pcTaskGetName(NULL), y_start, y_end);
             s_last_accept_tick = lv_tick_get();
             return ESP_OK;
+        }
+        {
+            int i;
+            for (i = 0; i < tally_cnt; i++)
+                if (tally_code[i] == r) {
+                    tally_n[i]++;
+                    break;
+                }
+            if (i == tally_cnt && tally_cnt < 4) {
+                tally_code[i] = r;
+                tally_n[i] = 1;
+                tally_cnt++;
+            }
         }
         if (attempt == 0) {
             /* Anomaly-only attribution (2026-11-13 wake wedge): a FIRST
@@ -699,9 +722,13 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
     }
     /* ~100 ms is stale: each rejected attempt costs the io onFly poll
      * (~10 ms) plus the delay tick, so the loop is ~2 s per strip. */
-    ESP_LOGW(TAG, "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit)",
+    ESP_LOGW(TAG,
+             "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit); "
+             "io errors: %d×0x%x %d×0x%x %d×0x%x %d×0x%x; largest-DMA %u B",
              pcTaskGetName(NULL), y_start, y_end, s_last_accept_desc,
-             (unsigned long)(lv_tick_get() - s_last_accept_tick));
+             (unsigned long)(lv_tick_get() - s_last_accept_tick), (int)tally_n[0], (int)tally_code[0],
+             (int)tally_n[1], (int)tally_code[1], (int)tally_n[2], (int)tally_code[2], (int)tally_n[3],
+             (int)tally_code[3], (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     return ESP_ERR_TIMEOUT;
 }
 
