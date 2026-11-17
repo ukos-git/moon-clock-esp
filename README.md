@@ -47,13 +47,18 @@ esptool.py --port <port> chip_id       # ESP32S3 -> the 1.75; ESP32-P4 -> the 4C
 
 # build + flash the S3 (the default target)
 git clone <this repo> && cd <this repo>
+
+# one-time NASA asset acquisition (everything it writes is gitignored)
+python3 assets/images/moon/get_assets.py --refs
+
 idf.py build
 idf.py flash -p <port>                 # app + SPIFFS + moon assets
 idf.py monitor -p <port>               # serial console, 115200
 ```
 
-For the **P4 4C**, pin the target and build dir on every command:
-`idf.py -D IDF_TARGET=esp32p4 -B build/p4 build` … `flash -p <port>`.
+For the **P4 4C**, pin the target, build dir and live config on every command:
+`idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build` … `flash -p <port>`
+(the flag gives the P4 its own gitignored `sdkconfig.p4` — the root `sdkconfig` pins the S3).
 
 On first boot the board scans for networks and lands on the WiFi screen — tap
 an access point and enter the password on the round keyboard. The credentials
@@ -68,7 +73,11 @@ persist in the board's SPIFFS.
 - **Timezone:** `idf.py menuconfig` → _Component config → Clock Component
   Configuration → Default timezone_.
 - **Moon assets:** the `moon_assets` partition holds the per-board equirect
-  albedo + relief DEM (gitignored). Regenerate with
+  albedo + relief DEM — **nothing binary under `assets/` is committed**. One
+  stdlib script acquires and bakes it all (NASA sources sha256-pinned,
+  bootstraps its own `.venv`; `--refs` adds the image-gate reference frames):
+  `python3 assets/images/moon/get_assets.py --refs`. After a pipeline change
+  re-bake with
   `assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4 knob`,
   then prove it against NASA's renders with
   `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` (and `p4`,

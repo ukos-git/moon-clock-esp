@@ -1,7 +1,9 @@
 // The bake side, opened (verified before drawing):
 //   The sources are shared by all three boards: LROC albedo loaded
 //   16-bit via tifffile + the LOLA DEM — ONE dataset; only the
-//   per-board BAKE resolution differs.
+//   per-board BAKE resolution differs. get_assets.py re-fetches both
+//   from NASA SVS 4720 into moon-kit/ under sha256+size pins (nothing
+//   binary is committed); the bake then runs offline off that cache.
 //   moon/constants.py is the single source of truth (widths, DEM
 //   quantisation range) — so components/moon/generated/<target>/
 //   moon_consts.h is GENERATED from it (TRACKED; docs/reference/
@@ -32,8 +34,10 @@ digraph assets_pipeline_bake {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
+    kit [label="get_assets.py — fetches\nthe kit from NASA SVS 4720\ninto moon-kit/ (sha256+\nsize pins); regenerates\ntone_lut.bin; --refs adds\nthe 5415 answer key",
+         fillcolor="#e8f2e8", color="#2e7d32", fontcolor="#1b4d1e", penwidth=1.6];
     albedo [label="LROC albedo —\n16-bit TIFF via\ntifffile"];
-    dem [label="LOLA DEM — int8 after\nquantisation; per-board\nBAKE px differs"];
+    dem [label="LOLA DEM (16 px/deg\ndisplacement map) —\nint8 after quantisation;\nper-board BAKE px differs"];
     consts [label="moon/constants.py —\nthe SINGLE source\n(widths, DEM range)",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
     cli [label="python -m moon.assets\n--target s3 p4 knob\n— out/<t>/ is\ngitignored",
@@ -45,6 +49,8 @@ digraph assets_pipeline_bake {
     mani [label="the manifest —\nalb_w, combined_bytes,\nDEM geometry: guard\ninput AND witness"];
     genc [label="moon_assets_gen.c —\ncompiled-in fallback;\na moonmedia staleness\ninput"];
 
+    kit -> albedo [style=dashed, color="#2e7d32"];
+    kit -> dem [style=dashed, color="#2e7d32"];
     albedo -> cli;
     dem -> cli;
     consts -> cli [label="widths +\nquantisation", color="#b07d10", fontcolor="#6b4e08"];

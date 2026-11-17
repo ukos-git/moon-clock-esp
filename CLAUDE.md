@@ -133,15 +133,25 @@ source ~/esp/esp-idf/export.sh
 idf.py build
 # P4 4C (720) — the Kconfig BOARD choice comes from
 # sdkconfig.defaults.esp32p4 (CONFIG_BOARD_P4=y); own build dir + own
-# dependencies.lock.p4 (gitignored):
-idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
+# dependencies.lock.p4 + own live sdkconfig.p4 (all gitignored). The
+# -D SDKCONFIG is REQUIRED while the root sdkconfig still pins
+# IDF_TARGET=esp32s3 (targets.cmake aborts the P4 configure otherwise);
+# it becomes a cache entry after the first configure — keep passing it:
+idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
 # flash the board you identified (see "Identifying the boards"):
 idf.py flash -p <port>
-idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
+idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
+# moon assets — ONE-SHOT acquisition on a fresh clone (stdlib python3; fetches
+# the NASA SVS 4720 kit sha256+size-pinned into assets/images/moon/moon-kit/,
+# bootstraps its own .venv, regenerates tone_lut.bin, bakes out/{s3,p4,knob};
+# --refs adds mooninfo_2025.json + the SVS 5415 gate/docs reference frames —
+# everything it writes is gitignored; provenance + pins: assets/images/moon/README.md):
+python3 assets/images/moon/get_assets.py --refs
 # moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
 # assets/images/moon/out/{s3,p4,knob}/); the root CMakeLists FATAL_ERRORs on a
 # width/manifest/partition mismatch (knob/CMakeLists.txt replicates the
-# guards) — regenerate after touching the pipeline or MOON_ALBEDO_W:
+# guards) — regenerate after touching the pipeline or MOON_ALBEDO_W (sources
+# stay cached under moon-kit/, so the bake leg needs no network):
 cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob
 # knob moon display (sibling project, own build dir + own gitignored
 # dependencies.lock.knob + knob/sdkconfig; flash the board chip_id-verified
@@ -172,7 +182,7 @@ docs/.venv/bin/sphinx-build -b media docs docs/_build/media     # THE media rege
 ### Identifying the boards
 
 Never hard-code which port is which board — the mapping changes with USB
-topology (which board is plugged in, hub order, a re-plug). Both boards present
+topology (which board is plugged in, hub order, a re-plug). Every board presents
 a serial adapter the host claims as a `/dev/ttyACM*` node:
 
 1. Plug in _one_ board at a time and watch what node appears (`lsusb`,
@@ -180,7 +190,13 @@ a serial adapter the host claims as a `/dev/ttyACM*` node:
    unplug) is that board's port.
 2. Confirm which chip sits on the port before flashing:
    `esptool.py --port <port> chip_id` — `ESP32S3` identifies the S3 board,
-   `ESP32-P4` the 4C. That single check catches a stale port guess.
+   `ESP32-P4` the 4C. That single check catches a stale port guess. The
+   knob is ALSO an ESP32-S3 with the same Espressif USB-JTAG descriptor
+   (303a:1001) — chip_id cannot tell it from the AMOLED; read the live
+   partition table instead: `esptool.py --port <port> read_flash 0x8000
+   0xc00 pt.bin` — the knob's carries `factory` 4 M + a `coredump` row
+   (storage at 0x410000), the AMOLED's 2 M factory, no coredump (storage
+   at 0x210000).
 3. Keep a scratch note of the mapping _for this plug session_ (it does not
    survive a re-plug); re-run step 2 if in doubt.
 

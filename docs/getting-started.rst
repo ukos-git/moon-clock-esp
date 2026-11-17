@@ -93,11 +93,20 @@ binary-size checks).
       idf.py flash -p <port>                  # app + SPIFFS + moon assets
       idf.py monitor -p <port>                # serial console, 115200
 
-   For the **P4 4C** instead, the same flow with the target and build
-   directory pinned on every command —
-   ``idf.py -D IDF_TARGET=esp32p4 -B build/p4 build`` and
-   ``… flash -p <port>`` against the port that reported ``ESP32-P4``.
+   For the **P4 4C** instead, the same flow with the target, build
+   directory and live config pinned on every command —
+   ``idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build``
+   and ``… flash -p <port>`` against the port that reported ``ESP32-P4``
+   (the flag gives the P4 its own gitignored ``sdkconfig.p4`` — the root
+   ``sdkconfig`` pins the S3 target and the configure would abort
+   without it).
    :doc:`The P4 page <devices/p4>` has the exact sequence.
+
+   A fresh clone has no moon asset blobs yet: the configure *warns*
+   (does not fail) and the clock boots without the textured moon. One
+   command puts the full product in place before that first flash —
+   ``python3 assets/images/moon/get_assets.py --refs``, the
+   `Acquiring the moon assets`_ step below.
 
 4. **Tell it the network.** A fresh board has no
    ``/spiffs/wifi_credentials.txt`` yet, so the blocking boot sync
@@ -139,39 +148,61 @@ a clock on a desk.
    :caption: The network box, opened. One shared root handler serves the home and the transient WiFi screen, but "the wake tap itself never opens the hub — a deliberate second tap does" (screens.c :108-118); the hub ring's ``GLYPH_WIFI`` entry (screens.c :598) is the same table the tap ladder BFS-walks; the scan is armed at screen *entry*, behind the panel hold (screens.c :1624-1631, wifi.c :545); tapping an access-point row opens the round wheel keyboard with the SSID prefilled (:1574-1577); the circle-check rejects an empty password (:2297-2300) and ``wifi_credentials_write`` lands **both** lines in ``/spiffs/wifi_credentials.txt`` (wifi.c :22, :117) before the same handshake re-runs — and the next boot's blocking sync finds the file. The file stays gitignored ("never commit" it, the hard invariant); ``idf.py flash`` rewrites the partition from ``spiffs/``, so a tracked example is all the image carries. The transient screen's anatomy is :doc:`the WiFi screen <ui/wifi>`.
 
 
-Regenerating the moon assets (optional)
----------------------------------------
+Acquiring the moon assets
+-------------------------
 
 The ``moon_assets`` partition holds the pre-baked equirect albedo +
 relief DEM — one blob **per board target** (the S3's 864×432 albedo
 and 2048×1024 DEM fit its 2560 K partition; the P4's 2048×1024 pair
 fits its 5120 K —
-:doc:`the partition tables <reference/partitions>`). The blobs and the
-rest of ``assets/`` are gitignored; the texture width is the Kconfig
-``MOON_ALBEDO_W`` (height = width / 2, even only), defaulting per board
-to the best resolution each flash + PSRAM budget allows (864 on the S3,
-2048 on the P4 — the first-match-wins
+:doc:`the partition tables <reference/partitions>`). **Nothing binary
+under ``assets/`` is committed** — every downloadable or generated
+file is re-acquired by one stdlib script, and it is idempotent (a
+re-run re-verifies what exists and fetches only what is missing):
+
+.. code-block:: bash
+
+   python3 assets/images/moon/get_assets.py --refs
+
+That single command bootstraps the local ``.venv`` (uv when present,
+else ``venv`` + pip) from the tracked ``requirements.txt``, downloads
+the CGI Moon Kit pair from NASA SVS 4720 into ``moon-kit/`` — the
+4096×2048 16-bit LROC albedo (loaded 16-bit via tifffile; the texture
+carries the 180° longitude offset) and the LOLA relief DEM — under
+**sha256 + size pins** (a moved upstream file is refused, not baked),
+regenerates ``tone_lut.bin`` from the tracked ``moon/constants.py``
+table, bakes the per-target blob + manifest + the tracked generated
+header (``components/moon/generated/<target>/``) into
+``out/<target>/``, and — with ``--refs`` — fetches the hourly
+``mooninfo_2025.json`` (the dialamoon API, resumable under
+``.mooninfo/``) plus the SVS 5415 reference frames the image gate and
+the docs' NASA figures read, cropped to ``final_400x400/``.
+Provenance, every URL and pin: ``assets/images/moon/README.md``.
+
+The build tolerates the blobs' absence — the configure only *warns*
+and the app boots without the textured moon — so this step is optional
+for a bare bring-up and required for the product. The texture width is
+the Kconfig ``MOON_ALBEDO_W`` (height = width / 2, even only),
+defaulting per board to the best resolution each flash + PSRAM budget
+allows (864 on the S3, 2048 on the P4 — the first-match-wins
 ``default 2048 if BOARD_P4`` line in
 :cfile:`components/moon/Kconfig`). The **knob** (sibling project
 ``knob/``, :doc:`the device page <devices/knob>`) is a third target
 with **no Kconfig mirror**: its sizes (albedo 864, relief DEM halved to
 1024×512 for the PSRAM budget) live only in the pipeline's
 ``TARGETS["knob"]`` row, written into its generated header and guarded
-by ``knob/CMakeLists.txt`` against its own partition table. Only
-regenerate if you change the pipeline or ``MOON_ALBEDO_W`` — the root
-``CMakeLists`` fails the configure (``FATAL_ERROR``) on a
-width/manifest/partition mismatch:
+by ``knob/CMakeLists.txt`` against its own partition table.
+
+Only *re*generate when you change the pipeline or ``MOON_ALBEDO_W`` —
+the sources stay cached under ``moon-kit/``, so the bake leg needs no
+network, and the root ``CMakeLists`` fails the configure
+(``FATAL_ERROR``) on a width/manifest/partition mismatch:
 
 .. code-block:: bash
 
-   cd assets/images/moon && uv venv .venv && uv pip install -r requirements.txt
-   .venv/bin/python -m moon.assets --target s3 p4 knob   # all three boards
+   cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob
 
-The pipeline loads the 4096×2048 16-bit LROC albedo (16-bit via
-tifffile; the texture carries the 180° longitude offset), bakes the
-per-target blob + manifest + the tracked generated header
-(``components/moon/generated/<target>/``), and validates the
-partition fit. The moon image gate then proves the pipeline's output
+The moon image gate then proves the pipeline's output
 against NASA's reference renders for **all three** board textures
 (one simulator build per target: ``build/``, ``build-p4/``,
 ``build-knob/``, each configured with ``-DMOON_ASSETS_TARGET=<t>``):

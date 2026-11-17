@@ -249,8 +249,10 @@ port-identification procedure):
 
    source ~/esp/esp-idf/export.sh
 
-   # moon assets (local, gitignored; regenerate after touching the
-   # asset pipeline or MOON_ALBEDO_W):
+   # moon assets (all local, gitignored): first time = fetch + bake —
+   # NASA sources sha256-pinned, own .venv (see the getting-started page);
+   # re-bake alone after touching the asset pipeline or MOON_ALBEDO_W:
+   python3 assets/images/moon/get_assets.py --target s3
    cd assets/images/moon && .venv/bin/python -m moon.assets --target s3
 
    cd ../..

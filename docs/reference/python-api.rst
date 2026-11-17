@@ -287,7 +287,11 @@ textures — the 16-bit load
 ``moon.textures`` loads the LROC albedo and the LOLA height. The
 non-obvious fact (:doc:`the geometry <../science/geometry>`): the LROC albedo **must be loaded
 16-bit** (``tifffile``) — the 8-bit downcast loses the terminator's
-low levels before the tone curve sees them:
+low levels before the tone curve sees them. The path resolution is
+repo-local first (both sources are what ``get_assets.py`` fetches into
+``moon-kit/``): the albedo is the fixed ``moon-kit`` kit file, the DEM
+resolves ``$MOON_HEIGHT`` → ``moon-kit/ldem_16.tif`` → legacy
+``/tmp/moon-research/ldem_16.tif``:
 
 .. code-block:: python
 

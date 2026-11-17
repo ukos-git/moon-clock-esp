@@ -35,8 +35,10 @@ OUT = os.path.join(ROOT, "docs", "img", "nasa")
 from moon.register import register_shift  # noqa: E402
 
 # (gate-set position k, NASA series frame number, phase, out label)
-# The gate selects the same 32 frames from /tmp/moon-research/mooninfo_2025.json
-# (moon.validate.select_frames); the positions/numbers below are from the
+# The gate selects the same 32 frames from the fetched mooninfo_2025.json
+# (assets/images/moon/mooninfo_2025.json — get_assets.py --refs; legacy
+# checkouts keep theirs in /tmp/moon-research) via
+# moon.validate.select_frames; the positions/numbers below are from the
 # 2026-11-01 run that produced the committed figures.
 PICKS = [
     (2, 1993, "25.0", "p025"),

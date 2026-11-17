@@ -199,9 +199,15 @@ Building and flashing the P4
 ----------------------------
 
 The P4 is the second target: the build pins ``IDF_TARGET=esp32p4``
-and keeps its own build directory (``build/p4``) and its own
+and keeps its own build directory (``build/p4``), its own
 dependency lock (``dependencies.lock.p4``, gitignored — the S3 build
-keeps ``dependencies.lock``), so the two targets never share state
+keeps ``dependencies.lock``) and its own live config (``sdkconfig.p4``,
+gitignored — every P4 command carries ``-D SDKCONFIG=sdkconfig.p4``;
+without it the P4 configure reads the root ``sdkconfig``, sees its
+``IDF_TARGET=esp32s3`` pin and aborts in ``targets.cmake`` — "Target
+… does not match currently selected IDF_TARGET". On a fresh clone the
+flag creates ``sdkconfig.p4`` from the defaults split; afterwards it
+also matches the ``build/p4`` cache entry, so keep passing it)
 (:doc:`the board index <index>` for the shared conventions, the
 sequential-build rule, and the port-identification procedure):
 
@@ -210,17 +216,19 @@ sequential-build rule, and the port-identification procedure):
 
    source ~/esp/esp-idf/export.sh
 
-   # moon assets (local, gitignored; regenerate after touching the
-   # asset pipeline or MOON_ALBEDO_W):
+   # moon assets (all local, gitignored): first time = fetch + bake —
+   # NASA sources sha256-pinned, own .venv (see the getting-started page);
+   # re-bake alone after touching the asset pipeline or MOON_ALBEDO_W:
+   python3 assets/images/moon/get_assets.py --target p4
    cd assets/images/moon && .venv/bin/python -m moon.assets --target p4
 
    cd ../..
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
    # check the binary size against the 9216 K factory partition
    # (the 32 MB chip carries a 16 MB binary header — esptool's
    # size-mismatch warning is expected)
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 monitor -p <port>
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 monitor -p <port>
 
 The first ``set-target esp32p4`` pulls the P4's component set (the
 vendored 4C BSP; esp_hosted + esp_wifi_remote for the remote C6 over
@@ -331,7 +339,8 @@ The P4 build merges the shared defaults with
    # accurate and is unusable as a clock time base.
    CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 
-What the *live* ``sdkconfig.p4`` pins is what ``-B build/p4`` builds —
+What the *live* ``sdkconfig.p4`` (the file ``-D SDKCONFIG=sdkconfig.p4``
+selects) pins is what ``-B build/p4`` builds —
 a stale line there shadows every defaults-file default; the built
 binary's clock source is verified in ``build/p4/config/sdkconfig.h``,
 and the bench-note lives in

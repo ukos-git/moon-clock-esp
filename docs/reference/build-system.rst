@@ -82,9 +82,11 @@ The build commands
    idf.py build
    idf.py flash -p <port>
 
-   # P4 4C (720) — own build dir + own dependencies.lock.p4
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 build
-   idf.py -D IDF_TARGET=esp32p4 -B build/p4 flash -p <port>
+   # P4 4C (720) — own build dir + own dependencies.lock.p4 + own live
+   # sdkconfig.p4 (-D SDKCONFIG is required while the root sdkconfig
+   # pins IDF_TARGET=esp32s3 — see the P4 board page)
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
 
    # knob (360) — sibling project, own build dir + own
    # dependencies.lock.knob; app-flash preserves its SPIFFS credentials
@@ -93,17 +95,25 @@ The build commands
 
 Three constraints the commands encode:
 
-- **The P4 build has its own build dir (``build/p4``) and its own
-  dependency lock (``dependencies.lock.p4``, gitignored).** The
+- **The P4 build has its own build dir (``build/p4``), its own
+  dependency lock (``dependencies.lock.p4``, gitignored) and its own
+  live config (``sdkconfig.p4``, gitignored).** The
   component manager rewrites its lock on every configure and the two
   targets resolve *different* dependency sets (different BSPs +
   driver stacks) — a shared lock would oscillate. The root
   CMakeLists sets ``DEPENDENCIES_LOCK`` *before* ``project()`` (which
-  runs the component manager) for the P4 build.
+  runs the component manager) for the P4 build. The lock alone is not
+  enough for the *config*: without ``-D SDKCONFIG=sdkconfig.p4`` the P4
+  configure reads the root ``sdkconfig``, whose ``IDF_TARGET=esp32s3``
+  pin makes ``targets.cmake`` abort with "Target … does not match
+  currently selected IDF_TARGET". The flag creates ``sdkconfig.p4``
+  from the defaults split on a fresh clone and stays correct after the
+  first configure (it matches the cache entry), so every P4 command
+  carries it.
 - **The knob builds outside the clock's tree.** ``-B ../build/knob``
   resolves relative to the *invoking* directory — ``idf.py -C knob``
-  first changes into ``knob/``, so the build dir lands at
-  ``~/esp/build/knob``, next to the repo, not inside it. Its live
+  first changes into ``knob/``, so the build dir lands next to the
+  repo (``<parent of repo>/build/knob``), not inside it. Its live
   ``knob/sdkconfig`` and ``dependencies.lock.knob`` are gitignored
   like the clock's, and ``app-flash`` (not a full flash) is the
   convention that keeps the knob's SPIFFS Wi-Fi credentials.
@@ -186,11 +196,14 @@ The two are *different kinds* of flash data:
   ``wifi_credentials.txt`` back to it, so a full flash **clobbers**
   the runtime state (accepted; ``spiffs/`` must not contain
   ``settings.txt``, which the app owns at runtime).
-- **``moon_assets``** is a *generated* blob (the asset pipeline,
+- **``moon_assets``** is a *generated* blob — local-only and gitignored,
+  re-acquired end to end on a fresh clone by
+  ``python3 assets/images/moon/get_assets.py`` (checksum-pinned NASA
+  sources into ``moon-kit/``, the venv, then the bake —
   :doc:`the Python API <python-api>`:
   ``cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob``
-  — one blob per board under ``out/<target>/``), local-only and
-  gitignored. The build *warns* (does not fail) when it is missing —
+  — one blob per board under ``out/<target>/``). The build *warns*
+  (does not fail) when it is missing —
   the app boots without the moon, which is the failure mode a reader
   should recognize. When the blob *is* there, three consistencies are
   enforced as build-time ``FATAL_ERROR``s: an even ``MOON_ALBEDO_W``,
@@ -396,7 +409,15 @@ the three core source lists ever disagree name-for-name.
 The host-side tooling
 ---------------------
 
-The non-IDF build lives in ``host_sim/`` (CMake, the same core):
+The non-IDF build lives in ``host_sim/`` (CMake, the same core). The two
+Python venvs the tools run in are bootstrapped from the tracked pin
+files: ``docs/.venv`` from ``docs/requirements.txt``, and
+``host_sim/.venv`` (gate + NASA legs) from the moon pipeline's
+``assets/images/moon/requirements.txt``::
+
+   python3 -m venv docs/.venv && docs/.venv/bin/pip install -r docs/requirements.txt
+   uv venv host_sim/.venv && uv pip install --python host_sim/.venv/bin/python \
+       -r assets/images/moon/requirements.txt
 
 .. code-block:: bash
    :caption: The host tools (all in the project venv where Python is involved)
@@ -405,6 +426,9 @@ The non-IDF build lives in ``host_sim/`` (CMake, the same core):
    # build/moon_sim     the C-sim (the gate's C frames; --neutral for the
    #                    gate's physics config)
    # build/moon_bench   the performance bench (:doc:`performance <../verification/performance>`)
+   python3 assets/images/moon/get_assets.py --refs   # one-shot NASA fetch
+   #  (sha256-pinned kit + mooninfo + the gate/quarter reference frames;
+   #  runs the bake too — --target narrows it; sources cache under moon-kit/)
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3    # the image
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4    # gate — all
    host_sim/.venv/bin/python host_sim/check_gate.py --target knob  # three boards

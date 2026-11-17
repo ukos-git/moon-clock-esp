@@ -113,9 +113,13 @@ The validation reference is NASA's
 `"Moon Phases for 2025" <https://svs.gsfc.nasa.gov/5415/>`_ — 8,760
 frames (one per hour of 2025) of the Moon as seen from Earth,
 rendered by NASA's visualization group with real ephemeris and real
-surface data. The project downloads the 1920×1080 set and crops it to
-a 400×400 PNG (the display is round, so the crop is a circle; 400 px
-matches the gate's working resolution)::
+surface data. ``python3 assets/images/moon/get_assets.py --refs``
+downloads exactly the frames the pipeline reads — the gate's 32-frame
+set plus the five quarter-hours of the strip above — from the
+1920×1080 series and crops each to a 400×400 PNG (the display is
+round, so the crop is a circle; 400 px matches the gate's working
+resolution). The by-hand full-series form of that recipe, run from
+``assets/images/moon/``, is::
 
    mkdir -p moon_phases_2025
    cd moon_phases_2025
@@ -133,8 +137,9 @@ download folder and an output folder. ``seq -f "%04g" 1 8760`` prints
 the frame numbers ``0001`` through ``8760``, zero-padded — exactly the
 file names NASA uses. ``xargs -P 8 -I {}`` feeds each number into the
 URL where ``{}`` sits and runs eight ``curl`` downloads at a time. The
-second half hands every downloaded .tif to ImageMagick (``magick``),
-again eight at a time via GNU ``parallel``. Inside the ImageMagick
+second half hands every downloaded .tif to ImageMagick (``magick``, or
+``convert`` on IM6 hosts — what ``get_assets.py`` auto-detects), again
+eight at a time via GNU ``parallel``. Inside the ImageMagick
 command: ``-trim +repage`` cuts away the empty border around the Moon
 and recenters what's left; ``-filter Lanczos -resize 400x400`` shrinks
 it with a high-quality resampling filter; ``-gravity center -extent
