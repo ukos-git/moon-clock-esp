@@ -1,6 +1,11 @@
 build/
+# ...and the symlinked stand-ins (this worktree links its build state out
+# to the main tree; a trailing-slash pattern matches directories only, so
+# the symlinked names need file-or-dir patterns):
+/build
+/host_sim/build
 .cmake_build
-managed_components/
+managed_components
 sdkconfig.old
 sdkconfig
 sdkconfig.p4
@@ -24,10 +29,13 @@ host_sim/uisim/build-*/
 # the P4 host-sim build dir (host_sim/CMakeLists -DMOON_ASSETS_TARGET=p4,
 # its own build/ under build-p4/ — the pattern 'build/' alone does not
 # match)
-host_sim/build-p4/
+host_sim/build-p4
 # ... and the knob one (K7, -DMOON_ASSETS_TARGET=knob)
-host_sim/build-knob/
-docs/.venv/
+host_sim/build-knob
+# the venvs (dirs in the main tree, symlinks here — no trailing slash so
+# both forms match)
+docs/.venv
+host_sim/.venv
 docs/_build/
 # mooncode's generated source pages (code/gen/ is rebuilt at build time)
 docs/code/gen/
