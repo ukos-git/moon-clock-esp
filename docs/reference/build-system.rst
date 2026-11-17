@@ -429,6 +429,10 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    python3 assets/images/moon/get_assets.py --refs   # one-shot NASA fetch
    #  (sha256-pinned kit + mooninfo + the gate/quarter reference frames;
    #  runs the bake too — --target narrows it; sources cache under moon-kit/)
+   python3 assets/images/moon/get_assets.py --fonts  # the four foundry faces
+   #  (assets/fonts/: Montserrat Regular/Bold from the designer's repo at a
+   #  pinned commit + Font Awesome 7 Free from the 7.3.1 release zip — all
+   #  sha256-pinned; gen_perf_glyphs.py refuses to run without them)
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3    # the image
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4    # gate — all
    host_sim/.venv/bin/python host_sim/check_gate.py --target knob  # three boards
@@ -453,7 +457,9 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    #  presumes a media run on the tree. The vendor-leg figures
    #  (perf_bus, perf_silicon) parse managed_components/, which holds
    #  the LAST-resolved target's set — reconfigure the P4 build for the
-   #  gt911 leg.)
+   #  gt911 leg. The glyph census (gen_perf_glyphs.py) needs the four
+   #  foundry faces under assets/fonts/ — one-time
+   #  ``get_assets.py --fonts``.)
    python3 docs/gen_media.py                            # the docs film alone
    docs/.venv/bin/sphinx-build -b html docs docs/_build/html
    # (the site build — 0 warnings is the gate, the standing rule; the

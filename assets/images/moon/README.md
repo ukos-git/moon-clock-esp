@@ -7,6 +7,7 @@ committed** — one script fetches and generates it all:
 ```bash
 python3 assets/images/moon/get_assets.py            # bake all three boards
 python3 assets/images/moon/get_assets.py --refs     # + image-gate references
+python3 assets/images/moon/get_assets.py --fonts    # + docs foundry faces
 ```
 
 It is idempotent and resumable: re-running costs one hash pass per file and
@@ -26,6 +27,8 @@ ImageMagick (`magick`/`convert`, for `--refs` crops).
 | `components/moon/generated/<target>/moon_consts.h` | same bake (tracked — it is a *source*) | **yes** |
 | `mooninfo_2025.json` (+ resumable `.mooninfo/` cache) | NASA dialamoon API, 8760 calls | no |
 | `moon_phases_2025/*.tif`, `final_400x400/*.png` | NASA SVS 5415, cropped by ImageMagick | no |
+| `../../fonts/Montserrat/Montserrat-{Regular,Bold}.ttf` | designer's upstream repo, commit + sha256-pinned | no |
+| `../../fonts/Fontawesome/Font Awesome 7 Free-*.otf` | official FA 7.3.1 release zip, member-pinned | no |
 | `.venv/` | `requirements.txt` | no |
 
 The bake reads the albedo from `moon-kit/` and the DEM from `$MOON_HEIGHT`
@@ -51,6 +54,24 @@ that order), so a fresh clone needs no `/tmp` scratch dir.
 * **dialamoon API** — `https://svs.gsfc.nasa.gov/api/dialamoon/<iso>`;
   one call per hour, folded into the nested record schema the gate expects
   (see `get_assets.py::_fetch_hour`).
+* **Foundry faces** (`--fonts`, installed under `assets/fonts/`) — the four
+  source faces `docs/tools/gen_perf_glyphs.py` sets its glyph census in:
+  * Montserrat Regular/Bold — the designer's upstream repo
+    <https://github.com/JulietaUla/Montserrat> at commit
+    `555facfb2a18c72c3c0380f0d9c0f060453a9058`, `fonts/ttf/`, served via
+    raw.githubusercontent.com (google/fonts ships the family variable-only
+    — no statics to pin there). SIL OFL 1.1.
+    `Montserrat-Regular.ttf` — 445,928 B, sha256 `3e8abe50c44c82e2242e97d1ec8c0d385c4890cdc50447bcdb8605c81a38cfb2`;
+    `Montserrat-Bold.ttf` — 454,864 B, sha256 `bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61`
+  * Font Awesome 7 Free Regular-400 / Solid-900 — extracted with stdlib
+    `zipfile` from the official release
+    <https://github.com/FortAwesome/Font-Awesome/releases/tag/7.3.1>,
+    asset `fontawesome-free-7.3.1-desktop.zip` (6,508,960 B, sha256
+    `c61edde261707f33376a28e9a30bb8c70c1a20bf0bd975206b809f3b3b70add5`);
+    each `otfs/` member pinned individually on top of the zip pin.
+    `Font Awesome 7 Free-Regular-400.otf` — 87,340 B, sha256 `d0d7ae248cfa08da7f1beaaad4844e3aff6f980ec4ec5bb31413a64d028b98b4`;
+    `Font Awesome 7 Free-Solid-900.otf` — 414,704 B, sha256 `daa92774861a14e9ccbccc5e73a5fba514271ba4d1bd7e5adbf952182bc00835`.
+    Icons CC BY 4.0, fonts SIL OFL 1.1.
 
 TLS note: `svs.gsfc.nasa.gov` intermittently sends the leaf certificate
 without its Let's Encrypt intermediate, which plain OpenSSL clients reject.

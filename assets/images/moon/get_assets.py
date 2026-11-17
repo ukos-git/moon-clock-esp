@@ -15,6 +15,7 @@ Run it with any Python 3 -- it is stdlib-only and bootstraps its own venv:
     python3 assets/images/moon/get_assets.py                # all three boards
     python3 assets/images/moon/get_assets.py --target s3    # one board only
     python3 assets/images/moon/get_assets.py --refs         # + image-gate refs
+    python3 assets/images/moon/get_assets.py --fonts        # + docs font faces
     python3 assets/images/moon/get_assets.py --force        # re-download
 
 Every step is resumable; re-running costs one hash pass per file.
@@ -41,6 +42,14 @@ Steps
              docs quarter strip need (the gate's 32-frame set plus the five
              quarter hours), cropped to 400x400 alpha PNGs under
              ``final_400x400/`` with ImageMagick.
+6. --fonts   Fetch the four foundry faces the docs glyph census
+             (``docs/tools/gen_perf_glyphs.py``) sets its panels in into
+             ``assets/fonts/``: Montserrat Regular/Bold from the designer's
+             commit-pinned upstream repo (google/fonts ships the family
+             variable-only), Font Awesome 7 Free Regular/Solid extracted
+             with stdlib ``zipfile`` from the official 7.3.1 release zip.
+             sha256- and size-pinned throughout; the zip stays cached under
+             ``.fonts/``. gen_perf_glyphs.py refuses to run without them.
 
 Provenance of every URL and pin: README.md.
 """
@@ -61,6 +70,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -83,6 +93,41 @@ SOURCES = {
         KIT_BASE + "ldem_16.tif",
         "1ea42bf44f7e9d694f79c3afa7145f97fbf06cc67372067d9fe73dce43bad796",
         66_378_634),
+}
+
+# --- foundry faces (docs/tools/gen_perf_glyphs.py's glyph census) ----------
+# The four source faces the figure sets its panels in. assets/fonts/ is
+# gitignored, so they are acquired, never committed. Montserrat is pinned to
+# a commit of the designer's upstream repo (google/fonts ships the family
+# variable-only -- no statics there); Font Awesome rides the official
+# release zip with one member pin per face on top of the zip pin. Verified
+# 2026-11-17; full provenance in README.md.
+FONTS_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "fonts"))
+MONTSERRAT_BASE = ("https://raw.githubusercontent.com/JulietaUla/Montserrat/"
+                   "555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/")
+MONTSERRAT = {                       # rel assets/fonts/ -> (url, sha256, B)
+    "Montserrat/Montserrat-Regular.ttf": (
+        MONTSERRAT_BASE + "Montserrat-Regular.ttf",
+        "3e8abe50c44c82e2242e97d1ec8c0d385c4890cdc50447bcdb8605c81a38cfb2",
+        445_928),
+    "Montserrat/Montserrat-Bold.ttf": (
+        MONTSERRAT_BASE + "Montserrat-Bold.ttf",
+        "bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61",
+        454_864),
+}
+FA_ZIP = ("https://github.com/FortAwesome/Font-Awesome/releases/download/"
+          "7.3.1/fontawesome-free-7.3.1-desktop.zip",
+          "c61edde261707f33376a28e9a30bb8c70c1a20bf0bd975206b809f3b3b70add5",
+          6_508_960)
+FA_MEMBERS = {           # member basename -> (rel assets/fonts/, sha256, B)
+    "Font Awesome 7 Free-Regular-400.otf": (
+        "Fontawesome/Font Awesome 7 Free-Regular-400.otf",
+        "d0d7ae248cfa08da7f1beaaad4844e3aff6f980ec4ec5bb31413a64d028b98b4",
+        87_340),
+    "Font Awesome 7 Free-Solid-900.otf": (
+        "Fontawesome/Font Awesome 7 Free-Solid-900.otf",
+        "daa92774861a14e9ccbccc5e73a5fba514271ba4d1bd7e5adbf952182bc00835",
+        414_704),
 }
 
 MOONINFO = os.path.join(HERE, "mooninfo_2025.json")
@@ -375,6 +420,38 @@ def ensure_refs(vpy: str, n_gate: int, force: bool) -> None:
     print(f"reference frames: {len(idx)} cropped -> final_400x400/")
 
 
+def ensure_fonts(force: bool) -> None:
+    """assets/fonts/ -- the four foundry faces gen_perf_glyphs.py sets its
+    glyph census in. Fetch-only; nothing here is committed."""
+    for rel, (url, sha, size) in MONTSERRAT.items():
+        fetch(url, os.path.join(FONTS_DIR, rel), sha256=sha, size=size,
+              force=force)
+    zpath = os.path.join(HERE, ".fonts", FA_ZIP[0].rsplit("/", 1)[-1])
+    fetch(FA_ZIP[0], zpath, sha256=FA_ZIP[1], size=FA_ZIP[2], force=force)
+    with zipfile.ZipFile(zpath) as z:
+        entries = {os.path.basename(n): n for n in z.namelist()
+                   if n.lower().endswith(".otf")}
+        for name, (rel, sha, size) in FA_MEMBERS.items():
+            member = entries.get(name)
+            if member is None:
+                raise SystemExit(f"{os.path.basename(zpath)}: member "
+                                 f"{name!r} is gone -- check the release "
+                                 "layout against README.md")
+            data = z.read(member)
+            if len(data) != size or hashlib.sha256(data).hexdigest() != sha:
+                raise SystemExit(f"{name}: member sha256/size mismatch -- "
+                                 "re-verify upstream and re-pin FA_MEMBERS")
+            dest = os.path.join(FONTS_DIR, rel)
+            if (os.path.exists(dest) and not force
+                    and os.path.getsize(dest) == size
+                    and _sha256(dest) == sha):
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as f:
+                f.write(data)
+            print(f"  extracted {os.path.relpath(dest, HERE)} ({size:,} B)")
+
+
 # --- entry point -------------------------------------------------------------
 
 def main() -> int:
@@ -386,6 +463,9 @@ def main() -> int:
     ap.add_argument("--refs", action="store_true",
                     help="also fetch mooninfo_2025.json and the SVS 5415 "
                          "reference frames the image gate and docs need")
+    ap.add_argument("--fonts", action="store_true",
+                    help="also fetch the four foundry faces into "
+                         "assets/fonts/ (docs glyph census prerequisite)")
     ap.add_argument("--gate-frames", type=int, default=GATE_FRAMES,
                     help="frame count of the gate set (default: "
                          f"{GATE_FRAMES}, matching check_gate.py)")
@@ -415,6 +495,10 @@ def main() -> int:
             vpy = ensure_venv(sys.executable)
         ensure_refs(vpy, args.gate_frames, args.force)
 
+    if args.fonts:
+        print("foundry faces for the docs glyph census ...")
+        ensure_fonts(args.force)
+
     print("\nnow in place:")
     for t in args.target:
         blob = os.path.join(HERE, "out", t, "moon_assets.bin")
@@ -428,6 +512,12 @@ def main() -> int:
         print(f"  final_400x400: {n} reference PNGs")
         print(f"  mooninfo_2025.json: "
               f"{'present' if os.path.exists(MOONINFO) else 'MISSING'}")
+    faces = list(MONTSERRAT) + [rel for rel, _s, _b in FA_MEMBERS.values()]
+    n = sum(1 for rel in faces if os.path.exists(os.path.join(FONTS_DIR, rel)))
+    state = ("docs glyph census ready" if n == len(faces) else
+             "MISSING -- gen_perf_glyphs.py needs all four (get_assets.py "
+             "--fonts)")
+    print(f"  assets/fonts: {n}/{len(faces)} foundry faces: {state}")
     return 0
 
 

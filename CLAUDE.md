@@ -57,7 +57,10 @@ system, build steps) **update the site** — do not let it drift:
    the files on disk, so `-b html` 0-warnings presumes a media run. The vendor
    legs of `perf_bus`/`perf_silicon` parse `managed_components/` — it holds
    only the LAST-resolved target's set, so reconfigure the P4 build for the
-   gt911 header. The by-hand path (`build.sh run` → `docs/img/screens/`,
+   gt911 header. The glyph figure `gen_perf_glyphs.py` needs the four
+   foundry faces under `assets/fonts/` — fetched once, sha256-pinned, by
+   `python3 assets/images/moon/get_assets.py --fonts`. The by-hand path
+   (`build.sh run` → `docs/img/screens/`,
    `build.sh run --panel 720` → `docs/img/screens/p4/`, `--panel 360` →
    `knob/`, then re-run `enclose.py` for the affected label specs) stays fine
    for single-screen iterations. If the change only touches the moon bake path,
@@ -144,9 +147,11 @@ idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <por
 # moon assets — ONE-SHOT acquisition on a fresh clone (stdlib python3; fetches
 # the NASA SVS 4720 kit sha256+size-pinned into assets/images/moon/moon-kit/,
 # bootstraps its own .venv, regenerates tone_lut.bin, bakes out/{s3,p4,knob};
-# --refs adds mooninfo_2025.json + the SVS 5415 gate/docs reference frames —
-# everything it writes is gitignored; provenance + pins: assets/images/moon/README.md):
-python3 assets/images/moon/get_assets.py --refs
+# --refs adds mooninfo_2025.json + the SVS 5415 gate/docs reference frames,
+# --fonts the four foundry faces under assets/fonts/ (the docs glyph figure,
+# gen_perf_glyphs.py) — everything it writes is gitignored; provenance +
+# pins: assets/images/moon/README.md):
+python3 assets/images/moon/get_assets.py --refs --fonts
 # moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
 # assets/images/moon/out/{s3,p4,knob}/); the root CMakeLists FATAL_ERRORs on a
 # width/manifest/partition mismatch (knob/CMakeLists.txt replicates the

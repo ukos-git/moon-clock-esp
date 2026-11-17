@@ -75,8 +75,10 @@ persist in the board's SPIFFS.
 - **Moon assets:** the `moon_assets` partition holds the per-board equirect
   albedo + relief DEM — **nothing binary under `assets/` is committed**. One
   stdlib script acquires and bakes it all (NASA sources sha256-pinned,
-  bootstraps its own `.venv`; `--refs` adds the image-gate reference frames):
-  `python3 assets/images/moon/get_assets.py --refs`. After a pipeline change
+  bootstraps its own `.venv`; `--refs` adds the image-gate reference frames,
+  `--fonts` the four foundry faces the docs glyph figure needs):
+  `python3 assets/images/moon/get_assets.py --refs --fonts`. After a
+  pipeline change
   re-bake with
   `assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4 knob`,
   then prove it against NASA's renders with
