@@ -293,3 +293,13 @@ int main(int argc, char **argv) {
         printf("%d frames -> %s\n", ok, out);
         return ok == frames ? 0 : 1;
     }
+
+    if (!iso) {
+        fprintf(stderr, "usage: moon_sim (--utc ISO | --list FILE | --frames N "
+                        "--start S --end E) [--out DIR] [--size N] [--rot D] "
+                        "[--pole P] [--darkzero] [--neutral] [--event]\n");
+        return 1;
+    }
+    ok = render_one(iso, rot, g_pole_deg, size, out, -1);
+    return ok ? 0 : 1;
+}
