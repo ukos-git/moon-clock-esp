@@ -78,3 +78,16 @@ docs/_static/photos/
 docs/_static/figs/
 .debug-touch/coredump.bin
 .debug-touch/coredump_raw.bin
+
+# hardware (Moon v1 board + universal housing). Source = the tracked
+# get_vendor.py pins + the KiCad project + footprints + housing
+# params/script/blend/STLs; everything below is re-acquired or rebuilt
+# (Waveshare vendor archives ~21 MB + extracted STEP sets ~87 MB; KiCad
+# exports + housing renders are build output).
+hardware/moonv1/parts/vendor/
+hardware/moonv1/gerbers/
+hardware/moonv1/step/
+hardware/moonv1/svg/
+hardware/moonv1/drc.html
+hardware/moonv1/erc.html
+hardware/housing/renders/
