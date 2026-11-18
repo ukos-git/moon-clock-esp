@@ -96,8 +96,17 @@ esp_err_t clock_enable_alarm(bool enable) {
         ctrl2 |= PCF85063A_RTC_CTRL_2_AIE;
         ctrl2 &= ~PCF85063A_RTC_CTRL_2_AF;
     } else {
-        // Disable alarm interrupt by clearing AIE bit
+        // Disable alarm interrupt by clearing AIE bit. AIE gates only the
+        // INT pin output, NOT the AF latch: the PCF still latches AF when
+        // the clock matches the ALM registers with AIE=0 (AF is sticky
+        // across power too), and the S3's 1300 ms poll reads the raw
+        // CTRL2 flags rather than the pin -- so a latched AF that survived
+        // a deactivation would fire the alarm screen once on the next
+        // poll, with no rule anywhere (user report 2026-11-18, S3: "the
+        // alarm is deactivated via settings" yet the screen still rang).
+        // Clear it on the way out, symmetric with the enable branch.
         ctrl2 &= ~PCF85063A_RTC_CTRL_2_AIE;
+        ctrl2 &= ~PCF85063A_RTC_CTRL_2_AF;
     }
 
     uint8_t write_buf[2] = {PCF85063A_RTC_CTRL_2_ADDR, ctrl2};

@@ -215,6 +215,19 @@ esp_err_t clock_init(const clock_config_t *cfg) {
                 ESP_LOGW(TAG, "Failed to schedule next alarm: %s", esp_err_to_name(ret));
             }
         }
+    } else if (ret == ESP_ERR_NOT_FOUND) {
+        /* A missing alarm.txt is the 0-rules state the reload path
+         * disarms for -- but the boot init above only WARNS, so without
+         * this the boot skips the zero-rules phantom guard entirely:
+         * the PCF's ALM registers + AIE persist on the RTC chip, and a
+         * stale arm (a fresh flash wiped the file after a rule was
+         * armed, or an earlier deactivation's clear failed on I2C)
+         * would latch AF on its own and fire one phantom alarm screen
+         * on the first 1300 ms poll. */
+        esp_err_t clear_ret = clock_clear_alarm();
+        if (clear_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to clear stale RTC alarm: %s", esp_err_to_name(clear_ret));
+        }
     } else {
         ESP_LOGW(TAG, "Failed to initialize alarm scheduler: %s", esp_err_to_name(ret));
     }

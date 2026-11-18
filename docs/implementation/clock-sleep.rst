@@ -624,15 +624,31 @@ showing a rule that no longer exists. That erase-on-zero-rules is
 the invariant, and the headless device is the honest test — a
 phantom wake never comes back to the desk.
 
-The PCF85063A's alarm register **persists across reboots** (it is
-battery-backed, not reset by power). The scheduler writes the next
-alarm time on every schedule; but a boot with **zero alarm rules**
+The PCF85063A's alarm registers **persist across reboots** (they are
+battery-backed, not reset by power) — the armed time, the AIE bit
+AND the AF latch. The scheduler writes the next alarm time on every
+schedule; but a boot with **zero alarm rules**
 must explicitly ``clock_clear_alarm()`` — otherwise a stale armed
 time from a previous boot fires a **phantom alarm**: the ALM pin
 toggles, the device wakes from deep sleep at the wrong minute, and
 shows the alarm screen for a rule that no longer exists. The disarm
 on zero rules is the invariant; the headless device is the test that
 proves it (a phantom wake never comes back to the desk).
+
+Two legs of that invariant are easy to miss, and a user report
+(2026-11-18, S3: a deactivated alarm still rang once) points at
+them: the boot's ``init`` leg must run it even when
+``alarm.txt`` is **missing** (``ESP_ERR_NOT_FOUND``) — a fresh flash
+wipes the file, but the PCF's arm survives on the chip, so a
+missing-file boot is a zero-rule boot too (``clock.c``'s init now
+disarms there; until then it only warned). And the disarm must clear
+the **AF flag itself**, not just AIE: AIE gates only the INT pin
+output, the PCF still *latches* AF when the clock matches the ALM
+registers with AIE=0, and the S3's 1300 ms poll reads the raw CTRL2
+flags rather than the pin — so a latched AF surviving a settings
+deactivation fires the alarm screen once on the first poll after it
+(``clock_enable_alarm(false)`` now clears AF on the way out,
+symmetric with the enable branch).
 
 The whole chain, first sealed and then opened at both ends — the rule
 write, both boards' arms, the shared 1300 ms poll, and the action it
@@ -646,7 +662,7 @@ lands in — drawn from the code:
 .. graphviz:: ../_graphs/alarm-lifecycle-write.dot
    :alt: The alarm rule write
    :align: center
-   :caption: The write — ``clock_alarm_set_pomodoro_interval`` (``*/N * * * *``), ``clock_alarm_set_clock_alarm`` (``M H * * dow``) and ``clock_alarm_deactivate_all`` ("# no alarms") all go through ``clock_alarm_scheduler_write``, which rewrites ``/spiffs/alarm.txt`` WHOLE — the file IS the rule set, reloaded on boot and armed from it (entries are mutually exclusive: exactly one rule kind exists). ``clock_alarm_schedule_next(current)`` is the single arming funnel, also run after every fire; the zero-rules branch runs ``clock_clear_alarm`` + ``disarm_esp_timer`` (the disarm invariant above), the ≥1 branch caches the next time and lands ``clock_set_alarm`` + ``clock_enable_alarm(true)`` — S3: PCF85063A ALM registers + AIE; P4: the same call is a validated no-op and the one-shot carries the fire. ``clock_trigger_alarm_update`` feeds the home row — the OFF half of the write path fires it too, so a deactivate-all shows ``--:--`` immediately.
+   :caption: The write — ``clock_alarm_set_pomodoro_interval`` (``*/N * * * *``), ``clock_alarm_set_clock_alarm`` (``M H * * dow``) and ``clock_alarm_deactivate_all`` ("# no alarms") all go through ``clock_alarm_scheduler_write``, which rewrites ``/spiffs/alarm.txt`` WHOLE — the file IS the rule set, reloaded on boot and armed from it (entries are mutually exclusive: exactly one rule kind exists). ``clock_alarm_schedule_next(current)`` is the single arming funnel, also run after every fire; the zero-rules branch runs ``clock_clear_alarm`` (AIE + ALM registers + the AF latch — a latched AF alone would still fire the poll) + ``disarm_esp_timer`` (the disarm invariant above; the boot runs the same leg when ``alarm.txt`` is missing), the ≥1 branch caches the next time and lands ``clock_set_alarm`` + ``clock_enable_alarm(true)`` — S3: PCF85063A ALM registers + AIE; P4: the same call is a validated no-op and the one-shot carries the fire. ``clock_trigger_alarm_update`` feeds the home row — the OFF half of the write path fires it too, so a deactivate-all shows ``--:--`` immediately.
 
 .. graphviz:: ../_graphs/alarm-lifecycle-fire.dot
    :alt: The alarm fire paths and the shared poll
