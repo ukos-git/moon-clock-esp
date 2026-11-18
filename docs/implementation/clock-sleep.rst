@@ -648,7 +648,17 @@ registers with AIE=0, and the S3's 1300 ms poll reads the raw CTRL2
 flags rather than the pin — so a latched AF surviving a settings
 deactivation fires the alarm screen once on the first poll after it
 (``clock_enable_alarm(false)`` now clears AF on the way out,
-symmetric with the enable branch).
+symmetric with the enable branch). The read side carried the same
+asymmetry: the P4's poll branch fires only when the scheduler's cache
+actually holds the next rule (``clock_alarm_get_next_scheduled``) and
+the time is trusted, while the S3's AF branch fired on the raw flag —
+so a stale latch rang with zero rules, and a hung LVGL task plus
+watchdog reset re-fired it on every boot, pinning the device on the
+alarm screen (2026-11-19, S3: stuck on the alarm screen with the
+alarm disabled). The S3 branch is now gated on the same cache: a
+latched AF with no scheduled rule is logged and cleared, never fired
+(a legitimate deep-sleep ring is unaffected — boot loads the rules
+and ``schedule_next`` fills the cache before the first poll).
 
 The whole chain, first sealed and then opened at both ends — the rule
 write, both boards' arms, the shared 1300 ms poll, and the action it
@@ -667,7 +677,7 @@ lands in — drawn from the code:
 .. graphviz:: ../_graphs/alarm-lifecycle-fire.dot
    :alt: The alarm fire paths and the shared poll
    :align: center
-   :caption: The fires — on the S3 the ALM pin sets AF and drives TCA9554 INT to EXIO3 (``IO_EXPANDER_PIN_NUM_3``, the same line the deep-sleep wake rides); ``clock_handle_interrupts`` reads the interrupts, triggers, clears AF and re-schedules. On the P4 the one-shot's callback only sets a flag on the esp_timer task (nothing UI there); the poll branch accepts flag OR wall-clock backup check (``now >= next`` catches a one-shot a time SET left stale), gated on the trust flag, then stops the one-shot and re-schedules. Both branches run inside the ONE shared poll — ``lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS = 1300)`` — whose ``clock_cb.c`` dispatchers call the registered actions DIRECTLY, in the LVGL task. The ring: backlight relight, ``g_alarm_active``, ``alarm_audio_ring_start`` (ES8311 gradual ramp; the knob is the codec-less silent board), ``g_asleep = true`` (dismissing it IS a wake event), tick → 10 ms, ``moon_ui_pause(true)`` (no baking for a screen that shows no moon), ``clock_timer_disable``, ``clock_idle_reset_timer`` (no auto-sleep while ringing), ``loadScreen(SCREEN_ID_ALARM)``. The dismiss: ``alarm_indev_read_cb`` fires on every press regardless of hit-test but only while ``g_alarm_active`` AND ``!clock_is_idle()`` — the asleep press is consumed by the earlier-registered idle-wake cb instead.
+   :caption: The fires — on the S3 the ALM pin sets AF and drives TCA9554 INT to EXIO3 (``IO_EXPANDER_PIN_NUM_3``, the same line the deep-sleep wake rides); ``clock_handle_interrupts`` reads the interrupts and, GATED on the scheduler's cache (``clock_alarm_get_next_scheduled`` — the P4 parity: a latched AF with no rule scheduled is a stale latch, cleared without firing; 2026-11-19), triggers, clears AF and re-schedules. On the P4 the one-shot's callback only sets a flag on the esp_timer task (nothing UI there); the poll branch accepts flag OR wall-clock backup check (``now >= next`` catches a one-shot a time SET left stale), gated on the trust flag, then stops the one-shot and re-schedules. Both branches run inside the ONE shared poll — ``lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS = 1300)`` — whose ``clock_cb.c`` dispatchers call the registered actions DIRECTLY, in the LVGL task. The ring: backlight relight, ``g_alarm_active``, ``alarm_audio_ring_start`` (ES8311 gradual ramp; the knob is the codec-less silent board), ``g_asleep = true`` (dismissing it IS a wake event), tick → 10 ms, ``moon_ui_pause(true)`` (no baking for a screen that shows no moon), ``clock_timer_disable``, ``clock_idle_reset_timer`` (no auto-sleep while ringing), ``loadScreen(SCREEN_ID_ALARM)``. The dismiss: ``alarm_indev_read_cb`` fires on every press regardless of hit-test but only while ``g_alarm_active`` AND ``!clock_is_idle()`` — the asleep press is consumed by the earlier-registered idle-wake cb instead.
 
 The interval (pomodoro) rule's settings-side half — the three-glyph
 entry screen, the twin-roller screen whose RELEASED handler *is* the

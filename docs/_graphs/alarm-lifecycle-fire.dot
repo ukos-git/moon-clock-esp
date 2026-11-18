@@ -3,7 +3,11 @@
 //   (IO_EXPANDER_PIN_NUM_3); the same line is the deep-sleep wake
 //   source. clock_handle_interrupts (S3 branch):
 //   clock_is_interrupt_pending -> clock_get_interrupts;
-//   CLOCK_INT_ALARM -> clock_trigger_alarm_triggered -> clear AF ->
+//   CLOCK_INT_ALARM, GATED on clock_alarm_get_next_scheduled (the P4
+//   parity: AF latches independently of AIE and is sticky across power,
+//   so a latched AF with zero rules is a stale latch -- log + clear,
+//   never fire; user report 2026-11-19, the stuck-alarm-screen loop) ->
+//   clock_trigger_alarm_triggered -> clear AF ->
 //   clock_alarm_schedule_next(now).
 //   P4 — clock_alarm_arm_esp_timer (from schedule_next, P4-only):
 //   esp_timer_start_once; the cb sets s_alarm_fired_flag on the
@@ -55,7 +59,7 @@ digraph alarm_lifecycle_fire {
 
     alm [label="S3 — ALM pin sets\nAF → TCA9554 INT\n→ EXIO3, pin 3"];
     one [label="P4 — one-shot cb\nsets a flag; no UI\non the timer task"];
-    p3 [label="S3 branch — read,\ntrigger, clear AF,\nre-schedule",
+    p3 [label="S3 branch — read,\nGATED rule cache,\ntrigger, clear AF,\nre-schedule",
         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
     p4 [label="P4 branch — flag\nor wall check,\nGATED trusted",
         fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];

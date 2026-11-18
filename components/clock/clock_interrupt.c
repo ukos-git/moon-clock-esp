@@ -288,8 +288,29 @@ esp_err_t clock_handle_interrupts(void) {
         // Note: clock_minute_process_interrupt() clears TF flag internally
     }
 
-    // Handle alarm interrupts separately
+    // Handle alarm interrupts separately. Gated on the scheduler's cache
+    // (the P4's software branch, above, gates the same way on
+    // clock_alarm_get_next_scheduled): the PCF latches AF whenever the
+    // clock matches the ALM registers, independently of AIE, and the
+    // flag is sticky across power -- so a latched AF that survived a
+    // deactivation (the write-side gap fixed in clock_enable_alarm(false)
+    // 2026-11-18) would otherwise fire the ring + alarm screen with zero
+    // rules anywhere, and a hung LVGL task + watchdog reset re-fires it
+    // on every boot, pinning the device on the alarm screen (user report
+    // 2026-11-19, S3: stuck on the alarm screen, alarm disabled). With no
+    // rule scheduled there is nothing to fire: log and clear the flag
+    // only. A legitimate deep-sleep ring is unaffected -- boot loads the
+    // rules and schedule_next fills the cache before the first poll.
     if (ints & CLOCK_INT_ALARM) {
+        clock_time_t next_check = {0};
+        if (clock_alarm_get_next_scheduled(&next_check) != ESP_OK) {
+            ESP_LOGW(TAG, "AF set but no rule scheduled -- stale latch, clearing without firing");
+            esp_err_t stale_ret = clock_clear_interrupts(CLOCK_INT_ALARM);
+            if (stale_ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to clear stale alarm flag: %s", esp_err_to_name(stale_ret));
+            }
+            return ESP_OK;
+        }
         ESP_LOGI(TAG, "Alarm interrupt triggered!");
 
         // Trigger alarm trigger callback (e.g. show alarm screen)

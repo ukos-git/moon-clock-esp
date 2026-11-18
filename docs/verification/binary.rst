@@ -35,9 +35,9 @@ project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,722,032 B (0x1a46b0)
+     - 1,722,272 B (0x1a47a0)
      - 2,097,152 B (2048 K)
-     - 375,120 B (18 %)
+     - 374,880 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
      - 1,883,296 B (0x1cbca0)
