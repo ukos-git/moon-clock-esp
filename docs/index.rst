@@ -199,6 +199,12 @@ Contents
 
 .. toctree::
    :maxdepth: 2
+   :caption: Hardware
+
+   housing
+
+.. toctree::
+   :maxdepth: 2
    :caption: The user interface
 
    ui/index
