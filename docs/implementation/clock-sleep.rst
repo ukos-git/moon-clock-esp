@@ -192,9 +192,11 @@ The sub-screens:
    :alt: The alarm rules screen
    :figclass: align-center
 
-   The **alarm** hub icon: the rule list (add / delete / edit) plus a
-   default Mon–Fri 07:00 rule (the project default that replaced the
-   old every-5-minute rule).
+   The **alarm** hub icon: the rule list (add / delete / edit). The
+   project default is now comments-only ("# no alarms", 2026-11-19 — a
+   fresh flash must not arm an unasked-for ring); the screenshot replays
+   the host sim's canned example rule (the old ``0 7 * * 1-5`` weekday
+   default retired).
 
 .. figure:: ../img/screens/settings_alarm_time.png
    :alt: The alarm time screen

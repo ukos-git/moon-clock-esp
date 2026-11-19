@@ -3,9 +3,10 @@
 // line 2 password; the tracked example is what ships, so secrets never
 // enter the tree; wifi.c read_wifi_credentials takes the first
 // non-comment line as SSID and the second as password. alarm.txt —
-// tracked default; five-field cron, one rule per line; "0 7 * * 1-5" =
-// 7:00 Mon–Fri; day_of_month + month are ignored; comments-only = no
-// alarms; a zero-rule boot MUST clock_clear_alarm or a stale time fires
+// tracked default (comments-only "# no alarms" since 2026-11-19 — a fresh
+// flash must not arm an unasked-for ring); five-field cron, one rule per
+// line (e.g. "0 7 * * 1-5" = 7:00 Mon–Fri); day_of_month + month are
+// ignored; a zero-rule boot MUST clock_clear_alarm or a stale time fires
 // a phantom alarm (memory cec0efd). settings.txt — GITIGNORED;
 // "key = value" pairs, # comments skipped; six range-validated keys,
 // each falling back to its #ifndef-seeded Kconfig default; the file

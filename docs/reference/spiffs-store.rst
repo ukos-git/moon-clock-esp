@@ -63,8 +63,8 @@ Cron-like, five fields:
    # Alarm configuration file
    # Format: minute hour day_of_month month day_of_week
    # ...
-   # Default: weekday alarm
-   0 7 * * 1-5
+   # Default: no alarms (a fresh flash must not arm an unasked-for ring)
+   # no alarms
 
 .. list-table::
    :header-rows: 1
@@ -89,9 +89,11 @@ Cron-like, five fields:
      - ``0-6`` (0=Sunday), ``*``, ranges/lists
      - ``1-6`` = Mon–Sat, ``0,6`` = the weekend
 
-The default is the weekday alarm (``0 7 * * 1-5`` — 7:00 Mon–Fri); the
-``*/5`` debug rule was burned into the alarm screen historically. The
-scheduler arms the PCF85063A hardware alarm from this rule on the S3
+The default is comments-only (``# no alarms`` — 2026-11-19, a fresh
+flash must not arm an unasked-for ring; the old ``0 7 * * 1-5``
+weekday default rang with "the alarm disabled" in the settings, and
+the ``*/5`` debug rule was burned into the alarm screen historically).
+The scheduler arms the PCF85063A hardware alarm from this rule on the S3
 and the software ``esp_timer`` one-shot on the P4 (and on the knob,
 which extends the same rule across real deep sleep with the internal
 RTC **TIMER** wake
