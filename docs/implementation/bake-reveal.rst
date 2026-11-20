@@ -155,7 +155,7 @@ instead). Every detail node quotes its own line in ``moon_ui.c`` /
 
 .. graphviz:: ../_graphs/bake-reveal-knob.dot
    :alt: The knob side opened — back-buffer producer, the swap task's edge-detected band flushes, the real publish, and the die-unpublished re-hide
-   :caption: The knob's variant (boot first frame only — no SD socket, every boot computes): the producer memsets the BACK buffer black and advances the watermark row by row, the swap task edge-detects it and lands each advance as one atomic band under the LVGL lock — states identical to the clock's, the pacing task is not — and a reveal that dies UNPUBLISHED re-hides the disk, the honest "moon unavailable" posture the plain bake already had (no heal path needed: the front frame never diverged).
+   :caption: The knob's variant (the boot first frame WHEN NO SAVED FRAME IS ON THE GLASS — no SD socket, every boot computes; ``KNOB_UI_LAST_FRAME``'s persisted frame suppresses the reveal on every boot that has a usable ``/spiffs/moon_frame.bin``): the producer memsets the BACK buffer black and advances the watermark row by row, the swap task edge-detects it and lands each advance as one atomic band under the LVGL lock — states identical to the clock's, the pacing task is not — and a reveal that dies UNPUBLISHED re-hides the disk, the honest "moon unavailable" posture the plain bake already had (no heal path needed: the front frame never diverged).
    :align: center
 
 Design — the shared clock (S3 + P4, ``components/ui/moon_ui.c``)
@@ -312,11 +312,21 @@ The swap task (prio 7, 15 ms poll) edge-detects the reveal, and for
 every watermark advance copies the row range into the visible buffer
 and lands it as ONE atomic band ``lv_refr_now`` under the reentrant
 ``s_lvgl_mux`` — unhiding the disk at the first completed rows. It
-applies to the **boot first frame only** (the knob's every-boot black
-window): day-tick re-bakes and the demo tour keep the
-old-frame-then-atomic posture (not a black window — no reveal). A
-reveal that dies before publishing re-hides the disk: the honest
-"moon unavailable" posture the plain bake already had.
+applies to the **boot first frame only when no usable saved frame is
+on the glass**: with ``KNOB_UI_LAST_FRAME`` (2026-11-20,
+:doc:`the knob display <knob-display>`) the first arm of every boot
+that has a ``/spiffs/moon_frame.bin`` (≤ 2 days old, crc intact) shows
+the saved frame as one atomic whole-panel flush and the fresh bake
+swaps over it old-frame-then-atomic — a row reveal would composite NEW
+rows over the OLD frame (the half-old/half-new ban), so the reveal is
+turned off for that bake. The reveal remains the very-first-boot
+posture: a fresh flash bakes a spiffs image that carries no
+``moon_frame.bin`` (the file is runtime-owned, never in
+``knob/spiffs/``), so the boot after one computes over black.
+Day-tick re-bakes and the demo tour keep the old-frame-then-atomic
+posture (not a black window — no reveal). A reveal that dies before
+publishing re-hides the disk: the honest "moon unavailable" posture
+the plain bake already had.
 
 Configuration
 .............
@@ -335,8 +345,10 @@ Configuration
        hang-context lines stay compiled so the witness stays whole)
    * - ``KNOB_UI_BAKE_REVEAL``
      - y
-     - boot bakes through ``knob_moon_bake_display``; black until the
-       first frame lands (the pre-reveal posture)
+     - boot bakes through ``knob_moon_bake_display``; the glass stays
+       black until the first frame lands unless a usable
+       ``KNOB_UI_LAST_FRAME`` frame is already on it (the pre-reveal
+       posture)
 
 Both follow the hourly/burn-in rules above; the clock's key depends on
 ``UI_MOON_HOURLY_ENABLE`` (the reveal rides the hourly choreography and
@@ -420,7 +432,8 @@ folder (a new flash caches from start by design):
      - ~5 in-place heals per revealed boot leg
      - 0 restarts, 0 stuck (designed heal, see cost analysis)
 
-Knob (360 disk, row-interleaved, boot-only reveal):
+Knob (360 disk, row-interleaved, boot-only reveal when no saved last
+frame is on the glass):
 
 .. list-table::
    :header-rows: 1

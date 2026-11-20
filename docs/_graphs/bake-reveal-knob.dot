@@ -1,25 +1,30 @@
 // The knob side of the bake reveal, in full —
-// knob/components, Kconfig KNOB_UI_BAKE_REVEAL (boot first frame ONLY:
-// no SD socket, every boot computes ~1 s — the knob's only black
-// window). Every edge verified in knob/components/knob_ui/knob_ui.c
-// (bake_publish :344, swap_task :588) + knob_moon.c (bake_frame).
+// knob/components, Kconfig KNOB_UI_BAKE_REVEAL (the boot first frame
+// ONLY when no usable KNOB_UI_LAST_FRAME frame is on the glass: no SD
+// socket, every boot computes ~1 s — the knob's black window, closed
+// across a real deep sleep by the persisted /spiffs/moon_frame.bin,
+// shown by last_frame_warm :394 as ONE atomic whole-panel flush and
+// swapped over by the fresh bake, which then passes reveal=false).
+// Every edge verified in knob/components/knob_ui/knob_ui.c
+// (bake_publish :588, swap_task :881) + knob_moon.c (bake_frame).
 // Producer task (prio 5, pinned CPU1, unregistered): bake_publish
-// (epoch, caption, reveal=true :344) — static_once_body's boot frame
-// :433. bake_frame with pub_rows (knob_moon.c): memset the BACK buffer
+// (epoch, caption, reveal, sig :588) — static_once_body's boot frame
+// :676 (reveal off under s_warm_on_glass, the half-old/half-new ban).
+// bake_frame with pub_rows (knob_moon.c): memset the BACK buffer
 // black, then per row moon_bake_rows + LUT-convert into out, SEQ_CST
 // fence, watermark *pub_rows = y+1 (the s_pub fence shape), vTaskDelay
 // (1) every 16 rows.
 // Swap task (prio 7, 15 ms poll, the panel owner) edge-detects
-// s_reveal_active :600 and per new watermark: point s_moon_dsc at the
+// s_reveal_active :893 and per new watermark: point s_moon_dsc at the
 // buffer BEING BAKED, unhide the disk at the FIRST completed rows,
 // lv_obj_invalidate_area [shown, pub) on every image, ONE atomic band
-// lv_refr_now under lvgl_lock :612-627 — states identical to the
+// lv_refr_now under lvgl_lock :905-920 — states identical to the
 // clock's, the pacing task is not.
-// The real publish follows: SEQ_CST fence + s_pub++ :381, the swap's
-// apply leg :640 lands the frame (descriptor swap + one atomic
+// The real publish follows: SEQ_CST fence + s_pub++ :625, the swap's
+// apply leg :933 lands the frame (descriptor swap + one atomic
 // lv_refr_now) and clears s_reveal_displayed — the revealed buffer IS
 // the applied frame now.
-// A reveal that dies UNPUBLISHED (s_pub == 0) re-hides the disk :631 —
+// A reveal that dies UNPUBLISHED (s_pub == 0) re-hides the disk :924 —
 // the honest "moon unavailable" posture the plain bake already had. No
 // heal path needed: the reveal lives in the BACK buffer, the front
 // frame never diverged. Day-tick re-bakes and wake bakes pass
@@ -29,7 +34,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph bake_reveal_knob {
     rankdir=TB;
-    label="The knob side — boot first frame only; the reveal rides\nthe BACK buffer, so a die-unpublished re-hides";
+    label="The knob side — boot first frame when no saved frame is\non the glass; the reveal rides the BACK buffer, so a die-unpublished\nre-hides";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.4, ranksep=0.42];
@@ -38,13 +43,13 @@ digraph bake_reveal_knob {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    prod [label="producer :344 —\nboot frame :433,\nBACK buffer black,\nwatermark y+1",
+    prod [label="producer :780 —\nboot frame :676,\nBACK buffer black,\nwatermark y+1",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    swap [label="swap task :600 —\n15 ms poll, points\ndsc at the BAKING\nbuffer, band flush",
+    swap [label="swap task :881 —\n15 ms poll, points\ndsc at the BAKING\nbuffer, band flush",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    apply [label="real publish —\ns_pub++ :381, apply\nleg :640, revealed\nbuffer IS applied",
+    apply [label="real publish —\ns_pub++ :625, apply\nleg :933, revealed\nbuffer IS applied",
            fillcolor="#efece4", color="#3a6b35", fontcolor="#2c4f29"];
-    hide [label="dies UNPUBLISHED\n(s_pub == 0) → re-\nhides the disk :631\n— no heal needed",
+    hide [label="dies UNPUBLISHED\n(s_pub == 0) → re-\nhides the disk :924\n— no heal needed",
           fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
     prod -> swap [style=dashed, label="watermark"];

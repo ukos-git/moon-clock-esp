@@ -243,11 +243,35 @@ The opening act
 
 Every boot and every wake presents the **static** current phase —
 one crisp 360-px bake, clocked by the same rule that keeps the
-battery honest. The boot bake arrives **revealed**: over a black
-square the rows land band by band as the bake produces them
-(``KNOB_UI_BAKE_REVEAL``, boot only — wake and day-tick re-bakes keep
-the old-frame-then-atomic posture, so they have no black window to
-remove; :doc:`the bake reveal <bake-reveal>`). The cold-boot synodic sweep (1344 frames new moon →
+battery honest. **The black window across a real deep sleep** is the
+one posture the old frame cannot cover: deep sleep loses the PSRAM
+double buffer, so the "old frame then atomic" a wake re-bake keeps
+has no old frame. ``KNOB_UI_LAST_FRAME`` (2026-11-20) makes it real
+by **persisting the last applied frame**: the producer writes the
+frame it just published to ``/spiffs/moon_frame.bin`` on the 512 K
+storage partition — one raw RGB565 square (259,200 B) plus a 24-byte
+header (magic, baked epoch, UTC day key, event signature, crc32 over
+payload + day + signature, so a torn power-loss write fails its crc
+and is NOT shown) — and **only when the (day, signature) pair
+changed**: a same-day late-NTP force-rebake skips the write, so the
+flash wear is one ~259 K rewrite per UTC day or sky-event change,
+never one per wake. The next boot's first arm then shows a saved
+frame at most 2 days old (older would be a visibly different phase)
+as **ONE atomic whole-panel flush** — the swap apply's shape,
+descriptor + unhide + ``lv_refr_now`` on the LVGL lock — with the
+caption **seeded from the saved instant** (the shared home's gated
+row hides a plain time caption; the legacy own-screen view rolls it
+with the minute exactly like any day-tick frame), and the fresh bake
+swaps over it as one atomic flush. The row-by-row reveal (``KNOB_UI_BAKE_REVEAL``,
+:doc:`the bake reveal <bake-reveal>`) is the fallback for the only
+boot with no usable saved frame — the very first after a fresh
+flash wipes the file with the spiffs image: there the boot bake
+arrives **revealed**, over a black square the rows land band by band
+as the bake produces them, and it turns OFF whenever a saved frame
+is on glass (a row reveal would composite NEW rows over the OLD
+frame — the half-old/half-new ban). Wake and day-tick re-bakes keep
+the old-frame-then-atomic posture as before (no black window to
+remove). The cold-boot synodic sweep (1344 frames new moon →
 now at 128 px plus the crisp final frame, **314 s wall**, the
 never-black posture) retired 2026-11-14; the clocks dropped their
 own 2026-11-13, so the clock's wake policy is now the whole display
@@ -297,7 +321,11 @@ join + NTP window runs long still arms the static current phase
 immediately from the snapshot + uptime — the log says
 ``arming static phase on NVS snapshot`` so the glass never sits dark
 for half a minute on an answer the board already had — and the late
-fix re-bakes through the ``show_moon`` force-rebake path. A pre-seam
+fix re-bakes through the ``show_moon`` force-rebake path. Since
+``KNOB_UI_LAST_FRAME`` the glass is not merely *not dark* for those
+seconds but already shows the last frame baked (it landed on the
+first arm, before the Wi-Fi + NTP window — the snapshot only sets
+the instant the caption and the fresh bake are judged against). A pre-seam
 wake finding only the legacy ``knob_time``/``epoch`` snapshot adopts
 it once as *last known, untrusted* and promotes it into the shared
 namespace. The age of a snapshot is unverifiable offline, which is

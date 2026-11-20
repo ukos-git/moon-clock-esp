@@ -27,8 +27,8 @@ The knob (16 MB, sibling project)
      - app/factory
      - **4096 K**
      - The application binary (moon display on the shared clock
-       components; measured 1,555,632 B (0x17bcb0) on 2026-11-15 —
-       ~63 % free;
+       components; measured 1,562,144 B (0x17d620) on 2026-11-20 —
+       ~37 % used;
        the ``knob/`` sibling project's own app —
        :doc:`the binary-size chronology <../verification/binary>`)
    * - ``storage``
@@ -37,7 +37,11 @@ The knob (16 MB, sibling project)
      - SPIFFS: ``wifi_credentials.txt`` (gitignored — the clock's
        filename, read by the shared ``components/wifi``) + the
        tracked ``alarm.txt`` rules file the shared alarm scheduler
-       mounts
+       mounts + the **runtime-owned** ``moon_frame.bin`` (the
+       persisted last moon frame, 259,224 B: raw RGB565 square + 24 B
+       header, written by ``KNOB_UI_LAST_FRAME`` only when the
+       (day, signature) pair changes, shown first on the next wake —
+       :doc:`the knob display <../implementation/knob-display>`)
        — :doc:`the SPIFFS store <../reference/spiffs-store>`
    * - ``moon_assets``
      - data/undefined

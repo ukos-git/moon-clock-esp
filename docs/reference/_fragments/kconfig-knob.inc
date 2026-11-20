@@ -27,10 +27,30 @@ the page above):
        discipline); the swap task unhides the disk at the first
        completed rows and lands each watermark as ONE atomic band
        ``lv_refr_now`` — the moon draws itself north to south at the
-       ACTUAL bake rate. Boot only: day-tick re-bakes keep the
-       old-frame-then-atomic posture; a reveal that dies before
-       publishing re-hides the disk
+       ACTUAL bake rate. Only when no ``KNOB_UI_LAST_FRAME`` frame is
+       on the glass (the very first boot after a fresh flash): a
+       saved frame on glass gets the fresh bake old-frame-then-atomic
+       (a row reveal would composite new rows over the old frame).
+       Day-tick re-bakes keep the old-frame-then-atomic posture; a
+       reveal that dies before publishing re-hides the disk
        (:doc:`the bake reveal <../implementation/bake-reveal>`)
+   * - ``KNOB_UI_LAST_FRAME``
+     - ``y``
+     - Show the persisted last frame before the fresh wake bake lands:
+       deep sleep loses the PSRAM double buffer, so every dial/tap/
+       TIMER wake would otherwise start from a black window behind the
+       Wi-Fi + NTP window. ``y`` persists the last applied frame to
+       ``/spiffs/moon_frame.bin`` (raw RGB565, 259,200 B + a 24-byte
+       header: magic, baked epoch, UTC day, event signature, crc32)
+       **only when the (day, signature) pair changed** — one ~259 K
+       flash rewrite per UTC day or sky-event change, not per wake —
+       and the next boot's first arm shows a saved frame at most 2
+       days old as ONE atomic whole-panel flush, the caption seeded
+       from the saved instant (the shared home's gated row hides it;
+       the legacy view rolls it with the minute like any day-tick
+       frame); the fresh bake swaps over it as one atomic flush. A
+       missing/torn/stale file falls back to the reveal path
+       (:doc:`the knob display <../implementation/knob-display>`)
    * - ``KNOB_MOON_TEST_EPOCH``
      - ``1794175200``
      - Frozen UTC instant for bench builds (used **only** under

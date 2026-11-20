@@ -25,12 +25,19 @@
  * with the event passed. The cold-boot synodic sweep retired
  * 2026-11-14 (the clocks dropped their own 2026-11-13): cold boots and
  * wakes alike arm the STATIC current phase -- the clock's wake policy
- * is now the knob's whole display policy. Under KNOB_UI_BAKE_REVEAL the
- * boot frame's ~790 ms stops being a black window: the producer's row
- * watermark lets the swap task display the bake north to south AS it
- * runs (one atomic band lv_refr_now per completed row, the clock's
- * bake-reveal shape -- docs/implementation/bake-reveal); every other
- * bake keeps the fill-then-atomic posture above.
+ * is now the knob's whole display policy. Deep sleep loses the PSRAM
+ * double buffer, so the wake's "old frame" was gone: KNOB_UI_LAST_FRAME
+ * closes that black window by persisting the last published frame to
+ * /spiffs/moon_frame.bin (one rewrite per (day, signature) change) and
+ * showing a saved frame <= 2 days old as ONE atomic whole-panel flush
+ * on the first arm (last_frame_warm) -- the fresh bake then swaps over
+ * it as one atomic flush. Under KNOB_UI_BAKE_REVEAL the boot frame's
+ * ~790 ms stops being a black window WHEN NO SAVED FRAME IS ON THE
+ * GLASS: the producer's row watermark lets the swap task display the
+ * bake north to south AS it runs (one atomic band lv_refr_now per
+ * completed row, the clock's bake-reveal shape --
+ * docs/implementation/bake-reveal); every other bake keeps the
+ * fill-then-atomic posture above.
  *
  * The companion mirror views (KEYBOARD/STEPPER, K4) were retired
  * 2026-11-08 with the companion approach; the dial stays initialized and
@@ -205,6 +212,247 @@ void knob_ui_gasp_boot_report(void) {
 #define CONFIG_KNOB_UI_BAKE_REVEAL 0
 #endif
 
+/* #ifndef-seeded KNOB_UI_LAST_FRAME (same invariant). The persisted
+ * last frame: deep sleep loses the PSRAM double buffer, so without a
+ * saved copy every wake starts from a black window behind the Wi-Fi +
+ * NTP window + the re-bake. The producer persists the last applied
+ * frame (see maybe_persist_frame) and show_moon's first arm shows a
+ * saved frame <= 2 days old as one atomic whole-panel flush before
+ * starting the tasks (last_frame_warm). */
+#ifndef CONFIG_KNOB_UI_LAST_FRAME
+#define CONFIG_KNOB_UI_LAST_FRAME 0
+#endif
+
+#if CONFIG_KNOB_UI_LAST_FRAME
+/* ---- the persisted last frame (KNOB_UI_LAST_FRAME, 2026-11-20) --------
+ * Deep sleep loses the PSRAM double buffer, so every dial/tap/TIMER wake
+ * would otherwise start from a black window: show_moon hides the disk,
+ * the re-bake waits behind the NVS-restore + Wi-Fi + NTP window, and the
+ * first fresh frame lands seconds later. This is the old-frame-then-
+ * atomic posture the day tick already keeps (its old frame is the PSRAM
+ * front buffer; across a real sleep that buffer is gone) made real
+ * across deep sleep by persisting the last applied frame to the 512 K
+ * SPIFFS storage partition.
+ *
+ * One raw RGB565 square + a 24-byte header: magic, baked epoch (the
+ * caption's instant), the UTC day key + event signature the frame was
+ * baked with, crc32 over payload + day + signature (the crc covers the
+ * tail so a torn power-loss write is caught, not shown). WRITES are the
+ * wear question: only the producer writes, and only when the (day,
+ * signature) pair changed since the last persist -- one ~259 K rewrite
+ * per UTC day or sky-event change (an eclipse starts at the hour it
+ * happens), NOT one per wake or minute: wakes and the day tick's
+ * same-day re-bake skip the write. Reads happen at most once per boot,
+ * on the boot core. */
+/* Forward references (the helpers section below defines them): the
+ * block above the file's helper section needs them. */
+static void time_caption(char *dst, size_t dst_sz, int64_t epoch);
+static uint32_t day_key(int64_t epoch);
+static void lvgl_lock(void);
+static void lvgl_unlock(void);
+static void caption_apply_locked(void);
+
+/* The minute key of the caption currently on the double buffer
+ * (producer-task-owned; the day tick uses it to roll the glass clock
+ * WITHOUT a re-bake, and last_frame_warm seeds it from the saved
+ * instant) -- declared here: the LAST_FRAME block above the helpers
+ * section writes it. */
+static int64_t s_caption_min;
+
+#define LAST_FRAME_PATH "/spiffs/moon_frame.bin"
+#define LAST_FRAME_MAGIC 0x4D4E4631u /* 'MNF1' */
+#define LAST_FRAME_MAX_AGE_S (2LL * 86400LL) /* older = visibly wrong phase */
+typedef struct {
+    uint32_t magic;
+    int64_t epoch; /* the baked instant (caption source) */
+    uint32_t day; /* day_key(epoch) it was baked for */
+    uint8_t sig; /* event signature it was baked with */
+    uint8_t pad[3];
+    uint32_t crc; /* crc32(payload + day + sig) */
+} last_frame_hdr_t; /* 24 bytes; payload follows */
+
+static uint32_t crc32_tail(const uint8_t *payload, size_t payload_sz, uint32_t day, uint8_t sig) {
+    uint32_t c = 0xFFFFFFFFu;
+    const uint8_t *p = payload;
+    size_t n = payload_sz;
+    while (n--) {
+        c ^= *p++;
+        for (int k = 0; k < 8; k++) {
+            c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+        }
+    }
+    for (int k = 0; k < 4; k++) {
+        const uint8_t b = (uint8_t)(day >> (8 * k));
+        c ^= b;
+        for (int j = 0; j < 8; j++) {
+            c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+        }
+    }
+    c ^= sig;
+    for (int j = 0; j < 8; j++) {
+        c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return c ^ 0xFFFFFFFFu;
+}
+
+/* Producer-task-owned: the last persisted (day, signature) pair. */
+static uint32_t s_last_frame_day;
+static uint8_t s_last_frame_sig;
+static bool s_warm_on_glass; /* last_frame_warm put a saved frame on glass */
+
+/**
+ * @brief Persist `buf` (the just-published frame's slot -- stable: the
+ *        producer bakes into the OTHER slot and only reuses this one
+ *        after the ack) to LAST_FRAME_PATH (producer task). The
+ *        SKIP-WRITE is the whole point: a same-day same-signature
+ *        re-bake (a late-NTP force-rebake within one day) leaves the
+ *        stored frame alone -- flash wear stays at one ~259 K rewrite
+ *        per (day, signature) change, never one per wake. The payload
+ *        write is CHUNKED with a tick yield between chunks: one
+ *        unyielded 259 K SPIFFS stream on the CPU1-pinned producer
+ *        would starve IDLE1 (its watchdog check is ON with panic), the
+ *        same rule the bake's per-row yields obey.
+ */
+static void maybe_persist_frame(const uint16_t *buf, int64_t epoch, int sig) {
+    const uint32_t frame_day = day_key(epoch);
+    const uint8_t frame_sig = (uint8_t)sig;
+    if (s_last_frame_day != 0 && frame_day == s_last_frame_day && frame_sig == s_last_frame_sig) {
+        return; /* skip-write: the session already stored this pair */
+    }
+    /* Cross-boot skip: the in-memory pair resets on every wake, but the
+     * FILE does not -- a wake whose (day, signature) pair is unchanged
+     * (the common case: a night's sleep) must NOT rewrite ~259 K of
+     * flash to store the frame it already stores. The header alone
+     * answers: same magic + same pair = the stored payload IS this
+     * frame's (the day tick's own validity rule: one frame per
+     * (day, signature) pair). */
+    {
+        FILE *h = fopen(LAST_FRAME_PATH, "rb");
+        if (h) {
+            last_frame_hdr_t stored;
+            if (fread(&stored, 1, sizeof(stored), h) == sizeof(stored) && stored.magic == LAST_FRAME_MAGIC &&
+                stored.day == frame_day && stored.sig == frame_sig) {
+                fclose(h);
+                s_last_frame_day = frame_day;
+                s_last_frame_sig = frame_sig;
+                return; /* already stored -- no rewrite */
+            }
+            fclose(h);
+        }
+    }
+    const uint8_t *payload = (const uint8_t *)buf;
+    const size_t payload_sz = (size_t)MOON_SIZE * MOON_SIZE * sizeof(uint16_t);
+    FILE *f = fopen(LAST_FRAME_PATH, "wb");
+    if (!f) {
+        ESP_LOGW(TAG, "last frame: open for write failed (%s)", LAST_FRAME_PATH);
+        return;
+    }
+    last_frame_hdr_t h = {.magic = LAST_FRAME_MAGIC, .epoch = epoch, .day = frame_day, .sig = frame_sig};
+    if (fwrite(&h, 1, sizeof(h), f) != sizeof(h)) {
+        ESP_LOGW(TAG, "last frame: header write failed");
+        fclose(f);
+        return;
+    }
+    for (size_t off = 0; off < payload_sz; off += 8192) {
+        const size_t chunk = (payload_sz - off < 8192) ? payload_sz - off : 8192;
+        if (fwrite(payload + off, 1, chunk, f) != chunk) {
+            ESP_LOGW(TAG, "last frame: payload write failed at %u B (stored frame stays)", (unsigned)off);
+            fclose(f);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1)); /* feed core-1's idle between flash ops */
+    }
+    h.crc = crc32_tail(payload, payload_sz, frame_day, frame_sig);
+    if (fseek(f, (long)offsetof(last_frame_hdr_t, crc), SEEK_SET) != 0 ||
+        fwrite(&h.crc, 1, sizeof(h.crc), f) != sizeof(h.crc) || fflush(f) != 0 || fclose(f) != 0) {
+        /* The payload is complete; only the crc tail is missing -- the
+         * stored frame fails its crc on the next boot and is NOT shown
+         * (the honest fallback), the session keeps its last good file. */
+        ESP_LOGW(TAG, "last frame: crc write failed (stored frame fails the crc next boot)");
+        return;
+    }
+    s_last_frame_day = frame_day;
+    s_last_frame_sig = frame_sig;
+    ESP_LOGI(TAG, "last frame: persisted %lld (day %lu, sig 0x%02x)", (long long)epoch,
+             (unsigned long)frame_day, (unsigned)frame_sig);
+}
+
+/**
+ * @brief The first arm (show_moon, before start_tasks): a saved frame at
+ *        most LAST_FRAME_MAX_AGE_S old lands in the FRONT buffer as ONE
+ *        atomic whole-panel flush -- the same posture a swap apply takes
+ *        (descriptor + unhide + lv_refr_now on the LVGL lock), with the
+ *        caption naming the SAVED instant so the glass never claims a
+ *        newer instant than the pixels it shows. The published/applied
+ *        counters are left at zero: the warm frame is a PRESENTATION,
+ *        not a publish -- the producer's first publish swaps the fresh
+ *        bake over it as one atomic flush (old-frame-then-atomic), and
+ *        the caption rewrites to the fresh bake's instant then. A
+ *        missing/corrupt/stale file just returns false and the boot
+ *        falls back to the row-by-row reveal path.
+ */
+static bool last_frame_warm(int64_t now) {
+    if (s_nomem) {
+        return false;
+    }
+    FILE *f = fopen(LAST_FRAME_PATH, "rb");
+    if (!f) {
+        return false; /* no file yet (fresh flash) -- the reveal path */
+    }
+    last_frame_hdr_t h;
+    if (fread(&h, 1, sizeof(h), f) != sizeof(h) || h.magic != LAST_FRAME_MAGIC) {
+        fclose(f);
+        return false;
+    }
+    const size_t payload_sz = (size_t)MOON_SIZE * MOON_SIZE * sizeof(uint16_t);
+    const int64_t age = now - h.epoch;
+    if (h.epoch < 1600000000LL || age < -60 || age > LAST_FRAME_MAX_AGE_S) {
+        fclose(f); /* implausible or visibly stale (a 3-day-old waxing
+                    * crescent is a different phase) -- the reveal path */
+        return false;
+    }
+    if (fseek(f, (long)sizeof(h), SEEK_SET) != 0 || fread(s_buf[0], 1, payload_sz, f) != payload_sz) {
+        fclose(f);
+        ESP_LOGW(TAG, "last frame: payload read failed -- stale, not shown");
+        return false;
+    }
+    fclose(f);
+    const uint32_t crc = crc32_tail((const uint8_t *)s_buf[0], payload_sz, h.day, h.sig);
+    if (crc != h.crc) {
+        /* Torn write (power lost mid-rewrite): the payload is garbage --
+         * NOT shown (s_shown stays false, the disk stays hidden), the
+         * producer bakes into s_buf[1] and the swap overwrites this
+         * slot after the ack. */
+        ESP_LOGW(TAG, "last frame: crc mismatch (day %lu, sig 0x%02x) -- torn write, not shown",
+                 (unsigned long)h.day, (unsigned)h.sig);
+        return false;
+    }
+    /* s_front is 0 by the time this runs (show_moon sets it) and the
+     * descriptor already points at s_buf[0] (the producer has not
+     * started): the warm frame IS the front buffer -- one atomic
+     * whole-panel flush, the swap apply's shape. */
+    lvgl_lock();
+    s_moon_dsc.data = (const uint8_t *)s_buf[0];
+    for (int i = 0; i < s_n_imgs; i++) {
+        lv_obj_set_hidden(s_imgs[i], false);
+        lv_obj_invalidate(s_imgs[i]);
+    }
+    char cap[48];
+    time_caption(cap, sizeof(cap), h.epoch); /* the SAVED instant */
+    strlcpy(s_caption_text, cap, sizeof(s_caption_text));
+    s_caption_dirty = true;
+    s_caption_min = h.epoch / 60;
+    caption_apply_locked();
+    knob_ui_gasp(KNOB_GASP_SWAP_REFR);
+    lv_refr_now(NULL);
+    s_shown = true;
+    lvgl_unlock();
+    ESP_LOGI(TAG, "last frame: %lld shown on glass (%lld s old) before the fresh bake",
+             (long long)h.epoch, (long long)age);
+    return true;
+}
+#endif /* CONFIG_KNOB_UI_LAST_FRAME */
+
 /* Time source (family seam, P0): the knob has no RTC, so "now" is the
  * clock component's UTC epoch whenever the wall clock holds one (SNTP or
  * NVS-restored -- clock_get_utc_epoch answers ESP_ERR_INVALID_STATE on an
@@ -310,12 +558,6 @@ static void time_caption(char *dst, size_t dst_sz, int64_t epoch) {
     snprintf(dst, dst_sz, "%s %d %02d:%02d", MON[lt.tm_mon], lt.tm_mday, lt.tm_hour, lt.tm_min);
 }
 
-/* Minute key of the clock caption currently on the double buffer -- the
- * day tick uses it to roll the glass clock WITHOUT a re-bake (the frame
- * stays; only the label text moves). Producer-task-owned like the
- * caption staging itself. */
-static int64_t s_caption_min;
-
 /**
  * @brief The previous frame must be on screen before the back buffer is
  *        reused (the clock's shown/published backpressure; the 5 s bail
@@ -340,9 +582,10 @@ static void wait_ack(void) {
  * caption NULL = caption stays. reveal=true displays the bake AS it runs
  * (the boot first frame under KNOB_UI_BAKE_REVEAL -- the swap task
  * consumes the rows watermark); every other bake passes false and keeps
- * the old-frame-then-atomic posture.
+ * the old-frame-then-atomic posture. sig = the event signature the frame
+ * was baked with (KNOB_UI_LAST_FRAME's skip-write pair).
  */
-static bool bake_publish(int64_t epoch, const char *caption, bool reveal) {
+static bool bake_publish(int64_t epoch, const char *caption, bool reveal, int sig) {
     if (s_nomem) {
         return false;
     }
@@ -382,6 +625,13 @@ static bool bake_publish(int64_t epoch, const char *caption, bool reveal) {
     s_pub++;
     knob_ui_gasp_frames(s_pub, s_applied);
     knob_ui_gasp(KNOB_GASP_IDLE);
+#if CONFIG_KNOB_UI_LAST_FRAME
+    /* The just-published frame's slot is stable until the ack (the
+     * producer reuses the OTHER slot; the swap only reads it) -- the
+     * safe point to persist it. The skip-write inside keeps the flash
+     * wear at one rewrite per (day, signature) change. */
+    maybe_persist_frame(s_buf[back], epoch, sig);
+#endif
     return true;
 }
 
@@ -425,13 +675,23 @@ static void caption_apply_locked(void) {
  * appear when the frame applies; "moon unavailable" stays if it fails. */
 static void static_once_body(void) {
     const int64_t now = ui_now_epoch();
-    knob_moon_display_begin(now);
+    const int ev = knob_moon_display_begin(now);
     char cap[40];
     time_caption(cap, sizeof(cap), now);
     /* The boot frame is THE revealed bake (the knob's black window --
      * KNOB_UI_BAKE_REVEAL; the swap task shows it north to south as the
-     * rows complete). */
-    if (!bake_publish(now, cap, true)) {
+     * rows complete) -- UNLESS a saved frame is already on the glass
+     * (KNOB_UI_LAST_FRAME): a row-by-row reveal would composite NEW rows
+     * over the OLD frame (the half-old/half-new ban,
+     * docs/implementation/bake-reveal), so the fresh bake swaps over it
+     * as one atomic flush instead. */
+    bool reveal = true;
+#if CONFIG_KNOB_UI_LAST_FRAME
+    if (s_warm_on_glass) {
+        reveal = false;
+    }
+#endif
+    if (!bake_publish(now, cap, reveal, ev)) {
         ESP_LOGE(TAG, "static bake failed");
         caption_unavailable();
     } else {
@@ -451,7 +711,9 @@ static void static_once_body(void) {
 #endif
     }
     s_baked_day = day_key(now);
-    s_baked_sig = knob_moon_classify_signature(now);
+    s_baked_sig = ev; /* display_begin's classification armed the LUT this
+                       * frame was converted through -- its signature is
+                       * the frame's, no second classify pass needed */
 }
 
 #ifdef CONFIG_KNOB_DEMO_MODE
@@ -481,10 +743,10 @@ static void demo_tour(void) {
         for (int k = 0; k < 8; k++) {
             const int64_t epoch = nm + (int64_t)((double)k / 8.0 * (double)SYNODIC_S);
             wait_ack();
-            knob_moon_display_begin(epoch);
+            const int ev = knob_moon_display_begin(epoch);
             char cap[48];
             snprintf(cap, sizeof(cap), "demo %d/8 %s", k + 1, names[k]);
-            if (!bake_publish(epoch, cap, false)) {
+            if (!bake_publish(epoch, cap, false, ev)) {
                 ESP_LOGE("DEMO", "phase %s bake failed", names[k]);
                 caption_unavailable();
             }
@@ -497,10 +759,10 @@ static void demo_tour(void) {
          * was minutes stale -- the step called "live now" must be live. */
         const int64_t live = ui_now_epoch();
         wait_ack();
-        knob_moon_display_begin(live);
+        const int ev = knob_moon_display_begin(live);
         char cap[48];
         time_caption(cap, sizeof(cap), live);
-        if (!bake_publish(live, cap, false)) {
+        if (!bake_publish(live, cap, false, ev)) {
             ESP_LOGE("DEMO", "now bake failed");
             caption_unavailable();
         }
@@ -572,9 +834,10 @@ static void moon_task(void *arg) {
             knob_moon_display_begin(now); /* re-arm the tint LUT + occlusion */
             char cap[40];
             time_caption(cap, sizeof(cap), now);
-            if (!bake_publish(now, cap, false)) { /* the old frame stays up
-                                                   * during this bake -- not
-                                                   * a black window, no reveal */
+            if (!bake_publish(now, cap, false, sig)) { /* the old frame stays
+                                                        * up during this bake --
+                                                        * not a black window,
+                                                        * no reveal */
                 ESP_LOGE(TAG, "day-tick bake failed");
                 caption_unavailable();
                 continue;
@@ -895,17 +1158,37 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * (it flips to "moon unavailable" if the bake fails). */
     time_caption(s_caption_text, sizeof(s_caption_text), utc_epoch);
     s_caption_min = utc_epoch / 60;
-    /* The boot core mutating LVGL while lvgl_task renders is the bug
-     * #31's photo caught (caption clipped/shifted): every object touch
-     * here rides the lock, like the swap task and show_no_time do. */
-    lvgl_lock();
-    caption_apply_locked();
-    hide_all_images();
-    lvgl_unlock();
     s_front = 0;
     s_pub = 0;
     s_applied = 0;
     s_shown = false;
+#if CONFIG_KNOB_UI_LAST_FRAME
+    /* The persisted last frame (KNOB_UI_LAST_FRAME): a saved frame at
+     * most LAST_FRAME_MAX_AGE_S old lands on the glass NOW -- one
+     * atomic whole-panel flush (last_frame_warm takes the lock itself),
+     * the caption naming the SAVED instant -- so a dial/tap/TIMER wake
+     * (PSRAM lost in deep sleep) does not start from a black window
+     * behind the Wi-Fi + NTP + bake window. The fresh bake then swaps
+     * over it as one atomic flush (static_once_body turns the reveal
+     * off for exactly that reason). No usable frame = the honest
+     * pre-frame caption, the disk stays hidden, the bake reveal owns
+     * the black window (the very first boot after a fresh flash). */
+    s_warm_on_glass = last_frame_warm(utc_epoch);
+    if (!s_warm_on_glass) {
+        lvgl_lock();
+        caption_apply_locked();
+        hide_all_images();
+        lvgl_unlock();
+    }
+#else
+    lvgl_lock();
+    caption_apply_locked();
+    hide_all_images();
+    lvgl_unlock();
+#endif
+    /* The boot core mutating LVGL while lvgl_task renders is the bug
+     * #31's photo caught (caption clipped/shifted): every object touch
+     * here rides the lock, like the swap task and show_no_time do. */
     start_tasks();
     return true;
 }

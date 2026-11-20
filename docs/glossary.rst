@@ -124,8 +124,11 @@ The device pipeline
   idle→sleep ladder held until the end leg; the final bake is
   **revealed** while it computes — see *Bake reveal*). With no usable
   cache the panel holds its boot black until the revealed final leg
-  starts drawing; the knob (no SD socket) always takes that path
-  (:doc:`the animation pipelines <implementation/animations>`).
+  starts drawing; the knob (no SD socket) takes that path only with no
+  saved last frame — ``KNOB_UI_LAST_FRAME`` shows the persisted
+  ``/spiffs/moon_frame.bin`` first, the fresh bake swaps over it
+  (:doc:`the animation pipelines <implementation/animations>` and
+  :doc:`the knob display <implementation/knob-display>`).
 - **Dusk** — the retired (2026-11-13) light-sleep entry: the
   constant-projection pole spin to the dark side (the shade map + the
   re-projects), the backlight dim to 25 %, the RTC countdown armed on
@@ -155,8 +158,9 @@ The device pipeline
   actual bake rate — the second sanctioned exception to the atomic-flush
   rule, as *atomicity-per-state*. Used by the hourly refresh's
   cache-miss bake and the boot replay's final leg (clock), and by the
-  knob's boot bake (producer-interleaved, boot only); fetch hits never
-  arm it
+  knob's boot bake (producer-interleaved, and only when no
+  ``KNOB_UI_LAST_FRAME`` frame is on the glass — a saved frame gets
+  the fresh bake old-frame-then-atomic); fetch hits never arm it
   (:doc:`the bake reveal <implementation/bake-reveal>`).
 - **Observer view** *(``UI_MOON_OBSERVER_ENABLE``, added 2026-11-17)*
   — the timezone's payoff: every gray→RGB565 build leg gathers the

@@ -16,10 +16,10 @@ config KNOB_UI_BAKE_REVEAL
     bool "Reveal the boot bake row by row while it computes"
     default y
     help
-        The knob's only black window is the boot first frame (no SD
-        socket: every boot computes, 991 ms measured 2026-11-14 — the
-        revealed bake runs ~2.05 s end to end, first rows visible ~50 ms
-        in). With y the boot bake is
+        The knob's black window is the boot first frame WHEN NO USABLE
+        FRAME IS SAVED (no SD socket: every boot computes, 991 ms
+        measured 2026-11-14 — the revealed bake runs ~2.05 s end to
+        end, first rows visible ~50 ms in). With y that bake is
         DISPLAYED as it runs: knob_moon bakes row by row into the back
         buffer over a black-cleared square and publishes a rows watermark
         (the frame counter's fence discipline); the swap task unhides the
@@ -27,10 +27,36 @@ config KNOB_UI_BAKE_REVEAL
         atomic band lv_refr_now on the LVGL lock -- the moon draws itself
         north to south at the ACTUAL bake rate (the bake is the
         metronome). A reveal that dies before publishing re-hides the
-        disk (the honest "moon unavailable" posture). Day-tick re-bakes
-        keep the old-frame-then-atomic posture (not a black window). The
-        clocks' counterpart is UI_MOON_BAKE_REVEAL
+        disk (the honest "moon unavailable" posture). When
+        KNOB_UI_LAST_FRAME has a frame on glass (any boot but the very
+        first after a fresh flash), the bake runs old-frame-then-atomic
+        instead and the reveal does not run. Day-tick re-bakes keep the
+        old-frame-then-atomic posture (not a black window). The clocks'
+        counterpart is UI_MOON_BAKE_REVEAL
         (docs/implementation/bake-reveal).
+
+config KNOB_UI_LAST_FRAME
+    bool "Show the persisted last frame before the fresh wake bake lands"
+    default y
+    help
+        Deep sleep loses the PSRAM double buffer, so a dial/tap/TIMER
+        wake otherwise starts from a black window while the re-bake
+        waits behind the Wi-Fi + NTP window. With y the producer
+        persists the last applied frame to /spiffs/moon_frame.bin on
+        the 512 K storage partition (raw RGB565, 259,200 B payload +
+        a 24-byte header: magic, baked epoch, UTC day key, event
+        signature, crc32) -- and only when the (day, signature) pair
+        changed, so the skip-write keeps the flash wear to one ~259 K
+        rewrite per day or sky-event change, not one per wake. The
+        next boot's first arm shows a frame at most 2 days old (older
+        would be a visibly different phase) as ONE atomic whole-panel
+        flush, the caption seeded from the saved instant (the shared
+        home's gated row hides it; the legacy view rolls it with the
+        minute like any day-tick frame); the fresh bake then lands
+        over it as one atomic swap -- the old-frame-then-atomic
+        posture the day tick keeps, now real across deep sleep. The row-by-row reveal (KNOB_UI_BAKE_REVEAL)
+        only runs when no usable frame is saved (the very first boot
+        after a fresh flash wipes the file with the spiffs image).
 
 config KNOB_DIAG_FRAME_TRACE
     bool "Bench: log flush/swap/screen-switch boundaries"

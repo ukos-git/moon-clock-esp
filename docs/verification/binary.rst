@@ -45,9 +45,9 @@ project's own ``../build/knob`` outside the repo, never
      - 7,553,888 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,559,728 B (0x17ccf0)
+     - 1,562,144 B (0x17d620)
      - 4,194,304 B (4096 K)
-     - 2,634,576 B (63 %)
+     - 2,632,160 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the
