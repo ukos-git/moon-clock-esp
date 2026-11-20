@@ -1,3 +1,17 @@
+## 0.2.0 (2026-11-20)
+
+### Feat
+
+- knob wake shows the persisted last frame before the fresh bake lands
+- basic stand concept — minimal ring-on-a-post desk stand for the S3 466
+- universal 3D-printed housing (A1) — parametric builder, dual audit gates, docs
+- named-city time zones + observer-view moon tilt
+
+### Fix
+
+- gate the S3's AF fire path on the rule cache (P4 parity)
+- clear the latched AF on alarm disarm; disarm a stale PCF arm on a missing-file boot
+
 ## 0.1.0 (2026-11-17)
 
 ### Feat
