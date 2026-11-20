@@ -10,17 +10,19 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-16): all three trees were
-configured at HEAD ``ba1e2bf`` with this wave's code in the tree —
-the wifi-screen **switch-frame pass** (the sync-storm traffic hold no
-longer eats the screen switch's atomic frame; :doc:`the display
-pipeline <../implementation/display>`) — and built from it (the
-sizes below are those bench binaries; each embeds the git-describe
-short hash ``ba1e2bf`` as the TF-cache calcver string — verified by
-``strings``, the root ``CMakeLists`` comment and :doc:`the build
-system <../reference/build-system>`). Until the first commitizen bump
-there is no ``version`` line in ``.cz.toml``; docs-only commits after
-these builds do not move a size. The knob's tree is the sibling
+Measured from the build trees (2026-11-20): the S3 and P4 trees were
+configured at the ``0.2.0`` commitizen checkpoint — the first ``cz
+bump`` (the pre-bump fallback, the ``git describe`` short hash, no
+longer applies) — with this wave's code in the tree (the wifi-screen
+**switch-frame pass**, the sync-storm traffic hold no longer eats the
+screen switch's atomic frame; :doc:`the display pipeline
+<../implementation/display>`) — and built from it (the sizes below
+are those bench binaries; each embeds the calcver ``0.2.0`` as the
+TF-cache string — the commitizen ``version`` line the root
+``CMakeLists`` reads from ``.cz.toml``, verified by ``strings``; the
+knob's ``moon_tfcache.c`` compiles with the ``"unknown"`` fallback —
+the knob defines no calcver and has no TF card). Docs-only commits
+after these builds do not move a size. The knob's tree is the sibling
 project's own ``../build/knob`` outside the repo, never
 ``build/knob``):
 
@@ -173,7 +175,7 @@ the app's growth history:
                                               strips retry while the panel
                                               watchdog stands down) over the
                                               switch-frame-pass base
-   binary    1,721,968 B  (0x1a4670)  current (measured 2026-11-17) — the
+   binary    1,721,968 B  (0x1a4670)  (measured 2026-11-17) — the
                                               timezone rework over the
                                               io-tally base: 67 curated
                                               IANA zones persisted by name
@@ -186,6 +188,17 @@ the app's growth history:
                                               under the ceiling — rule 3
                                               below is now the next expected
                                               step, not a last resort
+   binary    1,722,272 B  (0x1a47a0)  current (measured 2026-11-20) — the
+                                              0.2.0 commitizen checkpoint
+                                              (the first ``cz bump``): the
+                                              calcver string moves 0.1.0 →
+                                              0.2.0 — the commitizen version
+                                              line replaces the pre-bump
+                                              git-describe key as the
+                                              TF-cache folder prefix — and
+                                              the key is one same-length
+                                              string, so the size stands at
+                                              the table's number above
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),

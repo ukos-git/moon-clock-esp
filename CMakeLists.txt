@@ -36,9 +36,10 @@ project(moon-phase)
 # version = "x.y.z" into .cz.toml): the card re-keys only on a deliberate
 # version bump, so commits alone never invalidate the cache again (the old
 # per-commit git-describe key rolled a fresh folder per build -- including
-# `-dirty` keys no commit ever owned). Until the FIRST bump there is no
-# version line and the git-describe short hash keys the folder -- equally
-# valid as a cache key. Re-configure is triggered on .cz.toml and on
+# `-dirty` keys no commit ever owned). The git-describe short hash is the
+# fallback ONLY while the version line is missing (pre-0.2.0: the first
+# bump, 2026-11-20, made the version line the key). Re-configure is
+# triggered on .cz.toml and on
 # commit/tag movement (.git/HEAD, packed-refs) so both sources take effect
 # without a fullclean.
 set(MOON_CALC_VER "")

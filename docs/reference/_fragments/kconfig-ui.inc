@@ -128,8 +128,9 @@ The hourly moon refresh & TF hour cache
        (the panel's dark window shrinks from bake+fade to decode+fade,
        ~200 ms + the ramps) and a cached hour is byte-identical across
        boots and boards. Versioned by the calculation (``MOON_CALC_VER``
-       = ``git describe`` — bump the repo with commitizen ``cz bump``
-       to invalidate) and **self-describing**: a ``meta.txt`` pins the
+       = the commitizen ``version`` line in ``.cz.toml`` — ``cz bump``
+       moves it and re-keys the folder; ``git describe`` is the pre-bump
+       fallback only) and **self-describing**: a ``meta.txt`` pins the
        bake resolution (plus albedo width, relief, JPEG quality), any
        mismatch wipes and recreates the folder; old version folders are
        deleted on sight. The cache is **cleared on each new moon** and

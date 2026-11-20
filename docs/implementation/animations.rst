@@ -195,12 +195,12 @@ The cache persists one small gray JPEG per HOUR under
 ``/moon_cache/<calcver>_<target>_<px>/``; the folder name carries the
 calculation version — the version the repo sets **manually via
 commitizen** (``cz bump`` writes ``version = "x.y.z"`` into ``.cz.toml``,
-and the root ``CMakeLists`` reads that line as ``MOON_CALC_VER``), falling
-back to the ``git describe`` short hash only until the first bump — so a
-deliberate version bump starts an empty folder while plain commits leave
-the card alone, and
-a self-describing ``meta.txt`` wipes/recreates the folder on any
-resolution mismatch (``moon_tfcache.c``). Two rules bound the folder
+and the root ``CMakeLists`` reads that line as ``MOON_CALC_VER``); the
+``git describe`` short hash is the pre-bump fallback only — the first
+bump (0.1.0 → 0.2.0, 2026-11-20) made the version line the live key —
+so a deliberate version bump starts an empty folder while plain commits
+leave the card alone, and a self-describing ``meta.txt`` wipes/recreates
+the folder on any resolution mismatch (``moon_tfcache.c``). Two rules bound the folder
 (the user's cache policy, 2026-11-14): nothing more than one synodic
 month of hourly keys survives (~709 files), **and** everything older
 than the last NEW MOON is cleared at that crossing. The floor needs the
