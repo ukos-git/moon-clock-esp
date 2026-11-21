@@ -528,8 +528,24 @@ void app_main(void) {
     /* K7c+K7d: the display arms on a TRUSTED instant only. The wait +
      * the arm live on this task (registered, it only delays), so
      * app_main returns at once and neither the ~20 s classify scan nor
-     * the NTP window ever touches the boot core. */
-    xTaskCreate(boot_arm_task, "knob_boot", 4096, (void *)(intptr_t)(assets_ready ? 1 : 0), 6, NULL);
+     * the NTP window ever touches the boot core.
+     *
+     * 16 KiB, not 4: the arm tail runs the NTP window (lwip socket work
+     * under the SNTP wait) AND -- since KNOB_UI_LAST_FRAME -- the
+     * last_frame_warm() path (a SPIFFS open + 259 K fread + crc32 over
+     * the payload + a whole-panel lv_refr_now) BEFORE start_tasks ever
+     * runs. At 4096 the tail overflows the task stack: the FreeRTOS
+     * canary fires in task knob_boot, and the overflow into the
+     * adjacent heap block corrupts whatever block it lands in -- on the
+     * knob that was an LVGL timer-list node (Guru Meditation in
+     * lv_timer_handler / lv_ll_get_next, node pointer read back as the
+     * small int 0x21) -- so the crash victim rotated (knob_lvgl,
+     * double-exception) while the overflow itself stayed knob_boot
+     * (bench 2026-11-21: the "redraw loop" was this boot->crash->reboot
+     * cycle, 15 crashes per 60 s). 16384 matches the family's
+     * heaviest arm path (knob_moon: 12 KiB for the same flash + LVGL
+     * work class). */
+    xTaskCreate(boot_arm_task, "knob_boot", 16384, (void *)(intptr_t)(assets_ready ? 1 : 0), 6, NULL);
     ESP_LOGI(TAG, "knob K1 up (heap internal %u DMA-suitable bytes)",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
 }

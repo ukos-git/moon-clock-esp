@@ -12,7 +12,9 @@
 // EFFECTIVE under the 100 Hz tick clamp); dial_start spawns knob_dial
 // (p5, 4 KiB, 20 ms step + dim consumer); power_init spawns knob_power
 // (p4, 3 KiB, 500 ms sleep ladder, EXT0 dial · EXT1 tap on GPIO 9);
-// a one-shot knob_boot (p6, 4 KiB) waits for NTP and arms. The dashed
+// a one-shot knob_boot (p6, 16 KiB — the NTP window + the
+// KNOB_UI_LAST_FRAME warm-read + whole-panel arm live on it, bench
+// 2026-11-21) waits for NTP and arms. The dashed
 // arrows are the hand-offs: the producer marks its back buffer, the
 // swapper publishes, the encoder forwards count deltas. The knob has NO
 // IMU (the imu shim answers ready=false) and NO RTC — the 1300 ms tick
@@ -47,7 +49,7 @@ digraph task_roster_knob {
            fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08"];
     ksup [label="knob_power · p4 · 3 KiB · 500 ms\nEXT0 dial · EXT1 tap (GPIO 9)",
           fillcolor="#f2f2f2"];
-    kboot [label="knob_boot · p6 · 4 KiB\none-shot — waits NTP, arms",
+    kboot [label="knob_boot · p6 · 16 KiB\none-shot — waits NTP, arms",
            fillcolor="#f2f2f2"];
 
     kmain -> klvgl [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];
