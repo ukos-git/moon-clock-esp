@@ -86,6 +86,12 @@ The tools the numbers came from
   camera + one passive serial log per board, cut into per-phase
   comparison frames by the demo tour's ``phase=`` markers
   (:doc:`demo mode <../verification/demo-mode>`).
+- ``bench/knob_repro.sh`` — a passive serial watchdog for the knob's
+  "redraw loop": one command that goes red on any ``Rebooting…`` /
+  stack-overflow / ``Guru Meditation`` line inside the window and green
+  on a live touch heartbeat with zero reboots. It is the red-capable
+  feedback loop behind the 2026-11-21 knob_boot 4 KiB stack-overflow
+  fix (commit ff7385f).
 
 A note on the site's own numbers
 --------------------------------
