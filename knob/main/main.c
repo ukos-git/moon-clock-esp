@@ -123,6 +123,24 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
 static void panel_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
     ESP_LOGI(TAG, "flush START (%d,%d)-(%d,%d)", (int)area->x1, (int)area->y1, (int)area->x2, (int)area->y2);
+    /* [BF] content probe: the moon disk is a LARGE bright region, a
+     * moon-less frame only carries the thin clock digits — counting the
+     * bright pixels of the strip says whether the moon was ACTUALLY
+     * rendered into the framebuffer this flush (the object-state probe
+     * says nothing about the drawn pixels). RGB565_SWAPPED 16-bit. */
+    if (area->x1 == 0 && area->y1 < KNOB_LCD_H_RES && area->x2 == (lv_coord_t)(KNOB_LCD_H_RES - 1)) {
+        uint32_t w = (uint32_t)(area->x2 - area->x1 + 1);
+        uint32_t h = (uint32_t)(area->y2 - area->y1 + 1);
+        uint32_t bright = 0;
+        const uint16_t *px = (const uint16_t *)px_map;
+        for (uint32_t n = 0; n < w * h; n++) {
+            if (px[n] > 0x3000u) {
+                bright++;
+            }
+        }
+        ESP_LOGI(TAG, "BF flush rows %d-%d bright=%u (moon present >>1000; digits only low hundreds)",
+                 (int)area->y1, (int)area->y2, (unsigned)bright);
+    }
 #endif
     /* Gasp witness: a LOST GPSPI completion parks draw_bitmap on
      * portMAX_DELAY forever (the stock driver has no panel_wdg like the
@@ -239,33 +257,20 @@ static void boot_arm_task(void *arg) {
     }
     /* Never-black wake (the 2026-11-22 capture measured the glass black
      * ~9.2 s on a tap wake -- worst case ~24 s behind the 20 s NTP
-     * window): the saved-frame warm flush only ran at the arm TAIL,
-     * AFTER the Wi-Fi join + the NTP window, so the freshly re-init'd
-     * QSPI panel sat on a blank framebuffer the whole time. Flush the
-     * persisted last frame to the glass NOW, BEFORE the radio window:
-     * one atomic whole-panel flush (last_frame_warm takes the lock), the
-     * caption naming the SAVED instant, so a tap/dial/TIMER wake shows
-     * the moon within ~5 s of the tap. The NTP fix below then force-
-     * rebakes the fresh phase over it (the s_started force-rebake path);
-     * static_once_body turns the reveal off for exactly that reason. No
-     * usable frame (first boot after a fresh flash) = the honest
-     * pre-frame caption, and the bake reveal owns that black window.
-     * Setting `armed` here mirrors the no-fix branch below: a frame is on
-     * glass, so the late-fix loop keeps the ladder held while it chases
-     * the fix (identical to the original armed-on-snapshot behaviour). */
-    {
-        /* A separate variable: `now` must stay 0 for the have_time path,
-         * so the alarm leg's `now < EPOCH_PLAUSIBLE_MIN` guard re-reads
-         * the FRESH NTP instant (a successful fix) instead of this stale
-         * snapshot. show_moon() takes the epoch by value; only `armed`
-         * (a frame is on glass) feeds the late-fix loop below. */
-        int64_t warm_now = 0;
-        if (wall && clock_get_utc_epoch(&warm_now) == ESP_OK && warm_now >= EPOCH_PLAUSIBLE_MIN) {
-            armed = knob_ui_show_moon(warm_now);
-            ESP_LOGI(TAG, "saved frame armed before the Wi-Fi + NTP window (%lld, last known)",
-                     (long long)warm_now);
-        }
-    }
+     * window): the saved-frame warm arm now runs in app_main BEFORE
+     * ui_init (the 2026-11-22 black-flash fix -- the knob's LCD retains
+     * the previous frame in panel RAM, so the FIRST screen flush must
+     * already carry the moon; a moon-less home frame over the retained
+     * moon read as "the moon goes away right before the WiFi screen").
+     * A frame may already be staged on the glass by then: `armed`
+     * mirrors the no-fix branch below -- a frame is on glass, so the
+     * late-fix loop keeps the ladder held while it chases the fix.
+     * The NTP fix below then force-rebakes the fresh phase over it
+     * (the s_started force-rebake path); static_once_body turns the
+     * reveal off for exactly that reason. No usable frame (first boot
+     * after a fresh flash) = s_shown still false, the honest pre-frame
+     * caption, and the bake reveal owns that black window. */
+    armed = knob_ui_shown();
 #if CONFIG_KNOB_UI_ENABLE
     /* Family parity (user report 2026-11-22: "the knob does not have a
      * wifi-transient screen"): the knob never ran the transient WiFi
@@ -564,6 +569,42 @@ void app_main(void) {
      * arc). moon_ui_init before ui_init (the clocks' order: buffers and
      * the descriptor exist before create_screens asks for images). */
     moon_ui_init();
+    /* Never-black wake, moved BEFORE ui_init (2026-11-22 black-flash
+     * capture, [BF] probes): the knob's LCD retains the previous frame
+     * in panel RAM across the boot reset, so the FIRST screen flush
+     * must already carry the moon -- the old ordering flushed a
+     * moon-less home frame at ~4.2 s (the image stays hidden until the
+     * warm arm at ~4.9 s), overpainting the retained moon: "the moon
+     * goes away right before the WiFi screen", then the warm flush
+     * brought it back ~700 ms later. Staging the saved frame here
+     * (descriptor + s_shown BEFORE create_screens) makes the images
+     * ui_init attaches BORN visible (attach honours !s_shown), so the
+     * first flush is home + saved moon and the retained panel frame is
+     * never overpainted with a moon-less one. last_frame_warm skips
+     * its own flush with no images attached (it would just overpaint
+     * the retained moon); the caption is seeded from the SAVED instant.
+     * No usable frame (first boot after a fresh flash): s_shown stays
+     * false, the images are born hidden, and the bake reveal owns the
+     * window exactly as before. The NVS restore itself stays in the
+     * arm task (`wall` feeds the alarm leg + the no-fix branch); this
+     * copy only ARMS the frame. Stacks: this path (259 K SPIFFS read +
+     * crc32) runs on the main task -- ESP_MAIN_TASK_STACK_SIZE=16384
+     * (was 8192; the knob_boot 4 K overflow history is the reason the
+     * size is the VERIFIED 16 K, not a guess). */
+    {
+        bool wall = clock_nvs_restore_epoch();
+        if (!wall) {
+            wall = knob_time_adopt_legacy_snapshot();
+            if (wall) {
+                (void)clock_nvs_save_epoch(); /* promote into the clock namespace */
+            }
+        }
+        int64_t warm_now = 0;
+        if (wall && clock_get_utc_epoch(&warm_now) == ESP_OK && warm_now >= EPOCH_PLAUSIBLE_MIN) {
+            (void)knob_ui_show_moon(warm_now);
+            ESP_LOGI(TAG, "saved frame staged before ui_init (%lld, last known)", (long long)warm_now);
+        }
+    }
     ui_init();
     /* The family per-second chain (the clocks' registrations, minus the
      * idle pair -- knob_power owns the knob's ladder): minute labels,

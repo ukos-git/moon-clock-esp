@@ -335,17 +335,32 @@ whitens it on connect — the knob's shared 10 ms ``ui_tick``
 chain pumps it) — and drops back to the home (airplane) screen
 when the fix lands (in the window or late); the home↔WiFi
 switch is the both-moon plain atomic flush, so the saved frame
-stays on glass through it. (User report 2026-11-22, after the
-transient screen landed: the moon still goes away *right before*
-the WiFi screen on the knob only — a black frame with the clock
-row but no moon. The ``[BF]`` bench probe
-(``KNOB_DIAG_FRAME_TRACE``; ``knob_ui_bf_probe``) dumps, at the
-warm flush, the home→WiFi switch boundary and the swap-apply,
-the hidden state of every attached moon image (named by the
-screen it sits on), the active screen, and the frame state
-(``s_shown``/``s_pub``/``s_applied`` + the descriptor's buffer
-target), so the next wake capture names which image is hidden in
-the black frame.)
+stays on glass through it.
+
+The black flash the knob-only capture found (2026-11-22: "the
+moon goes away right before the wifi screen" — a black frame
+with the clock row but no moon, knob only) was the retained
+panel frame overpainted with a moon-less one: the knob's LCD
+keeps the previous frame in panel RAM across the boot reset
+(the AMOLED/P4 panels wake black, which is why the clocks never
+showed it), and the boot's first home flush (~4.2 s) rendered
+without the moon (the image stays hidden until the warm arm) —
+so the retained moon was visibly *deleted* ~700 ms before the
+warm flush brought it back. The ``[BF]`` bench probe
+(``KNOB_DIAG_FRAME_TRACE``; ``knob_ui_bf_probe``: the hidden/
+visible state of every attached moon image at the warm flush,
+both sides of the home→WiFi switch, the reveal cleanup and the
+swap-apply, plus the per-strip bright-pixel count in the flush
+callback) proved the first frames moon-less and every frame
+from the warm flush onward moon-present. The fix: the warm arm
+now runs in ``app_main`` BEFORE ``ui_init`` — the saved frame
+is staged on the shared descriptor (``s_shown``) before
+``create_screens`` attaches the images, so they are born
+visible and the first screen flush already carries the moon;
+``last_frame_warm`` skips its own flush with no images attached
+(it would just overpaint the retained moon). The ``main`` task
+stack carries that 259 K SPIFFS read + crc32 path:
+``CONFIG_ESP_MAIN_TASK_STACK_SIZE`` is 16384 (was 8192).
 Bench 2026-11-22: a tap wake measured **~9.2 s of black glass**
 (34-min-old caption) because the arm had regressed the warm flush
 to the arm *tail*, behind the 20 s NTP window (worst case ~24 s);

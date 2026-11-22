@@ -73,7 +73,7 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 # with the moon pipeline; the P4 raised the same number to 10240 for the
 # same reason. 8192 is the knob's margin-tested value (its build is the
 # lightest of the three).
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 
 # K7d time: pre-P0 this pinned lwIP's SNTP client (CONFIG_LWIP_SNTP=y).
 # Since the P0 seam the fix rides components/clock's clock_sntp (one-shot

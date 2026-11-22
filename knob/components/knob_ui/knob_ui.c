@@ -434,7 +434,16 @@ static bool last_frame_warm(int64_t now) {
     /* s_front is 0 by the time this runs (show_moon sets it) and the
      * descriptor already points at s_buf[0] (the producer has not
      * started): the warm frame IS the front buffer -- one atomic
-     * whole-panel flush, the swap apply's shape. */
+     * whole-panel flush, the swap apply's shape. EXCEPTION (the
+     * 2026-11-22 black-flash fix): the app_main arm runs this BEFORE
+     * ui_init, when NO moon image is attached yet -- the knob's LCD
+     * retains the previous frame in panel RAM, so an extra flush here
+     * would just overpaint the retained moon, and the frame to carry
+     * is the FIRST screen flush (ui_init's loadScreen), which draws
+     * the images born visible (attach honours !s_shown). Stage the
+     * descriptor + s_shown and skip the flush in that case; the
+     * first flush lands the saved frame on glass with it. */
+    const bool flush = (s_n_imgs > 0);
     lvgl_lock();
     s_moon_dsc.data = (const uint8_t *)s_buf[0];
     for (int i = 0; i < s_n_imgs; i++) {
@@ -447,15 +456,19 @@ static bool last_frame_warm(int64_t now) {
     s_caption_dirty = true;
     s_caption_min = h.epoch / 60;
     caption_apply_locked();
-    knob_ui_gasp(KNOB_GASP_SWAP_REFR);
-    lv_refr_now(NULL);
+    if (flush) {
+        knob_ui_gasp(KNOB_GASP_SWAP_REFR);
+        lv_refr_now(NULL);
+    }
     s_shown = true;
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-    knob_ui_bf_probe("warm flush (saved frame on glass, home screen active)");
-#endif
     lvgl_unlock();
-    ESP_LOGI(TAG, "last frame: %lld shown on glass (%lld s old) before the fresh bake",
-             (long long)h.epoch, (long long)age);
+    ESP_LOGI(TAG, "%s", flush ? "last frame shown on glass before the fresh bake"
+                              : "last frame staged on the descriptor, no images yet -- "
+                                 "the first screen flush carries it");
+    ESP_LOGI(TAG, "last frame: %lld (%lld s old)", (long long)h.epoch, (long long)age);
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    knob_ui_bf_probe(flush ? "warm flush (saved frame on glass)" : "warm stage (pre-ui_init)");
+#endif
     return true;
 }
 #endif /* CONFIG_KNOB_UI_LAST_FRAME */
@@ -1160,9 +1173,11 @@ void knob_ui_bf_probe(const char *where) {
     } else if (scr == (const lv_obj_t *)objects.wifi) {
         act = "wifi";
     }
-    ESP_LOGI(TAG, "BF %s: active=%s shown=%d pub=%u applied=%u dsc=%p buf0=%p buf1=%p", where, act,
-             (int)s_shown, (unsigned)s_pub, (unsigned)s_applied, (const void *)s_moon_dsc.data,
-             (const void *)s_buf[0], (const void *)s_buf[1]);
+    ESP_LOGI(TAG, "BF %s: active=%s shown=%d pub=%u applied=%u dsc=%p buf0=%p buf1=%p homeVisible=%d wifiVisible=%d",
+             where, act, (int)s_shown, (unsigned)s_pub, (unsigned)s_applied, (const void *)s_moon_dsc.data,
+             (const void *)s_buf[0], (const void *)s_buf[1],
+             (int)lv_obj_is_visible((const lv_obj_t *)objects.modem_sleep),
+             (int)lv_obj_is_visible((const lv_obj_t *)objects.wifi));
     for (int i = 0; i < s_n_imgs; i++) {
         const lv_obj_t *par = lv_obj_get_parent(s_imgs[i]);
         on = "?";
@@ -1171,7 +1186,8 @@ void knob_ui_bf_probe(const char *where) {
         } else if (par == (const lv_obj_t *)objects.wifi) {
             on = "wifi";
         }
-        ESP_LOGI(TAG, "BF   img[%d] on %s hidden=%d", i, on, (int)lv_obj_is_hidden(s_imgs[i]));
+        ESP_LOGI(TAG, "BF   img[%d] on %s hidden=%d visible=%d", i, on, (int)lv_obj_is_hidden(s_imgs[i]),
+                 (int)lv_obj_is_visible(s_imgs[i]));
     }
     lvgl_unlock();
 }
