@@ -22,3 +22,14 @@ repos:
     hooks:
       - id: prettier
         types: [markdown]
+  # Commit-message guard (a pre-commit hook cannot see the message —
+  # stages: [commit-msg] is the only stage that does). Installed with
+  # `pre-commit install -t commit-msg` (commit-msg stage only; the
+  # pre-commit stage is a separate deliberate decision).
+  - repo: local
+    hooks:
+      - id: no-co-authored
+        name: forbid Co-Authored commit messages
+        entry: .githooks/commit-msg
+        language: script
+        stages: [commit-msg]

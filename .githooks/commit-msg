@@ -1,0 +1,11 @@
+#!/bin/sh
+# Forbid Co-Authored lines in commit messages (any position: standalone
+# trailer, trailer-as-line-2, or inlined into the subject). Run as a
+# commit-msg hook (a pre-commit hook cannot see the message) — wired
+# through the pre-commit framework as stages: [commit-msg].
+if grep -qiE 'co-authored' "$1"; then
+    echo "commit-msg: 'Co-Authored' lines are not allowed in commit messages." >&2
+    echo "commit-msg: strip the trailer (history was scrubbed 2026-11-22)." >&2
+    exit 1
+fi
+exit 0

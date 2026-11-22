@@ -275,6 +275,17 @@ conventions with *specific bugs* behind each:
    ``menuconfig`` syntax is not C). The rule is *never run it on
    extensionless files*.
 
+   The framework is installed at the **commit-msg** stage
+   (``pre-commit install -t commit-msg``): its file-format hooks see
+   no files there and skip, while the local guard
+   (``.githooks/commit-msg``, ``stages: [commit-msg]``) rejects any
+   commit message carrying a co-authorship attribution line
+   (case-insensitive, any position — the history's trailers were
+   scrubbed on 2026-11-22; new commits must stay clean the same
+   way). A *pre-commit*-stage hook cannot see the message;
+   installing the pre-commit stage (clang-format etc. on staged
+   files) is a separate deliberate decision.
+
 3. **Board-conditional code gates on ``CONFIG_BOARD_P4`` /
    ``CONFIG_BOARD_S3``** (the board-select Kconfig in
    ``components/board/Kconfig.projbuild``) — *not* on
