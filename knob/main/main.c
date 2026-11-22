@@ -28,6 +28,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h" /* esp_reset_reason_name: the 2026-11-22 wake probe */
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -187,7 +188,20 @@ static void boot_arm_task(void *arg) {
      * the S3 values are EXT0 = 2 (dial detent on GPIO 8) and EXT1 = 3
      * (tap pulling the CST816S INT low) -- the bench captured 3 on a
      * tap 2026-11-09; the old legend off-by-one'd both causes. */
-    ESP_LOGI(TAG, "wakeup cause %d (0=power-on, 2=EXT0 dial, 3=EXT1 tap, 4=TIMER alarm)",
+    /* 2026-11-22 bench probe (the "wakeup cause 0 after a dial/tap"
+     * reports): the RESET reason is the discriminator the cause line
+     * alone cannot give — a true deep-sleep wake is ESP_RST_DEEPSLEEP
+     * (a cause-0 there = a lost cause register, a reporting bug), while
+     * a power glitch under mechanical shock is ESP_RST_BROWNOUT /
+     * ESP_RST_PWR_GLITCH / ESP_RST_POWERON (a reset, not a wake — the
+     * cause register is legitimately UNDEFINED after one). */
+    static const char *rst_names[] = { "UNKNOWN", "POWERON", "EXT", "SW", "PANIC",
+                                       "INT_WDT", "TASK_WDT", "WDT", "DEEPSLEEP",
+                                       "BROWNOUT", "SDIO", "USB", "JTAG", "EFUSE",
+                                       "PWR_GLITCH", "CPU_LOCKUP" };
+    const esp_reset_reason_t rr = esp_reset_reason();
+    ESP_LOGI(TAG, "reset reason %d (%s), wakeup cause %d (0=power-on, 2=EXT0 dial, 3=EXT1 tap, 4=TIMER alarm)",
+             (int)rr, (int)rr < (int)(sizeof(rst_names) / sizeof(rst_names[0])) ? rst_names[(size_t)rr] : "?",
              (int)esp_sleep_get_wakeup_cause());
     /* The power ladder must not run while the first frame is still
      * ahead of the user: app_main armed it at t=0, the ladder released
