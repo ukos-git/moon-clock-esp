@@ -278,10 +278,16 @@ static void boot_arm_task(void *arg) {
      * stays on glass through it. The drop-back to home happens where the
      * fix is determined below; the late-fix loop keeps the WiFi screen
      * up until the fix actually lands. */
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    knob_ui_bf_probe("arm: before wifi load (home active)");
+#endif
     knob_ui_lvgl_lock();
     loadScreen(SCREEN_ID_WIFI);
     ui_tick(); /* the indicator starts grey on this screen */
     knob_ui_lvgl_unlock();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    knob_ui_bf_probe("arm: after wifi load (the black-flash boundary)");
+#endif
     ESP_LOGI(TAG, "sync window: transient WiFi screen shown (grey = connecting)");
 #endif
     for (int waited = 0; waited < 15000 && !wifi_manager_is_connected(); waited += 100) {
@@ -303,6 +309,9 @@ static void boot_arm_task(void *arg) {
         loadScreen(SCREEN_ID_MODEM_SLEEP);
         ui_tick();
         knob_ui_lvgl_unlock();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+        knob_ui_bf_probe("arm: drop back to home (fix in window)");
+#endif
         ESP_LOGI(TAG, "NTP fix in window -> home screen");
     }
 #endif

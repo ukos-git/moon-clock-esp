@@ -335,7 +335,17 @@ whitens it on connect — the knob's shared 10 ms ``ui_tick``
 chain pumps it) — and drops back to the home (airplane) screen
 when the fix lands (in the window or late); the home↔WiFi
 switch is the both-moon plain atomic flush, so the saved frame
-stays on glass through it.
+stays on glass through it. (User report 2026-11-22, after the
+transient screen landed: the moon still goes away *right before*
+the WiFi screen on the knob only — a black frame with the clock
+row but no moon. The ``[BF]`` bench probe
+(``KNOB_DIAG_FRAME_TRACE``; ``knob_ui_bf_probe``) dumps, at the
+warm flush, the home→WiFi switch boundary and the swap-apply,
+the hidden state of every attached moon image (named by the
+screen it sits on), the active screen, and the frame state
+(``s_shown``/``s_pub``/``s_applied`` + the descriptor's buffer
+target), so the next wake capture names which image is hidden in
+the black frame.)
 Bench 2026-11-22: a tap wake measured **~9.2 s of black glass**
 (34-min-old caption) because the arm had regressed the warm flush
 to the arm *tail*, behind the 20 s NTP window (worst case ~24 s);

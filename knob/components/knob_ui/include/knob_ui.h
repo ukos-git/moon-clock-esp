@@ -110,6 +110,17 @@ void knob_ui_set_disk_geom(float r, int cy);
 /** @brief True once the first frame has been applied to the panel. */
 bool knob_ui_shown(void);
 
+/** @brief [BF] bench probe (KNOB_DIAG_FRAME_TRACE only): log the hidden
+ *         state of every attached moon image (named by the screen it
+ *         sits on), the active screen, and the frame state (shown /
+ *         pub / applied / descriptor target). The 2026-11-22
+ *         black-flash capture ("the moon goes away right before
+ *         entering the wifi screen") needs to see, at each boundary
+ *         the flash crosses, WHICH image is hidden and WHERE the
+ *         descriptor points. Takes the LVGL lock itself (recursive
+ *         mux; the caller may already hold it). */
+void knob_ui_bf_probe(const char *where);
+
 /** @brief Take/give the LVGL mutex handed in via knob_ui_set_lvgl_lock
  *         (the seam's own object writes ride the same lock; recursive
  *         take from the LVGL task itself is fine — IDF mutexes are). */

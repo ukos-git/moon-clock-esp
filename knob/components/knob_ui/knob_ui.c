@@ -63,6 +63,7 @@
 #include "knob_moon.h"
 #include "knob_power.h"
 #include "lvgl.h"
+#include "screens.h"
 #include "settings_store.h"
 
 static const char *TAG = "knob_ui";
@@ -105,6 +106,9 @@ static uint16_t *s_buf[2]; /* PSRAM, each MOON_SIZE*MOON_SIZE RGB565 */
 static bool s_nomem;       /* the double-buffer PSRAM alloc failed */
 static bool s_alloced;     /* buffers + descriptor up (alloc_frames) */
 static bool s_started;     /* producer + swap task live */
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+void knob_ui_bf_probe(const char *where); /* [BF] probe (defined below) */
+#endif
 
 /* Producer/consumer handshake (the clock's shown/published posture).
  * Only the swap task writes s_front/s_applied; only the producer writes
@@ -446,6 +450,9 @@ static bool last_frame_warm(int64_t now) {
     knob_ui_gasp(KNOB_GASP_SWAP_REFR);
     lv_refr_now(NULL);
     s_shown = true;
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+    knob_ui_bf_probe("warm flush (saved frame on glass, home screen active)");
+#endif
     lvgl_unlock();
     ESP_LOGI(TAG, "last frame: %lld shown on glass (%lld s old) before the fresh bake",
              (long long)h.epoch, (long long)age);
@@ -923,6 +930,9 @@ static void swap_task(void *arg) {
                 }
             } else if (s_reveal_displayed && s_pub == 0) {
                 lvgl_lock();
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+                knob_ui_bf_probe("reveal cleanup (hiding the disk)");
+#endif
                 hide_all_images();
                 s_shown = false;
                 lvgl_unlock();
@@ -981,6 +991,7 @@ static void swap_task(void *arg) {
             knob_ui_gasp_frames(s_pub, s_applied);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
             ESP_LOGI(TAG, "swap: applied pub=%u (lock released)", (unsigned)s_pub);
+            knob_ui_bf_probe("swap apply done (fresh bake on glass)");
 #endif
         }
         vTaskDelay(pdMS_TO_TICKS(15));
@@ -1126,6 +1137,45 @@ static void hide_all_images(void) {
         lv_obj_set_hidden(s_imgs[i], true);
     }
 }
+
+#if CONFIG_KNOB_DIAG_FRAME_TRACE
+/* [BF] probe (bench-only, the 2026-11-22 black-flash capture): the
+ * user's flash is "the moon goes away right before entering the wifi
+ * screen" -- home (sleep) screen with moon, a black frame with the
+ * clock but no moon, then the wifi screen, then the fresh bake brings
+ * the moon back. This dumps, at each boundary the flash crosses, the
+ * HIDDEN state of every attached image + the screen each sits on, the
+ * active screen, and the frame state (shown/pub/applied, the
+ * descriptor's buffer target) -- so the capture names which image, on
+ * which screen, is hidden (or pointing where) in the black frame. The
+ * lock is taken internally (recursive mux; the caller may already
+ * hold it). */
+void knob_ui_bf_probe(const char *where) {
+    const lv_obj_t *scr = (const lv_obj_t *)lv_screen_active();
+    const char *on = (const char *)"?";
+    const char *act = "?";
+    lvgl_lock();
+    if (scr == (const lv_obj_t *)objects.modem_sleep) {
+        act = "home";
+    } else if (scr == (const lv_obj_t *)objects.wifi) {
+        act = "wifi";
+    }
+    ESP_LOGI(TAG, "BF %s: active=%s shown=%d pub=%u applied=%u dsc=%p buf0=%p buf1=%p", where, act,
+             (int)s_shown, (unsigned)s_pub, (unsigned)s_applied, (const void *)s_moon_dsc.data,
+             (const void *)s_buf[0], (const void *)s_buf[1]);
+    for (int i = 0; i < s_n_imgs; i++) {
+        const lv_obj_t *par = lv_obj_get_parent(s_imgs[i]);
+        on = "?";
+        if (par == (const lv_obj_t *)objects.modem_sleep) {
+            on = "home";
+        } else if (par == (const lv_obj_t *)objects.wifi) {
+            on = "wifi";
+        }
+        ESP_LOGI(TAG, "BF   img[%d] on %s hidden=%d", i, on, (int)lv_obj_is_hidden(s_imgs[i]));
+    }
+    lvgl_unlock();
+}
+#endif
 
 void knob_ui_show_no_time(void) {
     if (s_started || s_nomem) {
