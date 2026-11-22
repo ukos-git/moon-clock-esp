@@ -223,6 +223,35 @@ static void boot_arm_task(void *arg) {
             (void)clock_nvs_save_epoch(); /* promote into the clock namespace */
         }
     }
+    /* Never-black wake (the 2026-11-22 capture measured the glass black
+     * ~9.2 s on a tap wake -- worst case ~24 s behind the 20 s NTP
+     * window): the saved-frame warm flush only ran at the arm TAIL,
+     * AFTER the Wi-Fi join + the NTP window, so the freshly re-init'd
+     * QSPI panel sat on a blank framebuffer the whole time. Flush the
+     * persisted last frame to the glass NOW, BEFORE the radio window:
+     * one atomic whole-panel flush (last_frame_warm takes the lock), the
+     * caption naming the SAVED instant, so a tap/dial/TIMER wake shows
+     * the moon within ~5 s of the tap. The NTP fix below then force-
+     * rebakes the fresh phase over it (the s_started force-rebake path);
+     * static_once_body turns the reveal off for exactly that reason. No
+     * usable frame (first boot after a fresh flash) = the honest
+     * pre-frame caption, and the bake reveal owns that black window.
+     * Setting `armed` here mirrors the no-fix branch below: a frame is on
+     * glass, so the late-fix loop keeps the ladder held while it chases
+     * the fix (identical to the original armed-on-snapshot behaviour). */
+    {
+        /* A separate variable: `now` must stay 0 for the have_time path,
+         * so the alarm leg's `now < EPOCH_PLAUSIBLE_MIN` guard re-reads
+         * the FRESH NTP instant (a successful fix) instead of this stale
+         * snapshot. show_moon() takes the epoch by value; only `armed`
+         * (a frame is on glass) feeds the late-fix loop below. */
+        int64_t warm_now = 0;
+        if (wall && clock_get_utc_epoch(&warm_now) == ESP_OK && warm_now >= EPOCH_PLAUSIBLE_MIN) {
+            armed = knob_ui_show_moon(warm_now);
+            ESP_LOGI(TAG, "saved frame armed before the Wi-Fi + NTP window (%lld, last known)",
+                     (long long)warm_now);
+        }
+    }
     for (int waited = 0; waited < 15000 && !wifi_manager_is_connected(); waited += 100) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }

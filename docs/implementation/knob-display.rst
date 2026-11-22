@@ -323,9 +323,15 @@ immediately from the snapshot + uptime — the log says
 for half a minute on an answer the board already had — and the late
 fix re-bakes through the ``show_moon`` force-rebake path. Since
 ``KNOB_UI_LAST_FRAME`` the glass is not merely *not dark* for those
-seconds but already shows the last frame baked (it landed on the
+seconds but already shows the last frame baked (it lands on the
 first arm, before the Wi-Fi + NTP window — the snapshot only sets
-the instant the caption and the fresh bake are judged against). A pre-seam
+the instant the caption and the fresh bake are judged against).
+Bench 2026-11-22: a tap wake measured **~9.2 s of black glass**
+(34-min-old caption) because the arm had regressed the warm flush
+to the arm *tail*, behind the 20 s NTP window (worst case ~24 s);
+the early flush restores the documented ordering, and the same
+capture proves the wake path re-joins Wi-Fi (1.8 s) and lands an
+NTP fix (9.8 s) on every wake. A pre-seam
 wake finding only the legacy ``knob_time``/``epoch`` snapshot adopts
 it once as *last known, untrusted* and promotes it into the shared
 namespace. The age of a snapshot is unverifiable offline, which is
