@@ -326,6 +326,16 @@ fix re-bakes through the ``show_moon`` force-rebake path. Since
 seconds but already shows the last frame baked (it lands on the
 first arm, before the Wi-Fi + NTP window — the snapshot only sets
 the instant the caption and the fresh bake are judged against).
+The sync window itself is shown on the family's **transient WiFi
+screen** (2026-11-22, user report: the knob never showed the
+WiFi indicator during sync): the arm loads ``SCREEN_ID_WIFI``
+right before the join wait — the WiFi glyph there reads the
+connection state (grey = connecting, ``tick_screen_wifi``
+whitens it on connect — the knob's shared 10 ms ``ui_tick``
+chain pumps it) — and drops back to the home (airplane) screen
+when the fix lands (in the window or late); the home↔WiFi
+switch is the both-moon plain atomic flush, so the saved frame
+stays on glass through it.
 Bench 2026-11-22: a tap wake measured **~9.2 s of black glass**
 (34-min-old caption) because the arm had regressed the warm flush
 to the arm *tail*, behind the 20 s NTP window (worst case ~24 s);

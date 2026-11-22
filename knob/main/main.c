@@ -266,6 +266,24 @@ static void boot_arm_task(void *arg) {
                      (long long)warm_now);
         }
     }
+#if CONFIG_KNOB_UI_ENABLE
+    /* Family parity (user report 2026-11-22: "the knob does not have a
+     * wifi-transient screen"): the knob never ran the transient WiFi
+     * screen, so the join + NTP window showed no connection state on
+     * glass — the home (airplane) screen has no WiFi icon by design, the
+     * indicator lives on the WiFi screen (grey = connecting,
+     * tick_screen_wifi recolors it white on connect; the knob's 10 ms
+     * ui_tick chain pumps it). The home<->WiFi switch is the both-moon
+     * plain atomic flush (the ONE shared moon image), so the saved frame
+     * stays on glass through it. The drop-back to home happens where the
+     * fix is determined below; the late-fix loop keeps the WiFi screen
+     * up until the fix actually lands. */
+    knob_ui_lvgl_lock();
+    loadScreen(SCREEN_ID_WIFI);
+    ui_tick(); /* the indicator starts grey on this screen */
+    knob_ui_lvgl_unlock();
+    ESP_LOGI(TAG, "sync window: transient WiFi screen shown (grey = connecting)");
+#endif
     for (int waited = 0; waited < 15000 && !wifi_manager_is_connected(); waited += 100) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -274,6 +292,20 @@ static void boot_arm_task(void *arg) {
     } else {
         ESP_LOGW(TAG, "Wi-Fi never came up — no NTP attempt");
     }
+#if CONFIG_KNOB_UI_ENABLE
+    if (have_time) {
+        /* The fix landed in the window: the sync is over, back to the
+         * home (airplane) screen — both-moon plain flush, the saved frame
+         * (and the caption, already re-baked by the tail's show_moon) is
+         * the same disk. The no-fix path KEEPS the WiFi screen: the
+         * late-fix loop below is still chasing the handshake. */
+        knob_ui_lvgl_lock();
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        knob_ui_lvgl_unlock();
+        ESP_LOGI(TAG, "NTP fix in window -> home screen");
+    }
+#endif
     if (!have_time) {
         /* No RTC: the restored wall clock (last plausible instant, saved
          * on every SNTP fix and before every deep sleep) arms the static
@@ -308,6 +340,14 @@ static void boot_arm_task(void *arg) {
         }
         now = 0;
         (void)clock_get_utc_epoch(&now);
+#if CONFIG_KNOB_UI_ENABLE
+        /* The late fix landed: the sync is over, back to the home screen
+         * (the WiFi screen lives only while the handshake is in flight). */
+        knob_ui_lvgl_lock();
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        knob_ui_lvgl_unlock();
+#endif
         ESP_LOGI(TAG, "late NTP fix — static current phase armed");
         (void)knob_ui_show_moon(now); /* s_started -> force-rebake path */
         /* fall through: a TIMER wake whose fix landed LATE still deserves
