@@ -63,8 +63,9 @@ docs/tools/scratch/
 # the harness itself in bench/record_demo.py IS tracked)
 bench/recordings/
 
-# resident crash-catch daemon logs (live files, not evidence)
-.debug-sleep/crashlog/
+# serial-capture evidence + crash-catch daemon logs (live files, not
+# evidence; bench logs carry home-network details and are never tracked)
+.debug-sleep/
 
 # docs media: regenerated build outputs (docs/.venv/bin/sphinx-build -b
 # media + the docs/tools gen scripts + MEDIA_NASA/MEDIA_VIDEOS slots).
@@ -76,8 +77,7 @@ docs/img/nasa/
 docs/img/fade.mp4
 docs/_static/photos/
 docs/_static/figs/
-.debug-touch/coredump.bin
-.debug-touch/coredump_raw.bin
+.debug-touch/
 
 # hardware (Moon v1 board + universal housing). Source = the tracked
 # get_vendor.py pins + the KiCad project + footprints + housing

@@ -15,8 +15,9 @@ Run under the IDF python (it owns pyserial):
     python3 bench/record_demo.py --minutes 12 [--boot-pulse] [--no-camera]
 
 Board identity comes from udev, never from a hard-coded port (the
-mapping changes with USB topology): 1a86:55d3 -> p4; 303a:1001 with the
-bench MACs -> s3 / knob. Overrides: --map PORT=BOARD.
+mapping changes with USB topology): 1a86:55d3 -> p4; the two
+303a:1001 boards (s3 / knob) are given via --map PORT=BOARD (their
+MACs are not stored in-repo).
 
 Camera: raw YUYV (the C920's own MJPEG encoder is the artifact source,
 memory bench-camera-capture). Serial ports open PASSIVELY (dtr/rts held
@@ -55,12 +56,12 @@ PHASE_RE = re.compile(r"phase=(\S+)\s+cycle=(\d+)(?:\s+screen=(\S+))?")
 # even when the two tours are mid-different-step.
 PHASE_ALIASES = {("knob", "now"): "home"}
 
-# udev (vendor:model[:serial-short]) -> board. Both ESP32-S3 boards are
-# 303a:1001; the serial number carries the MAC (bench map 2026-11-08).
+# udev (vendor:model) -> board. The P4's CH9102 is unique (1a86:55d3).
+# Both ESP32-S3 boards present the same 303a:1001 USB-JTAG descriptor and
+# their identities are not stored in-repo: pass them via --map PORT=BOARD
+# (identify the ports per the CLAUDE.md board-identification steps).
 USB_MAP = [
     (("1a86", "55d3"), "p4"),
-    (("303a", "1001", "<mac-s3>"), "s3"),
-    (("303a", "1001", "<mac-knob>"), "knob"),
 ]
 
 

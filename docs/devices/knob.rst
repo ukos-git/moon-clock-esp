@@ -225,8 +225,8 @@ What the bench captured, in order:
    CH340-family UART converter sitting on the U4WDH's UART, with
    DTR/RTS wired to its boot circuit. ``esptool`` speaks to the
    **U4WDH itself** through it: ``ESP32-U4WDH (revision v3.1)``,
-   MAC ``<mac-u4wdh>``, 4 MB flash (stub upload + run clean,
-   ``flash_id`` reads the chip) — a normal ESP32-class flashing
+   4 MB flash (stub upload + run clean, ``flash_id`` reads the chip)
+   — a normal ESP32-class flashing
    target, factory firmware still present.
 2. **The S3R8 side has not enumerated — but the board was unpowered
    for most of those tests.** With the plug rotated 180° in the same

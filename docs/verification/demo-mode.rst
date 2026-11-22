@@ -219,9 +219,11 @@ The recording harness
    python3 bench/record_demo.py --minutes 30 --boot-pulse
 
 * **Board identity from udev, never a hard-coded port** (the mapping
-  follows the USB topology): ``1a86:55d3`` is the P4's CH9102,
-  ``303a:1001`` with the bench MACs is the S3 / knob; ``--map PORT=BOARD``
-  overrides. A sleeping knob has no node until the dial is turned.
+  follows the USB topology): ``1a86:55d3`` is the P4's CH9102; the two
+  ``303a:1001`` boards (S3 / knob) are given via ``--map PORT=BOARD``
+  (their MACs are not stored in-repo — identify the ports per the
+  CLAUDE.md board-identification steps). A sleeping knob has no node
+  until the dial is turned.
 * **Passive serial**: ``dtr``/``rts`` are held low BEFORE ``open()`` —
   a naive open of an Espressif USB-JTAG node cold-boots the board.
   ``--boot-pulse`` pulses RTS deliberately (the EN reset), so the
