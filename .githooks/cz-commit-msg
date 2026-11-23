@@ -1,0 +1,25 @@
+#!/bin/sh
+# Validate the commit message against the commitizen conventional-commit
+# schema. Run as a commit-msg hook through the pre-commit framework
+# (stages: [commit-msg]) — a plain pre-commit hook cannot see the message,
+# so the commit-msg stage is the only stage that does.
+#
+# It enforces BOTH the schema and a 100-character subject limit. The limit is
+# passed explicitly with -l because commitizen 4.20's `cz check` shadows the
+# `message_length_limit` config key when -l is omitted (the CLI argument is
+# read as None, which wins over the .cz.toml value). Keep the number here in
+# sync with the readability ceiling used across the repo.
+LIMIT=100
+
+CZ=""
+if command -v cz >/dev/null 2>&1; then
+    CZ="cz"
+elif [ -x "$HOME/.venvs/commitizen/bin/cz" ]; then
+    CZ="$HOME/.venvs/commitizen/bin/cz"
+fi
+if [ -z "$CZ" ]; then
+    echo "cz-commit-msg: commitizen (cz) not found on PATH or in ~/.venvs/commitizen." >&2
+    echo "cz-commit-msg: install it to enable the conventional-commit check." >&2
+    exit 1
+fi
+exec "$CZ" check --commit-msg-file "$1" -l "$LIMIT"

@@ -28,6 +28,14 @@ repos:
   # pre-commit stage is a separate deliberate decision).
   - repo: local
     hooks:
+      - id: cz-commit-msg
+        name: commitizen conventional-commit check
+        # Validate the commit message against the cz_conventional_commits
+        # schema + a 100-char subject limit (see .githooks/cz-commit-msg for
+        # the -l note on this commitizen version).
+        entry: .githooks/cz-commit-msg
+        language: script
+        stages: [commit-msg]
       - id: no-co-authored
         name: forbid Co-Authored commit messages
         entry: .githooks/commit-msg
