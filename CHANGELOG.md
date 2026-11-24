@@ -8,7 +8,7 @@
 
 - the knob black flash was the retained panel frame overpainted moon-less
 - knob wake no longer sits on black glass through the Wi-Fi + NTP window
-- the knob "redraw loop" was a boot->crash->reboot cycle -- knob_boot's 4 KiB
+- the knob "redraw loop" was a boot->crash->reboot cycle — knob_boot's 4 KiB
   stack overflowed
 
 ## 0.2.0 (2026-11-24)
@@ -94,7 +94,7 @@
   back to the Wi-Fi list
 - **moon**: the artistic beat-NASA pass -- backlit dark side, soft terminator,
   warm LUT
-- **p4**: add the P4 manual time entry (M5.6) -- the hub's clock icon + the SET
+- **p4**: add the P4 manual time entry (M5.6) -- the hub's clock icon + SET
   TIME / DATE screen
 - add the alarm ring -- the P4 ES8311 speaker via esp_codec_dev, the S3 no-op
   stub
@@ -109,48 +109,35 @@
 - **p4**: add the M2 remote C6 Wi-Fi (esp_hosted 1.4.7 + esp_wifi_remote
   0.14.5)
 - add the dual-board (S3/P4) scaffolding — board shim, per-target defaults, P4
-  partition table
-- **ui**: add the circular wheel keyboard for the Wi-Fi password entry (the
-  13th screen)
-- **ui**: add the screen-switch fade via the panel's hardware brightness (no
-  pixels written)
-- **ui**: add the direct-write spin, the fade-to-black switch, the alarm day
-  prefix, the F057 exit
+  partitions
+- **ui**: add the circular wheel keyboard for the Wi-Fi password entry
+- **ui**: the screen-switch fade via the panel's hardware brightness (no
+  pixels)
+- **ui**: direct-write spin, fade-to-black switch, alarm day prefix, F057 exit
 - **ui**: add the concentric (center-out) screen-switch reveal
 - **ui**: add the two-digit alarm/pomodoro indicator and the alarm-save
   read-back log
 - **settings**: timeouts in minutes (1..30), default 60 s
-- **ui**: add the settings batch — range-arc day picker, exit restyle, WiFi
-  rework
-- **ui**: add the shared clock-style rollers + bottom-middle exit on
-  sub-screens
-- **ui**: add the pressable weekday pie slices + the pomodoro stopwatch at F2F2
-- **ui**: add screen orientation in 90-degree steps (10 Hz gravity, 1 Hz mean)
-- **ui**: add the Wi-Fi settings screen (AP scan list, selection; password
-  entry deferred)
-- **ui**: add the sleep-settings screens (runtime transition timers, animation
-  toggles)
-- **ui**: add the alarm settings, pomodoro interval, weekday-pie alarm time
-  screens
-- **ui**: add the settings hub (circular icon ring, concentric exit) and
-  tap-to-open navigation
-- **ui**: add the settings font subsets (FA +xmark/gear/stopwatch; weekday 40
-  px; SSID 32 px)
+- **ui**: the settings batch — range-arc day picker, exit restyle, WiFi rework
+- **ui**: shared clock-style rollers; bottom-middle exit on sub-screens
+- **ui**: make the weekday pie slices pressable; the pomodoro stopwatch
+- **ui**: add 90-degree-step screen orientation (10 Hz gravity, 1 Hz mean)
+- **ui**: add the Wi-Fi settings screen (AP scan list, selection)
+- **ui**: add the light-sleep and deep-sleep settings screens
+- **ui**: add the alarm, pomodoro, and alarm-time settings screens
+- **ui**: add the settings hub with tap-to-open navigation
+- **ui**: add the settings font subsets (FA +3 glyphs; 40/32 px)
 - **clock**: add the alarm write/reload and the N>59 cron support
-- **ui**: add airplane mode as the home screen and the transient Wi-Fi sync
-  screen, retire MAIN
+- **ui**: airplane mode as home, transient Wi-Fi sync screen; retire MAIN
 - **moon**: constant-projection dusk, tilt-driven clock roll, orbit off
-- **moon**: boot-only sweep from black + the pole-axis sleep 'dusk' spin
-- **moon**: anchor the wake sweep at the last new moon, with the
-  240px/336-frame defaults
+- **moon**: boot-only sweep from black, pole-axis sleep "dusk" spin
+- **moon**: anchor the wake sweep at the last new moon
 - **moon**: double the synodic wake sweep frame count (168 -> 336)
-- **moon**: add the 168-frame wake sweep at a reduced-res bake and the
-  alarm-dismiss sweep trigger
-- **moon**: add the free phase-anchored spin, the wake sweep on every wake, the
-  exact-pose park
+- **moon**: 168-frame wake sweep at reduced-res bake
+- **moon**: the free phase-anchored spin and the wake sweep
 - **ui**: replace the boot phase-sweep with a slow burn-in spin
-- sphere model -- out-of-plane tilt orbits the moon (peek at the dark side)
-- smooth row-sweep moon animation, working IMU, wake-replay test hook
+- out-of-plane tilt orbits the moon (peek at the dark side)
+- smooth row-sweep animation, working IMU, wake-replay hook
 - moon relief shadows, full-size boot animation, QMI8658 tilt spin
 - moon phase display with boot animation
 - simplified WiFi management with fast boot
@@ -158,12 +145,12 @@
 - wire screens for init modes
 - add more screens for init modes
 - add minute and half minute interrupt timers
-- implement screen switching logic between main-sleep-alarm screens
+- add the idle screen switching (main/sleep/alarm)
 - add alarm functionality
 - **clock**: add SNTP sync via Wi-Fi
 - **ui**: update the colors and add the screens
 - add minute tick for clock and sync to 0
-- Add clock component
+- add the clock component with minute-tick interrupt
 
 ### Fix
 
@@ -178,9 +165,8 @@
   door
 - **ui**: derive the clock-widget tick base from objects_t — kills the
   minute-tick LoadProhibited
-- **knob**: the alarm screen's clock ticks — open the minute-tick gate the port
-  never opened
-- **knob**: bake the moon disk inside the seconds arc (clock containment)
+- **knob**: the alarm screen's clock ticks — open the minute-tick gate
+- **knob**: bake the moon disk inside the seconds arc
 - **knob**: the docked battery fill takes the theme's moon color
 - **ui**: the sweep hands the codec scratch back at its last frame
 - **knob**: the battery icon moves to the home bottom centre
@@ -245,7 +231,6 @@
   keyboard
 - **ui**: the alarm ring task's stack 4096 -> 6144 B
 - **ui**: the S3 spin seam fix -- one continuous 400x400 QSPI window write
-  (max_transfer_sz 23,300 B)
 - **p4**: one framebuffer and the NONE tear mode (the spin's CCW flicker, #13)
 - **ui**: the fade-to-black now covers the settings sub-menu switches (every
   switch fades)
@@ -255,12 +240,11 @@
   sources into the 32 B fields trips -Wstringop-truncation)
 - **ui**: the settings-entry freeze — serialize 0x51 writes, hold the spin
   during the fade
-- **ui**: fix the reveal's rotated ghost and gate the 2 s press orientation
+- **ui**: fix the reveal's rotated ghost; gate the 2 s press orientation
   re-sync
 - **ui**: fix the reveal's unrotated bloom and the 2 s press orientation
   re-sync
-- **moon**: kill the dusk white ray (reproject the dark-side floor + map
-  dk_sup)
+- **moon**: kill the dusk white ray (reproject the dark-side floor + dk_sup)
 - **moon**: kill the dusk rim sliver, cut the active-spin CPU, the WiFi screen
   only while syncing
 - **bsp**: pace the LVGL task on the 10 ms UI tick (100 Hz tick rate)
@@ -275,35 +259,31 @@
 - **ui**: fix the range-arc layout (letter clipping + roller collision)
 - **moon**: use the flat-black night side on the device (dusk rim + dark phase)
 - **ui**: +90 deg CW base orientation; keep the absolute pose across re-poses
-- **ui**: fix the 180-degree quadrant decision and confirm the steps on a
-  sustained second
-- **ui**: fix the clock roll dt (us vs ms) -- the ramp actually runs at 5 deg/s
-  now
-- **ui**: fix the clock roll (centered pivot, calm 5 deg/s ramp, 0.25 Hz LPF,
-  LVGL clib allocator)
-- **moon**: raise the tilt settled-reference EMA (0.1 -> 0.2) for the drift
-  ceiling
+- **ui**: fix the 180-degree quadrant decision; confirm steps on a sustained
+  second
+- **ui**: fix the clock-roll dt (us vs ms) -- the ramp now runs at 5 deg/s
+- **ui**: fix the clock roll (centered pivot, 10x unit factor, PSRAM)
+- **moon**: raise the tilt settled-reference EMA (0.1 -> 0.2)
 - **moon**: zero the whole geometric night side in the sweep montage
 - **clock**: disarm the stale RTC alarm when no rules are loaded
-- **moon**: use the flat-black dark side for the wake-sweep montage frames
+- **moon**: flat-black dark side for the wake-sweep frames
 - don't block the LVGL task on the wake WiFi reconnect
-- **ui**: make the frame display atomic and the spin baseline steady across
-  transitions
-- reset the spin strip counter at frame end (display was stuck after frame 0)
+- **ui**: atomic frame display, steady spin baseline across transitions
+- reset the spin strip counter at frame end (stuck after frame 0)
 - pin the LVGL task to core 0 (producer starved it on core 1)
 - alarm exit, fixed moon orientation, denser boot animation
 - alarm screen could not be exited while awake (one-way door)
 - tilt is the moon's input and wake path; countdown expiry by time
-- terminator shadows match NASA via full-disk unclipped relief + 2048 DEM
+- match the terminator shadows to NASA (unclipped relief, 2048 DEM)
 - return from alarm if wifi is not available
-- **clock**: Read alarm time directly from RTC hardware registers
+- **clock**: read the alarm time from the RTC hardware registers
 
 ### Refactor
 
 - **ui**: the home boots straight to the static phase; drop the boot sweep
 - **ui**: remove the burn-in spin subsystem
 - **companion**: single-source the wheel registers so the knob can type digits
-- Decouple clock and UI components using callback pattern
+- decouple the clock from the UI via callbacks
 - clock separate into files
 
 ### Perf
@@ -312,11 +292,10 @@
 - **ui**: pipeline the TF replay — prefetch on core 0, run-list keep-mask
 - **ui**: add the spin coast-skip for the sub-pixel settled frames
 - **ui**: stop the moon spin render on the moon-less screens
-- **moon**: add the packed 16-bit relief cache and the 200px sweep default
-- **moon**: add the two-core wake sweep and the ping-pong display buffers
+- **moon**: packed 16-bit relief cache, 200px sweep default
+- **moon**: two-core wake sweep and ping-pong display buffers
 - **moon**: skip the albedo load for the dark-side pixels in the bake
-- **moon**: add the precomputed relief-gradient cache and the 28-frame wake
-  sweep
-- land the tilt orbit as one frame, like the spin (not a 2.4s wipe)
+- **moon**: precomputed relief-gradient cache, 28-frame wake sweep
+- land the tilt orbit as one frame (not a 2.4 s wipe)
 - split the boot-anim bake across both cores (task #22)
 - inline + 4-way unroll the bake pixel loop (task #22)
