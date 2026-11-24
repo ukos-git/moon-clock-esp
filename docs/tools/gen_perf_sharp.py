@@ -37,7 +37,7 @@ pattern); nothing is measured, nothing is invented:
       components/ui/moon_ui.c:174-178/:185 (the disk radius on the
       clocks: R = MOON_PX/2 = 325/200)
   knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2)
-      knob/components/knob_ui/knob_moon_render.c:178 — the shared-home
+      knob/components/knob_ui/knob_moon_render.c:179 — the shared-home
       disk radius r = 150 at cy = 180 (parsed, not recalled)
   #define BSP_LCD_H_RES (466)            components/esp32_s3_touch_amoled_1_75/include/bsp/display.h:20
   CONFIG_BSP_LCD_TYPE_720_720_4_INCH     build/p4/config/sdkconfig.h (P4 panel 720)

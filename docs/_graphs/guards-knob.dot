@@ -1,28 +1,30 @@
-// THE KNOB'S ONE KEY opened: a single mutex with ELEVEN wrapper
+// THE KNOB'S ONE KEY opened: a single mutex with SEVENTEEN wrapper
 // entries feeding ONE physical take. s_lvgl_mux is created in knob
-// main.c:367 and handed into the seam at :468 (knob_ui_set_lvgl_lock);
-// knob_ui.c owns the ONLY physical take :247 (portMAX_DELAY) inside a
-// holder+depth wrapper :238 — "a FreeRTOS mutex is NOT recursively
-// takable by its owner" (:231, the 2026-11-10 hub-tap TAP deadlock), so
-// a same-task re-entry is s_lvgl_depth++ (:243-244) and an unlock from
-// a non-owner logs and is ignored (:256-257). The eleven entries,
-// across four files: 6 inside knob_ui.c (swap legs :642/:662/:678,
-// invalidate_all :805, show_no_time :871, caption :901), the painter's
-// park loop main.c:159 held ACROSS lv_timer_handler (10–20 ms), the
-// alarm wake :328, the dial commit knob_dial.c:100, and the seam's two
-// legs knob_moon_render.c:255/:311 (refr + home dim). The knob builds
-// NO panel key at all: moon_ui.c is excluded wholesale (component ui's
-// CMakeLists empties UI_BOARD_SRCS under KNOB_BOARD) and the seam that
-// answers moon_ui.h carries zero mutex tokens — its moon_ui_init is a
-// shim (knob_moon_render.c:161). The guards in black boxes is
-// docs/_graphs/guards.dot (this page); the clocks' two keys are
-// docs/_graphs/guards-keys.dot; the key-free band is
-// docs/_graphs/guards-flags.dot. FONTS: 12 pt = the page's 16 px body
+// main.c:464 and handed into the seam at :565 (knob_ui_set_lvgl_lock);
+// knob_ui.c owns the ONLY physical take :515 (portMAX_DELAY) inside a
+// holder+depth wrapper :506 — "a FreeRTOS mutex is NOT recursively
+// takable by its owner" (:499-500, the 2026-11-10 hub-tap TAP deadlock), so
+// a same-task re-entry is s_lvgl_depth++ (:512) and an unlock from
+// a non-owner logs and is ignored (:525). The seventeen entries,
+// across four files: 9 inside knob_ui.c (the last-frame lander's flush
+// :447, swap legs :925/:945/:964, invalidate_all :1092, the [BF] probe
+// :1170, show_no_time :1200, show_moon's caption :1244/:1250), knob
+// main.c's five (the painter's park loop :178 held ACROSS
+// lv_timer_handler (10–20 ms), the transient-WiFi arm :289, the two
+// modem-sleep swaps :313/:360, the alarm wake :425), the dial commit
+// knob_dial.c:100, and the seam's two legs knob_moon_render.c:256/:321
+// (refr + home dim). The knob builds NO panel key at all: moon_ui.c is
+// excluded wholesale (component ui's CMakeLists empties UI_BOARD_SRCS
+// under KNOB_BOARD) and the seam that answers moon_ui.h carries zero
+// mutex tokens — its moon_ui_init is a shim (knob_moon_render.c:162).
+// The guards in black boxes is docs/_graphs/guards.dot (this page); the
+// clocks' two keys are docs/_graphs/guards-keys.dot; the key-free band
+// is docs/_graphs/guards-flags.dot. FONTS: 12 pt = the page's 16 px body
 // text at 1:1 — kept inside the content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph guards_knob {
     rankdir=TB;
-    label="The knob's single key — eleven entries, one physical take";
+    label="The knob's single key — seventeen entries, one physical take";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.4, ranksep=0.55];
@@ -31,18 +33,18 @@ digraph guards_knob {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#b07d10", penwidth=1.3, fontcolor="#6b4e08"];
 
-    e_ku [label="6 legs in knob_ui.c — swap ·\ninvalidate · no-time · caption"];
-    e_park [label="painter park :159 — held\nACROSS lv_timer_handler"];
-    e_mixed [label="alarm wake · dial commit ·\nseam refr + dim"];
-    wrapper [label="wrapper :238 — holder+depth:\nre-entry = depth++ (:243-244),\nnon-owner unlock ignored (:256)",
+    e_ku [label="9 legs in knob_ui.c — last-frame lander,\nswap x3 · invalidate · [BF] probe,\nno-time · caption x2"];
+    e_main [label="knob main.c — 5: painter park :178\nheld ACROSS lv_timer_handler,\nWiFi :289 · modem :313/:360 · alarm :425"];
+    e_mixed [label="dial commit :100 · seam refr+dim\n:256/:321"];
+    wrapper [label="wrapper :506 — holder+depth:\nre-entry = depth++ (:511-513),\nnon-owner unlock ignored (:524)",
              fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
-    mux [label="s_lvgl_mux (main.c:367) — the ONLY\nmutex; ONE physical take :247\nportMAX_DELAY (wired :468)",
+    mux [label="s_lvgl_mux (main.c:464) — the ONLY\nmutex; ONE physical take :515\nportMAX_DELAY (wired :565)",
          fillcolor="#f6ecd6", color="#b07d10", fontcolor="#6b4e08", penwidth=1.8];
 
-    e_ku -> e_park [style=invis];
-    e_park -> e_mixed [style=invis];
+    e_ku -> e_main [style=invis];
+    e_main -> e_mixed [style=invis];
     e_ku -> wrapper [label="entry"];
-    e_park -> wrapper [label="entry"];
+    e_main -> wrapper [label="entry"];
     e_mixed -> wrapper [label="entry"];
     wrapper -> mux [penwidth=1.6, label="the ONE physical take"];
     wrapper -> wrapper [label="depth++"];

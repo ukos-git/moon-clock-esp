@@ -29,7 +29,7 @@ The comparisons the ladder makes visible:
     under the watchdog limit; the pre-pacing ladder burned a de-facto
     ~640 ms per verified flush.
   * The knob's single mutex takes ONE physical take site but serves
-    ELEVEN wrapper entries — the owner-recursion depth counter is
+    SEVENTEEN wrapper entries — the owner-recursion depth counter is
     what the TAP deadlock (bench 2026-11-10) forced, because "a
     FreeRTOS mutex is NOT recursively takable by its owner".
   * The presence matrix is the ladder's other half: moon_ui.c is not
@@ -54,7 +54,7 @@ SystemExits when its fact moved:
   knob/components/knob_ui/knob_ui.c — the reentrant wrapper
       (s_lvgl_holder/s_lvgl_depth, owner bump, non-owner give
       rejected); exactly one xSemaphoreTake in the whole file; the
-      11 wrapper entries across four files; four SEQ_CST fences
+      17 wrapper entries across four files; four SEQ_CST fences
       together with knob_moon.c.
   components/clock/clock_sntp.c + components/wifi/wifi.c — the two
       event groups, both waits bounded (caller timeout 10 s via
@@ -379,18 +379,21 @@ def main() -> None:
            "the wrapper's single physical take")
     expect(ku, r"void knob_ui_lvgl_lock\(void\) \{ lvgl_lock\(\); \}",
            "the public forwarder")
-    # 11 entries: 6 in knob_ui.c (7 lvgl_lock(); lines minus the public
-    # forwarder), main's park loop + the alarm-wake public take (the
+    # 17 entries: 9 in knob_ui.c (10 lvgl_lock(); lines minus the public
+    # forwarder: the swap legs x3, invalidate_all, the [BF] probe,
+    # show_no_time, show_moon's warm/cold caption x2, and the last-frame
+    # lander's flush), main's park loop + the 4 public takes (the
+    # transient WiFi arm, the two modem-sleep swaps, alarm wake — the
     # local forwarder definition is not an entry), dial 1, render 2.
     ku_lines = ku.splitlines()
     ku_entries = sum(1 for ln in ku_lines
                      if re.search(r"\blvgl_lock\(\);", ln)
                      and "knob_ui_lvgl_lock" not in ln)
-    if ku_entries != 6:
-        raise SystemExit(f"knob_ui.c wrapper entries {ku_entries}, expected 6")
+    if ku_entries != 9:
+        raise SystemExit(f"knob_ui.c wrapper entries {ku_entries}, expected 9")
     count(km, r"^\s*lvgl_lock\(\);", "main.c park-loop entry", 1, re.M)
     count(km, r"knob_ui_lvgl_lock\(\);", "main.c public entries "
-          "(forwarder + alarm wake)", 2)
+          "(forwarder + 4 takes)", 5)
     expect(km, r"static void lvgl_lock\(void\) \{ knob_ui_lvgl_lock\(\); \}",
            "main.c's local forwarder")
     count(kd, r"knob_ui_lvgl_lock\(\);", "dial entry", 1)
@@ -460,7 +463,7 @@ def main() -> None:
     watchdog_ms = 3000                           # asserted against the define
     headroom = watchdog_ms / drain_ms            # ~60x under the pacing build
     old_head = watchdog_ms / old_ladder_ms       # the retired ladder's ratio
-    mux_ratio = 11 / 1                            # entries per physical take
+    mux_ratio = 17 / 1                            # entries per physical take
 
     # ---- draw ------------------------------------------------------------
     # rows: (label, forever_sites, bounded_sites, policy_note, color,
@@ -476,9 +479,9 @@ def main() -> None:
          {"S3": (9, "n", "9 takes"), "P4": (8, "n", "8 — drain #if'd out"),
           "knob": (None, "x", "")}),
         ("s_lvgl_mux  (knob main.c)", 1, 0,
-         "1 take, 11 entries — owner re-entry is a depth bump", AMBER,
+         "1 take, 17 entries — owner re-entry is a depth bump", AMBER,
          {"S3": (None, "x", ""), "P4": (None, "x", ""),
-          "knob": (1, "n", "1 + 11")}),
+          "knob": (1, "n", "1 + 17")}),
         ("s_sntp_event_group  (clock_sntp.c)", 0, 1,
          "WaitBits bounded by caller: 10 s / 20 s / 2 s", STEEL,
          {"S3": (1, "n", "1 wait"), "P4": (1, "n", "1 wait"),
@@ -590,7 +593,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     fig.savefig(OUT, dpi=200, bbox_inches="tight")
     print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 19 forever; panel 6+3 "
-          f"[2000/500/3000 ms]; mux 1 take / 11 entries; fences 4; notify "
+          f"[2000/500/3000 ms]; mux 1 take / 17 entries; fences 4; notify "
           f"1+1; drain 10 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
           f"queue sites 0; P4 drain takes 8)")
 

@@ -1475,8 +1475,8 @@ MOON 1, every name parsed from the five first-party Kconfigs) sit
 under every bar; on top of them the S3 carries the clock's BOARD menu
 (5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
 file, counted not curated) for **72**; the P4 excludes that BSP by
-name and lands at **60**; the knob answers with 55 shared + 31
-knob-native across its six shim menus for **86**. The counting is
+name and lands at **60**; the knob answers with 55 shared + 32
+knob-native across its six shim menus for **87**. The counting is
 per-file and name-for-name: the generator SystemExits if a single
 option is added, renamed or removed in any of the ten Kconfig files.
 
@@ -2224,9 +2224,10 @@ failing when a guard appears, vanishes, or changes its mind:
   restart line, and the 2000/3000 ms defines;
 * the knob's mux is pinned to **one** ``xSemaphoreTake`` in
   ``knob_ui.c`` behind the holder+depth wrapper ("NOT recursively
-  takable", the non-owner guard), with its **11 entries** recounted
-  across four files (6 internal, the park loop, the alarm wake, the
-  dial, the two seam legs), and its seam is asserted **mutex-free** —
+  takable", the non-owner guard), with its **17 entries** recounted
+  across four files (9 internal, knob main.c's five — the park loop,
+  the transient-WiFi arm, the two modem-sleep swaps, the alarm wake —
+  the dial, the two seam legs), and its seam is asserted **mutex-free** —
   the ``moon_ui_init`` shim carries no lock;
 * the two event groups are pinned to their waits (``WaitBits`` bounded
   ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
