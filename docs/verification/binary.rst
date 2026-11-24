@@ -10,21 +10,22 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-20): the S3 and P4 trees were
+Measured from the build trees (2026-11-24): the S3 and P4 trees were
 configured at the ``0.2.0`` commitizen checkpoint — the first ``cz
 bump`` (the pre-bump fallback, the ``git describe`` short hash, no
-longer applies) — with this wave's code in the tree (the wifi-screen
-**switch-frame pass**, the sync-storm traffic hold no longer eats the
-screen switch's atomic frame; :doc:`the display pipeline
-<../implementation/display>`) — and built from it (the sizes below
-are those bench binaries; each embeds the calcver ``0.2.0`` as the
-TF-cache string — the commitizen ``version`` line the root
-``CMakeLists`` reads from ``.cz.toml``, verified by ``strings``; the
-knob's ``moon_tfcache.c`` compiles with the ``"unknown"`` fallback —
-the knob defines no calcver and has no TF card). Docs-only commits
-after these builds do not move a size. The knob's tree is the sibling
-project's own ``../build/knob`` outside the repo, never
-``build/knob``):
+longer applies) — with this wave's code in the tree (the
+**compute-progress repurpose**: the strip-by-strip bake reveal and the
+hourly fade-to-black retired, the seconds arc now doubles as the
+bake's progress bar and the boot shows the quick phase disc;
+:doc:`the compute progress <../implementation/compute-progress>`) —
+and built from it (the sizes below are those bench binaries; each
+embeds the calcver ``0.2.0`` as the TF-cache string — the commitizen
+``version`` line the root ``CMakeLists`` reads from ``.cz.toml``,
+verified by ``strings``; the knob's ``moon_tfcache.c`` compiles with
+the ``"unknown"`` fallback — the knob defines no calcver and has no TF
+card). Docs-only commits after these builds do not move a size. The
+knob's tree is the sibling project's own ``../build/knob`` outside the
+repo, never ``build/knob``):
 
 .. list-table::
    :header-rows: 1
@@ -37,19 +38,19 @@ project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,722,272 B (0x1a47a0)
+     - 1,721,472 B (0x1a4480)
      - 2,097,152 B (2048 K)
-     - 374,880 B (18 %)
+     - 375,680 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,883,296 B (0x1cbca0)
+     - 1,882,224 B (0x1cb870)
      - 9,437,184 B (9216 K)
-     - 7,553,888 B (80 %)
+     - 7,554,960 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,562,960 B (0x17d950)
+     - 1,563,632 B (0x17dbf0)
      - 4,194,304 B (4096 K)
-     - 2,631,344 B (63 %)
+     - 2,630,672 B (63 %)
 
 The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the
@@ -188,9 +189,9 @@ the app's growth history:
                                               under the ceiling — rule 3
                                               below is now the next expected
                                               step, not a last resort
-   binary    1,722,272 B  (0x1a47a0)  current (measured 2026-11-20) — the
-                                              0.2.0 commitizen checkpoint
-                                              (the first ``cz bump``): the
+   binary    1,722,272 B  (0x1a47a0)  the 2026-11-20 take — the 0.2.0
+                                              commitizen checkpoint (the
+                                              first ``cz bump``): the
                                               calcver string moves 0.1.0 →
                                               0.2.0 — the commitizen version
                                               line replaces the pre-bump
@@ -199,6 +200,20 @@ the app's growth history:
                                               the key is one same-length
                                               string, so the size stands at
                                               the table's number above
+   binary    1,721,472 B  (0x1a4480)  current (measured 2026-11-24) — the
+                                              compute-progress repurpose:
+                                              the strip-by-strip bake
+                                              reveal and the hourly
+                                              fade-to-black retired (their
+                                              state machine, pacing and
+                                              Kconfig options deleted),
+                                              replaced by the rows-
+                                              completed watermark the
+                                              seconds arc reads (−800 B
+                                              net — the seam + the quick
+                                              phase disc against the
+                                              retired reveal path); 18%
+                                              under the ceiling
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),

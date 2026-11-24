@@ -12,10 +12,12 @@ Three comparisons, one per panel, all at each board's NATIVE bake size:
 (b) the one-time relief build vs the DEM grid (the O(N_dem) class):
     S3 ~1.3 s on the 2048x1024 DEM, knob 727 ms on its halved
     1024x512 DEM, host ~16 ms; the P4 leg is not captured (hatched).
-(c) the revealed-bake tax (band flushes consume bake throughput):
-    baseline vs the revealed window per board (S3 boot-replay final leg
-    2009-2615 ms, knob 2028-2059 ms; the P4 leg deferred with the
-    board off the bench).
+(c) the revealed-bake tax (DATED: the band flushes consumed bake
+    throughput before the 2026-11-24 compute repurpose retired the
+    reveal, docs/implementation/compute-progress): baseline vs the
+    revealed window per board (S3 boot-replay final leg 2009-2615 ms,
+    knob 2028-2059 ms; the P4 leg deferred with the board off the
+    bench).
 
 Colors reuse the perf figure identities (gen_perf_figs.py): S3 blue,
 P4 vermillion, knob violet, host neutral; hatched gray = not captured.
@@ -142,7 +144,7 @@ def main() -> None:
     ax.set_xticks(list(xs), list(DEVICES), fontsize=8)
     ax.set_ylabel("bake wall (ms)")
     ax.set_ylim(0, 2900)
-    ax.set_title("plain bake vs the revealed bake\n(dotted = the accepted window)")
+    ax.set_title("plain bake vs the revealed bake\n(dotted = the accepted window; DATED 2026-11-14 —\nthe reveal was retired by the 2026-11-24 compute repurpose)")
     ax.grid(axis="y", color=HAIR, linewidth=0.6)
     ax.set_axisbelow(True)
 

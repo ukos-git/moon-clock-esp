@@ -87,26 +87,25 @@ system, build steps) **update the site** — do not let it drift:
 ## Hard invariants (violations ship visible bugs)
 
 - Every moon-pipeline frame hits the panel as ONE atomic whole-panel
-  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). TWO sanctioned
-  exceptions. (1) The hardware panel-brightness ramp (a 0x51/backlight ramp
-  that writes no pixels) — two flows ride it: the fade-to-black screen switch
-  (`UI_SCREEN_SWITCH_FADE`) and the once-per-hour moon refresh
-  (`UI_MOON_HOURLY_ENABLE`, which fades to black, lets a core-1 producer
-  rebuild the frame off-panel, lands the finished frame as ONE atomic flush
-  while still black, then fades back; on a TF-miss the rebuild is _revealed_
-  and the fade-back is paid at the first completed strip). In both, the new
-  frame's one atomic flush runs while the panel is still black. (2) The **bake
-  reveal** (`UI_MOON_BAKE_REVEAL` / `KNOB_UI_BAKE_REVEAL`, user decision
-  2026-11-14, `docs/implementation/bake-reveal`) — _atomicity-per-state_: a
-  computing frame shows as a designed sequence of consistent states (black
-  canvas → one completed strip band per 50 ms tick → healed old frame on any
-  abort), each state itself ONE atomic band `lv_refr_now` under `s_rgb_mtx`
-  with the drain witness; unbaked rows are black (never a half-old/half-new
-  composite), `s_frame` is never touched during a reveal. (The burn-in spin's
-  direct panel write and the TF sweep cache's direct-write replay were further
-  exceptions until 2026-11-13, when the spin subsystem was removed entirely —
-  the home moon is plain LVGL, shown static; the TF module now serves the
-  hourly refresh as its hour cache.)
+  `lv_refr_now` under `s_rgb_mtx` (`moon_ui_screen_switched`). ONE sanctioned
+  exception: the hardware panel-brightness ramp (a 0x51/backlight ramp that
+  writes no pixels) — the fade-to-black screen switch (`UI_SCREEN_SWITCH_FADE`;
+  the light-sleep dim rides the same family) is the only flow that dims, loads,
+  flushes while still black, then ramps back. Computing frames NEVER ride the
+  ramp: the compute-progress posture (user decision 2026-11-24,
+  `docs/implementation/compute-progress`, which retired the strip-by-strip
+  **bake reveal** and the hourly fade-to-black) keeps the old frame up the
+  whole bake (boot / no frame on glass: the quick flat phase disc), the core-1
+  producer publishes a rows-completed watermark per strip that the home/wifi
+  seconds arc shows as a progress bar, and the finished frame lands as ONE
+  atomic whole-panel flush in the bright panel. `s_frame` is never the partial
+  side (only the PSRAM bounce is written strip by strip), so every resting
+  panel state is a complete frame and there is no heal path on an abort. (The
+  burn-in spin's direct panel write, the TF sweep cache's direct-write replay,
+  the hourly ramp and the bake reveal were further exceptions until 2026-11-13
+  / 2026-11-24, when the spin subsystem was removed entirely and the reveal
+  retired — the home moon is plain LVGL, shown static; the TF module now serves
+  the hourly refresh as its hour cache.)
 - AMOLED burn-in is an accepted trade-off, not an open bug: with the spin gone
   the S3 shows the moon statically and a faint burned-in moon is expected — the
   user's standing call (2026-11-14) is that it is a feature rather than a bug

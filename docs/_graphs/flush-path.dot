@@ -5,9 +5,9 @@
 //   flush-path-strip.dot     the strip's journey with every byte count
 //   flush-path-witness.dot   the three witnesses and the heal/restart
 //                            split
-// Every edge verified in components/ui/moon_ui.c (wait cb :445,
-// watchdog :596-, drain verify :919-, wrapper comment :601-, strip
-// math :124) and the vendored BSP
+// Every edge verified in components/ui/moon_ui.c (wait cb :470,
+// watchdog :623-, drain verify :1033-, wrapper :796-, strip
+// math :121) and the vendored BSP
 // components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c
 // (:493-:530). The lost-completion root cause in IDF is the prose of
 // this page; the hourly refresh no longer rides a fade at all

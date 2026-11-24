@@ -6,8 +6,8 @@ memory, loudness and priorities. This one counts BYTES: what one panel
 refresh actually pushes across the display bus on each of the three
 boards, and what the raw wire costs for it against the 33 ms LVGL beat.
 Three rows per board on each panel — the full RGB565 frame (what one
-atomic ``lv_refr_now`` crosses), the hourly disk-only flush (the
-``MOON_PX``² frame the while-black producer lands), and ONE DMA
+atomic ``lv_refr_now`` crosses), the hourly disk-only flush (the ``MOON_PX``² square the hourly finish
+invalidates — only the moon image, in the bright panel), and ONE DMA
 transaction (the strip the bus really sees). The story the two QSPI
 boards and the DSI board tell against each other: the S3's and the
 knob's transactions must fit under the S3 family's 32 KiB SPI-DMA cap
@@ -95,7 +95,7 @@ INK = "#1c2128"
 MUTED = "#5c6675"
 HAIR = "#d9dde3"
 BLUE = "#2b5fb0"    # the full atomic frame (the invariant's pixels)
-VIOLET = "#7c3aed"  # the hourly disk-only flush (the while-black leg)
+VIOLET = "#7c3aed"  # the hourly disk-only flush (disk-only: the moon image is the only invalidation)
 TEAL = "#0e7490"    # one DMA transaction (what the bus really sees)
 RED = "#b91c1c"     # the 32 KiB SPI-DMA transaction cap
 AMBER = "#b07d10"   # the 33 ms LVGL beat
@@ -201,14 +201,14 @@ def main() -> None:
         ("S3 full frame\n466x466x2 RGB565", s3_h * s3_v * s3_bpp // 8, BLUE, False,
          f"{s3_h}·{s3_v}·{s3_bpp//8} = one atomic lv_refr_now"),
         ("S3 hourly disk\nMOON_PX² x 2 B", moon_s3 * moon_s3 * 2, VIOLET, False,
-         f"{moon_s3}² · 2 = the while-black flush (moon_ui.c:177)"),
+         f"{moon_s3}² · 2 = the hourly finish's disk-only flush"),
         ("S3 one DMA transaction\n466 x 25 x 2", s3_h * s3_buf_rows * s3_bpp // 8,
          TEAL, False, f"= max_transfer_sz exactly (BSP :501/:530) · queue "
          f"depth {s3_qdepth}"),
         ("P4 full frame\n720x720x2 RGB565", p4_h * p4_v * 2, BLUE, False,
          f"{p4_h}·{p4_v}·2 (TYPE_{p4_h}_{p4_v}_, build/p4 header)"),
         ("P4 hourly disk\nMOON_PX² x 2 B", moon_p4 * moon_p4 * 2, VIOLET, False,
-         f"{moon_p4}² · 2 = the while-black flush (moon_ui.c:175)"),
+         f"{moon_p4}² · 2 = the hourly finish's disk-only flush"),
         ("P4 one DMA transaction\n720 x 50 x 2", p4_h * p4_buf_rows * 2, TEAL, True,
          f"CITED {p4_buf_rows}-row DPI buffer (moon_ui.c:193; xc BSP target-gated) · "
          f"DPI_BUFFER_NUMS {p4_dpi_bufs}"),

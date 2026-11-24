@@ -6,8 +6,10 @@ gen_perf_hourly.py; boot, gen_perf_boot.py; per-board throughput,
 gen_perf_variants.py). This one measures the other axis: how often the
 device WAKES ITSELF — every period the shipped firmware runs a timer
 at, on one log-ms axis, so the reader can see at a glance that the
-panel's 50 ms reveal tick and the 1300 ms RTC poll are two orders of
-magnitude apart, and where the idle ladder's 1 Hz heartbeat sits.
+moon's 50 ms tick (the compute strip loop's rhythm — its rows
+watermark drives the seconds-arc progress bar) and the 1300 ms RTC
+poll are two orders of magnitude apart, and where the idle ladder's
+1 Hz heartbeat sits.
 
 Every number is PARSED from the live sources at figure time (the
 house pattern — compute from the device's own arithmetic, never
@@ -18,13 +20,13 @@ hand-place):
                                    settings-idle CPU story, task #31 era)
   lv_timer_create(ui_tick_timer_cb, 10)        components/ui/actions.c
   #define MOON_TICK_MS 50                      components/ui/moon_ui.c
-                                               (the bake-reveal strip tick)
+                                               (the moon tick — the
+                                               compute strip loop's
+                                               rhythm; the reveal's
+                                               band tick it preceded
+                                               2026-11-14)
   UI_MOON_REPLAY_FPS (Kconfig default 8)       components/ui/Kconfig
                                                -> 1000/fps pacing floor
-  UI_MOON_HOURLY_FADE_MS                       components/ui/Kconfig
-      default UI_SCREEN_SWITCH_FADE            (SYMBOL indirection —
-                                               resolved to the fade
-                                               symbol's own default 240)
   lv_timer_create(moon_tilt_monitor_cb, 1000)  components/ui/moon_ui.c
   lv_timer_create(seconds_increment_timer_cb, 1000) components/ui/actions.c
   CLOCK_IDLE_CHECK_INTERVAL_MS (Kconfig 1000)  components/clock/Kconfig
@@ -32,7 +34,7 @@ hand-place):
 
 Right panel: the same rows as EVENTS PER SECOND — the user-perceptible
 rate, derived (1000/ms), nothing new measured. Hatched bars mark the
-two Kconfig-paced rows (replay floor, fade legs); their budget-side
+Kconfig-paced rows (replay floor); their budget-side
 consequences live in perf_boot.png / perf_hourly.png.
 
 Run:  docs/.venv/bin/python docs/tools/gen_perf_pacing.py
@@ -62,7 +64,7 @@ INK = "#1c2128"
 MUTED = "#5c6675"
 HAIR = "#d9dde3"
 BLUE = "#2b5fb0"     # LVGL-side timers (tick, adapter, seconds)
-VIOLET = "#7c3aed"   # moon pipeline (reveal tick, replay floor, fade)
+VIOLET = "#7c3aed"   # moon pipeline (moon tick, replay floor)
 AMBER = "#b07d10"    # the idle/sleep ladder (idle check, tilt)
 RED = "#b91c1c"      # the RTC poll (the only interrupt-driven period)
 
@@ -76,9 +78,9 @@ def kconfig_default(path: str, symbol: str, name: str = "",
                     _depth: int = 0) -> tuple[int, str]:
     """The effective default of an int Kconfig symbol: the first literal
     ``default <int>``, or — the house idiom for coupled timings — the
-    first ``default <SYMBOL>`` followed recursively (UI_MOON_HOURLY_FADE_MS
-    defaults to UI_SCREEN_SWITCH_FADE, so the figure resolves the chain
-    exactly like Kconfig does). Returns (value, provenance)."""
+    first ``default <SYMBOL>`` followed recursively (a symbol that
+    defaults to another symbol resolves the chain exactly like Kconfig
+    does). Returns (value, provenance)."""
     if _depth > 4:
         raise SystemExit(f"{symbol}: default chain deeper than 4 links")
     name = name or os.path.relpath(path, ROOT)
@@ -97,8 +99,7 @@ def kconfig_default(path: str, symbol: str, name: str = "",
     tok = m.group(1)
     if tok.isdigit():
         return int(tok), f"{name}:{tok}"
-    # symbol indirection — resolve in the same file (both fade symbols
-    # live in components/ui/Kconfig)
+    # symbol indirection — resolve in the same file
     val, _ = kconfig_default(path, tok, name, _depth + 1)
     return val, f"via {tok}"  # the resolved value is the bar itself
 
@@ -146,8 +147,6 @@ def main() -> None:
     moon_tick = c_define(MOON_UI, "MOON_TICK_MS")
     replay_fps, replay_prov = kconfig_default(UI_KCONFIG, "UI_MOON_REPLAY_FPS",
                                               "ui/Kconfig")
-    fade_ms, fade_prov = kconfig_default(UI_KCONFIG, "UI_MOON_HOURLY_FADE_MS",
-                                         "ui/Kconfig")
     tilt = c_timer_period(MOON_UI, "moon_tilt_monitor_cb")
     seconds = c_timer_period(ACTIONS, "seconds_increment_timer_cb")
     idle_check, _ = kconfig_default(CLOCK_KCONFIG, "CLOCK_IDLE_CHECK_INTERVAL_MS",
@@ -160,12 +159,10 @@ def main() -> None:
          "esp32_s3_touch_amoled_1_75.c:605"),
         (f"UI tick (awake state)\nlv_timer_create(ui_tick_timer_cb)", uitick,
          BLUE, False, "actions.c:939"),
-        (f"moon reveal tick\nMOON_TICK_MS", moon_tick, VIOLET, False,
-         "moon_ui.c:186"),
+        (f"moon tick (compute strip loop)\nMOON_TICK_MS", moon_tick, VIOLET,
+         False, "moon_ui.c:186"),
         (f"replay frame floor\n1000 / UI_MOON_REPLAY_FPS", 1000 / replay_fps,
          VIOLET, True, replay_prov),
-        (f"hourly fade leg (each)\nUI_MOON_HOURLY_FADE_MS", fade_ms,
-         VIOLET, True, fade_prov),
         (f"idle check\nCLOCK_IDLE_CHECK_INTERVAL_MS", idle_check, AMBER, True,
          "clock/Kconfig"),
         (f"tilt monitor\nlv_timer_create(moon_tilt_monitor_cb)", tilt, AMBER,
@@ -224,7 +221,7 @@ def main() -> None:
                 pad_inches=0.08)
     print(f"wrote {os.path.relpath(OUT, HERE)}  "
           f"(adapter={adapter} tick={uitick} moon={moon_tick} "
-          f"replay={1000/replay_fps:g} fade={fade_ms} idle={idle_check} "
+          f"replay={1000/replay_fps:g} idle={idle_check} "
           f"tilt={tilt} sec={seconds} rtc={rtc})")
 
 

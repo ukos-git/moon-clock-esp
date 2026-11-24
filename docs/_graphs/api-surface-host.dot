@@ -1,4 +1,4 @@
-// THE HOST TOOLS opened: the three linked tools and the two tracked-
+// THE HOST TOOLS opened: the three linked tools and the four tracked-
 // but-never-linked probes (teal edges; the gate and the bench link the
 // EXACT core source list — the sharing ladder checks the set
 // equality). Verified in code before drawing:
@@ -20,9 +20,11 @@
 //     table IS the device's (clock_tz.c is linked for real).
 //   host_sim/dark_test.c ("Throwaway ... Not part of the gate",
 //     geometry :45, bake :55), host_sim/newmoon_test.c (geometry
-//     :40) and host_sim/viewport_test.c (the observer golden table,
-//     moon_viewport_rot_deg :110 against an astropy table) — headers
-//     carry their hand-typed cc lines;
+//     :40), host_sim/viewport_test.c (the observer golden table,
+//     moon_viewport_rot_deg :110 against an astropy table) and
+//     host_sim/phase_dummy_test.c (the compute-progress dummy disc,
+//     moon_bake_phase_dummy :71/:114/:132 against a synthetic basis —
+//     no ephemeris) — headers carry their hand-typed cc lines;
 //     host_sim/CMakeLists.txt links exactly moon_sim + moon_bench.
 // The sealed version is api-surface.dot (this page); the device
 // callers are api-surface-device.dot; the census is
@@ -44,7 +46,7 @@ digraph api_surface_host {
     simmain [label="main.c — the\ngate", penwidth=1.6];
     benchc [label="bench.c — the\nbench", penwidth=1.6];
     stubs [label="uisim/stubs.c —\nthe sim's home\nmoon", penwidth=1.6];
-    probes [label="dark_test +\nnewmoon_test +\nviewport_test —\nlinked by nobody", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280", fontcolor="#374151"];
+    probes [label="dark_test +\nnewmoon_test +\nviewport_test +\nphase_dummy_test —\nlinked by nobody", style="rounded,filled,dashed", fillcolor="#f2f2f2", color="#6b7280", fontcolor="#374151"];
 
     geom [label="geometry", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];
     bake [label="bake — the gate's\n0 / 0.0 posture", fillcolor="#f2f2ef", color="#525252", fontcolor="#111827"];

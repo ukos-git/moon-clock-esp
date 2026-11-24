@@ -16,9 +16,9 @@ The comparisons the ladder makes visible:
   * The WHOLE family's app-owned synchronization is three mutexes and
     two event groups — xQueueCreate has ZERO sites in tracked code.
     The clocks' moon pipeline runs on two mutexes (moon_ui.c); the
-    knob's runs on ONE reentrant wrapper plus four SEQ_CST fences and
+    knob's runs on ONE reentrant wrapper plus five SEQ_CST fences and
     a volatile watermark (its moon pipeline has no lock at all).
-  * The wait policy splits: s_rgb_mtx takes are 19-of-19 unbounded
+  * The wait policy splits: s_rgb_mtx takes are 18-of-18 unbounded
     (portMAX_DELAY) — a publish block is never allowed to fail; the
     panel mutex is the one guard with BOUNDED takes: the 2 s drain
     witness ("observed quiescence only"), the 500 ms traffic-hold
@@ -29,7 +29,7 @@ The comparisons the ladder makes visible:
     under the watchdog limit; the pre-pacing ladder burned a de-facto
     ~640 ms per verified flush.
   * The knob's single mutex takes ONE physical take site but serves
-    SEVENTEEN wrapper entries — the owner-recursion depth counter is
+    FIFTEEN wrapper entries — the owner-recursion depth counter is
     what the TAP deadlock (bench 2026-11-10) forced, because "a
     FreeRTOS mutex is NOT recursively takable by its owner".
   * The presence matrix is the ladder's other half: moon_ui.c is not
@@ -43,18 +43,18 @@ The comparisons the ladder makes visible:
 Every dot parsed at figure time (the house pattern); every parser
 SystemExits when its fact moved:
 
-  components/ui/moon_ui.c — 19 s_rgb_mtx takes, all portMAX_DELAY;
+  components/ui/moon_ui.c — 18 s_rgb_mtx takes, all portMAX_DELAY;
       9 s_panel_mtx takes with the exact policy multiset
       {portMAX_DELAY x6, FLUSH_WAIT_TIMEOUT_MS (=2000), 500,
       PANEL_IO_WATCHDOG_LIMIT_MS (=3000)}; none of the nine enclosing
       functions contains an s_rgb_mtx take (the one-way order); the
       drain body inside #if !defined(CONFIG_BOARD_P4) with its
-      audited rule 3; 10 drain call sites; the panel_wdg spawn
+      audited rule 3; 8 drain call sites; the panel_wdg spawn
       literal; the draw_bitmap wrapper install; the notify pair.
   knob/components/knob_ui/knob_ui.c — the reentrant wrapper
       (s_lvgl_holder/s_lvgl_depth, owner bump, non-owner give
       rejected); exactly one xSemaphoreTake in the whole file; the
-      17 wrapper entries across four files; four SEQ_CST fences
+      15 wrapper entries across four files; five SEQ_CST fences
       together with knob_moon.c.
   components/clock/clock_sntp.c + components/wifi/wifi.c — the two
       event groups, both waits bounded (caller timeout 10 s via
@@ -245,7 +245,7 @@ def main() -> None:
         raise SystemExit(f"event groups: {evgroup_create} create / "
                          f"{evgroup_wait} wait — expected 2/2")
     if fence_sites != {os.path.join("knob", "components", "knob_ui",
-                                    "knob_ui.c"): 3,
+                                    "knob_ui.c"): 4,
                        os.path.join("knob", "components", "knob_moon",
                                     "knob_moon.c"): 1}:
         raise SystemExit(f"SEQ_CST fence census moved: {fence_sites}")
@@ -269,11 +269,11 @@ def main() -> None:
     # ---- moon_ui.c: the clocks' two keys, site by site ------------------
     rgb_takes = re.findall(r"xSemaphoreTake\(\s*s_rgb_mtx\s*,\s*([^)]*)\)",
                            mu)
-    if len(rgb_takes) != 19 or not all("portMAX_DELAY" in a
+    if len(rgb_takes) != 18 or not all("portMAX_DELAY" in a
                                        for a in rgb_takes):
         raise SystemExit(f"s_rgb_mtx takes: {len(rgb_takes)} with policies "
                          f"{sorted(set(a.strip() for a in rgb_takes))} — "
-                         "expected 19 all-portMAX_DELAY")
+                         "expected 18 all-portMAX_DELAY")
     pan_takes = re.findall(
         r"xSemaphoreTake\(\s*s_panel_mtx\s*,\s*"
         r"(pdMS_TO_TICKS\([^)]*\)|portMAX_DELAY)\s*\)", mu)
@@ -319,7 +319,7 @@ def main() -> None:
                 raise SystemExit("moon_ui_screen_switched's two keys are no "
                                  "longer sequential — draw the nesting in "
                                  "the sketch before believing it")
-    # the drain witness: S3-only body, rule 3 audited, 9 call sites
+    # the drain witness: S3-only body, rule 3 audited, 8 call sites
     m_def = expect(mu, r"static void moon_panel_drain_verify\(const char "
                       r"\*site\) \{", "the drain verify definition")
     drain_body = enclosing_fn(mu, mu[:m_def.start()].count("\n") + 1)[1]
@@ -329,13 +329,12 @@ def main() -> None:
            "the P4 no-op leg", re.S)
     count(drain_body, r"xSemaphoreTake\(\s*s_panel_mtx", "the drain take", 1)
     n_calls = len(re.findall(r"moon_panel_drain_verify\(", mu)) - 1
-    if n_calls != 10:
-        raise SystemExit(f"drain call sites: {n_calls}, expected 10")
-    for site in ("\"bake reveal restore\"", "\"bake reveal clear\"",
-                 "\"bake reveal\"", "\"re-bake\"", "\"boot replay final\"",
+    if n_calls != 8:
+        raise SystemExit(f"drain call sites: {n_calls}, expected 8")
+    for site in ("\"re-bake\"", "\"boot replay final\"",
                  "\"boot replay\"", "\"rebake\"", "\"orbit batch\"",
                  "\"tz re-gather\"",
-                 "\"hourly fade-in\"", "\"switch fade-in\"",
+                 "\"hourly\"", "\"switch fade-in\"",
                  "\"screen switch\""):
         expect(mu, re.escape(f"moon_panel_drain_verify(") + r".*" +
                re.escape(site), f"drain site {site}", re.S)
@@ -366,7 +365,7 @@ def main() -> None:
     expect(mu, r"xTaskNotifyGive\(s_event_task\)",
            "the classify worker's wake")
 
-    # ---- the knob: ONE reentrant mux, four fences, zero panel locks ----
+    # ---- the knob: ONE reentrant mux, five fences, zero panel locks ----
     count(ku, r"xSemaphoreTake\(", "knob_ui.c takes", 1)
     count(ku, r"xSemaphoreGive\(", "knob_ui.c gives", 1)
     expect(ku, r"static TaskHandle_t s_lvgl_holder;", "the wrapper holder")
@@ -379,18 +378,20 @@ def main() -> None:
            "the wrapper's single physical take")
     expect(ku, r"void knob_ui_lvgl_lock\(void\) \{ lvgl_lock\(\); \}",
            "the public forwarder")
-    # 17 entries: 9 in knob_ui.c (10 lvgl_lock(); lines minus the public
-    # forwarder: the swap legs x3, invalidate_all, the [BF] probe,
+    # 15 entries: 7 in knob_ui.c (8 lvgl_lock(); lines minus the public
+    # forwarder: the swap task's apply, invalidate_all, the [BF] probe,
     # show_no_time, show_moon's warm/cold caption x2, and the last-frame
-    # lander's flush), main's park loop + the 4 public takes (the
-    # transient WiFi arm, the two modem-sleep swaps, alarm wake — the
-    # local forwarder definition is not an entry), dial 1, render 2.
+    # lander's flush — the retired reveal consumer's two entries (the band
+    # flush, the re-hide) went with the strip reveal), main's park loop +
+    # the 4 public takes (the transient WiFi arm, the two modem-sleep
+    # swaps, alarm wake — the local forwarder definition is not an
+    # entry), dial 1, render 2.
     ku_lines = ku.splitlines()
     ku_entries = sum(1 for ln in ku_lines
                      if re.search(r"\blvgl_lock\(\);", ln)
                      and "knob_ui_lvgl_lock" not in ln)
-    if ku_entries != 9:
-        raise SystemExit(f"knob_ui.c wrapper entries {ku_entries}, expected 9")
+    if ku_entries != 7:
+        raise SystemExit(f"knob_ui.c wrapper entries {ku_entries}, expected 7")
     count(km, r"^\s*lvgl_lock\(\);", "main.c park-loop entry", 1, re.M)
     count(km, r"knob_ui_lvgl_lock\(\);", "main.c public entries "
           "(forwarder + 4 takes)", 5)
@@ -463,25 +464,25 @@ def main() -> None:
     watchdog_ms = 3000                           # asserted against the define
     headroom = watchdog_ms / drain_ms            # ~60x under the pacing build
     old_head = watchdog_ms / old_ladder_ms       # the retired ladder's ratio
-    mux_ratio = 17 / 1                            # entries per physical take
+    mux_ratio = 15 / 1                            # entries per physical take
 
     # ---- draw ------------------------------------------------------------
     # rows: (label, forever_sites, bounded_sites, policy_note, color,
     #        per-board matrix cells {board: (n_or_None, kind, short_note)})
     #   kind: "n" filled dot with count, "open" zero-with-reason, "x" absent
     rows = [
-        ("s_rgb_mtx  (moon_ui.c)", 19, 0,
-         "19x portMAX_DELAY — a publish block never fails", VIOLET,
-         {"S3": (19, "n", "19 takes"), "P4": (19, "n", "19 takes"),
+        ("s_rgb_mtx  (moon_ui.c)", 18, 0,
+         "18x portMAX_DELAY — a publish block never fails", VIOLET,
+         {"S3": (18, "n", "18 takes"), "P4": (18, "n", "18 takes"),
           "knob": (None, "x", "")}),
         ("s_panel_mtx  (moon_ui.c)", 6, 3,
          "6x forever + witness 2 s + quiesce 500 ms + probe 3 s", VIOLET,
          {"S3": (9, "n", "9 takes"), "P4": (8, "n", "8 — drain #if'd out"),
           "knob": (None, "x", "")}),
         ("s_lvgl_mux  (knob main.c)", 1, 0,
-         "1 take, 17 entries — owner re-entry is a depth bump", AMBER,
+         "1 take, 15 entries — owner re-entry is a depth bump", AMBER,
          {"S3": (None, "x", ""), "P4": (None, "x", ""),
-          "knob": (1, "n", "1 + 17")}),
+          "knob": (1, "n", "1 + 15")}),
         ("s_sntp_event_group  (clock_sntp.c)", 0, 1,
          "WaitBits bounded by caller: 10 s / 20 s / 2 s", STEEL,
          {"S3": (1, "n", "1 wait"), "P4": (1, "n", "1 wait"),
@@ -592,9 +593,9 @@ def main() -> None:
     fig.tight_layout()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     fig.savefig(OUT, dpi=200, bbox_inches="tight")
-    print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 19 forever; panel 6+3 "
-          f"[2000/500/3000 ms]; mux 1 take / 17 entries; fences 4; notify "
-          f"1+1; drain 10 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
+    print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 18 forever; panel 6+3 "
+          f"[2000/500/3000 ms]; mux 1 take / 15 entries; fences 5; notify "
+          f"1+1; drain 8 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
           f"queue sites 0; P4 drain takes 8)")
 
 

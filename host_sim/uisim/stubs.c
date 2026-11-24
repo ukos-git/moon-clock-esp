@@ -24,8 +24,8 @@
 
 #include "clock_alarm_scheduler.h"
 #include "clock_idle.h"
-#include "clock_tz.h"
 #include "clock_types.h"
+#include "clock_tz.h"
 #include "esp_err.h"
 #include "lvgl.h"
 #include "moon.h"
@@ -451,8 +451,8 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
         printf("[stub] black moon (wobble A/B)\n");
     } else if (!s_dsc.data) {
         static const int64_t utc_epoch = 1798500000; /* 2026-10-28 12:00:00 UTC */
-        clock_tz_apply_stored(); /* device posture: boot applies the
-                                  * persisted zone (clock_sntp init) */
+        clock_tz_apply_stored();                     /* device posture: boot applies the
+                                                      * persisted zone (clock_sntp init) */
         moon_geom_t g;
         moon_geometry(utc_epoch, &g);
         moon_bake(&g, moon_albedo(), moon_relief(), s_gray, MOON_PX, MOON_R, MOON_PX / 2.0f, MOON_PX / 2.0f, MOON_ALB_W,
@@ -495,6 +495,13 @@ lv_obj_t *moon_ui_create_image(lv_obj_t *parent) {
 void moon_ui_refresh(void) {}
 void moon_ui_init(void) {}
 void moon_ui_bake_now(int64_t utc_epoch) { (void)utc_epoch; }
+/* Compute-progress seam (the home/wifi seconds arc doubles as the bake's
+ * progress bar on the device). The sim bakes the real current-phase moon
+ * ONCE at screen-create -- no in-flight strip loop, no rows-completed
+ * watermark -- so a compute is never "active": the arc shows real seconds.
+ * progress() returns 100 (complete) and is unread while inactive. */
+bool moon_ui_compute_active(void) { return false; }
+int32_t moon_ui_compute_progress(void) { return 100; }
 /* Observer-view re-gather on a zone commit (device: the moon_ui.c
  * fill-leg helper + atomic flush). The sim bakes once at screen-create
  * with the stored zone's tilt, so a mid-session roller commit only

@@ -49,10 +49,10 @@ Sleep and screen switching
        ramps back — the transition writes no pixels. Total cost is
        roughly 2× this time plus one hidden flush. The exception: the
        both-moon switch (airplane / wifi / the sleep screens share one
-       moon image) stays atomic. One of the two flows that ride the
-       hardware brightness ramp — the sole sanctioned exception to the
-       whole-panel-atomic invariant (the hourly refresh reuses this
-       same fade; :doc:`the display pipeline <../implementation/display>`).
+       moon image) stays atomic. One flow riding the sole sanctioned
+       exception to the whole-panel-atomic invariant — the 0x51
+       hardware-brightness ramp (the light-sleep dim rides it too;
+       :doc:`the display pipeline <../implementation/display>`).
 
 The hourly moon refresh & TF hour cache
 ----------------------------------------
@@ -65,31 +65,20 @@ The hourly moon refresh & TF hour cache
      - Meaning
    * - ``UI_MOON_HOURLY_ENABLE``
      - ``y``
-     - Once-per-hour moon refresh: at each hour boundary the home's
-       moon fades to black on the panel's OWN hardware brightness (the
-       same CO5300 ``0x51`` command / P4 backlight PWM as the screen
-       switch), a core-1 task produces the current-phase frame at the
-       **hour centre** (a TF hour-cache fetch when the card can serve
-       it, else a full bake with write-through store), the finished
-       frame lands as ONE atomic whole-panel flush while the panel is
-       still black, then the brightness ramps back. Only the brightness
-       animates — the clock, alarm row and seconds keep running.
-       Skipped while idle, on a moon-less screen, or while the orbit /
-       re-bake pipelines or another ``0x51`` ramp own the buffers; a
-       producer that misses its 5 s budget leaves the OLD frame (never
-       a stranded black). The fade reuses the screen switch's rule —
-       the hardware brightness ramp is one of the two sanctioned
-       exceptions to the atomic-flush invariant (the other is the bake
-       reveal below).
-   * - ``UI_MOON_HOURLY_FADE_MS``
-     - ``UI_SCREEN_SWITCH_FADE``
-     - Each fade leg of the hourly refresh (down to black, back up),
-       40–2000 ms, paced like the screen-switch fade with the same 12
-       steps. With ``UI_MOON_BAKE_REVEAL`` on, the fade-back is paid at
-       the bake's first completed strip, so raising this lengthens the
-       dark window by the fade itself (the bake is revealed underneath,
-       not hidden behind it); on a TF fetch hit the produce pass runs
-       while the panel sits black between the two ramps.
+     - Once-per-hour moon refresh: at each hour boundary a core-1 task
+       produces the current-phase frame at the **hour centre** (a TF
+       hour-cache fetch when the card can serve it, else a full bake
+       with write-through store). While a bake runs the OLD frame stays
+       up the whole time (no 0x51 traffic, no black window — user
+       2026-11-24, :doc:`the compute progress
+       <../implementation/compute-progress>`): the producer publishes a
+       rows-completed
+       watermark per strip that the home/wifi seconds arc shows as the
+       progress bar, and the finished frame lands as ONE atomic
+       whole-panel flush in the bright panel. Skipped while idle, on a
+       moon-less screen, or while the orbit / re-bake pipelines own the
+       buffers; a producer that misses its 5 s budget leaves the OLD
+       frame (there is nothing to restore).
    * - ``UI_MOON_HOURLY_TFCACHE``
      - ``y``
      - Serve the hourly refresh frames from the TF hour cache: the
@@ -102,22 +91,6 @@ The hourly moon refresh & TF hour cache
        path. The hourly producer also runs the cache-policy scan each
        hour (new-moon floor + synodic cap). Depends on
        ``UI_MOON_HOURLY_ENABLE`` and ``UI_MOON_TFCACHE``.
-   * - ``UI_MOON_BAKE_REVEAL``
-     - ``y``
-     - Turns the black windows of the current-phase calculation (the
-       hourly cold-bake leg, the boot replay's final "now" bake) into
-       the calculation made visible: the producer bakes the PSRAM
-       bounce strip by strip and publishes a rows-completed watermark;
-       the tick displays each completed strip as ONE atomic band flush
-       over a moon square cleared to black — the moon draws itself
-       north to south at the ACTUAL bake rate. The hourly fade-back is
-       paid at the FIRST completed strip (dark for the fade window
-       only, never fade + bake). TF hits show atomically as before;
-       ``s_frame`` is never touched, so any abort heals the old frame
-       back whole. The second sanctioned exception — *atomicity-per-
-       state* (:doc:`the bake reveal <../implementation/bake-reveal>`).
-       Depends on ``UI_MOON_HOURLY_ENABLE``. Off: the old
-       black-until-computed posture everywhere.
    * - ``UI_MOON_TFCACHE``
      - ``y``
      - TF hour cache: persist the hourly bakes on the TF card as small
@@ -125,8 +98,9 @@ The hourly moon refresh & TF hour cache
        — under ``/sdcard/moon_cache/<calcver>_<target>_<px>/``, keyed
        on the hour **baked at the hour centre** (``hour * 3600 +
        1800``), so a warm hour reads the frame instead of computing it
-       (the panel's dark window shrinks from bake+fade to decode+fade,
-       ~200 ms + the ramps) and a cached hour is byte-identical across
+       (a decode instead of the ~1.3–2.4 s bake the old frame stays up
+       during — ~200 ms, no black window either way) and a cached hour
+       is byte-identical across
        boots and boards. Versioned by the calculation (``MOON_CALC_VER``
        = the commitizen ``version`` line in ``.cz.toml`` — ``cz bump``
        moves it and re-keys the folder; ``git describe`` is the pre-bump
@@ -394,11 +368,12 @@ All default off (``0`` = off, except the two bools default ``n``).
        signature (:doc:`../implementation/display`).
    * - ``TEST_HOURLY_FORCE_S``
      - 0–3600
-     - Fire the full hourly cycle (fade-out, produce, atomic show,
-       fade-in) every N seconds while the home screen is active and the
-       device is not idle — bench acceptance for the fade/refresh legs
-       (cold card = miss + bake + store, warm card = fetch); the clock,
-       alarm row and seconds keep running through every cycle.
+     - Fire the full hourly cycle (produce, atomic show) every N
+       seconds while the home screen is active and the device is not
+       idle — bench acceptance for the refresh legs (cold card = miss +
+       bake + store, warm card = fetch); the old frame stays up the
+       whole cycle and the seconds arc sweeps the progress watermark;
+       the clock, alarm row and seconds keep running.
    * - ``TEST_WIFI_SCAN_SEC``
      - 0–3600
      - Open the WiFi settings screen N seconds after boot — headless
@@ -431,11 +406,3 @@ All default off (``0`` = off, except the two bools default ``n``).
      - Bake without the relief gradient cache (``L = clip(d, 0, 1)``)
        to measure the relief path's share of the bake cost. Visually
        wrong (flat terminator) — profiling aid only.
-   * - ``TEST_BAKE_REVEAL_TRACE``
-     - bool
-     - Log every bake-reveal band, producer strip and gated tick (rows
-       + ms since the arm + drain-witness ms per displayed state; one
-       line per producer strip; one gated dump per second naming the
-       active gate). Bench pacing diagnostic for the reveal
-       (``docs/implementation/bake-reveal``); the code compiles out
-       when off.

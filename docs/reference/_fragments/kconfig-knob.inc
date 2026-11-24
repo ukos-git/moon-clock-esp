@@ -1,7 +1,7 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Twenty-eight keys across five menus (the sibling project's own
+Twenty-seven keys across five menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
 the page above):
 
@@ -19,21 +19,6 @@ the page above):
        own-screen moon view (disk + caption) and keeps ``ui`` out of
        the runtime start — the plan's staged bring-up
        (:doc:`the knob display <../implementation/knob-display>`)
-   * - ``KNOB_UI_BAKE_REVEAL``
-     - ``y``
-     - Display the boot bake while it computes: the producer bakes row
-       by row into the back buffer over a black-cleared square and
-       publishes a rows watermark (the frame counter's fence
-       discipline); the swap task unhides the disk at the first
-       completed rows and lands each watermark as ONE atomic band
-       ``lv_refr_now`` — the moon draws itself north to south at the
-       ACTUAL bake rate. Only when no ``KNOB_UI_LAST_FRAME`` frame is
-       on the glass (the very first boot after a fresh flash): a
-       saved frame on glass gets the fresh bake old-frame-then-atomic
-       (a row reveal would composite new rows over the old frame).
-       Day-tick re-bakes keep the old-frame-then-atomic posture; a
-       reveal that dies before publishing re-hides the disk
-       (:doc:`the bake reveal <../implementation/bake-reveal>`)
    * - ``KNOB_UI_LAST_FRAME``
      - ``y``
      - Show the persisted last frame before the fresh wake bake lands:
@@ -48,9 +33,12 @@ the page above):
        days old as ONE atomic whole-panel flush, the caption seeded
        from the saved instant (the shared home's gated row hides it;
        the legacy view rolls it with the minute like any day-tick
-       frame); the fresh bake swaps over it as one atomic flush. A
-       missing/torn/stale file falls back to the reveal path
-       (:doc:`the knob display <../implementation/knob-display>`)
+       frame); the fresh bake swaps over it as one atomic flush (the
+       old-frame-then-atomic posture — the seconds arc sweeps the
+       watermark while it bakes). A missing/torn/stale file falls back
+       to the disc path: the quick phase disc lands first, then the
+       fresh bake over it (:doc:`the knob display
+       <../implementation/knob-display>`)
    * - ``KNOB_MOON_TEST_EPOCH``
      - ``1794175200``
      - Frozen UTC instant for bench builds (used **only** under

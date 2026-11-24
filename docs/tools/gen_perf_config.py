@@ -132,13 +132,13 @@ EXPECTED = {
     "UI": ["UI_DEEP_SLEEP_COUNTDOWN_SEC", "UI_LIGHT_SLEEP_TICK_MS",
            "UI_LIGHT_SLEEP_DIM_PCT", "UI_CLOCK_ALPHA_PCT", "UI_CLOCK_ROLL_ENABLE", "UI_ALARM_RING_MAX_MIN",
            "UI_DEMO_MODE", "UI_DEMO_SCREEN_SEC", "UI_DEMO_FULL_TOUR",
-           "UI_MOON_HOURLY_ENABLE", "UI_MOON_HOURLY_FADE_MS", "UI_MOON_HOURLY_TFCACHE",
-           "UI_MOON_BAKE_REVEAL", "TEST_HOURLY_FORCE_S", "UI_MOON_BOOT_REPLAY",
+           "UI_MOON_HOURLY_ENABLE", "UI_MOON_HOURLY_TFCACHE",
+           "TEST_HOURLY_FORCE_S", "UI_MOON_BOOT_REPLAY",
            "UI_MOON_REPLAY_FPS", "UI_MOON_REPLAY_BUDGET_MS", "UI_MOON_TFCACHE",
            "UI_MOON_TFCACHE_JPEG_Q", "TEST_AUTO_WAKE_SEC", "TEST_SETTINGS_DEMO_SEC",
            "TEST_SETTINGS_RETURN_SEC", "TEST_WIFI_SCAN_SEC", "TEST_CPU_STATS_SEC",
            "TEST_ROLL_TILT_SEC", "TEST_ALARM_RING_SEC", "TEST_HANG_WATCH",
-           "TEST_BAKE_NO_RELIEF", "TEST_BAKE_REVEAL_TRACE", "UI_IMU_ENABLE",
+           "TEST_BAKE_NO_RELIEF", "UI_IMU_ENABLE",
            "UI_IMU_ACTIVITY_DEG",
            "UI_IMU_WAKE_DEG", "UI_IMU_ANGLE_SIGN", "UI_IMU_ROLL_OFFSET_DEG",
            "UI_CLOCK_ROLL_SIGN", "UI_ORI_BASE_V10", "UI_MOON_ORBIT_ENABLE",
@@ -165,7 +165,7 @@ EXPECTED = {
               "KNOB_ALARM_MAX_SLEEP_GAP_S", "KNOB_SLEEP_TIMEOUT_S",
               "KNOB_TOUCH_WAKE", "KNOB_SLEEP_ALLOW"],
     "knob time": ["KNOB_TIME_BOOT_SYNC_MS", "KNOB_TZ", "KNOB_TIME_USE_TEST_EPOCH"],
-    "ui shim": ["KNOB_UI_ENABLE", "KNOB_UI_BAKE_REVEAL", "KNOB_UI_LAST_FRAME",
+    "ui shim": ["KNOB_UI_ENABLE", "KNOB_UI_LAST_FRAME",
                 "KNOB_DIAG_FRAME_TRACE", "KNOB_DIAG_PANIC_AT_FRAME",
                 "KNOB_TEST_CLASSIFY_STRESS"],
     "knob moon": ["KNOB_MOON_TEST_EPOCH", "KNOB_DEMO_MODE", "KNOB_DEMO_PHASE_SEC"],
@@ -314,7 +314,9 @@ def category(name: str, menu: str) -> str:
 CAT = {"alive": "alive", "clock-only": "silent", "dead": "dead",
        "configure": "configure", "registry": "registry", "s3-only": "s3-only"}
 EXPECTED_CAT = {
-    # 45 UI: twelve are read by files every build compiles (actions.c,
+    # 42 UI (the compute-progress repurpose retired UI_MOON_HOURLY_FADE_MS,
+    # UI_MOON_BAKE_REVEAL and TEST_BAKE_REVEAL_TRACE): twelve are read by
+    # files every build compiles (actions.c,
     # screens.c, settings_store.c, and — fade — even the knob's own
     # knob_moon_render.c); the moon/orbit/reveal block and the main-only
     # TEST hooks are silent on the knob; two are read nowhere.

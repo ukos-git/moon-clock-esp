@@ -24,11 +24,12 @@ stops being shared verbatim between the device component and the host tools:
       esp/moon_esp_assets.c is the only non-core SRCS entry; the host side
       carries host/moon_host_assets.c + the generated per-target asset table
   the twelve images                     exactly two add_executable targets in
-      host_sim/CMakeLists.txt (moon_sim, moon_bench — dark_test.c and
-      newmoon_test.c are asserted present and ABSENT from
-      the build file: throwaway probes, drawn at zero (viewport_test.c, the tz
-      wave's golden probe, joins the zero row; dark/newmoon additionally must
-      stay tracked, viewport_test rides the wave's commit)), configured once per
+      host_sim/CMakeLists.txt (moon_sim, moon_bench — dark_test.c,
+      newmoon_test.c, viewport_test.c and phase_dummy_test.c are asserted
+      present and ABSENT from the build file: throwaway probes, drawn at
+      zero, each rides its own wave's commit — viewport_test the tz wave's,
+      phase_dummy_test the compute-progress wave's — and the zero row must
+      stay tracked in git), configured once per
       target build dir so each executable exists three times; host_sim/
       pole_test is asserted to be a stale gitignored ELF with no source
       behind it
@@ -139,7 +140,7 @@ exes = re.findall(r'add_executable\((\w+)', host_cm)
 if sorted(exes) != ["moon_bench", "moon_sim"]:
     raise SystemExit(f"host_sim links {exes} — the figure models exactly two "
                      f"linked executables (moon_sim, moon_bench)")
-for probe in ("dark_test", "newmoon_test", "viewport_test"):
+for probe in ("dark_test", "newmoon_test", "viewport_test", "phase_dummy_test"):
     if probe in host_cm:
         raise SystemExit(f"{probe} is now linked by CMakeLists — it is no longer "
                          f"a throwaway probe; move it off the zero row")
@@ -149,9 +150,11 @@ for probe in ("dark_test", "newmoon_test", "viewport_test"):
 tracked = subprocess.run(["git", "-C", ROOT, "ls-files", "host_sim"],
                          capture_output=True, text=True).stdout.splitlines()
 # dark/newmoon are the proven probes; viewport_test joined the zero row
-# with the 2026-11-17 tz wave and rides that wave's commit (its existence
-# and its absence from CMakeLists are asserted above either way)
-for probe in ("host_sim/dark_test.c", "host_sim/newmoon_test.c"):
+# with the 2026-11-17 tz wave and phase_dummy_test with the 2026-11-24
+# compute-progress wave (each rides its own wave's commit; their
+# existence and absence from CMakeLists are asserted above either way)
+for probe in ("host_sim/dark_test.c", "host_sim/newmoon_test.c",
+              "host_sim/viewport_test.c", "host_sim/phase_dummy_test.c"):
     if probe not in tracked:
         raise SystemExit(f"{probe} is untracked — 'tracked, never linked' would "
                          f"be wrong; the row's claim is git ls-files")
@@ -336,7 +339,8 @@ add("bench.c (one source, three bench builds)", 1, BENCHES, TEAL,
     "moon_bench is linked into every target build dir")
 add("knob main + native 14 (nine components)", 15, (KN,), VIOLET,
     "every knob-owned TU compiles ONCE")
-add("throwaway probes dark_test.c / newmoon_test.c / viewport_test.c", 3, (), GHOST,
+add("throwaway probes dark_test.c / newmoon_test.c / viewport_test.c / "
+    "phase_dummy_test.c", 4, (), GHOST,
     "tracked by git, called in code, linked by nobody"
     + (" — a stale pole_test ELF is all that remains of an even earlier probe" if STALE_ELF else ""),
     dashed=True)

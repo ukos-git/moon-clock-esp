@@ -585,7 +585,9 @@ aborts.)
 
 **Follow-up (2026-11-15) — the ladder's healthy path never existed,
 and the bake-reveal trace proved it.** The reveal pacing investigation
-(:doc:`../implementation/bake-reveal`) instrumented every displayed
+(its page retired 2026-11-24 with the compute-progress change; the
+numbers live in :doc:`../implementation/compute-progress`)
+instrumented every displayed
 reveal state and found the witness billing a flat **~641 ms** each:
 every probe that follows a multi-strip ``lv_refr_now`` freezes its own
 completion — 6/6 on the reveal legs, consistent with capture 7's own
@@ -599,4 +601,5 @@ depth-1-accept-as-proof role moot, the heal being the driver's own
 drain loop) is gone. The two detectable shapes and their treatments
 above are unchanged; the 20-row reveal, meanwhile, showed exactly two
 visible collapsed bands behind a 641-ms toll per state — the tuning
-(40/50 one-strip states) is measured in the bake-reveal page.
+(40/50 one-strip states) is measured on the compute-progress page
+(the watermark's strip steps, :doc:`../implementation/compute-progress`).

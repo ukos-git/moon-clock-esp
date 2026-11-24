@@ -5,7 +5,9 @@ docs/verification/performance.rst — what each boot path costs the panel.
 The boot replay (UI_MOON_BOOT_REPLAY, 1c90a64) gave boot four outcomes
 the product pays for; perf_hourly covers the STEADY state (the hourly
 refresh), this figure covers the BOOT ladder, on the same visual
-language (log ms axis, hatched = revealed leg, dashed = the device's
+language (log ms axis, hatched = DATED pre-repurpose leg (the
+2026-11-14 strip-reveal windows, retired by the 2026-11-24 compute
+repurpose, docs/implementation/compute-progress), dashed = the device's
 own budget constant).
 
 The pacing constants are PARSED from components/ui/Kconfig (the live
@@ -23,10 +25,15 @@ docs/implementation/animations.rst):
   replay observed pace          ~6 fps on the S3 (the sweep-era TF
                               replay throughput the Kconfig quotes)
   cache cap                     709 hourly keys = one synodic month
-  boot-replay final leg         2009-2615 ms (S3, revealed, 20 band states)
+  card-less now-bake (live)     1300 ms (S3 native 400 px plain bake;
+                              the disc shows + the arc sweeps during it)
   plain static bake (ref)       1300 ms (S3 native 400 px floor)
-  knob revealed boot bake       2028-2059 ms (vs its 991 ms baseline;
-                              no SD socket -> always the black path)
+  knob disc + bake (live)       991 ms (its plain baseline; no SD
+                              socket -> always the disc path)
+  boot-replay final leg         2009-2615 ms (DATED 2026-11-14, revealed,
+                              20 band states -- the repurpose's before)
+  knob revealed boot bake       2028-2059 ms (DATED 2026-11-14, vs its
+                              991 ms baseline)
 
 Left panel: the per-frame pacing arithmetic (floor vs observed).
 Right panel: the whole-animation / first-live-content ladder against
@@ -65,10 +72,10 @@ RED = "#b91c1c"     # the budget line
 PROBE_MS = 1000.0        # card-less SD mount probe (~1 s, Kconfig help)
 OBS_FPS = 6.0            # observed ~6 fps on the S3 (Kconfig-quoted)
 HOURS_CAP = 709          # cache cap: one synodic month of hourly keys
-FINAL_LO, FINAL_HI = 2009.0, 2615.0   # S3 replay final leg (revealed)
-PLAIN_BAKE_MS = 1300.0   # S3 native 400 px non-revealed floor
-KNOB_LO, KNOB_HI = 2028.0, 2059.0     # knob revealed boot bake
-KNOB_PLAIN_MS = 991.0    # knob non-revealed baseline
+FINAL_LO, FINAL_HI = 2009.0, 2615.0   # S3 replay final leg (DATED, revealed)
+PLAIN_BAKE_MS = 1300.0   # S3 native 400 px plain bake (live floor)
+KNOB_LO, KNOB_HI = 2028.0, 2059.0     # knob revealed boot bake (DATED)
+KNOB_PLAIN_MS = 991.0    # knob plain baseline (live)
 
 
 def kconfig_default(symbol: str) -> int:
@@ -125,16 +132,18 @@ def main() -> None:
         ("card-less SD probe  ~1 s", PROBE_MS, PROBE_MS, MUTED, "hit"),
         ("BOOT_REPLAY=n / demo:\nstatic bake  1300 ms", PLAIN_BAKE_MS,
          PLAIN_BAKE_MS, BLUE, "bake"),
-        ("card-less: revealed now-bake\n2009–2615 ms (first ink at ~1 s)",
-         FINAL_LO, FINAL_HI, BLUE, "reveal"),
+        ("card-less (live): disc + now-bake\n1300 ms (arc sweeps the\nwatermark)",
+         PLAIN_BAKE_MS, PLAIN_BAKE_MS, BLUE, "bake"),
+        ("card-less reveal window\n2009–2615 ms (DATED 2026-11-14)",
+         FINAL_LO, FINAL_HI, BLUE, "dated"),
         (f"full cache, floor pacing\n{HOURS_CAP} × {floor_ms:.0f} ms ≈ {anim_floor_ms/1000:.0f} s",
          anim_floor_ms, anim_floor_ms, BLUE, "anim_lo"),
         (f"full cache, observed ~6 fps\n{HOURS_CAP} × {obs_ms:.0f} ms ≈ {anim_obs_ms/1000:.0f} s",
          anim_obs_ms, anim_obs_ms, BLUE, "anim"),
-        ("knob (no SD socket):\nblack → revealed bake 2028–2059",
-         KNOB_LO, KNOB_HI, VIOLET, "reveal"),
-        ("knob plain bake (ref)  991 ms", KNOB_PLAIN_MS, KNOB_PLAIN_MS,
-         VIOLET, "bake"),
+        ("knob (no SD socket): disc + bake\n991 ms (arc sweeps the watermark)",
+         KNOB_PLAIN_MS, KNOB_PLAIN_MS, VIOLET, "bake"),
+        ("knob reveal window\n2028–2059 ms (DATED 2026-11-14)",
+         KNOB_LO, KNOB_HI, VIOLET, "dated"),
     ]
     ys = range(len(rows))
     for i, (label, lo, hi, color, kind) in enumerate(rows):
@@ -145,7 +154,7 @@ def main() -> None:
         elif kind in ("anim", "anim_lo"):
             ax.barh(i, hi, color=color, alpha=0.9 if kind == "anim" else 0.45,
                     height=0.6, edgecolor=color)
-        else:  # reveal: accepted window
+        else:  # dated: the pre-repurpose reveal window
             ax.barh(i, hi, color="white", height=0.6, edgecolor=color,
                     hatch="..", linewidth=1.2)
             if hi > lo:

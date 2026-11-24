@@ -18,10 +18,11 @@ Left panel — the work ONE published frame touches:
                                        knob has NO such leg — its bake
                                        writes RGB565 straight into the
                                        back buffer, knob_ui.c:600)
-  hourly disk flush    MOON_PX²        the while-black whole-panel
-                                       lv_refr_now with the moon image
-                                       invalidated (perf_bus's violet row
-                                       in pixels: bytes/2, one bar)
+  hourly disk flush    MOON_PX²        the disk-only flush the hourly
+                                       finish lands in the bright panel
+                                       (only the moon image is
+                                       invalidated — perf_bus's violet
+                                       row in pixels: bytes/2, one bar)
   whole-panel flush    panel²          the screen switch: the flush
                                        covers the whole panel, the moon
                                        image square covers only
@@ -34,12 +35,13 @@ Left panel — the work ONE published frame touches:
                                        = max_transfer_sz exactly; P4's
                                        50-row DPI buffer CITED — the xc
                                        BSP is absent, hatched)
-  one reveal state     MOON_PX × rows  per SHOWN state, not per frame
-                                       (MOON_REVEAL_ROWS 20 S3 / 26 P4;
-                                       the knob reveals one ROW per
-                                       state — the code's own "one atomic
-                                       band lv_refr_now per completed
-                                       row", knob_ui.c:37)
+  one compute step     MOON_PX × rows  the watermark strip the producer
+                                       bakes before the seconds arc
+                                       moves (MOON_COMPUTE_ROWS 10 S3 /
+                                       13 P4 — 40/50 steps per bake;
+                                       the knob advances its watermark
+                                       per ROW — the bake-row fence,
+                                       knob_moon.c:100)
 
 Right panel — the pixel universe behind one moon (per board, log): the
 albedo texels (MOON_ALB_W×H, generated moon_consts.h), the DEM cells =
@@ -52,14 +54,14 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
 
   #define MOON_PX 650 / 400 + MOON_R = MOON_PX/2   components/ui/moon_ui.c:174-178
   #define MOON_STRIP_ROWS 130 / 25                  moon_ui.c:193-199 (+ divisibility, the code's own #error)
-  #define MOON_REVEAL_ROWS 26 / 20                  moon_ui.c:1192-1196 (+ divisibility)
+  #define MOON_COMPUTE_ROWS 13 / 10                 moon_ui.c:1320-1327 (+ divisibility)
   "always writes the BSP's 50-row buffer strips"    moon_ui.c:192-193 (P4 cited DPI rows)
   #define BSP_LCD_H_RES (466) / _V_RES / _BITS      vendored S3 BSP include/bsp/display.h
   .max_transfer_sz = BSP_LCD_H_RES * 25 * ... / .buffer_height = 25  vendored S3 BSP .c (asserted EQUAL — the bus lesson)
   CONFIG_BSP_LCD_TYPE_720_720_4_INCH                build/p4/config/sdkconfig.h
   #define KNOB_LCD_H_RES / _V_RES / _ROWS_PER_BUF   knob/components/knob_board/include/knob_board.h
   .max_transfer_sz = KNOB_LCD_H_RES * KNOB_LCD_ROWS_PER_BUF * sizeof(uint16_t)   knob_board_display.c (shape-asserted)
-  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       knob/components/knob_ui/knob_ui.c:87/:105 (the bake square IS the panel)
+  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       knob/components/knob_ui/knob_ui.c:89/:107 (the bake square IS the panel)
   knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2) knob/components/knob_ui/knob_moon_render.c (the drawn disk, as gen_perf_sharp parses it)
   MOON_ALB_W/_H + MOON_DEM_W/_H                     components/moon/generated/{s3,p4,knob}/moon_consts.h (albedo asserted 2:1 equirect)
 
@@ -105,7 +107,7 @@ BLUE = "#2b5fb0"     # S3 identity
 VERM = "#c2410c"     # P4 identity
 VIOLET = "#7c3aed"   # knob identity
 TEAL = "#0e7490"     # one DMA transaction (perf_bus's teal)
-ORANGE = "#b5643a"   # reveal states (flush-path's reveal colour)
+ORANGE = "#b5643a"   # the compute watermark step (the retired reveal's colour)
 AMBER = "#b07d10"    # the relief wall
 
 
@@ -153,15 +155,15 @@ def main() -> None:
              r"#else\n#define MOON_STRIP_ROWS (\d+)\n#endif", UI_C,
              "MOON_STRIP_ROWS pair")
     strip_p4, strip_s3 = int(m.group(1)), int(m.group(2))
-    m = must(r"#if defined\(CONFIG_BOARD_P4\)\n#define MOON_REVEAL_ROWS (\d+)\n"
-             r"#else\n#define MOON_REVEAL_ROWS (\d+)\n#endif", UI_C,
-             "MOON_REVEAL_ROWS pair")
-    reveal_p4, reveal_s3 = int(m.group(1)), int(m.group(2))
+    m = must(r"#if defined\(CONFIG_BOARD_P4\)\n#define MOON_COMPUTE_ROWS (\d+)\n"
+             r"#else\n#define MOON_COMPUTE_ROWS (\d+)\n#endif", UI_C,
+             "MOON_COMPUTE_ROWS pair")
+    compute_p4, compute_s3 = int(m.group(1)), int(m.group(2))
     # the code guards these with #error — the figure refuses to lie without them
     for px, rows, name in ((moon_s3, strip_s3, "S3 MOON_STRIP_ROWS"),
                            (moon_p4, strip_p4, "P4 MOON_STRIP_ROWS"),
-                           (moon_s3, reveal_s3, "S3 MOON_REVEAL_ROWS"),
-                           (moon_p4, reveal_p4, "P4 MOON_REVEAL_ROWS")):
+                           (moon_s3, compute_s3, "S3 MOON_COMPUTE_ROWS"),
+                           (moon_p4, compute_p4, "P4 MOON_COMPUTE_ROWS")):
         if px % rows:
             raise SystemExit(f"{name}: MOON_PX no longer divides evenly — "
                              f"the code's own #error guard broke")
@@ -205,9 +207,9 @@ def main() -> None:
          "(#define MOON_SIZE KNOB_LCD_H_RES)")
     must(r"static uint16_t \*s_buf\[2\];", KNOB_UI_C,
          "the knob's RGB565 double buffer moved (knob_ui.c:105)")
-    must(r"one atomic band lv_refr_now per\s+(?:\*\s+)*completed row",
+    must(r"active while a bake is in flight, progress 0\.\.100",
          KNOB_UI_C,
-         "the knob's per-ROW reveal rule was reworded (knob_ui.c:37)")
+         "the knob's compute-seam contract was reworded (knob_ui.c)")
     m = must(r"knob_ui_set_disk_geom\((\d+(?:\.\d+)?)f, KNOB_LCD_H_RES / 2\)",
              KNOB_RENDER_C, "the shared-home disk geometry call")
     knob_disk_px = 2.0 * float(m.group(1))
@@ -233,8 +235,8 @@ def main() -> None:
 
     # ---- left panel: the work one published frame touches -----------------
     def frame_rows(board: str) -> list[tuple]:
-        """The clock-build shape: bake -> gather -> while-black disk flush
-        -> whole-panel flush, then the transaction and one reveal state."""
+        """The clock-build shape: bake -> gather -> disk-only hourly flush
+        -> whole-panel flush, then the transaction and one compute step."""
         sq, panel, color = disks[board]
         bake = sq * sq
         return [
@@ -243,43 +245,45 @@ def main() -> None:
             (f"{board} · publish/convert", bake, color, False,
              "gray8 read + RGB565 write, one gather"),
             (f"{board} · hourly disk flush", bake, TEAL, False,
-             "the while-black flush — perf_bus's violet bar ÷ 2"),
+             "disk-only: the hourly finish invalidates the moon image — "
+             "perf_bus's violet bar ÷ 2"),
             (f"{board} · whole-panel flush", panel * panel, color, False,
              f"screen switch — moon image square {(sq / panel) ** 2 * 100:.0f} % of it"),
         ]
 
-    def tx_reveal_rows(board: str, w: int, tx_rows: int, tx_hatched: bool,
-                       tx_ann: str, px: int, reveal_rows: int, strips: int | None) -> list[tuple]:
+    def tx_compute_rows(board: str, w: int, tx_rows: int, tx_hatched: bool,
+                        tx_ann: str, px: int, compute_rows: int,
+                        strips: int | None) -> list[tuple]:
         out = [(f"{board} · one DMA transaction", w * tx_rows, TEAL,
                 tx_hatched, tx_ann)]
         if strips is not None:
             out[0] = (out[0][0], out[0][1], TEAL, tx_hatched,
                       f"{tx_ann} · {strips} strips per panel")
-        out.append((f"{board} · one reveal state", px * reveal_rows, ORANGE,
-                    False, f"MOON_PX × MOON_REVEAL_ROWS {reveal_rows} — per "
-                           f"SHOWN state"))
+        out.append((f"{board} · one compute step", px * compute_rows, ORANGE,
+                    False, f"MOON_PX × MOON_COMPUTE_ROWS {compute_rows} — "
+                           f"the watermark strip behind each arc move"))
         return out
 
     left = []
     left += frame_rows("s3")
-    left += tx_reveal_rows(
+    left += tx_compute_rows(
         "s3", s3_w, s3_tx_rows, False,
         f"{s3_w}×{s3_tx_rows} = max_transfer_sz/2 exactly",
-        moon_s3, reveal_s3, -(-s3_h // s3_tx_rows))
+        moon_s3, compute_s3, -(-s3_h // s3_tx_rows))
     left += frame_rows("p4")
-    left += tx_reveal_rows(
+    left += tx_compute_rows(
         "p4", p4_w, p4_dpi_rows, True,
         f"CITED {p4_dpi_rows}-row DPI buffer (xc BSP absent)",
-        moon_p4, reveal_p4, None)
+        moon_p4, compute_p4, None)
     # the knob: no clock relay (moon_ui.c excluded) — bake square IS the
     # panel (MOON_SIZE = KNOB_LCD_H_RES), RGB565 straight to the back
     # buffer, no hourly, no SD socket (the bus ladder's *no such leg*)
     left += [
         ("knob · bake square", k_w * k_w, VIOLET, False,
-         "MOON_SIZE² — the bake square IS the panel (knob_ui.c:87)"),
+         "MOON_SIZE² — the bake square IS the panel (knob_ui.c:89)"),
         ("knob · publish/convert", None, None, False,
          "no such leg — the bake writes RGB565 straight into the back "
-         "buffer (knob_ui.c:600)"),
+         "buffer (knob_ui.c:604)"),
         ("knob · hourly disk flush", None, None, False,
          "no such leg — no hourly, no SD socket"),
         ("knob · whole-panel flush", k_w * k_w, VIOLET, False,
@@ -288,8 +292,8 @@ def main() -> None:
         ("knob · one DMA transaction", k_w * k_tx_rows, TEAL, False,
          f"{k_w}×{k_tx_rows} = max_transfer_sz/2 exactly · "
          f"{-(-k_w // k_tx_rows)} strips per panel"),
-        ("knob · one reveal state", k_w * 1, ORANGE, False,
-         "ONE row per shown state (knob_ui.c:37)"),
+        ("knob · one compute step", k_w * 1, ORANGE, False,
+         "ONE row per watermark move (knob_moon.c:100)"),
     ]
 
     # ---- right panel: the pixel universe behind one moon ------------------

@@ -133,10 +133,12 @@ Three claims the picture makes, each checkable at the cited line:
   <../verification/performance>` prices every file here by how many of
   the twelve link images compile it.
 
-The two throwaway probes (``dark_test.c``, ``newmoon_test.c`` — "Throwaway
-... Not part of the gate") hang dashed off the sketch too: tracked in
-git, hand-typed ``cc`` lines in their headers, linked by nobody —
-``host_sim/CMakeLists.txt`` builds exactly ``moon_sim`` + ``moon_bench``.
+The throwaway probes (``dark_test.c``, ``newmoon_test.c``, the tz wave's
+``viewport_test.c`` and the compute-progress wave's ``phase_dummy_test.c``
+— "Throwaway ... Not part of the gate") hang dashed off the sketch too:
+tracked in git, hand-typed ``cc`` lines in their headers, linked by
+nobody — ``host_sim/CMakeLists.txt`` builds exactly ``moon_sim`` +
+``moon_bench``.
 The bake's per-pixel model is :doc:`the core flow sketch
 <../implementation/core-c>`; the gray→RGB565 dictionary and the
 rotation's last mile are :doc:`rotate-lut

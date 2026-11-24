@@ -71,7 +71,7 @@ it shows the current phase at the correct size and position with uniform
 albedo, so the panel reads as "the moon, computing" instead of black.
 
 The watermark and the arc (the seam)
-..............................
+....................................
 
 The producer keeps the reveal's strip loop (renamed
 ``moon_bake_progress``, ``moon_ui.c:1402``): ``moon_bake_rows`` per
@@ -86,8 +86,7 @@ and the **owner** (``s_compute_owner``: ``COMPUTE_HOURLY`` /
 the screens read it:
 
 .. code-block:: c
-   :caption: components/ui/moon_ui.h — the seam (the knob's seam answers the same pair,
-   :doc:`below <knob-display>`; the uisim stubs it)
+   :caption: components/ui/moon_ui.h — the seam (the knob's seam answers the same pair; the uisim stubs it)
 
    bool    moon_ui_compute_active(void);   /* a compute bake is in flight */
    int32_t moon_ui_compute_progress(void); /* 0..100 (pub*100/MOON_PX) */

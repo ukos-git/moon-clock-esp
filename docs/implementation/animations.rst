@@ -567,7 +567,7 @@ rescue:
 
 .. graphviz:: ../_graphs/screen-switch-fade.dot
    :alt: The fade-out leg opened — the self-guard that paints plain without pending, the owed fade-in flagging the 0x51 writers' multiplex, the ramp starting from the tracked cent (25 % after the light-sleep dim), and the scan-storm rule that drops every step
-   :caption: The fade-out leg — ``moon_ui_fade_out`` (:3019) is self-guarded (no moon, FADE ≤ 0, or baking: paint plain WITHOUT pending), but once it commits, the fade-in is OWED either way and ``s_fade_busy`` is the 0x51 writers' multiplex — the hourly legs and the light-sleep dim queue behind it, because a 0x51 queued behind a strip that never completes would park its writer forever (the settings-entry freeze). The ramp starts at the TRACKED level ``s_panel_pct``, so after the light-sleep dim it fades from 25 %, and ``panel_hold_live()`` drops ALL steps, leaving the panel at its truthful tracked cent. The old overlay fade charged a full-screen ``lv_refr_now`` per step (~175 ms of QSPI strips each) and read as a top-to-bottom CRAWL — that is why the ramp replaced it.
+   :caption: The fade-out leg — ``moon_ui_fade_out`` (:3019) is self-guarded (no moon, FADE ≤ 0, or baking: paint plain WITHOUT pending), but once it commits, the fade-in is OWED either way and ``s_fade_busy`` is the 0x51 writers' multiplex — the light-sleep dim queues behind it, because a 0x51 queued behind a strip that never completes would park its writer forever (the settings-entry freeze). The ramp starts at the TRACKED level ``s_panel_pct``, so after the light-sleep dim it fades from 25 %, and ``panel_hold_live()`` drops ALL steps, leaving the panel at its truthful tracked cent. The old overlay fade charged a full-screen ``lv_refr_now`` per step (~175 ms of QSPI strips each) and read as a top-to-bottom CRAWL — that is why the ramp replaced it.
    :align: center
 
 .. graphviz:: ../_graphs/screen-switch-branches.dot
@@ -576,12 +576,12 @@ rescue:
    :align: center
 
 .. code-block:: c
-   :caption: components/ui/moon_ui.c (the fade ramp — shared by the screen switch and the hourly refresh's legs)
+   :caption: components/ui/moon_ui.c (the fade ramp — shared by the screen switch and the light-sleep dim)
 
    static void fade_ramp(int from_pct, int to_pct, int ms) {
        if (panel_hold_live())
-           return; /* storm: no write lands, so the panel stays at its
-                    * tracked level -- s_panel_pct untouched is truthful */
+           return; /* storm: no write lands, so the panel stays at its tracked
+                    * level -- s_panel_pct untouched is the truthful bookkeeping */
        for (int s = 1; s <= FADE_STEPS; s++) {
            int pct = from_pct + (to_pct - from_pct) * s / FADE_STEPS;
            xSemaphoreTake(s_panel_mtx, portMAX_DELAY);
@@ -590,12 +590,15 @@ rescue:
            if (s < FADE_STEPS)
                vTaskDelay(pdMS_TO_TICKS(ms / FADE_STEPS));
        }
-       s_panel_pct = to_pct;
+       s_panel_pct = to_pct; /* the steps are portMAX_DELAY: by the end the
+                              * panel is unambiguously at the target */
    }
 
-The screen switch calls it with ``UI_SCREEN_SWITCH_FADE`` = 240 ms, the
-hourly refresh's legs with ``UI_MOON_HOURLY_FADE_MS`` (default the same);
-``FADE_STEPS`` = 12, so 20 ms per step at the default. Each step is one
+The screen switch and the light-sleep dim both call it with
+``UI_SCREEN_SWITCH_FADE`` = 240 ms (the hourly refresh's own fade-to-
+black legs are retired with the strip reveal — its old frame stays up the
+whole bake instead); ``FADE_STEPS`` = 12, so 20 ms per step at the
+default. Each step is one
 ~100 µs SPI param transaction — the ramp is free, so the steps are many
 and short, and the luminance steps stay small enough not to read as
 discrete steps. The fade-in

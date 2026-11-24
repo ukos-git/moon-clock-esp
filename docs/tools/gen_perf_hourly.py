@@ -4,31 +4,42 @@ docs/verification/performance.rst — the live pipeline's cost ladder.
 
 The once-per-hour refresh has exactly four outcomes the product pays
 for, and the bake-reveal bench (2026-11-14, CONFIG_TEST_HOURLY_FORCE_S
-cold/warm captures) measured all of them. This figure puts them on one
-log millisecond axis beside the two source constants they are judged
-against, so the ladder reads as the producer's actual decision space:
+cold/warm captures) measured them. This figure puts them on one log
+millisecond axis beside the source constant they are judged against
+(HOURLY_BUDGET_MS), so the ladder reads as the producer's actual
+decision space. DATED legs (the 2026-11-14 reveal bench's revealed
+windows and the 240 ms fade legs the hourly used to ride) are retired
+by the 2026-11-24 compute repurpose (docs/implementation/
+compute-progress): the live hourly keeps the old frame up the whole
+bake (no 0x51 traffic, no fade) and the arc sweeps the watermark.
 
   warm TF hour-cache hit   185–235 ms   (S3, after the
                            new_moon_epoch_cached memoization)
-  + the two fade legs      2 x 240 ms   (UI_MOON_HOURLY_FADE_MS, the
-                           hardware brightness ramp - writes no pixels)
+  + the two fade legs      2 x 240 ms   (DATED: UI_MOON_HOURLY_FADE_MS,
+                           the hardware brightness ramp — retired
+                           2026-11-24)
   plain static bake (ref)  ~1300 ms     (S3 native 400 px floor, the
-                           same capture as gen_perf_variants)
-  boot-replay final leg    2009–2615 ms (S3, 20 band states)
-  cold-cycle revealed bake 2687 ms       (internals; whole cycle 3083)
-  knob revealed boot bake  2028–2059 ms  (vs its 991 ms baseline)
+                           same capture as gen_perf_variants; the
+                           live cold bake — old frame stays up, the
+                           arc sweeps the watermark)
+  boot-replay final leg    2009–2615 ms (DATED 2026-11-14, S3, 20 band
+                           states)
+  cold-cycle revealed bake 2687 ms       (DATED 2026-11-14; internals,
+                           whole cycle 3083)
+  knob revealed boot bake  2028–2059 ms  (DATED 2026-11-14, vs its
+                           991 ms plain baseline)
 
   producer budget          5000 ms      (HOURLY_BUDGET_MS,
-                           components/ui/moon_ui.c:1070)
+                           components/ui/moon_ui.c)
   pre-fix hourly cycle     ~8200 ms     (cache-policy leg re-ran the
                            ~8.2 s ephemeris scan every cycle — the
                            bench-#44 catch that blew the budget every
                            hour before the memoization)
 
 Bars carry their accepted min–max as an error bar (the bench-#44
-capture windows), hatched = revealed (computing-visible) leg, solid =
-non-revealed. Colors reuse the perf identities (gen_perf_figs.py): S3
-blue, knob violet, fade vermilion, budget red.
+capture windows), hatched = DATED (pre-repurpose) leg, solid = live.
+Colors reuse the perf identities (gen_perf_figs.py): S3 blue, knob
+violet, dated fade vermilion, budget red.
 
 All values quoted from the accepted captures on the page (provenance:
 :doc:`on-device verification <device-verify>`, 2026-11-14 bench);
@@ -56,16 +67,17 @@ VIOLET = "#7c3aed"  # knob identity
 VERM = "#c2410c"    # the brightness-ramp fade (perf_device convention)
 RED = "#b91c1c"     # the budget line
 
-# (label, lo_ms, hi_ms, kind) kind: hit/fade/bake solid, reveal hatched,
-# pre = the pre-fix over-budget marker
+# (label, lo_ms, hi_ms, kind) kind: hit/bake solid = LIVE, fade/reveal
+# hatched = DATED (the 2026-11-14 pre-repurpose legs)
 ROWS = [
     ("hourly warm TF hit  185–235 ms", 185, 235, "hit"),
-    ("+ 2 fade legs  2×240 ms", 480, 480, "fade"),
-    ("plain bake (ref)  1300 ms", 1300, 1300, "bake"),
-    ("boot-replay final leg  2009–2615 ms", 2009, 2615, "reveal"),
-    ("cold revealed bake  2687 ms (cycle 3083)", 2687, 2687, "reveal"),
-    ("knob revealed bake  2028–2059", 2028, 2059, "reveal"),
-    ("knob plain bake (ref)  991 ms", 991, 991, "bake"),
+    ("+ 2 fade legs  2×240 ms (DATED)", 480, 480, "fade"),
+    ("plain bake (live)  1300 ms", 1300, 1300, "bake"),
+    ("boot-replay final leg  2009–2615 ms (DATED)", 2009, 2615, "reveal"),
+    ("cold revealed bake  2687 ms (cycle 3083, DATED)", 2687, 2687,
+     "reveal"),
+    ("knob revealed bake  2028–2059 (DATED)", 2028, 2059, "reveal"),
+    ("knob plain bake  991 ms (live)", 991, 991, "bake"),
 ]
 PRE_FIX_MS = 8200.0
 BUDGET_MS = 5000.0
@@ -90,7 +102,7 @@ def main() -> None:
                     edgecolor=color)
             ax.barh(i, lo, color=color, height=0.62, alpha=0.45,
                     edgecolor=color)
-        else:  # reveal: hatched accepted window
+        else:  # fade/reveal: hatched DATED (pre-repurpose) window
             ax.barh(i, hi, color="white", height=0.62, edgecolor=color,
                     hatch="..", linewidth=1.2)
             if hi > lo:

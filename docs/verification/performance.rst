@@ -233,7 +233,7 @@ cell an accepted capture or a gate run, never a projection:
      - native bake px
      - single bake (accepted capture)
      - one-time relief build
-     - revealed bake (band-flush path)
+     - revealed window (dated 2026-11-14 bench)
      - image gate (MAE / SSIM)
    * - S3 AMOLED 466
      - 400
@@ -275,21 +275,26 @@ the family HEAD; the per-board gate story is
    the clocks' build, the **O(N_dem)** signature; the P4 leg is hatched
    because it was never captured (the board was off the bench).
    **Right:** the plain bake vs the revealed bake per board — solid
-   bars the non-revealed baseline, dotted bars the accepted revealed
-   window with its min–max error bar; this is the visible-for-
-   computation tax of :doc:`the bake reveal <../implementation/bake-reveal>`
-   in one glance. The generator is ``docs/tools/gen_perf_variants.py``
-   (device constants quoted beside it; the host row re-reads
-   ``perf_data.json`` so figure and table cannot drift apart).
+   bars the plain baseline, dotted bars the DATED accepted reveal
+   window with its min–max error bar (the strip reveal's visible-for-
+   computation tax, the 2026-11-14 bench; the reveal was retired by the
+   2026-11-24 compute repurpose — :doc:`the compute progress
+   <../implementation/compute-progress>` — so the right panel is the
+   reveal's one-glance epitaph). The generator is
+   ``docs/tools/gen_perf_variants.py`` (device constants quoted beside
+   it; the host row re-reads ``perf_data.json`` so figure and table
+   cannot drift apart).
 
 Read the table as *throughput per pixel*, not wall time (the figure
 above plots exactly that): the knob's
 991 ms at 360 px and the S3's ~1.3 s at 400 px are the same silicon
 paying the same PSRAM latency per pixel, the P4 buys its 2.5×
 pixel-count lead over the S3 at *lower* wall time (fact 3), and the
-revealed column is the honest price of the bake reveal —
-:doc:`the bake reveal <../implementation/bake-reveal>` books the band
-flushes into the bake's own budget. The relief-build column scales
+revealed column is the honest, dated price of the strip reveal — the
+2026-11-14 bench, measured before the 2026-11-24 repurpose retired
+it: the reveal booked the band flushes into the bake's own budget
+(:doc:`the compute progress <../implementation/compute-progress>`,
+*Measured history*). The relief-build column scales
 with the DEM grid, exactly as the **O(N_dem)** class above predicts
 (knob's halved DEM ≈ half the clocks' build).
 
@@ -383,24 +388,28 @@ the **static bake** (boot / wake / day tick / the hourly producer's TF-miss
 path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 / ~1 s knob
 bake, the 864/2048-albedo PSRAM load-latency floor; the knob's 360 px
 native bake is the 991 ms point of the per-variant table above) and the
-**orbit** re-bake (~1.7–2.4 s), plus the **hourly refresh**'s two 240 ms
-hardware-brightness
-fade legs around that bake.
+**orbit** re-bake (~1.7–2.4 s), plus the **hourly refresh** — which
+since the 2026-11-24 compute repurpose (:doc:`the compute progress
+<../implementation/compute-progress>`) runs with the OLD frame up the
+whole time: no 0x51 traffic, the seconds arc sweeping the
+rows-completed watermark, and the finished frame landing as one atomic
+flush in the bright panel.
 
-The bake-reveal bench (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` +
-cold/warm boot captures, :doc:`the bake reveal
-<../implementation/bake-reveal>`) put measured numbers on the live
-paths: hourly warm TF hits land the frame in **185–235 ms** (after
-the ``new_moon_epoch_cached`` memoization — pre-fix the cache-policy
-leg re-ran the ~8.2 s ephemeris scan every cycle and blew the 5 s
-producer budget every time, a bench-#44 catch); a cold-cycle revealed
-bake measures **2687 ms** internals, whole cycle **3083 ms** — inside
-the 5 s budget — with the fade-back paid at the first strip (observed:
-``bake reveal: first strip up, panel brightness 0 -> 100``); the boot
-replay's revealed final leg is
-**2009–2615 ms** (20 band states); the knob's revealed boot bake runs
-**2028–2059 ms** against its **991 ms** non-revealed baseline — the
-visible-for-computation tax (band flushes consume real bake
+The compute bench (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` +
+cold/warm boot captures, measured under the strip-reveal firmware the
+2026-11-24 repurpose retired) put measured numbers on these paths
+(dated history — the repurpose's before-and-after; the plain baselines
+below are the live numbers): hourly warm TF hits land the frame in
+**185–235 ms** (after the ``new_moon_epoch_cached`` memoization —
+pre-fix the cache-policy leg re-ran the ~8.2 s ephemeris scan every
+cycle and blew the 5 s producer budget every time, a bench-#44 catch);
+a cold-cycle revealed bake measured **2687 ms** internals, whole cycle
+**3083 ms** — inside the 5 s budget — with the then-fade-back paid at
+the first strip (observed: ``bake reveal: first strip up, panel
+brightness 0 -> 100``); the boot replay's revealed final leg measured
+**2009–2615 ms** (20 band states); the knob's revealed boot bake ran
+**2028–2059 ms** against its **991 ms** plain baseline — the
+visible-for-computation tax (band flushes consumed real bake
 throughput), and the knob's one-time relief build lands at **727 ms**
 — half the clocks' ~1.3 s, the **O(N_dem)** signature of its halved
 1024×512 DEM. Drain witness across the reveal legs: ~5 in-place heals
@@ -410,7 +419,7 @@ deferred (board off the bench this pass).
 The ladder above is the page's own prose as one picture: the hourly
 refresh has exactly four outcomes the product pays for, judged against
 the producer's single budget constant (``HOURLY_BUDGET_MS``,
-``components/ui/moon_ui.c``) and the fade legs' ``UI_MOON_HOURLY_FADE_MS``.
+``components/ui/moon_ui.c``).
 
 .. figure:: ../_static/figs/perf_hourly.png
    :alt: hourly refresh outcomes on one log axis against the 5 s producer budget
@@ -418,18 +427,20 @@ the producer's single budget constant (``HOURLY_BUDGET_MS``,
 
    The hourly-refresh ladder — every accepted-capture outcome on one
    log millisecond axis with the 5 s ``HOURLY_BUDGET_MS`` line
-   (dashed red). The TF hour-cache hit (185–235 ms, dark segment the
-   accepted window) plus the two 240 ms hardware-brightness fade legs
+   (dashed red). Solid bars are LIVE; dotted bars are DATED (the
+   2026-11-14 bench measured the strip-reveal firmware — the 240 ms
+   fade legs and the revealed windows are retired by the
+   2026-11-24 compute repurpose). The TF hour-cache hit (185–235 ms)
    is **~7× cheaper than the plain bake it replaces** (1300 ms, S3
-   native 400 px) and ~13× cheaper than the revealed legs; the
-   revealed outcomes (dotted bars, min–max error bars) still land
-   *inside* the budget — the memoization catch is what made that true:
-   before ``new_moon_epoch_cached``, the cache-policy leg re-ran the
-   ~8.2 s ephemeris scan every cycle (red ✗) and blew the budget every
-   hour (bench #44). The knob's revealed pair is the same story on the
-   third board. Solid bars non-revealed, dotted revealed. The
-   generator is ``docs/tools/gen_perf_hourly.py`` (accepted captures
-   quoted beside it; budget and fade are the device's own constants).
+   native 400 px — the live cold path, old frame up the whole time);
+   the revealed windows still land *inside* the budget — the
+   memoization catch is what made that true: before
+   ``new_moon_epoch_cached``, the cache-policy leg re-ran the ~8.2 s
+   ephemeris scan every cycle (red ✗) and blew the budget every hour
+   (bench #44). The knob's revealed pair is the same story on the
+   third board. The generator is ``docs/tools/gen_perf_hourly.py``
+   (accepted captures quoted beside it; the budget line is the
+   device's own constant).
 
 The boot-path ladder
 --------------------
@@ -456,15 +467,19 @@ and Kconfig cannot drift apart:
   phase.
 - A card-less boot (no card, cold folder, or version wipe — a fresh
   flash by design, :ref:`per-version keying <calcver-keying>`) pays the
-  ~**1 s** SD mount probe, then holds black until the revealed now-bake
-  lays its first ink, and lands the current phase at probe +
-  **2009–2615 ms**.
+  ~**1 s** SD mount probe, then shows the quick phase disc while the
+  now-bake runs (the seconds arc sweeps its rows-completed watermark)
+  and lands the current phase at probe + the plain **1300 ms** bake —
+  the 2009–2615 ms reveal window measured 2026-11-14 is dated history
+  (the strip reveal was retired by the 2026-11-24 repurpose).
 - ``UI_MOON_BOOT_REPLAY=n`` (and demo mode) never touch the SD bus and
   boot to the single static bake (**1300 ms**, the same accepted
-  capture as the per-variant table above).
-- The knob has no SD socket, so it *always* takes the black path —
-  **2028–2059 ms** revealed against its **991 ms** non-revealed
-  baseline — and pays no probe at all (there is no bus to probe).
+  capture as the per-variant table above) — the quick phase disc shows
+  while it runs.
+- The knob has no SD socket, so it *always* takes the disc path — the
+  disc, then the plain **991 ms** bake (the arc sweeps the per-row
+  watermark; the 2028–2059 ms reveal window is dated) — and pays no
+  probe at all (there is no bus to probe).
 
 .. figure:: ../_static/figs/perf_boot.png
    :alt: boot-path ladder — replay pacing and boot outcomes vs the 240 s budget
@@ -472,16 +487,17 @@ and Kconfig cannot drift apart:
 
    The boot ladder. **Left:** the pacing arithmetic — the floor the
    Kconfig sets (1000/8 = 125 ms, light) against the observed drain rate
-   the Kconfig quotes (~6 fps ≈ 167 ms, solid). **Right:** the four boot
+   the Kconfig quotes (~6 fps ≈ 167 ms, solid). **Right:** the boot
    paths on one log millisecond axis against the 240 s
    ``UI_MOON_REPLAY_BUDGET_MS`` line (dashed red) — the probe, the
-   non-revealed static bake, the revealed now-bake (dotted, accepted
-   min–max), the full-cache animation at both paces (709 files × the
-   panel's own per-frame cost), and the knob's always-black pair
-   (violet). Solid non-revealed, dotted revealed. The generator is
-   ``docs/tools/gen_perf_boot.py`` (the pacing/budget constants parsed
-   from ``components/ui/Kconfig`` at figure time; the capture windows
-   quoted beside it).
+   static bake, the card-less disc + now-bake (plain 1300 ms, solid),
+   the DATED 2026-11-14 reveal windows (dotted, accepted min–max), the
+   full-cache animation at both paces (709 files × the panel's own
+   per-frame cost), and the knob's disc + bake pair (violet; its
+   dated reveal window dotted). Solid = live, dotted = dated. The
+   generator is ``docs/tools/gen_perf_boot.py`` (the pacing/budget
+   constants parsed from ``components/ui/Kconfig`` at figure time; the
+   capture windows quoted beside it).
 
 .. _cache-footprint-perf:
 
@@ -550,18 +566,20 @@ The interactive pacing ladder
 -----------------------------
 
 **The short version.** The other performance axis is not how long an
-event costs but how often the device wakes *itself*. Nine timers carry
-the product: the 10 ms LVGL adapter park and UI tick, the 50 ms bake
-reveal tick, the two Kconfig-paced moon rates (125 ms replay floor,
-240 ms fade legs), the 1 Hz idle trio (idle check, tilt monitor,
-seconds increment) and the 1300 ms RTC interrupt poll. The two shared
-rhythms are deliberate — the adapter park *is* the UI tick's floor,
-and the sleep ladder beats at one heart — everything else holds its
-own slot, spanning two orders of magnitude from 10 ms to 1300 ms.
-Every value is **parsed from the live sources** at figure time —
-including the ``UI_MOON_HOURLY_FADE_MS → UI_SCREEN_SWITCH_FADE``
-symbol indirection (resolved exactly like Kconfig does) — so the
-ladder cannot drift from the firmware.
+event costs but how often the device wakes *itself*. Eight timers
+carry the product: the 10 ms LVGL adapter park and UI tick, the 50 ms
+moon tick (the compute strip loop's rhythm — its rows-completed
+watermark drives the seconds-arc progress bar; the 240 ms hourly fade
+legs it once paced are retired with the strip reveal), the 125 ms
+Kconfig-paced replay floor, the 1 Hz idle trio (idle check, tilt
+monitor, seconds increment) and the 1300 ms RTC interrupt poll. The
+two shared rhythms are deliberate — the adapter park *is* the UI
+tick's floor, and the sleep ladder beats at one heart — everything
+else holds its own slot, spanning two orders of magnitude from 10 ms
+to 1300 ms. Every value is **parsed from the live sources** at figure
+time — the replay floor as the Kconfig's own ``UI_MOON_REPLAY_FPS``
+divided, the rest from their call sites — so the ladder cannot drift
+from the firmware.
 
 .. figure:: ../_static/figs/perf_pacing.png
    :alt: the device's self-wake periods on one log axis, and the same rows as events per second
@@ -574,8 +592,8 @@ ladder cannot drift from the firmware.
    = Kconfig-paced). **Right:** the same rows as events per second —
    derived (1000 / period), nothing new measured: the adapter parks
    the LVGL task at 100 Hz, the RTC poll runs below 1 Hz, and the
-   reveal tick lands at exactly the 20 Hz the bake-reveal design
-   specifies. The generator is ``docs/tools/gen_perf_pacing.py``.
+   moon tick lands at exactly the 20 Hz the compute strip loop's
+   watermark moves at. The generator is ``docs/tools/gen_perf_pacing.py``.
 
 .. _patience-ladder-perf:
 
@@ -644,31 +662,32 @@ sanctioned ramp exception in :doc:`the display pipeline
 <../implementation/display>`), and the reader who knows the two
 rhythm families knows the whole sleep cost model. Same house rule as
 the pacing ladder — every value **parsed from the live sources** at
-figure time, including the ``UI_MOON_HOURLY_FADE_MS →
-UI_SCREEN_SWITCH_FADE`` symbol indirection:
+figure time:
 
 .. figure:: ../_static/figs/perf_dim.png
    :alt: the brightness timeline with its 0x51 ramp steps, and time-to-target per transition on a log axis
    :figclass: align-center
 
    The brightness ladder. **Left:** the timeline awake → light sleep →
-   deep sleep → wake, plus the hourly refresh riding the same family
-   — the dim to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %) and the wake ramp
-   back are ``UI_SCREEN_SWITCH_FADE`` (240 ms) in ``FADE_STEPS`` (12)
-   discrete 0x51 writes 20 ms apart (dots on the ramps); the
-   light-sleep clock is *not* a panel write at all — it is the clock
-   container's ``UI_CLOCK_ALPHA_PCT`` (20 %) LVGL style opacity over
-   the already-dimmed panel; the deep entry is a SINGLE 0x51
-   (``moon_ui_panel_brightness_set(0)``, ~100 µs — one transaction per
-   ``fade_ramp``'s own comment, annotated not measured), and the two
-   hourly legs bracket the produce window whose duration is the
-   hourly-refresh figure's story, above. The dim ramp starts from the panel's
-   *tracked* level (``s_panel_pct``), which is the #34 rule: a
-   re-entry never flashes brighter first. **Right:** time-to-target per
-   transition on one log axis — the three ramps share the parsed 240
-   ms, the two single writes sit at the one-transaction floor, a
-   2400×-spread that is the design: brightness animates, pixels never
-   half-move. The generator is ``docs/tools/gen_perf_dim.py``.
+   deep sleep → wake — the dim to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %) and
+   the wake ramp back are ``UI_SCREEN_SWITCH_FADE`` (240 ms) in
+   ``FADE_STEPS`` (12) discrete 0x51 writes 20 ms apart (dots on the
+   ramps); the light-sleep clock is *not* a panel write at all — it is
+   the clock container's ``UI_CLOCK_ALPHA_PCT`` (20 %) LVGL style
+   opacity over the already-dimmed panel; the deep entry is a SINGLE
+   0x51 (``moon_ui_panel_brightness_set(0)``, ~100 µs — one
+   transaction per ``fade_ramp``'s own comment, annotated not
+   measured). The hourly refresh no longer rides this family (user
+   2026-11-24: the old frame stays up the whole bake, zero 0x51
+   traffic — :doc:`the compute progress
+   <../implementation/compute-progress>`; the two 240 ms legs it used
+   to ride are dated history in the hourly figure, above). The dim ramp
+   starts from the panel's *tracked* level (``s_panel_pct``), which is
+   the #34 rule: a re-entry never flashes brighter first. **Right:**
+   time-to-target per transition on one log axis — the two ramps share
+   the parsed 240 ms, the two single writes sit at the one-transaction
+   floor, a 2400×-spread that is the design: brightness animates,
+   pixels never half-move. The generator is ``docs/tools/gen_perf_dim.py``.
 
 .. _static-footprint-perf:
 
@@ -810,9 +829,10 @@ between the two families:
 - **The clocks put the producers above the renderer.** The three bake
   producers (re-bake, hourly, boot replay) sit at
   ``configMAX_PRIORITIES − 3`` = 22, pinned to core 1 — sixteen levels
-  above the LVGL worker's 6 — because the while-black hand-off lets
-  the renderer wait: the producer rebuilds the frame off-panel while
-  the panel is black and the finished frame lands as one atomic flush
+  above the LVGL worker's 6 — because the old-frame-then-atomic
+  hand-off lets the renderer wait: the producer rebuilds the frame
+  off-panel (the old frame or the boot disc stays up) and the
+  finished frame lands as one atomic flush
   (:doc:`the animation pipelines <../implementation/animations>`). A
   bake that an LVGL redraw could starve is the bug class this band
   prevents. The sky-event worker takes the band below — "below the
@@ -1012,10 +1032,11 @@ the page's complexity section has priced everything in all along
 SystemExit-failing parses feeds the figure, like the rest of the
 family:
 the ``MOON_PX`` pair with the ``MOON_R = MOON_PX/2`` shape, the
-strip/reveal geometry (``MOON_STRIP_ROWS`` 25/130, ``MOON_REVEAL_ROWS``
-20/26 — divisibility re-asserted, the code's own ``#error`` guards),
-the P4's CITED 50-row DPI buffer and the knob's one-row reveal rule
-(read out of the comments that state them), the panel sizes from the
+strip/compute geometry (``MOON_STRIP_ROWS`` 25/130,
+``MOON_COMPUTE_ROWS`` 10/13 — divisibility re-asserted, the code's own
+``#error`` guards), the P4's CITED 50-row DPI buffer and the knob's
+one-row-per-watermark compute rule (read out of the comments that state
+them), the panel sizes from the
 vendored BSP header / the generated
 ``CONFIG_BSP_LCD_TYPE_720_720_4_INCH`` / the knob shim, the
 ``max_transfer_sz`` formulas parsed out of the vendored sources (the
@@ -1039,9 +1060,10 @@ Three counting facts the byte view cannot show:
   the panel: the moon square is the screen).
 - **The hourly refresh is the flush minus the furniture**: its violet
   bar is exactly the bake square (the bus ladder's 320,000/845,000 B
-  ÷ 2 — the while-black ``lv_refr_now`` commits the disk, not the
-  screen), the disk-only geometry that makes an hourly re-light of
-  the moon affordable every hour.
+  ÷ 2 — the hourly finish's ``lv_refr_now`` commits only the moon
+  disk, not the screen — the old frame stays up the whole bake), the
+  disk-only geometry that makes an hourly re-light of the moon
+  affordable every hour.
 - **The relief wall is the asset-to-work ratio**: 13.1× (S3) / 5.0×
   (P4) / 4.0× (knob) the bake square of packed relief cells stand
   behind every frame — yet exactly ONE cell is read per bake pixel,
@@ -1049,18 +1071,18 @@ Three counting facts the byte view cannot show:
   priced when it bought the relief gradient cache.
 
 .. figure:: ../_static/figs/perf_pixels.png
-   :alt: pixels per stage per board — bake square, gather, hourly disk flush, whole-panel flush, one DMA transaction, one reveal state — and the pixel universe of albedo, relief pack, bake square, panel
+   :alt: pixels per stage per board — bake square, gather, hourly disk flush, whole-panel flush, one DMA transaction, one compute step — and the pixel universe of albedo, relief pack, bake square, panel
    :figclass: align-center
 
    The pixel ladder. **Left:** one published frame per board — the
    bake square, the gray→RGB565 gather, the hourly disk flush (the bus
    ladder's violet bar ÷ 2), the whole-panel flush with the moon
    image's share of it annotated, the one DMA transaction the bus
-   really sees, and one reveal *state* (dashed: 8,000 px per band on
-   the S3, 16,900 on the P4, ONE row on the knob); hatched = cited
-   DPI buffer, italic = the knob's two honest *no such legs* — its
-   bake writes RGB565 straight into the back buffer and it owns no
-   card. **Right:** the pixel universe each bake samples from —
+   really sees, and one compute *step* (dashed: the
+   ``MOON_COMPUTE_ROWS`` watermark strip — 4,000 px on the S3, 8,450 on
+   the P4, ONE row on the knob); hatched = cited DPI buffer, italic =
+   the knob's two honest *no such legs* — its bake writes RGB565
+   straight into the back buffer and it owns no card. **Right:** the pixel universe each bake samples from —
    albedo texels, the relief pack with its ×-the-bake factor, the
    bake square, the panel. S3 blue, P4 vermillion, knob violet; the
    generator is ``docs/tools/gen_perf_pixels.py``.
@@ -1442,11 +1464,12 @@ Three counting facts the census's part-view cannot show:
   docs' three panel sets cost 1,236 vendored compiles, while
   ``moon_sim``/``moon_bench`` — the image gate's own numbers — link
   no LVGL at all. And the throwaway probes
-  (``dark_test.c``, ``newmoon_test.c`` and the tz wave's
-  ``viewport_test.c``, plus a stale gitignored ``pole_test`` ELF that is
-  all an even earlier probe ever left) draw the dashed ghost bar at
-  **0**: never linked — the proven pair tracked by git and called in
-  code, ``viewport_test.c`` joining them with the wave's commit.
+  (``dark_test.c``, ``newmoon_test.c``, the tz wave's
+  ``viewport_test.c`` and the compute-progress wave's
+  ``phase_dummy_test.c``, plus a stale gitignored ``pole_test`` ELF that
+  is all an even earlier probe ever left) draw the dashed ghost bar at
+  **0**: never linked — each tracked by git and called in code, joining
+  the row with its own wave's commit.
 
 The sharing ladder is the census's transpose and the surface sketch's
 ledger: :ref:`the surface in one picture <c-api-surface>` names who
@@ -2184,9 +2207,9 @@ counts bytes crossing a wire, the patience ladder counts allowed
 waits. None of them has counted the **contention machinery** — the
 objects that decide which hand goes first. This ladder counts them
 out of the live sources: the app owns exactly **three mutexes, two
-event groups, one task-notify pair and four SEQ_CST fences — and zero
+event groups, one task-notify pair and five SEQ_CST fences — and zero
 queues** (``xQueueCreate`` never fires outside the vendored BSP). The
-wait-site bars tell the sharper story: seventeen image-key takes all
+wait-site bars tell the sharper story: eighteen image-key takes all
 say ``portMAX_DELAY`` — a publish block is a memcpy plus a gather,
 never a bus, so there is nothing to time out on — while the panel key
 carries the **entire timeout policy of the app**: the 2 s flush-wait
@@ -2224,8 +2247,8 @@ failing when a guard appears, vanishes, or changes its mind:
   restart line, and the 2000/3000 ms defines;
 * the knob's mux is pinned to **one** ``xSemaphoreTake`` in
   ``knob_ui.c`` behind the holder+depth wrapper ("NOT recursively
-  takable", the non-owner guard), with its **17 entries** recounted
-  across four files (9 internal, knob main.c's five — the park loop,
+  takable", the non-owner guard), with its **15 entries** recounted
+  across four files (7 internal, knob main.c's five — the park loop,
   the transient-WiFi arm, the two modem-sleep swaps, the alarm wake —
   the dial, the two seam legs), and its seam is asserted **mutex-free** —
   the ``moon_ui_init`` shim carries no lock;

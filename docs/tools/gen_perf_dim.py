@@ -13,8 +13,6 @@ fabricated device measurements):
   UI_LIGHT_SLEEP_DIM_PCT (Kconfig default 25)   components/ui/Kconfig
   UI_CLOCK_ALPHA_PCT     (Kconfig default 20)   components/ui/Kconfig
   UI_SCREEN_SWITCH_FADE  (Kconfig default 240)  components/ui/Kconfig
-  UI_MOON_HOURLY_FADE_MS (default UI_SCREEN_SWITCH_FADE — the SYMBOL
-      indirection, resolved exactly like Kconfig does)
   #define FADE_STEPS 12                         components/ui/moon_ui.c
   each step = one 0x51 SPI param transaction, fade_ramp's own comment
       puts it at ~100 us — the single writes (deep-sleep backlight
@@ -26,15 +24,17 @@ ramp starts from the panel's ACTUAL tracked level, the #34 no-flash
 rule), the clock container separately at UI_CLOCK_ALPHA_PCT (an LVGL
 style write, no panel-io at all), the deep-sleep entry dropping to 0
 with a SINGLE 0x51 write (not a ramp — the screen is already
-heading out of sight), the wake ramping back, and the hourly refresh
-riding the SAME ramp family: two legs with the produce window in
-between (its duration is perf_hourly.png's story, not this one's).
+heading out of sight), the wake ramping back. The hourly refresh no
+longer rides this family (user 2026-11-24: the old frame stays up the
+whole bake, zero 0x51 traffic — docs/implementation/compute-
+progress; the 240 ms fade legs it used to ride are dated history in
+perf_hourly.png).
 Right panel: time-to-target per transition, log ms — the ramps at
 their parsed Kconfig times, the two single writes at the 0x51
 transaction floor (~0.1 ms, annotated, not measured).
 
 Colours follow gen_perf_pacing.py: blue = awake, amber = the sleep
-ladder, violet = the hourly refresh, gray = the ramp steps.
+ladder, gray = the ramp steps.
 
 Run:  docs/.venv/bin/python docs/tools/gen_perf_dim.py
 """
@@ -59,7 +59,6 @@ MUTED = "#5c6675"
 HAIR = "#d9dde3"
 BLUE = "#2b5fb0"     # the awake state
 AMBER = "#b07d10"    # the sleep ladder
-VIOLET = "#7c3aed"   # the hourly refresh
 GRAY = "#787878"     # the ramp steps (0x51 transactions)
 
 
@@ -115,9 +114,6 @@ def main() -> None:
                                             "ui/Kconfig")
     fade_ms, fade_prov = kconfig_default(UI_KCONFIG, "UI_SCREEN_SWITCH_FADE",
                                          "ui/Kconfig")
-    hourly_ms, hourly_prov = kconfig_default(UI_KCONFIG,
-                                             "UI_MOON_HOURLY_FADE_MS",
-                                             "ui/Kconfig")
     steps = c_define(MOON_UI, "FADE_STEPS")
     step_us = 0.1  # ms — one 0x51 SPI param transaction (fade_ramp comment)
 
@@ -142,9 +138,6 @@ def main() -> None:
     seg("step", 0.12, dim_pct, 0, AMBER, "deep entry\nONE 0x51 ~0.1 ms")
     seg("flat", 1.0, 0, 0, AMBER, "deep sleep\nbacklight OFF")
     seg("ramp", w_ramp, 0, 100, BLUE, f"wake ramp\n{fade_ms} ms")
-    seg("ramp", w_ramp, 100, 0, VIOLET, f"hourly leg 1\n{hourly_ms} ms")
-    seg("flat", 1.6, 0, 0, VIOLET, "produce window\n(perf_hourly.png)")
-    seg("ramp", w_ramp, 0, 100, VIOLET, f"hourly leg 2\n{hourly_ms} ms")
 
     for kind, x0, x1, p0, p1, color, label in segs:
         if kind == "flat":
@@ -188,8 +181,6 @@ def main() -> None:
          fade_ms, AMBER, fade_prov),
         (f"wake ramp back\n(sleep screens are both-moon:\nthis IS the restore)",
          fade_ms, AMBER, fade_prov),
-        (f"hourly fade leg (each)\nUI_MOON_HOURLY_FADE_MS", hourly_ms, VIOLET,
-         hourly_prov),
         ("deep-sleep backlight off\nmoon_ui_panel_brightness_set(0)", step_us,
          AMBER, "actions.c:1347"),
         ("alarm/wake relight\nbrightness_set(100)", step_us, BLUE,
@@ -215,8 +206,7 @@ def main() -> None:
     fig.savefig(OUT, dpi=160, facecolor="white", bbox_inches="tight",
                 pad_inches=0.08)
     print(f"wrote {os.path.relpath(OUT, HERE)}  "
-          f"(dim={dim_pct} alpha={alpha_pct} fade={fade_ms} hourly={hourly_ms} "
-          f"steps={steps})")
+          f"(dim={dim_pct} alpha={alpha_pct} fade={fade_ms} steps={steps})")
 
 
 if __name__ == "__main__":

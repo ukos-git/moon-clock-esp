@@ -1,26 +1,26 @@
 // THE CLOCKS' TWO KEYS opened (S3 + P4, one moon_ui.c): every
 // xSemaphoreTake site as an ask edge carrying its timeout on the wire,
 // the one-way order between the keys, the drain witness and the red
-// watchdog. Creations sit together at moon_ui.c:2694-2695 under the
-// code's own ownership comment (:2687-2693); the draw_bitmap wrapper
-// lands at :2707. All SEVENTEEN s_rgb_mtx takes are portMAX_DELAY
+// watchdog. Creations sit together at moon_ui.c:2677-2678 under the
+// code's own ownership comment (:2669-76); the draw_bitmap wrapper
+// lands at :2690. All EIGHTEEN s_rgb_mtx takes are portMAX_DELAY
 // ("a publish block never fails"). The NINE s_panel_mtx takes carry the
-// whole timeout policy of the app: wrapper :728 forever; the 0x51 legs
-// fade_ramp :3092 + brightness_set :3216 forever; the traffic-hold
-// quiesce :556 bounded 500 ms; moon_flush_wait_cb :477 bounded 2 s
-// ("observed quiescence only" :478); the drain verify :970 forever —
+// whole timeout policy of the app: wrapper :704 forever; the 0x51 legs
+// fade_ramp :3139 + brightness_set :3236 forever; the traffic-hold
+// quiesce :554 bounded 500 ms; moon_flush_wait_cb :475 bounded 2 s
+// ("observed quiescence only" :476); the drain verify :1045 forever —
 // rule 3 holds across the WHOLE submit+witness window ("no drain call
-// site holds it -- audited 2026-11-13" :935; the hold now ~50 ms -- one
-// grace + heal, the NORMAL path :945-958; S3 nine takes, P4 EIGHT — drain_verify is
-// #if !defined(CONFIG_BOARD_P4)); watchdog probe :2610 bounded 3 s.
-// moon_ui_screen_switched :3260 is the both-keys case and takes them
-// SEQUENTIALLY — panel :3296, give, then rgb :3323; no panel take ever
-// nests an rgb take. The heal branch runs tx_param(io, -1) at :1028
-// ("runs the driver's own drain loop over ALL" :1015). panel_wdg is born
-// at :2736 (prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at
-// a time"), its take is "the ONLY work" (:2601), and on timeout it
+// site holds it -- audited 2026-11-13" :1010; the hold now ~50 ms -- one
+// grace :1026 + the 20 ms lead-in :1048, heal :1103; S3 nine takes, P4 EIGHT — drain_verify is
+// #if !defined(CONFIG_BOARD_P4)); watchdog probe :2580 bounded 3 s.
+// moon_ui_screen_switched :3280 is the both-keys case and takes them
+// SEQUENTIALLY — panel :3316, give :3318, then rgb :3343; no panel take ever
+// nests an rgb take. The heal branch runs tx_param(io, -1) at :1103
+// ("runs the driver's own drain loop over ALL" :1090). panel_wdg is born
+// at :2719 (prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at
+// a time" :2715), its take is "the ONLY work" (:2571), and on timeout it
 // names the holder through xSemaphoreGetMutexHolder and restarts under
-// "PANEL IO STUCK" (:2622-2625). The guards in black boxes is
+// "PANEL IO STUCK" (:2601-05). The guards in black boxes is
 // docs/_graphs/guards.dot (this page); the knob's single key is
 // docs/_graphs/guards-knob.dot; the key-free band is
 // docs/_graphs/guards-flags.dot. The strip staging and the witnesses
@@ -41,22 +41,22 @@ digraph guards_keys {
     tick [label="tick — publish ·\ngather · show"];
     bootbake [label="boot / day-tick bake"];
     switcher [label="screen_switched"];
-    ramp [label="0x51 legs :3041/:3165"];
-    quiesce [label="traffic hold :526"];
-    fwait [label="flush-wait :450"];
-    drain [label="drain verify :919"];
-    wrapper [label="wrapper :684"];
-    wdg [label="panel_wdg probe :2559", fillcolor="#f8e7e7", color="#b91c1c", fontcolor="#7f1d1d"];
+    ramp [label="0x51 legs :3139/:3236"];
+    quiesce [label="traffic hold :554"];
+    fwait [label="flush-wait :475"];
+    drain [label="drain verify :1045"];
+    wrapper [label="wrapper :704"];
+    wdg [label="panel_wdg probe :2580", fillcolor="#f8e7e7", color="#b91c1c", fontcolor="#7f1d1d"];
 
-    srgb [label="s_rgb_mtx (:2643)\nIMAGE key — 17 takes\nALL portMAX_DELAY",
+    srgb [label="s_rgb_mtx (:2677)\nIMAGE key — 18 takes\nALL portMAX_DELAY",
           fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.8];
-    spanel [label="s_panel_mtx (:2644)\nPANEL key — 9 S3 / 8 P4",
+    spanel [label="s_panel_mtx (:2678)\nPANEL key — 9 S3 / 8 P4",
             fillcolor="#e8ddf6", color="#7c3aed", penwidth=1.8];
 
     tick -> srgb [label="forever"];
     bootbake -> srgb [];
-    switcher -> spanel [label=":3245"];
-    switcher -> srgb [label="then :3274"];
+    switcher -> spanel [label=":3316"];
+    switcher -> srgb [label="then :3343"];
     ramp -> spanel [label="forever"];
     quiesce -> spanel [label="500 ms"];
     fwait -> spanel [label="2 s"];
