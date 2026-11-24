@@ -11,17 +11,19 @@ all three on 2026-11-13. What is left on the home:
 
 1. **The orbit** — a *response*, not an animation: the tilt viewport
    re-bake, one atomic frame per sustained pose change.
-2. **The hourly refresh** — the moon redraws once per hour behind the
-   hardware brightness fade: fade to black, produce the current-phase
-   frame (a cache-hit frame shows atomically; a computed frame is
-   *revealed* strip by strip as it bakes, the fade-back starting at
-   the first completed strip — :doc:`the bake reveal <bake-reveal>`).
-   The one live motion left on
-   the home (see *The hourly refresh* below).
-3. **The fade** — the screen-switch dim, which writes no pixels. Both
-   the screen switch and the hourly refresh's two legs ride this ONE
+2. **The hourly refresh** — the moon redraws once per hour with the
+   OLD frame up the whole cycle: the producer produces the
+   current-phase frame (a cache hit or a cold bake, the seconds arc
+   sweeping the bake's rows watermark as a progress bar —
+   :doc:`the compute progress <compute-progress>`), the finished
+   frame landing as ONE atomic whole-panel flush in the bright panel.
+   No 0x51 traffic at all (the fade retired 2026-11-24). The one live
+   motion left on the home (see *The hourly refresh* below).
+3. **The fade** — the screen-switch dim (and the light-sleep dim and
+   wake ramp), which writes no pixels. This is the ONE
    hardware-brightness-ramp exception to the atomic-display rule
-   (:doc:`the architecture <architecture>`).
+   (the hourly refresh stopped riding it on 2026-11-24 — the compute
+   progress change) (:doc:`the architecture <architecture>`).
 
 Retired 2026-11-13, one after the other: **the free spin** (the
 ball-in-hand burn-in rotation — *"It does more things worse than
@@ -31,13 +33,15 @@ light sleep is a **static dim frame** now: panel to 25 %, clock to
 20 % alpha, and the deep-sleep countdown armed at the entry itself;
 :doc:`the clock and sleep machine <clock-sleep>`). The home sleeps as a
 static dim and refreshes its moon once per hour (below). At boot it
-**replays**: every hour frame the TF card holds plays ascending on the
-boot black and stops on the newest, then the live-computed current
-phase lands as the final frame — **revealed**: the frame draws itself
-north to south at the actual bake rate instead of sitting black until
-it is done (:doc:`the bake reveal <bake-reveal>`); with no card or an
-empty cache that reveal is the first thing the panel shows at all
-(*The boot replay*, below). This is
+**replays**: while the first frames prepare, the panel shows the
+quick phase disc (the compute section's dummy —
+:doc:`the compute progress <compute-progress>`), then every hour frame
+the TF card holds plays ascending and stops on the newest, and the
+live-computed current phase lands as the final frame, the seconds arc
+sweeping its bake's rows watermark as a progress bar (the disc is
+replaced by the finished frame atomically; with no card or an empty
+cache the replay is simply absent and the disc holds until the final
+bake lands — *The boot replay*, below). This is
 pure storage playback of the hour cache — not a return of the computed
 boot animation the user retired; with ``UI_MOON_BOOT_REPLAY=n`` the
 home boots straight to the static current phase again. The home's moon
@@ -69,11 +73,14 @@ The hourly refresh (``UI_MOON_HOURLY_ENABLE``)
 ----------------------------------------------
 
 The one live motion left on the home: once per hour the moon redraws
-behind the hardware brightness fade. The user's brief was *"Update the
-moon hourly with a fade to black, redraw and fade-in."* Only the panel's
-brightness animates — the clock, the alarm row and the seconds keep
-running through the whole cycle; the moon simply fades out, is rebuilt,
-and fades back.
+with the **old frame up the whole cycle** — no fade, no black window
+(the user's 2026-11-24 compute-progress decision retired the fade the
+original brief asked for, *"Update the moon hourly with a fade to
+black, redraw and fade-in"*: with a computed image present the product
+stays on it, and the compute shows in the seconds arc instead). The
+clock, the alarm row and the seconds keep running through the whole
+cycle; the new frame simply lands over the old one as ONE atomic
+whole-panel flush (:doc:`the compute progress <compute-progress>`).
 
 It is a producer/consumer split, exactly like the deferred re-bake, so
 the LVGL task is never blocked on a bake (the three-role shape, all in
@@ -86,31 +93,30 @@ the LVGL task is never blocked on a bake (the three-role shape, all in
   skips when the device is idle (light sleep), a moon-less screen is
   active, the orbit / re-bake / another hourly owns the buffers, or a
   screen-switch fade / 0x51 ramp owns the panel.
-* **The tick legs** (``moon_hourly_service``, LVGL task) do the fade to
-  black on the panel's OWN hardware brightness (``fade_ramp`` paced by
-  ``UI_MOON_HOURLY_FADE_MS``, default = ``UI_SCREEN_SWITCH_FADE``) and
-  spawn the producer. On a **TF fetch hit** the finished frame lands as
-  **ONE atomic whole-panel flush** while the panel is still black (the
-  fade's rule), then the brightness ramps back. On a **cache miss** the
-  frame is instead *revealed* as it bakes (``UI_MOON_BAKE_REVEAL``,
-  default y — :doc:`the bake reveal <bake-reveal>`): the square is
-  cleared to black and each completed strip of the bake lands as one
-  atomic band flush, with the fade-BACK paid at the first completed
-  strip instead of after the whole bake. A producer that misses its 5 s
-  budget (``HOURLY_BUDGET_MS``) leaves the OLD frame (a half-revealed
-  square is healed whole first) and only restores the brightness —
-  never a stranded black (a late producer still finishes its reveal and
-  shows, with no second fade-in).
+* **The tick legs** (``moon_hourly_service``, LVGL task) own NO 0x51
+  traffic: the start leg simply spawns the producer (the gates park it
+  while a screen-switch fade or light-sleep ramp owns the panel), and
+  the done leg shows the finished frame as **ONE atomic whole-panel
+  flush in the bright panel** — the old frame is up the whole cycle, so
+  both a **TF fetch hit** and a **cache miss** land the same way. A
+  producer that misses its 5 s budget (``HOURLY_BUDGET_MS``) leaves the
+  OLD frame (nothing to restore — it is still what the panel shows);
+  a late producer that lands after the deadline still shows on its own
+  done leg.
 * **The producer** (``moon_hourly_task``, core 1, 12 KB, latest-wins)
   fills a PSRAM bounce: it asks the **TF hour cache** first (a hit is a
-  JPEG decode instead of a ~1.3 s (S3) / ~2.4 s (P4) bake — and a hit
-  never arms the reveal), else it bakes row-chunked with the
-  rows-completed watermark published under ``s_rgb_mtx``
-  (``moon_reveal_bake``, the same output as ``moon_bake``) with
-  write-through store + eviction. It classifies the hour-centre instant
-  once (the gray→RGB565 tint LUT + the blood-moon occlusion), then
-  publishes ``s_frame`` + ``s_rgb`` in ONE ``s_rgb_mtx`` block. It never
-  touches the panel.
+  JPEG decode instead of a ~1.3 s (S3) / ~2.4 s (P4) bake — a hit runs
+  no strip loop, so the arc shows real seconds), else it bakes
+  strip-chunked with the rows-completed watermark published under
+  ``s_rgb_mtx`` (``moon_bake_progress``, the same output as
+  ``moon_bake`` — :doc:`the compute progress <compute-progress>`)
+  with write-through store + eviction; the watermark drives the
+  seconds-arc progress bar. A sleep entry mid-bake sets
+  ``s_compute_stop`` and the producer deletes itself *before* the
+  publish (the partial bounce never shows, never stores). It classifies
+  the hour-centre instant once (the gray→RGB565 tint LUT + the
+  blood-moon occlusion), then publishes ``s_frame`` + ``s_rgb`` in ONE
+  ``s_rgb_mtx`` block. It never touches the panel.
 
 The whole cycle, role by role — who touches the panel, who touches the
 card, and where the two legs' timings land:
@@ -127,24 +133,24 @@ card, and where the two legs' timings land:
 
        MIN->>MIN: gate (idle, moon-less screen, buffers busy, a fade owns the panel) then arm s_hourly_start
        MIN->>TICK: armed
-       TICK->>PN: fade-to-black (0x51 ramp, writes no pixels)
-       TICK->>P: spawn (latest-wins, 5 s budget)
+       TICK->>P: spawn (latest-wins, 5 s budget) — the OLD frame stays up (no 0x51 traffic)
        P->>TF: fetch the hour-centre key (hour*3600 + 1800)
        alt card hit
-           TF-->>P: stored gray JPEG
+           TF-->>P: stored gray JPEG (no strip loop, arc shows real seconds)
            P->>P: tint LUT, publish s_frame + s_rgb in one s_rgb_mtx block
-           TICK->>PN: ONE atomic whole-panel flush while still black, drain-witnessed
-           TICK->>PN: fade back 0 to 100
-       else card miss (bake reveal)
-           P->>P: moon_reveal_bake row-chunked, rows watermark under s_rgb_mtx
-           TICK->>PN: black canvas, then one atomic band flush per completed strip
-           TICK->>PN: fade back paid at the FIRST completed strip
+           TICK->>PN: ONE atomic whole-panel flush in the BRIGHT panel, drain-witnessed
+       else card miss (compute progress)
+           P->>P: moon_bake_progress strip-chunked, rows watermark under s_rgb_mtx (the seconds arc sweeps it)
            P->>TF: write-through store + eviction (max of synodic-back and new-moon floor)
+           P->>P: publish s_frame + s_rgb in one s_rgb_mtx block
+           TICK->>PN: ONE atomic whole-panel flush in the BRIGHT panel, drain-witnessed
+       else sleep entry mid-bake (s_compute_stop)
+           P->>P: deletes itself BEFORE the publish — the partial bounce never shows
+           Note over MIN,PN: wake re-arms the cycle (s_baked_hour never committed)
        else producer misses the 5 s budget
-           TICK->>PN: heal the half-revealed square back to the OLD frame, restore brightness only
+           Note over TICK,PN: nothing to restore — the OLD frame is still up
        end
        Note over MIN,PN: s_baked_hour + s_baked_event commit ON SHOW — a cycle that never shows stays due and self-heals on the next minute tick
-       Note over TICK: a sleep entry mid-cycle drops the pending legs and restores the brightness before pausing (moon_ui_pause)
    </pre>
 
 The bake key is the **hour centre** (``hour * 3600 + 1800``): stable
@@ -157,9 +163,12 @@ cycle that never shows leaves the next hour still due (it self-heals on
 the next minute tick).
 
 Sleep hand-off. If a sleep entry lands mid-cycle, ``moon_ui_pause(true)``
-drops the pending legs and restores the brightness before pausing the
-tick — an armed-or-black hourly must never hand the sleep screens a black
-panel (the screen-switch fade-starve lesson, this time on the sleep path).
+sets ``s_compute_stop`` and the producer deletes itself *before* the
+publish (the partial bounce never shows, never stores — the watermark's
+bounce-only rule), and drops the pending legs before pausing the tick:
+the panel keeps the consistent OLD frame into the sleep screens, and the
+wake's day-tick re-arms the cycle (``s_baked_hour`` was never committed
+on show).
 
 **Bench hook.** ``CONFIG_TEST_HOURLY_FORCE_S=N`` fires the full cycle
 every N seconds while the home is active and not idle — acceptance for
@@ -188,7 +197,7 @@ normal path rather than an error:
 
 .. graphviz:: ../_graphs/tf-hour-cache-flow.dot
    :alt: The producers opened — the boot replay listing hours ascending and presenting first, the hourly probe holding off while it does, a fetch HIT tinting and publishing in 185–235 ms, a MISS baking then write-through storing, the lazy once-only mount and the not-ready normal posture
-   :caption: The producers — the boot replay lists hours ASCENDING, presents first, and the hourly probe/spawn holds off while it does (two core-1 producers, never concurrent); a fetch HIT tints the LUT and publishes in 185–235 ms inside the fade's black window, a MISS bakes then WRITE-THROUGH stores so the next fetch hits, and the replay ends in its revealed now-bake FINAL leg that commits on show; init runs once, driven by the FIRST producer — a card-less boot pays one ~1 s probe and the scratch stays resident (the decode out-buffer remains lazy, task #38).
+   :caption: The producers — the boot replay lists hours ASCENDING, presents first, and the hourly probe/spawn holds off while it does (two core-1 producers, never concurrent); a fetch HIT tints the LUT and publishes in 185–235 ms (old-frame-then-atomic — the hourly owns no black window since 2026-11-24), a MISS bakes strip-chunked (the rows watermark drives the seconds arc) then WRITE-THROUGH stores so the next fetch hits, and the replay ends in its now-bake FINAL leg that commits on show; init runs once, driven by the FIRST producer — a card-less boot pays one ~1 s probe and the scratch stays resident (the decode out-buffer remains lazy, task #38).
    :align: center
 
 The cache persists one small gray JPEG per HOUR under
@@ -221,7 +230,8 @@ full 709-file card month, per board — is quantified in
 
 The producer mounts the card **lazily on the first producer to run** —
 the boot replay task when ``UI_MOON_BOOT_REPLAY`` is on (a card-less
-boot then pays ~1 s of mount probe before the revealed-now path starts),
+boot then pays ~1 s of mount probe before the now path starts — the
+panel holds the quick phase disc meanwhile),
 otherwise the first hourly refresh, in which case boot never touches the
 SD bus — and every card failure (missing card, failed mount, failed
 decode, a mid-run pull, a store error) flips ``tfcache_ready()`` false
@@ -264,27 +274,27 @@ the 709-file cap and the budget — is plotted in
 
 The **final leg** is the "during re-calculation" half: the current
 phase is live-computed on the same task (classify + event LUT +
-``moon_reveal_bake`` into the hourly bounce **outside** the mutex,
+``moon_bake_progress`` into the hourly bounce **outside** the mutex,
 published in one short guarded block — the hourly shape again), commits
 the bookkeeping (``s_orbit_epoch`` / ``s_baked_hour`` / ``s_baked_event``
 / ``s_baked_day``) and rides the tick's last atomic show, drain-witnessed
-as ``boot replay final``. With ``UI_MOON_BAKE_REVEAL`` (default y) that
-final bake is *revealed* while it runs — the square goes black and each
-completed strip lands as one atomic band, so the current phase draws
-itself north to south at the bake rate instead of the panel freezing on
-the newest stored frame for the ~1.3 s (:doc:`the bake reveal
-<bake-reveal>`). Stored frames never move
+as ``boot replay final``. While the final bake runs the panel keeps
+what it already has — the newest stored frame, or the **quick phase
+disc** where the boot had no frame to show — and the seconds arc sweeps
+the bake's rows-completed watermark as a progress bar
+(:doc:`the compute progress <compute-progress>`); the finished frame
+lands over it as one atomic whole-panel flush. Stored frames never move
 ``s_orbit_epoch`` — they are historic phases; only the final bake may.
 No card, cold folder, version wipe or no clock: the animation leg
-simply has nothing to show and the panel holds its boot black until the
-final leg starts revealing (or, without a trustworthy time, until the
-day-tick re-bakes after the clock syncs — the pre-replay black path,
-which does *not* reveal). The
-**knob** has no SD socket, so it always takes the black path — but not
-a silent one: its boot bake is revealed row by row through its own
-``KNOB_UI_BAKE_REVEAL`` seam (:doc:`the knob display <knob-display>`).
-Demo mode boots
-without the replay (its scripted tour owns the display).
+simply has nothing to show and the panel holds the quick phase disc
+until the final bake lands (or, without a trustworthy time, it stays
+black until the day-tick re-bakes after the clock syncs — the pre-replay
+black path, which has no epoch and therefore no disc). The
+**knob** has no SD socket, so it always computes at boot — and with no
+saved frame on glass it publishes the quick phase disc first and the
+fresh bake swaps over it (:doc:`the compute progress
+<compute-progress>`, :doc:`the knob display <knob-display>`). Demo
+mode boots without the replay (its scripted tour owns the display).
 
 The whole presentation, including the abort path and the single-caller
 arbitration the ladder rests on:
@@ -300,9 +310,9 @@ arbitration the ladder rests on:
      SHOW --> MORE{"more hours?"}
      MORE -- "yes" --> FETCH
      MORE -- "no, stopped on newest" --> FINAL
-     LIST -- "no card, cold folder, version wipe, no clock" --> BLACK["panel holds boot black"]
-     BLACK --> FINAL
-     FINAL["final leg — classify + event LUT + revealed now-bake outside the mutex"] --> LAST["tick's last atomic show, bookkeeping commits, end leg re-arms the idle ladder"]
+     LIST -- "no card, cold folder, version wipe" --> DISC["panel holds the quick phase disc (no clock: stays black — no epoch)"]
+     DISC --> FINAL
+     FINAL["final leg — classify + event LUT + now-bake outside the mutex (the seconds arc sweeps its rows watermark)"] --> LAST["tick's last atomic show, bookkeeping commits, end leg re-arms the idle ladder"]
      SHOW -. "sleep entry or screen switch aborts — un-shown frames dropped, final bake skipped" .-> ABORT["s_baked_day stays 0 — the minute day-tick queues the corrective re-bake on return"]
    </pre>
 
@@ -341,9 +351,10 @@ not on a computed montage endpoint. ``new_moon_epoch`` lives again in
 that service (the cache policy's new-moon floor, not a sweep span); the
 sweep itself is gone. The knob sibling followed on 2026-11-14,
 retiring its own cold-boot sweep, and with no SD socket it boots to the
-single static frame — its first bake revealed row by row over the boot
-black (:doc:`the bake reveal <bake-reveal>`, :doc:`the knob
-display <knob-display>`). The subsystem as shipped is
+single static frame — and since 2026-11-24 (the compute-progress
+change) its boot without a saved frame holds the quick phase disc
+instead of black (:doc:`the compute progress <compute-progress>`,
+:doc:`the knob display <knob-display>`). The subsystem as shipped is
 summarized here only as dated history; the sweep code
 (``moon_sweep_task`` / ``moon_sweep_interrupt`` / ``s_sweep_*``) and its
 Kconfig (``UI_MOON_ANIM_*``) are gone from the clock tree.
@@ -645,21 +656,25 @@ benchmark context in :doc:`performance <../verification/performance>`):
    * - Hourly refresh, warm card (TF hour-cache fetch)
      - **measured 185–235 ms** whole cycle (read + decode +
        publish; ``new_moon_epoch_cached`` memoization, 2026-11-14
-       forced-hourly bench) + the two 240 ms fade legs
-     - read ~55 ms + decode ~79 ms per hour + the two
-       fade legs (fetch path carried; P4 bench pending)
+       forced-hourly bench) — no fade legs (the panel never dims
+       since 2026-11-24; the hit frame lands atomically over the old
+       one in the bright panel)
+     - read ~55 ms + decode ~79 ms per hour (fetch path carried;
+       P4 bench pending)
    * - Hourly refresh, cold card (bake + write-through store)
-     - revealed bake internals **2687 ms**, whole cycle
-       **3083 ms** — inside the 5 s budget (+ store); the fade-back
-       is paid at the first strip (observed: ``first strip up, panel
-       brightness 0 -> 100``), so the dark window is the fade, not
-       the bake (:doc:`the bake reveal <bake-reveal>`)
-     - bake ~2.4 s; reveal shape shared — P4 bench pending
+     - strip-loop bake internals **2687 ms**, whole cycle
+       **3083 ms** (2026-11-14 bench; no fade legs owed since
+       2026-11-24, so the whole cycle is the bake + one atomic show +
+       the store) — inside the 5 s budget; the old frame is up the
+       whole cycle, the seconds arc sweeps the watermark
+       (:doc:`the compute progress <compute-progress>`)
+     - bake ~2.4 s; strip loop shared — P4 bench pending
    * - Boot replay, warm card (per-frame TF fetch + atomic show)
      - pacing floor ``UI_MOON_REPLAY_FPS`` (8);
-       final revealed leg measured **2009–2615 ms**
-       (400/400 rows, 20 band states, three boots 2026-11-14)
-     - same shape (26-row bands); bench pending
+       final strip-loop leg measured **2009–2615 ms**
+       (400/400 rows, three boots 2026-11-14; the quick phase disc
+       is up from boot meanwhile)
+     - same shape (13-row strips); bench pending
    * - Screen-switch fade (0x51 ramp, no pixels)
      - 240 ms × 2 legs, 12 steps (~100 µs param each)
      - 240 ms × 2 legs, 12 steps

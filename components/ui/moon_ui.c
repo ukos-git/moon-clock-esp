@@ -12,52 +12,49 @@
  *     and cost more than the burn-in duty it served.
  *
  * Boot (UI_MOON_BOOT_REPLAY, the replay section): the core-1 replay
- * producer plays ALL stored TF hour frames ascending on the boot black
- * -- one atomic whole-frame show per tick, no fade -- and ends on the
- * newest stored frame; the live-computed current phase lands as the
- * final frame right after. With no usable cache there is nothing to
- * play, and the now-frame's ~1.3-2.4 s bake would leave the panel dead
- * black -- the bake reveal (UI_MOON_BAKE_REVEAL, the reveal section)
- * makes that computation visible instead: the moon draws itself north
- * to south over black at the actual bake rate. With the replay off,
- * moon_ui_start bakes the current phase synchronously and the tick
- * displays it whole (the synodic boot sweep of the pre-2026-11-13 era
- * -- the last 29.5 days computed on the fly -- stayed removed; the
- * replay is pure playback of the hour cache; the reveal shows the REAL
- * bake, it is not a canned animation).
+ * producer plays ALL stored TF hour frames ascending -- one atomic
+ * whole-frame show per tick, no fade -- and ends on the newest stored
+ * frame; the live-computed current phase lands as the final frame right
+ * after. While that now-frame bakes (and wherever the panel would
+ * otherwise sit dark: the boot first frame with no usable cache, the
+ * no-replay sync bake), the COMPUTE section (user decision 2026-11-24,
+ * docs/implementation/compute-progress) shows the computation INSTEAD
+ * of the result: the home/wifi seconds arc doubles as a progress bar
+ * driven by the producer's rows-completed watermark, and the panel
+ * shows the quick flat phase disc (moon_bake_phase_dummy) -- the
+ * current phase as a plain uniform-albedo sphere, tens of ms to bake --
+ * until the real frame replaces it atomically. With the replay off,
+ * moon_ui_start bakes the current phase synchronously over the disc
+ * and the tick displays it whole (the synodic boot sweep of the
+ * pre-2026-11-13 era -- the last 29.5 days computed on the fly --
+ * stayed removed; the replay is pure playback of the hour cache).
  *
  * Display invariant (the "no top-to-bottom" rule): every frame the
  * pipeline produces -- orbit sweep frame, re-bake, the hourly refresh,
- * and even a screen switch -- is displayed as ONE atomic whole-frame /
- * whole-panel lv_refr_now under the buffer mutex. A frame
- * must never be left for LVGL's async refresh to drain in 25-row strips
- * (that is the visible top-to-bottom crawl), and no pending full-screen
- * invalidation (e.g. a screen-load animation) may ride along in one of
- * these flushes -- a screen switch is a plain lv_scr_load + one atomic
- * whole-panel flush (moon_ui_screen_switched). The ONE sanctioned
- * exception: the hardware brightness fade (UI_SCREEN_SWITCH_FADE, reused
- * by the hourly refresh) -- a panel-brightness ramp that writes no
- * pixels, whose one atomic flush of the new frame runs while the panel
- * is dimmed to black. The SECOND sanctioned flow (user decision
- * 2026-11-14, docs/implementation/bake-reveal): the bake reveal --
- * during the current-phase bake the moon square arrives as a sequence
- * of atomic strip states (each strip's rows are fully baked, converted
- * and flushed as ONE strip-band lv_refr_now under the buffer mutex with
- * its drain witness; unbaked rows are black). Every DISPLAYED state is
- * still one atomic flush; the rule forbids a frame torn MID-ROW by the
- * async drain, not a designed sequence of consistent states.
+ * the boot disc, and even a screen switch -- is displayed as ONE
+ * atomic whole-frame / whole-panel lv_refr_now under the buffer mutex.
+ * A frame must never be left for LVGL's async refresh to drain in
+ * 25-row strips (that is the visible top-to-bottom crawl), and no
+ * pending full-screen invalidation (e.g. a screen-load animation) may
+ * ride along in one of these flushes -- a screen switch is a plain
+ * lv_scr_load + one atomic whole-panel flush
+ * (moon_ui_screen_switched). The ONE sanctioned exception: the
+ * hardware brightness fade (UI_SCREEN_SWITCH_FADE) -- a
+ * panel-brightness ramp that writes no pixels, whose one atomic flush
+ * of the new frame runs while the panel is dimmed to black. (The
+ * second flow that once rode this exception -- the hourly's
+ * fade-to-black + the strip-by-strip bake reveal -- is retired
+ * 2026-11-24: the compute progress above replaces it; the hourly never
+ * dims, and in-flight bakes write only the PSRAM bounce, so every
+ * resting panel state is a complete frame.)
  *
- * Once per hour the home's moon refreshes behind that fade (the hourly
- * section): the panel dims to black on its OWN brightness (0x51 / the
- * P4 backlight), a core-1 task produces the current-phase frame at the
- * HOUR CENTRE (the TF hour cache serves it when the card has it, else a
- * full bake with write-through store), the finished frame lands as ONE
- * atomic whole-panel flush, and the brightness ramps back. With the
- * bake reveal on (the cold-bake leg only -- a TF hit has nothing to
- * compute), the brightness ramp-back starts at the FIRST completed bake
- * strip, so the panel never sits black for the whole bake: the user
- * watches the moon being computed, strip by strip. Only the brightness
- * animates -- the clock, the
+ * Once per hour the home's moon refreshes (the hourly section): a
+ * core-1 task produces the current-phase frame at the HOUR CENTRE (the
+ * TF hour cache serves it when the card has it, else a full bake with
+ * write-through store), and the finished frame lands as ONE atomic
+ * whole-panel flush -- into the BRIGHT panel: the old frame stays up
+ * the whole bake (user 2026-11-24) and the seconds arc sweeps the
+ * progress in its place. Nothing animates on 0x51 -- the clock, the
  * alarm row and the seconds keep running, and the refresh is skipped
  * while the device is idle, on a moon-less screen, or while another
  * pipeline / 0x51 ramp owns the buffers.
@@ -252,35 +249,18 @@ static const char *TAG = "moon_ui";
 /* Once-per-hour moon refresh (the hourly section). All four fall back to
  * 0/off so a Kconfig "n" (which leaves the macro UNDEFINED) can never
  * re-enable a feature the build turned off -- the rule the orbit note
- * above documents. FADE_MS follows the screen-switch fade when Kconfig
- * leaves it at its default; it is only referenced while HOURLY_ENABLE is
- * on. HOURLY_TFCACHE gates the producer's TF hour-cache leg. */
+ * above documents. HOURLY_TFCACHE gates the producer's TF hour-cache
+ * leg. (The old FADE_MS option retired 2026-11-24 with the hourly's
+ * fade-to-black: the old frame now stays up while the producer bakes,
+ * and the new frame lands atomically over it in the bright panel.) */
 #ifndef CONFIG_UI_MOON_HOURLY_ENABLE
 #define CONFIG_UI_MOON_HOURLY_ENABLE 0
 #endif
 #ifndef CONFIG_UI_MOON_HOURLY_TFCACHE
 #define CONFIG_UI_MOON_HOURLY_TFCACHE 0
 #endif
-#ifndef CONFIG_UI_MOON_HOURLY_FADE_MS
-#define CONFIG_UI_MOON_HOURLY_FADE_MS CONFIG_UI_SCREEN_SWITCH_FADE
-#endif
 #ifndef CONFIG_TEST_HOURLY_FORCE_S
 #define CONFIG_TEST_HOURLY_FORCE_S 0
-#endif
-/* The bake reveal (the reveal section): the current-phase bake displayed
- * AS it computes instead of a black window. Follows the hourly refresh
- * (its cold-bake leg and the boot replay's final leg are the two
- * revealed bakes); the 0 fallback follows the n-undefined rule the orbit
- * note documents. */
-#ifndef CONFIG_UI_MOON_BAKE_REVEAL
-#define CONFIG_UI_MOON_BAKE_REVEAL 0
-#endif
-/* Reveal pacing instrumentation (the TEST_BAKE_REVEAL_TRACE test hook, the
- * reveal section): producer-strip / displayed-band / gated-tick lines. The
- * 0 fallback follows the n-undefined rule; everything it gates compiles
- * out when off. */
-#ifndef CONFIG_TEST_BAKE_REVEAL_TRACE
-#define CONFIG_TEST_BAKE_REVEAL_TRACE 0
 #endif
 #ifndef CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC
 #define CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC 30
@@ -762,7 +742,8 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
             const uint32_t now = lv_tick_get();
             if (now - s_nomem_log >= 2000) {
                 s_nomem_log = now;
-                ESP_LOGW(TAG, "strip bounce no-mem (storm pressure): task %s (y %d..%d), largest-DMA %u B -- riding out",
+                ESP_LOGW(TAG,
+                         "strip bounce no-mem (storm pressure): task %s (y %d..%d), largest-DMA %u B -- riding out",
                          pcTaskGetName(NULL), y_start, y_end,
                          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
             }
@@ -793,9 +774,9 @@ static esp_err_t moon_panel_draw_wait(esp_lcd_panel_t *panel, int x_start, int y
              "panel draw not accepted: task %s (y %d..%d); last accepted: %s @ %lu ms ago (the culprit); "
              "io errors: %d×0x%x %d×0x%x %d×0x%x %d×0x%x; largest-DMA %u B",
              pcTaskGetName(NULL), y_start, y_end, s_last_accept_desc,
-             (unsigned long)(lv_tick_get() - s_last_accept_tick), (int)tally_n[0], (int)tally_code[0],
-             (int)tally_n[1], (int)tally_code[1], (int)tally_n[2], (int)tally_code[2], (int)tally_n[3],
-             (int)tally_code[3], (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+             (unsigned long)(lv_tick_get() - s_last_accept_tick), (int)tally_n[0], (int)tally_code[0], (int)tally_n[1],
+             (int)tally_code[1], (int)tally_n[2], (int)tally_code[2], (int)tally_n[3], (int)tally_code[3],
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     return ESP_ERR_TIMEOUT;
 }
 
@@ -1154,19 +1135,19 @@ static TaskHandle_t s_rebake_task;
  * Producer/consumer split, exactly like the deferred re-bake: the LVGL task
  * is never blocked on a bake. The minute path (moon_ui_day_tick ->
  * moon_hourly_probe) records the INTENT (s_hourly_start + the hour-centre
- * epoch); the tick (moon_hourly_service, LVGL task) does the fade-to-black
- * + spawns the core-1 producer; the producer fills s_hourly_gray (TF hour
- * fetch or a full bake), then in ONE s_rgb_mtx block memcpy's it over
- * s_frame and rebuilds s_rgb, and sets s_hourly_done; the tick's done leg
- * shows the frame as ONE atomic whole-panel flush while the panel is still
- * black, then ramps the brightness back. The clock, alarm row and seconds
- * keep running throughout -- only the brightness animates. */
+ * epoch); the tick (moon_hourly_service, LVGL task) spawns the core-1
+ * producer; the producer fills s_hourly_gray (TF hour fetch or a full
+ * bake), then in ONE s_rgb_mtx block memcpy's it over s_frame and rebuilds
+ * s_rgb, and sets s_hourly_done; the tick's done leg shows the frame as ONE
+ * atomic whole-panel flush. The panel NEVER dims (user 2026-11-24): the old
+ * frame stays up the whole bake; the seconds arc sweeps the progress
+ * (moon_ui_compute_progress) in its place. The clock, alarm row and
+ * seconds keep running throughout. */
 #define HOURLY_BUDGET_MS 5000                 /* producer wall-clock budget */
 static volatile bool s_hourly_start;          /* the probe armed a cycle; the tick fades + spawns */
 static volatile bool s_hourly_baking;         /* core-1 producer running */
 static volatile bool s_hourly_done;           /* producer filled s_rgb: the tick shows it */
-static volatile bool s_hourly_failed;         /* producer could not produce: restore, keep old frame */
-static volatile bool s_hourly_faded;          /* dimmed to black: a fade-in back to 100 is owed */
+static volatile bool s_hourly_failed;         /* producer could not produce: old frame stays up */
 static volatile int64_t s_hourly_epoch;       /* the hour-centre epoch being produced */
 static volatile int s_hourly_event_sig;       /* signature to commit on show (s_baked_event) */
 static volatile int s_hourly_src;             /* 1 = TF hour cache, 0 = baked (log only) */
@@ -1300,77 +1281,50 @@ static void moon_invalidate_all(void) {
         lv_obj_invalidate(s_images[i]);
 }
 
-/* ---------------- bake reveal (UI_MOON_BAKE_REVEAL) -- the computation,
- * made visible (user decision 2026-11-14, docs/implementation/bake-reveal) --
+/* ---------------- computation progress (user decision 2026-11-24,
+ * docs/implementation/compute-progress) --
  *
- * The black windows of the current-phase bake (the hourly cold-bake leg
- * behind the fade, the boot replay's final "now" leg on the boot black:
- * ~1.3 s S3 / ~2.4 s P4 of dead panel) become the bake ITSELF. The core-1
- * producer bakes the PSRAM bounce strip by strip (moon_bake_rows -- the
- * row API the core always exposed for exactly this) and publishes a
- * rows-completed watermark; the tick converts each completed strip
- * gray->RGB565 into s_rgb and shows it as ONE lv_refr_now of that band
- * under s_rgb_mtx with its drain witness, over a moon square that was
- * cleared to black at reveal start. The moon draws itself north to south
- * at the ACTUAL bake rate: the bake is the metronome, no animation ever
- * outruns a computed row (no fake FPS -- if the bake slows, the reveal
- * slows; they are the same clock).
+ * The current-phase bake (the hourly cold-bake leg, the boot replay's
+ * final "now" leg: ~1.3 s S3 / ~2.4 s P4) is too slow to yield its
+ * result iteratively, so the computation is shown INSTEAD of the result:
+ * the producer bakes the PSRAM bounce strip by strip (moon_bake_rows --
+ * the row API the core always exposed for exactly this) and publishes a
+ * rows-completed watermark; the home/wifi screens' seconds arc (range
+ * 0..60) is driven from that watermark as a progress bar (the seam:
+ * moon_ui_compute_active / moon_ui_compute_progress, read by the
+ * screens' tick every 10 ms -- plain LVGL invalidates, never the whole-
+ * panel flush), and where the panel would otherwise be dark (the boot
+ * first frame: no committed frame on glass yet) the fast flat phase disc
+ * (moon_bake_phase_dummy) is shown as the dummy moon image. If a
+ * computed frame IS up (the hourly cold bake), the old frame stays up
+ * for the whole bake and the finished frame lands over it as the done
+ * leg's ONE atomic whole-panel flush in the bright panel -- the hourly
+ * never fades to black anymore (the 2026-11-14 fade choreography and
+ * the strip-by-strip reveal that rode it are retired).
  *
- * ATOMICITY-PER-STATE: every DISPLAYED state is still one atomic flush
- * (the black canvas, then consistent strip states -- never a row torn
- * mid-pixel by LVGL's async drain, the rule that retired the old sweep).
- * This is the second sanctioned flow beside the brightness ramp; the
- * invariant wording in the file header and architecture.rst carries it.
+ * s_frame is NEVER the partial side: only the bounce is written strip
+ * by strip, so every resting state of the panel is a COMPLETE frame --
+ * the old frame, the dummy, or the finished bake (each landed atomically
+ * through its existing show path). There is no half-revealed state, so
+ * there is nothing to heal. Single owner: the existing probes keep
+ * hourly / replay / orbit / re-bake mutually exclusive. The flags
+ * compile unconditionally (cheap) so the hang-context dump shows them.
  *
- * s_frame is NEVER touched during a reveal (only the bounce is), so any
- * abort heals the OLD frame back from s_frame (moon_reveal_restore) --
- * half a moon is never a resting state. The hourly fade choreography
- * pays its owed fade-in (s_hourly_faded) at the FIRST completed strip,
- * so the panel is dark for the fade window only, not fade + bake; the
- * finished frame still lands as the hourly done leg's ONE atomic
- * whole-panel flush (visually a no-op after a completed reveal -- the
- * contract and its drain witness are kept). Single owner: the existing
- * probes keep hourly / replay / orbit / re-bake mutually exclusive. The
- * flags compile unconditionally (cheap) so the hang-context dump shows
- * them even with the feature off. */
-enum { REVEAL_NONE = 0, REVEAL_HOURLY, REVEAL_REPLAY_FINAL };
-static volatile int s_reveal_owner;            /* whose bake is being revealed */
-static volatile uint32_t s_reveal_pub;         /* rows fully baked into the bounce */
-static volatile uint32_t s_reveal_shown;       /* rows the tick has displayed */
-static volatile bool s_reveal_clear;           /* the black canvas is not shown yet */
-static volatile bool s_reveal_dirty;           /* s_rgb holds reveal pixels: an abort must heal */
-static volatile bool s_reveal_stop;            /* finish/pause asked the producer to stop */
-static volatile int64_t s_reveal_last_show_ms; /* tick's last shown state (ms); the producer stamps
-                                                * it at ARM so the first bands drip, not collapse */
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-static volatile int64_t s_trace_arm_us; /* producer's arm stamp (the trace's t0) */
-#endif
-/* Reveal strip height: 40 states on the S3 400 (40 x 10), 50 on the P4
- * 650 (50 x 13) -- the user's 2026-11-15 call ("I currently only see
- * two... we can add more"): with the drain witness paid in ~50 ms
- * (bench-proven, the drain-verify note) and one strip per tick, every
- * strip lands as its own state; the strip height only sets how fine
- * those states are. The S3 band payload (10 rows x 400 px x 2 B = 8
- * KiB) stays well under the 23,300 B strip cap; LVGL still drains
- * through the BSP's own buffer strips, so the 32 KiB SPI-DMA cap is
- * untouched. */
+ * Watermark strip height: 40 steps on the S3 400 (40 x 10), 50 on the
+ * P4 650 (50 x 13) -- the arc updates ride the strips, so the progress
+ * bar moves in 40/50 "reasonable update steps" across the bake. */
+enum { COMPUTE_NONE = 0, COMPUTE_HOURLY, COMPUTE_REPLAY_FINAL };
+static volatile int s_compute_owner;    /* whose bake is in flight (the watermark's owner) */
+static volatile uint32_t s_compute_pub; /* rows fully baked into the bounce */
+static volatile bool s_compute_stop;    /* finish/pause asked the producer to stop */
 #if defined(CONFIG_BOARD_P4)
-#define MOON_REVEAL_ROWS 13
+#define MOON_COMPUTE_ROWS 13
 #else
-#define MOON_REVEAL_ROWS 10
+#define MOON_COMPUTE_ROWS 10
 #endif
-#if (MOON_PX % MOON_REVEAL_ROWS) != 0
-#error "MOON_PX must be a multiple of MOON_REVEAL_ROWS"
+#if (MOON_PX % MOON_COMPUTE_ROWS) != 0
+#error "MOON_PX must be a multiple of MOON_COMPUTE_ROWS"
 #endif
-#define REVEAL_CATCHUP_WAIT_MS                                                                                         \
-    2500 /* bounded wait for the tick to land the tail (one strip per                                                  \
-          * tick paces the tail at ~50 ms/strip: ~40 strips of drip                                                    \
-          * need ~2 s -- the old bound would truncate a full reveal                                                    \
-          * into the heal path) */
-#define REVEAL_PACE_WINDOW_MS                                                                                          \
-    400 /* tick "in rhythm" = showed a state this recently: drip ONE strip per tick (the brief);                       \
-         * longer = the tick was parked (a gate) -> resume collapses to the watermark instead of                       \
-         * dripping strips a parked viewer never saw */
 
 /* ---------------- observer view (UI_MOON_OBSERVER_ENABLE) ----------------
  *
@@ -1380,13 +1334,15 @@ static volatile int64_t s_trace_arm_us; /* producer's arm stamp (the trace's t0)
  * reference city -- the moon as seen standing in that city (the crescent
  * lies down at dusk, stands up at midnight, and follows the zone's
  * local time). moon_fill_rgb_from_frame(epoch) is the single s_rgb build
- * leg now: every path that publishes s_frame -> s_rgb (convert, heal,
+ * leg now: every path that publishes s_frame -> s_rgb (convert,
  * hourly/replay publish, orbit) runs it with the epoch the frame was
  * baked for, so any frame the pipeline lands carries the tilt. The
- * reveal drip is the ONE north-up display path left -- it is therefore
- * suppressed whenever a tilt is actually applied (the hourly cold-bake
- * leg and the replay final fall back to the monolithic bake; the drip
- * would otherwise show unbaked-tilt strips of the bounce).
+ * gather therefore runs ONLY at publish, never mid-strip: the in-flight
+ * compute bakes (the hourly cold-bake leg, the replay final) write
+ * NORTH-UP rows into the bounce and the single guarded publish block
+ * gathers the finished frame -- a mid-bake display could never show
+ * unbaked-tilt strips (the 2026-11-24 compute repurpose retired the
+ * strip drip, so the publish leg is the one display leg).
  * moon_ui_tz_changed() re-gathers the resting frame when the zone
  * changes without a re-bake.
  */
@@ -1430,223 +1386,67 @@ static void moon_fill_rgb_from_frame(int64_t epoch) {
         s_rgb[i] = moon_gray565(s_frame[i]);
 }
 
-#if CONFIG_UI_MOON_BAKE_REVEAL
-
-/* Heal the last committed frame over a half-revealed square: full
- * gray->RGB565 re-convert of the UNTOUCHED s_frame into s_rgb + ONE
- * atomic whole-panel flush (the moon_convert_to_rgb shape; LVGL-task
- * callers only -- moon_hourly_finish and moon_ui_pause both run there).
- * The reveal never wrote s_frame, so this always restores a COMPLETE
- * frame -- never half a moon. */
-static void moon_reveal_restore(void) {
-    s_reveal_dirty = false;
-    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    moon_fill_rgb_from_frame(s_orbit_epoch); /* the committed frame's epoch
-                                              * (observer tilt applies --
-                                              * though an active tilt keeps
-                                              * the reveal suppressed, so
-                                              * this is the plain pass) */
-    moon_invalidate_all();
-    lv_refr_now(NULL);
-    xSemaphoreGive(s_rgb_mtx);
-    moon_panel_drain_verify("bake reveal restore");
-}
-
-/* The revealed bake (core-1 producer side -- the hourly task, the replay
- * task's final leg): bake the PSRAM bounce strip by strip, publishing the
- * rows-completed watermark under the buffer mutex after every strip so
- * the tick's band reads and the watermark never race (the orbit rule).
- * The finished bounce is exactly what moon_bake would have produced (same
- * rows, same dark_zero/dk_sup, same event occlusion) -- everything
- * downstream (TF write-through, publish, commit-on-show) is unchanged.
+/* The in-flight compute bake (core-1 producer side -- the hourly task,
+ * the replay task's final leg): bake the PSRAM bounce strip by strip,
+ * publishing the rows-completed watermark under the buffer mutex after
+ * every strip so the screens' progress-bar read and the watermark never
+ * race (the orbit rule). The finished bounce is exactly what moon_bake
+ * would have produced (same rows, same dark_zero/dk_sup, same event
+ * occlusion) -- everything downstream (TF write-through, publish,
+ * commit-on-show) is unchanged. The panel never dims or clears for the
+ * bake: the old frame (or the boot dummy) stays up, and the finished
+ * frame lands as the done leg's one atomic whole-panel flush.
  * abort_flag rides the replay's s_replay_abort (NULL for the hourly leg,
- * which is bounded by the 5 s cycle budget plus the catch-up wait here).
- * NEVER touches the panel; NEVER touches s_frame. */
-static void moon_reveal_bake(int owner, const moon_geom_t *g, const uint8_t *alb, const moon_grel_t *grel,
-                             const moon_bake_ev_t *bev, const volatile bool *abort_flag) {
+ * which is bounded by the 5 s cycle budget). NEVER touches the panel;
+ * NEVER touches s_frame -- every resting state of the panel is a
+ * complete frame, so there is nothing to heal on an abort. */
+static void moon_bake_progress(int owner, const moon_geom_t *g, const uint8_t *alb, const moon_grel_t *grel,
+                               const moon_bake_ev_t *bev, const volatile bool *abort_flag) {
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    s_reveal_owner = owner;
-    s_reveal_pub = 0;
-    s_reveal_shown = 0;
-    s_reveal_dirty = false;
-    s_reveal_clear = true;
-    s_reveal_stop = false;
-    s_reveal_last_show_ms = esp_timer_get_time() / 1000; /* "in rhythm" from the first tick */
+    s_compute_owner = owner;
+    s_compute_pub = 0;
+    s_compute_stop = false;
     xSemaphoreGive(s_rgb_mtx);
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    ESP_LOGI(TAG, "reveal trace: ARM owner %d (%d px / %d rows)", owner, MOON_PX, MOON_REVEAL_ROWS);
-#endif
     const int64_t t0 = esp_timer_get_time();
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    s_trace_arm_us = t0;
-#endif
     int y = 0;
     while (y < MOON_PX) {
-        if (s_reveal_stop || (abort_flag && *abort_flag))
+        if (s_compute_stop || (abort_flag && *abort_flag))
             break;
-        int y1 = y + MOON_REVEAL_ROWS;
+        int y1 = y + MOON_COMPUTE_ROWS;
         if (y1 > MOON_PX)
             y1 = MOON_PX;
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-        const int64_t strip_t0 = esp_timer_get_time();
-#endif
         moon_bake_rows(g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
                        MOON_ALB_W, MOON_ALB_H, y, y1, /*dark_zero=*/1, /*dk_sup=*/0.0f, bev);
         xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        s_reveal_pub = (uint32_t)y1; /* the mutex orders the watermark against
-                                      * the tick's row reads (the orbit rule) */
+        s_compute_pub = (uint32_t)y1; /* the mutex orders the watermark against
+                                       * the screens' reads (the orbit rule) */
         xSemaphoreGive(s_rgb_mtx);
         y = y1;
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-        ESP_LOGI(TAG, "reveal trace: strip ->%d baked %lld ms +%lld ms (owner %d)", y,
-                 (long long)((esp_timer_get_time() - strip_t0) / 1000), (long long)((esp_timer_get_time() - t0) / 1000),
-                 owner);
-#endif
         vTaskDelay(1); /* every strip: IDLE1 + TWDT oxygen (the orbit/knob bake cadence) */
     }
-    /* Let the tick land the tail (bounded -- a parked or starved tick
-     * never wedges this task; the done legs show atomically regardless,
-     * and the heal paths cover every aborted state). */
-    const int64_t catch_t0 = esp_timer_get_time() / 1000;
-    while (s_reveal_shown < (uint32_t)MOON_PX && !s_reveal_stop && !(abort_flag && *abort_flag)) {
-        if (esp_timer_get_time() / 1000 - catch_t0 > REVEAL_CATCHUP_WAIT_MS) {
-            ESP_LOGW(TAG, "bake reveal: catch-up wait expired");
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
+    /* The owner clears LAST and under the same mutex the watermark is
+     * published with: a reader sees either (owner set, progress rising)
+     * or (owner NONE, progress ignored) -- never a torn pair. */
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    s_reveal_owner = REVEAL_NONE;
+    s_compute_owner = COMPUTE_NONE;
     xSemaphoreGive(s_rgb_mtx);
-    ESP_LOGI(TAG, "bake reveal: %d/%d rows in %lld ms (owner %d, shown %u)", y, MOON_PX,
-             (long long)((esp_timer_get_time() - t0) / 1000), owner, (unsigned)s_reveal_shown);
+    ESP_LOGI(TAG, "compute: %d/%d rows in %lld ms (owner %d)", y, MOON_PX,
+             (long long)((esp_timer_get_time() - t0) / 1000), owner);
 }
 
-/* The tick's reveal leg (LVGL task), called right after the hourly
- * service: consume the producer's watermark as designed atomic strip
- * states -- one state per tick (black canvas first, then one band per
- * call: the 50 ms tick against the real bake rate). */
-static void moon_bake_reveal_service(void) {
-    if (s_reveal_owner == REVEAL_NONE && !s_reveal_dirty)
-        return;
-    /* Panel-ownership gates (the orbit sweep's list plus the fade flows):
-     * a moon-less screen, a traffic hold, light sleep, a screen-switch
-     * fade or the sweep's own strip drain parks the reveal; the tick
-     * heals / resumes when the panel frees (dirty persists until then).
-     * s_fade_busy is DELIBERATELY not a gate: during the hourly the
-     * reveal leg IS the 0x51 writer that pays the owed fade-in. */
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    /* Same five gates, read once so the gated dump can name them (all
-     * cheap flag reads; the hold's expiry self-heal is time-driven
-     * anyway). bits: 1 screen, 2 hold, 4 idle, 8 fade, 16 sweep. */
-    const int gates = (!s_moon_screen) | (panel_hold_live() << 1) | (clock_is_idle() << 2) | (s_fade_pending << 3) |
-                      (s_orbit_sweeping << 4);
-    if (gates) {
-        static int64_t s_trace_gate_ms; /* tick context only */
-        const int64_t now_ms = esp_timer_get_time() / 1000;
-        if (s_reveal_owner != REVEAL_NONE && now_ms - s_trace_gate_ms >= 1000) {
-            s_trace_gate_ms = now_ms;
-            ESP_LOGI(TAG, "reveal trace: GATED 0x%02x pub=%u shown=%u +%lld ms", gates, (unsigned)s_reveal_pub,
-                     (unsigned)s_reveal_shown, (long long)((esp_timer_get_time() - s_trace_arm_us) / 1000));
-        }
-        return;
-    }
-#else
-    if (!s_moon_screen || panel_hold_live() || clock_is_idle() || s_fade_pending || s_orbit_sweeping)
-        return;
-#endif
-    int state = 0; /* 1 = canvas shown, 2 = strip band shown, 3 = heal */
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    uint32_t trace_from = 0; /* band's first row (the trace line) */
-#endif
-    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-    if (s_reveal_owner == REVEAL_NONE) {
-        if (s_reveal_dirty) { /* backstop heal: finish/pause already cover the
-                               * designed exits; this catches a producer that
-                               * died with strips up (screen left mid-reveal --
-                               * healed on the way back) */
-            moon_fill_rgb_from_frame(s_orbit_epoch);
-            s_reveal_dirty = false;
-            moon_invalidate_all();
-            lv_refr_now(NULL);
-            state = 3;
-        }
-    } else if (s_reveal_clear) {
-        memset(s_rgb, 0, sizeof(uint16_t) * (size_t)MOON_PX * MOON_PX);
-        s_reveal_clear = false;
-        s_reveal_shown = 0;
-        s_reveal_dirty = true; /* s_rgb now diverges from s_frame: the black
-                                * canvas + strips is a DESIGN state, half of
-                                * it is not -- any abort must heal */
-        moon_invalidate_all();
-        lv_refr_now(NULL);
-        state = 1;
-    } else {
-        /* The brief's "one completed strip band per 50 ms tick": while the
-         * tick is in rhythm it advances by ONE strip, so every computed
-         * strip becomes its own visible state (the producer is free-run:
-         * the watermark would outrun the panel and collapse strips). The
-         * watermark only wins right after a park (the tick showed nothing
-         * for REVEAL_PACE_WINDOW_MS -- gated by hold/idle/fade/sweep):
-         * stale strips are not worth dripping to a viewer who never saw
-         * the recent ones. */
-        uint32_t to = s_reveal_pub;
-        if (to > (uint32_t)MOON_PX)
-            to = (uint32_t)MOON_PX;
-        if (to > s_reveal_shown + (uint32_t)MOON_REVEAL_ROWS &&
-            esp_timer_get_time() / 1000 - s_reveal_last_show_ms <= REVEAL_PACE_WINDOW_MS)
-            to = s_reveal_shown + (uint32_t)MOON_REVEAL_ROWS;
-        if (to > s_reveal_shown) {
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-            trace_from = s_reveal_shown;
-#endif
-            for (uint32_t r = s_reveal_shown; r < to; r++) {
-                const uint8_t *frow = &s_hourly_gray[(size_t)r * MOON_PX];
-                uint16_t *rrow = &s_rgb[(size_t)r * MOON_PX];
-                for (int x = 0; x < MOON_PX; x++)
-                    rrow[x] = moon_gray565(frow[x]);
-            }
-            lv_area_t a = {.x1 = (lv_coord_t)MOON_IMG_POS,
-                           .y1 = (lv_coord_t)(MOON_IMG_POS + (int)s_reveal_shown),
-                           .x2 = (lv_coord_t)(MOON_IMG_POS + MOON_PX - 1),
-                           .y2 = (lv_coord_t)(MOON_IMG_POS + (int)to - 1)};
-            for (int i = 0; i < s_n_images; i++)
-                lv_obj_invalidate_area(s_images[i], &a);
-            s_reveal_shown = to;
-            s_reveal_dirty = true;
-            lv_refr_now(NULL);
-            s_reveal_last_show_ms = esp_timer_get_time() / 1000;
-            state = 2;
-        }
-    }
-    xSemaphoreGive(s_rgb_mtx);
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    const int64_t pre_drain_us = esp_timer_get_time();
-#endif
-    if (state)
-        moon_panel_drain_verify(state == 1 ? "bake reveal clear"
-                                           : (state == 3 ? "bake reveal restore" : "bake reveal"));
-#if CONFIG_TEST_BAKE_REVEAL_TRACE
-    if (state)
-        ESP_LOGI(TAG, "reveal trace: %s rows %u..%u +%lld ms (witness %lld ms)",
-                 state == 1 ? "CANVAS" : (state == 3 ? "HEAL " : "band "), (unsigned)trace_from,
-                 (unsigned)s_reveal_shown, (long long)((esp_timer_get_time() - s_trace_arm_us) / 1000),
-                 (long long)((esp_timer_get_time() - pre_drain_us) / 1000));
-#endif
-    /* Hourly choreography (user decision 2026-11-14): the brightness ramp
-     * back starts with the FIRST computed strip instead of after the whole
-     * bake -- the dark window is the fade, not fade + bake. The owed
-     * fade-in is paid exactly once: moon_hourly_finish's branch is the
-     * only other payer and finds the flag false here (or pays it when no
-     * strip ever landed -- TF hit, failed cycle, feature off). */
-    if (state == 2 && s_hourly_faded) {
-        s_hourly_faded = false;
-        fade_ramp(0, 100, CONFIG_UI_MOON_HOURLY_FADE_MS);
-        s_fade_busy = false; /* the other 0x51 writers may run again */
-        ESP_LOGI(TAG, "bake reveal: first strip up, panel brightness 0 -> 100 (%d ms)", CONFIG_UI_MOON_HOURLY_FADE_MS);
-    }
+/* The seam the home/wifi screens' tick reads (the seconds arc as the
+ * compute progress bar, docs/implementation/compute-progress): active
+ * while a bake is in flight, progress 0..100 from the rows-completed
+ * watermark. Plain flag reads (the watermark only moves up within one
+ * bake; the owner flips back to COMPUTE_NONE under s_rgb_mtx after the
+ * last strip and before any next arm, so no lock is owed). */
+bool moon_ui_compute_active(void) { return s_compute_owner != COMPUTE_NONE; }
+
+int32_t moon_ui_compute_progress(void) {
+    if (s_compute_owner == COMPUTE_NONE)
+        return 0;
+    return (int32_t)(((uint64_t)s_compute_pub * 100) / (uint64_t)MOON_PX);
 }
-#endif /* CONFIG_UI_MOON_BAKE_REVEAL */
 
 /* Display of the baked frame: the 8-bit bake maps to the RGB565 buffer
  * through the LUT -- or through the observer-view gather when the
@@ -1817,9 +1617,11 @@ static void moon_rebake_request(int64_t epoch) {
  *   - the minute path moon_hourly_probe() (from moon_ui_day_tick) gates and
  *     arms: it records the hour-centre epoch + s_hourly_start, doing NO
  *     panel work (it may run on any task);
- *   - the tick moon_hourly_service() (LVGL task) fades to black and spawns
- *     the producer, then lands the finished frame as ONE atomic flush and
- *     fades back -- the fade's "atomic flush while black" rule, reused;
+ *   - the tick moon_hourly_service() (LVGL task) spawns the producer and
+ *     lands the finished frame as ONE atomic flush. The panel NEVER dims
+ *     (user 2026-11-24): the old frame stays up the whole bake and the
+ *     producer's rows watermark drives the seconds arc as the progress
+ *     bar -- the cycle owns no 0x51 traffic at all;
  *   - the producer moon_hourly_task() (core 1) fills the PSRAM bounce
  *     (TF hour fetch, else a full bake with write-through) and publishes
  *     s_frame + s_rgb in ONE s_rgb_mtx block. It NEVER touches the panel.
@@ -1896,22 +1698,24 @@ static void moon_hourly_task(void *arg) {
             vTaskDelete(NULL);
         }
         const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief();
-#if CONFIG_UI_MOON_BAKE_REVEAL
-        /* Reveal the computation (the reveal section): the same bake,
-         * strip by strip with a watermark the tick displays -- the panel
-         * is dark for the fade window only, not for the whole bake.
-         * Observer view: when the zone's city tilts this epoch the drip
-         * would display NORTH-UP strips of the bounce (the gather runs
-         * at publish), so the cold-bake leg takes the monolithic path
-         * instead -- the frame still lands as the done leg's one atomic
-         * flush behind the fade. */
-        float obs_q;
-        if (!moon_observer_theta(epoch, &obs_q))
-            moon_reveal_bake(REVEAL_HOURLY, &g, alb, grel, bev, NULL);
-        else
-#endif
-            moon_bake(&g, alb, grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                       MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
+        /* The compute-progress watermark (the compute section): the same
+         * bake, strip by strip with a rows watermark the seconds arc reads
+         * as the progress bar. The panel never dims -- the old frame stays
+         * up the whole bake, and the observer gather runs at publish
+         * (moon_fill_rgb_from_frame), so the strip loop is the one path
+         * for every cold bake. */
+        moon_bake_progress(COMPUTE_HOURLY, &g, alb, grel, bev, NULL);
+        if (s_compute_stop) { /* sleep entry stopped the strip loop:
+                               * s_hourly_gray is PARTIAL -- it must never
+                               * reach the publish leg (and it must not be
+                               * stored as a TF hour either). The wake's
+                               * day-tick re-arms the cycle (s_baked_hour
+                               * was never committed on show). */
+            ESP_LOGI(TAG, "hourly: stopped before publish (sleep hand-off)");
+            s_hourly_baking = false;
+            s_hourly_failed = true;
+            vTaskDelete(NULL);
+        }
 #if CONFIG_UI_MOON_TFCACHE && CONFIG_UI_MOON_HOURLY_TFCACHE
         if (tfcache_ready()) {
             tfcache_store(hour, s_hourly_gray, MOON_PX); /* write-through */
@@ -1975,14 +1779,14 @@ static bool moon_hourly_probe(int64_t now) {
 }
 
 /* The tick's hourly legs (LVGL task), called at the head of moon_tick_cb.
- * Start leg: the probe armed a cycle -- fade to black on the hardware
- * brightness (the fade's atomic rule: the flush that shows the new frame
- * lands while black) and spawn the producer. Done leg: the producer filled
- * s_rgb -- show it as ONE atomic whole-panel flush, then ramp back. Failed
- * leg (or a blown deadline): restore the brightness; the OLD frame is still
- * what s_rgb held. A late producer that lands after the deadline still
- * shows on its own done leg, but with no second fade-in (s_hourly_faded was
- * already cleared) -- never a second black. */
+ * Start leg: the probe armed a cycle -- spawn the producer. The panel
+ * NEVER dims (user 2026-11-24): the old frame stays up while the producer
+ * bakes (its rows watermark drives the seconds-arc progress bar), so the
+ * cycle owns no 0x51 traffic at all. Done leg: the producer filled s_rgb
+ * -- show it as ONE atomic whole-panel flush. Failed leg (or a blown
+ * deadline): nothing to restore -- the old frame is still what s_rgb
+ * held. A late producer that lands after the deadline still shows on its
+ * own done leg. */
 static void moon_hourly_service(void) {
     if (s_hourly_start) {
         s_hourly_start = false;
@@ -1990,19 +1794,16 @@ static void moon_hourly_service(void) {
             !s_rebake_baking && s_moon_screen && !s_fade_pending && !s_fade_busy && !moon_ui_replaying()) {
             s_hourly_deadline_ms = esp_timer_get_time() / 1000 + HOURLY_BUDGET_MS;
             s_hourly_baking = true;
-            s_fade_busy = true;    /* the dim ramp is the only 0x51 writer */
-            s_hourly_faded = true; /* a fade-in back to 100 is owed */
-            fade_ramp(s_panel_pct, 0, CONFIG_UI_MOON_HOURLY_FADE_MS);
             if (xTaskCreatePinnedToCore(moon_hourly_task, "moon_hourly", 12288, NULL, configMAX_PRIORITIES - 3,
                                         &s_hourly_task, 1) != pdPASS) {
-                ESP_LOGW(TAG, "hourly: producer task failed to start; restoring the old frame");
+                ESP_LOGW(TAG, "hourly: producer task failed to start; keeping the old frame");
                 s_hourly_baking = false;
-                s_hourly_failed = true; /* the failed leg below restores brightness */
+                s_hourly_failed = true; /* the failed leg below is a log line now */
             }
         }
     }
     if (s_hourly_baking && !s_hourly_done && !s_hourly_failed && esp_timer_get_time() / 1000 > s_hourly_deadline_ms) {
-        ESP_LOGW(TAG, "hourly: producer overran %d ms; restoring without it", HOURLY_BUDGET_MS);
+        ESP_LOGW(TAG, "hourly: producer overran %d ms; the old frame stays up", HOURLY_BUDGET_MS);
         s_hourly_failed = true; /* the producer, if it lands, only updates s_rgb late */
     }
     if (s_hourly_done) {
@@ -2026,12 +1827,18 @@ static void moon_hourly_service(void) {
  * calculated. The cache is cleared on each new moon and cannot hold more
  * than one synodic month of hourly frames."
  *
+ * The "stays black" leg of the 2026-11-14 brief is the 2026-11-24 flat
+ * phase disc (the compute section): before the producer spawns,
+ * moon_ui_start bakes moon_bake_phase_dummy into s_frame and paints it
+ * (the async boot-task paint), so the pre-animation panel shows the
+ * current phase in the cheap form, and the final now-bake's rows
+ * watermark drives the seconds arc while it computes.
+ *
  * Roles (the hourly split, reused): the tick leg in moon_tick_cb shows
  * every published frame as ONE atomic whole-panel flush with its drain
- * witness (no fade -- the brightness never moves; the replay's black is
- * the panel's boot black) and re-arms the idle ladder on the end leg;
- * the core-1 producer moon_boot_replay_task owns the card and the
- * buffers. The producer and the hourly producer NEVER run at once (the
+ * witness (no fade -- the brightness never moves) and re-arms the idle
+ * ladder on the end leg; the core-1 producer moon_boot_replay_task owns
+ * the card and the buffers. The producer and the hourly producer NEVER run at once (the
  * probe + spawn gates hold off while moon_ui_replaying()) -- they share
  * the s_hourly_gray bounce, the TF one-shot init, and tfcache's
  * single-caller contract. The whole replay (idle hold included) is
@@ -2225,35 +2032,23 @@ static void moon_boot_replay_task(void *arg) {
         moon_geom_t g;
         moon_geometry(now, &g);
         const moon_grel_t *grel = CONFIG_TEST_BAKE_NO_RELIEF ? NULL : moon_relief();
-        bool aborted_mid = false;
-#if CONFIG_UI_MOON_BAKE_REVEAL
-        /* The reveal rides the "during re-calculation" leg (the reveal
-         * section): with no usable cache this IS the boot display -- the
-         * moon draws itself over the boot black at the bake rate instead
-         * of the panel waiting ~1.3-2.4 s for it. The mid-bake abort
-         * check is the reveal's alone -- the monolithic bake below never
-         * checked (today's posture: a late abort still published).
-         * Observer view: with the zone's city tilting this epoch the
-         * drip would animate NORTH-UP strips (the gather runs at
-         * publish), so the leg bakes monolithically instead. */
-        float obs_q;
-        if (!moon_observer_theta(now, &obs_q)) {
-            moon_reveal_bake(REVEAL_REPLAY_FINAL, &g, moon_albedo(), grel, bev, &s_replay_abort);
-            aborted_mid = s_replay_abort;
-        } else {
-            moon_bake(&g, moon_albedo(), grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2),
-                      (float)(MOON_PX / 2), MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
-        }
-#else
-        moon_bake(&g, moon_albedo(), grel, s_hourly_gray, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2),
-                  MOON_ALB_W, MOON_ALB_H, 1, 0.0f, bev);
-#endif
-        if (aborted_mid) { /* stopped mid-reveal (sleep hand-off): the bounce
+        /* The compute-progress watermark rides the "during recalculation"
+         * leg (the compute section): with no usable cache the boot display
+         * is the flat phase disc (moon_ui_start baked it into s_frame
+         * before spawning this task), and this bake's rows watermark drives
+         * the seconds arc while the real frame lands over the disc --
+         * no black window at all. The panel never dims either way; the
+         * observer gather runs at publish (moon_fill_rgb_from_frame). */
+        moon_bake_progress(COMPUTE_REPLAY_FINAL, &g, moon_albedo(), grel, bev, &s_replay_abort);
+        const bool aborted_mid = s_replay_abort;
+        if (aborted_mid) { /* stopped mid-bake (sleep hand-off): the bounce
                             * holds partial rows -- do NOT publish;
                             * s_baked_day stays 0 and the flag below lets the
                             * wake's day-tick re-bake take the frame (the
-                            * aborted-replay posture). The reveal heal runs in
-                            * moon_ui_pause / the tick. */
+                            * aborted-replay posture). s_frame still holds a
+                            * COMPLETE frame (the disc or the last replay
+                            * frame) -- the panel rests on it, nothing to
+                            * heal. */
             s_frame_stale = true;
         } else {
             xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
@@ -2677,10 +2472,7 @@ static void moon_tick_cb(lv_timer_t *timer) {
     (void)timer;
     if (!s_ready || !s_started)
         return;
-    moon_hourly_service(); /* once-per-hour: fade / produce / show legs (head, owns the 0x51) */
-#if CONFIG_UI_MOON_BAKE_REVEAL
-    moon_bake_reveal_service(); /* strip states of an in-flight bake (the reveal section) */
-#endif
+    moon_hourly_service(); /* once-per-hour: produce / show legs (head, owns the 0x51) */
     /* Boot replay show legs (the replay section): every frame the core-1
      * producer published lands as ONE atomic whole-panel flush,
      * drain-witnessed like every sanctioned show (a lost completion would
@@ -2993,7 +2785,7 @@ void moon_ui_tz_changed(void) {
      * nothing is owed here. Bail rather than tear its buffers. */
     if (s_orbit_epoch <= 0 || s_frame_stale || s_orbit_baking || s_orbit_sweeping || s_rebake_baking ||
         s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed || moon_ui_replaying() ||
-        s_reveal_owner != REVEAL_NONE || s_reveal_dirty)
+        s_compute_owner != COMPUTE_NONE) /* a compute bake in flight owns the bounce */
         return;
     xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
     moon_fill_rgb_from_frame(s_orbit_epoch);
@@ -3012,6 +2804,32 @@ void moon_ui_tz_changed(void) {
     ESP_LOGI(TAG, "tz re-gather: observer view re-applied (%s)", flush ? "flushed" : "deferred to switch");
 }
 
+/* The boot disc (user 2026-11-24, the compute section): while the first
+ * REAL frame is still computing, the panel is not black -- it shows the
+ * quick phase disc, the current phase's flat uniform-albedo sphere
+ * (moon_bake_phase_dummy: no albedo, no relief, no events; tens of ms
+ * off the ~1.3 s full bake). Baked straight into s_frame under the buffer
+ * mutex like any other frame, then through the ordinary convert leg, so
+ * it rides the plain frame state: the first replay frame (or the
+ * finished boot bake) replaces it atomically through the existing
+ * publish/show path. No bookkeeping moves with the disc --
+ * s_baked_day/hour/event stay untouched, so the day-tick and the real
+ * boot bake commit exactly as before. Runs on the 3.5 KB main task at
+ * boot: the geometry call + the flat bake are cheap, and
+ * moon_convert_to_rgb only invalidates there (the LVGL task's async
+ * refresh paints it; a synchronous whole-panel lv_refr_now would
+ * overflow this stack -- the same rule as moon_bake_epoch's boot call). */
+static void moon_boot_disc(int64_t now) {
+    moon_geom_t g;
+    moon_geometry(now, &g);
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    moon_bake_phase_dummy(&g, s_frame, MOON_PX, MOON_R, (float)(MOON_PX / 2), (float)(MOON_PX / 2));
+    xSemaphoreGive(s_rgb_mtx);
+    s_frame_stale = false; /* a complete, consistent frame is in s_frame */
+    moon_convert_to_rgb();
+    ESP_LOGI(TAG, "boot disc: flat phase %.1f%% up while the real frame computes", g.illum * 100.0f);
+}
+
 void moon_ui_start(void) {
     if (!s_ready || s_started)
         return;
@@ -3024,9 +2842,10 @@ void moon_ui_start(void) {
      * on the newest; the live-computed current phase lands as the final
      * frame right after -- produced on core 1, so the boot task never
      * bakes synchronously on this path. With no usable cache the panel
-     * simply stays black until that now-frame lands (the replay itself
-     * needs no clock -- it is pure storage playback; only the final bake
-     * does). The presentation holds the idle->sleep ladder (the boot
+     * shows the quick phase disc (moon_boot_disc below, user 2026-11-24)
+     * until that now-frame lands (the replay itself needs no clock -- it
+     * is pure storage playback; only the disc and the final bake need a
+     * time). The presentation holds the idle->sleep ladder (the boot
      * re-armed it via action_wake_screen right before this call -- a 60 s
      * idle timeout must not sleep into a minutes-long animation); the
      * tick's end leg re-arms it when the presentation is over. */
@@ -3036,6 +2855,10 @@ void moon_ui_start(void) {
     s_replay_presenting = true;
     if (!clock_is_idle())
         clock_idle_set_enabled(false);
+    if (have_time)
+        moon_boot_disc(now); /* the pre-animation panel shows the cheap
+                              * current phase; the replay frames + the
+                              * final now-bake replace it atomically */
     if (xTaskCreatePinnedToCore(moon_boot_replay_task, "moon_replay", 12288, NULL, configMAX_PRIORITIES - 3,
                                 &s_replay_task, 1) == pdPASS) {
         lv_timer_resume(s_tick);
@@ -3059,12 +2882,14 @@ void moon_ui_start(void) {
     }
     /* Boot (replay off / task-create fallback): bake the CURRENT phase
      * directly (the synodic boot sweep was removed 2026-11-13 -- the home
-     * is the static phase from the first frame). The screen shows black
-     * until the bake lands and the tick displays it as one atomic frame;
-     * moon_bake_epoch records the phase for the orbit pipeline
-     * (s_orbit_epoch) and the day-tick (s_baked_day below, so the minute
-     * path does not queue a second bake). */
+     * is the static phase from the first frame). The screen shows the
+     * quick phase disc (moon_boot_disc, user 2026-11-24) until the bake
+     * lands and the tick displays it as one atomic frame; moon_bake_epoch
+     * records the phase for the orbit pipeline (s_orbit_epoch) and the
+     * day-tick (s_baked_day below, so the minute path does not queue a
+     * second bake). */
     moon_orbit_interrupt(); /* the boot bake owns the buffers */
+    moon_boot_disc(now);    /* the ~1.3 s sync bake below paints over it */
     s_baked_day = now / 86400;
     moon_bake_epoch(now);
     lv_timer_resume(s_tick);
@@ -3134,18 +2959,20 @@ void moon_ui_pause(bool pause) {
     if (!s_tick)
         return;
     if (pause) {
-        /* An hourly cycle caught mid-flight must never hand a black panel
-         * to the sleep screens (the #34 fade-starve lesson, this time on
-         * the sleep path): drop the pending legs and restore the brightness
-         * NOW, before the tick pauses. The producer, if it is still baking,
-         * keeps filling s_hourly_gray/s_rgb off the LVGL task -- harmless
-         * while the tick is paused (nothing flushes), and the wake shows the
-         * fresh frame (the next day-tick commits s_baked_hour when it
-         * finally shows). */
-        if (s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed || s_hourly_faded) {
+        /* An hourly cycle caught mid-flight hands the sleep screens the
+         * panel it always had: the panel never dims (user 2026-11-24), so
+         * there is nothing to restore -- just drop the pending legs and
+         * ask a still-running producer to stop its strip loop. The
+         * producer writes only the s_hourly_gray bounce while baking, so
+         * s_frame/s_rgb still hold the last COMPLETE frame; a stopped
+         * producer deletes itself without publishing, and a late one
+         * updates s_rgb only -- harmless while the tick is paused, and
+         * the wake shows it through its own done leg (the day-tick
+         * commits s_baked_hour when it finally shows). */
+        if (s_hourly_start || s_hourly_baking || s_hourly_done || s_hourly_failed) {
             s_hourly_start = s_hourly_done = s_hourly_failed = s_hourly_baking = false;
-            moon_hourly_finish(0); /* restores brightness if we had dimmed */
-            ESP_LOGI(TAG, "sleep entry mid-hourly: brightness restored, legs dropped");
+            s_compute_stop = true;
+            ESP_LOGI(TAG, "sleep entry mid-hourly: legs dropped, producer stop requested");
         }
         /* A boot replay caught mid-flight by a sleep entry / the alarm
          * screen: abort the animation and drop the un-shown frames (no
@@ -3157,20 +2984,16 @@ void moon_ui_pause(bool pause) {
          * baking/presenting on exit. The ladder is owned by the sleep
          * path from here; the wake re-arms it as always. */
         if (moon_ui_replaying()) {
-            s_replay_abort = true;
+            s_replay_abort = true; /* the final "now" bake (if in flight)
+                                    * observes it at the next strip
+                                    * boundary and skips its publish: the
+                                    * panel keeps whatever COMPLETE frame
+                                    * it already shows (the last replay
+                                    * frame, or the boot disc if the bake
+                                    * is the only thing that landed so
+                                    * far). */
             s_replay_show = false;
             s_replay_final = false;
-#if CONFIG_UI_MOON_BAKE_REVEAL
-            if (s_reveal_dirty) { /* the final "now" bake caught mid-reveal:
-                                   * heal the last complete frame over the
-                                   * half-drawn square BEFORE the tick pauses
-                                   * (the sleep screens must not inherit the
-                                   * black canvas + strips). The producer
-                                   * sees the abort, skips its publish. */
-                s_reveal_stop = true;
-                moon_reveal_restore();
-            }
-#endif
             /* s_replay_end stays as the producer left it: the tick's end
              * leg re-arms only on a moon screen while not idle, so the
              * sleep path is never re-armed underneath -- and a race with
@@ -3297,8 +3120,7 @@ static volatile int s_panel_pct = 100;
 /* Ramp the panel's hardware brightness from `from_pct` to `to_pct`
  * (0..100) in FADE_STEPS steps, paced `ms / FADE_STEPS` ms between steps.
  * Callers pass the leg time: the screen-switch fade / the dim ramp pass
- * CONFIG_UI_SCREEN_SWITCH_FADE, the hourly refresh passes
- * CONFIG_UI_MOON_HOURLY_FADE_MS. Each step is one 0x51 SPI param
+ * CONFIG_UI_SCREEN_SWITCH_FADE. Each step is one 0x51 SPI param
  * transaction (~100 us): the ramp is free, so the steps are many and
  * short (the luminance steps stay small enough not to read as
  * discrete steps). Each write takes the panel mutex: a 0x51 write must
@@ -3324,52 +3146,25 @@ static void fade_ramp(int from_pct, int to_pct, int ms) {
                            * panel is unambiguously at the target */
 }
 
-/* The hourly refresh's completion (LVGL task), called from moon_hourly_service
- * and from moon_ui_pause's sleep hand-off. show_new=1 (the producer landed a
- * frame): display it as ONE atomic whole-panel flush, then (the fade's rule)
- * ramp the brightness back -- and commit s_baked_hour / s_baked_event now
- * that the frame is actually up (commit-on-show). show_new=0 (a failed or
- * blown-deadline cycle, or the sleep hand-off): no flush (s_rgb still holds
- * the last complete frame), only restore the brightness if we had dimmed.
- * The fade-in is owed exactly while s_hourly_faded is set, so a cycle that
- * never dimmed (spawn failure before the ramp) restores nothing -- and the
- * brightness never strands black (the #34 rule, honored on every exit).
- * With the bake reveal on, the FIRST completed strip (the reveal leg)
- * usually paid the fade-in before this runs and the flag is found false
- * here; any path that reaches this point with a half-revealed square on
- * screen (s_reveal_dirty) heals the old frame from the untouched s_frame
- * first -- before the ramp back, so the brightness never rises over a
- * half-moon. */
+/* The hourly refresh's completion (LVGL task), called from
+ * moon_hourly_service and from moon_ui_pause's sleep hand-off.
+ * show_new=1 (the producer landed a frame): display it as ONE atomic
+ * whole-panel flush -- into the BRIGHT panel the whole time (user
+ * 2026-11-24: the old frame stayed up during the bake, no 0x51 traffic)
+ * -- and commit s_baked_hour / s_baked_event now that the frame is
+ * actually up (commit-on-show). show_new=0 (a failed or blown-deadline
+ * cycle, or the sleep hand-off): nothing to do -- s_rgb still holds the
+ * last complete frame, which is exactly what the panel shows. */
 static void moon_hourly_finish(int show_new) {
-    if (show_new) {
-        moon_invalidate_all();
-        xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
-        lv_refr_now(NULL);
-        xSemaphoreGive(s_rgb_mtx);
-        moon_panel_drain_verify("hourly fade-in");
-        s_baked_hour = s_hourly_epoch / 3600; /* commit-on-show */
-        s_baked_event = s_hourly_event_sig;
-#if CONFIG_UI_MOON_BAKE_REVEAL
-        s_reveal_dirty = false; /* the publish rewrote all of s_rgb and this
-                                 * flush made it the visible truth: no heal
-                                 * owed, even after a strip-by-strip reveal */
-#endif
-    }
-#if CONFIG_UI_MOON_BAKE_REVEAL
-    if (s_reveal_dirty) { /* failed / blown-budget / sleep-hand-off exit
-                           * caught mid-reveal: stop the producer's reveal and
-                           * heal the old frame back from the untouched
-                           * s_frame, before the brightness climbs. */
-        s_reveal_stop = true;
-        moon_reveal_restore();
-    }
-#endif
-    if (s_hourly_faded) {
-        s_hourly_faded = false;
-        fade_ramp(0, 100, CONFIG_UI_MOON_HOURLY_FADE_MS);
-        s_fade_busy = false; /* the other 0x51 writers may run again */
-        ESP_LOGI(TAG, "hourly: panel brightness 0 -> 100 (%d ms)", CONFIG_UI_MOON_HOURLY_FADE_MS);
-    }
+    if (!show_new)
+        return;
+    moon_invalidate_all();
+    xSemaphoreTake(s_rgb_mtx, portMAX_DELAY);
+    lv_refr_now(NULL);
+    xSemaphoreGive(s_rgb_mtx);
+    moon_panel_drain_verify("hourly");
+    s_baked_hour = s_hourly_epoch / 3600; /* commit-on-show */
+    s_baked_event = s_hourly_event_sig;
 }
 
 /* Dim the panel to black ahead of a screen switch (LVGL task;
@@ -3579,11 +3374,10 @@ void moon_ui_dump_hang_context(void) {
              (int)s_frame_stale);
     ESP_LOGE(TAG, "  flags: rebake_baking=%d rebake_show=%d panel_wrap=%d", (int)s_rebake_baking, (int)s_rebake_show,
              (int)s_panel_wrap);
-    ESP_LOGE(TAG, "  flags: hourly start=%d baking=%d done=%d failed=%d faded=%d", (int)s_hourly_start,
-             (int)s_hourly_baking, (int)s_hourly_done, (int)s_hourly_failed, (int)s_hourly_faded);
+    ESP_LOGE(TAG, "  flags: hourly start=%d baking=%d done=%d failed=%d", (int)s_hourly_start, (int)s_hourly_baking,
+             (int)s_hourly_done, (int)s_hourly_failed);
     ESP_LOGE(TAG, "  flags: replay presenting=%d baking=%d show=%d final=%d end=%d abort=%d", (int)s_replay_presenting,
              (int)s_replay_baking, (int)s_replay_show, (int)s_replay_final, (int)s_replay_end, (int)s_replay_abort);
-    ESP_LOGE(TAG, "  flags: reveal owner=%d pub=%u shown=%u clear=%d dirty=%d stop=%d", (int)s_reveal_owner,
-             (unsigned)s_reveal_pub, (unsigned)s_reveal_shown, (int)s_reveal_clear, (int)s_reveal_dirty,
-             (int)s_reveal_stop);
+    ESP_LOGE(TAG, "  flags: compute owner=%d pub=%u stop=%d", (int)s_compute_owner, (unsigned)s_compute_pub,
+             (int)s_compute_stop);
 }

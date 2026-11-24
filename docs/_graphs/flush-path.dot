@@ -10,9 +10,11 @@
 // math :124) and the vendored BSP
 // components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c
 // (:493-:530). The lost-completion root cause in IDF is the prose of
-// this page; the hourly fade flow is docs/_graphs/tf-hour-cache.dot's
-// territory; who fills which buffer before a strip reaches the
-// wrapper is buffers-relay.dot (architecture).
+// this page; the hourly refresh no longer rides a fade at all
+// (2026-11-24, the compute-progress change — the old frame stays up
+// the whole cycle) and the hour cache's producer flow is
+// tf-hour-cache.dot's territory; who fills which buffer before a
+// strip reaches the wrapper is buffers-relay.dot (architecture).
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
@@ -29,7 +31,7 @@ digraph flush_path {
 
     rule [label="THE RULE — ONE atomic\nlv_refr_now under\ns_rgb_mtx",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    exc [label="THE TWO EXCEPTIONS —\nthe 0x51 fade, the\nbake reveal",
+    exc [label="THE ONE EXCEPTION —\nthe 0x51 fade (the\nscreen switch +\nlight-sleep dim;\nwrites no pixels)",
          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     lvgl [label="THE LVGL DRAW PATH —\nflush_cb, byte swap,\nthe vtable wrapper"];
     bsp [label="THE BSP + SPI DRIVER —\n25-row strips staged\nin internal RAM",

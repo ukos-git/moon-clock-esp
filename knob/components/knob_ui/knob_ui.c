@@ -31,13 +31,15 @@
  * /spiffs/moon_frame.bin (one rewrite per (day, signature) change) and
  * showing a saved frame <= 2 days old as ONE atomic whole-panel flush
  * on the first arm (last_frame_warm) -- the fresh bake then swaps over
- * it as one atomic flush. Under KNOB_UI_BAKE_REVEAL the boot frame's
- * ~790 ms stops being a black window WHEN NO SAVED FRAME IS ON THE
- * GLASS: the producer's row watermark lets the swap task display the
- * bake north to south AS it runs (one atomic band lv_refr_now per
- * completed row, the clock's bake-reveal shape --
- * docs/implementation/bake-reveal); every other bake keeps the
- * fill-then-atomic posture above.
+ * it as one atomic flush. The boot first frame's ~790 ms compute is the
+ * clock's COMPUTE section (user decision 2026-11-24,
+ * docs/implementation/compute-progress): the producer's row watermark
+ * drives the shared home's seconds arc as a progress bar for EVERY
+ * bake, and where the panel would otherwise be dark (the first boot
+ * with no saved frame) the quick phase disc (the current phase as a
+ * flat uniform-albedo sphere, tens of ms) is published FIRST as the
+ * dummy and the real bake swaps over it -- the family's
+ * old-frame-then-atomic posture everywhere, no black window.
  *
  * The companion mirror views (KEYBOARD/STEPPER, K4) were retired
  * 2026-11-08 with the companion approach; the dial stays initialized and
@@ -122,27 +124,23 @@ static char s_caption_text[48]; /* producer-written, swap applies */
 static int64_t s_last_bake_ms;  /* producer-private */
 static SemaphoreHandle_t s_lvgl_mux;
 
-/* Bake reveal (KNOB_UI_BAKE_REVEAL -- the clock's reveal shape on the
- * knob's seam, docs/implementation/bake-reveal): the boot first frame
- * (the knob's only black window -- no SD socket, every boot computes,
- * ~790 ms) is DISPLAYED as it bakes. The producer bakes row by row into
- * the back buffer over a black-cleared square (knob_moon_bake_display_-
- * reveal) and advances the rows watermark with the s_pub fence
- * discipline; the swap task (the panel owner) unhides the disk at the
- * first completed rows and lands each watermark as ONE atomic band
- * lv_refr_now -- every displayed state one atomic flush, the moon draws
- * itself north to south at the ACTUAL bake rate (the bake is the
- * metronome, no animation outruns a row). Day-tick re-bakes keep the
- * old-frame-then-atomic posture (not a black window). Ownership mirrors
- * the handshake: active/pub producer-written (like s_pub),
- * shown/displayed/prev swap-written (like s_front/s_applied). */
-#if CONFIG_KNOB_UI_BAKE_REVEAL
-static volatile bool s_reveal_active;
-static volatile uint32_t s_reveal_pub; /* rows fully baked+converted in the back buffer */
-static uint32_t s_reveal_shown;        /* rows the swap has displayed */
-static bool s_reveal_displayed;        /* the reveal unhid the disk (pending honest-state cleanup) */
-static bool s_reveal_prev;             /* swap-side edge detection */
-#endif
+/* Compute progress (user decision 2026-11-24,
+ * docs/implementation/compute-progress -- the clock's repurpose on the
+ * knob's seam): EVERY bake (the boot first frame, the day-tick re-bake)
+ * publishes a rows-completed watermark as it runs (knob_moon_bake_-
+ * display_progress, the per-row fence discipline below); the shared
+ * home's seconds arc doubles as the progress bar (the seam:
+ * knob_ui_compute_active / knob_ui_compute_progress, read by the
+ * screens' tick). The retired strip reveal was the watermark's band
+ * consumer (one atomic band lv_refr_now per completed row) -- nothing
+ * displays the partial rows anymore: the finished buffer is applied as
+ * ONE atomic whole-panel flush by the swap task, and where the panel
+ * would otherwise be dark (the first boot, no saved frame) the quick
+ * phase disc is published first (disc_publish, NOT persisted).
+ * Ownership mirrors the handshake: active/pub producer-written (like
+ * s_pub), the seam only reads. */
+static volatile bool s_compute_active;  /* a bake is in flight */
+static volatile uint32_t s_compute_pub; /* rows fully baked+converted in the back buffer */
 
 /* ---- last-gasp black box (field-crash witness, task #27) ---------------
  * The 2026-11-11 TG0WDT panic reset drained the USB-CDC TX FIFO before
@@ -209,13 +207,6 @@ void knob_ui_gasp_boot_report(void) {
 #define CONFIG_KNOB_TZ "UTC0"
 #endif
 
-/* #ifndef-seeded KNOB_UI_BAKE_REVEAL (repo invariant: a Kconfig "n"
- * leaves the macro UNDEFINED). The boot first-frame bake reveal -- see
- * the reveal flags below and docs/implementation/bake-reveal. */
-#ifndef CONFIG_KNOB_UI_BAKE_REVEAL
-#define CONFIG_KNOB_UI_BAKE_REVEAL 0
-#endif
-
 /* #ifndef-seeded KNOB_UI_LAST_FRAME (same invariant). The persisted
  * last frame: deep sleep loses the PSRAM double buffer, so without a
  * saved copy every wake starts from a black window behind the Wi-Fi +
@@ -264,15 +255,15 @@ static void caption_apply_locked(void);
 static int64_t s_caption_min;
 
 #define LAST_FRAME_PATH "/spiffs/moon_frame.bin"
-#define LAST_FRAME_MAGIC 0x4D4E4631u /* 'MNF1' */
+#define LAST_FRAME_MAGIC 0x4D4E4631u         /* 'MNF1' */
 #define LAST_FRAME_MAX_AGE_S (2LL * 86400LL) /* older = visibly wrong phase */
 typedef struct {
     uint32_t magic;
     int64_t epoch; /* the baked instant (caption source) */
-    uint32_t day; /* day_key(epoch) it was baked for */
-    uint8_t sig; /* event signature it was baked with */
+    uint32_t day;  /* day_key(epoch) it was baked for */
+    uint8_t sig;   /* event signature it was baked with */
     uint8_t pad[3];
-    uint32_t crc; /* crc32(payload + day + sig) */
+    uint32_t crc;   /* crc32(payload + day + sig) */
 } last_frame_hdr_t; /* 24 bytes; payload follows */
 
 static uint32_t crc32_tail(const uint8_t *payload, size_t payload_sz, uint32_t day, uint8_t sig) {
@@ -377,8 +368,8 @@ static void maybe_persist_frame(const uint16_t *buf, int64_t epoch, int sig) {
     }
     s_last_frame_day = frame_day;
     s_last_frame_sig = frame_sig;
-    ESP_LOGI(TAG, "last frame: persisted %lld (day %lu, sig 0x%02x)", (long long)epoch,
-             (unsigned long)frame_day, (unsigned)frame_sig);
+    ESP_LOGI(TAG, "last frame: persisted %lld (day %lu, sig 0x%02x)", (long long)epoch, (unsigned long)frame_day,
+             (unsigned)frame_sig);
 }
 
 /**
@@ -393,7 +384,8 @@ static void maybe_persist_frame(const uint16_t *buf, int64_t epoch, int sig) {
  *        bake over it as one atomic flush (old-frame-then-atomic), and
  *        the caption rewrites to the fresh bake's instant then. A
  *        missing/corrupt/stale file just returns false and the boot
- *        falls back to the row-by-row reveal path.
+ *        falls back to the compute-section disc path (the quick phase
+ *        disc is published first; user 2026-11-24).
  */
 static bool last_frame_warm(int64_t now) {
     if (s_nomem) {
@@ -401,7 +393,7 @@ static bool last_frame_warm(int64_t now) {
     }
     FILE *f = fopen(LAST_FRAME_PATH, "rb");
     if (!f) {
-        return false; /* no file yet (fresh flash) -- the reveal path */
+        return false; /* no file yet (fresh flash) -- the disc path */
     }
     last_frame_hdr_t h;
     if (fread(&h, 1, sizeof(h), f) != sizeof(h) || h.magic != LAST_FRAME_MAGIC) {
@@ -412,7 +404,7 @@ static bool last_frame_warm(int64_t now) {
     const int64_t age = now - h.epoch;
     if (h.epoch < 1600000000LL || age < -60 || age > LAST_FRAME_MAX_AGE_S) {
         fclose(f); /* implausible or visibly stale (a 3-day-old waxing
-                    * crescent is a different phase) -- the reveal path */
+                    * crescent is a different phase) -- the disc path */
         return false;
     }
     if (fseek(f, (long)sizeof(h), SEEK_SET) != 0 || fread(s_buf[0], 1, payload_sz, f) != payload_sz) {
@@ -427,8 +419,8 @@ static bool last_frame_warm(int64_t now) {
          * NOT shown (s_shown stays false, the disk stays hidden), the
          * producer bakes into s_buf[1] and the swap overwrites this
          * slot after the ack. */
-        ESP_LOGW(TAG, "last frame: crc mismatch (day %lu, sig 0x%02x) -- torn write, not shown",
-                 (unsigned long)h.day, (unsigned)h.sig);
+        ESP_LOGW(TAG, "last frame: crc mismatch (day %lu, sig 0x%02x) -- torn write, not shown", (unsigned long)h.day,
+                 (unsigned)h.sig);
         return false;
     }
     /* s_front is 0 by the time this runs (show_moon sets it) and the
@@ -462,9 +454,10 @@ static bool last_frame_warm(int64_t now) {
     }
     s_shown = true;
     lvgl_unlock();
-    ESP_LOGI(TAG, "%s", flush ? "last frame shown on glass before the fresh bake"
-                              : "last frame staged on the descriptor, no images yet -- "
-                                 "the first screen flush carries it");
+    ESP_LOGI(TAG, "%s",
+             flush ? "last frame shown on glass before the fresh bake"
+                   : "last frame staged on the descriptor, no images yet -- "
+                     "the first screen flush carries it");
     ESP_LOGI(TAG, "last frame: %lld (%lld s old)", (long long)h.epoch, (long long)age);
 #if CONFIG_KNOB_DIAG_FRAME_TRACE
     knob_ui_bf_probe(flush ? "warm flush (saved frame on glass)" : "warm stage (pre-ui_init)");
@@ -598,38 +591,32 @@ static void wait_ack(void) {
 
 /**
  * @brief Bake the crisp current-phase frame into the back buffer (the
- *        armed event passes), stage the caption, publish.
- * caption NULL = caption stays. reveal=true displays the bake AS it runs
- * (the boot first frame under KNOB_UI_BAKE_REVEAL -- the swap task
- * consumes the rows watermark); every other bake passes false and keeps
- * the old-frame-then-atomic posture. sig = the event signature the frame
- * was baked with (KNOB_UI_LAST_FRAME's skip-write pair).
+ *        armed event passes), stage the caption, publish. Every bake
+ *        carries the compute-progress watermark (user 2026-11-24): the
+ *        rows-complete counter advances row by row as the bake runs
+ *        (knob_moon_bake_display_progress), the shared home's seconds
+ *        arc reads it as the progress bar, and the finished buffer is
+ *        applied by the swap as ONE atomic whole-panel flush -- the
+ *        family's old-frame-then-atomic posture everywhere. caption
+ *        NULL = caption stays; sig = the event signature the frame was
+ *        baked with (KNOB_UI_LAST_FRAME's skip-write pair).
  */
-static bool bake_publish(int64_t epoch, const char *caption, bool reveal, int sig) {
+static bool bake_publish(int64_t epoch, const char *caption, int sig) {
     if (s_nomem) {
         return false;
     }
     const int back = 1 - s_front;
     knob_ui_gasp(KNOB_GASP_BAKE);
-    bool ok;
-#if CONFIG_KNOB_UI_BAKE_REVEAL
-    if (reveal) {
-        s_reveal_pub = 0;
-        s_reveal_active = true; /* the per-row fences order the pixels ahead of
-                                 * the watermark (the s_pub fence shape) */
-        ok = knob_moon_bake_display_reveal(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_reveal_pub,
-                                           &s_last_bake_ms);
-        s_reveal_active = false; /* the swap wraps up / cleans up on its own poll */
-        /* Bench acceptance line (the reveal): the rows the swap could show
-         * (full size on a completed bake) + the bake time behind them. */
-        ESP_LOGI(TAG, "bake reveal: %u/%d rows in %lld ms (%s)", (unsigned)s_reveal_pub, MOON_SIZE,
-                 (long long)s_last_bake_ms, ok ? "ok" : "failed");
-    } else
-#endif
-    {
-        (void)reveal;
-        ok = knob_moon_bake_display(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_last_bake_ms);
-    }
+    s_compute_pub = 0;
+    s_compute_active = true; /* the per-row fences order the pixels ahead
+                              * of the watermark (the s_pub fence shape) */
+    const bool ok = knob_moon_bake_display_progress(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch,
+                                                    &s_compute_pub, &s_last_bake_ms);
+    /* The owner flag clears AFTER the last watermark read can land (the
+     * seam reads active + pub as one pair; a reader sees either
+     * (active, rising) or (inactive, ignored) -- never a torn pair). */
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    s_compute_active = false;
     if (!ok) {
         return false;
     }
@@ -653,6 +640,53 @@ static bool bake_publish(int64_t epoch, const char *caption, bool reveal, int si
     maybe_persist_frame(s_buf[back], epoch, sig);
 #endif
     return true;
+}
+
+/**
+ * @brief The boot dummy (the compute section, user 2026-11-24): publish
+ *        the quick phase disc as an ordinary frame -- the swap applies
+ *        it as one atomic whole-panel flush and unhides the disk (the
+ *        s_shown unhide rides the ordinary apply, so no special-case).
+ *        It is NOT persisted: the flat disc is a compute placeholder,
+ *        and the saved frame must stay the last REAL bake. Runs on the
+ *        PRODUCER (the classify scan's budget-yielding context; the
+ *        disc bake itself is tens of ms).
+ */
+static bool disc_publish(int64_t epoch, const char *caption) {
+    if (s_nomem) {
+        return false;
+    }
+    const int back = 1 - s_front;
+    knob_ui_gasp(KNOB_GASP_BAKE);
+    const bool ok =
+        knob_moon_bake_phase_dummy(s_buf[back], MOON_SIZE, s_moon_r, MOON_CX, s_moon_cy, epoch, &s_last_bake_ms);
+    if (!ok) {
+        return false;
+    }
+    if (caption) {
+        snprintf(s_caption_text, sizeof(s_caption_text), "%s", caption);
+        s_caption_dirty = true;
+    }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    s_pub++;
+    knob_ui_gasp_frames(s_pub, s_applied);
+    knob_ui_gasp(KNOB_GASP_IDLE);
+    ESP_LOGI(TAG, "boot disc published (baked in %lld ms) -- the real bake follows", (long long)s_last_bake_ms);
+    return true;
+}
+
+/* The seam the shared screens' tick reads (docs/implementation/
+ * compute-progress): active while a bake is in flight, progress 0..100
+ * from the rows-completed watermark. Plain flag reads (the watermark
+ * only moves up within one bake; the owner clears under the same fence
+ * after the last row, so no lock is owed). */
+bool knob_ui_compute_active(void) { return s_compute_active; }
+
+int32_t knob_ui_compute_progress(void) {
+    if (!s_compute_active) {
+        return 0;
+    }
+    return (int32_t)(((uint64_t)s_compute_pub * 100) / (uint64_t)MOON_SIZE);
 }
 
 static void caption_unavailable(void) {
@@ -698,20 +732,25 @@ static void static_once_body(void) {
     const int ev = knob_moon_display_begin(now);
     char cap[40];
     time_caption(cap, sizeof(cap), now);
-    /* The boot frame is THE revealed bake (the knob's black window --
-     * KNOB_UI_BAKE_REVEAL; the swap task shows it north to south as the
-     * rows complete) -- UNLESS a saved frame is already on the glass
-     * (KNOB_UI_LAST_FRAME): a row-by-row reveal would composite NEW rows
-     * over the OLD frame (the half-old/half-new ban,
-     * docs/implementation/bake-reveal), so the fresh bake swaps over it
-     * as one atomic flush instead. */
-    bool reveal = true;
+    /* The boot frame's compute window (the knob's ~790 ms black window --
+     * no SD socket, every boot computes) is the clock's COMPUTE section
+     * (user decision 2026-11-24): the bake's rows watermark drives the
+     * shared home's seconds arc as the progress bar for EVERY bake, and
+     * where the panel would otherwise be dark -- no saved frame on the
+     * glass yet -- the quick phase disc is published FIRST (a dummy
+     * frame, tens of ms) and the real bake swaps over it as ONE atomic
+     * flush. With a saved frame (KNOB_UI_LAST_FRAME) the SAVED frame
+     * stays up instead (today's posture -- the fresh bake swaps over it,
+     * old-frame-then-atomic, no dummy). */
 #if CONFIG_KNOB_UI_LAST_FRAME
-    if (s_warm_on_glass) {
-        reveal = false;
+    if (!s_warm_on_glass) {
+        if (disc_publish(now, cap)) {
+            wait_ack(); /* the disc is on glass before the real bake
+                         * reuses the other slot (the ordinary handshake) */
+        }
     }
 #endif
-    if (!bake_publish(now, cap, reveal, ev)) {
+    if (!bake_publish(now, cap, ev)) {
         ESP_LOGE(TAG, "static bake failed");
         caption_unavailable();
     } else {
@@ -766,7 +805,7 @@ static void demo_tour(void) {
             const int ev = knob_moon_display_begin(epoch);
             char cap[48];
             snprintf(cap, sizeof(cap), "demo %d/8 %s", k + 1, names[k]);
-            if (!bake_publish(epoch, cap, false, ev)) {
+            if (!bake_publish(epoch, cap, ev)) {
                 ESP_LOGE("DEMO", "phase %s bake failed", names[k]);
                 caption_unavailable();
             }
@@ -782,7 +821,7 @@ static void demo_tour(void) {
         const int ev = knob_moon_display_begin(live);
         char cap[48];
         time_caption(cap, sizeof(cap), live);
-        if (!bake_publish(live, cap, false, ev)) {
+        if (!bake_publish(live, cap, ev)) {
             ESP_LOGE("DEMO", "now bake failed");
             caption_unavailable();
         }
@@ -854,10 +893,10 @@ static void moon_task(void *arg) {
             knob_moon_display_begin(now); /* re-arm the tint LUT + occlusion */
             char cap[40];
             time_caption(cap, sizeof(cap), now);
-            if (!bake_publish(now, cap, false, sig)) { /* the old frame stays
-                                                        * up during this bake --
-                                                        * not a black window,
-                                                        * no reveal */
+            if (!bake_publish(now, cap, sig)) { /* the old frame stays
+                                                 * up during this bake --
+                                                 * not a black window; the
+                                                 * arc sweeps the progress */
                 ESP_LOGE(TAG, "day-tick bake failed");
                 caption_unavailable();
                 continue;
@@ -884,75 +923,23 @@ static void moon_task(void *arg) {
 
 /* ---- the swap task --------------------------------------------------- */
 
-static void hide_all_images(void); /* below; the reveal cleanup re-hides with it */
-
-/* The boot frame is THE revealed bake under KNOB_UI_BAKE_REVEAL (the
- * reveal flags note): the producer advances s_reveal_pub row by row and
- * the swap task below is the consumer -- one atomic band flush per
- * newly completed watermark, on the lock, exactly like an apply. */
+static void hide_all_images(void); /* below */
 
 /**
  * Applies published frames inside the LVGL lock: descriptor swap + one
  * atomic lv_refr_now (the clock's whole-panel posture; the producer may
  * only reuse this buffer after the ack), caption, ack. Polling at 15 ms
  * paces nothing (the bake dominates) and keeps the panel owner out of
- * the producer's timing path.
+ * the producer's timing path. The retired strip reveal was this task's
+ * second job (one atomic band flush per completed bake row); now the
+ * partial rows of an in-flight bake are NEVER displayed -- the finished
+ * buffer arrives as the one atomic flush, and the bake's watermark is
+ * read by the seconds-arc seam instead (the compute section, user
+ * 2026-11-24).
  */
 static void swap_task(void *arg) {
     (void)arg;
     for (;;) {
-        /* Bake reveal consumer (the reveal flags note): one atomic band
-         * lv_refr_now on the lock per newly completed watermark -- the
-         * disk points at the buffer being baked (its rows [0, pub) are
-         * complete RGB565; the rows above stay the black canvas until
-         * their watermark arrives). The real publish + apply follows when
-         * the bake ends; a reveal that dies UNPUBLISHED re-hides the disk
-         * (the honest "moon unavailable" posture). */
-#if CONFIG_KNOB_UI_BAKE_REVEAL
-        if (!s_nomem) {
-            if (s_reveal_active && !s_reveal_prev) { /* new reveal: reset OUR cursors */
-                s_reveal_shown = 0;
-                s_reveal_displayed = false;
-            }
-            s_reveal_prev = s_reveal_active;
-            if (s_reveal_active) {
-                uint32_t pub = s_reveal_pub;
-                __atomic_thread_fence(__ATOMIC_SEQ_CST); /* pair with the producer's row fences */
-                if (pub > s_reveal_shown) {
-                    if (pub > (uint32_t)MOON_SIZE) {
-                        pub = (uint32_t)MOON_SIZE;
-                    }
-                    lvgl_lock();
-                    s_moon_dsc.data = (const uint8_t *)s_buf[1 - s_front];
-                    if (!s_shown) {
-                        s_shown = true;
-                    }
-                    lv_area_t a = {.x1 = 0,
-                                   .y1 = (lv_coord_t)s_reveal_shown,
-                                   .x2 = (lv_coord_t)(MOON_SIZE - 1),
-                                   .y2 = (lv_coord_t)((int)pub - 1)};
-                    for (int i = 0; i < s_n_imgs; i++) {
-                        lv_obj_set_hidden(s_imgs[i], false);
-                        lv_obj_invalidate_area(s_imgs[i], &a);
-                    }
-                    knob_ui_gasp(KNOB_GASP_SWAP_REFR);
-                    lv_refr_now(NULL);
-                    lvgl_unlock();
-                    s_reveal_shown = pub;
-                    s_reveal_displayed = true;
-                }
-            } else if (s_reveal_displayed && s_pub == 0) {
-                lvgl_lock();
-#if CONFIG_KNOB_DIAG_FRAME_TRACE
-                knob_ui_bf_probe("reveal cleanup (hiding the disk)");
-#endif
-                hide_all_images();
-                s_shown = false;
-                lvgl_unlock();
-                s_reveal_displayed = false;
-            }
-        }
-#endif
         if (s_applied != s_pub && !s_nomem) {
             /* Pair with the producer's publish fence: read the buffer/
              * caption only after observing the new counter. */
@@ -994,11 +981,6 @@ static void swap_task(void *arg) {
             lv_refr_now(NULL);
             s_front = back;
             s_applied = s_pub;
-#if CONFIG_KNOB_UI_BAKE_REVEAL
-            s_reveal_displayed = false; /* the revealed buffer IS the applied
-                                         * frame now -- the honest-state
-                                         * cleanup must not re-hide it */
-#endif
             lvgl_unlock();
             knob_ui_gasp(KNOB_GASP_SWAP_DONE);
             knob_ui_gasp_frames(s_pub, s_applied);
@@ -1235,10 +1217,12 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
      * the caption naming the SAVED instant -- so a dial/tap/TIMER wake
      * (PSRAM lost in deep sleep) does not start from a black window
      * behind the Wi-Fi + NTP + bake window. The fresh bake then swaps
-     * over it as one atomic flush (static_once_body turns the reveal
-     * off for exactly that reason). No usable frame = the honest
-     * pre-frame caption, the disk stays hidden, the bake reveal owns
-     * the black window (the very first boot after a fresh flash). */
+     * over it as one atomic flush (old-frame-then-atomic; no dummy
+     * disc -- the saved frame is the one "calculated image present",
+     * user 2026-11-24). No usable frame = the honest pre-frame
+     * caption, the disk stays hidden until the producer's quick phase
+     * disc (the compute section's boot dummy) unhides it (the very
+     * first boot after a fresh flash). */
     s_warm_on_glass = last_frame_warm(utc_epoch);
     if (!s_warm_on_glass) {
         lvgl_lock();

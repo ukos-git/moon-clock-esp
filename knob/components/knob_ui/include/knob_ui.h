@@ -110,6 +110,21 @@ void knob_ui_set_disk_geom(float r, int cy);
 /** @brief True once the first frame has been applied to the panel. */
 bool knob_ui_shown(void);
 
+/* ---- compute progress (user decision 2026-11-24,
+ * docs/implementation/compute-progress) -------------------------------
+ * The knobs of moon_ui.h's compute-progress seam, over the producer's
+ * rows-completed watermark (the bake publishes it row by row as it
+ * runs; the shared home's seconds arc reads these from its tick). The
+ * render seam implements moon_ui_compute_active /
+ * moon_ui_compute_progress as one-line forwards to these. */
+
+/** @brief True while the producer's bake is in flight. */
+bool knob_ui_compute_active(void);
+
+/** @brief Bake progress 0..100 (rows-completed watermark / rows; 0
+ *         while no bake is in flight). */
+int32_t knob_ui_compute_progress(void);
+
 /** @brief [BF] bench probe (KNOB_DIAG_FRAME_TRACE only): log the hidden
  *         state of every attached moon image (named by the screen it
  *         sits on), the active screen, and the frame state (shown /

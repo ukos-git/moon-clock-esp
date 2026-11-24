@@ -158,16 +158,16 @@ QSPI x4 wire against the 33 ms beat — is charted as the bus ladder in
 :doc:`the performance page <../verification/performance>`.
 
 The whole path, first sealed and then opened — who may produce a panel
-state (the atomic rule and its two sanctioned exceptions), how a strip
+state (the atomic rule and its one sanctioned exception), how a strip
 travels (PSRAM draw buffer, byte-order swap, the vtable wrapper,
 25-row DMA staging), and the three witnesses on ``s_panel_mtx`` (the
 2 s flush-wait gate, the 3 s watchdog, the drain verify with its
 in-place-heal versus budgeted-restart split) — drawn from the code:
 
 .. graphviz:: ../_graphs/flush-path.dot
-   :alt: The flush path overview — rule, exceptions, draw path, BSP, witnesses
+   :alt: The flush path overview — rule, the one no-pixel exception, draw path, BSP, witnesses
    :align: center
-   :caption: The overview — the rule: every moon-pipeline frame hits the panel as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx`` (``moon_ui_screen_switched``), never a half-old/half-new composite. The two exceptions: the 0x51 hardware brightness ramp that writes NO pixels (the fade-to-black screen switch ``UI_SCREEN_SWITCH_FADE`` and the once-per-hour refresh ``UI_MOON_HOURLY_ENABLE``, whose producer rebuilds off-panel while black — the new frame's ONE atomic flush lands while the panel is still black, then fades back) and the bake reveal (``UI_MOON_BAKE_REVEAL`` / ``KNOB_UI_BAKE_REVEAL``: a computing frame shows as designed CONSISTENT STATES — black canvas → one completed strip band per 50 ms tick → healed old frame on any abort; each state is itself ONE atomic band under ``s_rgb_mtx`` WITH the drain witness, unbaked rows are black, ``s_frame`` is never touched mid-reveal).
+   :caption: The overview — the rule: every moon-pipeline frame hits the panel as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx`` (``moon_ui_screen_switched``), never a half-old/half-new composite. The ONE exception: the 0x51 hardware brightness ramp that writes NO pixels (the fade-to-black screen switch ``UI_SCREEN_SWITCH_FADE`` and the light-sleep dim/wake ramp). The once-per-hour refresh stopped riding it on 2026-11-24 (the compute-progress change — the old frame stays up the whole cycle, the new frame lands atomically in the bright panel), and the bake reveal's second exception (its *atomicity-per-state* band states) retired the same day: a computing frame now shows as the quick phase disc + the seconds-arc progress bar, and the strip watermark is never a panel-write (:doc:`the compute progress <../implementation/compute-progress>`).
 
 .. graphviz:: ../_graphs/flush-path-strip.dot
    :alt: One strip's journey from PSRAM to panel
@@ -620,8 +620,9 @@ dusk's, later the same
 day). So the
 helper runs after every atomic display: the orbit
 batch, the wake's static pose display,
-the deferred re-bake display, the hourly refresh's while-black show
-(``drain_verify("hourly fade-in")``), and the screen-switch flush with its fade-in leg.
+the deferred re-bake display, the hourly refresh's show in the bright
+panel (``drain_verify("hourly")``), and the screen-switch flush with its
+fade-in leg.
 S3 only (the DPI P4 rejects legitimately and needs no such probe).
 
 The single probe still left one member uncaught, and the next capture
@@ -703,7 +704,8 @@ never comes behind a multi-strip flush — every post-flush probe loses
 its own completion to the recycle race — so the heal is the NORMAL
 path, and the witness was rebuilt around that (a two-probe ladder with
 two 300 ms poll windows once billed ~641 ms per verified flush; the
-trace that caught it is in :doc:`the bake reveal <bake-reveal>`).
+2026-11-15 trace that caught it ran on the bake reveal's band flushes,
+:doc:`the compute progress <compute-progress>`).
 A merely-LATE completion is reaped by the heal's own drain loop, at
 worst logging a false "swallowed". Serialization still does not PREVENT the loss — it
 makes the witness airtight, which is what lets the two shapes be

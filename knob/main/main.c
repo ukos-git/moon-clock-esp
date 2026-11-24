@@ -138,8 +138,8 @@ static void panel_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *p
                 bright++;
             }
         }
-        ESP_LOGI(TAG, "BF flush rows %d-%d bright=%u (moon present >>1000; digits only low hundreds)",
-                 (int)area->y1, (int)area->y2, (unsigned)bright);
+        ESP_LOGI(TAG, "BF flush rows %d-%d bright=%u (moon present >>1000; digits only low hundreds)", (int)area->y1,
+                 (int)area->y2, (unsigned)bright);
     }
 #endif
     /* Gasp witness: a LOST GPSPI completion parks draw_bitmap on
@@ -213,13 +213,12 @@ static void boot_arm_task(void *arg) {
      * a power glitch under mechanical shock is ESP_RST_BROWNOUT /
      * ESP_RST_PWR_GLITCH / ESP_RST_POWERON (a reset, not a wake — the
      * cause register is legitimately UNDEFINED after one). */
-    static const char *rst_names[] = { "UNKNOWN", "POWERON", "EXT", "SW", "PANIC",
-                                       "INT_WDT", "TASK_WDT", "WDT", "DEEPSLEEP",
-                                       "BROWNOUT", "SDIO", "USB", "JTAG", "EFUSE",
-                                       "PWR_GLITCH", "CPU_LOCKUP" };
+    static const char *rst_names[] = {"UNKNOWN",  "POWERON", "EXT",        "SW",        "PANIC", "INT_WDT",
+                                      "TASK_WDT", "WDT",     "DEEPSLEEP",  "BROWNOUT",  "SDIO",  "USB",
+                                      "JTAG",     "EFUSE",   "PWR_GLITCH", "CPU_LOCKUP"};
     const esp_reset_reason_t rr = esp_reset_reason();
-    ESP_LOGI(TAG, "reset reason %d (%s), wakeup cause %d (0=power-on, 2=EXT0 dial, 3=EXT1 tap, 4=TIMER alarm)",
-             (int)rr, (int)rr < (int)(sizeof(rst_names) / sizeof(rst_names[0])) ? rst_names[(size_t)rr] : "?",
+    ESP_LOGI(TAG, "reset reason %d (%s), wakeup cause %d (0=power-on, 2=EXT0 dial, 3=EXT1 tap, 4=TIMER alarm)", (int)rr,
+             (int)rr < (int)(sizeof(rst_names) / sizeof(rst_names[0])) ? rst_names[(size_t)rr] : "?",
              (int)esp_sleep_get_wakeup_cause());
     /* The power ladder must not run while the first frame is still
      * ahead of the user: app_main armed it at t=0, the ladder released
@@ -266,10 +265,12 @@ static void boot_arm_task(void *arg) {
      * mirrors the no-fix branch below -- a frame is on glass, so the
      * late-fix loop keeps the ladder held while it chases the fix.
      * The NTP fix below then force-rebakes the fresh phase over it
-     * (the s_started force-rebake path); static_once_body turns the
-     * reveal off for exactly that reason. No usable frame (first boot
-     * after a fresh flash) = s_shown still false, the honest pre-frame
-     * caption, and the bake reveal owns that black window. */
+     * (the s_started force-rebake path); the fresh bake swaps over the
+     * saved frame as one atomic flush (old-frame-then-atomic). No
+     * usable frame (first boot after a fresh flash) = s_shown still
+     * false, the honest pre-frame caption, and the compute section's
+     * quick phase disc owns that black window (the producer publishes
+     * it first; the fresh bake swaps over it, user 2026-11-24). */
     armed = knob_ui_shown();
 #if CONFIG_KNOB_UI_ENABLE
     /* Family parity (user report 2026-11-22: "the knob does not have a
@@ -584,8 +585,10 @@ void app_main(void) {
      * its own flush with no images attached (it would just overpaint
      * the retained moon); the caption is seeded from the SAVED instant.
      * No usable frame (first boot after a fresh flash): s_shown stays
-     * false, the images are born hidden, and the bake reveal owns the
-     * window exactly as before. The NVS restore itself stays in the
+     * false, the images are born hidden, and the compute section's
+     * quick phase disc owns the window (the producer publishes it
+     * first; the fresh bake swaps over it, user 2026-11-24). The NVS
+     * restore itself stays in the
      * arm task (`wall` feeds the alarm leg + the no-fix branch); this
      * copy only ARMS the frame. Stacks: this path (259 K SPIFFS read +
      * crc32) runs on the main task -- ESP_MAIN_TASK_STACK_SIZE=16384

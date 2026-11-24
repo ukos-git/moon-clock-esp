@@ -575,6 +575,49 @@ void moon_bake(const moon_geom_t *g, const uint8_t *albedo, const moon_grel_t *g
     moon_bake_rows(g, albedo, grel, frame, size, radius, cx, cy, alb_w, alb_h, 0, size, dark_zero, dk_sup, bev);
 }
 
+/* Flat phase disc (the computation placeholder, the device's
+ * moon_ui_start / knob boot first frame): the bake's BASE SPHERE
+ * projection without any of the texture work. Per pixel the bake's
+ * exact geometry (bake_px): disk test r2 = u^2 + v^2 <= 1,
+ * r = u*right + v*up + w*E, d = r . S, and the relief-free Lambert
+ * L = clip(d, 0, 1) (bake_px's grel == NULL path) straight through the
+ * tone LUT: lit side TONE_LUT[round(255 * L)] (full moon = the uniform
+ * bright disc), dark side TONE_LUT[0] = 0 (pure black -- no earthshine,
+ * no backlit surface). NO albedo, NO relief, NO texture-coordinate
+ * tables: the ~500-cycle PSRAM loads are gone, so a whole frame costs
+ * tens of ms on the S3 against the full bake's ~1.3 s. The disk is
+ * drawn with the standard moon-tone tint the LUT carries (the user's
+ * "black/white, aka moon color"): the dummy reads as the SAME phase the
+ * finished bake will show, minus the terrain. */
+void moon_bake_phase_dummy(const moon_geom_t *g, uint8_t *frame, int size, float radius, float cx, float cy) {
+    for (int y = 0; y < size; y++) {
+        uint8_t *row = &frame[(size_t)y * size];
+        const float v = (cy - (float)y) / radius;
+        const float v2 = v * v;
+        for (int x = 0; x < size; x++) {
+            const float u = ((float)x - cx) / radius;
+            const float r2 = u * u + v2;
+            if (r2 > 1.0f) {
+                row[x] = 0;
+                continue;
+            }
+            const float w = sqrtf(1.0f - r2);
+            /* Base direction, body frame (pole = +z) -- bake_px verbatim. */
+            const float rx = u * g->right[0] + v * g->up[0] + w * g->E[0];
+            const float ry = u * g->right[1] + v * g->up[1] + w * g->E[1];
+            const float rz = u * g->right[2] + v * g->up[2] + w * g->E[2];
+            const float d = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
+            /* L = clip(d, 0, 1); TONE_LUT[0] == 0 (the LUT's pure-dark bin). */
+            int idx = (int)(d * 255.0f + 0.5f);
+            if (idx < 0)
+                idx = 0;
+            else if (idx > 255)
+                idx = 255;
+            row[x] = MOON_TONE_LUT[idx];
+        }
+    }
+}
+
 /* ---------------- constant-projection pass (the light-sleep dusk) ------
  *
  * The dusk spins the camera about the POLE at a FIXED phase epoch:

@@ -115,19 +115,16 @@ is untouched** — the gate's 32 frames are north-up physics frames;
 the observer view is a display pass above them
 (:doc:`the art pass <../science/art-pass>`'s class of decision).
 
-The reveal rule
----------------
+The compute-progress rule
+-------------------------
 
-The bake reveal (:doc:`the bake reveal <bake-reveal>`) drips
-north-up strip bands while a frame computes. Showing north-up strips
-that are *about to be* tilted would animate a view nobody sees, so
-the rule is: **wherever a tilt applies, the reveal is suppressed and
-the frame bakes monolithically** — the hourly cold-bake and the boot
-replay's final leg check the same ``moon_observer_theta`` gate the
-publish uses and fall back to the plain ``moon_bake``. The atomicity
-contract is unchanged either way (every displayed state is one
-atomic band or one atomic whole-panel flush under ``s_rgb_mtx``);
-what changes is only *which* frames are allowed to drip.
+The bake reveal (:doc:`the compute progress <compute-progress>`)
+retired 2026-11-24 — no frame displays strip-wise anymore — so there
+is nothing to suppress. The compute bake runs strip-chunked with the
+rows-completed watermark **regardless of the tilt** (the watermark is
+on the north-up strip loop, and the seconds arc's progress is honest
+either way); the gather runs at publish, on the finished frame, exactly
+as before.
 
 Two Kconfig knobs
 -----------------
@@ -185,7 +182,7 @@ What the board matrix says
    * - Board
      - Observer view
    * - S3 AMOLED 466
-     - Full: tilt in every build leg, reveal suppression, tz re-gather.
+     - Full: tilt in every build leg (at publish), tz re-gather.
    * - P4 4C 720
      - Identical (one ``moon_ui.c``, ``UI_PX``-scaled).
    * - knob 360

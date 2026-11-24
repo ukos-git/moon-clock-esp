@@ -115,9 +115,12 @@ own right.
 
 The flows the capture reads belong to their own sketches — the fade
 machine (``docs/_graphs/screen-switch.dot``), the dim-and-arm machine
-(``sleep-entry.dot``), the hourly bake (``bake-reveal.dot``), the
-wake doors (``wake-doors.dot``) and the bus lock (``flush-path.dot``,
-:doc:`the display pipeline <../implementation/display>`). The
+(``sleep-entry.dot``), the hourly refresh's producers and the
+compute watermark (:doc:`the compute progress
+<../implementation/compute-progress>`; the hour cache's producer
+flow is ``tf-hour-cache-dot``), the wake doors (``wake-doors.dot``)
+and the bus lock (``flush-path.dot``, :doc:`the display pipeline
+<../implementation/display>`). The
 timing-class numbers live in :doc:`the ladders <performance>`;
 :ref:`the freshness ladder <freshness-ladder-perf>` draws the other
 side of the same currency — not how soon the user is noticed, but

@@ -10,7 +10,10 @@
 // the bounce to docs/_graphs/moon-core-flow.dot (core-c.rst) —
 // cross-refs kept reciprocal there too. Provenance of every quote (all
 // in components/ui/moon_ui.c unless named): buffers :280-282/:1031,
-// keys :315/:323, tick :186/:2634, bounce reveal-bake :1281-92/:1399-1400,
+// keys :315/:323, tick :186/:2634, bounce compute bake (the strip loop
+// + rows watermark, moon_bake_progress — the reveal-bake :1281-92/
+// :1399-1400 it cites predates the 2026-11-24 compute-progress change;
+// the reveal's bounce->s_rgb band edge is gone with it),
 // convert :1455-69, whole bake :1542-47, producer :1637-1721, done legs
 // :1794-1801, show legs :2474-34, watchdog :588-96/:2559, wrapper
 // :599-690, fade-in :3255-68, fade_ramp :3036-49; relief
@@ -52,8 +55,6 @@ digraph buffers_relay {
     bounce -> sframe [color="#2b5fb0", fontcolor="#1e3f70",
                       label="PUBLISH — one brief\nimage-key block"];
     sframe -> srgb [color="#2b5fb0", fontcolor="#1e3f70", label="LUT convert"];
-    bounce -> srgb [style=dashed, color="#b5643a", fontcolor="#8a3d18",
-                    label="reveal bands"];
     srgb -> show [style=dotted, color="#c2410c", fontcolor="#7c2410",
                   label="s_dsc.data"];
     show -> wrapper [label="strips, one by one"];

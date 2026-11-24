@@ -87,13 +87,13 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   atomic ``lv_refr_now`` under the main-injected LVGL mutex, with
   publish/apply ``seq_cst`` fences and an ack-before-reuse cap (a
   producer never rewrites a buffer the swap has not acknowledged,
-  5 s timeout). With ``KNOB_UI_BAKE_REVEAL`` (default y) the swap
-  *also* consumes the boot bake's rows watermark: the producer
-  interleaves bake + LUT-convert per row into the visible buffer
-  behind the black canvas, and every watermark advance is applied as
-  one atomic band flush — the moon draws itself at the bake rate
-  instead of the boot sitting black until the whole bake lands
-  (:doc:`the bake reveal <bake-reveal>`);
+  5 s timeout). The producer's bake runs row-by-row into the back
+  buffer, publishing a rows-completed watermark per row
+  (``knob_ui_compute_active`` / ``knob_ui_compute_progress``,
+  ``knob_ui.c:682``) — the shared home's seconds arc reads it as the
+  compute progress bar (:doc:`the compute progress <compute-progress>`);
+  the swap applies the FINISHED frame only (the partial rows of an
+  in-flight bake are never displayed — no band flushes, no heal path);
 - the descriptor declares plain ``LV_COLOR_FORMAT_RGB565`` and the
   draw unit byte-swaps into the ``RGB565_SWAPPED`` canvas — a purple
   wash on glass would be that swap misconfigured. The F1 fallback
@@ -106,13 +106,18 @@ dated history — the 128-px intermediates retired 2026-11-14): relief
 build 727 ms, first
 360-px bake ~790 ms (the K7b-era figure — superseded by the
 2026-11-14 re-measure below), ~115–130 ms per 128-px sweep frame, 0 TWDT,
-~6.8 MB PSRAM free after assets + buffers. Re-measured on the
-2026-11-14 reveal bench (same binary family): the non-revealed boot
-bake is **991 ms**, the revealed one **2028–2059 ms** end to end —
-the swap's band flushes (prio 7) preempt the producer (prio 5), so
-showing the bake costs it ~1.07 s, while the first rows become
-visible ~50 ms in instead of after ~1 s of black
-(:doc:`the bake reveal <bake-reveal>`). Re-measured 2026-11-11
+~6.8 MB PSRAM free after assets + buffers. The 2026-11-14 reveal
+bench (same binary family, now dated history — the band display
+retired 2026-11-24, the compute-progress change): the hidden boot bake
+was **991 ms**, the revealed one **2028–2059 ms** end to end — the
+swap's per-band flushes (prio 7) preempted the producer (prio 5) and
+cost the bake ~1.07 s. With the band display deleted the bake sheds
+that tax and the first ink is the quick **phase disc** — tens of ms
+(``disc_publish``, :doc:`the compute progress <compute-progress>`),
+published first when no saved frame is on glass, with the seconds arc
+sweeping the per-row watermark while the ~1 s bake runs behind it —
+instead of ~1 s of black (this change's bench re-measures the window).
+Re-measured 2026-11-11
 with the WDT posture above: the classify scan is **463 ephemeris
 evaluations in 24.6 s** (~53 ms each at ``-Og`` — the ~8 ms the first
 fix assumed was off ~7×), sweep frames bake at 132–141 ms, and a boot
@@ -262,16 +267,20 @@ descriptor + unhide + ``lv_refr_now`` on the LVGL lock — with the
 caption **seeded from the saved instant** (the shared home's gated
 row hides a plain time caption; the legacy own-screen view rolls it
 with the minute exactly like any day-tick frame), and the fresh bake
-swaps over it as one atomic flush. The row-by-row reveal (``KNOB_UI_BAKE_REVEAL``,
-:doc:`the bake reveal <bake-reveal>`) is the fallback for the only
-boot with no usable saved frame — the very first after a fresh
-flash wipes the file with the spiffs image: there the boot bake
-arrives **revealed**, over a black square the rows land band by band
-as the bake produces them, and it turns OFF whenever a saved frame
-is on glass (a row reveal would composite NEW rows over the OLD
-frame — the half-old/half-new ban). Wake and day-tick re-bakes keep
-the old-frame-then-atomic posture as before (no black window to
-remove). The cold-boot synodic sweep (1344 frames new moon →
+swaps over it as one atomic flush, the seconds arc sweeping the
+re-bake's per-row watermark. The **disc path** (:doc:`the compute
+progress <compute-progress>`) is the fallback for the only boot with
+no usable saved frame — the very first after a fresh flash wipes the
+file with the spiffs image: there ``disc_publish`` bakes the quick
+**phase disc** (``knob_moon_bake_phase_dummy``, tens of ms) and
+publishes it through the ordinary ``s_pub``/swap machinery — the swap
+unhides the disk with the disc on glass, ``wait_ack()`` before the
+real bake reuses the other slot — and the fresh bake swaps over it
+old-frame-then-atomic, the arc sweeping its per-row watermark; the
+disc is **never persisted** (``maybe_persist_frame`` skips it), so
+``/spiffs/moon_frame.bin`` always holds the last REAL bake. Wake and
+day-tick re-bakes keep the old-frame-then-atomic posture as before (no
+black window to remove). The cold-boot synodic sweep (1344 frames new moon →
 now at 128 px plus the crisp final frame, **314 s wall**, the
 never-black posture) retired 2026-11-14; the clocks dropped their
 own 2026-11-13, so the clock's wake policy is now the whole display
@@ -348,10 +357,10 @@ without the moon (the image stays hidden until the warm arm) —
 so the retained moon was visibly *deleted* ~700 ms before the
 warm flush brought it back. The ``[BF]`` bench probe
 (``KNOB_DIAG_FRAME_TRACE``; ``knob_ui_bf_probe``: the hidden/
-visible state of every attached moon image at the warm flush,
-both sides of the home→WiFi switch, the reveal cleanup and the
-swap-apply, plus the per-strip bright-pixel count in the flush
-callback) proved the first frames moon-less and every frame
+visible state of every attached moon image at the warm stage /
+warm flush, the swap-apply (fresh bake on glass) and the
+per-strip bright-pixel count in the flush callback) proved the
+first frames moon-less and every frame
 from the warm flush onward moon-present. The fix: the warm arm
 now runs in ``app_main`` BEFORE ``ui_init`` — the saved frame
 is staged on the shared descriptor (``s_shown``) before

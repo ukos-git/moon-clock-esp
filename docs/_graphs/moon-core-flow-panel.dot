@@ -4,18 +4,19 @@
 // probe — and there are three: hourly refresh, boot replay, day tick.
 // Each producer arms the pipeline; the row watermark is bumped by the
 // producer under s_rgb_mtx and free-runs regardless of the tick. The
-// tick's bake reveal walks black canvas -> one completed band per 50 ms
-// -> heal the OLD frame on any abort (the full state machine with its
-// moon_ui.c citations is bake-reveal.dot). Publication is ONE atomic
-// whole-panel lv_refr_now under s_rgb_mtx + the drain witness — s_frame
-// is never touched by a reveal; the finished rows reach the panel as
-// s_frame + s_rgb published in ONE mutex block.
+// home/wifi screens' seconds arc reads that watermark as the compute
+// progress bar (the bake reveal retired 2026-11-24 — the arc is a plain
+// LVGL object, not a panel-write; the partial bounce is never displayed,
+// so there is no heal path). Publication is ONE atomic whole-panel
+// lv_refr_now under s_rgb_mtx + the drain witness — s_frame is written
+// whole; the finished rows reach the panel as s_frame + s_rgb published
+// in ONE mutex block.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph moon_core_flow_panel {
     rankdir=TB;
-    label="The device side — producers, the row watermark, the reveal, the atomic show";
+    label="The device side — producers, the row watermark, the arc progress, the atomic show";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.45, ranksep=0.45];
@@ -28,16 +29,17 @@ digraph moon_core_flow_panel {
                fillcolor="#efece4"];
     wm  [label="row watermark —\nproducer bumps\nunder s_rgb_mtx,\nfree-runs",
          fillcolor="#f6e7dc", color="#b5643a", fontcolor="#8a3d18"];
-    reveal [label="bake reveal (tick) —\nblack canvas → one\nband per 50 ms →\nheal on abort",
-            fillcolor="#f6e7dc", color="#b5643a"];
+    arc [label="seconds arc (screens tick) —\nthe compute progress bar\n(plain LVGL object —\nno panel write, no heal)",
+         fillcolor="#f6e7dc", color="#b5643a"];
     show [label="ONE atomic whole-\npanel lv_refr_now +\ndrain witness",
           fillcolor="#fbeae5", color="#c2410c", fontcolor="#7c2410", penwidth=1.8];
-    sframe [label="s_frame + s_rgb in\nONE mutex block —\na reveal never\ntouches s_frame",
+    sframe [label="s_frame + s_rgb in\nONE mutex block —\ns_frame written whole\n(the partial bounce\nis never displayed)",
             shape=note, fillcolor="#e8e8e4", color="#525252",
             fontcolor="#1e3f70"];
 
     producers -> wm [color="#b5643a", penwidth=1.6, label="arm + bump"];
-    wm -> reveal;
-    reveal -> show [color="#c2410c", penwidth=1.6];
+    wm -> arc;
+    arc -> show [style=dashed, arrowhead=none, color="#b5643a"];
+    producers -> show [color="#c2410c", penwidth=1.6, label="publish + show"];
     show -> sframe [style=dashed, arrowhead=none];
 }

@@ -12,29 +12,6 @@ config KNOB_UI_ENABLE
         shared UI -- the component still links (knob/CMakeLists adds
         ui unconditionally); the gate is the runtime check in main.c.
 
-config KNOB_UI_BAKE_REVEAL
-    bool "Reveal the boot bake row by row while it computes"
-    default y
-    help
-        The knob's black window is the boot first frame WHEN NO USABLE
-        FRAME IS SAVED (no SD socket: every boot computes, 991 ms
-        measured 2026-11-14 — the revealed bake runs ~2.05 s end to
-        end, first rows visible ~50 ms in). With y that bake is
-        DISPLAYED as it runs: knob_moon bakes row by row into the back
-        buffer over a black-cleared square and publishes a rows watermark
-        (the frame counter's fence discipline); the swap task unhides the
-        disk at the first completed rows and lands each watermark as ONE
-        atomic band lv_refr_now on the LVGL lock -- the moon draws itself
-        north to south at the ACTUAL bake rate (the bake is the
-        metronome). A reveal that dies before publishing re-hides the
-        disk (the honest "moon unavailable" posture). When
-        KNOB_UI_LAST_FRAME has a frame on glass (any boot but the very
-        first after a fresh flash), the bake runs old-frame-then-atomic
-        instead and the reveal does not run. Day-tick re-bakes keep the
-        old-frame-then-atomic posture (not a black window). The clocks'
-        counterpart is UI_MOON_BAKE_REVEAL
-        (docs/implementation/bake-reveal).
-
 config KNOB_UI_LAST_FRAME
     bool "Show the persisted last frame before the fresh wake bake lands"
     default y
@@ -54,9 +31,11 @@ config KNOB_UI_LAST_FRAME
         home's gated row hides it; the legacy view rolls it with the
         minute like any day-tick frame); the fresh bake then lands
         over it as one atomic swap -- the old-frame-then-atomic
-        posture the day tick keeps, now real across deep sleep. The row-by-row reveal (KNOB_UI_BAKE_REVEAL)
-        only runs when no usable frame is saved (the very first boot
-        after a fresh flash wipes the file with the spiffs image).
+        posture the day tick keeps, now real across deep sleep. With no
+        usable frame saved (the very first boot after a fresh flash
+        wipes the file with the spiffs image) the boot instead
+        publishes the quick phase disc first (the compute section's
+        dummy, user 2026-11-24) and the fresh bake swaps over it.
 
 config KNOB_DIAG_FRAME_TRACE
     bool "Bench: log flush/swap/screen-switch boundaries"

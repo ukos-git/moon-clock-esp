@@ -85,22 +85,43 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
                             int64_t *bake_ms_out);
 
 /**
- * @brief The revealed bake (KNOB_UI_BAKE_REVEAL, docs/implementation/
- *        bake-reveal): the SAME frame as bake_display (same rows, same
- *        armed event, same bake log line) built VISIBLE-AS-IT-GOES.
+ * @brief The watermark bake (user decision 2026-11-24,
+ *        docs/implementation/compute-progress): the SAME frame as
+ *        bake_display (same rows, same armed event, same bake log line)
+ *        built WITH A rows-completed watermark.
  *
- * `out` is cleared to black first (the canvas: not-yet-baked rows are
- * black), then each row is baked AND converted through the armed LUT
- * before the rows-completed watermark advances -- a consumer may display
- * any prefix [0, *pub_rows) at any time (fenced like the frame counter;
- * the producer writes, the consumer only reads). The math and the final
- * pixels are bake_display's; only the phase order changes.
+ * `out` is cleared to black first (not-yet-baked rows are black), then
+ * each row is baked AND converted through the armed LUT before the
+ * watermark advances -- the screens' seconds-arc progress bar (the
+ * compute-progress seam) reads [0, *pub_rows) at any time (fenced like
+ * the frame counter; the producer writes, the seam only reads). Nothing
+ * DISPLAYS the partial prefix anymore (the retired strip reveal was
+ * that consumer); the watermark is the progress source, and the finished
+ * buffer is applied as one atomic whole-panel flush by the publish.
+ * The math and the final pixels are bake_display's; only the phase
+ * order changes.
  *
  * @param pub_rows    the watermark the producer advances (caller-owned,
  *                    volatile, rows fully present in out)
  */
-bool knob_moon_bake_display_reveal(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
-                                   volatile uint32_t *pub_rows, int64_t *bake_ms_out);
+bool knob_moon_bake_display_progress(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                     volatile uint32_t *pub_rows, int64_t *bake_ms_out);
+
+/**
+ * @brief The quick phase disc (user decision 2026-11-24,
+ *        docs/implementation/compute-progress): the current phase as a
+ *        flat uniform-albedo sphere -- the portable core's
+ *        moon_bake_phase_dummy (no albedo, no relief, no event
+ *        occlusion; relief-free Lambert straight through the tone LUT),
+ *        then the gray->RGB565 conversion through the armed LUT, so the
+ *        disc's shading matches the frames it dummies for. Tens of ms
+ *        on this board (no PSRAM texture loads) vs the ~2 s full bake.
+ *        It is the boot dummy (no saved frame on the glass yet):
+ *        published as an ordinary frame, it is NOT persisted (the
+ *        KNOB_UI_LAST_FRAME skip-write must never store a flat disc).
+ */
+bool knob_moon_bake_phase_dummy(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                int64_t *bake_ms_out);
 
 /**
  * @brief The last NEW MOON at or before utc_epoch: coarse 6 h then fine

@@ -143,7 +143,7 @@ blend, the hard night test, the backlit color.
 .. graphviz:: ../_graphs/dark-side-branch.dot
    :align: center
    :alt: The blue three-display-sites box over litv, darkv and the smoothstep t box, all three flowing into the blue out box whose return skips is_night.
-   :caption: The blend (:479-493), line by line: ``litv = TONE_LUT[idx] + es(d)`` (:485); ``darkv = moon_backlit_night(A, lns)`` (:486); ``t`` = smoothstep over :math:`\lns ∈ ±\texttt{MOON\_TERM\_SOFT}` — 0.03 ≈ 6 px each side at the 400 px disk (:193) — "NASA adds a gaussian blur at the boundary"; ``out = darkv + (litv − darkv)·t`` (:487-493). All three display bake sites (``moon_ui.c``:1249 the hourly strip, :1455 the boot bake, :2035 the bake-reveal strip) pass ``dark_zero=1, dk_sup=0`` and return here.
+   :caption: The blend (:479-493), line by line: ``litv = TONE_LUT[idx] + es(d)`` (:485); ``darkv = moon_backlit_night(A, lns)`` (:486); ``t`` = smoothstep over :math:`\lns ∈ ±\texttt{MOON\_TERM\_SOFT}` — 0.03 ≈ 6 px each side at the 400 px disk (:193) — "NASA adds a gaussian blur at the boundary"; ``out = darkv + (litv − darkv)·t`` (:487-493). Both display bake sites (``moon_ui.c``:1417 the compute strip loop — the hourly cold bake and the replay's final "now" leg, the bake-reveal strip that preceded it — and :1551 the boot/day-tick whole bake) pass ``dark_zero=1, dk_sup=0`` and return here.
 
 **The hard night test** — the gate's path:
 

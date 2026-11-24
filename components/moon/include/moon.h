@@ -134,6 +134,21 @@ void moon_bake_rows(const moon_geom_t *g, const uint8_t *albedo, const moon_grel
                     float radius, float cx, float cy, int alb_w, int alb_h, int y0, int y1, int dark_zero, float dk_sup,
                     const moon_bake_ev_t *bev);
 
+/* Flat phase disc (the computation placeholder): the bake's base-sphere
+ * projection at the epoch's phase with UNIFORM albedo (100%) and NO
+ * terrain -- per pixel the bake's geometry (disk test, r = u*right +
+ * v*up + w*E, d = r . S) and the relief-free Lambert L = clip(d, 0, 1)
+ * straight through the tone LUT: lit side TONE_LUT[round(255 * L)]
+ * (full moon = the uniform bright disc, the Lambert term shades the
+ * sphere), dark side TONE_LUT[0] = pure black (no earthshine, no
+ * backlit surface). No albedo, no relief, no texture tables -- the
+ * dummy's whole-frame cost is tens of ms on the S3 against the full
+ * bake's ~1.3 s. The device shows it as the moon image while the real
+ * frame computes (the boot first frame, the knob's first boot --
+ * components/ui/moon_ui.c, knob/components/knob_ui); the finished bake
+ * lands over it atomically. 0 outside the disk. */
+void moon_bake_phase_dummy(const moon_geom_t *g, uint8_t *frame, int size, float radius, float cx, float cy);
+
 /* Constant-projection pass (the light-sleep dusk): the renderer's color
  * depends only on the body direction and the epoch's fixed body-frame
  * sun -- the camera basis selects which direction is visible but never

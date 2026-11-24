@@ -86,10 +86,12 @@ The device pipeline
 
 - **Atomic frame** — the invariant: every moon-pipeline frame hits
   the panel as ONE whole-panel ``lv_refr_now`` under ``s_rgb_mtx``;
-  the two sanctioned exceptions are the fade-to-black and the bake
-  reveal's atomicity-per-state
+  the ONE sanctioned exception is the fade-to-black (the hardware
+  brightness ramp, which writes no pixels — the bake reveal's second
+  exception, its atomicity-per-state band states, retired 2026-11-24
+  with the compute-progress change)
   (:doc:`the architecture <implementation/architecture>` and :doc:`the
-  bake reveal <implementation/bake-reveal>`).
+  compute progress <implementation/compute-progress>`).
 - **s_rgb_mtx / s_panel_mtx** — the two locks: the *image* lock
   (bake/display of the moon buffer) and the *panel-io* lock
   (LVGL flushes, the 0x51 brightness)
@@ -118,15 +120,19 @@ The device pipeline
   (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
 - **Boot replay** *(``UI_MOON_BOOT_REPLAY``, added 2026-11-14)* — the
   boot presentation on the card-boards: a core-1 task plays ALL stored
-  TF hour frames ascending on the boot black and stops on the newest,
-  then the live-computed current phase lands as the final frame (one
+  TF hour frames ascending and stops on the newest, then the
+  live-computed current phase lands as the final frame (one
   drain-witnessed atomic whole-panel flush per frame, no fade, the
-  idle→sleep ladder held until the end leg; the final bake is
-  **revealed** while it computes — see *Bake reveal*). With no usable
-  cache the panel holds its boot black until the revealed final leg
-  starts drawing; the knob (no SD socket) takes that path only with no
-  saved last frame — ``KNOB_UI_LAST_FRAME`` shows the persisted
-  ``/spiffs/moon_frame.bin`` first, the fresh bake swaps over it
+  idle→sleep ladder held until the end leg; while the final bake
+  computes the seconds arc sweeps its rows watermark as a progress
+  bar — see *Compute progress*). While the first frames prepare the
+  panel shows the quick **phase disc** (*Phase disc*) instead of
+  black; with no usable cache the replay is simply absent and the disc
+  holds until the final bake lands. The knob (no SD socket) computes at
+  every boot — with no saved last frame on glass it publishes the disc
+  first and the fresh bake swaps over it; ``KNOB_UI_LAST_FRAME`` shows
+  the persisted ``/spiffs/moon_frame.bin`` first and the fresh bake
+  swaps over it
   (:doc:`the animation pipelines <implementation/animations>` and
   :doc:`the knob display <implementation/knob-display>`).
 - **Dusk** — the retired (2026-11-13) light-sleep entry: the
@@ -140,37 +146,58 @@ The device pipeline
   the pole angle that put the visible disk fully in the dark side
   (:doc:`the animation pipelines <implementation/animations>`).
 - **Hourly refresh** *(``UI_MOON_HOURLY_ENABLE``)* — the one live motion
-  left on the home: once per hour the moon fades to black on the panel's
-  own hardware brightness, a core-1 producer rebuilds the current-phase
-  frame at the **hour centre** (a TF hour-cache fetch, else a full bake),
-  that frame lands as ONE atomic whole-panel flush while the panel is still
-  black, then the brightness ramps back — the clock, alarm row and seconds
-  keep running through it. On a cache miss the rebuild is **revealed**
-  instead (strip-by-strip atomic bands, fade-back at the first strip —
-  see *Bake reveal*). Replaces the retired boot sweep; the TF hour
+  left on the home: once per hour a core-1 producer rebuilds the
+  current-phase frame at the **hour centre** (a TF hour-cache fetch,
+  else a full bake) with the **old frame up the whole cycle** (no fade,
+  no 0x51 traffic — the fade retired 2026-11-24, the compute-progress
+  change), the finished frame landing as ONE atomic whole-panel flush in
+  the bright panel; the seconds arc sweeps the bake's rows watermark as
+  a progress bar on a cache miss (a hit runs no strip loop, so the arc
+  shows real seconds). Replaces the retired boot sweep; the TF hour
   cache is its card-side fetch
   (:doc:`the animation pipelines <implementation/animations>`).
+- **Compute progress** *(replaced the bake reveal, 2026-11-24)* —
+  showing the moon's computation while it runs without displaying it
+  strip-wise: the producer bakes strip-chunked and publishes a
+  rows-completed watermark (the reveal's repurposed producer), the
+  home/wifi **seconds arc** reads it as a progress bar (``progress * 60
+  / 100``; plain LVGL invalidate, snaps back to real seconds the next
+  tick), and where the panel would otherwise be dark the **phase disc**
+  stands in. Every image that lands stays ONE atomic whole-panel flush —
+  the atomic-flush rule's second exception is gone, and with it the
+  heal path (the partial bounce is never displayed)
+  (:doc:`the compute progress <implementation/compute-progress>`).
 - **Bake reveal** *(``UI_MOON_BAKE_REVEAL`` / ``KNOB_UI_BAKE_REVEAL``,
-  added 2026-11-14)* — displaying the moon's computation while it runs:
-  a computing frame goes to a black canvas and each completed strip
-  lands as ONE atomic band flush (watermark from the producer, 50 ms
-  tick consumer), so the moon draws itself north to south at the
-  actual bake rate — the second sanctioned exception to the atomic-flush
-  rule, as *atomicity-per-state*. Used by the hourly refresh's
-  cache-miss bake and the boot replay's final leg (clock), and by the
-  knob's boot bake (producer-interleaved, and only when no
-  ``KNOB_UI_LAST_FRAME`` frame is on the glass — a saved frame gets
-  the fresh bake old-frame-then-atomic); fetch hits never arm it
-  (:doc:`the bake reveal <implementation/bake-reveal>`).
+  added 2026-11-14, retired 2026-11-24)* — the predecessor of
+  *Compute progress*: a computing frame displayed as a black canvas +
+  one atomic strip band per 50 ms tick (the *atomicity-per-state*
+  exception to the atomic-flush rule). Its display side (band state
+  machine, pacing, heal, the hourly fade choreography) is deleted —
+  the strip loop with the rows watermark survived as the progress
+  source, and the 2026-11-14/15 bench numbers remain the accepted
+  bake-cost measurements
+  (:doc:`the compute progress <implementation/compute-progress>`).
+- **Phase disc** *(added 2026-11-24)* — the quick dummy image for the
+  dark computation windows: ``moon_bake_phase_dummy`` (core, shared
+  verbatim with host + knob) projects the current phase as a flat
+  sphere — the real bake's geometry with no albedo, no relief, no
+  events; lit side through the tone LUT (full moon = a uniform bright
+  disc with a Lambert limb falloff), dark side plain black. Tens of ms
+  vs the ~1.3 s full bake; shown at boot (before the now-frame) and at
+  the knob's first boot with no saved frame; NEVER shown when a
+  computed frame is present
+  (:doc:`the compute progress <implementation/compute-progress>`).
 - **Observer view** *(``UI_MOON_OBSERVER_ENABLE``, added 2026-11-17)*
   — the timezone's payoff: every gray→RGB565 build leg gathers the
   north-up baked frame through the Q15.15 in-plane rotation at the
   Moon's parallactic angle for the active timezone's reference city,
   so the crescent lies down at dusk and stands up at midnight and the
   tilt follows the zone's local time. The bake stays north-up (the
-  gate's frames, the TF hour cache zone-agnostic); the bake reveal is
-  suppressed while a tilt applies; a changed zone re-gathers the
-  resting frame in place (``moon_ui_tz_changed``)
+  gate's frames, the TF hour cache zone-agnostic); the compute bake's
+  rows watermark is the north-up strip loop's, so the seconds-arc
+  progress is honest with or without the tilt (the gather runs at
+  publish); a changed zone re-gathers the resting frame in place
+  (``moon_ui_tz_changed``)
   (:doc:`the observer view <implementation/observer-view>`).
 - **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
   cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row
@@ -181,13 +208,15 @@ The device pipeline
 - **Panel-io watchdog** — the ``panel_wdg`` task: a stuck panel-io
   (the lost-DMA-completion freeze, :doc:`the display pipeline <implementation/display>`) restarts the board
   after ``PANEL_IO_WATCHDOG_LIMIT_MS`` (3000 ms).
-- **Fade-to-black** — one of the two sanctioned exceptions to the
-  atomic-flush
-  rule (the other is the *bake reveal*, above): the CO5300's *hardware*
+- **Fade-to-black** — the ONE sanctioned exception to the
+  atomic-flush rule (the bake reveal's second exception retired
+  2026-11-24): the CO5300's *hardware*
   brightness ramp (0x51, 12 steps, 240 ms)
   writes no pixels, and the new frame's one atomic flush runs while the
-  panel is still black. Two flows ride it — the screen switch
-  (``UI_SCREEN_SWITCH_FADE``) and the hourly refresh's two legs
+  panel is still black. Flows ride it — the screen switch
+  (``UI_SCREEN_SWITCH_FADE``) and the light-sleep dim/wake ramp (the
+  hourly refresh stopped riding it on 2026-11-24: the old frame stays
+  up the whole cycle)
   (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
 - **Keep-mask** *(removed with the spin, 2026-11-13)* — the spin's
   former UI overlay: a full-screen ``lv_snapshot`` that kept the

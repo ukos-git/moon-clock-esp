@@ -98,11 +98,12 @@ int knob_moon_classify_signature(int64_t utc_epoch) {
 /* The shared bake frame builder (both public bakes): guards, geometry,
  * the armed event, the row loop, the LUT pass, the bench acceptance log.
  * With pub_rows the bake is INTERLEAVED (bake row -> LUT row -> fence ->
- * watermark) over a black-cleared square, so a consumer can display any
- * completed prefix while the bake runs (the boot bake reveal, knob_ui's
- * swap task); with pub_rows NULL this is exactly the two-phase posture
- * the gate compares against. Row-by-row bake_rows with a vTaskDelay
- * every 16 rows keeps the idle task + TWDT fed either way. */
+ * watermark) over a black-cleared square, so the compute-progress seam
+ * (knob_ui's rows watermark, user 2026-11-24) can read any completed
+ * prefix while the bake runs; with pub_rows NULL this is exactly the
+ * two-phase posture the gate compares against. Row-by-row bake_rows
+ * with a vTaskDelay every 16 rows keeps the idle task + TWDT fed either
+ * way. */
 static bool bake_frame(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
                        volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
     const uint8_t *alb = moon_albedo();
@@ -175,9 +176,43 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
     return bake_frame(out, size, radius, cx, cy, utc_epoch, NULL, bake_ms_out);
 }
 
-bool knob_moon_bake_display_reveal(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
-                                   volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
+bool knob_moon_bake_display_progress(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                     volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
     return bake_frame(out, size, radius, cx, cy, utc_epoch, pub_rows, bake_ms_out);
+}
+
+/* The quick phase disc (the compute section, user 2026-11-24): the
+ * current phase as a flat uniform-albedo sphere (the portable core's
+ * moon_bake_phase_dummy -- no albedo, no relief, no event occlusion:
+ * one tone-LUT lookup per in-disk pixel, no PSRAM texture loads),
+ * converted through the armed LUT like every other frame so its
+ * shading matches the frames it dummies for. The caller owns the
+ * publish (and the decision NOT to persist the disc). */
+bool knob_moon_bake_phase_dummy(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
+                                int64_t *bake_ms_out) {
+    if (!out || size <= 0) {
+        return false;
+    }
+    if (!ensure_gray(size)) {
+        return false;
+    }
+    moon_geom_t g;
+    moon_geometry(utc_epoch, &g);
+    const int64_t t0 = esp_timer_get_time();
+    moon_bake_phase_dummy(&g, s_gray, size, radius, (float)cx, (float)cy);
+    for (int y = 0; y < size; y++) {
+        const uint8_t *frow = &s_gray[(size_t)y * size];
+        uint16_t *rrow = &out[(size_t)y * size];
+        for (int x = 0; x < size; x++) {
+            rrow[x] = moon_gray565(frow[x]);
+        }
+    }
+    ESP_LOGI(TAG, "phase disc %dx%d r=%.0f in %lld ms (illum %.1f%%)", size, size, radius,
+             (long long)((esp_timer_get_time() - t0) / 1000), g.illum * 100.0);
+    if (bake_ms_out) {
+        *bake_ms_out = (esp_timer_get_time() - t0) / 1000;
+    }
+    return true;
 }
 
 /* The last NEW MOON at or before utc_epoch -- the clock's new_moon_epoch

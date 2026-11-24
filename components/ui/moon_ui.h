@@ -35,10 +35,13 @@ extern "C" {
  *   moon_ui_start()  -- mark started and hand the boot presentation to
  *                       the core-1 replay producer (UI_MOON_BOOT_REPLAY):
  *                       ascending TF hour frames, then the computed
- *                       current phase as the final frame; no cache =
- *                       black until it lands. With the replay off it
- *                       bakes the CURRENT phase synchronously (boot is
- *                       static from the first frame).
+ *                       current phase as the final frame; while the
+ *                       now-frame computes the panel shows the quick
+ *                       flat phase disc (the compute section, user
+ *                       2026-11-24) and the seconds arc sweeps its
+ *                       progress. With the replay off it bakes the
+ *                       CURRENT phase synchronously over the disc (boot
+ *                       is static from the first frame).
  */
 
 /** Allocate buffers, build the image descriptor, start the tick timer. */
@@ -82,6 +85,21 @@ void moon_ui_start(void);
  * true -- the tick's replay end leg re-arms when the presentation ends.
  */
 bool moon_ui_replaying(void);
+
+/**
+ * Compute-progress seam (user decision 2026-11-24,
+ * docs/implementation/compute-progress): while the current-phase bake
+ * is in flight (the hourly cold-bake leg, the boot replay's final
+ * "now" leg) the home/wifi screens' seconds arc doubles as a progress
+ * bar. The moon layer implements these over the producer's
+ * rows-completed watermark; the knob's moon_ui implementation reads its
+ * own row fence. Screens read them every tick (plain volatile flag
+ * reads, never a lock): ACTIVE while a bake is in flight, PROGRESS
+ * 0..100 (the watermark's rows / total rows). The arc snaps back to the
+ * real seconds on the next tick after the finished frame lands.
+ */
+bool moon_ui_compute_active(void);
+int32_t moon_ui_compute_progress(void);
 
 /**
  * Cheap day-change probe (call at most once per minute, e.g. from the clock

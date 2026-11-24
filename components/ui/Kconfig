@@ -151,36 +151,24 @@ menu "UI Component Configuration"
             odometer + the five moon screens on a loop).
 
     config UI_MOON_HOURLY_ENABLE
-        bool "Once-per-hour moon refresh (fade to black, redraw, fade in)"
+        bool "Once-per-hour moon refresh (old frame stays up, atomic swap)"
         default y
         help
-            At each hour boundary the home's moon refreshes behind the
-            screen-switch fade machinery: the panel's OWN hardware
-            brightness (the CO5300 0x51 command / the P4's backlight
-            PWM) ramps to black (UI_MOON_HOURLY_FADE_MS per leg), a
-            core-1 task produces the current-phase frame at the HOUR
-            CENTRE (TF hour-cache fetch when the card can serve it,
-            otherwise a full bake with write-through store), the
-            finished frame is displayed as ONE atomic whole-panel flush
-            while the panel is still black, and the brightness ramps
-            back. Only the brightness animates -- the clock, the alarm
-            row and the seconds display keep running. The refresh is
-            skipped while the device is idle (light sleep), while a
-            moon-less screen is active, and while the orbit / re-bake
-            pipelines or another 0x51 ramp own the buffers; a producer
-            that misses its 5 s deadline leaves the OLD frame restored.
-
-    config UI_MOON_HOURLY_FADE_MS
-        int "Hourly refresh: fade leg time in ms (each leg)"
-        depends on UI_MOON_HOURLY_ENABLE
-        default UI_SCREEN_SWITCH_FADE
-        range 40 2000
-        help
-            The fade legs of the hourly refresh (down to black and back
-            up), paced like the screen-switch fade (UI_SCREEN_SWITCH_FADE)
-            with the same 12 steps. The produce pass runs while the
-            panel sits at black, so raising this only lengthens the
-            dark window (~1.3-2.4 s of bake plus the two ramps).
+            At each hour boundary the home's moon refreshes: a core-1
+            task produces the current-phase frame at the HOUR CENTRE
+            (TF hour-cache fetch when the card can serve it, otherwise a
+            full bake with write-through store), and the finished frame
+            lands as ONE atomic whole-panel flush -- into the BRIGHT
+            panel: the OLD frame stays up the whole bake (user decision
+            2026-11-24, docs/implementation/compute-progress) and the
+            home/wifi seconds arc sweeps the bake's rows-completed
+            watermark as a progress bar in its place. The clock, the
+            alarm row and the seconds display keep running; the refresh
+            owns no 0x51 traffic at all. The refresh is skipped while
+            the device is idle (light sleep), while a moon-less screen
+            is active, and while the orbit / re-bake pipelines or
+            another 0x51 ramp own the buffers; a producer that misses
+            its 5 s deadline leaves the OLD frame up.
 
     config UI_MOON_HOURLY_TFCACHE
         bool "Serve the hourly refresh frames from the TF card cache"
@@ -196,41 +184,18 @@ menu "UI Component Configuration"
             failure falls back silently to the bake path. See
             UI_MOON_TFCACHE for the folder / versioning rules.
 
-    config UI_MOON_BAKE_REVEAL
-        bool "Reveal the moon bake strip by strip while it computes"
-        depends on UI_MOON_HOURLY_ENABLE
-        default y
-        help
-            Turns the black windows of the current-phase calculation
-            (the hourly cold-bake leg, the boot replay's final "now"
-            bake) into the calculation made visible: the producer bakes
-            the PSRAM bounce strip by strip and publishes a
-            rows-completed watermark; the tick converts and displays
-            each completed strip as ONE atomic band flush over a moon
-            square cleared to black at reveal start -- the moon draws
-            itself north to south at the ACTUAL bake rate (the bake is
-            the metronome; no animation outruns a computed row). The
-            hourly fade choreography pays its fade-in back at the FIRST
-            completed strip, so the panel is dark for the fade window
-            only, never for fade + bake. TF hour-cache hits have
-            nothing to compute and show atomically as before. s_frame
-            is never touched during a reveal: any abort (failed cycle,
-            blown budget, sleep hand-off) heals the old frame back from
-            it. Docs: implementation/bake-reveal. Off: the old
-            black-until-computed posture everywhere.
-
     config TEST_HOURLY_FORCE_S
         int "Test: fire the hourly refresh every N seconds (0 = off)"
         default 0
         range 0 3600
         help
             Test hook: ignore the hour boundary and fire the full hourly
-            cycle (fade-out, produce, atomic show, fade-in) every N
-            seconds while the home screen is active and the device is
-            not idle -- bench acceptance for the fade/refresh legs
-            (cold card = miss + bake + store, warm card = fetch). The
-            clock, alarm row and seconds keep running through every
-            cycle. 0 (default) = off.
+            cycle (produce, atomic show) every N seconds while the home
+            screen is active and the device is not idle -- bench
+            acceptance for the refresh legs (cold card = miss + bake +
+            store, warm card = fetch). The old frame stays up the whole
+            cycle and the seconds arc sweeps the progress; the clock,
+            alarm row and seconds keep running. 0 (default) = off.
 
     config UI_MOON_BOOT_REPLAY
         bool "Boot: replay the TF hour cache as the boot animation"
@@ -240,24 +205,27 @@ menu "UI Component Configuration"
             At boot, a core-1 task replays ALL stored hour frames
             (ascending) as an animation and stops on the newest one; the
             live-computed current phase lands as the final frame right
-            after. Without a usable cache (no card, cold folder, version
-            wipe) the display stays black until the current phase is
-            computed, exactly as before. The frames are shown untinted
-            (neutral LUT -- stored grays carry no event tint) as ONE
-            atomic whole-panel flush each, drain-witnessed like every
-            sanctioned show; the panel brightness never moves (no fade).
-            The idle->sleep ladder is held for the presentation and
-            re-armed when it ends; a screen switch or sleep entry aborts
-            the animation and the day-tick re-bakes the current phase
-            later. The card then also carries the cache policy: entries
-            older than the last NEW MOON are cleared (the producers
-            compute the new-moon floor from the ephemeris and persist it
-            in meta.txt) on top of the one-synodic-month cap. The boot
-            touches the SD bus for the mount attempt (a card-less boot
-            pays ~1 s of probe timeout before the black-to-now path
-            lands). Needs the hourly TF legs (they own the bounce buffer
-            and the one-shot init this rides on). Demo mode boots without
-            the replay.
+            after. While the now-frame computes the panel shows the
+            quick phase disc (the compute section's dummy, user
+            decision 2026-11-24,
+            docs/implementation/compute-progress) and the home/wifi
+            seconds arc sweeps the bake's rows-completed watermark as a
+            progress bar -- no black window. The frames are shown
+            untinted (neutral LUT -- stored grays carry no event tint)
+            as ONE atomic whole-panel flush each, drain-witnessed like
+            every sanctioned show; the panel brightness never moves (no
+            fade). The idle->sleep ladder is held for the presentation
+            and re-armed when it ends; a screen switch or sleep entry
+            aborts the animation and the day-tick re-bakes the current
+            phase later. The card then also carries the cache policy:
+            entries older than the last NEW MOON are cleared (the
+            producers compute the new-moon floor from the ephemeris and
+            persist it in meta.txt) on top of the one-synodic-month
+            cap. The boot touches the SD bus for the mount attempt (a
+            card-less boot pays ~1 s of probe timeout before the
+            disc-to-now path lands). Needs the hourly TF legs (they own
+            the bounce buffer and the one-shot init this rides on).
+            Demo mode boots without the replay.
 
     config UI_MOON_REPLAY_FPS
         int "Boot replay: target frame rate (fps)"
@@ -477,19 +445,6 @@ menu "UI Component Configuration"
             load, earthshine, tonemap). Temporary profiling aid; off by
             default and visually wrong (flat terminator).
 
-    config TEST_BAKE_REVEAL_TRACE
-        bool "Test: log every bake-reveal band, producer strip and gated tick"
-        default n
-        help
-            Test hook: the bake-reveal pacing evidence (docs/implementation/
-            bake-reveal). One line per displayed state (rows + ms since the
-            arm + drain-witness ms), one per producer strip (the bake rate
-            the reveal rides) and one per second while the tick is gated
-            (naming the active gate: traffic hold / idle / fade pending /
-            sweep / screen). Counts the states a viewer can actually see
-            versus the states the bake computed. Bench diagnostic only;
-            off by default (the code compiles out entirely).
-
     config UI_IMU_ENABLE
         bool "Drive the moon viewport from the QMI8658 IMU (device tilt)"
         default y
@@ -692,9 +647,10 @@ menu "UI Component Configuration"
             agnostic); the gather rides the same gray->565 LUT, so the
             event tint is kept. A changed zone re-gathers the resting
             frame in place (moon_ui_tz_changed -- no re-bake). The
-            bake reveal is suppressed while a tilt applies (the drip
-            would animate north-up strips). Off = the fixed north-up
-            viewport (the pre-2026-11-17 behavior).
+            compute progress arc rides the panel's seconds arc while a
+            bake runs, tilt included (the watermark is on the north-up
+            strip loop, so the progress is honest either way). Off =
+            the fixed north-up viewport (the pre-2026-11-17 behavior).
 
     config UI_MOON_OBSERVER_SIGN
         int "Observer view rotation sign (+1 or -1)"

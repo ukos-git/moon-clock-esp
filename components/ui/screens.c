@@ -292,20 +292,45 @@ void create_screen_modem_sleep() {
     tick_screen_modem_sleep();
 }
 
+/* The seconds arc's tick value (the two moon screens' arcs, user
+ * decision 2026-11-24, docs/implementation/compute-progress): the real
+ * clock seconds -- or, while the current-phase bake is in flight (the
+ * hourly cold-bake leg, the boot replay's final "now" leg), the bake's
+ * PROGRESS. The seam (moon_ui_compute_active /
+ * moon_ui_compute_progress, the moon layer's rows-completed watermark)
+ * scales 0..100 onto the arc's 0..60 range, so the arc sweeps 0 -> 60
+ * in the same steps the producer finishes strips (~10/13 rows per
+ * ~50 ms tick: 40/50 updates over the ~1.3 s bake -- "reasonable update
+ * steps"), and the very next tick after the finished frame lands
+ * (active -> false) restores the actual seconds value -- the arc snaps
+ * back, never waits. Plain LVGL invalidates throughout: no whole-panel
+ * flush, no drain witness (the atomic-flush invariant is untouched --
+ * the dummy disc and the final frame each land atomically through the
+ * moon layer's own show paths). The moon is on five screens but only
+ * these two carry an arc object: progress is simply not shown on the
+ * light/deep sleep and alarm screens. */
+static void arc_seconds_tick(lv_obj_t *obj) {
+    int32_t new_val;
+    if (moon_ui_compute_active()) {
+        new_val = (moon_ui_compute_progress() * 60) / 100;
+    } else {
+        new_val = get_var_clock_seconds();
+    }
+    int32_t cur_val = lv_arc_get_value(obj);
+    if (new_val != cur_val) {
+        tick_value_change_obj = obj;
+        lv_arc_set_value(obj, new_val);
+        tick_value_change_obj = NULL;
+    }
+}
+
 void tick_screen_modem_sleep() {
     /* No clock tick here: the ONE shared clock widget is ticked from the
      * vars by the minute tick (action_update_clock_display) and by the
      * screen switch (ui_clock_attach_to); only the seconds arc is
-     * screen-local. */
-    {
-        int32_t new_val = get_var_clock_seconds();
-        int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_modem);
-        if (new_val != cur_val) {
-            tick_value_change_obj = objects.arc_clock_seconds_modem;
-            lv_arc_set_value(objects.arc_clock_seconds_modem, new_val);
-            tick_value_change_obj = NULL;
-        }
-    }
+     * screen-local (arc_seconds_tick: seconds, or the in-flight bake's
+     * progress while it computes). */
+    arc_seconds_tick(objects.arc_clock_seconds_modem);
 }
 
 /* The transient WiFi screen: shown while a WiFi + NTP sync runs (boot,
@@ -390,16 +415,11 @@ void create_screen_wifi() {
 
 void tick_screen_wifi() {
     /* No clock tick: the shared widget is ticked from the vars (minute
-     * tick + screen switch); only the seconds arc is screen-local. */
-    {
-        int32_t new_val = get_var_clock_seconds();
-        int32_t cur_val = lv_arc_get_value(objects.arc_clock_seconds_wifi);
-        if (new_val != cur_val) {
-            tick_value_change_obj = objects.arc_clock_seconds_wifi;
-            lv_arc_set_value(objects.arc_clock_seconds_wifi, new_val);
-            tick_value_change_obj = NULL;
-        }
-    }
+     * tick + screen switch); only the seconds arc is screen-local
+     * (arc_seconds_tick: seconds, or the in-flight bake's progress
+     * while it computes -- the wifi screen is where the boot sync +
+     * its now-frame bake land). */
+    arc_seconds_tick(objects.arc_clock_seconds_wifi);
     /* The connection indicator (grey = still connecting, white =
      * connected). The state flips at most once per sync, so only
      * recolour on a change -- the tick itself is a state compare. */

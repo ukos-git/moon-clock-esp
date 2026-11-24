@@ -61,8 +61,8 @@ published state as ONE atomic flush under ``s_rgb_mtx`` (the invariant,
    :align: center
 
 .. graphviz:: ../_graphs/moon-core-flow-panel.dot
-   :alt: The device side opened — core-1 producers, the row watermark, the bake reveal, one atomic lv_refr_now
-   :caption: ``moon_ui.c`` is the ONLY panel writer: core-1 producers (hourly, boot replay, day tick) are NEVER concurrent — the replay gate holds the hourly probe — and they bump the row watermark under ``s_rgb_mtx`` where it free-runs regardless of the tick. The tick's bake reveal heals the OLD frame on any abort; publication is one atomic whole-panel ``lv_refr_now`` plus the drain witness, and a reveal never touches ``s_frame`` (the full state machine: :doc:`the bake reveal <bake-reveal>`).
+   :alt: The device side opened — core-1 producers, the row watermark, the seconds-arc progress, one atomic lv_refr_now
+   :caption: ``moon_ui.c`` is the ONLY panel writer: core-1 producers (hourly, boot replay, day tick) are NEVER concurrent — the replay gate holds the hourly probe — and they bump the row watermark under ``s_rgb_mtx`` where it free-runs regardless of the tick. The home/wifi screens' seconds arc reads that watermark as the compute progress bar (a plain LVGL object, never a panel-write); publication is one atomic whole-panel ``lv_refr_now`` plus the drain witness, and ``s_frame`` is written whole — the partial bounce of an in-flight bake is never displayed, so there is no heal path (:doc:`the compute progress <compute-progress>`).
    :align: center
 
 The left half of this picture — the black box ``moon_geometry`` and

@@ -119,11 +119,25 @@ bool moon_ui_panel_repaint_pending(void) { return false; }
 
 /* The boot replay (moon_ui.h, UI_MOON_BOOT_REPLAY) is the AMOLED/P4 clocks'
  * TF-card feature -- the knob has no SD socket and its boot presents the
- * static phase (KNOB_UI_LAST_FRAME's saved frame or the revealed first
- * bake; the disk is hidden only before a frame is up), so it is never
- * "replaying": the shared actions.c ladder-re-arm sites (wake / WiFi
+ * static phase (KNOB_UI_LAST_FRAME's saved frame or the compute
+ * section's quick phase disc + the fresh bake; the disk is hidden only
+ * before a frame is up), so it is never "replaying": the shared
+ * actions.c ladder-re-arm sites (wake / WiFi
  * hand-off) never defer to a presentation that cannot exist. */
 bool moon_ui_replaying(void) { return false; }
+
+/* The compute-progress seam (moon_ui.h, user decision 2026-11-24,
+ * docs/implementation/compute-progress): the shared home's seconds arc
+ * reads these every tick while the knob producer's bake runs. They are
+ * one-line forwards to the producer's rows-completed watermark
+ * (knob_ui's s_compute_active / s_compute_pub -- the per-row fences
+ * order the pixels ahead of the watermark, so the seam's plain reads
+ * need no lock: the arc sees either (active, rising) or (inactive,
+ * ignored)). The arc snaps back to the real seconds on the next tick
+ * after the finished frame lands. */
+bool moon_ui_compute_active(void) { return knob_ui_compute_active(); }
+
+int32_t moon_ui_compute_progress(void) { return knob_ui_compute_progress(); }
 
 void moon_ui_panel_dim_ramp(int to_pct) {
     if (to_pct < 0) {

@@ -336,13 +336,17 @@ What the port did *not* touch
   ``components/moon``. The port is entirely in ``moon_ui.c`` (the
   display path), ``board_display.c`` (the seam), and the build files.
 - **The atomic invariant** — the P4 obeys the same rule (one atomic
-  whole-panel display; the sanctioned exceptions: the fade, and the
-  bake reveal's band-atomic states — its 26-row bands,
-  :doc:`the bake reveal <bake-reveal>`). In
-  the spin era the P4's two extra exceptions (the spin's direct write
-  and the TF replay's) went per-strip (65 rows) rather than the S3's
-  single window, but were still ``s_panel_mtx``-held, per-frame
-  atomic units — all retired 2026-11-13 with the spin.
+  whole-panel display; the ONE sanctioned exception: the fade's
+  hardware brightness ramp). The bake reveal's second exception —
+  whose band-atomic states ran the P4's 13-row bands after the
+  2026-11-15 tuning (26 pre-tuning) — was retired 2026-11-24 with
+  the compute-progress change (:doc:`the compute progress
+  <compute-progress>`; the compute watermark runs the same 13-row
+  strips, but the partial bake is never displayed). In the spin era
+  the P4's two extra exceptions (the spin's direct write and the TF
+  replay's) went per-strip (65 rows) rather than the S3's single
+  window, but were still ``s_panel_mtx``-held, per-frame atomic
+  units — all retired 2026-11-13 with the spin.
 - **The panel-io watchdog** — the same ``s_panel_mtx``-based restart
   guard runs on the P4 (its DSI bus has its own stall modes; the
   bounded-hold + watchdog discipline is board-blind).

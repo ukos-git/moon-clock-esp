@@ -15,10 +15,11 @@
 // writer: core-1 producers (NEVER concurrent — the replay gate holds
 // the hourly probe; hourly refresh, boot replay, day tick) bump a row
 // watermark under s_rgb_mtx that free-runs regardless of the tick; the
-// tick's bake reveal walks black canvas -> one completed band per 50 ms
-// -> heal the OLD frame on abort; publication is ONE atomic whole-panel
-// lv_refr_now under s_rgb_mtx + drain witness, s_frame never touched by
-// a reveal. Details: moon-core-flow-core.dot and
+// screens' seconds arc reads that watermark as the compute progress bar
+// (the bake reveal retired 2026-11-24 — the partial bounce is never
+// displayed, so there is no heal path); publication is ONE atomic
+// whole-panel lv_refr_now under s_rgb_mtx + drain witness, s_frame
+// written whole. Details: moon-core-flow-core.dot and
 // moon-core-flow-panel.dot.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.

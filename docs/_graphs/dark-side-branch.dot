@@ -5,9 +5,12 @@
 // moon_backlit_night(A, lns) (:486); t = smoothstep over lns ∈
 // ±MOON_TERM_SOFT (0.03 ≈ 6 px each side at the 400 px disk, :193 —
 // "NASA adds a gaussian blur at the boundary"); out = darkv +
-// (litv − darkv)·t (:487-493). The three display bake sites pass this
-// branch: moon_ui.c:1339 the hourly strip, :1596 the boot bake, :2176
-// the bake-reveal strip — all dark_zero=1, dk_sup=0. The blend's WHY —
+// (litv − darkv)·t (:487-493). The two display bake sites pass this
+// branch: moon_ui.c:1417 the compute strip loop (moon_bake_progress —
+// the hourly cold bake and the replay's final "now" leg, the
+// bake-reveal strip that preceded it) and :1551 the boot/day-tick
+// whole bake (moon_bake_epoch) — all dark_zero=1, dk_sup=0. The
+// blend's WHY —
 // the cutout-edge report behind the soft terminator — is
 // science/art-pass.rst. The sealed version is dark-side.dot (this
 // page); the night side it calls is dark-side-backlit.dot; the test it
@@ -26,7 +29,7 @@ digraph dark_side_branch {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    sites [label="THE THREE DISPLAY\nSITES — hourly :1249\n· boot :1455 · :2035", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
+    sites [label="THE TWO DISPLAY\nSITES — compute strip :1417\n(hourly + replay final) ·\nboot/day-tick bake :1551", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     litv [label="litv = TONE_LUT\n+ es(d) (:485)"];
     darkv [label="darkv =\nmoon_backlit_night\n(A, lns) (:486)", fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
     t [label="t = smoothstep over\nlns ∈ ±SOFT 0.03 —\n≈ 6 px each side"];
