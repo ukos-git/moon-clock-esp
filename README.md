@@ -1,26 +1,41 @@
 # Moon Phase Clock
 
-A physically correct moon-phase clock. The current phase of the Moon — from the
-last new moon to now — is rendered **live on a microcontroller** from LROC
-Wide-Angle Camera albedo and LOLA relief, lit with full-disk displaced-normal
-Lambert shading at the exact Sun/Moon/Earth geometry of the ephemeris (JPL
-Moon98 + ERFA EPV). It is not a photo and not a clock face with a moon icon:
-the crater shadows, the libration, the terminator, and the computed backlit
-dark side match NASA's rendered moon to within a couple of gray levels per
-pixel.
+A desk clock that shows you the real Moon, as it is tonight. The current phase
+of the Moon — from the last new moon to now — is rendered **live on a
+microcontroller**, not from a photo or a moon icon on a clock face: the crater
+shadows, the libration, the terminator, and the computed backlit dark side all
+come out of the rendering pipeline, and they match NASA's own rendered moon to
+within a couple of gray levels per pixel. The same pipeline also gives you a
+small, complete device project around the moon: a settings hub with sleep
+timeouts, timezones, alarm sounds and display trim, and a round letter-wheel
+keyboard for the WiFi password.
 
-![The finished clock, simulated](docs/_static/photos/sim_home.png)
+Under the hood: the moon is baked on the fly from LRO Wide-Angle Camera albedo
+and LOLA relief, lit with full-disk displaced-normal Lambert shading at the
+exact Sun/Moon/Earth geometry of the ephemeris (JPL Moon98 + ERFA EPV). A full
+frame lands on the panel as one atomic whole-panel flush, and the board spends
+most of its life asleep — light sleep is a dimmed static frame, deep sleep
+turns the backlight off.
 
-The same portable C core runs on two Waveshare boards from one tree:
+![The finished clock, simulated](docs/_static/photos/sim_home.webp)
+
+The [docs landing page](docs/index.rst) carries a short film of the whole
+interface, computed live by the docs build from the same simulator that renders
+the screenshots above.
+
+The same portable C core runs on three Waveshare boards from one tree:
 
 - **ESP32-S3 Touch AMOLED 1.75** — 466×466 QSPI CO5300 AMOLED (the default
   target, the product's face)
 - **ESP32-P4 WIFI6 Touch LCD XC "4C"** — 720×720 round MIPI-DSI JD9365 IPS,
   remote C6 Wi-Fi over SDIO (ported as a full sibling)
+- **ESP32-S3 Knob Touch LCD 1.8** — 360×360 backlit QSPI LCD + EC1 dial (the
+  dial board of the family, built as a sibling project under `knob/` that links
+  the clock's shared components)
 
 The complete documentation — the science, the implementation, the build system,
 the per-board references (pin maps, build/flash, partitions), and the
-per-screen UI reference with both-panel screenshots — is the Sphinx site under
+per-screen UI reference with three-panel screenshots — is the Sphinx site under
 `docs/` (build it with
 `docs/.venv/bin/sphinx-build -b html docs docs/_build/html`; code links resolve
 to the locally generated source pages). This README is the entry point, not the
@@ -57,8 +72,9 @@ idf.py monitor -p <port>               # serial console, 115200
 ```
 
 For the **P4 4C**, pin the target, build dir and live config on every command:
-`idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build` … `flash -p <port>`
-(the flag gives the P4 its own gitignored `sdkconfig.p4` — the root `sdkconfig` pins the S3).
+`idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build` …
+`flash -p <port>` (the flag gives the P4 its own gitignored `sdkconfig.p4` —
+the root `sdkconfig` pins the S3).
 
 On first boot the board scans for networks and lands on the WiFi screen — tap
 an access point and enter the password on the round keyboard. The credentials
@@ -77,9 +93,8 @@ persist in the board's SPIFFS.
   stdlib script acquires and bakes it all (NASA sources sha256-pinned,
   bootstraps its own `.venv`; `--refs` adds the image-gate reference frames,
   `--fonts` the four foundry faces the docs glyph figure needs):
-  `python3 assets/images/moon/get_assets.py --refs --fonts`. After a
-  pipeline change
-  re-bake with
+  `python3 assets/images/moon/get_assets.py --refs --fonts`. After a pipeline
+  change re-bake with
   `assets/images/moon/.venv/bin/python -m moon.assets --target s3 p4 knob`,
   then prove it against NASA's renders with
   `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` (and `p4`,
@@ -106,7 +121,10 @@ The hardware and build reference lives in the docs, not here:
 - [The S3 board](docs/devices/s3.rst) — wiring, full pin map, build/flash,
   pre-configured defaults
 - [The P4 4C board](docs/devices/p4.rst) — the sibling port, C6 over SDIO
+- [The knob board](docs/devices/knob.rst) — the dial sibling project (`knob/`),
+  deep sleep on an RTC timer
 - [Getting started](docs/getting-started.rst) — the minimal verified flash
   runbook, expanded
+- [The user interface](docs/ui/index.rst) — every screen, element by element
 - [Performance](docs/verification/performance.rst) — how fast everything is,
   with the exact commands to reproduce the numbers

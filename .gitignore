@@ -75,7 +75,13 @@ bench/recordings/
 docs/img/screens/
 docs/img/nasa/
 docs/img/fade.mp4
-docs/_static/photos/
+docs/img/promo.mp4
+# The photos dir is build output EXCEPT sim_home.webp — the committed
+# README hero (docs/tools/gen_hero.py, LFS): the one documented
+# exception to "docs media is never committed", since the README
+# renders on GitHub without a media run.
+docs/_static/photos/*
+!docs/_static/photos/sim_home.webp
 docs/_static/figs/
 .debug-touch/
 

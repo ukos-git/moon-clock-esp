@@ -52,9 +52,14 @@ system, build steps) **update the site** — do not let it drift:
    `nasa_figs.py` + `gen_nasa_quarters.py`, needs the gitignored
    `assets/images/moon/final_400x400`). ALL docs media
    (`docs/img/screens{,/p4,/knob,/annot}`, `docs/_static/photos`,
-   `docs/_static/figs`, `docs/img/nasa`, `docs/img/fade.mp4`) is gitignored
-   build output — regenerated, NEVER committed (2026-11-16); the pages embed
-   the files on disk, so `-b html` 0-warnings presumes a media run. The vendor
+   `docs/_static/figs`, `docs/img/nasa`, `docs/img/fade.mp4`,
+   `docs/img/promo.mp4`) is gitignored build output — regenerated, NEVER
+   committed (2026-11-16); the pages embed the files on disk, so `-b html`
+   0-warnings presumes a media run. ONE exception:
+   `docs/_static/photos/sim_home.webp` (the README hero, LFS) — the README
+   renders on GitHub without a media run, so its signature image is the one
+   committed photo; `docs/tools/gen_hero.py` regenerates it from the
+   `sim_home.png` composite after any media run that changes it. The vendor
    legs of `perf_bus`/`perf_silicon` parse `managed_components/` — it holds
    only the LAST-resolved target's set, so reconfigure the P4 build for the
    gt911 header. The glyph figure `gen_perf_glyphs.py` needs the four foundry
@@ -218,9 +223,10 @@ host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate
 host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # all three board
 host_sim/.venv/bin/python host_sim/check_gate.py --target knob # textures must pass
 host_sim/uisim/build.sh run                    # real screens -> PNG snapshots (466)
+host_sim/uisim/build.sh run --tour              # the promo film's frames (out/tour_*.png, S3 466 only)
 host_sim/uisim/build.sh run --panel 720        # the P4 set (720, the 2048 texture)
 host_sim/uisim/build.sh run --panel 360        # the knob set (360, CONFIG_BOARD_KNOB, fonts_knob tier)
-python3 docs/gen_media.py                      # docs videos (moon_sim frames)
+python3 docs/gen_media.py                      # docs films: fade.mp4 + promo.mp4 (from the S3 466 out/ set)
 docs/.venv/bin/sphinx-build -b html docs docs/_build/html       # the docs site (0 warnings is the gate)
 docs/.venv/bin/python docs/tools/check_docs_drift.py           # drift gate: the single-sourced
                                                                # fragments (Kconfig/consts/
