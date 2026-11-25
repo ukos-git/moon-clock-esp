@@ -1166,16 +1166,17 @@ Three counting facts the app-side budget cannot show:
   partition change means a full flash on the bench unit, the
   comment's own reason; re-derived before the figure trusts it).
 
-The chip reservations close the ledger: S3 4736 K of 16 MB (the
-comment's "Total = 4736K", re-derived from the rows, ~11 MB unused —
-the headroom binary.rst's widening rule lives on), P4 14464 K of
-32 MB, knob 7296 K of 16 MB with the CSV's "~8.9 MB free" before the
-coredump row and "~8.8 MB" after it (both re-derived). The
-two amber/orange segments are the same bytes the sharpness funnel
-samples per pixel and the pixel ladder's relief wall unpacks from at
-boot; the hour cache, by contrast, stores *baked output* on the TF
-card — a derived copy of what these rows make, not another resident
-copy of them. How OFTEN the firmware rewrites these same media — the
+The chip reservations close the ledger: S3 16384 K of 16 MB (the
+comment's "Total = 16384K", re-derived from the rows — the
+``moon_movie`` LAST row owns the chip's leftover, so nothing is
+unused anymore and binary.rst's widening rule now runs through the
+movie row), P4 14464 K of 32 MB, knob 7296 K of 16 MB with the CSV's
+"~8.9 MB free" before the coredump row and "~8.8 MB" after it (both
+re-derived). The two amber/orange segments are the same bytes the
+sharpness funnel samples per pixel and the pixel ladder's relief
+wall unpacks from at boot; the hour cache, by contrast, stores
+*baked output* on the TF card — a derived copy of what these rows
+make, not another resident copy of them. How OFTEN the firmware rewrites these same media — the
 churn axis, from a 241,024-byte encoder bound to an 8-byte NVS commit
 — is :ref:`the write ladder <write-ladder-perf>` below.
 

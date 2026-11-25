@@ -360,6 +360,6 @@ direct_dependencies:
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/pcf85063a
-manifest_hash: 0b777d75063ddf3623a2a64355077099306e9cdc07fbfa9b1123804d6bf08700
+manifest_hash: 346080350f7ab0952866a4c297eda37f77880b8834705fd06cd2c00437f3c7d8
 target: esp32s3
 version: 2.0.0

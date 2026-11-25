@@ -41,10 +41,22 @@ The S3 (16 MB)
      - The generated equirect albedo + int8 relief DEM blob
        (864×432 albedo + 2048×1024 DEM = 2,470,400 B < 2,621,440 B)
        — :doc:`the Python API <../reference/python-api>`
+   * - ``moon_movie``
+     - data/undefined
+     - **11648 K (0xb60000)**
+     - LAST row: the boot movie — one synodic cycle of q90 gray
+       JPEGs, baked by ``python -m moon.movie`` from the
+       device-identical portable core (355 frames @ 2 h =
+       10,264,284 B today). The app is bounded by its own
+       ``factory`` row, so the movie can never crowd the code —
+       grow ``factory``, shrink this row, re-run the generator (it
+       lands on a coarser frame step): the "fill the space, never
+       hinder the code build" policy.
 
-Total 4736 K (the 64 K fixed prefix — bootloader at 0x0, partition
+Total 16384 K (the 64 K fixed prefix — bootloader at 0x0, partition
 table at 0x8000, nvs + phy up to the factory's 0x10000 — plus the
-rows); the 16 MB chip leaves ~11.4 MB unused. The 2 MB
+rows): the 16 MB chip is fully allocated, the ``moon_movie`` row
+owning the space the earlier tables left unused. The 2 MB
 ``factory`` is the board's binding constraint — the binary-size
 chronology (:doc:`the binary-size chronology <../verification/binary>`)
 tracks it.

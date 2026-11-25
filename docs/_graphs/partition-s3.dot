@@ -3,9 +3,12 @@
 // table (nvs 24 K + phy 4 K), factory app 2048 K (the binding
 // constraint of the family), storage SPIFFS 64 K, moon_assets
 // 2560 K (864x432 albedo + 2048x1024 DEM = 2,470,400 B combined),
-// then unused. The table ends at 4736 K including the 64 K prefix;
-// ~11.4 MB stays unused. The build-time partition-fit guard prices
-// the blob against this row (assets-pipeline-guards.dot).
+// moon_movie 11648 K — the LAST row, owning the chip's leftover
+// (one synodic cycle of q90 gray JPEGs; 355 frames @ 2 h =
+// 10,264,284 B today). The table fills the whole 16384 K chip
+// including the 64 K prefix. The build-time partition-fit guard
+// prices the asset blob against the moon_assets row and the movie
+// against the moon_movie row (assets-pipeline-guards.dot).
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
@@ -29,12 +32,11 @@ digraph partitions_s3 {
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     assets  [label="moon_assets — 2560 K\n(864×432 albedo +\n2048×1024 DEM)",
              fillcolor="#efece4"];
-    free    [label="unused —\n~11.4 MB",
-             fillcolor="#f2f2f2", color="#6b7280", fontcolor="#3f3f3f",
-             style="rounded,filled,dashed"];
+    movie   [label="moon_movie — 11648 K (LAST)\n(the chip's leftover:\n355 frames @ 2 h today)",
+             fillcolor="#efece4"];
 
     boot -> factory;
     factory -> storage;
     storage -> assets;
-    assets -> free;
+    assets -> movie;
 }

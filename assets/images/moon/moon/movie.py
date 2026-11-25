@@ -97,10 +97,12 @@ GEOM = {
 }
 
 # Partition tables + chip size per target (total KiB; the fixed
-# bootloader+table region before the first row).
+# bootloader+table region before the first row: 32K bootloader + 4K
+# table -> rows start at 0x9000 on every board, the knob's explicit
+# offsets being the witness).
 TABLES = {
-    "s3": {"csv": "partitions.csv", "total_kib": 16384, "fixed_kib": 0x8000 // 1024},
-    "p4": {"csv": "partitions_p4.csv", "total_kib": 32768, "fixed_kib": 0x8000 // 1024},
+    "s3": {"csv": "partitions.csv", "total_kib": 16384, "fixed_kib": 0x9000 // 1024},
+    "p4": {"csv": "partitions_p4.csv", "total_kib": 32768, "fixed_kib": 0x9000 // 1024},
     "knob": {"csv": "knob/partitions.csv", "total_kib": 16384, "fixed_kib": 0x9000 // 1024},
 }
 

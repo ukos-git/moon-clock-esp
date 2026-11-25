@@ -38,9 +38,9 @@ repo, never ``build/knob``):
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,721,472 B (0x1a4480)
+     - 1,722,896 B (0x1a4a10)
      - 2,097,152 B (2048 K)
-     - 375,680 B (18 %)
+     - 374,256 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
      - 1,882,224 B (0x1cb870)
@@ -200,7 +200,7 @@ the app's growth history:
                                               the key is one same-length
                                               string, so the size stands at
                                               the table's number above
-   binary    1,721,472 B  (0x1a4480)  current (measured 2026-11-24) — the
+   binary    1,721,472 B  (0x1a4480)  the 2026-11-24 take — the
                                               compute-progress repurpose:
                                               the strip-by-strip bake
                                               reveal and the hourly
@@ -214,14 +214,30 @@ the app's growth history:
                                               phase disc against the
                                               retired reveal path); 18%
                                               under the ceiling
+   binary    1,722,896 B  (0x1a4a10)  current (measured 2026-11-25) — the
+                                              boot-movie reader module
+                                              (the ``moon_movie``
+                                              partition's flash-resident
+                                              synodic cycle: header probe
+                                              + calcver check + q90 gray
+                                              JPEG decode, ``esp_new_jpeg``
+                                              linked into the app)
+                                              compiled in ahead of the
+                                              boot re-source; the movie's
+                                              10 MB lives in its own
+                                              partition row, not here
+                                              (+1,424 B net — the reader
+                                              + the codec); 18% under
+                                              the ceiling
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
 and the fix was not to *shrink* the app (the coredump/trace facility
 was not shrinkable) but to *widen the partition* — a change the 16 MB
 chip made free, because the other partitions (``moon_assets`` 2560 K,
-``storage`` 64 K, the fixed 64 K prefix) leave the chip's remaining
-~11 MB unused. The invariant in CLAUDE.md records the new ceiling
+``storage`` 64 K, the fixed 64 K prefix) left the chip's remaining
+~11 MB unused (today the ``moon_movie`` row owns that space). The
+invariant in CLAUDE.md records the new ceiling
 (**S3 factory 2,097,152 B / 2048 K**) and the rule that the binary
 size is checked after every build — the ceiling is a *recorded*
 number, not a hardware limit, and the check is what keeps it honest.
@@ -269,13 +285,15 @@ The project's policy for the S3 (the binding budget):
    will *hit* the ceiling — the
    same situation the 1,451,472 B production build was in — and rule
    3 is the answer, not a code shrink under protest.
-3. **Widen the partition, not the chip.** The 16 MB chip has ~11 MB
-   of unused space; the ``factory`` ceiling is a *config* choice.
-   If the app outgrows the ceiling again, the fix is a
-   ``partitions.csv`` edit (a tracked file, a reviewed commit), not
-   a code shrink. The shrink is the last resort — the coredump/trace
-   facility, the font subsets, and the animation code are not
-   optional.
+3. **Widen the partition, not the chip.** The 16 MB chip's leftover
+   is now spoken for by the ``moon_movie`` row (11648 K, the boot
+   movie's synodic cycle) — so the ``factory`` ceiling is a *config*
+   choice, and if the app outgrows it again the fix is a
+   ``partitions.csv`` edit (a tracked file, a reviewed commit): widen
+   ``factory``, shrink ``moon_movie``, re-run the movie generator (it
+   lands on a coarser frame step) — not a code shrink. The shrink is
+   the last resort — the coredump/trace facility, the font subsets,
+   and the animation code are not optional.
 4. **The P4 and the knob are not the budget.** The P4's 9216 K
    ceiling is generous by design and the knob got a 4096 K one from
    the start; both binaries are checked (the rule is

@@ -40,9 +40,18 @@ idf_component_register(
         core/erfa/rxp.c
         core/erfa/rxpv.c
         esp/moon_esp_assets.c
+        esp/moon_esp_movie.c
     INCLUDE_DIRS
         include
         ${MOON_GEN_DIR}
         core/erfa
-    REQUIRES esp_partition esp_timer log
+    # heap_caps: both device backends (moon_esp_assets.c / moon_esp_movie.c)
+    # read their partition data into PSRAM via heap_caps_malloc.
+    REQUIRES esp_partition esp_timer log heap
+    # espressif__esp_new_jpeg: the boot-movie codec (esp/moon_esp_movie.c
+    # decodes the partition's q90 gray JPEGs). Same name + range the ui
+    # component declares for the TF cache, so the solver keeps the single
+    # vendored 1.0.2 across every project (declared in idf_component.yml).
+    # PRIVATE: only moon_esp_movie.c includes its header.
+    PRIV_REQUIRES espressif__esp_new_jpeg
 )
