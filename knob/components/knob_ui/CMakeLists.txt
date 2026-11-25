@@ -17,7 +17,9 @@ set(KNOB_UI_SRCS "knob_ui.c" "knob_moon_render.c" "knob_alarm_audio_stub.c" "kno
                  "knob_battery_ui.c")
 # knob_battery is LITERAL (early requirements pass): the KNOB_BATTERY_GAUGE
 # gate is runtime inside the component, so the overlay always links.
-set(KNOB_UI_DEPS lvgl knob_board knob_moon clock knob_power ui knob_battery)
+# moon is LITERAL too: knob_ui.c includes moon_movie.h (the boot movie's
+# seam, KNOB_UI_MOVIE_ENABLE) and drives knob_moon_bake_movie_frame.
+set(KNOB_UI_DEPS lvgl knob_board knob_moon moon clock knob_power ui knob_battery)
 idf_component_register(SRCS ${KNOB_UI_SRCS}
                        INCLUDE_DIRS "include"
                        REQUIRES ${KNOB_UI_DEPS})

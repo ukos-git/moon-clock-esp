@@ -65,6 +65,8 @@
 #include "knob_moon.h"
 #include "knob_power.h"
 #include "lvgl.h"
+#include "moon.h"
+#include "moon_movie.h"
 #include "screens.h"
 #include "settings_store.h"
 
@@ -466,6 +468,293 @@ static bool last_frame_warm(int64_t now) {
 }
 #endif /* CONFIG_KNOB_UI_LAST_FRAME */
 
+/* #ifndef-seeded KNOB_UI_MOVIE_ENABLE + KNOB_UI_MOVIE_FPS (the
+ * UNDEFINED-macro invariant, the KNOB_UI_LAST_FRAME pattern). */
+#ifndef CONFIG_KNOB_UI_MOVIE_ENABLE
+#define CONFIG_KNOB_UI_MOVIE_ENABLE 0
+#endif
+#ifndef CONFIG_KNOB_UI_MOVIE_FPS
+#define CONFIG_KNOB_UI_MOVIE_FPS 8
+#endif
+
+#if CONFIG_KNOB_UI_MOVIE_ENABLE
+/* ---- the boot movie (KNOB_UI_MOVIE_ENABLE, 2026-11-25) ----------------
+ * The knob's answer to the clocks' boot re-source (the moon_movie
+ * partition, the clocks' M2/M3): a precomputed synodic cycle of q90
+ * gray JPEGs baked at build time by the portable core (pixel-identical
+ * bakes, the generator's moon_sim output) and flashed into the
+ * moon_movie data partition. The knob has NO SD socket -- flash is its
+ * ONLY movie source, and it plays exactly where the clocks' card
+ * fallback would have: the boot's "old frame" is the movie's frame 0
+ * (born visible, the KNOB_UI_LAST_FRAME warm-arm shape), and while the
+ * Wi-Fi + NTP window runs and the fresh bake lands, the loop keeps the
+ * glass showing a real, device-identical moon.
+ *
+ * Architecture (the knob's seam forces a different shape than the
+ * clocks' two-task re-source):
+ *  - WARM: show_moon's first arm (app_main, BEFORE ui_init) stages
+ *    frame 0 on the FRONT buffer + descriptor + s_shown, exactly like
+ *    last_frame_warm -- so the knob's retained-panel first screen flush
+ *    already carries a movie frame (never-black, the 2026-11-22 fix).
+ *    The saved-frame warm takes precedence (it is the LATEST real
+ *    phase; the movie is a generic cycle -- the never-a-phantom-phase
+ *    discipline: a movie frame is never CLAIMED as the current phase,
+ *    the caption is only rewritten to the real bake's instant by the
+ *    day tick's force-rebake).
+ *  - LOOP: the producer (moon_task) runs the loop INSTEAD of the static
+ *    opening presentation while no trustworthy instant exists yet --
+ *    the knob's whole opening act is the NTP window + the opening
+ *    classify scan (~20 s), so the loop replaces the disc the disc
+ *    would have owned. ONE PRODUCER stays true: the loop, the catch-up
+ *    and the opening bake all run on moon_task through the ordinary
+ *    bake_publish/publish seam (the s_buf[2] back-buffer -> swap task
+ *    -> ONE atomic whole-panel lv_refr_now -- the family invariant the
+ *    movie rides, no new exception). The loop body is a LUT pass only
+ *    (no geometry, no erfa, no PSRAM texture loads), so it never
+ *    starves the core the same way a full bake would.
+ *  - CATCH-UP + REVEAL: once the clock holds a trustworthy instant
+ *    (SNTP fix or a plausible NVS-restored wall clock -- the bench
+ *    test-epoch path sets the same trust flag), the loop maps `now`
+ *    to the NEAREST loop frame (the clocks' hpf-aware rounding, no
+ *    new-moon scan), plays forward there at up to one frame per tick
+ *    (a far target is one settle frame + the reveal, the clocks' hard
+ *    cut), then returns and the OPENING BAKE lands over the movie
+ *    frame as the day tick's ordinary force-rebake swap --
+ *    "play to the current phase, then reveal the calculated image".
+ *    No trustworthy instant by loop end (one full cycle -- the knob's
+ *    no-clock edge): the loop exits after that cycle and the opening
+ *    bake reveals over the last movie frame (there is no `now` to aim
+ *    the catch-up at; no disc flash between them -- the disc gate skips
+ *    itself while s_movie_warmed is sticky; the day tick's late-fix
+ *    re-bake takes the real phase when the fix lands).
+ *
+ * Sizing: 100 ms/frame at the 8 fps default (CONFIG_KNOB_UI_MOVIE_FPS,
+ * the clock's UI_MOON_REPLAY_FPS value; the knob's wire floor is
+ * 13 ms, so 8 fps is well below the panel's own limit and the loop
+ * paces the flash reads). Pacing waits are >= 10 ms = one tick at
+ * CONFIG_FREERTOS_HZ=100 (the ff922bb sub-tick-spin lesson). The 120 s
+ * budget bounds the catch-up leg only (the loop itself is unbounded --
+ * the loop IS the animation, the trusted-now check ends it, like the
+ * clocks' bake-done check ends their loop). */
+#define MOVIE_CATCHUP_QUARTER                                                                                          \
+    4                      /* farther than this: settle + hard cut (the                                                \
+                            * clock's REPLAY_CATCHUP_QUARTER) */
+#define MOVIE_MISS_CAP 100 /* consecutive fetch failures: stop    */
+#define MOVIE_CATCHUP_BUDGET_MS 120000
+static moon_movie_info_t s_movie_info;
+static volatile bool s_movie_warmed; /* the arm staged frame 0 (set by
+                                      * movie_warm, reset per arm in
+                                      * show_moon; STICKY through the
+                                      * intro loop -- the disc gate reads
+                                      * it AFTER the loop ran) */
+static uint32_t s_movie_pos;         /* next loop frame (producer) */
+
+static void wait_ack(void);        /* the back-buffer handshake (defined below
+                                    * the movie section) */
+static int64_t ui_now_epoch(void); /* the producer's time source (defined
+                                    * below, the time-source block) */
+
+/* Frame 0 on glass at the first arm (before ui_init, the warm arm):
+ * fetch + LUT-convert into the FRONT buffer, stage the descriptor +
+ * s_shown -- the panel keeps showing it until the first publish's
+ * atomic swap (old-frame-then-atomic). The caption is the ARM's
+ * caption (show_moon seeded it from the arm's instant; the movie never
+ * rewrites it -- a generic cycle must not claim to be a current
+ * phase). Returns false on any failure (partition missing, calcver
+ * stale, zero frames, fetch/alloc failure): the caller falls through
+ * to the saved-frame / disc path. */
+static bool movie_warm(void) {
+    if (s_nomem) {
+        return false;
+    }
+    if (!moon_movie_init(&s_movie_info) || s_movie_info.s_px != MOON_SIZE || s_movie_info.frame_count == 0) {
+        return false; /* no movie -> the saved-frame / disc path (the
+                       * partition-less posture) */
+    }
+    uint8_t *gray = heap_caps_malloc((size_t)MOON_SIZE * MOON_SIZE, MALLOC_CAP_SPIRAM);
+    if (!gray || !moon_movie_fetch(0, gray, MOON_SIZE) ||
+        !knob_moon_bake_movie_frame(s_buf[0], MOON_SIZE, gray, MOON_SIZE, s_movie_info.ref_center)) {
+        free(gray);
+        return false; /* torn first frame: the saved-frame / disc path */
+    }
+    free(gray);
+    /* Frame 0 IS the front buffer (s_front is 0 by the time this runs
+     * -- show_moon sets it before the warm arm, the last_frame_warm
+     * shape): stage the descriptor + s_shown so the FIRST screen flush
+     * (pre-ui_init, no images attached yet) carries the movie frame.
+     * NO flush here (the retained-panel exception, the 2026-11-22
+     * black-flash fix) and NO caption rewrite -- the arm's caption
+     * stays (a generic cycle must not claim to be a current phase). */
+    lvgl_lock();
+    s_moon_dsc.data = (const uint8_t *)s_buf[0];
+    for (int i = 0; i < s_n_imgs; i++) {
+        lv_obj_set_hidden(s_imgs[i], false);
+        lv_obj_invalidate(s_imgs[i]);
+    }
+    s_shown = true;
+    lvgl_unlock();
+    s_movie_pos = 0; /* the intro loop replays frame 0 first (already on
+                      * the descriptor -- a duplicate swap, same pixels,
+                      * one 100 ms cycle) and then runs forward: the
+                      * full-cycle exit (pos wrapped to 0) counts a
+                      * complete lap either way */
+    ESP_LOGI(TAG, "movie: %u frames @ %u h (ref %lld) staged on the descriptor -- the loop owns the boot window",
+             (unsigned)s_movie_info.frame_count, (unsigned)s_movie_info.hours_per_frame,
+             (long long)s_movie_info.ref_center);
+    return true;
+}
+
+/* Publish one movie frame from the gray bounce into the back buffer
+ * (the producer's publish shape, minus the bake: no watermark, no
+ * persistence -- the movie frames are NEVER persisted, the saved frame
+ * must stay the last REAL bake... and the disc never is either, for
+ * the same reason). The FENCE before s_pub++ is the swap task's pair:
+ * the buffer/caption writes must be visible before the counter move. */
+static bool movie_publish(const uint8_t *gray, int64_t centre) {
+    const int back = 1 - s_front;
+    const bool ok = knob_moon_bake_movie_frame(s_buf[back], MOON_SIZE, gray, MOON_SIZE, centre);
+    if (!ok) {
+        return false;
+    }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    s_pub++;
+    return true;
+}
+
+/* The producer's opening-act loop: play frame s_movie_pos forward at
+ * the MOVIE pacing until the clock holds a trustworthy instant, then
+ * catch up to the nearest frame for that instant and exit (the opening
+ * bake follows immediately -- the producer's ordinary body). On no
+ * trustworthy instant, one FULL cycle plays and the loop exits (the
+ * no-clock edge: the opening bake then reveals over the last movie
+ * frame -- the disc gate skips itself while s_movie_warmed is sticky --
+ * and the day tick's late-fix re-bake takes the real phase). Runs on
+ * moon_task -- the single producer -- so the swap seam is untouched. */
+static void movie_loop_until_trusted(void) {
+    const uint32_t n = s_movie_info.frame_count;
+    const int64_t ref_h = s_movie_info.ref_center / 3600;
+    const int fps = (CONFIG_KNOB_UI_MOVIE_FPS > 0 ? CONFIG_KNOB_UI_MOVIE_FPS : 8);
+    const int64_t t0 = esp_timer_get_time() / 1000;
+    const int64_t budget_end = t0 + MOVIE_CATCHUP_BUDGET_MS;
+    int miss = 0;
+    int shown = 0;
+    uint8_t *gray = NULL;         /* the fetch bounce (PSRAM MOON_SIZE^2, lazy) */
+    moon_gray565_set_event(NULL); /* neutral LUT for the whole movie leg
+                                   * (the frames are event-independent
+                                   * bakes; the opening bake re-arms the
+                                   * event LUT via display_begin) */
+    for (;;) {
+        /* The end condition: a PLAUSIBLE instant from the producer's
+         * own time source -- ui_now_epoch() (the wall clock whenever
+         * it holds a plausible instant: the SNTP fix, or the NVS-
+         * restored "last known" wall the day tick already bakes on;
+         * the arm's epoch otherwise: the bench's frozen
+         * KNOB_MOON_TEST_EPOCH). That is the SAME `now` the opening
+         * bake below uses, so the loop can never catch up to a
+         * different instant than the one the reveal bakes (main.c's
+         * own arm test, `wall || trusted`, reduces to this
+         * plausibility). The floor mirrors EPOCH_PLAUSIBLE_MIN. */
+        const int64_t now = ui_now_epoch();
+        if (now >= 1600000000LL) {
+            /* Catch-up: the now hour -> the NEAREST loop index by hour
+             * arithmetic on the header's ref_center (the clocks'
+             * rounding, no new-moon scan) -- frame i's centre is
+             * ref + i*hpf hours, so the nearest frame is within hpf/2
+             * hours of the now-frame's phase: the reveal over it is
+             * seamless. */
+            const int64_t hpf = (int64_t)s_movie_info.hours_per_frame;
+            const int64_t hh = now / 3600 - ref_h;
+            const int64_t rem = hh % hpf;
+            const int64_t nearest = hh / hpf + (rem * 2 >= hpf ? 1 : 0); /* round() */
+            const uint32_t target = (uint32_t)(((nearest % (int64_t)n) + (int64_t)n) % (int64_t)n);
+            uint32_t dist = (target + n - s_movie_pos) % n;
+            if (dist > 0) {
+                if (gray == NULL) {
+                    gray = heap_caps_malloc((size_t)MOON_SIZE * MOON_SIZE, MALLOC_CAP_SPIRAM);
+                }
+                if (gray) {
+                    if (dist > n / MOVIE_CATCHUP_QUARTER) {
+                        /* Far: one settle frame at the target (neutral),
+                         * then the reveal (the opening bake) lands over
+                         * it -- the clocks' hard cut. */
+                        if (moon_movie_fetch(target, gray, MOON_SIZE)) {
+                            wait_ack();
+                            if (movie_publish(gray, s_movie_info.ref_center +
+                                                        (int64_t)target * s_movie_info.hours_per_frame * 3600)) {
+                                shown++;
+                            }
+                        }
+                    } else {
+                        /* Near: play forward one frame per tick to the
+                         * target (the budget still bounds the leg; the
+                         * ack/swap cadence paces it). */
+                        while (dist > 0 && esp_timer_get_time() / 1000 < budget_end) {
+                            s_movie_pos = (s_movie_pos + 1) % n;
+                            dist--;
+                            if (!moon_movie_fetch(s_movie_pos, gray, MOON_SIZE)) {
+                                break;
+                            }
+                            wait_ack();
+                            if (!movie_publish(gray, s_movie_info.ref_center +
+                                                         (int64_t)s_movie_pos * s_movie_info.hours_per_frame * 3600)) {
+                                break;
+                            }
+                            shown++;
+                        }
+                    }
+                }
+            }
+            ESP_LOGI(TAG, "movie: catch-up done (%d frame%s, %lld ms) -- the opening bake reveals", shown,
+                     shown == 1 ? "" : "s", (long long)((esp_timer_get_time() / 1000 - t0)));
+            break; /* the opening bake reveals over the movie frame */
+        }
+        /* One full cycle with no trustworthy instant: exit (the
+         * no-clock edge) -- the opening bake reveals over the last
+         * movie frame (no disc flash; the gate below stays skipped by
+         * the sticky s_movie_warmed), the late-fix re-bake takes the
+         * real phase. (s_movie_pos wrapped: it is 0 again only after a
+         * full lap, and shown > 0 rules out the initial state.) */
+        if (s_movie_pos == 0 && shown > 0) {
+            ESP_LOGW(TAG, "movie: one full cycle, no trusted time -- exiting the loop (disc path)");
+            break;
+        }
+        /* The loop body: fetch + LUT pass + publish, paced at `fps`
+         * (>= 10 ms = one tick at CONFIG_FREERTOS_HZ=100, the ff922bb
+         * sub-tick-spin lesson). Fetch failures are healed per frame
+         * (a blank skip); MOVIE_MISS_CAP consecutive ones (a torn
+         * partition or a repeating flash error) stop the loop. */
+        if (gray == NULL) {
+            gray = heap_caps_malloc((size_t)MOON_SIZE * MOON_SIZE, MALLOC_CAP_SPIRAM);
+            if (!gray) {
+                ESP_LOGW(TAG, "movie: fetch bounce alloc failed -- exiting the loop (disc path)");
+                break;
+            }
+        }
+        if (moon_movie_fetch(s_movie_pos, gray, MOON_SIZE)) {
+            miss = 0;
+            wait_ack(); /* the previous frame is applied before the back
+                         * buffer is reused (the ordinary handshake) */
+            if (movie_publish(gray,
+                              s_movie_info.ref_center + (int64_t)s_movie_pos * s_movie_info.hours_per_frame * 3600)) {
+                shown++;
+            }
+            const int wait_ms = 1000 / fps;
+            vTaskDelay(pdMS_TO_TICKS(wait_ms < 10 ? 10 : wait_ms)); /* the one-tick floor only */
+        } else if (++miss >= MOVIE_MISS_CAP) {
+            ESP_LOGW(TAG, "movie: %d consecutive fetch failures -- stopping the loop", miss);
+            break;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(1000 / fps));
+        }
+        s_movie_pos = (s_movie_pos + 1) % n;
+    }
+    free(gray);
+    /* s_movie_warmed is NOT cleared here: it stays sticky through the
+     * opening bake (the disc gate below reads it AFTER the loop ran),
+     * and the next arm resets it in show_moon. */
+}
+#endif /* CONFIG_KNOB_UI_MOVIE_ENABLE */
+
 /* Time source (family seam, P0): the knob has no RTC, so "now" is the
  * clock component's UTC epoch whenever the wall clock holds one (SNTP or
  * NVS-restored -- clock_get_utc_epoch answers ESP_ERR_INVALID_STATE on an
@@ -728,8 +1017,22 @@ static void caption_apply_locked(void) {
  * knob/sdkconfig.defaults). Caption + disk
  * appear when the frame applies; "moon unavailable" stays if it fails. */
 static void static_once_body(void) {
+#if CONFIG_KNOB_UI_MOVIE_ENABLE
+    /* The boot-movie intro (KNOB_UI_MOVIE_ENABLE, 2026-11-25): play the
+     * flash-resident synodic cycle forward to the current phase, then
+     * the opening bake below reveals over the movie frame (the
+     * old-frame-then-atomic posture -- the loop's frames are COMPLETE
+     * movie frames, so the panel never holds a partial one). Only when
+     * the warm arm staged a movie frame (no saved frame on glass -- the
+     * saved-frame posture stays untouched: saved frame -> fresh bake). */
+    if (s_movie_warmed) {
+        movie_loop_until_trusted();
+    }
+#endif
     const int64_t now = ui_now_epoch();
-    const int ev = knob_moon_display_begin(now);
+    const int ev = knob_moon_display_begin(now); /* over the loop's neutral
+                                                  * LUT: the reveal is the
+                                                  * tinted frame */
     char cap[40];
     time_caption(cap, sizeof(cap), now);
     /* The boot frame's compute window (the knob's ~790 ms black window --
@@ -741,9 +1044,16 @@ static void static_once_body(void) {
      * frame, tens of ms) and the real bake swaps over it as ONE atomic
      * flush. With a saved frame (KNOB_UI_LAST_FRAME) the SAVED frame
      * stays up instead (today's posture -- the fresh bake swaps over it,
-     * old-frame-then-atomic, no dummy). */
+     * old-frame-then-atomic, no dummy). With a movie frame (the warm arm
+     * staged frame 0 and the intro loop just caught it up to the current
+     * phase) the movie frame stays up for the same reason -- a flat disc
+     * flash between the movie and the reveal would be a regression. */
 #if CONFIG_KNOB_UI_LAST_FRAME
-    if (!s_warm_on_glass) {
+    if (!s_warm_on_glass
+#if CONFIG_KNOB_UI_MOVIE_ENABLE
+        && !s_movie_warmed
+#endif
+    ) {
         if (disc_publish(now, cap)) {
             wait_ack(); /* the disc is on glass before the real bake
                          * reuses the other slot (the ordinary handshake) */
@@ -1210,6 +1520,18 @@ bool knob_ui_show_moon(int64_t utc_epoch) {
     s_pub = 0;
     s_applied = 0;
     s_shown = false;
+#if CONFIG_KNOB_UI_MOVIE_ENABLE
+    s_movie_warmed = false;
+    /* The boot movie's frame 0 (KNOB_UI_MOVIE_ENABLE, 2026-11-25): the
+     * knob's "old frame" for the boot -- staged on the descriptor +
+     * s_shown (born visible, the pre-ui_init exception) so the
+     * retained-panel first screen flush carries a movie frame
+     * (never-black), and the producer's intro loop owns the Wi-Fi + NTP
+     * window over it (the saved-frame arm below takes precedence when a
+     * saved frame exists -- it is the LATEST real phase; a movie frame
+     * is a generic cycle and never claims to be the current phase). */
+    s_movie_warmed = movie_warm();
+#endif
 #if CONFIG_KNOB_UI_LAST_FRAME
     /* The persisted last frame (KNOB_UI_LAST_FRAME): a saved frame at
      * most LAST_FRAME_MAX_AGE_S old lands on the glass NOW -- one

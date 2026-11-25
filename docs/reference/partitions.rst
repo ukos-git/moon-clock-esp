@@ -46,8 +46,8 @@ knob — ``knob/partitions.csv``
 .. include:: _fragments/partitions-knob.inc
 
 .. graphviz:: ../_graphs/partition-knob.dot
-   :alt: knob partition chain — bootloader + table, factory 4096 K, storage 512 K, moon_assets 2560 K, coredump 64 K, unused
-   :caption: The sibling's chain: ``factory`` 4096 K, a fatter 512 K ``storage``, the 2560 K ``moon_assets`` row (864×432 albedo + 1024×512 DEM = 876 K combined), and the 64 K ``coredump`` witness of task #27 — read it with ``esptool read_flash`` at the data offset plus ``espcoredump.py``. The table totals 7296 K; ~8.8 MB stays unused.
+   :alt: knob partition chain — bootloader + table, factory 4096 K, storage 512 K, moon_assets 2560 K, moon_movie 9088 K, coredump 64 K
+   :caption: The sibling's chain: ``factory`` 4096 K, a fatter 512 K ``storage``, the 2560 K ``moon_assets`` row (864×432 albedo + 1024×512 DEM = 876 K combined), the 9088 K ``moon_movie`` row owning the chip's leftover (one synodic cycle of q90 gray JPEGs, 355 frames @ 2 h today — the knob has no SD socket, flash is its ONLY movie source), and the 64 K ``coredump`` witness of task #27 (read it with ``esptool read_flash`` at the data offset plus ``espcoredump.py``; it moved after the movie when the row landed — consumers find every partition by label). The table fills the whole 16384 K chip.
    :align: center
 
 The data partitions in the build
@@ -65,20 +65,27 @@ The root ``CMakeLists`` flashes the *data* partitions alongside the
   The build *warns* (does not fail) when it is missing — the app
   boots without the moon, which is the failure mode a reader should
   recognize.
-- **``moon_movie``** (S3 and P4, the LAST row) is the second
-  *generated* blob: the boot movie's synodic cycle of q90 gray JPEGs
-  (``python -m moon.movie``), sized to fill the row's leftover —
-  "fill the space, never hinder the code build". On the P4 the row
+- **``moon_movie``** (all three tables — S3 and P4's LAST row, the
+  knob's LAST-but-one, ahead of its 64 K ``coredump`` ring) is the
+  second *generated* blob: the boot movie's synodic cycle of q90 gray
+  JPEGs (``python -m moon.movie``), sized to fill the row's leftover
+  — "fill the space, never hinder the code build". On the P4 the row
   starts past the old 16 MB mark (the 32 MB bump,
-  :doc:`the binary budget <../verification/binary>`). The build
+  :doc:`the binary budget <../verification/binary>`); the knob has
+  no SD socket, so its movie is flash-resident only. The build
   *warns* (does not fail) when it is missing: the boot falls back to
-  the card replay / disc path (the card-less posture), so a movie
-  never blocks a flash.
+  the card replay / saved-frame / disc path (the card-less posture),
+  so a movie never blocks a flash.
 
-The ``knob/`` sibling project mirrors both — ``storage`` baked from
-``knob/spiffs/`` (``wifi_credentials.txt``, the clock's filename —
-the shared ``components/wifi`` reads it) and the ``moon_assets``
-blob flashed to its partition — but guards the blob the other way:
-existence and fit are configure-time ``FATAL_ERROR``\\ s in
-``knob/CMakeLists.txt``, because a knob booting without the moon is
-a bench mistake, not a shipping failure mode.
+The ``knob/`` sibling project mirrors all three — ``storage`` baked
+from ``knob/spiffs/`` (``wifi_credentials.txt``, the clock's
+filename — the shared ``components/wifi`` reads it), the
+``moon_assets`` blob (a missing blob *warns*, but a malformed
+manifest or a blob that does not fit its row is a configure-time
+``FATAL_ERROR`` in ``knob/CMakeLists.txt`` — a knob booting without
+the moon is a bench mistake, not a shipping failure mode), and the
+``moon_movie`` blob via the mirrored movie-guard block (warn-only
+when missing — a movie never blocks a flash), plus the root CMake's
+``MOON_CALC_VER`` derive replicated for the sibling (the reader
+rejects a stale-calcver blob at boot, so the knob build must stamp
+the same version its firmware checks).

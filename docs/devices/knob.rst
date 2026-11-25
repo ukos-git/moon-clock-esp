@@ -364,6 +364,21 @@ Layout and commands:
   a hand-deleted ``.bin`` beside a live manifest still only warns,
   per the guard's own comment. The generated
   ``components/moon/generated/knob/moon_consts.h`` is tracked).
+* Boot movie: the ``moon_movie`` row (9088 K, the chip's leftover)
+  carries the precomputed synodic cycle of q90 gray JPEGs
+  (``python -m moon.movie --target knob``, 355 frames @ 2 h today)
+  — the knob has **no SD socket**, so flash is its ONLY movie
+  source. ``KNOB_UI_MOVIE_ENABLE`` (default ``y``) plays it at boot
+  over the Wi-Fi + NTP + opening-bake window, then reveals the fresh
+  bake over the frame matching the current phase (no new atomicity
+  exception — the frames ride the ``s_buf[2]`` swap seam, ONE atomic
+  whole-panel flush each); a missing/stale movie never blocks a flash
+  (the build warns, the boot falls back to the saved-frame / disc
+  path). The root CMake's ``MOON_CALC_VER`` derive is replicated in
+  ``knob/CMakeLists.txt`` — the reader rejects a calcver-stale movie
+  at boot, and the knob's table is fully allocated (16384 K, the
+  64 K ``coredump`` ring after the movie; the offset move is safe —
+  consumers find partitions by label).
 * K7c threading mirrors the clock's moon pipeline minus the AMOLED
   machinery: a producer task bakes into a PSRAM double buffer, a swap
   task applies each frame as one atomic ``lv_refr_now`` under the

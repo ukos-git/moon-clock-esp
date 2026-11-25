@@ -2,16 +2,23 @@
 // verified against the tracked CSV before drawing: bootloader +
 // partition table (nvs 24 K + phy 4 K), factory app 4096 K, storage
 // SPIFFS 512 K, moon_assets 2560 K (864x432 albedo + 1024x512 DEM =
-// 876 K combined — the row stays fat because the knob bakes nothing
-// it cannot flash), coredump 64 K (the crash witness of task #27:
-// esptool read_flash at the data offset + espcoredump.py), then
-// unused. The table totals 7296 K; ~8.8 MB stays unused.
+// 897,536 B combined — the row stays fat because the knob bakes
+// nothing it cannot flash), moon_movie 9088 K — the chip's leftover
+// (one synodic cycle of q90 gray JPEGs; 355 frames @ 2 h =
+// 6,075,946 B today; the knob has no SD socket, flash is its ONLY
+// movie source), coredump 64 K (the crash witness of task #27:
+// esptool read_flash at the data offset + espcoredump.py — moved
+// AFTER the movie when the row landed: consumers find every
+// partition by label, so the ring's offset may move). The table
+// fills the whole 16384 K chip including the 64 K prefix. The
+// knob build's partition-fit guard prices the movie against the
+// moon_movie row (the root CMake's movie guards, mirrored).
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph partitions_knob {
     rankdir=TB;
-    label="knob/partitions.csv — 16 MB flash, 7296 K table";
+    label="knob/partitions.csv — 16 MB flash, 16384 K table";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.4, ranksep=0.36];
@@ -29,15 +36,14 @@ digraph partitions_knob {
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     assets  [label="moon_assets — 2560 K\n(864×432 albedo +\n1024×512 DEM)",
              fillcolor="#efece4"];
+    movie   [label="moon_movie — 9088 K\n(the chip's leftover:\n355 frames @ 2 h today)",
+             fillcolor="#efece4"];
     coredmp [label="coredump — 64 K\n(the crash witness)",
              fillcolor="#f4e8e6", color="#b91c1c", fontcolor="#7a1a1a"];
-    free    [label="unused —\n~8.8 MB",
-             fillcolor="#f2f2f2", color="#6b7280", fontcolor="#3f3f3f",
-             style="rounded,filled,dashed"];
 
     boot -> factory;
     factory -> storage;
     storage -> assets;
-    assets -> coredmp;
-    coredmp -> free;
+    assets -> movie;
+    movie -> coredmp;
 }

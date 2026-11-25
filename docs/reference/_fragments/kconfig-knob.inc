@@ -1,9 +1,10 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Twenty-seven keys across five menus (the sibling project's own
+Thirty keys across five menus (the sibling project's own
 components; the shared clock keys the P0 seam brings in are listed on
-the page above):
+the page above; the battery divider's ``_NUM``/``_DEN`` pair shares
+one row):
 
 .. list-table::
    :header-rows: 1
@@ -39,6 +40,27 @@ the page above):
        to the disc path: the quick phase disc lands first, then the
        fresh bake over it (:doc:`the knob display
        <../implementation/knob-display>`)
+   * - ``KNOB_UI_MOVIE_ENABLE``
+     - ``y``
+     - Play the flash-resident boot movie (the ``moon_movie``
+       partition) at boot — the knob's half of the family boot
+       re-source: the first arm stages frame 0 on the glass (the
+       saved-frame arm takes precedence), the producer plays the
+       synodic cycle forward over the Wi-Fi + NTP + opening-bake
+       window (ONE atomic whole-panel flush per frame — no new
+       atomicity exception), then plays to the frame matching the
+       current phase and the fresh bake reveals over it. No
+       trustworthy instant by one full cycle: the loop exits and the
+       opening bake reveals over the last movie frame. ``n`` keeps
+       the saved-frame / disc path; a missing/stale/zero-frame movie
+       never blocks a flash or a boot (:doc:`the knob display
+       <../implementation/knob-display>`)
+   * - ``KNOB_UI_MOVIE_FPS``
+     - ``8`` (2..20)
+     - The boot movie's target frame rate (one frame per 1000/FPS
+       ms, floored to one tick at ``CONFIG_FREERTOS_HZ=100``): the
+       knob's wire floor is ~13 ms/frame, so the default is well
+       below the panel's own limit
    * - ``KNOB_MOON_TEST_EPOCH``
      - ``1794175200``
      - Frozen UTC instant for bench builds (used **only** under

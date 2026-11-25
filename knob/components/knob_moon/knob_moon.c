@@ -176,6 +176,44 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
     return bake_frame(out, size, radius, cx, cy, utc_epoch, NULL, bake_ms_out);
 }
 
+/* The boot-movie frame leg (2026-11-25): the movie's gray frames are
+ * RAW bakes of this same portable core (the generator's
+ * moon_sim --pgm output, the board's exact geometry, neutral LUT), so
+ * the frame leg is the LUT pass ONLY -- no geometry, no erfa, no PSRAM
+ * texture loads: one 256-entry lookup per pixel, the phase-dummy's
+ * cost class. `gray` is the decoded frame (size x size u8, the
+ * moon_esp_movie fetch bounce); `utc_epoch` is the frame's HOUR CENTRE
+ * (ref_center + idx * hours_per_frame * 3600) -- used for the bench log
+ * line's illumination only, never for the pixels. Conversion runs
+ * through the armed LUT: the movie producer arms the NEUTRAL LUT
+ * (moon_gray565_set_event(NULL)) for the whole movie leg, exactly like
+ * the clock's boot replay (the frames are event-independent bakes; the
+ * day-tick re-bake re-arms the event LUT before it). The SWAPPED
+ * RGB565 byte order is the LUT's own (moon_gray565's 16-bit entries),
+ * so the output is panel-ready like every other frame here. */
+bool knob_moon_bake_movie_frame(uint16_t *out, int size, const uint8_t *gray, int gray_size, int64_t utc_epoch) {
+    if (!out || size <= 0 || !gray || gray_size != size) {
+        return false;
+    }
+    const int64_t t0 = esp_timer_get_time();
+    for (int y = 0; y < size; y++) {
+        const uint8_t *frow = &gray[(size_t)y * size];
+        uint16_t *rrow = &out[(size_t)y * size];
+        for (int x = 0; x < size; x++) {
+            rrow[x] = moon_gray565(frow[x]);
+        }
+    }
+    /* Per-frame at 8 fps would spam the log: LOGD (the bench enables
+     * the knob_moon tag at DEBUG to watch the loop), one LOGI per
+     * intro line lives in the producer. The geometry is NOT re-run
+     * here (an eraEpv00 chain per frame for a disabled log line): the
+     * pixels are the generator's own bake; the epoch rides the line
+     * for correlation with the movie header's ref_center only. */
+    ESP_LOGD(TAG, "movie frame %dx%d in %lld ms (centre %lld)", size, size,
+             (long long)((esp_timer_get_time() - t0) / 1000), (long long)utc_epoch);
+    return true;
+}
+
 bool knob_moon_bake_display_progress(uint16_t *out, int size, float radius, int cx, int cy, int64_t utc_epoch,
                                      volatile uint32_t *pub_rows, int64_t *bake_ms_out) {
     return bake_frame(out, size, radius, cx, cy, utc_epoch, pub_rows, bake_ms_out);

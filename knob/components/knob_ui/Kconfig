@@ -37,6 +37,44 @@ config KNOB_UI_LAST_FRAME
         publishes the quick phase disc first (the compute section's
         dummy, user 2026-11-24) and the fresh bake swaps over it.
 
+config KNOB_UI_MOVIE_ENABLE
+    bool "Play the flash-resident boot movie (the moon_movie partition) at boot"
+    default y
+    help
+        The knob's half of the family boot re-source (2026-11-25, the
+        clocks' UI_MOON_BOOT_REPLAY movie leg): the moon_movie data
+        partition carries a precomputed synodic cycle of q90 gray JPEGs
+        baked at build time by the portable core (python -m moon.movie
+        --target knob), pixel-identical to a device bake. The knob has
+        no SD socket -- flash is its ONLY movie source. With y the
+        first arm stages frame 0 on the glass (born visible, the
+        KNOB_UI_LAST_FRAME warm-arm shape; a saved frame takes
+        precedence -- it is the latest real phase) and the producer
+        plays the cycle forward over the Wi-Fi + NTP window + the
+        opening bake window (ONE atomic whole-panel flush per frame,
+        the s_buf[2] swap seam -- no new atomicity exception); when the
+        clock holds a trustworthy instant the loop plays to the frame
+        matching the current phase and the fresh bake reveals over it.
+        No trustworthy instant by one full cycle: the loop exits and
+        the opening bake reveals over the last movie frame (the day
+        tick's late-fix re-bake lands the real phase). With n the boot
+        keeps
+        today's saved-frame / disc path. A missing / calcver-stale /
+        zero-frame movie never blocks a flash or a boot (the fallback
+        is the card-less posture the knob has always had).
+
+config KNOB_UI_MOVIE_FPS
+    int "Boot movie: target frame rate (fps)"
+    depends on KNOB_UI_MOVIE_ENABLE
+    default 8
+    range 2 20
+    help
+        The loop's pacing floor (one frame per 1000/FPS ms, floored to
+        one tick at CONFIG_FREERTOS_HZ=100). The knob's wire floor is
+        ~13 ms/frame, so 8 is well below the panel's own limit; the
+        flash read of a q90 gray JPEG (360x360) plus the LUT pass costs
+        a few ms per frame.
+
 config KNOB_DIAG_FRAME_TRACE
     bool "Bench: log flush/swap/screen-switch boundaries"
     default n

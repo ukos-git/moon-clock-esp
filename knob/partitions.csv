@@ -4,15 +4,34 @@
 # pre-baked blob
 # (assets/images/moon/out/knob/moon_assets.bin: albedo 864x432 u8 then
 # relief DEM 1024x512 i8 = 897,536 B); 2560K is sized for the proven
-# 2048x1024-DEM bake too, so the table never has to change (a partition
-# change means a full flash on the bench unit). ~8.9 MB free after it.
+# 2048x1024-DEM bake too, so the row never has to change (a partition
+# change means a full flash on the bench unit).
+#   moon_movie     9088K  (LAST row: the boot-movie leftover. One synodic
+#                          cycle of q90 gray JPEGs, baked by
+#                          `python -m moon.movie --target knob` from the
+#                          device-identical portable core (the knob has no
+#                          SD socket -- flash is the ONLY movie source).
+#                          The app is bounded by its own factory row, so
+#                          the movie can never crowd the code -- grow
+#                          factory, shrink this row, re-run the generator
+#                          (it lands on a coarser frame step). The coredump
+#                          ring moved AFTER it: consumers find every
+#                          partition by label, so the ring's offset may
+#                          move (the row is the same). Shrink-to-fit is the
+#                          "fill the space, never hinder the code build"
+#                          policy, like the clocks' moon_movie rows.)
+# Total = 16384K (the whole chip).
 nvs,      data, nvs,     0x9000,  0x6000,
 phy_init, data, phy,     0xf000,  0x1000,
 factory,  app,  factory, 0x10000, 0x400000,
 storage,  data, spiffs,  0x410000, 0x80000,
 moon_assets, data, undefined, , 2560K,
+# 9088K = 16384K chip - 64K fixed prefix - (4096 + 512 + 2560 + 64)K rows:
+# the leftover after EVERY other row (incl. the coredump ring) is spoken
+# for by the movie.
+moon_movie, data, undefined, , 9088K,
 # 64 K coredump ring (task #27 field-crash witness): ESP-32 panic dumps
 # read back on the bench via `idf.py -C knob coredump-read`; complements
 # the RTC_NOINIT gasp marker (which survives even when the dump cannot
-# be written, e.g. a WDT reset mid-logging). ~8.8 MB free after it.
+# be written, e.g. a WDT reset mid-logging).
 coredump, data, coredump, , 64K,

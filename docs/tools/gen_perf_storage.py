@@ -20,10 +20,11 @@ Left panel — what each data row actually holds (fraction used):
                  .bin, both parsed, both asserted equal
   storage        the spiffs/ payload the image bakes (the CSV comment's
                  own "holds ~1KB", re-counted from the files)
-  moon_movie     the S3's AND the P4's LAST row: the boot-movie blob —
-                 the on-disk .bin vs the manifest's total_bytes, both
-                 parsed, both asserted equal (the root CMake's movie
-                 guard #2 prices the same pair at configure)
+  moon_movie     the S3's, the P4's AND the knob's LAST row: the
+                 boot-movie blob — the on-disk .bin vs the manifest's
+                 total_bytes, both parsed, both asserted equal (the
+                 root CMake's movie guard #2 / the knob's mirrored
+                 guard prices the same pair at configure)
   coredump       the knob's 64 K ring — drawn italic, no bytes until a
                  crash (the *no such leg* precedent, honest: the space
                  is RESERVED, not filled)
@@ -51,14 +52,15 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
 
   nvs/phy/factory/storage/moon_assets/moon_movie/coredump rows
       partitions.csv, partitions_p4.csv, knob/partitions.csv (sizes K or
-      hex; the comment totals "Total = 16384K" (S3)/"Total = 32768K"
-      (P4) and the knob's "~8.9/8.8 MB free after it" are parsed and
-      re-derived)
-  the S3 + P4 boot-movie blobs       assets/images/moon/out/{s3,p4}/
+      hex; ALL THREE tables' comment totals — "Total = 16384K" (S3 and
+      knob)/"Total = 32768K" (P4), the tables fully allocated — are
+      parsed and re-derived)
+  the S3 + P4 + knob boot-movie blobs
+      assets/images/moon/out/{s3,p4,knob}/
       moon_movie.bin (on-disk size) + moon_movie_manifest.json
       (total_bytes — asserted equal; the blob must fit its board's
-      moon_movie row, the root CMake's movie guard #2 asserted the
-      same way)
+      moon_movie row, the root CMake's movie guard #2 / the knob's
+      mirrored guard asserted the same way)
   alb_w/h, dem_w/h, *_bytes, combined_bytes, partition_kib
       assets/images/moon/out/{s3,p4,knob}/moon_assets_manifest.json —
       each asserted u8-albedo / i8-DEM product, file size, sum, and
@@ -221,12 +223,13 @@ coredump_bytes = rows["knob"].get("coredump")
 if coredump_bytes != 64 * 1024:
     raise SystemExit("knob coredump row is no longer 64K — re-read task #27")
 
-# comment totals: "Total = 16384K" (S3) / "Total = 32768K" (P4) —
-# both tables fully allocated (the moon_movie LAST row owns each
-# chip's leftover), the CSV's own arithmetic, re-derived from the
-# rows (64K fixed prefix + every row but nvs/phy, which sit inside
-# that prefix)
-for t in ("s3", "p4"):
+# comment totals: "Total = 16384K" (S3 and knob) / "Total = 32768K"
+# (P4) — ALL THREE tables fully allocated (the moon_movie LAST row owns
+# each chip's leftover; the knob's coredump ring moved AFTER the movie,
+# so every byte of the 16 MB chip is spoken for, like the clocks'), the
+# CSV's own arithmetic, re-derived from the rows (64K fixed prefix +
+# every row but nvs/phy, which sit inside that prefix)
+for t in TARGETS:
     m = must(r"Total = (\d+)K", CSV[t], f"{t} comment total")
     want = 64 + sum(v // 1024 for k, v in rows[t].items()
                     if k not in ("nvs", "phy_init"))
@@ -234,20 +237,6 @@ for t in ("s3", "p4"):
         raise SystemExit(f"{os.path.relpath(CSV[t], ROOT)}: comment total "
                          f"{m.group(1)}K != computed {want}K — the comment "
                          f"and the rows disagree")
-# the knob: "~8.9 MB free after it" before the coredump, "~8.8 MB" after —
-# both parsed, both re-derived (16 MB chip)
-knob_free = [float(x) for x in re.findall(r"~([\d.]+) MB free after it",
-                                          _comments(CSV["knob"]))]
-if len(knob_free) != 2:
-    raise SystemExit("knob CSV: expected the two '~x.x MB free after it' "
-                     "comments (before/after the coredump row)")
-free_no_cd = (16 * 1024 - 64 - sum(rows["knob"][r] // 1024 for r in
-                                   ("factory", "storage", "moon_assets"))) / 1024
-free_cd = free_no_cd - coredump_bytes / (1024 * 1024)
-for claimed, want in zip(knob_free, (free_no_cd, free_cd)):
-    if abs(claimed - want) > 0.1:
-        raise SystemExit(f"knob CSV comment claims ~{claimed} MB free, "
-                         f"the rows leave {want:.3f} MB — fix the comment")
 
 # ------------------------------------------------------- manifests/blobs/consts
 mani = {}
@@ -396,14 +385,16 @@ if _n(m.group(1)) != mani["s3"]["dem_bytes"]:
                      f"{m.group(1)} B; the S3 manifest says "
                      f"{mani['s3']['dem_bytes']} B — fix the comment")
 
-# the moon_movie rows (LAST, S3 and P4): the boot-movie blobs — the
-# on-disk .bin sizes and the manifests' total_bytes, both parsed, both
-# asserted equal (the root CMake's movie guard #2 prices the same pair
-# at configure; guard #1 keeps the whole table inside the chip, the
-# figure's own total re-derivation above is that arithmetic). The P4's
-# row starts past the old 16 MB mark — the 32 MB bump prices it.
+# the moon_movie rows (LAST, all three tables): the boot-movie blobs —
+# the on-disk .bin sizes and the manifests' total_bytes, both parsed,
+# both asserted equal (the root CMake's movie guard #2 / the knob's
+# mirrored guard prices the same pair at configure; guard #1 keeps the
+# whole table inside the chip, the figure's own total re-derivation
+# above is that arithmetic). The P4's row starts past the old 16 MB
+# mark — the 32 MB bump prices it; the knob's row fills the leftover
+# after the 64 K coredump ring moved after it.
 movies = {}
-for _t in ("s3", "p4"):
+for _t in TARGETS:
     _d = os.path.join(ROOT, "assets", "images", "moon", "out", _t)
     _m = json.loads(_read(os.path.join(_d, "moon_movie_manifest.json")))
     _b = os.path.getsize(os.path.join(_d, "moon_movie.bin"))
@@ -448,7 +439,7 @@ for t in TARGETS:
           f"blob {mani[t]['combined_bytes']:>9,} / {rows[t]['moon_assets']:>9,} "
           f"(albedo {mani[t]['alb_bytes']:>9,} + dem {mani[t]['dem_bytes']:>9,}) | "
           f"spiffs {spiffs_bytes:>4} / {rows[t]['storage']:>6,}")
-for _t in ("s3", "p4"):
+for _t in TARGETS:
     print(f"  {_t}: movie {movies[_t]['bytes']:>9,} / {rows[_t]['moon_movie']:>9,} "
           f"({movies[_t]['mani'].get('frame_count')} frames @ "
           f"{movies[_t]['mani'].get('hours_per_frame')} h)")
@@ -472,7 +463,7 @@ bar_rows = [("s3", "factory"), ("s3", "moon_assets"), ("s3", "storage"),
             ("p4", "factory"), ("p4", "moon_assets"), ("p4", "storage"),
             ("p4", "moon_movie"),
             ("knob", "factory"), ("knob", "moon_assets"), ("knob", "storage"),
-            ("knob", "coredump")]
+            ("knob", "moon_movie"), ("knob", "coredump")]
 used = {}
 for (t, r), y in zip(bar_rows, range(len(bar_rows))):
     if r == "factory":

@@ -23,10 +23,12 @@ the precomputed synodic cycle —
 :doc:`the compute progress <../implementation/compute-progress>`) —
 and built from
 it (the sizes below are those bench binaries; each embeds the calcver
-``0.2.0`` as the TF-cache string — the commitizen ``version`` line the
-root ``CMakeLists`` reads from ``.cz.toml``, verified by ``strings``;
-the knob's ``moon_tfcache.c`` compiles with the ``"unknown"``
-fallback — the knob defines no calcver and has no TF card). Docs-only
+``0.2.0`` — the commitizen ``version`` line the root ``CMakeLists``
+reads from ``.cz.toml``, verified by ``strings``. The knob's
+``CMakeLists.txt`` replicates the derive for the sibling — the
+reader's boot-time calcver check accepts the knob's own movie only
+when the firmware is stamped with the same version — and the knob has
+no TF card, so its ``moon_tfcache.c`` is inert there). Docs-only
 commits after these builds do not move a size. The knob's tree is the
 sibling project's own ``../build/knob`` outside the repo, never
 ``build/knob``):
@@ -52,9 +54,9 @@ sibling project's own ``../build/knob`` outside the repo, never
      - 7,550,752 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,563,632 B (0x17dbf0)
+     - 1,640,528 B (0x190850)
      - 4,194,304 B (4096 K)
-     - 2,630,672 B (63 %)
+     - 2,553,776 B (61 %)
 
 The three numbers are asymmetric on purpose, and the S3's 18 % is the
 meaningful one: the S3 is the board the app *grew into* (the
@@ -79,7 +81,7 @@ sensors) has never been approached either.
    The budget, drawn. **Left:** each current binary against its
    ``factory`` partition (gray = the partition, filled = the app) —
    the S3's 82 % is the live constraint, the P4's 20 % and the knob's
-   37 % are headroom by design. The bars are **parsed from the table
+   39 % are headroom by design. The bars are **parsed from the table
    above** (``docs/tools/gen_binary_figs.py`` reads this page), and
    :doc:`the docs drift check <../reference/build-system>`
    (``docs/tools/check_docs_drift.py``) verifies the page against the

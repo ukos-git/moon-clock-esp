@@ -85,6 +85,26 @@ bool knob_moon_bake_display(uint16_t *out, int size, float radius, int cx, int c
                             int64_t *bake_ms_out);
 
 /**
+ * @brief The boot-movie frame leg (2026-11-25): gray -> RGB565
+ *        conversion ONLY, through the armed LUT (the producer arms the
+ *        NEUTRAL LUT for the movie leg). The gray frame is the
+ *        moon_esp_movie partition decode -- a RAW bake of this same
+ *        portable core by the build-time generator -- so no geometry,
+ *        no erfa, no PSRAM texture loads: one LUT lookup per pixel
+ *        (the phase-dummy's cost class), the SWAPPED panel-ready
+ *        output the swap task applies as one atomic whole-panel
+ *        flush like every other frame.
+ *
+ * @param out        size*size RGB565 (caller-owned, the s_buf slot)
+ * @param size       square edge in px (360 on this panel)
+ * @param gray       the decoded frame (size*size u8, the fetch bounce)
+ * @param gray_size  its edge in px (must equal size)
+ * @param utc_epoch  the frame's HOUR CENTRE (log line only -- the
+ *                   pixels are the generator's own bake)
+ */
+bool knob_moon_bake_movie_frame(uint16_t *out, int size, const uint8_t *gray, int gray_size, int64_t utc_epoch);
+
+/**
  * @brief The watermark bake (user decision 2026-11-24,
  *        docs/implementation/compute-progress): the SAME frame as
  *        bake_display (same rows, same armed event, same bake log line)
