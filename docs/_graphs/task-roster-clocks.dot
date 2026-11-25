@@ -15,9 +15,13 @@
 //     "Low priority on core 0: it sleeps 3 s at a time") and the
 //     classify worker ("moon_event" 12288, MAX_PRIORITIES-4, core 1,
 //     MALLOC_CAP_SPIRAM — "IDLE1 is not WDT-watched, so its 15-20 s
-//     scan can never trip the watchdog"); moon_ui_start spawns
-//     moon_replay (12288, MAX-3, core 1) under #if UI_MOON_BOOT_REPLAY
-//     && !UI_DEMO_MODE with the code's own inline-bake fall-through.
+//     scan can never trip the watchdog"); moon_ui_start spawns the
+//     boot presentation's TWO core-1 tasks under #if
+//     UI_MOON_BOOT_REPLAY && !UI_DEMO_MODE — moon_bake FIRST (the
+//     parallel live bake, moon_boot_bake_task, 12288, MAX-3, core 1)
+//     then moon_replay (the producer, 12288, MAX-3, core 1) — with
+//     the code's own inline-bake fall-through when the producer
+//     fails to start (the bake is aborted; it will not publish).
 //   Tick spawns (LVGL task): moon_hourly_service at the tick head
 //     (:2451) spawns moon_hourly at hour*3600+1800; moon_rebake_request
 //     spawns moon_rebake from THREE tick callers — degraded hourly
@@ -28,8 +32,11 @@
 //   Wakes (dashed, all back into the painter): the producers publish
 //     into the shared PSRAM buffers and the tick's done leg shows each
 //     finished frame as ONE atomic whole-panel flush (hourly — done
-//     flag; rebake — published frame; replay — strip watermarks); the
-//     classify worker warms the day the tick later reads.
+//     flag; rebake — published frame; replay — the movie / card
+//     frames + the final now-frame); the parallel boot bake hands
+//     s_boot_bake_done to the producer (not the painter — the
+//     producer owns the publish); the classify worker warms the day
+//     the tick later reads.
 // The priority ladder is the scheduler ladder
 // (verification/performance.rst); the same crew's cadence over the
 // chips is docs/_graphs/task-roster-chips.dot (this page); the crew in
@@ -55,7 +62,9 @@ digraph task_roster_clocks {
          fillcolor="#f8e7e7", color="#b91c1c", fontcolor="#7f1d1d"];
     event [label="moon_event · p21 · core 1\n12 KiB PSRAM — ui_init\n\"IDLE1 not WDT-watched\"",
            fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
-    replay [label="moon_replay · p22 · core 1\n12 KiB — moon_ui_start\n#if BOOT_REPLAY",
+    bake [label="moon_bake · p22 · core 1\n12 KiB — moon_ui_start FIRST\nparallel live bake (polls the\nclock sync; s_boot_bake_done)",
+          fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
+    replay [label="moon_replay · p22 · core 1\n12 KiB — moon_ui_start\n#if BOOT_REPLAY — the producer:\nflash movie looping (card\nfallback) + final now-frame",
             fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
     hourly [label="moon_hourly · p22 · core 1\n12 KiB — tick probe,\nhour*3600+1800",
             fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95"];
@@ -69,6 +78,7 @@ digraph task_roster_clocks {
     app_main -> lvgl [color="#2b5fb0", penwidth=1.6];
     app_main -> wdg [color="#2b5fb0", penwidth=1.6];
     app_main -> event [color="#2b5fb0", penwidth=1.6];
+    app_main -> bake [color="#2b5fb0", penwidth=1.6];
     app_main -> replay [color="#2b5fb0", penwidth=1.6];
     app_main -> hang [style=dashed];
     lvgl -> hourly [color="#2b5fb0", penwidth=1.6, constraint=false];
@@ -76,6 +86,8 @@ digraph task_roster_clocks {
     lvgl -> orbit [style=dashed, constraint=false];
     hourly -> lvgl [style=dashed, constraint=false];
     rebake -> lvgl [style=dashed, constraint=false];
+    bake -> replay [style=dashed, constraint=false,
+                    label="s_boot_bake_done"];
     replay -> lvgl [style=dashed, constraint=false];
     event -> lvgl [style=dashed, constraint=false];
 }

@@ -447,57 +447,76 @@ The boot-path ladder
 
 The ladder above is the *steady state* — what the most frequent refresh
 costs once the device is running. The boot ladder is what the user
-waits for first, and the boot replay (``UI_MOON_BOOT_REPLAY``,
-:doc:`the animation pipelines <../implementation/animations>`) has
-exactly four cost paths. Its pacing constants are the device's own —
-the generator *parses the live* ``components/ui/Kconfig``, so figure
-and Kconfig cannot drift apart:
+waits for first. Since the 2026-11-25 boot re-source
+(:doc:`the boot movie <../implementation/moon-movie>`), the boot
+presentation (``UI_MOON_BOOT_REPLAY``) has a **source ladder**: the
+flash-resident movie loops (unbounded — the bake is its stopper) while
+the live now-bake runs in parallel, the catch-up leg plays forward to
+the current phase (budget-bounded), and the card's stored hours play
+only as the fallback source (budget-bounded; the SD bus is touched on
+that leg only). Its pacing constants are the device's own — the
+generator *parses the live* ``components/ui/Kconfig`` and the knob's
+``knob/components/knob_ui/Kconfig`` (plus the baked manifests, the same
+sources the storage ladder re-derives), so figure and Kconfig cannot
+drift apart:
 
-- The replay producer paces at a floor of
+- The producer paces at a floor of
   ``1000 / UI_MOON_REPLAY_FPS`` = **125 ms/frame** (the default 8 fps);
   the panel actually drains at the documented **~6 fps** (~167 ms/frame,
   S3 — the sweep-era TF-replay throughput the Kconfig itself quotes).
-  The cache holds at most one synodic month of hourly keys — **709
-  files** — so a full warm playthrough is **89 s** at the floor and
-  **~118 s** at the observed rate: both well inside the default
-  **240 s** budget (``UI_MOON_REPLAY_BUDGET_MS``), which is what the
-  Kconfig's own claim ("a full cache at the default pacing lands well
-  inside the default 240 s") means in milliseconds. An overrun cuts the
-  *animation*, never the moon — the final leg still bakes the current
-  phase.
-- A card-less boot (no card, cold folder, or version wipe — a fresh
-  flash by design, :ref:`per-version keying <calcver-keying>`) pays the
-  ~**1 s** SD mount probe, then shows the quick phase disc while the
-  now-bake runs (the seconds arc sweeps its rows-completed watermark)
-  and lands the current phase at probe + the plain **1300 ms** bake —
-  the 2009–2615 ms reveal window measured 2026-11-14 is dated history
-  (the strip reveal was retired by the 2026-11-24 repurpose).
+  The movie loop has **no budget** — the loop IS the animation and the
+  bake ends it (a 355-frame cycle is ~44 s of loop at the floor); the
+  catch-up leg is bounded by ``UI_MOON_REPLAY_BUDGET_MS`` (default
+  **240 s**): its worst case is the near path playing at most
+  ``n/4`` frames (~89 of the S3's 355 — ~**15 s** at the observed
+  rate; a far target is one settle frame + the reveal, so the reveal
+  lands at ~the plain **1300 ms** bake + one frame).
+- The **card fallback** (no valid movie: no partition, calcver
+  mismatch, zero-frame) is the 2026-11-14 card replay — the cache
+  holds at most one synodic month of hourly keys (**709 files**), so a
+  full warm playthrough is **89 s** at the floor and **~118 s** at the
+  observed rate: both well inside the budget, which bounds that leg
+  (plus the ~**1 s** SD mount probe this leg alone pays — the movie
+  path never touches the bus at boot; a fresh flash by design,
+  :ref:`per-version keying <calcver-keying>`). An overrun cuts the
+  *animation*, never the moon — the final leg still lands the current
+  phase. The 2009–2615 ms reveal window measured 2026-11-14 is dated
+  history (the strip reveal was retired by the 2026-11-24 repurpose).
 - ``UI_MOON_BOOT_REPLAY=n`` (and demo mode) never touch the SD bus and
   boot to the single static bake (**1300 ms**, the same accepted
   capture as the per-variant table above) — the quick phase disc shows
   while it runs.
-- The knob has no SD socket, so it *always* takes the disc path — the
-  disc, then the plain **991 ms** bake (the arc sweeps the per-row
-  watermark; the 2028–2059 ms reveal window is dated) — and pays no
-  probe at all (there is no bus to probe).
+- The knob has no SD socket — **flash is its ONLY movie source** — so
+  it plays the movie loop at its own ``KNOB_UI_MOVIE_FPS`` floor
+  (default 8 → 125 ms; 355 frames ≈ **44 s** for the no-clock exit's
+  one full cycle) and reveals the opening bake (the plain **991 ms**
+  capture; the 2028–2059 ms reveal window is dated) over the last
+  movie frame. Its catch-up leg is bounded by its own 120 s
+  ``MOVIE_CATCHUP_BUDGET_MS``.
 
 .. figure:: ../_static/figs/perf_boot.png
-   :alt: boot-path ladder — replay pacing and boot outcomes vs the 240 s budget
+   :alt: boot-path ladder — pacing and boot outcomes vs the 240 s budget
    :figclass: align-center
 
-   The boot ladder. **Left:** the pacing arithmetic — the floor the
-   Kconfig sets (1000/8 = 125 ms, light) against the observed drain rate
-   the Kconfig quotes (~6 fps ≈ 167 ms, solid). **Right:** the boot
-   paths on one log millisecond axis against the 240 s
-   ``UI_MOON_REPLAY_BUDGET_MS`` line (dashed red) — the probe, the
-   static bake, the card-less disc + now-bake (plain 1300 ms, solid),
-   the DATED 2026-11-14 reveal windows (dotted, accepted min–max), the
-   full-cache animation at both paces (709 files × the panel's own
-   per-frame cost), and the knob's disc + bake pair (violet; its
-   dated reveal window dotted). Solid = live, dotted = dated. The
+   The boot ladder, post re-source. **Left:** the pacing arithmetic —
+   the floor the Kconfig sets (1000/8 = 125 ms, light) against the
+   observed drain rate the Kconfig quotes (~6 fps ≈ 167 ms, solid).
+   **Right:** the boot paths on one log millisecond axis against the 240 s
+   ``UI_MOON_REPLAY_BUDGET_MS`` line (dashed red) — the probe (the
+   card-fallback leg alone), the static bake (``BOOT_REPLAY=n``), the
+   parallel now-bake (the loop's stopper), the movie catch-up worst
+   case (``n/4`` frames at the observed rate), the card-fallback
+   full-cache play at both paces (709 files × the panel's own
+   per-frame cost), and the knob's movie cycle + bake pair (violet) —
+   plus the DATED 2026-11-14 reveal windows (dotted, accepted
+   min–max). The movie loop itself is unbounded and so has no bar —
+   the bake is its stopper. Solid = live, dotted = dated. The
    generator is ``docs/tools/gen_perf_boot.py`` (the pacing/budget
-   constants parsed from ``components/ui/Kconfig`` at figure time; the
-   capture windows quoted beside it).
+   constants parsed from ``components/ui/Kconfig`` +
+   ``knob/components/knob_ui/Kconfig``, the frame counts from the baked
+   ``moon_movie_manifest.json`` files — the same sources the storage
+   ladder re-derives — at figure time; the capture windows quoted
+   beside it).
 
 .. _cache-footprint-perf:
 
@@ -826,8 +845,9 @@ it with panic.
 The comparison the ladder makes visible is the render-path inversion
 between the two families:
 
-- **The clocks put the producers above the renderer.** The three bake
-  producers (re-bake, hourly, boot replay) sit at
+- **The clocks put the producers above the renderer.** The core-1
+  producers (re-bake, hourly, the parallel boot bake, the boot
+  presentation's producer) sit at
   ``configMAX_PRIORITIES − 3`` = 22, pinned to core 1 — sixteen levels
   above the LVGL worker's 6 — because the old-frame-then-atomic
   hand-off lets the renderer wait: the producer rebuilds the frame

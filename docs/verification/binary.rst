@@ -17,10 +17,11 @@ longer applies) — with this wave's code in the tree (the
 **compute-progress repurpose** and the **flash-resident boot movie**:
 the strip-by-strip bake reveal and the hourly fade-to-black retired,
 the seconds arc now doubles as the bake's progress bar and the boot
-shows the quick phase disc, and the ``moon_movie`` reader links
-``esp_new_jpeg`` into the app and re-sources the boot animation from
-the precomputed synodic cycle —
-:doc:`the compute progress <../implementation/compute-progress>`) —
+shows the quick phase disc —
+:doc:`the compute progress <../implementation/compute-progress>`, and
+the ``moon_movie`` reader links ``esp_new_jpeg`` into the app and
+re-sources the boot animation from the precomputed synodic cycle —
+:doc:`the boot movie <../implementation/moon-movie>`) —
 and built from
 it (the sizes below are those bench binaries; each embeds the calcver
 ``0.2.0`` — the commitizen ``version`` line the root ``CMakeLists``

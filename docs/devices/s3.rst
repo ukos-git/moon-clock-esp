@@ -56,13 +56,16 @@ initializes the SPI3 bus itself (the caller owns ``spi_bus_initialize``
 under the SDSPI contract) and attaches the card there — a missing card
 is a silent no-op and the hourly refresh just bakes on-device. The
 module survives the sweep it was built for: it now serves the
-**hourly refresh** and the **boot replay** (``UI_MOON_BOOT_REPLAY``,
-:doc:`the animation pipelines <../implementation/animations>`). The
-card mounts lazily on the first producer to run — with the boot replay
-on (the default) that is the replay task at boot, which plays the
-stored hour frames ascending and ends on the computed now-frame; with
-the replay off boot never touches the SD bus and the first hourly
-refresh mounts.
+**hourly refresh** and the **boot replay's fallback leg** (
+``UI_MOON_BOOT_REPLAY``, :doc:`the animation pipelines
+<../implementation/animations>`) — since the 2026-11-25 boot
+re-source the presentation's first source is the flash-resident boot
+movie (:doc:`the boot movie <../implementation/moon-movie>`), and the
+card's stored hour frames play only when the movie is missing or
+calcver-stale. The card mounts lazily on the first producer to run —
+with the boot replay on (the default) that is the movie-loop /
+card-fallback leg at boot (the ~1 s SD probe is paid on that leg only);
+with the replay off the first hourly refresh mounts.
 
 .. code-block:: text
    :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)
@@ -115,10 +118,14 @@ SoC and memory
   bake uses (:doc:`the C core <../implementation/core-c>`).
 - **16 MB flash** with an octal PSRAM. The flash is split by
   ``partitions.csv`` into a 2 MB ``factory`` app partition, a 64 KB
-  SPIFFS ``storage`` (credentials + alarm rules), and a 2.5 MB
+  SPIFFS ``storage`` (credentials + alarm rules), a 2.5 MB
   ``moon_assets`` data partition that holds the equirect albedo and
   the int8 relief DEM (see :doc:`performance <../verification/performance>` for why the DEM's 2 MB size
-  forced the 16 MB chip).
+  forced the 16 MB chip), and the ``moon_movie`` LAST row (11648 K,
+  the chip's leftover) that carries the precomputed synodic boot
+  movie — :doc:`the boot movie <../implementation/moon-movie>`
+  (355 frames @ 2 h today, ``python -m moon.movie --target s3``); a
+  missing/stale movie never blocks a flash.
 - **PSRAM caveat**: the S3's octal PSRAM is **not SPI-DMA-capable**.
   Every DMA transfer that the display stack performs must land in
   internal SRAM. This single fact shapes two things that look
@@ -258,7 +265,7 @@ port-identification procedure):
    cd ../..
    idf.py build                          # default target = esp32s3
    # check the binary size against the 2048 K factory partition
-   idf.py flash -p <port>                # app + storage SPIFFS + moon_assets
+   idf.py flash -p <port>                # app + storage SPIFFS + moon_assets + moon_movie
    idf.py monitor -p <port>              # serial console, 115200
 
 Pre-configured defaults

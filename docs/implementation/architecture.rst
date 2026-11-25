@@ -92,8 +92,8 @@ entries in the :doc:`glossary <../glossary>`:
   labels and arcs and turns it into pixel writes.
 - **Bake / producer** — the ~1.3 s computation of one complete moon
   frame from ephemeris and textures; the tasks that run it (orbit,
-  rebake, hourly, boot replay) are the *producers*, publishing into the
-  shared buffers.
+  rebake, hourly, the parallel boot bake) are the *producers*,
+  publishing into the shared buffers.
 - **LUT convert** — the pipeline's last step: a 256-entry look-up
   turns each 8-bit gray pixel into a 16-bit RGB565 color — one
   "gather" over the frame. With the observer view active it is the
@@ -194,16 +194,17 @@ is pinned to:
    * - ``main`` (app_main)
      - 0
      - no
-     - boot sequence (spawns the boot replay; with the replay off it
-       bakes the static current phase itself), deep-sleep
-       entry
+     - boot sequence (spawns the boot presentation's two core-1 tasks
+       — the parallel boot bake + the boot replay producer; with the
+       replay off it bakes the static current phase itself),
+       deep-sleep entry
    * - ``LVGL`` (adapter)
      - 0 on the S3; either on the P4
      - S3 yes (the BSP sets ``task_core_id = 0``); P4 no (the
        adapter default ``-1``, "no affinity", passes through)
      - the screen tree, the 50 ms ``moon_tick`` lv_timer, the
        minute-driven clock update, the fade/dim ramps
-   * - bake tasks (orbit / rebake / hourly / boot replay)
+   * - bake tasks (orbit / rebake / hourly / boot bake)
      - 1
      - **yes** (pinned; internal-RAM stacks — ``pvPortMalloc`` is
        ``heap_caps_malloc(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)``;
@@ -211,11 +212,15 @@ is pinned to:
        ``xTaskCreatePinnedToCoreWithCaps``)
      - ``moon_bake`` per frame into the shared PSRAM buffers;
        ``moon_rebake`` re-bakes the static frame off the LVGL task,
-       ``moon_hourly`` produces the once-per-hour frame (a bake or a TF
-       hour-cache fetch) and ``moon_replay`` plays the stored hour
-       frames ascending before baking the final now-frame — the tick
-       displays each finished frame
-       atomically
+       ``moon_hourly`` produces the once-per-hour frame (a bake or a
+       TF hour-cache fetch), ``moon_bake`` (the boot presentation's
+       parallel live bake, :doc:`the boot movie <moon-movie>`) bakes
+       the current phase IN PARALLEL with the looping movie — it polls
+       for the clock sync first and sets ``s_boot_bake_done`` for the
+       producer — and ``moon_replay`` (the producer) plays the
+       **flash movie** looping (or the card's stored hours ascending
+       as the fallback) and publishes the final now-frame — the tick
+       displays each published frame atomically
    * - ``panel_wdg``
      - 0
      - yes
@@ -281,7 +286,7 @@ watermark), **amber** is a periodic chip ask.
 .. graphviz:: ../_graphs/task-roster-clocks.dot
    :alt: The clocks' crew opened — app_main and the LVGL worker spawn panel_wdg, moon_event, moon_replay, moon_hourly and moon_rebake, dashed hand-backs return to the painter, and the moon_orbit and hang_watch ghosts hang off it dashed grey
    :align: center
-   :caption: The clocks' crew opened (S3 + P4, one source). The boot band: ``bsp_display_start`` runs the adapter's LVGL task (``main.cpp:558-572`` P4 branch, S3 falls through ``bsp_display_start``); ``moon_ui_init`` spawns ``panel_wdg`` (``xTaskCreatePinnedToCore`` "panel_wdg" 4096, prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at a time") and the classify worker ``moon_event`` (``xTaskCreatePinnedToCoreWithCaps`` "moon_event" 12288, ``MAX_PRIORITIES-4``, core 1, ``MALLOC_CAP_SPIRAM`` — "IDLE1 is not WDT-watched, so its 15-20 s scan can never trip the watchdog"); ``moon_ui_start`` spawns ``moon_replay`` (12288, MAX-3, core 1) under ``#if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE`` (=y both clocks; ``sdkconfig:2359`` / ``sdkconfig.p4:2490``) with the code's own fall-through "baking the current phase inline" when the producer fails to start. The tick band: ``moon_hourly_service`` at the tick head (``moon_ui.c:2502``; the probe gates on ``hour != s_baked_hour`` or ``CONFIG_TEST_HOURLY_FORCE_S``) spawns ``moon_hourly`` at the hour centre ``hour*3600+1800``; ``moon_rebake_request`` spawns ``moon_rebake`` from **three** tick callers — the degraded hourly probe ``:1805`` (the PSRAM bounce never allocated), ``moon_ui_day_tick`` ``:2905`` (new day or sky-event signature change) and the wake path ``:2979`` (frame mid-bake at sleep). The P4 branch overrides only ``task_stack_size = 12288``, so the P4 painter keeps ``ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID`` (-1, "(-1 for no affinity)" — ``managed_components/espressif__esp_lvgl_adapter/include/esp_lv_adapter.h:33/:46``, vendored: public API cited, never modified). The dashed arrows are hand-backs, not calls: the producers publish into the shared PSRAM buffers and the tick's done leg "shows it as ONE atomic whole-panel flush" / "the tick displays the finished frame atomically"; the classify worker warms the day the tick later reads. The two ghosts are drawn as ghosts: ``moon_orbit`` drains only with ``CONFIG_UI_MOON_ORBIT_ENABLE`` — unset in BOTH ``sdkconfig`` (``:2381``) and ``sdkconfig.p4`` (``:2512``) — and ``hang_watch`` (``main.cpp:748``, 6144, prio 5) sits under ``CONFIG_TEST_HANG_WATCH``, never shipped.
+   :caption: The clocks' crew opened (S3 + P4, one source). The boot band: ``bsp_display_start`` runs the adapter's LVGL task (``main.cpp:558-572`` P4 branch, S3 falls through ``bsp_display_start``); ``moon_ui_init`` spawns ``panel_wdg`` (``xTaskCreatePinnedToCore`` "panel_wdg" 4096, prio 3, core 0 — "Low priority on core 0: it sleeps 3 s at a time") and the classify worker ``moon_event`` (``xTaskCreatePinnedToCoreWithCaps`` "moon_event" 12288, ``MAX_PRIORITIES-4``, core 1, ``MALLOC_CAP_SPIRAM`` — "IDLE1 is not WDT-watched, so its 15-20 s scan can never trip the watchdog"); ``moon_ui_start`` spawns the boot presentation's two core-1 tasks under ``#if CONFIG_UI_MOON_BOOT_REPLAY && !CONFIG_UI_DEMO_MODE`` (=y both clocks; ``sdkconfig:2359`` / ``sdkconfig.p4:2490``) — ``moon_bake`` FIRST (the parallel live bake, ``moon_boot_bake_task``, 12288, MAX-3, core 1 — it polls the clock sync, then bakes the now-frame into the shared ``s_hourly_gray`` bounce and sets ``s_boot_bake_done``; :doc:`the boot movie <moon-movie>`) then ``moon_replay`` (the producer, 12288, MAX-3, core 1 — plays the flash movie looping or the card fallback, publishes the final now-frame) — with the code's own fall-through "baking the current phase inline" when the producer fails to start (the bake is aborted; it will not publish). The tick band: ``moon_hourly_service`` at the tick head (``moon_ui.c:2502``; the probe gates on ``hour != s_baked_hour`` or ``CONFIG_TEST_HOURLY_FORCE_S``) spawns ``moon_hourly`` at the hour centre ``hour*3600+1800``; ``moon_rebake_request`` spawns ``moon_rebake`` from **three** tick callers — the degraded hourly probe ``:1805`` (the PSRAM bounce never allocated), ``moon_ui_day_tick`` ``:2905`` (new day or sky-event signature change) and the wake path ``:2979`` (frame mid-bake at sleep). The P4 branch overrides only ``task_stack_size = 12288``, so the P4 painter keeps ``ESP_LV_ADAPTER_DEFAULT_TASK_CORE_ID`` (-1, "(-1 for no affinity)" — ``managed_components/espressif__esp_lvgl_adapter/include/esp_lv_adapter.h:33/:46``, vendored: public API cited, never modified). The dashed arrows are hand-backs, not calls: the producers publish into the shared PSRAM buffers and the tick's done leg "shows it as ONE atomic whole-panel flush" / "the tick displays the finished frame atomically"; the classify worker warms the day the tick later reads. The two ghosts are drawn as ghosts: ``moon_orbit`` drains only with ``CONFIG_UI_MOON_ORBIT_ENABLE`` — unset in BOTH ``sdkconfig`` (``:2381``) and ``sdkconfig.p4`` (``:2512``) — and ``hang_watch`` (``main.cpp:748``, 6144, prio 5) sits under ``CONFIG_TEST_HANG_WATCH``, never shipped.
 
 .. graphviz:: ../_graphs/task-roster-ondemand.dot
    :alt: The on-demand band opened — the WiFi screen load kicks off wifi_sync and wifi_scan_begin, the alarm ring or preview spawns play_task, and every one-shots' done flag returns to its spawner before it self-deletes
@@ -391,12 +396,12 @@ The relay in one picture
 .. graphviz:: ../_graphs/buffers-relay.dot
    :alt: The relay in black boxes — the mill baking into the bounce lock-free, one image-key publish block, the atomic show, and every panel write riding the panel key through the wrapper
    :align: center
-   :caption: The relay, drawn — every quote read out of ``components/ui/moon_ui.c`` (and the relief builder in ``components/moon/esp/moon_esp_assets.c``) at sketch time. The mill: the core-1 producers bake into the bounce lock-free — "12 KB stack (the bake's era chain …), core 1 (IDLE1 unwatched), same shape as moon_rebake_task" (:1646-47) — the TF hour fetch or the ~1.3 s bake, with the write-through to the card on store (:1721). ``s_hourly_gray`` (:1156, the code's own "fetch/bake bounce") is **the desk no key guards**; ``s_frame`` is "NEVER the partial side" (:1305) — written only by the re-bake's whole-frame block (:1546-59) and the publish memcpys (hourly :1732, replay :2004/:2055). The ghost box is the one **other** shape: the boot/day-tick bake runs the WHOLE bake inside the image key (:1546-48, "this re-bake replaces the WHOLE frame … in one guarded block") — the boot leg runs on the 3.5 KB main task, where a synchronous whole-panel ``lv_refr_now`` would overflow the stack ("the 3.5 KB stack rule", :1123, :1206), so the LVGL task paints it instead. The relief wall feeds the bake one packed cell per bake pixel, built once at boot from ONE 2 MB ``esp_partition_read`` — "vs ~4 s for 1024 row reads" — whose transient is freed: "steady-state relief memory is the one 4 MB packed array alone" (``moon_esp_assets.c:85-88``). ``s_rgb`` is the ONLY buffer the screen reads (the show reads it through ``s_dsc.data``, :2666). The publish contract in one line: "``s_rgb_mtx`` held; no flush here (the tick shows it)" (:1728). The painter's legs open into the sketch below; the strip staging, the accept-retry anatomy and the witnesses belong to ``docs/_graphs/flush-path.dot`` (:doc:`the display pipeline <display>`), and the core's data flow into the bounce to ``docs/_graphs/moon-core-flow.dot`` (:doc:`the C core <core-c>`). The same buckets counted in *pixels* — bake square, panel square, one DMA transaction — are :ref:`the pixel ladder <pixel-ladder-perf>`.
+   :caption: The relay, drawn — every quote read out of ``components/ui/moon_ui.c`` (and the relief builder in ``components/moon/esp/moon_esp_assets.c``) at sketch time. The mill: the core-1 producers bake into the bounce lock-free — "12 KB stack (the bake's era chain …), core 1 (IDLE1 unwatched), same shape as moon_rebake_task" (:1670) — the TF hour fetch or the ~1.3 s bake, with the write-through to the card on store (:1745). ``s_hourly_gray`` (:1157, the code's own "fetch/bake bounce") is **the desk no key guards**; ``s_frame`` is "NEVER the partial side" (:1329) — written only by the publish memcpys (hourly :1756, the boot presentation's final now-frame :2259). The ghost box is the one **other** shape: the boot/day-tick bake runs the WHOLE bake inside the image key (``moon_convert_to_rgb`` :1486-1501 — the boot leg runs on the 3.5 KB main task (``moon_bake_epoch`` :1543), where a synchronous whole-panel ``lv_refr_now`` would overflow the stack ("the 3.5 KB stack rule", :1124, :1230), so the LVGL task paints it instead). The relief wall feeds the bake one packed cell per bake pixel, built once at boot from ONE 2 MB ``esp_partition_read`` — "vs ~4 s for 1024 row reads" — whose transient is freed: "steady-state relief memory is the one 4 MB packed array alone" (``moon_esp_assets.c:85-88``). ``s_rgb`` is the ONLY buffer the screen reads (the show reads it through ``s_dsc.data``, :2869). The publish contract in one line: "``s_rgb_mtx`` held; no flush here (the tick shows it)" (:1752). The painter's legs open into the sketch below; the strip staging, the accept-retry anatomy and the witnesses belong to ``docs/_graphs/flush-path.dot`` (:doc:`the display pipeline <display>`), and the core's data flow into the bounce to ``docs/_graphs/moon-core-flow.dot`` (:doc:`the C core <core-c>`). The same buckets counted in *pixels* — bake square, panel square, one DMA transaction — are :ref:`the pixel ladder <pixel-ladder-perf>`.
 
 .. graphviz:: ../_graphs/buffers-relay-painter.dot
    :alt: The painter's legs opened — the done legs with the drain witness and commit-on-show, the key-free compute watermark driving the seconds arc, and the 0x51 ramp that writes no pixels while the panel is black
    :align: center
-   :caption: The painter's legs opened (the 50 ms tick, ``MOON_TICK_MS`` :184, armed :2668). The **done legs** (flags read at :1812/:1816 → ``moon_hourly_finish`` :3158-68; the tick's replay show :2485-2500 and deferred re-bake :2515-19) call ``moon_invalidate_all`` (:1279) then ONE atomic whole-panel ``lv_refr_now`` INSIDE the image key, then the drain witness — 8 call sites, 9 names: "re-bake" (:1477), "boot replay final" / "boot replay" (:2498), "rebake" (:2519), "orbit batch" (:2551), "tz re-gather" (:2803), "hourly" (:3165), "switch fade-in" (:3347), "screen switch" (:3358) — and commit-on-show: ``s_baked_hour``/event set only after the flush landed (:3166-67). The **compute watermark** (``moon_bake_progress`` :1403-41) publishes ``s_compute_pub`` under the image key per ``MOON_COMPUTE_ROWS`` strip — 13 rows P4 / 10 S3 (:1321-23) — "the mutex orders the watermark against the screens' reads" (:1421); the screens read the ``moon_ui_compute_active`` / ``moon_ui_compute_progress`` seam (:1443-49) as plain flag reads driving the seconds arc — no key owed on the read, no flush — and the producer "NEVER touches the panel" (:1400-02): the old frame (or the boot dummy disc) stays up the whole bake, and the finished frame lands as the done leg's one atomic whole-panel flush. The **no-pixels leg**: the 0x51 ramp writes NO pixels (the fade-in leg :3333-58) — the code's own warning, "the flush strips take the panel mutex in the draw_bitmap wrapper (per strip — taking it here as well would self-deadlock: the mutex is non-reentrant and the wrapper IS the flush's panel path)", which is why the ramp node rides the *panel* key and the atomic flush lands while the panel is still black. The knob builds NO relay at all: ``moon_ui.c`` is excluded wholesale (component ``ui``'s ``CMakeLists.txt:31-35`` empties ``UI_BOARD_SRCS`` under ``KNOB_BOARD``) and the seam answers with its own double buffer ``s_buf[2]`` — 2×360²×2 B (``knob_moon_render.c``).
+   :caption: The painter's legs opened (the 50 ms tick, ``MOON_TICK_MS`` :185, armed :2871). The **done legs** (flags read at the tick head → ``moon_hourly_finish`` :3389-98; the tick's presentation show — the movie / card frames and the final now-frame — :2688-701, and the deferred re-bake :2710-22) call ``moon_invalidate_all`` (:1303) then ONE atomic whole-panel ``lv_refr_now`` INSIDE the image key, then the drain witness — 8 call sites, 9 names: "re-bake" (:1501), "boot replay final" / "boot replay" (:2701), "rebake" (:2722), "orbit batch" (:2754), "tz re-gather" (:3006), "hourly" (:3396), "switch fade-in" (:3578), "screen switch" (:3589) — and commit-on-show: ``s_baked_hour``/event set only after the flush landed (:3397-98). The **compute watermark** (``moon_bake_progress`` :1427-64) publishes ``s_compute_pub`` under the image key per ``MOON_COMPUTE_ROWS`` strip — 13 rows P4 / 10 S3 (:1345-47) — "the mutex orders the watermark against the screens' reads" (:1445); the screens read the ``moon_ui_compute_active`` / ``moon_ui_compute_progress`` seam (:1467-74) as plain flag reads driving the seconds arc — no key owed on the read, no flush — and the producer "NEVER touches the panel" (:1424): the old frame (or the boot dummy disc) stays up the whole bake, and the finished frame lands as the done leg's one atomic whole-panel flush. The **no-pixels leg**: the 0x51 ramp writes NO pixels (the fade-in leg :3407-39) — the code's own warning, "the flush strips take the panel mutex in the draw_bitmap wrapper (per strip — taking it here as well would self-deadlock: the mutex is non-reentrant and the wrapper IS the flush's panel path)", which is why the ramp node rides the *panel* key and the atomic flush lands while the panel is still black. The knob builds NO relay at all: ``moon_ui.c`` is excluded wholesale (component ``ui``'s ``CMakeLists.txt:31-35`` empties ``UI_BOARD_SRCS`` under ``KNOB_BOARD``) and the seam answers with its own double buffer ``s_buf[2]`` — 2×360²×2 B (``knob_moon_render.c``).
 
 .. _guards-arch:
 
@@ -496,11 +501,16 @@ LVGL path.)
 
 Everything else that shows moon content obeys the rule: the boot and
 wake displays (one atomic flush of the quick phase disc at boot, then
-one atomic flush of the finished current-phase bake) and the orbit
-re-bake (one atomic flush of the whole converted frame). (The boot
-sweep's frames — card-less and warm TF replay alike — and the dusk's
-re-projected frames had obeyed it one flush per published frame until
-their retirement.)
+one atomic flush of each looping **boot movie** frame — the flash-resident
+synodic cycle, :doc:`the boot movie <moon-movie>` — and one atomic
+flush of the finished current-phase bake over the last movie frame),
+and the orbit re-bake (one atomic flush of the whole converted frame).
+The movie re-sourced the boot presentation on 2026-11-25, and it adds
+**no new exception**: its frames are read off-panel on core 1 and shown
+through the very same sanctioned atomic-show path the card replay and
+the hourly refresh ride. (The boot sweep's frames — card-less and warm
+TF replay alike — and the dusk's re-projected frames had obeyed it one
+flush per published frame until their retirement.)
 
 Why the invariant is worth two locks
 ------------------------------------

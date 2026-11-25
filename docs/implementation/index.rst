@@ -1,7 +1,7 @@
 The implementation
 ==================
 
-The C core, the display pipeline, the animation system, the clock and sleep machine, the P4 port, and the knob display — file by file.
+The C core, the display pipeline, the animation system, the flash-resident boot movie, the clock and sleep machine, the P4 port, and the knob display — file by file.
 
 .. toctree::
    :maxdepth: 2
@@ -12,6 +12,7 @@ The C core, the display pipeline, the animation system, the clock and sleep mach
    display
    animations
    compute-progress
+   moon-movie
    observer-view
    clock-sleep
    p4-port

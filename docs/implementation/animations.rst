@@ -33,18 +33,24 @@ light sleep is a **static dim frame** now: panel to 25 %, clock to
 20 % alpha, and the deep-sleep countdown armed at the entry itself;
 :doc:`the clock and sleep machine <clock-sleep>`). The home sleeps as a
 static dim and refreshes its moon once per hour (below). At boot it
-**replays**: while the first frames prepare, the panel shows the
-quick phase disc (the compute section's dummy —
-:doc:`the compute progress <compute-progress>`), then every hour frame
-the TF card holds plays ascending and stops on the newest, and the
-live-computed current phase lands as the final frame, the seconds arc
-sweeping its bake's rows watermark as a progress bar (the disc is
-replaced by the finished frame atomically; with no card or an empty
-cache the replay is simply absent and the disc holds until the final
-bake lands — *The boot replay*, below). This is
-pure storage playback of the hour cache — not a return of the computed
+**presents the boot movie** (:doc:`the boot movie <moon-movie>`): a
+precomputed synodic cycle baked at build time and flashed into the
+``moon_movie`` data partition plays **looping** while a second core-1
+task bakes the live current phase in PARALLEL (the seconds arc
+sweeping the bake's rows watermark as a progress bar, the compute
+section's dummy — :doc:`the compute progress <compute-progress>` —
+is the floor under both); when the bake lands the movie plays forward
+to the frame matching the current phase and the live-computed frame
+lands as the final frame, ONE atomic whole-panel flush over it (with
+no valid movie the card's stored hours play ascending instead — the
+2026-11-14 card replay, demoted to the fallback — and with neither
+source the quick phase disc holds until the final bake lands — *The
+boot replay*, below). This is
+storage playback (the flash-resident movie first, the hour cache as
+fallback) — not a return of the computed
 boot animation the user retired; with ``UI_MOON_BOOT_REPLAY=n`` the
-home boots straight to the static current phase again. The home's moon
+home boots straight to the static current phase again (no SD bus at
+boot either way). The home's moon
 is plain LVGL, shown static; see :doc:`the architecture <architecture>`
 for what the removals left of the exceptions list. The removed
 subsystems are summarized below as dated history (their full per-frame
@@ -240,61 +246,114 @@ path). The fetched frame runs through the SAME ``moon_gray565()`` tint
 LUT as a baked frame, so cache and compute paths are pixel-identical by
 construction.
 
-The boot replay (``UI_MOON_BOOT_REPLAY`` + the TF keys)
-.......................................................
+The boot presentation (``UI_MOON_BOOT_REPLAY`` + the TF keys)
+...............................................................
 
 The user's brief (2026-11-14): *"on bootup, during re-calculation of
 the current moon, all displays should show all previously calculated
 frames as an animation and stop at the last calculated frame that was
 stored on the TF card… If no cache is available, the display stays
-black until the current moon phase is calculated."*
+black until the current moon phase is calculated."* On 2026-11-25 the
+presentation was **re-sourced** (:doc:`the boot movie <moon-movie>`):
+the "previously calculated frames" now come first from a
+**flash-resident movie** — the precomputed synodic cycle baked at
+build time into the ``moon_movie`` data partition — and the
+"re-calculation" half runs the live bake **in parallel** with a
+looping movie instead of after a one-shot playback. The TF card is
+demoted: it is the **hourly refresh cache** (below) now, and its
+stored hours play only as the movie's fallback source. The whole page
+of mechanics — the container, the generator, the flash residency, the
+reader, the catch-up math, the knob's single-producer shape — is
+:doc:`the boot movie <moon-movie>`; this section keeps the presentation
+shape and the arbitration it rides on.
 
-It is the hourly split reused (``components/ui/moon_ui.c``, the
-``replay`` section): a core-1 producer (``moon_boot_replay_task``,
-12 KB, the hourly/rebake priority) enumerates the cached hours
-ascending (``tfcache_list_hours``, the list in PSRAM), fetches each
-gray JPEG, converts it through the neutral tint LUT (the stored grays
-are event-independent; classifying 709 epochs would cost more than the
-animation is worth) and publishes ``s_frame`` + ``s_rgb`` in ONE
-``s_rgb_mtx`` block per frame — exactly the hourly publish shape. It
-never touches the panel. The **tick** lands every published frame as
-ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx``, each show
-**drain-witnessed** (up to ~709 shows per boot — witnessing only the
-last one would let a lost completion pin the next ~2 s per strip).
-No fade: the brightness never moves; the replay's black is the panel's
-boot black. Pacing is a floor (``UI_MOON_REPLAY_FPS``, min dwell per
-frame) plus a single in-flight frame (the producer waits for the tick
-to consume the show flag; every wait is bounded so a paused tick can
-never wedge it). ``UI_MOON_REPLAY_BUDGET_MS`` bounds the whole
-animation — overrun stops the **animation**, never the moon: the
-final leg still bakes and shows the current phase. The pacing
-arithmetic — the ``1000/REPLAY_FPS`` floor, the observed ~6 fps drain,
-the 709-file cap and the budget — is plotted in
+It is still the hourly split reused (``components/ui/moon_ui.c``, the
+``replay`` / presentation section), with **two** core-1 tasks (12 KB
+internal-RAM stacks, the hourly/rebake priority) spawned by
+``moon_ui_start``:
+
+**The parallel bake (``moon_bake``)** — spawned FIRST (a failed spawn
+degrades the presentation straight to the stale-frame re-bake). If the
+clock holds no trustworthy instant yet it polls at 500 ms — the movie
+keeps looping meanwhile — and once the clock syncs it classifies the
+day's sky event and bakes the current phase into the shared
+``s_hourly_gray`` bounce with the compute-progress watermark (the
+seconds arc sweeps its rows-completed bar — the "during
+re-calculation" half), setting ``s_boot_bake_done`` (or
+``s_boot_bake_failed`` on abort / no time / no albedo). The strip loop
+yields per strip (``vTaskDelay(1)`` in ``moon_bake_progress``), so the
+producer — same priority, same core — keeps feeding frames while the
+bake runs. It never touches ``s_frame`` / ``s_rgb`` / the panel: the
+producer owns the publish, and the two tasks never share a buffer.
+
+**The producer (``moon_replay``)** — plays the **source ladder**:
+
+1. **The flash movie** (valid header: magic + calcver + board size +
+   at least one frame): the frames play **LOOPING** — one frame per
+   tick, wrapping (frame 0 ≈ frame n−1, so the loop is seamless by
+   construction), neutral tint LUT (the frames are event-independent
+   bakes; classifying ~700 epochs would cost more than the animation
+   is worth), each publish in ONE ``s_rgb_mtx`` block from the
+   producer's OWN fetch bounce — the exact hourly publish shape. The
+   loop is unbounded: the loop IS the animation, and the bake
+   completing is what ends it.
+2. **The card fallback** (no partition / calcver mismatch /
+   zero-frame movie): the 2026-11-14 card replay verbatim — enumerate
+   the cached hours ascending (``tfcache_list_hours``; the lazy mount
+   happens on THIS leg's first moment, so a card-less fallback pays
+   the ~1 s probe here — the movie path never touches the SD bus at
+   boot), fetch each gray JPEG, neutral tint, publish in ONE
+   ``s_rgb_mtx`` block per frame.
+3. **The floor**: the **quick phase disc** ``moon_ui_start`` painted
+   before the spawn (or black without a trustworthy time — no epoch,
+   no disc) stays up under both.
+
+It never touches the panel. The **tick** lands every published frame
+as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx``, each
+show **drain-witnessed** (up to ~709 shows per boot — witnessing only
+the last one would let a lost completion pin the next ~2 s per strip).
+No fade: the brightness never moves. Pacing is a floor
+(``UI_MOON_REPLAY_FPS``, min dwell per frame) plus a single in-flight
+frame (the producer waits for the tick to consume the show flag; every
+wait is bounded so a paused tick can never wedge it).
+``UI_MOON_REPLAY_BUDGET_MS`` now bounds the **bounded legs only** —
+the card-fallback leg and the catch-up leg; the movie loop is
+unbounded. Overrun stops the **animation**, never the moon: the final
+leg still lands the current phase. The pacing arithmetic — the
+``1000/REPLAY_FPS`` floor, the observed ~6 fps drain, the 709-file cap
+and the budget — is plotted in
 :doc:`the performance comparison <../verification/performance>`.
 
-The **final leg** is the "during re-calculation" half: the current
-phase is live-computed on the same task (classify + event LUT +
-``moon_bake_progress`` into the hourly bounce **outside** the mutex,
-published in one short guarded block — the hourly shape again), commits
-the bookkeeping (``s_orbit_epoch`` / ``s_baked_hour`` / ``s_baked_event``
-/ ``s_baked_day``) and rides the tick's last atomic show, drain-witnessed
-as ``boot replay final``. While the final bake runs the panel keeps
-what it already has — the newest stored frame, or the **quick phase
-disc** where the boot had no frame to show — and the seconds arc sweeps
-the bake's rows-completed watermark as a progress bar
-(:doc:`the compute progress <compute-progress>`); the finished frame
-lands over it as one atomic whole-panel flush. Stored frames never move
-``s_orbit_epoch`` — they are historic phases; only the final bake may.
-No card, cold folder, version wipe or no clock: the animation leg
-simply has nothing to show and the panel holds the quick phase disc
-until the final bake lands (or, without a trustworthy time, it stays
-black until the day-tick re-bakes after the clock syncs — the pre-replay
-black path, which has no epoch and therefore no disc). The
-**knob** has no SD socket, so it always computes at boot — and with no
-saved frame on glass it publishes the quick phase disc first and the
-fresh bake swaps over it (:doc:`the compute progress
-<compute-progress>`, :doc:`the knob display <knob-display>`). Demo
-mode boots without the replay (its scripted tour owns the display).
+**Catch-up and the final leg.** When ``s_boot_bake_done`` flips, the
+producer maps the now hour to the **nearest** loop index by hour
+arithmetic on the movie header's ``ref_center`` — no new-moon scan:
+frame *i*'s centre is ``ref + i·hpf`` hours, so the nearest frame is
+within ``hpf/2`` hours of the now-frame's phase. A far target (more
+than ``n/4`` of the cycle ahead) takes one settle frame at the target
+then the reveal (a hard cut); a near target **plays forward one frame
+per tick** to the current phase, budget-bounded. Then the **final
+leg** — common to both sources: a bounded wait if the bake is still
+running, a bounded handshake that the last published frame has
+*landed* before the now-frame replaces it ("play to the current
+phase, **then** reveal the computed image"), the now-frame published
+under ``s_rgb_mtx`` with the bake's event tint, the bookkeeping
+committed there and only there (``s_orbit_epoch`` / ``s_baked_hour`` /
+``s_baked_event`` / ``s_baked_day``), and the tick landing it as the
+last atomic show, drain-witnessed as ``boot replay final``. The card's
+new-moon prune (the ~8 s ``new_moon_epoch`` scan) still rides the
+final leg. Movie and card frames never move ``s_orbit_epoch`` — they
+are historic phases; only the final bake may. No clock at all: the
+bake task polls, the movie keeps looping (unbounded), and the frame
+lands once the clock syncs — the day-tick re-bake is the backstop
+(without a trustworthy time the panel is black, the pre-replay path,
+which has no epoch and therefore no disc). The **knob** has no SD
+socket — flash is its ONLY movie source — and its seam forces a
+single-producer shape: the loop runs inside the producer task in place
+of the static opening presentation, and the opening bake lands over
+the movie frame as the day tick's force-rebake swap
+(:doc:`the boot movie <moon-movie>`, :doc:`the knob display
+<knob-display>`). Demo mode boots without the presentation (its
+scripted tour owns the display).
 
 The whole presentation, including the abort path and the single-caller
 arbitration the ladder rests on:
@@ -303,39 +362,50 @@ arbitration the ladder rests on:
 
    <pre class="mermaid">
    flowchart TB
-     BOOT["Boot, UI_MOON_BOOT_REPLAY on, not demo"] --> HOLD["idle ladder held at spawn"]
-     HOLD --> LIST{"card mounted and hours listed (lazy first-producer mount)"}
-     LIST -- "hours ascending" --> FETCH["per hour — fetch gray JPEG, neutral tint LUT, publish under s_rgb_mtx"]
-     FETCH --> SHOW["tick lands each frame as ONE atomic whole-panel flush, drain-witnessed"]
-     SHOW --> MORE{"more hours?"}
+     BOOT["Boot, UI_MOON_BOOT_REPLAY on, not demo"] --> SPAWN["spawn: moon_bake FIRST (parallel live bake, polls until clock syncs) + moon_replay; idle ladder held; disc painted"]
+     SPAWN --> BAKE["moon_bake — classify + now-bake into s_hourly_gray (arc sweeps its rows watermark); yields per strip"]
+     SPAWN --> LADDER{"moon_movie valid? (magic + calcver + size)"}
+     LADDER -- "yes" --> LOOP["the flash movie LOOPING — one frame per tick, neutral LUT, publish under s_rgb_mtx (NO SD bus)"]
+     LADDER -- "no partition / calcver mismatch / zero frames" --> LIST{"card fallback — mounted and hours listed (lazy mount HERE pays the ~1 s probe)"}
+     LIST -- "hours ascending" --> FETCH["per hour — fetch gray JPEG, neutral tint, publish under s_rgb_mtx (the budget bounds this leg)"]
+     FETCH --> SHOWC["tick lands each frame as ONE atomic whole-panel flush, drain-witnessed"]
+     SHOWC --> MORE{"more hours?"}
      MORE -- "yes" --> FETCH
-     MORE -- "no, stopped on newest" --> FINAL
-     LIST -- "no card, cold folder, version wipe" --> DISC["panel holds the quick phase disc (no clock: stays black — no epoch)"]
-     DISC --> FINAL
-     FINAL["final leg — classify + event LUT + now-bake outside the mutex (the seconds arc sweeps its rows watermark)"] --> LAST["tick's last atomic show, bookkeeping commits, end leg re-arms the idle ladder"]
-     SHOW -. "sleep entry or screen switch aborts — un-shown frames dropped, final bake skipped" .-> ABORT["s_baked_day stays 0 — the minute day-tick queues the corrective re-bake on return"]
+     MORE -- "no, stopped on newest" --> WAIT
+     LOOP -- "s_boot_bake_done" --> CATCH["catch-up — nearest loop index from ref_center (hpf-aware rounding): far = one settle frame + reveal; near = play forward one frame per tick (the budget bounds this leg)"]
+     LIST -- "no card, cold folder, version wipe" --> WAIT
+     BAKE --> WAIT
+     WAIT["waits out the bake, budget-bounded (s_boot_bake_done)"]
+     WAIT --> FINAL["final leg — handshake (last frame landed), now-frame published under s_rgb_mtx with the bake's event tint"]
+     CATCH --> FINAL
+     FINAL --> LAST["tick's last atomic show (drain-witnessed as 'boot replay final'), bookkeeping commits, end leg re-arms the idle ladder"]
+     LOOP -. "sleep entry or screen switch aborts — un-shown frames dropped, final publish skipped" .-> ABORT["s_baked_day stays 0 — the minute day-tick queues the corrective re-bake on return"]
+     BAKE -. "aborted mid-bake — s_boot_bake_failed" .-> ABORT
    </pre>
 
 While ``moon_ui_replaying()`` is true the hourly probe/spawn, the
 day-tick and the orbit gate out and every idle re-arm site in
-``actions.c`` defers — the two core-1 producers (replay, hourly) never
-run at once, which is what keeps tfcache's single-caller contract
-intact.
+``actions.c`` defers — the three core-1 producers (replay, parallel
+bake, hourly) never run at once, which is what keeps tfcache's
+single-caller contract intact (the parallel bake never touches the
+card at all — the contract is about the card, not the core).
 
-Lifecycle holds (the boot presentation owns the screen for the length
-of the animation): the replay disables the idle→sleep ladder at spawn
-and the tick's **end leg** re-arms it when the presentation is over
-(every idle re-arm site in ``actions.c`` — boot wake, WiFi-sync
-hand-off, airplane switch, the test hooks — defers while
+Lifecycle holds (the boot presentation owns the screen for its
+length): the spawn disables the idle→sleep ladder and the tick's
+**end leg** re-arms it when the presentation is over (every idle
+re-arm site in ``actions.c`` — boot wake, WiFi-sync hand-off,
+airplane switch, the test hooks — defers while
 ``moon_ui_replaying()``); the hourly probe/spawn, the day-tick and the
 orbit gate on the same signal, so no fade cycle, corrective re-bake or
-orbit peek races the replay over ``s_frame`` / ``s_rgb`` / the card
-(tfcache's single-caller contract holds: the two producers never run
+orbit peek races the presentation over ``s_frame`` / ``s_rgb`` / the
+card (tfcache's single-caller contract holds: the producers never run
 at once). A sleep entry (``moon_ui_pause(true)``) or a screen switch
-away from the moon **aborts** the animation — the un-shown frames are
-dropped and the final bake is skipped (``s_baked_day`` stays 0, so the
-minute day-tick queues the corrective re-bake once the device is back
-on the home).
+away from the moon **aborts** the presentation — the un-shown frames
+are dropped, the final publish is skipped (``s_baked_day`` stays 0, so
+the minute day-tick queues the corrective re-bake once the device is
+back on the home), and a degraded run sets ``s_frame_stale`` — the
+panel rests on the last COMPLETE frame (a movie frame or the disc);
+nothing to heal.
 
 The boot sweep (retired 2026-11-13)
 -----------------------------------
