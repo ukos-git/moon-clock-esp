@@ -49,10 +49,14 @@ Parsed at figure time (a drifted source kills the run):
     knob knob/sdkconfig (fallback: ../build/knob/config/sdkconfig.h
         absence)  "# CONFIG_CLOCK_USE_PCF85063A is not set"
   components/clock/settings_store.c
-    SETTINGS_PATH; the 9 fprintf lines asserted verbatim (2 comment +
-    7 keys) -> byte size computed from the asserted literals
-  settings_store_save call sites == exactly 5: screens.c sleep / tz /
-    alarm-sound / display-trim + main.cpp's TEST settings demo (line must say so)
+    SETTINGS_PATH; the 11 fprintf lines asserted verbatim (2 comment
+    + 9 keys — the two counters + their power-off kill switches + the
+    five remaining) -> byte size computed from the asserted literals
+  settings_store_save call sites == exactly 6 total: screens.c's five
+    writers (the shared sleep-roller commit + the shared sleep kill-switch
+    toggle handler — one handler each serves BOTH sleep screens — / tz /
+    alarm-sound / display-trim) + main.cpp's TEST settings demo (line
+    must say so)
   components/wifi/wifi.c
     WIFI_CREDENTIALS_FILE; the exact fprintf template; call sites == 1
     (the provisioning wheel commit)
@@ -256,7 +260,9 @@ def main() -> None:
         r'"# Runtime settings (owned by the settings screens; do not\n"',
         r'"# edit by hand -- a full flash resets this file).\n"',
         r'"idle_timeout_sec = %u\n"',
+        r'"idle_timeout_enable = %d\n"',
         r'"deep_sleep_countdown_sec = %u\n"',
+        r'"deep_sleep_countdown_enable = %d\n"',
         r'"boot_anim_enable = %d\n"',
         r'"dusk_anim_enable = %d\n"',
         r'"timezone = %s\n"',
@@ -270,7 +276,9 @@ def main() -> None:
         "# Runtime settings (owned by the settings screens; do not\n",
         "# edit by hand -- a full flash resets this file).\n",
         "idle_timeout_sec = %u\n",
+        "idle_timeout_enable = %d\n",
         "deep_sleep_countdown_sec = %u\n",
+        "deep_sleep_countdown_enable = %d\n",
         "boot_anim_enable = %d\n",
         "dusk_anim_enable = %d\n",
         "timezone = %s\n",
@@ -280,8 +288,8 @@ def main() -> None:
     settings_bytes = len("".join(settings_tpl).replace("%u", "300")
                          .replace("%d", "1").replace("%s", "Europe/Berlin"))
     count(st, r"settings_store_save\(void\)", 1, "one definition", SETTINGS)
-    if scr.count("settings_store_save();") != 4:
-        raise SystemExit(f"screens.c settings writers: expected 4, found "
+    if scr.count("settings_store_save();") != 5:
+        raise SystemExit(f"screens.c settings writers: expected 5, found "
                          f"{scr.count('settings_store_save();')}")
     if mn.count("settings_store_save();") != 1:
         raise SystemExit("main.cpp settings writer must be exactly the TEST demo")

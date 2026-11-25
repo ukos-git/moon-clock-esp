@@ -215,7 +215,8 @@ def parse_glyph_defines(screens_raw: str) -> dict:
         out[name] = cp
     want = {"GLYPH_XMARK": 0xF057, "GLYPH_MOON": 0xF186, "GLYPH_WIFI": 0xF1EB,
             "GLYPH_STOPWATCH": 0xF2F2, "GLYPH_ALARM": 0xF34E, "GLYPH_CLOCK": CLOCK,
-            "GLYPH_GLOBE": 0xF0AC, "GLYPH_SPEAKER": 0xF028, "GLYPH_ROTATE": 0xF2F1}
+            "GLYPH_GLOBE": 0xF0AC, "GLYPH_SPEAKER": 0xF028, "GLYPH_ROTATE": 0xF2F1,
+            "GLYPH_POWER_OFF": 0xF011}
     if set(want) - set(out):
         die(f"missing GLYPH defines: {sorted(set(want) - set(out))}")
     for k, v in want.items():
@@ -301,10 +302,10 @@ def main() -> None:
     glyphs = parse_glyph_defines(screens_raw)
     solid_expect = {glyphs["GLYPH_XMARK"], glyphs["GLYPH_MOON"], glyphs["GLYPH_WIFI"],
                     glyphs["GLYPH_STOPWATCH"], glyphs["GLYPH_GLOBE"], glyphs["GLYPH_SPEAKER"],
-                    glyphs["GLYPH_ROTATE"]}
+                    glyphs["GLYPH_ROTATE"], glyphs["GLYPH_POWER_OFF"]}
     for tk in TIERS:
         if data[tk]["ui_font_fontawesome7_solid_96_icons"]["cps"] != solid_expect:
-            die(f"solid icons {tk}: carried set != the seven asked icon codepoints")
+            die(f"solid icons {tk}: carried set != the eight asked icon codepoints")
     for tk in TIERS:
         want = REGULAR_BASE | ({CLOCK} if tk != "s3" else set())
         if data[tk]["ui_font_fontawesome7_regular_96_icons"]["cps"] != want:

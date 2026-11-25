@@ -29,8 +29,9 @@ The same physics, verified the same way
 ---------------------------------------
 
 The physics is the clock's, **compiled once**: the shared
-``components/moon`` is the single provider of the five core + twelve
-vendored ERFA TUs plus the ESP asset backend ``moon_esp_assets.c`` —
+``components/moon`` is the single provider of the six core + eleven
+vendored ERFA TUs plus the two ESP device backends
+(``moon_esp_assets.c`` and ``moon_esp_movie.c``) —
 its CMakeLists selects ``generated/knob`` under a
 ``CONFIG_BOARD_KNOB`` branch (first-match ahead of the P4/s3
 branches; the clock projects never define the symbol, so their TUs
@@ -180,11 +181,11 @@ public headers from its own components:
   silence those shims compile to — 16 + 28 + 0 lines against the
   5,178 the build drops — is counted in
   :ref:`the build census <census-ladder-perf>`, and the same silence
-  counted for the menu — 80 entries, the biggest menu on the bench,
-  of which 28 of the 50 inherited are clock-private — in
+  counted for the menu — 85 entries, the biggest menu on the bench,
+  of which 29 of the 52 inherited are clock-private — in
   :ref:`the configuration ladder <config-ladder-perf>`, and the
   knob's fifteen own files compiled exactly ONCE each — the largest
-  repo-owned image of the family (57 TUs) with the least reuse — in
+  repo-owned image of the family (59 TUs) with the least reuse — in
   :ref:`the sharing ladder <sharing-ladder-perf>`).
 
 The injected mutex must be **reentrant** (bench 2026-11-10): it is
@@ -202,8 +203,8 @@ unlock from a non-owner logs an error and is ignored — and
 clocks cannot hit this: their seam locks ``s_rgb_mtx``/``s_panel_mtx``,
 never the LVGL task's own mutex, and boot/wake ``loadScreen`` runs
 lock-free on other tasks. The full synchronization census that makes
-that sentence provable — the wrapper's eleven entries feeding its one
-physical take, the clocks' two keys, the four fences and zero queues —
+that sentence provable — the wrapper's sixteen entries feeding its one
+physical take, the clocks' two keys, the six fences and zero queues —
 is :ref:`the guards sketch <guards-arch>`, counted bar-for-bar in
 :ref:`the guard ladder <guard-ladder-perf>`.
 
@@ -421,7 +422,17 @@ countdown after THAT (``settings_deep_sleep_countdown_sec``, default
 60) — the clocks' additive posture, both measured from the last
 touch/dial activity. The store is clamped to 60..1800 so it always
 answers; ``KNOB_DIM_AFTER_S`` (15) and ``KNOB_SLEEP_TIMEOUT_S`` (60)
-are the seed fallbacks behind it. The dim rung is
+are the seed fallbacks behind it. The sleep screens' **power-off kill
+switches read the same way, live per pass**: ``idle_timeout_enable``
+off **skips the dim rung** (``dim_s = 0`` — the board stays at full
+brightness, and a board already dimmed at the toggle returns to full
+on the next pass, since the un-dim branch treats ``dim_s = 0`` as
+"rung off", not "idle of 0 s"), and with the dim rung off the deep
+rung fires after exactly ``deep_sleep_countdown_sec`` of idle;
+``deep_sleep_countdown_enable`` off **dims and stays dim** — the
+ladder never calls ``esp_deep_sleep_start`` (real activity wakes it,
+the wake paths unchanged). Both off keeps the knob awake and undimmed
+(the boot banner quotes each rung with "OFF" while a flag is off). The dim rung is
 **two-part** like the clocks' light sleep: the supervisor drops the LEDC
 duty to ``KNOB_DIM_DUTY`` **64 = 25 %** (the P1 dim-parity value
 matching the clocks' light-sleep panel), and a registered dim observer (``knob_power_set_dim_cb`` —
@@ -504,19 +515,23 @@ The ladder and the alarm, as one sketch
 ........................................
 
 Read the diagram as the prose above: the left chain is the ladder
-(awake → dim → sleep entry), the branch under the entry is the RTC
-TIMER's three guards, and the right fan-out is ``main.c``'s wake
-arbitration for a TIMER fire — the rule that an early wake *holds*
-rather than rings is the one arrow to read twice.
+(awake → dim → sleep entry, each rung live-gated by the sleep
+screens' power-off kill switches — the two dashed skip branches), the
+branch under the entry is the RTC TIMER's three guards, and the right
+fan-out is ``main.c``'s wake arbitration for a TIMER fire — the rule
+that an early wake *holds* rather than rings is the one arrow to read
+twice.
 
 .. raw:: html
 
    <pre class="mermaid">
    flowchart TD
      ACT["awake — 500 ms supervisor; activity = touch, dial detents off-home only"]
-     ACT -->|"idle after settings_idle_timeout_sec (60)"| DIM["dim rung — LEDC duty 25 %, clock alpha 20 %, seconds arc hidden"]
+     ACT -->|"idle after settings_idle_timeout_sec (60) — rung armed"| DIM["dim rung — LEDC duty 25 %, clock alpha 20 %, seconds arc hidden"]
      DIM -->|"touch / brightening"| ACT
-     DIM -->|"countdown settings_deep_sleep_countdown_sec (60) after that"| ENTRY["sleep entry — save the clock/epoch NVS snapshot"]
+     DIM -->|"countdown settings_deep_sleep_countdown_sec (60) after that — rung armed"| ENTRY["sleep entry — save the clock/epoch NVS snapshot"]
+     ACT -.->|"kill switch off (idle_timeout_enable): dim rung skipped — sleep at idle = countdown"| ENTRY
+     DIM -.->|"kill switch off (deep_sleep_countdown_enable): stays dim, never esp_deep_sleep"| DIM
      ENTRY --> CALC["KNOB_ALARM_TIMER_WAKE: knob_power_rule_epochs_around (mktime, tm_isdst = -1, rule hour/minute + weekday mask)"]
      CALC -->|"rule inside 60 s"| DEFER["sleep DEFERRED — the awake esp_timer fires the alarm"]
      CALC -->|"gap beyond KNOB_ALARM_MAX_SLEEP_GAP_S (82800)"| GPIO["GPIO-only sleep — no RTC TIMER"]
@@ -618,8 +633,14 @@ cursor moved since the screen was entered.
    * - Roller screens (pomodoro h/m, alarm time h/m, both sleep
        screens, timezone, alarm sound)
      - step the **focused** roller (wraps, animated); pressing the
-       other roller of a twin screen re-focuses it
-     - ``RELEASED`` = commit (store save / reschedule)
+       other roller of a twin screen re-focuses it. On the two sleep
+       screens with the timer **kill switch off** the step is refused
+       at the dial layer (the roller is locked — and
+       ``lv_roller_set_selected`` bypasses the LVGL disabled state,
+       so the refusal cannot ride the disabled flag)
+     - ``RELEASED`` = commit (store save / reschedule); on a locked
+       sleep roller the commit is a natural no-op (the cursor never
+       moved) and the handler's own guard refuses it anyway
    * - Weekday arc (alarm-time screen, P3)
      - step the **focused** range handle across the seven day cells;
        touch-pressing the other handle re-focuses it (touch-dragging

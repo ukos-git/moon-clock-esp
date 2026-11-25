@@ -56,6 +56,13 @@ static const char *TAG = "settings_store";
 
 static uint32_t s_idle_timeout_sec = CONFIG_CLOCK_IDLE_TIMEOUT_SEC;
 static uint32_t s_deep_sleep_countdown_sec = CONFIG_UI_DEEP_SLEEP_COUNTDOWN_SEC;
+/* The per-timer kill switches (the sleep screens' power-off toggle).
+ * Default enabled = the historical behaviour: a settings.txt written
+ * before the flags existed lacks the lines and both timers keep
+ * running; nothing else reads the values but the two engine gates
+ * (clock_idle_check_cb, the countdown arm site, the knob supervisor). */
+static bool s_idle_timeout_enable = true;
+static bool s_deep_sleep_countdown_enable = true;
 static bool s_boot_anim_enable = (CONFIG_UI_MOON_ANIM_ENABLE != 0);
 static bool s_dusk_anim_enable = (CONFIG_UI_MOON_DUSK_ENABLE != 0);
 /* The timezone selection: the IANA name of a clock_tz table zone (see
@@ -131,10 +138,11 @@ esp_err_t settings_store_load(void) {
     if (!f) {
         ESP_LOGI(TAG,
                  "no %s (or missing SPIFFS entry); using Kconfig defaults "
-                 "(idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, alarm_sound_id=%d, "
-                 "display_rotation_deg=%d)",
-                 SETTINGS_PATH, (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                 s_dusk_anim_enable, s_timezone, s_alarm_sound_id, s_display_rotation_deg);
+                 "(idle=%u s, countdown=%u s, idle_enable=%d, countdown_enable=%d, boot_anim=%d, dusk_anim=%d, "
+                 "timezone=%s, alarm_sound_id=%d, display_rotation_deg=%d)",
+                 SETTINGS_PATH, (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec,
+                 s_idle_timeout_enable, s_deep_sleep_countdown_enable, s_boot_anim_enable, s_dusk_anim_enable,
+                 s_timezone, s_alarm_sound_id, s_display_rotation_deg);
         return ESP_ERR_NOT_FOUND;
     }
     char line[128];
@@ -151,6 +159,10 @@ esp_err_t settings_store_load(void) {
         else if (parse_kv(line, "deep_sleep_countdown_sec", &v) && v >= SETTINGS_TIMEOUT_MIN_SEC &&
                  v <= SETTINGS_TIMEOUT_MAX_SEC)
             s_deep_sleep_countdown_sec = (uint32_t)v;
+        else if (parse_kv(line, "idle_timeout_enable", &v))
+            s_idle_timeout_enable = (v != 0);
+        else if (parse_kv(line, "deep_sleep_countdown_enable", &v))
+            s_deep_sleep_countdown_enable = (v != 0);
         else if (parse_kv(line, "boot_anim_enable", &v))
             s_boot_anim_enable = (v != 0);
         else if (parse_kv(line, "dusk_anim_enable", &v))
@@ -176,10 +188,11 @@ esp_err_t settings_store_load(void) {
         }
     }
     ESP_LOGI(TAG,
-             "settings loaded (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, "
-             "alarm_sound_id=%d, display_rotation_deg=%d)",
-             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone, s_alarm_sound_id, s_display_rotation_deg);
+             "settings loaded (idle=%u s, countdown=%u s, idle_enable=%d, countdown_enable=%d, boot_anim=%d, "
+             "dusk_anim=%d, timezone=%s, alarm_sound_id=%d, display_rotation_deg=%d)",
+             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_idle_timeout_enable,
+             s_deep_sleep_countdown_enable, s_boot_anim_enable, s_dusk_anim_enable, s_timezone, s_alarm_sound_id,
+             s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -193,24 +206,28 @@ esp_err_t settings_store_save(void) {
                     "# Runtime settings (owned by the settings screens; do not\n"
                     "# edit by hand -- a full flash resets this file).\n"
                     "idle_timeout_sec = %u\n"
+                    "idle_timeout_enable = %d\n"
                     "deep_sleep_countdown_sec = %u\n"
+                    "deep_sleep_countdown_enable = %d\n"
                     "boot_anim_enable = %d\n"
                     "dusk_anim_enable = %d\n"
                     "timezone = %s\n"
                     "alarm_sound_id = %d\n"
                     "display_rotation_deg = %d\n",
-                    (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable,
-                    s_dusk_anim_enable, s_timezone, s_alarm_sound_id, s_display_rotation_deg);
+                    (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_idle_timeout_enable,
+                    s_deep_sleep_countdown_enable, s_boot_anim_enable, s_dusk_anim_enable, s_timezone, s_alarm_sound_id,
+                    s_display_rotation_deg);
     fclose(f);
     if (n < 0) {
         ESP_LOGE(TAG, "settings write failed");
         return ESP_FAIL;
     }
     ESP_LOGI(TAG,
-             "settings saved (idle=%u s, countdown=%u s, boot_anim=%d, dusk_anim=%d, timezone=%s, "
-             "alarm_sound_id=%d, display_rotation_deg=%d)",
-             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_boot_anim_enable, s_dusk_anim_enable,
-             s_timezone, s_alarm_sound_id, s_display_rotation_deg);
+             "settings saved (idle=%u s, countdown=%u s, idle_enable=%d, countdown_enable=%d, boot_anim=%d, "
+             "dusk_anim=%d, timezone=%s, alarm_sound_id=%d, display_rotation_deg=%d)",
+             (unsigned)s_idle_timeout_sec, (unsigned)s_deep_sleep_countdown_sec, s_idle_timeout_enable,
+             s_deep_sleep_countdown_enable, s_boot_anim_enable, s_dusk_anim_enable, s_timezone, s_alarm_sound_id,
+             s_display_rotation_deg);
     return ESP_OK;
 }
 
@@ -233,6 +250,14 @@ void settings_set_deep_sleep_countdown_sec(uint32_t sec) {
         sec = SETTINGS_TIMEOUT_MAX_SEC;
     s_deep_sleep_countdown_sec = sec;
 }
+
+bool settings_idle_timeout_enable(void) { return s_idle_timeout_enable; }
+
+void settings_set_idle_timeout_enable(bool on) { s_idle_timeout_enable = on; }
+
+bool settings_deep_sleep_countdown_enable(void) { return s_deep_sleep_countdown_enable; }
+
+void settings_set_deep_sleep_countdown_enable(bool on) { s_deep_sleep_countdown_enable = on; }
 
 bool settings_boot_anim_enable(void) { return s_boot_anim_enable; }
 

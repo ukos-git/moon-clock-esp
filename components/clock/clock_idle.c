@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "lvgl.h"
 #include "sdkconfig.h"
+#include "settings_store.h"
 
 static const char *TAG = "clock_idle";
 
@@ -105,6 +106,15 @@ void clock_idle_notify_tilt_activity(void) {
 void clock_idle_check_cb(lv_timer_t *timer) {
     // Don't check if idle monitoring is disabled (e.g., on alarm screen)
     if (!s_idle_monitoring_enabled) {
+        return;
+    }
+
+    // The idle rung is switched off in the light-sleep settings screen
+    // (the power-off toggle): the store flag is read LIVE each check, so
+    // the transition stops firing on the very next tick (and a re-enable
+    // resumes it with no re-arm -- the touch that flipped the toggle
+    // already reset s_last_activity_time_ms).
+    if (!settings_idle_timeout_enable()) {
         return;
     }
 

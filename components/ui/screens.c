@@ -90,6 +90,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_GLOBE "\xEF\x82\xAC"     /* U+F0AC (timezone entry; the solid set -- both boards) */
 #define GLYPH_SPEAKER "\xEF\x80\xA8"   /* U+F028 (alarm-sound entry; the solid set -- both boards) */
 #define GLYPH_ROTATE "\xEF\x8B\xB1"    /* U+F2F1 (display base-orientation entry; the solid set -- all three boards) */
+#define GLYPH_POWER_OFF "\xEF\x80\x91" /* U+F011 (the sleep-timer kill switch; the solid set -- all three boards) */
 
 #define SETTINGS_GREY lv_color_hex(0xff787878) /* the moon/theme grey */
 #define SETTINGS_WHITE lv_color_white()
@@ -1408,7 +1409,14 @@ void tick_screen_settings_alarm_time() {}
  * The widgets are created once (loadScreen never destroys them), so
  * the pointers live here; [0] = light-sleep screen, [1] = deep. */
 static lv_obj_t *s_sleep_roller[2];
+static lv_obj_t *s_sleep_toggle[2]; /* [screen] the icon-only power-off toggle */
 
+/* Seed the roller from the store AND apply the kill-switch state:
+ * disabled flag -> the roller is locked (LV_STATE_DISABLED; the indev
+ * refuses it and the knob dial refuses to step it) and its selected
+ * row dims to grey, the power-off glyph goes grey. White glyph = the
+ * timer is armed (the default). Called from settings_screen_refresh_for
+ * on EVERY entry, so a re-entered screen re-applies the lock. */
 static void settings_sleep_screen_refresh(int screen) {
     if (!s_sleep_roller[screen]) {
         return;
@@ -1423,6 +1431,12 @@ static void settings_sleep_screen_refresh(int screen) {
         minutes = 30;
     }
     lv_roller_set_selected(s_sleep_roller[screen], minutes - 1, LV_ANIM_OFF);
+    bool enabled = screen ? settings_deep_sleep_countdown_enable() : settings_idle_timeout_enable();
+    lv_obj_set_disabled(s_sleep_roller[screen], !enabled);
+    if (s_sleep_toggle[screen]) {
+        lv_obj_set_style_text_color(s_sleep_toggle[screen], enabled ? SETTINGS_WHITE : SETTINGS_GREY,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
 }
 
 /* user_data = screen (0/1). The roller value is MINUTES (1..30); the
@@ -1432,6 +1446,15 @@ static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
         return;
     }
     int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    /* The roller is locked while its kill switch is off: touch cannot
+     * reach it (LV_STATE_DISABLED), but the knob dial commit re-sends
+     * RELEASED through lv_obj_send_event, which the disabled state does
+     * NOT filter -- refuse here, the one choke point for both inputs. */
+    bool enabled = screen ? settings_deep_sleep_countdown_enable() : settings_idle_timeout_enable();
+    if (!enabled) {
+        ESP_LOGW("settings_sleep", "screen %d roller locked (timer disabled) -- commit refused", screen);
+        return;
+    }
     int minutes = settings_roller_value(s_sleep_roller[screen]);
     if (minutes < 1) {
         minutes = 1;
@@ -1447,6 +1470,29 @@ static void event_handler_cb_settings_sleep_roller_released(lv_event_t *e) {
     ESP_LOGW("settings_sleep", "screen %d value %d min -> %s", screen, minutes, esp_err_to_name(r));
 }
 
+/* user_data = screen (0/1): the power-off kill switch (the icon-only
+ * toggle idiom of the alarm master -- tap flips, saves, recolors; no
+ * switch widget in this UI). White glyph = the timer is armed, grey =
+ * the transition is off and the roller is locked. The idle flag stops
+ * the next check_cb pass (live, no re-arm needed -- the flipping touch
+ * already reset the activity clock); the countdown flag is picked up
+ * at the next sleep entry (the arm site is the only one). */
+static void event_handler_cb_settings_sleep_toggle_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    bool en = screen ? !settings_deep_sleep_countdown_enable() : !settings_idle_timeout_enable();
+    if (screen) {
+        settings_set_deep_sleep_countdown_enable(en);
+    } else {
+        settings_set_idle_timeout_enable(en);
+    }
+    esp_err_t r = settings_store_save();
+    ESP_LOGW("settings_sleep", "screen %d timer %s -> %s", screen, en ? "ENABLED" : "DISABLED", esp_err_to_name(r));
+    settings_sleep_screen_refresh(screen); /* recolor the glyph, lock/unlock the roller */
+}
+
 static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1459,8 +1505,9 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     lv_obj_clear_flag(caption, LV_OBJ_FLAG_CLICKABLE);
 
     /* Minutes, 1..30 (stored internally as seconds, min 60 / max 1800,
-     * default 1 min): the value picker is one centred roller (the dusk
-     * toggle that shared this line retired 2026-11-13 with the dusk). */
+     * default 1 min): the value picker is the centred roller, the
+     * icon-only power-off kill switch to its right (the layout the dusk
+     * toggle held until it retired 2026-11-13 with the dusk). */
     char options[512];
     int pos = 0;
     for (int v = 1; v <= 30; v++) {
@@ -1469,7 +1516,26 @@ static void settings_create_sleep_screen(lv_obj_t *obj, int screen) {
     s_sleep_roller[screen] =
         settings_create_roller(obj, options, &ui_font_montserrat_bold_96_numbers, UI_PX(110), 0, UI_PX(210));
     lv_obj_align(s_sleep_roller[screen], LV_ALIGN_CENTER, 0, 0);
+    /* Selected row dims to moon grey while the kill switch is off (the
+     * roller is locked then; the state style keeps the look independent
+     * of when the lock was applied). */
+    lv_obj_set_style_text_color(s_sleep_roller[screen], SETTINGS_GREY, LV_PART_SELECTED | LV_STATE_DISABLED);
     lv_obj_add_event_cb(s_sleep_roller[screen], event_handler_cb_settings_sleep_roller_released, LV_EVENT_RELEASED,
+                        (void *)(intptr_t)screen);
+
+    /* The power-off kill switch (solid glyph, tap-to-flip like the
+     * alarm master): white = the timer is armed, grey = the transition
+     * is off and the roller locked. OUT_RIGHT_MID, 24 px past the roller
+     * box's right edge: deterministic, UI_PX-scaled, and clears the
+     * panel at 360/466/720 (the glyph's on-screen width is the per-tier
+     * font size 74/96/148). */
+    s_sleep_toggle[screen] = lv_label_create(obj);
+    add_style_label_icon_solid(s_sleep_toggle[screen]);
+    lv_label_set_text(s_sleep_toggle[screen], GLYPH_POWER_OFF);
+    lv_obj_set_size(s_sleep_toggle[screen], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align_to(s_sleep_toggle[screen], s_sleep_roller[screen], LV_ALIGN_OUT_RIGHT_MID, UI_PX(24), 0);
+    lv_obj_add_flag(s_sleep_toggle[screen], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_sleep_toggle[screen], event_handler_cb_settings_sleep_toggle_clicked, LV_EVENT_CLICKED,
                         (void *)(intptr_t)screen);
 
     settings_sleep_screen_refresh(screen);
@@ -4129,8 +4195,10 @@ void create_screens() {
  * Cursor rules (docs/implementation/knob-display.rst "Dial semantics"):
  *   hub          step the ring (icons + central exit), white = focused
  *   alarm list   step the three glyphs (focus ring), tap toggles/opens
- *   sleep        dial steps the minutes roller (the dusk toggle left
- *                this screen with the dusk, 2026-11-13)
+ *   sleep        dial steps the minutes roller (the icon-only power-off
+ *                kill switch to the roller's right is TOUCH-only -- a
+ *                solid glyph, not a dial cursor); steps are REFUSED while
+ *                that timer is disabled (the roller is locked)
  *   rollers      dial steps the FOCUSED roller; pressing another roller
  *                focuses it (twin-roller screens); tap = RELEASED
  *   day arc      (P3, alarm time) the two day handles join the focus
@@ -4375,6 +4443,17 @@ void screens_dial_step(int dir) {
     case SCREEN_ID_SETTINGS_POMODORO:
     case SCREEN_ID_SETTINGS_TZ:
     case SCREEN_ID_SETTINGS_ALARM_SOUND: {
+        /* A sleep roller whose kill switch is off is LOCKED: the touch
+         * path is refused by LV_STATE_DISABLED, but the dial steps
+         * lv_roller_set_selected directly (which the disabled state
+         * does NOT filter) -- refuse here; s_dial_dirty stays clean so
+         * the tap commit is a natural no-op. */
+        if ((id == SCREEN_ID_SETTINGS_LIGHT_SLEEP || id == SCREEN_ID_SETTINGS_DEEP_SLEEP) &&
+            !(id == SCREEN_ID_SETTINGS_LIGHT_SLEEP ? settings_idle_timeout_enable()
+                                                   : settings_deep_sleep_countdown_enable())) {
+            ESP_LOGW("screens_dial", "sleep roller locked (timer disabled) -- step refused");
+            break;
+        }
         lv_obj_t *a = NULL, *b = NULL;
         dial_roller_pair(id, &a, &b);
         dial_roller_step(s_dial_roller_focus == 1 ? b : a, dir);

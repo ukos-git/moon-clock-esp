@@ -5,7 +5,7 @@ them are silent): **how many choices each layer hands over, and how many of
 them read no C file at all**. The census counts the components an image
 assembles from; the storage ladder counts the bytes that lie in the flash;
 nobody has yet counted the KNOBS — the entries each project's menuconfig
-defines, which of them any compiled file ever reads, and the seven keys the
+defines, which of them any compiled file ever reads, and the nine keys the
 user actually owns on the card.
 
 Nothing is recalled. Every number is parsed at figure time with
@@ -43,11 +43,12 @@ documented option vanishes or a new one appears unread:
       SETTINGS_ALARM_SOUND_MAX == alarm_audio.h ALARM_SOUND_COUNT == 4);
       the rotation key's 0..359 clamp
   screens.c                        the five writer sites by token (the sleep
-      roller's RELEASED handler writes both timeouts, the tz commit, the
-      sound commit, the display-trim commit); ZERO callers of
+      roller's RELEASED handler writes both timeouts, the sleep kill-switch
+      toggle writes the two enables, the tz commit, the sound commit, the
+      display-trim commit); ZERO callers of
       settings_set_boot/dusk_anim_enable repo-wide (the ghost claim)
   getter readers                   settings_boot/dusk_anim_enable read by
-      nobody (the ghosts), the five live keys read at least once outside
+      nobody (the ghosts), the seven live keys read at least once outside
       the store
   the live sdkconfigs              every parsed name present in sdkconfig,
       sdkconfig.p4, or knob/sdkconfig (value or "is not set") — the menu's
@@ -166,6 +167,7 @@ EXPECTED = {
               "KNOB_TOUCH_WAKE", "KNOB_SLEEP_ALLOW"],
     "knob time": ["KNOB_TIME_BOOT_SYNC_MS", "KNOB_TZ", "KNOB_TIME_USE_TEST_EPOCH"],
     "ui shim": ["KNOB_UI_ENABLE", "KNOB_UI_LAST_FRAME",
+                "KNOB_UI_MOVIE_ENABLE", "KNOB_UI_MOVIE_FPS",
                 "KNOB_DIAG_FRAME_TRACE", "KNOB_DIAG_PANIC_AT_FRAME",
                 "KNOB_TEST_CLASSIFY_STRESS"],
     "knob moon": ["KNOB_MOON_TEST_EPOCH", "KNOB_DEMO_MODE", "KNOB_DEMO_PHASE_SEC"],
@@ -427,7 +429,8 @@ for n in parsed[BSP_SOURCE]:
 store = _read("components/clock/settings_store.c")
 parse_keys = set(re.findall(r'parse_kv(?:_str)?\(line,\s*"([a-z_]+)"', store))
 save_keys = set(re.findall(r'"([a-z_]+) = %', store))
-KEYS = ["idle_timeout_sec", "deep_sleep_countdown_sec", "boot_anim_enable",
+KEYS = ["idle_timeout_sec", "idle_timeout_enable", "deep_sleep_countdown_sec",
+        "deep_sleep_countdown_enable", "boot_anim_enable",
         "dusk_anim_enable", "timezone", "alarm_sound_id",
         "display_rotation_deg"]
 # the parser additionally accepts the RETIRED numeric timezone_idx (the
@@ -471,7 +474,9 @@ if not re.search(r"#define ALARM_SOUND_COUNT 4", aa_h):
 screens_txt = _read("components/ui/screens.c")
 WRITERS = {
     "idle_timeout_sec": "settings_set_idle_timeout_sec(sec)",
+    "idle_timeout_enable": "settings_set_idle_timeout_enable(en)",
     "deep_sleep_countdown_sec": "settings_set_deep_sleep_countdown_sec(sec)",
+    "deep_sleep_countdown_enable": "settings_set_deep_sleep_countdown_enable(en)",
     "timezone": "settings_set_timezone(z->name)",
     "alarm_sound_id": "settings_set_alarm_sound_id((int)sel)",
     "display_rotation_deg": "settings_set_display_rotation_deg(s_display_deg)",
@@ -612,9 +617,15 @@ KEY_ROWS = [
     ("idle_timeout_sec", "settings light-sleep", "kconfig", True, True,
      f"screens.c:{line_of(WRITERS['idle_timeout_sec'], 'light-sleep timeout')} "
      "· clamp 60..1800 s"),
+    ("idle_timeout_enable", "settings light-sleep", "const", False, True,
+     f"screens.c:{line_of(WRITERS['idle_timeout_enable'], 'idle kill switch')} "
+     "· bool — the idle timer's off switch"),
     ("deep_sleep_countdown_sec", "settings deep-sleep", "kconfig", True, True,
      f"screens.c:{line_of(WRITERS['deep_sleep_countdown_sec'], 'deep-sleep timeout')} "
      "· clamp 60..1800 s"),
+    ("deep_sleep_countdown_enable", "settings deep-sleep", "const", False, True,
+     f"screens.c:{line_of(WRITERS['deep_sleep_countdown_enable'], 'countdown kill switch')} "
+     "· bool — the countdown's off switch"),
     ("timezone", "settings-tz", "kconfig", True, True,
      f"screens.c:{line_of(WRITERS['timezone'], 'timezone commit')} "
      "· IANA name (clock_tz table)"),

@@ -3,7 +3,8 @@
 # Portable core (pure C + vendored public-domain ERFA ephemeris): the exact
 # same translation units are also built into the host simulator
 # (host_sim/CMakeLists.txt), which is the C-vs-NASA gate. Device glue:
-# esp/moon_esp_assets.c (albedo from the moon_assets raw partition).
+# esp/moon_esp_assets.c (albedo from the moon_assets raw partition) and
+# esp/moon_esp_movie.c (the boot movie's frames from the moon_movie row).
 #
 # The generated per-board header (generated/{s3,p4}/moon_consts.h, produced
 # by the asset pipeline -- see components/moon/Kconfig MOON_ALBEDO_W) is

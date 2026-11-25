@@ -45,21 +45,21 @@ sibling project's own ``../build/knob`` outside the repo, never
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,726,912 B (0x1a59c0)
+     - 1,734,304 B (0x1a76a0)
      - 2,097,152 B (2048 K)
-     - 370,240 B (18 %)
+     - 362,848 B (17 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,886,432 B (0x1cc8e0)
+     - 1,900,672 B (0x1d0080)
      - 9,437,184 B (9216 K)
-     - 7,550,752 B (80 %)
+     - 7,536,512 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
-     - 1,640,528 B (0x190850)
+     - 1,644,832 B (0x191920)
      - 4,194,304 B (4096 K)
-     - 2,553,776 B (61 %)
+     - 2,549,472 B (61 %)
 
-The three numbers are asymmetric on purpose, and the S3's 18 % is the
+The three numbers are asymmetric on purpose, and the S3's 17 % is the
 meaningful one: the S3 is the board the app *grew into* (the
 chronology below), and the project rule is to **check the binary size
 after every build** and keep the S3 comfortably under its ceiling.
@@ -235,8 +235,8 @@ the app's growth history:
                                               (+1,424 B net — the reader
                                               + the codec); 18% under
                                               the ceiling
-   binary    1,726,912 B  (0x1a59c0)  current (measured 2026-11-25, M3) —
-                                              the boot re-source: the
+   binary    1,726,912 B  (0x1a59c0)  the 2026-11-25 take (M3) — the
+                                              boot re-source: the
                                               presentation's source ladder
                                               (flash movie first, card the
                                               fallback), the movie's
@@ -249,6 +249,20 @@ the app's growth history:
                                               ladder/loop logic against the
                                               single-task replay); 18%
                                               under the ceiling
+   binary    1,734,304 B  (0x1a76a0)  current (measured 2026-11-25) —
+                                              the sleep-timer kill
+                                              switches: the two
+                                              ``*_enable`` store keys, the
+                                              live rung gates (``clock_idle.c``
+                                              idle check, the countdown arm,
+                                              the knob's supervisor), the
+                                              power-off glyph into the three
+                                              solid font tiers, and the
+                                              power-off toggle + locked
+                                              roller on both sleep screens
+                                              (+7,392 B net — the glyph's
+                                              three raster tiers dominate);
+                                              17% under the ceiling
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),

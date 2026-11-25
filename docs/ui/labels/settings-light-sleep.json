@@ -17,6 +17,13 @@
     },
     {
       "id": 3,
+      "text": "Power-off toggle — the idle-timer kill switch (white = armed, grey = off + roller locked)",
+      "x": 410,
+      "y": 233,
+      "dir": "e"
+    },
+    {
+      "id": 4,
       "text": "Exit → hub",
       "x": 233,
       "y": 387,

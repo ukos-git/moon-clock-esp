@@ -458,7 +458,12 @@ steps to *deep sleep*: the clock is hidden, the WiFi radio is
 deinitialized, the backlight goes off — and only the RTC's crystal
 keeps counting, because that is what lets the alarm ring later.
 Every number here (the timeout, the countdown, the two dim
-percentages) is a user setting.
+percentages) is a user setting — and **each timer can be switched
+off entirely** from its settings screen (the power-off kill switch,
+:doc:`the idle-timeout screen <../ui/settings-light-sleep>` and its
+deep-sleep twin): with the idle rung off the
+ladder never starts, with the countdown rung off the device sits
+dimmed in light sleep indefinitely.
 
 The state machine lives in ``clock_idle.c`` (the activity timer) and
 ``actions.c`` (the transitions). Activity = a touch or a tilt
@@ -491,6 +496,16 @@ trigger.
   — the RTC one-shot fires the countdown from the moment the device
   goes quiet (it used to wait for the dusk's last frame, so sleep
   depth followed the animation; there is no animation to wait for).
+  The **countdown kill switch** (``settings_deep_sleep_countdown_enable()``,
+  the deep-sleep screen's power-off toggle) wraps this sole arm site:
+  disabled, the one-shot is never armed and the device **stays dimmed
+  in light sleep indefinitely** (the entry logs "not armed, staying in
+  light sleep"; the existing touch/tilt wake paths still bring it
+  home). The **idle kill switch** (``settings_idle_timeout_enable()``,
+  the light-sleep screen's toggle) is read live in
+  ``clock_idle_check_cb`` every 1 s check, so the idle rung stops
+  firing on the very next tick — and a re-enable cannot instant-sleep
+  (the tap that flipped the toggle already reset the activity clock).
 
 .. figure:: ../img/screens/light_sleep.png
    :alt: The light-sleep screen
@@ -599,7 +614,12 @@ Since P2 the two rungs read the **same** ``settings.txt`` store pair
 the clocks' sleep screens own (``idle_timeout_sec`` for the dim, one
 ``deep_sleep_countdown_sec`` later for the sleep — the clocks'
 additive posture), so the shared sleep-screen rollers edit all three
-boards' idle behaviour.
+boards' idle behaviour — and the two kill switches the same way:
+``idle_timeout_enable`` off skips the dim rung (the board stays at
+full brightness; if it was already dimmed at the toggle, the next
+supervisor pass brings the backlight back), ``deep_sleep_countdown_enable``
+off dims and **stays dim** (never ``esp_deep_sleep`` — real activity
+wakes it), and both off keeps the knob awake and undimmed.
 The alarm question the asymmetry above answers with *staying in light
 sleep*, the knob answers with the **S3 internal RTC timer**: before
 sleeping it arms ``esp_sleep_enable_timer_wakeup`` for the next fixed
@@ -765,10 +785,17 @@ mode refuses the transition and disarms the source, and the P4 with
 a pending alarm **stays on the lighter rung** (its deep state is
 app-level — no ``esp_deep_sleep`` — so the software one-shot could
 otherwise ring from the dark; the S3 needs no such guard, its
-PCF85063A ALM pin wakes the deep state for real). The knob runs the
-same ladder with hardware rungs: LEDC backlight dim (GPIO 47) for
-light sleep, ``esp_deep_sleep_start`` with an RTC TIMER wake for the
-deep one (:doc:`knob display <knob-display>`).
+PCF85063A ALM pin wakes the deep state for real). And each rung has
+its own **kill switch** — the sleep screens' power-off toggles:
+``idle_timeout_enable`` gates the idle rung live in
+``clock_idle_check_cb`` (the ladder never even starts),
+``deep_sleep_countdown_enable`` gates the arm site (the one-shot is
+never armed and the device stays dimmed in light sleep). The knob
+runs the same ladder with hardware rungs: LEDC backlight dim
+(GPIO 47) for light sleep, ``esp_deep_sleep_start`` with an RTC
+TIMER wake for the deep one, both rungs reading the same two flags
+(its dim rung skips, its deep rung never fires)
+(:doc:`knob display <knob-display>`).
 
 The entry order, the arm-at-entry, both guards and the one wake tail
 that climbs back — first sealed, then the guard ladder opened — drawn
@@ -777,7 +804,7 @@ from the code:
 .. graphviz:: ../_graphs/sleep-entry.dot
    :alt: The sleep-entry ladder overview
    :align: center
-   :caption: The ladder — the idle timeout fires ``action_switch_to_light_sleep_screen`` (``main.cpp:625`` registers it; the period is ``settings_idle_timeout_sec``, ``CLOCK_IDLE_TIMEOUT_SEC``, default 60 s, 60..1800, reset by any tap or tilt). The light entry: ``g_asleep`` true, ``wifi_manager_deinit`` (the radio DOWN — the airplane half of the name), UI tick 10 ms → ``UI_LIGHT_SLEEP_TICK_MS`` (100), seconds timer PAUSED, idle monitor OFF, ``moon_ui_pause(true)`` (moon static) — and THEN the deep countdown is armed (``clock_timer_enable(settings_deep_sleep_countdown_sec, 1 Hz)`` AT ENTRY): the retired dusk spin's ladder survived as exactly this, sleep depth follows the clock, never an animation. The light screen shows the clock container at ``UI_CLOCK_ALPHA_PCT`` (20 %) over the 0x51 ramp to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), the RTC countdown ticking in the PCF85063A timer (S3) / ``esp_timer`` (P4). The deep entry hides the clock container (``LV_OBJ_FLAG_HIDDEN``, re-applied EVERY entry so a wake-to-other-screens can't leak visible digits), pauses the moon, disables the spent countdown and sets ``moon_ui_panel_brightness_set(0)`` — the backlight is OFF (``g_backlight_off``), and the RTC clock update is gated on it.
+   :caption: The ladder — the idle timeout fires ``action_switch_to_light_sleep_screen`` (``main.cpp:625`` registers it; the period is ``settings_idle_timeout_sec``, ``CLOCK_IDLE_TIMEOUT_SEC``, default 60 s, 60..1800, reset by any tap or tilt — and the rung itself is live-gated by its kill switch, ``idle_timeout_enable``, in ``clock_idle_check_cb``, so a switched-off idle timer never starts the ladder). The light entry: ``g_asleep`` true, ``wifi_manager_deinit`` (the radio DOWN — the airplane half of the name), UI tick 10 ms → ``UI_LIGHT_SLEEP_TICK_MS`` (100), seconds timer PAUSED, idle monitor OFF, ``moon_ui_pause(true)`` (moon static) — and THEN the deep countdown is armed (``clock_timer_enable(settings_deep_sleep_countdown_sec, 1 Hz)`` AT ENTRY — wrapped by the countdown kill switch, ``deep_sleep_countdown_enable``, the deep-sleep screen's power-off toggle; disabled, the one-shot is NOT armed and the device stays dimmed in light sleep, waking only on the usual doors): the retired dusk spin's ladder survived as exactly this, sleep depth follows the clock, never an animation. The light screen shows the clock container at ``UI_CLOCK_ALPHA_PCT`` (20 %) over the 0x51 ramp to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), the RTC countdown ticking in the PCF85063A timer (S3) / ``esp_timer`` (P4). The deep entry hides the clock container (``LV_OBJ_FLAG_HIDDEN``, re-applied EVERY entry so a wake-to-other-screens can't leak visible digits), pauses the moon, disables the spent countdown and sets ``moon_ui_panel_brightness_set(0)`` — the backlight is OFF (``g_backlight_off``), and the RTC clock update is gated on it.
 
 .. graphviz:: ../_graphs/sleep-entry-guards.dot
    :alt: The sleep-entry guard ladder

@@ -4,6 +4,12 @@
 //   The countdown expiry: settings_deep_sleep_countdown_sec
 //   (UI_DEEP_SLEEP_COUNTDOWN_SEC, default 60 s, 60..1800 — the
 //   settings-deep-sleep picker writes it).
+//   Kill switches (2026-11-25, the sleep screens' power-off toggles):
+//   the idle_timeout_enable flag gates the idle rung LIVE in
+//   clock_idle_check_cb (the ladder never even starts); the
+//   deep_sleep_countdown_enable flag gates THIS ladder at the sole arm
+//   site — countdown off, the one-shot is never armed and the device
+//   stays dimmed in light sleep (the staylit branch in sleep-entry.dot).
 //   Guard 1 — DEMO MODE: refuse the transition AND clock_timer_disable
 //   (a dead-black panel mid-recording would ruin the take).
 //   Guard 2 — the P4 with a PENDING alarm: the deep state is

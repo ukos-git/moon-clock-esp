@@ -20,8 +20,10 @@ stops being shared verbatim between the device component and the host tools:
       six math TUs and the eleven ERFA TUs, name-for-name on all three
       sides. "shared verbatim" (CLAUDE.md) becomes a machine-checked set
       equality: the day someone forks the core for the host, the figure dies.
-  the moon component's 18 = 17 core + 1 device glue
-      esp/moon_esp_assets.c is the only non-core SRCS entry; the host side
+  the moon component's 19 = 17 core + 2 device glue
+      esp/moon_esp_assets.c (albedo from the moon_assets raw partition) +
+      esp/moon_esp_movie.c (the boot movie's flash reader) are the only
+      non-core SRCS entries; the host side
       carries host/moon_host_assets.c + the generated per-target asset table
   the twelve images                     exactly two add_executable targets in
       host_sim/CMakeLists.txt (moon_sim, moon_bench — dark_test.c,
@@ -108,8 +110,8 @@ ERFA = ["moon98.c", "epv00.c", "s2pv.c", "pfw06.c", "obl06.c", "rx.c", "rz.c",
 moon_cm = _read(os.path.join("components", "moon", "CMakeLists.txt"))
 m = re.search(r'idf_component_register\(\s*SRCS(.*?)INCLUDE_DIRS', moon_cm, re.S)
 if not m:
-    raise SystemExit("components/moon: the SRCS block vanished — the 18-file "
-                     "inventory (17 core + 1 device glue) cannot be parsed")
+    raise SystemExit("components/moon: the SRCS block vanished — the 19-file "
+                     "inventory (17 core + 2 device glue) cannot be parsed")
 moon_srcs = re.findall(r'"?([A-Za-z_0-9/.]+\.c)"?', m.group(1))
 core_dev = [s for s in moon_srcs if s.startswith("core/") and "erfa" not in s]
 erfa_dev = [s for s in moon_srcs if "core/erfa/" in s]
@@ -119,9 +121,9 @@ if sorted(os.path.basename(s) for s in core_dev) != sorted(CORE_MATH):
                      f"math TUs are the figure's top bar")
 if sorted(os.path.basename(s) for s in erfa_dev) != sorted(ERFA):
     raise SystemExit(f"components/moon ERFA set drifted {erfa_dev}")
-if glue_dev != ["esp/moon_esp_assets.c"]:
+if glue_dev != ["esp/moon_esp_assets.c", "esp/moon_esp_movie.c"]:
     raise SystemExit(f"components/moon device glue drifted {glue_dev} — the "
-                     f"esp/ entry is the only non-core SRCS")
+                     f"esp/ entries are the only non-core SRCS")
 
 host_cm = _read(os.path.join("host_sim", "CMakeLists.txt"))
 m = re.search(r'set\(MOON_CORE_SRCS(.*?)\)\s*\n', host_cm, re.S)
@@ -326,6 +328,7 @@ add("clock (11 TUs) — re-used whole by the knob", 11, DEV, SLATE)
 add("wifi.c", 1, DEV, SLATE)
 add("ui.c + actions.c + vars.c", 3, DEV, STEEL)
 add("esp/moon_esp_assets.c — device backend", 1, DEV, SLATE)
+add("esp/moon_esp_movie.c — the boot movie's flash reader", 1, DEV, SLATE)
 add("uisim stubs.c + main.c + stb_impl.c", 3, UIS, TEAL)
 add("sim main.c (one source, three sim builds)", 1, SIM, TEAL)
 add("UI_BOARD_SRCS — the four the knob drops", 4, (S3, P4), AMBER,
@@ -352,7 +355,7 @@ for r in rows:
         continue  # vendored + never-linked live on their own axis
     for i in r["imgs"]:
         per_image[i] += r["n"]
-EXPECTED = {S3: 48, P4: 48, KN: 58, "sim_s3": 20, "sim_p4": 20, "sim_knob": 20,
+EXPECTED = {S3: 49, P4: 49, KN: 59, "sim_s3": 20, "sim_p4": 20, "sim_knob": 20,
             "bench_s3": 20, "bench_p4": 20, "bench_knob": 20,
             "uisim466": 32, "uisim720": 32, "uisim360": 32}
 for i, want in EXPECTED.items():

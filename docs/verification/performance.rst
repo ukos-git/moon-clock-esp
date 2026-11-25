@@ -1256,13 +1256,14 @@ parsers die when a source drifts.
   ``alarm.txt``'s writer (``clock_alarm_scheduler_write``,
   ``clock_alarm_scheduler.c:504``) has **zero call sites repo-wide**:
   the file belongs to the spiffs image, not the runtime.
-  ``settings.txt`` — 2 comment + 7 key lines, 273 B computed from the
-  asserted ``fprintf`` template — is written only by four
-  settings-screen actions (sleep ``screens.c:1426``, timezone
-  ``:3097``, alarm sound ``:3181``, display trim ``:3311``) and the
+  ``settings.txt`` — 2 comment + 9 key lines, 329 B computed from the
+  asserted ``fprintf`` template — is written only by five
+  settings-screen writers (the sleep-roller commit ``screens.c:1469``,
+  the sleep kill-switch toggle ``:1491``, timezone ``:3183``, alarm
+  sound ``:3267``, display trim ``:3397``) and the
   TEST settings demo
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
-  provisioning wheel's commit (``screens.c:2321``, its single caller,
+  provisioning wheel's commit (``screens.c:2407``, its single caller,
   87 B with a sample SSID). The knob's 64 K coredump partition
   (``knob/partitions.csv:18``) sees its first bytes on a crash — the
   coredump row the storage ladder drew italic *no bytes until a crash*
@@ -1278,7 +1279,7 @@ third zero, decided by one ``#if`` that three sdkconfig layers answer
 differently; and the knob — the board with the smallest screen —
 writes flash on a tap and on a crash, and on nothing else, because
 its largest media subsystem is excluded at CMake level rather than
-disabled at runtime. The human-paced writers (four screen actions,
+disabled at runtime. The human-paced writers (five screen actions,
 one provisioning commit, one TEST demo) are call-site counts, not
 frequencies, and deliberately contribute zero to the day bar.
 
@@ -1294,7 +1295,7 @@ frequencies, and deliberately contribute zero to the day bar.
    legs are annotated where their bars are absent (the RTC ``#if``,
    the ``KNOB_BOARD`` source exclusion). **Right:** bytes per ONE
    write, log — the 8-byte NVS value, the 87 B credentials write, the
-   273 B settings rewrite, the ~82 B meta rewrite (both boards'
+   329 B settings rewrite, the ~82 B meta rewrite (both boards'
    asserted templates), the 64 K coredump partition bound, and the
    encoder's own file bound ``S²+S²/2+1024`` — 241,024 B at 400 px,
    634,774 B at 650 (hatched: the storage ladder's twin, never a
@@ -1444,7 +1445,7 @@ tracked in git), and that the font tiers
 are 7 files each with identical names.
 
 .. figure:: ../_static/figs/perf_share.png
-   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the seventeen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the three throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 48, P4 48, knob 58, each sim 20, each bench 20, each uisim 32 with a plus-412-vendored annotation
+   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the seventeen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the three throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 49, P4 49, knob 59, each sim 20, each bench 20, each uisim 32 with a plus-412-vendored annotation
    :figclass: align-center
 
    **Left:** the file side — who compiles this, with the "every
@@ -1462,7 +1463,7 @@ are 7 files each with identical names.
 Three counting facts the census's part-view cannot show:
 
 - **The core is the family's only everywhere-code, and the figure is
-  its guard.** 17 of the ~48 repo-owned TUs in a device image belong
+  its guard.** 17 of the ~49 repo-owned TUs in a device image belong
   to ``components/moon/core`` — six math files and eleven public-
   domain ERFA files — and they are the ONLY repo-owned files compiled
   into all twelve images. The parser reads the core list out of three
@@ -1471,7 +1472,7 @@ Three counting facts the census's part-view cannot show:
   three are name-for-name equal, so the "shared verbatim" promise the
   project instructions make is now also a *figure-time* promise.
 - **The knob builds the largest repo-owned image while re-using the
-  least of itself.** 58 TUs beat the clocks' 48 — the shared clock's
+  least of itself.** 59 TUs beat the clocks' 49 — the shared clock's
   whole 11-TU body arrives through ``EXTRA_COMPONENT_DIRS``, plus the
   knob's fifteen own files, plus the inherited core and UI. Yet the
   violet row tops out at **1**: nothing knob-owned compiles twice,
@@ -1510,17 +1511,17 @@ priced the layer above the parts — the **options**. This ladder counts
 the knobs: every ``config`` entry the three projects' ``menuconfig``
 menus define (left), who actually reads each one (middle — the
 census's silence, re-counted for the menu), and the whole layer the
-*user* owns: the seven keys on ``settings.txt`` (right). A
+*user* owns: the nine keys on ``settings.txt`` (right). A
 configuration option is the product's cheapest component and its
 most numerous — and it can be silent four different ways.
 
-**Left: what each menu hands over.** The shared 55 (UI 45 + CLOCK 9 +
+**Left: what each menu hands over.** The shared 52 (UI 42 + CLOCK 9 +
 MOON 1, every name parsed from the five first-party Kconfigs) sit
 under every bar; on top of them the S3 carries the clock's BOARD menu
 (5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
-file, counted not curated) for **72**; the P4 excludes that BSP by
-name and lands at **60**; the knob answers with 55 shared + 32
-knob-native across its six shim menus for **87**. The counting is
+file, counted not curated) for **69**; the P4 excludes that BSP by
+name and lands at **57**; the knob answers with 52 shared + 33
+knob-native across its six shim menus for **85**. The counting is
 per-file and name-for-name: the generator SystemExits if a single
 option is added, renamed or removed in any of the ten Kconfig files.
 
@@ -1532,8 +1533,8 @@ is therefore silent *on the knob*; steel names a CMakeLists guard
 dark-grey hatch a key read by no C at all (the three ``int``
 esp_hosted manifest guards, whose only consumer is the registry's
 if-clause parser), pale-grey dots read by nobody anywhere. The
-ledger's numbers: **31 of the 45 UI entries and 1 of the 9 CLOCK
-entries compile to silence on the knob** — 32 of the 55 the knob
+ledger's numbers: **28 of the 42 UI entries and 1 of the 9 CLOCK
+entries compile to silence on the knob** — 29 of the 52 the knob
 inherits are clock-private. Five entries are dead letters
 repo-wide: the two ``CLOCK_TIME_FORMAT_*`` (the 12/24 h choice is
 runtime — no C ever reads them), ``UI_IMU_ROLL_OFFSET_DEG`` (the
@@ -1549,15 +1550,19 @@ by shared code — and one of them is the most surprising:
 ``UI_SCREEN_SWITCH_FADE``, which the knob's own ``knob_moon_render.c``
 gates its fade-to-black on.
 
-**Right: the user's whole layer.** Not dozens of knobs but **seven
-keys** on ``settings.txt``. Five are live: two screen-written
-timeouts (``screens.c:1423``/:1421, both clamped to 60..1800 s by
-the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the timezone
-(``screens.c:3096``), the alarm sound (``screens.c:3180``, range
-twin asserted against ``ALARM_SOUND_COUNT`` 4) — and the display
-trim added for the wall mount (``screens.c:3310``, parsed-clamped
-0..359°, seeded from ``SETTINGS_DISPLAY_ROT_DEFAULT`` 0). Two are ghosts —
-``boot_anim_enable`` and ``dusk_anim_enable``, parsed and re-saved
+**Right: the user's whole layer.** Not dozens of knobs but **nine
+keys** on ``settings.txt``. Seven are live: the two sleep timeouts
+(the shared sleep-roller commit ``screens.c:1469``, both clamped to
+60..1800 s by the store's own ``SETTINGS_TIMEOUT_MIN/MAX_SEC``), the
+two **power-off kill switches** that switch each timer off entirely
+(the shared toggle ``screens.c:1491`` — ``idle_timeout_enable`` on the
+light-sleep screen, ``deep_sleep_countdown_enable`` on the deep-sleep
+screen), the timezone (``screens.c:3183``), the alarm sound
+(``screens.c:3267``, range twin asserted against ``ALARM_SOUND_COUNT`` 4)
+— and the display trim added for the wall mount (``screens.c:3397``,
+parsed-clamped 0..359°, seeded from ``SETTINGS_DISPLAY_ROT_DEFAULT`` 0).
+Two are ghosts — ``boot_anim_enable`` and ``dusk_anim_enable``,
+parsed and re-saved
 *only so a stale card must not break parsing* (the store's own
 words), written by no screen, read by no getter; the single writer
 repo-wide is the ``TEST settings demo`` in ``main.cpp``. Their seed
@@ -1565,13 +1570,13 @@ dots are grey because the ``#ifndef`` beside them names a macro no
 Kconfig defines anymore.
 
 .. figure:: ../_static/figs/perf_config.png
-   :alt: three panels — stacked menuconfig-entry bars per board (S3 72 with the hatched vendored BSP, P4 60, knob 86 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a seven-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
+   :alt: three panels — stacked menuconfig-entry bars per board (S3 69 with the hatched vendored BSP, P4 57, knob 85 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a nine-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
    :figclass: align-center
 
    **Left:** one bar per board (legend below the figure); the shared
-   55 under every bar, the S3's hatched BSP tail drawn only there,
+   52 under every bar, the S3's hatched BSP tail drawn only there,
    the knob's six violet shim segments at the end. **Middle:** one
-   row per menu, coloured by who reads it — the amber 31 is the UI
+   row per menu, coloured by who reads it — the amber 28 is the UI
    menu's knob-inert majority, the pale 2s the dead letters, the
    dark-grey hatch the three registry guard keys. **Right:** a
    filled dot = the column's claim holds; the two ghost rows hang
@@ -1582,27 +1587,27 @@ Kconfig defines anymore.
    an entry appears in no live ``sdkconfig`` without a provably-off
    ``depends on`` gate, when the twelve BSP options leave the
    fragments' documented-nowhere state, when a guard key stops being
-   ``int``, or when the seven keys of ``settings_store.c`` stop
+   ``int``, or when the nine keys of ``settings_store.c`` stop
    matching its save block.
 
 Three counting facts no other ladder can show:
 
 - **The menu is inverted against the product.** The smallest screen
-  (the knob, 360 px) carries the *biggest* menu — 80 entries against
-  the S3's 67 and the P4's 55 — because the seam forces it to
+  (the knob, 360 px) carries the *biggest* menu — 85 entries against
+  the S3's 69 and the P4's 57 — because the seam forces it to
   re-declare the board ``choice`` and grow six shim menus of its own,
   while **29 of the 52 entries it inherits are clock-private**: a
   third of the knob's menu compiles to silence in the knob build.
-- **Silence has four prices, not one.** 28 entries are read only by
-  the *other* build's files (amber); 5 are dead letters no file
+- **Silence has four prices, not one.** 29 entries are read only by
+  the *other* build's files (amber); 7 are dead letters no file
   anywhere reads; 2 are configure-time only (a CMake guard is their
   sole reader); 3 are read by no C at all and exist to answer the
   esp_hosted registry's ``if:`` clauses. A Kconfig entry can be
   simultaneously documented, configured, stamped into ``sdkconfig``
   — and inert four different ways.
-- **The user's configurability is seven keys wide — and two of them
+- **The user's configurability is nine keys wide — and two of them
   are kept alive by the save path alone.** Everything else about the
-  device is compiled in; the five live keys all have a screen writer
+  device is compiled in; the seven live keys all have a screen writer
   and a validated range, while the two LEGACY ghosts persist only
   because dropping them would break parsing of a stale card — the
   runtime layer's own *no such leg* rows.
@@ -2228,8 +2233,10 @@ counts bytes crossing a wire, the patience ladder counts allowed
 waits. None of them has counted the **contention machinery** — the
 objects that decide which hand goes first. This ladder counts them
 out of the live sources: the app owns exactly **three mutexes, two
-event groups, one task-notify pair and five SEQ_CST fences — and zero
-queues** (``xQueueCreate`` never fires outside the vendored BSP). The
+event groups, one task-notify pair and six SEQ_CST fences (the knob's
+five, the boot movie's consumer-side pair included, plus the row
+watermark's) — and zero queues** (``xQueueCreate`` never fires outside
+the vendored BSP). The
 wait-site bars tell the sharper story: eighteen image-key takes all
 say ``portMAX_DELAY`` — a publish block is a memcpy plus a gather,
 never a bus, so there is nothing to time out on — while the panel key
@@ -2245,10 +2252,10 @@ The graph is not hand-drawn; the generator **parses the whole census
 out of the live sources** — and its parsers are the gate, SystemExit-
 failing when a guard appears, vanishes, or changes its mind:
 
-* exactly **3** mutex-creation sites (``moon_ui.c:2885-2886`` and the
-  knob's ``main.c:366``) and ``xQueueCreate`` **zero** in app code —
+* exactly **3** mutex-creation sites (``moon_ui.c:2880-2881`` and the
+  knob's ``main.c:465``) and ``xQueueCreate`` **zero** in app code —
   the zero is an assertion, not an absence of evidence;
-* all **19** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
+* all **18** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
   ``s_panel_mtx`` take-policy **multiset** matches exactly
   ``[6x portMAX_DELAY, 2 s witness, 500 ms quiesce, 3 s probe]`` — a
   new take or a retimed one stops the figure;
@@ -2260,7 +2267,7 @@ failing when a guard appears, vanishes, or changes its mind:
   is one take inside ``#if !defined(CONFIG_BOARD_P4)`` with the P4 leg
   ``(void)site;`` — the presence matrix bills the S3 **9** panel takes
   and the P4 **8**, the same "same shared component bills zero,
-  compiled out" shape the write ladder draws for the RTC; the 10 drain
+  compiled out" shape the write ladder draws for the RTC; the 8 drain
   call sites and their site strings are enumerated;
 * the watchdog is pinned to its literals — the spawn line
   ``"panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0``, the
@@ -2268,16 +2275,19 @@ failing when a guard appears, vanishes, or changes its mind:
   restart line, and the 2000/3000 ms defines;
 * the knob's mux is pinned to **one** ``xSemaphoreTake`` in
   ``knob_ui.c`` behind the holder+depth wrapper ("NOT recursively
-  takable", the non-owner guard), with its **15 entries** recounted
-  across four files (7 internal, knob main.c's five — the park loop,
-  the transient-WiFi arm, the two modem-sleep swaps, the alarm wake —
+  takable", the non-owner guard), with its **16 entries** recounted
+  across four files (8 internal — the boot movie added the movie
+  arm's stage — knob main.c's five: the park loop, the
+  transient-WiFi arm, the two modem-sleep swaps, the alarm wake —
   the dial, the two seam legs), and its seam is asserted **mutex-free** —
   the ``moon_ui_init`` shim carries no lock;
 * the two event groups are pinned to their waits (``WaitBits`` bounded
   ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
   ``clock.c`` + ``actions.c``, 20000/2000 on the knob; 8000 ms join);
-  four fences in two files; the notify pair at ``moon_ui.c:1264``/
-  ``:1290``;
+  six fences in two files (five in ``knob_ui.c`` — the boot movie
+  added the ``movie_publish`` producer fence at :619 — plus the row
+  watermark's in ``knob_moon.c``); the notify pair at
+  ``moon_ui.c:1269``/``:1295``;
 * the compiled-out facts come from the build, not the prose: four
   ``UI_BOARD_SRCS`` entries emptied by ``if(KNOB_BOARD)``, the S3
   header carrying ``CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH 1`` where the P4
@@ -2285,7 +2295,7 @@ failing when a guard appears, vanishes, or changes its mind:
   ``sdkconfig.h`` files (the ghost leg stays a ghost).
 
 What the bars say: **the clocks hold two keys, the knob holds one,
-and nobody holds a queue**. The image key is the wide bar — nineteen
+and nobody holds a queue**. The image key is the wide bar — eighteen
 sites, all forever — because the family's invariant (one atomic
 whole-panel ``lv_refr_now``) *requires* a publish block that cannot
 half-fail. The panel key is where every bounded wait in the firmware
@@ -2308,7 +2318,7 @@ family hands off on fences + flags".
    The guard ladder. **Left:** one bar per synchronization object,
    solid violet = ``portMAX_DELAY`` sites, hatched red = bounded
    timeout, each note parsed from the call site; the red pair of notes
-   prices the watchdog's 75× headroom and the knob's 11-entries-on-1-
+   prices the watchdog's 75× headroom and the knob's 16-entries-on-1-
    take wrapper. **Right:** the presence matrix — filled dot = built
    and taken with the count above, open circle = zero with its parsed
    reason, ``x`` = the guard is not built on this board (the knobs'

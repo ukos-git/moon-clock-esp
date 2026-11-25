@@ -154,7 +154,7 @@ docs:
   :doc:`on-device verification <../verification/device-verify>`).
 - **The baseline type tier.** The 466 panel draws on the family's
   baseline: ``components/ui/fonts/`` bakes the seven faces at
-  96/48/32 px (235 glyphs, 81 KiB of 4 bpp raster), and the P4 and
+  96/48/32 px (237 glyphs, 85 KiB of 4 bpp raster), and the P4 and
   knob tiers are the same faces re-baked at their panel ratios —
   :ref:`the type sketch <type-family-ui>` draws the family, and
   :ref:`the glyph ladder <glyph-ladder-perf>` prices all three.

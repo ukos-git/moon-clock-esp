@@ -165,7 +165,7 @@ milestone labels used in the project's tracking):
   ``screens.c`` (S3 stays byte-identical at 466 via the
   ``--panel``-aware build); the P4 fonts (148/74/50 px) carry
   identical ``lv_font_t`` symbols selected by CMake on
-  ``CONFIG_BOARD_P4`` (236 glyphs, 213 KiB of raster — the
+  ``CONFIG_BOARD_P4`` (238 glyphs, 222 KiB of raster — the
   ``fonts_p4/`` tier also carries the clock icon U+F017 the S3's
   regular set lacks, because the P4 hub ring's 7th entry asks for
   it: :ref:`the type sketch <type-family-ui>`,

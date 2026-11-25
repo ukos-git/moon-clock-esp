@@ -20,7 +20,7 @@ The formats, opened — what each file actually holds:
 
 .. graphviz:: ../_graphs/spiffs-store-files.dot
    :alt: The three SPIFFS files with their formats — two-line credentials, five-field cron, key equals value
-   :caption: ``wifi_credentials.txt`` is two bare lines (SSID, password — the tracked example is what ships, so secrets never enter the tree); ``alarm.txt`` is five-field cron, one rule per line, comments-only meaning no alarms; ``settings.txt`` is ``key = value`` lines with six range-validated keys, each falling back to its ``#ifndef``-seeded Kconfig default (the tables below).
+   :caption: ``wifi_credentials.txt`` is two bare lines (SSID, password — the tracked example is what ships, so secrets never enter the tree); ``alarm.txt`` is five-field cron, one rule per line, comments-only meaning no alarms; ``settings.txt`` is ``key = value`` lines with nine keys — five range-validated, two power-off kill switches, and the two legacy no-ops — each falling back to a compile-time default (the tables below).
    :align: center
 
 The writers, opened — who commits what, and when:
@@ -121,9 +121,17 @@ a bad/missing value falling back to the Kconfig-seeded default
    * - ``idle_timeout_sec``
      - 60–1800
      - ``CLOCK_IDLE_TIMEOUT_SEC`` (60)
+   * - ``idle_timeout_enable``
+     - ``0``/``1``
+     - ``true`` (in-code default — the kill switch defaults to
+       armed; the light-sleep screen's power-off toggle writes it)
    * - ``deep_sleep_countdown_sec``
      - 60–1800
      - ``UI_DEEP_SLEEP_COUNTDOWN_SEC`` (60)
+   * - ``deep_sleep_countdown_enable``
+     - ``0``/``1``
+     - ``true`` (in-code default — the kill switch defaults to
+       armed; the deep-sleep screen's power-off toggle writes it)
    * - ``boot_anim_enable``
      - ``0``/``1``
      - none — **legacy no-op, unexposed**: nothing has read it since
@@ -146,19 +154,24 @@ a bad/missing value falling back to the Kconfig-seeded default
      - 0–359
      - ``SETTINGS_DISPLAY_ROT_DEFAULT`` (0)
 
-These seven keys are the user's whole layer — the configuration ladder
-draws the table as a dot matrix (writer, seed origin, validated
-range, still-read) with the two ghosts as the only open rows
-(:ref:`the configuration ladder <config-ladder-perf>`). The file is
-*human-paced* storage: the write ladder counts its writers — four
-settings-screen actions and the TEST settings demo, 273 B rewritten
-per call, no scheduled leg at all
+These nine keys are the user's whole layer — the two timeout
+counters, the two kill switches that switch each timer off entirely
+(power-off, the sleep screens' toggles), the timezone, the alarm
+sound, the display rotation, and the two legacy ghosts. The
+configuration ladder draws the table as a dot matrix (writer, seed
+origin, validated range, still-read) with the two ghosts as the only
+open rows (:ref:`the configuration ladder <config-ladder-perf>`).
+The file is *human-paced* storage: the write ladder counts its
+writers — six settings-screen actions (four counters + the two kill
+switches) and the TEST settings demo, 329 B rewritten per call, no
+scheduled leg at all
 (:ref:`the write ladder <write-ladder-perf>`).
 
 The two timeouts are user-facing in **minutes** on the settings
 screens (a 1–30 minute picker) and stored internally in seconds
 (60–1800). On the **knob** they are the power ladder: since P2 the
-idle-ladder supervisor reads this pair live — dim after
+idle-ladder supervisor reads the pair and the two kill switches
+(``idle_timeout_enable`` / ``deep_sleep_countdown_enable``) live — dim after
 ``idle_timeout_sec``, ``esp_deep_sleep_start`` one
 ``deep_sleep_countdown_sec`` later — so the knob's sleep-screen
 rollers (dial-step + tap-commit) are the real editors of its idle
@@ -193,5 +206,5 @@ along (:doc:`the rotate screen <../ui/settings-display>`).
 
 The save path (:cfunc:`settings_store_save`) rewrites the whole file
 with a two-line header ("Runtime settings … do not edit by hand — a
-full flash resets this file") plus the seven keys, so the file is always
+full flash resets this file") plus the nine keys, so the file is always
 self-describing.

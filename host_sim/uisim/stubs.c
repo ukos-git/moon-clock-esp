@@ -228,6 +228,7 @@ void action_clock_widget_label(int hour, int minute, int second) {
 /* ---- runtime settings store (canned values) ---- */
 
 static uint32_t s_idle_sec = 60, s_countdown_sec = 60;
+static bool s_idle_on = true, s_countdown_on = true; /* device default: both timers armed */
 static bool s_dusk_on = true;
 
 uint32_t settings_idle_timeout_sec(void) { return s_idle_sec; }
@@ -240,6 +241,21 @@ uint32_t settings_deep_sleep_countdown_sec(void) { return s_countdown_sec; }
 void settings_set_deep_sleep_countdown_sec(uint32_t sec) {
     s_countdown_sec = sec;
     printf("[stub] deep-sleep countdown %u s\n", sec);
+}
+
+/* Per-timer kill switches (the sleep screens' power-off toggles):
+   default armed (white glyph, roller live) so the canonical screenshots
+   render the enabled state. */
+bool settings_idle_timeout_enable(void) { return s_idle_on; }
+void settings_set_idle_timeout_enable(bool on) {
+    s_idle_on = on;
+    printf("[stub] idle timeout %s\n", on ? "ENABLED" : "DISABLED");
+}
+
+bool settings_deep_sleep_countdown_enable(void) { return s_countdown_on; }
+void settings_set_deep_sleep_countdown_enable(bool on) {
+    s_countdown_on = on;
+    printf("[stub] deep-sleep countdown %s\n", on ? "ENABLED" : "DISABLED");
 }
 
 bool settings_boot_anim_enable(void) { return true; }

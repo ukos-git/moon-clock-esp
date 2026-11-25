@@ -6,7 +6,7 @@
 // guards-flags.dot on this page). The census line is exactly what
 // docs/tools/gen_perf_locks.py re-asserts at figure time (SystemExit
 // on any drift): 3 mutex creations, 2 event groups, 1 task-notify
-// pair, 4 SEQ_CST fences, ZERO xQueueCreate in app code. FONTS: 12 pt
+// pair, 6 SEQ_CST fences, ZERO xQueueCreate in app code. FONTS: 12 pt
 // everywhere = the page's 16 px body text at 1:1, kept inside the
 // content column so object{max-width:100%} never scales it down.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
@@ -21,7 +21,7 @@ digraph guards {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    census [label="the app's own synchronization —\n3 mutexes · 2 event groups\n1 task-notify · 4 fences\nZERO queues",
+    census [label="the app's own synchronization —\n3 mutexes · 2 event groups\n1 task-notify · 6 fences\nZERO queues",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08", penwidth=1.6];
     clocks [label="THE CLOCKS — two keys\nimage key + panel key\none-way order",
             fillcolor="#e8ddf6", color="#7c3aed", fontcolor="#4c1d95", penwidth=1.6];

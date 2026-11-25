@@ -49,6 +49,20 @@ void settings_set_idle_timeout_sec(uint32_t sec);
 uint32_t settings_deep_sleep_countdown_sec(void);
 void settings_set_deep_sleep_countdown_sec(uint32_t sec);
 
+/* Per-timer kill switches (the sleep screens' power-off toggle): when
+ * false, the transition never fires (the idle timeout is never reached;
+ * the deep-sleep countdown is never armed -- the clocks stay in light
+ * sleep, the knob never deep-sleeps) and the screen's minutes roller is
+ * locked (the value cannot be altered until re-enabled). Pure user
+ * settings (Kconfig stays out): default enabled = the historical
+ * behaviour, so a settings.txt written before the flags existed simply
+ * lacks the lines and keeps both timers running. */
+bool settings_idle_timeout_enable(void);
+void settings_set_idle_timeout_enable(bool on);
+
+bool settings_deep_sleep_countdown_enable(void);
+void settings_set_deep_sleep_countdown_enable(bool on);
+
 /* Legacy no-ops (the boot-sweep + dusk animation stack retired 2026-11-13,
  * their Kconfig keys deleted). The store still round-trips their settings.txt
  * lines so an existing card parses; nothing reads the values. */

@@ -247,21 +247,31 @@ static void supervisor_task(void *arg) {
          * (the deep-sleep roller), both measured from the last
          * activity — the clock's additive posture (idle -> light-sleep
          * dim -> countdown -> deep), the store's 0 falls back to the
-         * Kconfig seeds. */
+         * Kconfig seeds. The two kill switches (the sleep screens'
+         * power-off toggles) read the same way: idle off -> the dim rung
+         * is skipped (dim_s = 0, so deep sleep fires at `countdown`
+         * after the last activity); deep off -> the ladder dims and
+         * stays dim, never esp_deep_sleep (real activity wakes it). */
         const uint32_t idle_to = settings_idle_timeout_sec();
         const uint32_t cnt_down = settings_deep_sleep_countdown_sec();
-        const int64_t dim_s = idle_to ? (int64_t)idle_to : CONFIG_KNOB_DIM_AFTER_S;
+        const bool idle_on = settings_idle_timeout_enable();
+        const bool deep_on = settings_deep_sleep_countdown_enable();
+        const int64_t dim_s = idle_on ? (idle_to ? (int64_t)idle_to : CONFIG_KNOB_DIM_AFTER_S) : 0;
         const int64_t countdown = cnt_down ? (int64_t)cnt_down : CONFIG_KNOB_SLEEP_TIMEOUT_S;
         const int64_t sleep_s = dim_s + countdown;
 
         const int64_t idle = idle_seconds();
-        if (s_dimmed && !s_sleeping && idle < dim_s) {
+        /* Un-dim on activity -- or when the dim rung was just switched
+         * OFF (dim_s = 0): a board already dimmed at the toggle must
+         * return to full on the next pass, or it would stay dim forever
+         * (idle < 0 never holds). */
+        if (s_dimmed && !s_sleeping && (dim_s == 0 || idle < dim_s)) {
             s_dimmed = false;
             knob_board_backlight_set(255);
             if (s_dim_cb != NULL) {
                 s_dim_cb(false); /* P1: clock widget back to full opacity */
             }
-            ESP_LOGI(TAG, "activity -- backlight back to full");
+            ESP_LOGI(TAG, "backlight back to full (%s)", dim_s == 0 ? "dim rung off" : "activity");
             continue;
         }
         if (!s_dimmed && dim_s > 0 && idle >= dim_s) {
@@ -272,7 +282,7 @@ static void supervisor_task(void *arg) {
             }
             ESP_LOGI(TAG, "idle %lld s -- backlight dimmed to %d", (long long)idle, (int)CONFIG_KNOB_DIM_DUTY);
         }
-        if (!s_sleeping && countdown > 0 && idle >= sleep_s) {
+        if (deep_on && !s_sleeping && countdown > 0 && idle >= sleep_s) {
             enter_deep_sleep(idle);
         }
     }
@@ -293,8 +303,10 @@ void knob_power_init(void) {
      * settings_store_load so the pair is real). */
     const uint32_t idle_to = settings_idle_timeout_sec();
     const uint32_t cnt_down = settings_deep_sleep_countdown_sec();
-    ESP_LOGI(TAG, "power supervisor up (dim %u s, sleep +%u s [seeds %d/%d s]%s, EXT0 dial-A wake)",
+    ESP_LOGI(TAG, "power supervisor up (dim %u s%s, sleep +%u s%s [seeds %d/%d s]%s, EXT0 dial-A wake)",
              (unsigned)(idle_to ? idle_to : (uint32_t)CONFIG_KNOB_DIM_AFTER_S),
-             (unsigned)(cnt_down ? cnt_down : (uint32_t)CONFIG_KNOB_SLEEP_TIMEOUT_S), (int)CONFIG_KNOB_DIM_AFTER_S,
+             settings_idle_timeout_enable() ? "" : " (rung OFF)",
+             (unsigned)(cnt_down ? cnt_down : (uint32_t)CONFIG_KNOB_SLEEP_TIMEOUT_S),
+             settings_deep_sleep_countdown_enable() ? "" : " (rung OFF)", (int)CONFIG_KNOB_DIM_AFTER_S,
              (int)CONFIG_KNOB_SLEEP_TIMEOUT_S, sleep_mode);
 }

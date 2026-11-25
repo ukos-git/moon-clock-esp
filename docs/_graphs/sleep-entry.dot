@@ -21,20 +21,24 @@ digraph sleep_entry {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    awake [label="AWAKE — idle monitor\non, tick 10 ms, panel\n100 %, WiFi up",
+    awake [label="AWAKE — idle monitor\non (live-gated by its\nkill switch), tick 10 ms,\npanel 100 %, WiFi up",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     light [label="LIGHT SLEEP — radio\nDOWN, tick 100 ms,\nclock 20 % / dim 25 %",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    count [label="the COUNTDOWN —\narmed AT ENTRY, ticks\nat 1 Hz"];
+    count [label="the COUNTDOWN —\narmed AT ENTRY, ticks\nat 1 Hz (its kill\nswitch gates the arm)"];
+    staylit [label="the one-shot is NOT\narmed — the device\nstays dimmed in light\nsleep (countdown off)",
+             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     guards [label="the GUARD LADDER —\ndemo mode, P4 pending\nalarm: stay lighter",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     deep [label="DEEP SLEEP — clock\nHIDDEN, backlight OFF,\napp-level on the P4",
           fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     tail [label="the WAKE TAIL — the\nshared action_wake_\nscreen (wake-doors)"];
 
-    awake -> light;
-    light -> count [style=dashed];
+    awake -> light [label="idle rung\narmed?"];
+    light -> count [style=dashed, label="countdown\narmed?"];
+    light -> staylit [style=dashed, color="#b07d10"];
     count -> guards;
     guards -> deep;
     deep -> tail;
+    staylit -> tail;
 }

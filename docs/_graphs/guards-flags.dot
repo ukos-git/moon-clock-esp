@@ -4,15 +4,16 @@
 // both pass CONFIG_CLOCK_NTP_TIMEOUT_MS 10000 (clock.c + actions.c),
 // the knob's boot fix 20000 with a 2 s retry (main.c). s_wifi_event_group
 // (wifi.c:284) sets CONNECTED :183 / FAIL :171 and waits :329 for 8 s
-// (WIFI_CONNECTION_TIMEOUT_MS). The FIVE SEQ_CST fences are the knob's
+// (WIFI_CONNECTION_TIMEOUT_MS). The SIX SEQ_CST fences are the knob's
 // key-free publish hand-off: the producer's knob_moon.c:136 (row fence)
-// and the s_pub fences knob_ui.c:631 (bake publish) / :670 (disc publish)
-// pair with the swap reader's knob_ui.c:946 ("pair with the producer's
-// publish fence"), plus the watermark owner-clear fence :618. The app's ONE
-// task-notify pair is the day-scan doorbell: moon_event_classify_here
-// rings xTaskNotifyGive(s_event_task) at moon_ui.c:1271 and
-// moon_event_task blocks on ulTaskNotifyTake(pdTRUE, portMAX_DELAY) at
-// :1245. xQueueCreate fires ZERO times in app code (the vendored BSP's
+// and the knob_ui.c s_pub fences :619 (movie publish — the boot movie's
+// fence), :920 (bake publish) and :959 (disc publish), plus the
+// watermark owner-clear fence :907 — paired with the swap reader's
+// knob_ui.c:1256 ("pair with the producer's publish fence"). The app's
+// ONE task-notify pair is the day-scan doorbell:
+// moon_event_classify_here rings xTaskNotifyGive(s_event_task) at
+// moon_ui.c:1295 and moon_event_task blocks on
+// ulTaskNotifyTake(pdTRUE, portMAX_DELAY) at :1269. xQueueCreate fires ZERO times in app code (the vendored BSP's
 // trans queue is cited, never ours: CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH =
 // 1, S3 header, used at the BSP's :412 — the 32 KiB SPI DMA
 // invariant). The adapter's LVGL mutex is VENDORED — the app takes it
@@ -24,7 +25,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph guards_flags {
     rankdir=TB;
-    label="Key-free hands — two event groups, five fences, one notify";
+    label="Key-free hands — two event groups, six fences, one notify";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.5, ranksep=0.6];
@@ -40,9 +41,9 @@ digraph guards_flags {
     wifig [label="s_wifi_event_group (wifi.c:284) —\nCONNECTED :183 / FAIL :171, wait :329",
            fillcolor="#dfe6f1", color="#5c7fb8", fontcolor="#27405e"];
 
-    fences [label="5 SEQ_CST fences — the knob's key-free\npublish hand-off: knob_moon :136, s_pub\nfences :631/:670, watermark :618 ↔ swap :946",
+    fences [label="6 SEQ_CST fences — the knob's key-free\npublish hand-off: knob_moon :136, s_pub\nfences :619/:920/:959, watermark :907\n↔ swap :1256",
             style="rounded,filled,dashed"];
-    notify [label="the ONE task-notify pair — day-scan doorbell:\nrings :1271, the worker blocks :1245",
+    notify [label="the ONE task-notify pair — day-scan doorbell:\nrings :1295, the worker blocks :1269",
             style="rounded,filled,dashed"];
     zeroq [label="xQueueCreate: ZERO in app code — hands ride\nfences, flags and one notify (asserted)",
             style="rounded,filled,dashed"];

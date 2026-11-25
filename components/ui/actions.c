@@ -1607,12 +1607,21 @@ void action_switch_to_light_sleep_screen(lv_event_t *e) {
     // the deep-sleep transition is armed right at the entry -- sleep
     // depth no longer follows an animation.
     moon_ui_pause(true);
-    esp_err_t ret =
-        clock_timer_enable(settings_deep_sleep_countdown_sec(), CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
-    if (ret == ESP_OK)
-        ESP_LOGI(TAG, "RTC countdown %u s to deep sleep armed", (unsigned)settings_deep_sleep_countdown_sec());
-    else
-        ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
+    /* The deep-sleep rung is switched off in the deep-sleep settings
+     * screen (the power-off toggle): when disabled the countdown is
+     * never armed, so the device stays in the dimmed light-sleep frame
+     * indefinitely. Wake is still touch/tilt (the wake handler disarms
+     * any spent countdown); a re-enable re-arms on the NEXT sleep entry. */
+    if (settings_deep_sleep_countdown_enable()) {
+        esp_err_t ret =
+            clock_timer_enable(settings_deep_sleep_countdown_sec(), CLOCK_TIMER_FREQ_1HZ | CLOCK_TIMER_MODE_ENABLE_INT);
+        if (ret == ESP_OK)
+            ESP_LOGI(TAG, "RTC countdown %u s to deep sleep armed", (unsigned)settings_deep_sleep_countdown_sec());
+        else
+            ESP_LOGE(TAG, "Failed to start RTC countdown timer: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Deep-sleep countdown disabled -- not armed, staying in light sleep");
+    }
 
     // Load light sleep screen using EEZ Studio function
     loadScreen(SCREEN_ID_LIGHT_SLEEP);
