@@ -36,8 +36,8 @@ P4 — ``partitions_p4.csv``
 .. include:: _fragments/partitions-p4.inc
 
 .. graphviz:: ../_graphs/partition-p4.dot
-   :alt: P4 partition chain — bootloader + table, factory 9216 K, storage 64 K, moon_assets 5120 K, unused
-   :caption: The 32 MB chip's chain: ``factory`` 9216 K, ``moon_assets`` 5120 K pricing the 2048×1024 albedo + 2048×1024 DEM blob (4096 K combined). The table ends at 14464 K including the 64 K prefix; ~17.9 MB stays unused — and because the binary header stays 16 MB, esptool's size-mismatch warning on this board is EXPECTED, not a fault.
+   :alt: P4 partition chain — bootloader + table, factory 9216 K, storage 64 K, moon_assets 5120 K, moon_movie 18304 K
+   :caption: The 32 MB chip's chain: ``factory`` 9216 K, ``moon_assets`` 5120 K pricing the 2048×1024 albedo + 2048×1024 DEM blob (4096 K combined), and the ``moon_movie`` 18304 K LAST row owning the chip's leftover (one synodic cycle of q90 gray JPEGs, 178 frames @ 4 h today) — the table fills the whole 32768 K chip. The ``moon_movie`` row starts at 14464 K, past the old 16 MB header mark; the binary header is now 32 MB (bumped with the movie wave), so esptool's old size-mismatch warning on this board is gone.
    :align: center
 
 knob — ``knob/partitions.csv``
@@ -65,13 +65,15 @@ The root ``CMakeLists`` flashes the *data* partitions alongside the
   The build *warns* (does not fail) when it is missing — the app
   boots without the moon, which is the failure mode a reader should
   recognize.
-- **``moon_movie``** (S3, the LAST row) is the second *generated*
-  blob: the boot movie's synodic cycle of q90 gray JPEGs
+- **``moon_movie``** (S3 and P4, the LAST row) is the second
+  *generated* blob: the boot movie's synodic cycle of q90 gray JPEGs
   (``python -m moon.movie``), sized to fill the row's leftover —
-  "fill the space, never hinder the code build". The build *warns*
-  (does not fail) when it is missing: the boot falls back to the
-  card replay / disc path (the card-less posture), so a movie never
-  blocks a flash.
+  "fill the space, never hinder the code build". On the P4 the row
+  starts past the old 16 MB mark (the 32 MB bump,
+  :doc:`the binary budget <../verification/binary>`). The build
+  *warns* (does not fail) when it is missing: the boot falls back to
+  the card replay / disc path (the card-less posture), so a movie
+  never blocks a flash.
 
 The ``knob/`` sibling project mirrors both — ``storage`` baked from
 ``knob/spiffs/`` (``wifi_credentials.txt``, the clock's filename —

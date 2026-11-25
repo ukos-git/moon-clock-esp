@@ -40,10 +40,22 @@ The P4 (32 MB)
        2048×1024 DEM = 4,194,304 B < 5,242,880 B. (A 2560-wide albedo
        would need ≥ 5248 K — the root ``CMakeLists`` guard refuses a
        blob that overflows this row, naming the KiB it needs.)
+   * - ``moon_movie``
+     - data/undefined
+     - **18304 K (0x11e0000)**
+     - LAST row: the boot movie — one synodic cycle of q90 gray JPEGs
+       baked by ``python -m moon.movie`` from the device-identical
+       portable core (178 frames @ 4 h = 12,842,691 B today). Sized
+       to the 32 MB chip's leftover (32768 K − 14464 K); its row start
+       (0xe20000) crosses the old 16 MB mark. The app is bounded by its own
+       ``factory`` row, so the movie can never crowd the code.
 
-Total 14464 K (the same 64 K fixed prefix — bootloader at 0x2000,
+Total 32768 K (the same 64 K fixed prefix — bootloader at 0x2000,
 partition table at 0x8000 like the S3, nvs + phy up to the factory's
-0x10000 — plus the rows); the 32 MB chip leaves ~17.9 MB unused. Two
-header notes: the P4 binary header still says **16 MB** (both boards
-flash a 16 MB header, ``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``), so
-esptool's size-mismatch warning on the P4 is *expected*.
+0x10000 — plus the rows); the 32 MB chip is fully allocated, the
+``moon_movie`` row owning the space the earlier tables left unused.
+Header note: the P4 binary header is now **32 MB** (bumped from the
+inherited 16 MB header by the boot-movie wave — the
+``ESPTOOLPY_FLASHSIZE`` pin moved from the shared defaults into
+``sdkconfig.defaults.esp32p4``), so esptool's old size-mismatch
+warning on the P4 is *gone*.

@@ -11,10 +11,8 @@
 # sdkconfig) still guesses the S3 target; the P4 build passes
 # -D IDF_TARGET=esp32p4 and its per-target file overrides this line.
 CONFIG_IDF_TARGET="esp32s3"
-# Flash size header: the S3 has a 16 MB chip; the P4 has a 32 MB chip but the
-# binary header still says 16 MB (the spi_flash size-mismatch warning on the
-# P4 is expected -- see partitions_p4.csv). Both boards flash a 16 MB header.
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Flash size header: per-board (the chip sizes differ -- S3/knob 16 MB,
+# P4 32 MB), so the pin lives in the per-target defaults files, not here.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_SPIRAM=y
 # TF hour cache (UI_MOON_TFCACHE, components/ui/moon_tfcache.c): the

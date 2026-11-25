@@ -1,6 +1,9 @@
 # S3-only defaults (auto-loaded after sdkconfig.defaults when
 # IDF_TARGET=esp32s3). Keep the shared file board-neutral.
 CONFIG_IDF_TARGET="esp32s3"
+# Flash size header: the S3's 16 MB chip (moved out of the shared
+# defaults 2026-11-25 when the P4 took its real 32 MB chip).
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # Octal PSRAM at 80 MHz: the S3's in-package 8 MB.
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y

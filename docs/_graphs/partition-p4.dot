@@ -2,10 +2,13 @@
 // against the tracked CSV before drawing: bootloader + partition
 // table (nvs 24 K + phy 4 K), factory app 9216 K, storage SPIFFS
 // 64 K, moon_assets 5120 K (2048x1024 albedo + 2048x1024 DEM =
-// 4096 K combined), then unused. The table ends at 14464 K including
-// the 64 K prefix; ~17.9 MB stays unused. The binary header stays
-// 16 MB, so esptool's size-mismatch warning on this board is
-// EXPECTED, not a fault.
+// 4096 K combined), moon_movie 18304 K — the LAST row, owning the
+// chip's leftover (one synodic cycle of q90 gray JPEGs; 178 frames
+// @ 4 h = 12,842,691 B today; the row starts at 14464 K, PAST the
+// old 16 MB header mark). The table fills the whole 32768 K chip
+// including the 64 K prefix. The binary header is now 32 MB (bumped
+// by the boot-movie wave, 2026-11-25), so esptool's old
+// size-mismatch warning on this board is GONE.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
@@ -29,12 +32,11 @@ digraph partitions_p4 {
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     assets  [label="moon_assets — 5120 K\n(2048×1024 albedo +\n2048×1024 DEM)",
              fillcolor="#efece4"];
-    free    [label="unused —\n~17.9 MB",
-             fillcolor="#f2f2f2", color="#6b7280", fontcolor="#3f3f3f",
-             style="rounded,filled,dashed"];
+    movie   [label="moon_movie — 18304 K (LAST)\n(the chip's leftover:\n178 frames @ 4 h today)",
+             fillcolor="#efece4"];
 
     boot -> factory;
     factory -> storage;
     storage -> assets;
-    assets -> free;
+    assets -> movie;
 }

@@ -10,22 +10,26 @@ chronology of the sizes that got the app where it is.
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-24): the S3 and P4 trees were
+Measured from the build trees (2026-11-25): the S3 and P4 trees were
 configured at the ``0.2.0`` commitizen checkpoint — the first ``cz
 bump`` (the pre-bump fallback, the ``git describe`` short hash, no
 longer applies) — with this wave's code in the tree (the
-**compute-progress repurpose**: the strip-by-strip bake reveal and the
-hourly fade-to-black retired, the seconds arc now doubles as the
-bake's progress bar and the boot shows the quick phase disc;
+**compute-progress repurpose** and the **flash-resident boot movie**:
+the strip-by-strip bake reveal and the hourly fade-to-black retired,
+the seconds arc now doubles as the bake's progress bar and the boot
+shows the quick phase disc, and the ``moon_movie`` reader links
+``esp_new_jpeg`` into the app and re-sources the boot animation from
+the precomputed synodic cycle —
 :doc:`the compute progress <../implementation/compute-progress>`) —
-and built from it (the sizes below are those bench binaries; each
-embeds the calcver ``0.2.0`` as the TF-cache string — the commitizen
-``version`` line the root ``CMakeLists`` reads from ``.cz.toml``,
-verified by ``strings``; the knob's ``moon_tfcache.c`` compiles with
-the ``"unknown"`` fallback — the knob defines no calcver and has no TF
-card). Docs-only commits after these builds do not move a size. The
-knob's tree is the sibling project's own ``../build/knob`` outside the
-repo, never ``build/knob``):
+and built from
+it (the sizes below are those bench binaries; each embeds the calcver
+``0.2.0`` as the TF-cache string — the commitizen ``version`` line the
+root ``CMakeLists`` reads from ``.cz.toml``, verified by ``strings``;
+the knob's ``moon_tfcache.c`` compiles with the ``"unknown"``
+fallback — the knob defines no calcver and has no TF card). Docs-only
+commits after these builds do not move a size. The knob's tree is the
+sibling project's own ``../build/knob`` outside the repo, never
+``build/knob``):
 
 .. list-table::
    :header-rows: 1
@@ -43,9 +47,9 @@ repo, never ``build/knob``):
      - 370,240 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
-     - 1,882,224 B (0x1cb870)
+     - 1,886,432 B (0x1cc8e0)
      - 9,437,184 B (9216 K)
-     - 7,554,960 B (80 %)
+     - 7,550,752 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
      - ``../build/knob/knob.bin``
      - 1,563,632 B (0x17dbf0)
@@ -62,12 +66,11 @@ chronology); the honest reading is that the *next* meaningful feature
 likely triggers the partition widening of rule 3 below. The P4's
 9216 K ``factory`` is generous by design (the 32 MB chip, the DSI
 stack, LVGL 9 — the P4 app has never been close to a wall), and its
-one quirk is the header: the P4 binary's header still declares a
-16 MB flash, so esptool prints a *size-mismatch warning* on flash;
-the warning is expected and the flash succeeds (the hardware is
-32 MB). The knob's 4096 K ceiling (twice the S3's, for a board that
-links the same components minus the codecs and sensors) has never
-been approached either.
+header now matches the hardware (the boot-movie wave bumped it to the
+real 32 MB; the old 16 MB header's size-mismatch warning is gone —
+:ref:`below <p4-header-32mb>`). The knob's 4096 K ceiling (twice the
+S3's, for a board that links the same components minus the codecs and
+sensors) has never been approached either.
 
 .. figure:: ../_static/figs/binary_budget.png
    :alt: current binaries against their factory ceilings, and the S3 chronology
@@ -256,28 +259,34 @@ invariant in CLAUDE.md records the new ceiling
 size is checked after every build — the ceiling is a *recorded*
 number, not a hardware limit, and the check is what keeps it honest.
 
-The P4's header quirk
+.. _p4-header-32mb:
+
+The P4's 32 MB header
 ---------------------
 
-The P4 binary's header declares a 16 MB flash even though the
-hardware is 32 MB. This is an esptool artifact (the header's
-``flash_size`` field is set to the 16 MB value the S3 build uses,
-and the P4 build does not override it), and it produces a
-*size-mismatch warning* on every ``idf.py flash``:
+The P4 binary's header used to declare a 16 MB flash even though the
+hardware is 32 MB — a shared-defaults leftover (the ``ESPTOOLPY
+_FLASHSIZE_16MB`` pin lived in the board-neutral ``sdkconfig.defaults``
+because the P4 build inherited it), and it produced a *size-mismatch
+warning* on every ``idf.py flash``:
 
 .. code-block:: text
-   :caption: The expected warning (P4 flash)
+   :caption: The (now-gone) warning, recorded for history
 
    Warning: The chip has 32MB of flash, but the binary's header
    says 16MB. This is not an error; the flash will proceed.
 
-The warning is *expected and correct to ignore* — the flash
-succeeds, the app runs, and the partition table (14428 K used of
-32 MB) is unaffected. The only reason to care is the *documentation*:
-a reader who sees the warning and assumes a corruption would be
-wrong, and these docs record the expected-warning so the next person
-who flashes the P4 does not chase a ghost. (The knob needs no such
-note: its chip *is* 16 MB, header and hardware agree.)
+The boot-movie wave fixed it properly (2026-11-25): the flash-size pin
+moved out of the shared defaults into the per-target files — the S3
+keeps 16 MB (its chip), the P4 took its real 32 MB
+(``sdkconfig.defaults.esp32p4``) — and the P4's ``partitions_p4.csv``
+grew the ``moon_movie`` LAST row (18304 K), so the table now fills the
+whole 32 MB chip (32768 K including the 64 K prefix) and the movie
+partition's row starts at 14464 K, **past the old 16 MB mark**. The
+header now matches the hardware, the size-mismatch warning is gone,
+and a data partition living above 16 MB reads back correctly on the
+real 32 MB chip (bench-verified). (The knob needs no such note: its
+chip *is* 16 MB, header and hardware agree.)
 
 The headroom policy
 -------------------

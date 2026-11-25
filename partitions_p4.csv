@@ -19,10 +19,21 @@
 #                            need >= 5248K -- the root CMakeLists guard
 #                            refuses a blob that overflows this row, naming
 #                            the KiB it needs.)
-# Total = 14464K.
+#   moon_movie       18304K (LAST -- the boot movie, one synodic cycle of
+#                            q90 gray JPEGs baked by `python -m moon.movie`
+#                            from the device-identical portable core. Sized
+#                            to the 32 MB chip's leftover (32768K - 14464K
+#                            used above): "fill the space, never hinder the
+#                            code build". The app is bounded by its own
+#                            factory row, so a movie can never crowd it.
+#                            Row start 14464K crosses 16 MB -- the data
+#                            partition lives PAST the old 16 MB header mark,
+#                            readable on the real 32 MB chip.)
+# Total = 32768K (the whole 32 MB chip).
 # Name,        Type, SubType, Offset,   Size,    Flags
 nvs,           data, nvs,     ,         0x6000,
 phy_init,      data, phy,     ,         0x1000,
 factory,       app,  factory, ,         9216K,
 storage,       data, spiffs,  ,         64K,
 moon_assets,   data, undefined, ,       5120K,
+moon_movie,    data, undefined, ,       18304K,

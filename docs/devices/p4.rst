@@ -146,11 +146,14 @@ The port landed as a milestone sequence (the letters below are the
 milestone labels used in the project's tracking):
 
 - **M0 — bring-up**: board shim + board Kconfig + the 3-file
-  sdkconfig split + ``partitions_p4.csv`` (9 MB ``factory``; the
-  32 MB chip's header still says 16 MB, so esptool's size-mismatch
-  warning is expected) + ``EXCLUDE_COMPONENTS`` per target + a
-  separate gitignored ``dependencies.lock.p4`` (the P4's C6/esp_hosted
-  dependency set differs from the S3's).
+  sdkconfig split + ``partitions_p4.csv`` (9 MB ``factory``) +
+  ``EXCLUDE_COMPONENTS`` per target + a separate gitignored
+  ``dependencies.lock.p4`` (the P4's C6/esp_hosted dependency set
+  differs from the S3's). (M0 shipped with a 16 MB binary header —
+  a shared-defaults leftover — whose esptool size-mismatch warning
+  was expected; the boot-movie wave, 2026-11-25, bumped the header
+  to the real 32 MB and added the ``moon_movie`` LAST row, so the
+  warning is gone and the table fills the whole chip.)
 - **M1 — plumbing**: rev v1.3 board, PSRAM at 200 MHz, JD9365 + GT911
   + 32 MB all verified.
 - **M2 — Wi-Fi**: the C6 over SDIO (esp_hosted 1.4.7,
@@ -225,8 +228,6 @@ sequential-build rule, and the port-identification procedure):
    cd ../..
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
    # check the binary size against the 9216 K factory partition
-   # (the 32 MB chip carries a 16 MB binary header — esptool's
-   # size-mismatch warning is expected)
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 monitor -p <port>
 
