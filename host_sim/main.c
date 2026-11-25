@@ -13,7 +13,11 @@
  *   moon_sim --frames N --start ISO --end ISO [--out DIR]  (even spacing)
  *
  * Panel modes: --size 466 (device, r=MOON_DISK_RADIUS_PX) or
- * --size 400 (reference geometry, r=199.3 -- the gate).
+ * --size 400 (reference geometry, r=199.3 -- the gate). --radius F bakes
+ * with an EXPLICIT disk radius centred at (size/2, size/2) -- the clocks'
+ * device-identical bakes (moon_ui.c: r = MOON_PX/2; the knob's r < size/2,
+ * knob_ui_set_disk_geom). --pgm writes the RAW bake output (the exact gray
+ * the device stores, no LUT/rotation) instead of the RGB565-decoded PNG.
  */
 #include <math.h>
 #include <stdio.h>
@@ -46,6 +50,26 @@ static int parse_iso(const char *s, int64_t *epoch) {
     return 1;
 }
 
+/* Epoch seconds -> "YYYY-MM-DDTHH:MM" (UTC). The civil-date inverse of
+ * days_from_civil above (Hinnant; the --frames spacing path needs it). */
+static void iso_from_epoch(int64_t e, char *out, size_t n) {
+    int64_t days = e / 86400;
+    int64_t rem = e % 86400;
+    if (rem < 0)
+        rem += 86400;
+    int h = (int)(rem / 3600), mi = (int)((rem % 3600) / 60);
+    int64_t z = days + 719468;
+    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    int doe = (int)(z - era * 146097);                               /* [0, 146096] */
+    int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; /* [0,399] */
+    int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);               /* [0, 365] */
+    int mp = (5 * doy + 2) / 153;                                    /* [0, 11] */
+    int d = doy - (153 * mp + 2) / 5 + 1;                            /* [1, 31] */
+    int m = mp + (mp < 10 ? 3 : -9);                                 /* [1, 12] */
+    int y = (int)(yoe + era * 400 + (m <= 2));
+    snprintf(out, n, "%04d-%02d-%02dT%02d:%02d", y, m, d, h, mi);
+}
+
 /* --- one frame ---------------------------------------------------------- */
 static int g_darkzero = 0; /* --darkzero: the device's night side (the computed
                             * backlit surface, dark_zero = 1) */
@@ -56,6 +80,11 @@ static int g_event = 0;    /* --event: classify the instant's sky events
 static int g_neutral = 0;  /* --neutral: the neutral gray->565 LUT (no warm
                             * display tint) -- the image gate runs with this so
                             * its metrics validate the physics, not the tint */
+static float g_radius = 0; /* --radius F: explicit bake disk radius (the
+                            * device-identical geometry; 0 = the per-size
+                            * defaults below) */
+static int g_pgm = 0;      /* --pgm: write the raw bake output (P5 gray)
+                            * instead of the RGB565-decoded PNG */
 static int g_pole_deg = 0; /* --pole: camera basis rotation about the body
                             * pole (+z), deg. The pole stays at the
                             * top of the disk; the light source S
@@ -81,6 +110,24 @@ static void pole_geometry(moon_geom_t *g, float phi) {
     y = g->E[1];
     g->E[0] = c * x - s * y;
     g->E[1] = s * x + c * y;
+}
+
+/* One raw bake frame -> P5 PGM (the exact gray bytes the device stores --
+ * pre-LUT, pre-rotation -- e.g. the boot-movie generator's input). */
+static int bake_to_pgm(const uint8_t *frame, int size, const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "open failed: %s\n", path);
+        return 0;
+    }
+    fprintf(f, "P5\n%d %d\n255\n", size, size);
+    if (fwrite(frame, 1, (size_t)size * size, f) != (size_t)size * size) {
+        fprintf(stderr, "write failed: %s\n", path);
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    return 1;
 }
 
 /* One gray frame -> the exact panel pixel (RGB565 via the identity
@@ -148,9 +195,22 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
         pole_geometry(&g, (float)pole_deg * 0.017453292519943295f);
     }
 
-    float fr = size == 400 ? 199.3f : (float)radius;
-    float fc = size == 400 ? 199.3f : (float)(size / 2);
-    float fcy = size == 400 ? 199.5f : (float)(size / 2);
+    float fr, fc, fcy;
+    if (g_radius > 0.0f) {
+        /* --radius: device-identical bake (clocks: r = MOON_PX/2 centred;
+         * knob: r < size/2 via knob_ui_set_disk_geom). */
+        fr = g_radius;
+        fc = (float)(size / 2);
+        fcy = (float)(size / 2);
+    } else if (size == 400) {
+        fr = 199.3f;
+        fc = 199.3f;
+        fcy = 199.5f;
+    } else {
+        fr = (float)radius;
+        fc = (float)(size / 2);
+        fcy = (float)(size / 2);
+    }
     /* --event: classify the instant's sky events (moon_event.c) and pass
      * the blood occlusion into the bake + the tinted LUT (the device's
      * daily path, host-verified this way). The gate never sets it
@@ -168,12 +228,21 @@ static int render_one(const char *iso, int rot_deg, int pole_deg, int size, cons
     moon_bake(&g, alb, grel, frame, size, fr, fc, fcy, MOON_ALB_W, MOON_ALB_H, g_darkzero, 0.0f, bev);
 
     char p[512];
-    if (idx >= 0)
-        snprintf(p, sizeof p, "%s/sim.%04d.png", out_path, idx);
-    else
-        snprintf(p, sizeof p, "%s/sim.png", out_path);
-    if (!bake_to_png(frame, size, center, rot_deg, p))
-        return 0;
+    if (g_pgm) {
+        if (idx >= 0)
+            snprintf(p, sizeof p, "%s/sim.%04d.pgm", out_path, idx);
+        else
+            snprintf(p, sizeof p, "%s/sim.pgm", out_path);
+        if (!bake_to_pgm(frame, size, p))
+            return 0;
+    } else {
+        if (idx >= 0)
+            snprintf(p, sizeof p, "%s/sim.%04d.png", out_path, idx);
+        else
+            snprintf(p, sizeof p, "%s/sim.png", out_path);
+        if (!bake_to_png(frame, size, center, rot_deg, p))
+            return 0;
+    }
     fprintf(stderr, "%s  utc=%s  rot=%d  phase=%.2f%%  ss=(%.2f,%.2f)\n", p, iso, rot_deg, g.illum * 100.0,
             g.subsolar_lon, g.subsolar_lat);
     return 1;
@@ -209,6 +278,10 @@ int main(int argc, char **argv) {
             g_pole_deg = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size"))
             size = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--radius"))
+            g_radius = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--pgm"))
+            g_pgm = 1;
         else if (!strcmp(argv[i], "--neutral"))
             g_neutral = 1;
         else if (!strcmp(argv[i], "--event"))
@@ -267,27 +340,12 @@ int main(int argc, char **argv) {
         }
         for (int k = 0; k < frames; k++) {
             double t = frames == 1 ? 0.0 : (double)k / (frames - 1);
-            int64_t e = (int64_t)(e0 + t * ((double)e1 - e0));
+            /* llround: the spacing is a double (k/(N-1)); truncating could
+             * jitter a frame by 1 s off its exact hour for N not a power
+             * of two. */
+            int64_t e = e0 + llround(t * ((double)e1 - e0));
             char iso2[40];
-            {
-                long long days = e / 86400LL;
-                int64_t rem = e % 86400LL;
-                if (rem < 0)
-                    rem += 86400;
-                int h = (int)(rem / 3600), mi = (int)((rem % 3600) / 60);
-                /* civil from days */
-                long long z = days + 719468LL;
-                long long era = (z >= 0 ? z : z - 146096) / 146097;
-                unsigned yoe = (unsigned)(z - era * 146097);
-                int y = (int)(era * 400 + (yoe - yoe / 1460 + yoe / 36520 - yoe / 146000));
-                int doy = (int)(yoe - (y / 4 - y / 100 + y / 400));
-                int mp = (int)((5 * doy + 2) / 153);
-                int d = (int)(doy - (153 * mp + 2) / 5 + 1);
-                int m = mp + (mp < 10 ? 3 : -9);
-                if (m <= 2)
-                    y++;
-                snprintf(iso2, sizeof iso2, "%04d-%02d-%02dT%02d:%02d", y, m, d, h, mi);
-            }
+            iso_from_epoch(e, iso2, sizeof iso2);
             ok += render_one(iso2, rot, g_pole_deg, size, out, k);
         }
         printf("%d frames -> %s\n", ok, out);

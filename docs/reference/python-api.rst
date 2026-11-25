@@ -29,17 +29,21 @@ Layout
      validate.py    the NASA SVS 5415 correctness gate (the prototype)
      assets.py      the device asset derivation (albedo + int8 DEM +
                     the C header the device compiles)
+     movie.py       the boot-movie bake: one synodic cycle of
+                    device-identical frames -> q90 gray JPEGs ->
+                    moon_movie.bin (the flash-resident startup movie)
 
 The package is lazy: ``moon/__init__.py`` carries no imports, and the
 entry points are the modules themselves (``python -m moon.calibrate``,
-``python -m moon.animation``, ``python -m moon.assets``).
+``python -m moon.animation``, ``python -m moon.assets``,
+``python -m moon.movie``).
 
 .. _python-surface:
 
 The package in one picture
 --------------------------
 
-**The short version.** The package is twelve modules and the repo has
+**The short version.** The package is thirteen modules and the repo has
 exactly **five tracked importers**. ``constants.py`` is the hub (the
 one thing every validation path reaches), ``assets.py`` is both the
 widest importer — seven modules — and the only module whose output
@@ -73,8 +77,8 @@ owns it):
 
 .. graphviz:: ../_graphs/python-surface-deps.dot
    :align: center
-   :alt: Module column on the left (astro, textures, animation, validate, register, metrics, assets and an all-twelve ghost) fanning dashed to the pin column on the right — astropy, numpy, tifffile, PIL, scikit-image, scipy.ndimage, the subprocessed ffmpeg, the never-imported imageio.
-   :caption: Six things are imported directly, the amber nodes. ``astropy`` lives where the ephemeris lives (``get_body_barycentric`` + ``Time`` + units — and ``calibrate``/``validate`` reach ``astropy.time.Time`` too); its PyERFA builtin path runs ``eraEpv00`` + ``eraMoon98``, the same models the C core vendors. ``numpy`` — all twelve. ``tifffile`` has exactly one user, ``textures`` (the 16-bit LROC load). PIL writes the PNGs in ``animation``/``validate``/``assets``; scikit-image is ``register``'s phase cross-correlation (:13) and ``metrics``' ``structural_similarity`` (:15); ``scipy.ndimage`` is ``register``'s shift (:28/:34) and ``validate``'s ``uniform_filter1d`` (:133). The two dashed oddities are not pins the package uses: ``ffmpeg`` is SUBPROCESSED by ``make_mp4`` (libx264, yuv420p, crf 20) — a tool, not a dependency — and ``imageio`` sits in the pin list with ZERO ``import imageio`` in the package: scikit-image's transitive pin, nothing more. The package's own venv is ``assets/images/moon/.venv``; ``host_sim/.venv`` runs the gate against the same tree.
+   :alt: Module column on the left (astro, textures, animation, validate, register, metrics, assets and an all-thirteen ghost) fanning dashed to the pin column on the right — astropy, numpy, tifffile, PIL, scikit-image, scipy.ndimage, the subprocessed ffmpeg, the never-imported imageio.
+   :caption: Six things are imported directly, the amber nodes. ``astropy`` lives where the ephemeris lives (``get_body_barycentric`` + ``Time`` + units — and ``calibrate``/``validate`` reach ``astropy.time.Time`` too); its PyERFA builtin path runs ``eraEpv00`` + ``eraMoon98``, the same models the C core vendors. ``numpy`` — all thirteen. ``tifffile`` has exactly one user, ``textures`` (the 16-bit LROC load). PIL writes the PNGs in ``animation``/``validate``/``assets`` and the gray JPEGs in ``movie``; scikit-image is ``register``'s phase cross-correlation (:13) and ``metrics``' ``structural_similarity`` (:15); ``scipy.ndimage`` is ``register``'s shift (:28/:34) and ``validate``'s ``uniform_filter1d`` (:133). The two dashed oddities are not pins the package uses: ``ffmpeg`` is SUBPROCESSED by ``make_mp4`` (libx264, yuv420p, crf 20) — a tool, not a dependency — and ``imageio`` sits in the pin list with ZERO ``import imageio`` in the package: scikit-image's transitive pin, nothing more. The package's own venv is ``assets/images/moon/.venv``; ``host_sim/.venv`` runs the gate against the same tree.
 
 **What it writes** — the writers, their artifacts, and where the
 artifacts land:
