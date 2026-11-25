@@ -198,59 +198,66 @@ menu "UI Component Configuration"
             alarm row and seconds keep running. 0 (default) = off.
 
     config UI_MOON_BOOT_REPLAY
-        bool "Boot: replay the TF hour cache as the boot animation"
+        bool "Boot: play the flash-resident boot movie (loop) during the live bake"
         depends on UI_MOON_HOURLY_ENABLE && UI_MOON_HOURLY_TFCACHE && UI_MOON_TFCACHE
         default y
         help
-            At boot, a core-1 task replays ALL stored hour frames
-            (ascending) as an animation and stops on the newest one; the
-            live-computed current phase lands as the final frame right
-            after. While the now-frame computes the panel shows the
-            quick phase disc (the compute section's dummy, user
-            decision 2026-11-24,
-            docs/implementation/compute-progress) and the home/wifi
-            seconds arc sweeps the bake's rows-completed watermark as a
-            progress bar -- no black window. The frames are shown
-            untinted (neutral LUT -- stored grays carry no event tint)
-            as ONE atomic whole-panel flush each, drain-witnessed like
-            every sanctioned show; the panel brightness never moves (no
-            fade). The idle->sleep ladder is held for the presentation
-            and re-armed when it ends; a screen switch or sleep entry
-            aborts the animation and the day-tick re-bakes the current
-            phase later. The card then also carries the cache policy:
-            entries older than the last NEW MOON are cleared (the
-            producers compute the new-moon floor from the ephemeris and
-            persist it in meta.txt) on top of the one-synodic-month
-            cap. The boot touches the SD bus for the mount attempt (a
-            card-less boot pays ~1 s of probe timeout before the
-            disc-to-now path lands). Needs the hourly TF legs (they own
-            the bounce buffer and the one-shot init this rides on).
-            Demo mode boots without the replay.
+            At boot the panel plays the boot movie: the precomputed
+            synodic cycle baked at build time by the portable core and
+            flashed into the moon_movie data partition (one synodic
+            month of device-identical neutral frames, docs
+            implementation/moon-movie). A core-1 producer plays it
+            LOOPING while a second core-1 task bakes the live phase in
+            PARALLEL; when the bake lands the producer plays forward to
+            the frame matching the current phase (catch-up, hour
+            arithmetic on the movie header's ref_center -- no new-moon
+            scan) and the baked now-frame reveals over it as the final
+            frame. The movie makes boot card-INDEPENDENT: with a valid
+            movie the boot never touches the SD bus (the card is purely
+            the hourly refresh cache); with no valid movie (no
+            partition, calcver mismatch, zero-frame) the source ladder
+            falls back to the card's stored hours played ascending (the
+            2026-11-14 replay, budget-bounded), and the quick phase disc
+            (user decision 2026-11-24,
+            docs/implementation/compute-progress) is the floor under
+            both. While the now-frame computes the seconds arc sweeps
+            the bake's rows-completed watermark as a progress bar -- no
+            black window. Every frame (movie, card, final) is shown
+            untinted or event-tinted (final only) as ONE atomic
+            whole-panel flush, drain-witnessed; the panel brightness
+            never moves (no fade). The idle->sleep ladder is held for
+            the presentation and re-armed when it ends; a screen switch
+            or sleep entry aborts it and the day-tick re-bakes the
+            current phase later. Needs the hourly TF legs (they own the
+            bounce buffer, the one-shot init this rides on, and the
+            card-fallback leg). Demo mode boots without the presentation.
 
     config UI_MOON_REPLAY_FPS
-        int "Boot replay: target frame rate (fps)"
+        int "Boot presentation: target frame rate (fps)"
         depends on UI_MOON_BOOT_REPLAY
         default 8
         range 2 20
         help
-            The replay producer's pacing floor (minimum dwell per frame);
-            the actual rate is what the 50 ms tick and the whole-panel
-            flush allow on top (measured ~6 fps on the S3 -- the sweep-era
-            TF-replay throughput). Higher values simply let the producer
-            feed as fast as the panel drains.
+            The producer's pacing floor (minimum dwell per movie / card
+            frame); the actual rate is what the 50 ms tick and the
+            whole-panel flush allow on top (measured ~6 fps on the S3).
+            Higher values simply let the producer feed as fast as the
+            panel drains.
 
     config UI_MOON_REPLAY_BUDGET_MS
-        int "Boot replay: whole-animation budget (ms)"
+        int "Boot presentation: catch-up / card-leg budget (ms)"
         depends on UI_MOON_BOOT_REPLAY
         default 240000
         range 20000 600000
         help
-            Wall-clock budget for the replay animation from spawn. On
-            overrun the animation stops where it is and the CURRENT phase
-            is still baked and shown (the budget cuts the animation,
-            never the moon). A full cache at the default pacing lands
-            well inside the default 240 s; raise it only if you want the
-            whole cycle played regardless.
+            Wall-clock budget from spawn that bounds the BOUNDED legs of
+            the presentation: the card fallback (all stored hours,
+            ascending) and the movie's catch-up leg (play forward to
+            the current phase once the bake lands). The movie LOOP
+            itself is unbounded -- the loop IS the animation; the bake
+            ends it. On overrun the leg stops where it is and the
+            CURRENT phase is still revealed (the budget cuts the
+            animation, never the moon).
 
     config UI_MOON_TFCACHE
         bool "Cache hourly moon frames on the TF card"
@@ -281,9 +288,10 @@ menu "UI Component Configuration"
             fetched from the card go through the same moon_gray565 tint
             LUT as computed ones -- fetch and compute are pixel-identical
             by construction. The card mounts lazily on the first hourly
-            refresh (or by the boot replay producer when
-            UI_MOON_BOOT_REPLAY is on -- the only case where boot touches
-            the SD bus), and the day's
+            refresh (or by the boot presentation's card-fallback
+            leg -- the ONLY case where boot touches the SD bus:
+            with a valid flash movie the boot is card-independent,
+            UI_MOON_BOOT_REPLAY), and the day's
             sky-event occlusion is part of the cached bake epoch, so a
             cached hour carries exactly what the same epoch would bake.
 

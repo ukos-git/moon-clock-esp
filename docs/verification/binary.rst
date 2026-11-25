@@ -38,9 +38,9 @@ repo, never ``build/knob``):
      - Headroom
    * - Waveshare ESP32-S3-Touch-AMOLED-1.75 (466)
      - ``build/moon-phase.bin``
-     - 1,722,896 B (0x1a4a10)
+     - 1,726,912 B (0x1a59c0)
      - 2,097,152 B (2048 K)
-     - 374,256 B (18 %)
+     - 370,240 B (18 %)
    * - Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720)
      - ``build/p4/moon-phase.bin``
      - 1,882,224 B (0x1cb870)
@@ -214,7 +214,7 @@ the app's growth history:
                                               phase disc against the
                                               retired reveal path); 18%
                                               under the ceiling
-   binary    1,722,896 B  (0x1a4a10)  current (measured 2026-11-25) — the
+   binary    1,722,896 B  (0x1a4a10)  the 2026-11-25 take (M2) — the
                                               boot-movie reader module
                                               (the ``moon_movie``
                                               partition's flash-resident
@@ -229,6 +229,20 @@ the app's growth history:
                                               (+1,424 B net — the reader
                                               + the codec); 18% under
                                               the ceiling
+   binary    1,726,912 B  (0x1a59c0)  current (measured 2026-11-25, M3) —
+                                              the boot re-source: the
+                                              presentation's source ladder
+                                              (flash movie first, card the
+                                              fallback), the movie's
+                                              loop + catch-up play, and the
+                                              final live bake split out
+                                              into its own core-1 task
+                                              that runs IN PARALLEL with
+                                              the looping movie (+4,016 B
+                                              net — the bake task + the
+                                              ladder/loop logic against the
+                                              single-task replay); 18%
+                                              under the ceiling
 
 The widening is the lesson: the app *hit* the ceiling (the production
 build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
