@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Generate the docs media: the fade-to-black screen-switch film (from uisim
-screenshots).
+"""Generate the docs media films (both gitignored build output, encoded
+from uisim frames -- neither is ever committed).
 
-The only animation left on the home is the fade-to-black screen switch (the
-spin / boot-sweep / dusk films were retired with their subsystems
-2026-11-13).
-
-Outputs (committed):
   docs/img/fade.mp4         the fade-to-black screen switch (airplane ->
                             settings hub: fade out, load, fade in -- the
                             UI_SCREEN_SWITCH_FADE legs, one whole-panel
-                            flush per step)
+                            flush per step; the spin / boot-sweep / dusk
+                            films were retired with their subsystems
+                            2026-11-13)
+
+  docs/img/promo.mp4        the full-interface tour film (uisim --tour):
+                            the scripted round trip through the real
+                            screens.c UI -- the home moon, the settings
+                            hub and its whole ring, the roller pickers,
+                            the letter-wheel keyboard -- one 466 px frame
+                            per 20 ms of sim clock, 15 fps. Embedded by
+                            docs/index.rst.
 
 The docs/img/nasa/ set is NOT generated here -- it is build output of the
 moonmedia MEDIA_NASA slot (docs/nasa_figs.py + docs/tools/gen_nasa_quarters.py
@@ -20,7 +25,8 @@ embeds while clear()-ing the ones the pages do embed; /qa
 2026-11-15 detonated it on a film regen, so the step is gone.
 
 Frame PNGs land in docs/img/frames/ (gitignored). Needs: uisim screenshots
-(host_sim/uisim/build.sh run), PIL, ffmpeg.
+(host_sim/uisim/build.sh run) + the S3 466 tour capture
+(host_sim/uisim/build.sh run --tour), PIL, ffmpeg.
 """
 
 import datetime
@@ -116,6 +122,28 @@ def main():
         to.save(d / f"sim.{k:04d}.png")
         k += 1
     encode("fade", 8, d / "sim.%04d.png", OUT / "fade.mp4", size=W)
+
+    # 2. the full-interface tour (uisim --tour, the scripted round trip):
+    #    the numbered front-buffer frames go in exactly as the sim dumps
+    #    them (upright, true panel state -- the sim's screen switches
+    #    are lv_scr_load with no fade). Same out/ pin as the fade: the
+    #    tour is the S3 466 film, and a mixed or wrong-panel out/ fails
+    #    here instead of silently baking the wrong film.
+    print("== full-interface tour ==")
+    tour = sorted(UISIM.glob("tour_*.png"))
+    if not tour:
+        sys.exit("no tour frames in host_sim/uisim/out/ -- run "
+                 "`host_sim/uisim/build.sh run --tour` first")
+    first = Image.open(tour[0]).convert("RGB")
+    if first.size != (466, 466):
+        sys.exit(f"tour frames are {first.size}, not the S3 466 set -- "
+                 "run `host_sim/uisim/build.sh run --tour` (default "
+                 "panel) first")
+    d = FR / "promo"
+    clear(d)
+    for i, src in enumerate(tour):
+        shutil.copy(src, d / f"sim.{i:04d}.png")
+    encode("promo", 15, d / "sim.%04d.png", OUT / "promo.mp4", size=466)
 
     print(f"done in {(datetime.datetime.now(datetime.timezone.utc) - t0).total_seconds():.0f} s")
 

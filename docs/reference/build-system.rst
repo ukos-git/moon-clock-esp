@@ -460,16 +460,18 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    #  target's texture — the --target must match the build it checks)
    host_sim/uisim/build.sh run                          # the UI simulator
    # (renders the real screens to PNG; --wheel for the keyboard,
-   #  --dial <screen> for the knob's dial-cursor shot,
+   #  --dial <screen> for the knob's dial-cursor shot, --tour for
+   #  the S3 promo film's frames (out/tour_*.png, 15 fps),
    #  --panel 466/720/360 for the three family panels)
    docs/.venv/bin/sphinx-build -b media docs docs/_build/media
    # (THE media builder — regenerates the site's ENTIRE binary media set:
    #  the scripted figures (every docs/tools/gen_*.py + the node
    #  isomorphic pipeline gen_figures.js -> assemble_figures.py and
    #  gen_bake_intermediates.js -> gen_bake_strip.py), all three boards'
-   #  uisim screenshots + the --wheel/--dial captures, the annotated
+   #  uisim screenshots + the --wheel/--dial/--tour captures, the annotated
    #  callouts (enclose.py over docs/ui/labels/*.json), the device
-   #  composites; MEDIA_VIDEOS=1 adds the film (docs/gen_media.py) and
+   #  composites; MEDIA_VIDEOS=1 adds the films (fade.mp4 + the
+   #  promo tour, docs/gen_media.py) and
    #  MEDIA_NASA=1 the NASA answer-key art (a gate run + nasa_figs.py +
    #  gen_nasa_quarters.py — needs the gitignored final_400x400 key).
    #  The media is gitignored BUILD OUTPUT — the generators are the
@@ -480,7 +482,8 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    #  gt911 leg. The glyph census (gen_perf_glyphs.py) needs the four
    #  foundry faces under assets/fonts/ — one-time
    #  ``get_assets.py --fonts``.)
-   python3 docs/gen_media.py                            # the docs film alone
+   python3 docs/gen_media.py                            # the docs films
+   # (fade.mp4 + the promo tour film, from the S3 466 out/ set)
    docs/.venv/bin/sphinx-build -b html docs docs/_build/html
    # (the site build — 0 warnings is the gate, the standing rule; the
    #  moonmedia staleness check warns when any generated media is

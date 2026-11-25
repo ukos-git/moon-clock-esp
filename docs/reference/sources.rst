@@ -77,8 +77,8 @@ The tools the numbers came from
 - ``host_sim/bench.c`` (``moon_bench``) — the performance bench
   (the C numbers, :doc:`performance <../verification/performance>`).
 - ``host_sim/uisim`` — the UI simulator (the screenshots, :doc:`the interactive simulator <../science/interactive>` and :doc:`the round keyboard <../keyboard>`).
-- ``docs/gen_media.py`` — the docs video builder (the one live
-  animation film — the fade-to-black switch — plus the NASA gate
+- ``docs/gen_media.py`` — the docs video builder (the fade-to-black
+  switch film + the ``--tour`` promo film, plus the NASA gate
   frames, :doc:`the build system <build-system>`).
 - The serial console (115200) + the ROM reset reason — the device
   verification surface (:doc:`on-device verification <../verification/device-verify>`).

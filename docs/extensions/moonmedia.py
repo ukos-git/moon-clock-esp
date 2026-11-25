@@ -13,8 +13,9 @@ Two jobs:
   → ``gen_nasa_quarters.py``, needs the gitignored SVS 5415 key), the
   uisim screenshots for ALL THREE boards (``host_sim/uisim/build.sh run``
   + ``--panel 720`` + ``--panel 360``, the ``--wheel`` capture flow for
-  the password keyboard on every panel, and the knob's ``--dial``
-  dial-cursor shot), runs ``docs/tools/enclose.py`` over every
+  the password keyboard on every panel, the S3's ``--tour`` promo
+  frames (encoded into promo.mp4 by ``docs/gen_media.py``), and the
+  knob's ``--dial`` dial-cursor shot), runs ``docs/tools/enclose.py`` over every
   ``ui/labels/*.json`` spec for both panels (a ``<screen>-p4.json``
   override replaces the shared spec on the 720 pass when present) —
   the annotated callouts
@@ -64,14 +65,14 @@ OUT = UISIM / "out"
 PY = sys.executable                                  # the docs venv python
 HOSTPY = ROOT / "host_sim" / ".venv" / "bin" / "python"  # the gate venv
 
-# The animation film, referenced by implementation/animations.rst via
-# ``.. raw:: html`` ``<video>``. Raw HTML never triggers Sphinx's image
-# copy, so each is registered as a static file (landed under
-# _static/img/) and the RST points at ``_static/img/`` — otherwise the
-# built page's ``../img/`` is empty and the video 404s. The boot-sweep,
-# spin and dusk films retired 2026-11-13 with their subsystems; only
-# the fade film remains.
-VIDEOS = ["fade.mp4"]
+# The films, referenced by the pages via ``.. raw:: html`` ``<video>``
+# (the fade by implementation/animations.rst, the promo tour by
+# index.rst). Raw HTML never triggers Sphinx's image copy, so each is
+# registered as a static file (landed under _static/img/) and the RST
+# points at ``_static/img/`` — otherwise the built page's ``../img/``
+# is empty and the video 404s. The boot-sweep, spin and dusk films
+# retired 2026-11-13 with their subsystems.
+VIDEOS = ["fade.mp4", "promo.mp4"]
 
 
 # The 17 base screen shots uisim names them (the ScreensEnum, underscored).
@@ -391,6 +392,8 @@ def _media_pipeline(app) -> None:
     _run(["bash", "host_sim/uisim/build.sh", "run"], "build.sh run")
     print("moonmedia: uisim S3 (466) — --wheel capture")
     _run(["bash", "host_sim/uisim/build.sh", "run", "--wheel"], "build.sh run --wheel")
+    print("moonmedia: uisim S3 (466) — --tour promo frames")
+    _run(["bash", "host_sim/uisim/build.sh", "run", "--tour"], "build.sh run --tour")
     _copy_panel(s3_dir)
 
     # The device composites read the uisim frames from out/ directly and

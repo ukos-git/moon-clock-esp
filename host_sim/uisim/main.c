@@ -26,6 +26,13 @@
  *                 clip/anchoring fix without eyeballing the PNG.
  *   --rottest / --reveal <q> [screen] / --wheel: the other verification
  *               hooks (see their blocks below).
+ *   --tour  the docs promo film (S3 466 only): the full 17-screen round
+ *           trip through the REAL UI, scripted by the same indev as
+ *           --wheel (real widgets tapped at their AABB centres, real
+ *           rollers dragged, the wheel keyboard typed with the
+ *           never-tap rules), every frame dumped from the display front
+ *           buffer as out/tour_%04d.png at the film's 15 fps. Encoded
+ *           by docs/gen_media.py into docs/img/promo.mp4.
  *   --dial [screen]  (knob panel only) capture the dial edit cursor:
  *               screens_dial_init + one clockwise detent on the given
  *               screen (default settings_hub), written to
@@ -309,6 +316,302 @@ static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
     wheel_tap(disp, UI_PANEL_PX / 2, UI_PANEL_PX / 2 + UI_PX(18));
     pump(disp, 100);
     (void)indev;
+}
+
+/* ---- --tour: the docs promo film (the scripted round trip) ----------
+ * The whole UI as a 15 fps film: one frame per 20 ms of sim clock,
+ * dumped from the display front buffer (the sim's screen switches are
+ * lv_scr_load with no fade, so a per-frame full-panel dump IS the true
+ * panel state). The input is the --wheel scripted indev: real widgets
+ * tapped at their AABB centres (rotation-safe), real rollers dragged
+ * (press - move - release = one detent, the RELEASED persist), the
+ * wheel keyboard typed with the on-device tour's never-tap rules
+ * (docs/verification/demo-mode): NEVER the COMMIT key (LVGL 60 deg - it
+ * writes wifi_credentials.txt + starts a connect) and NEVER the alarm
+ * master glyph (it deactivates every rule); the wheel is left with
+ * DISCARD (LVGL 120 deg) + the centre 400 ms long-press. */
+
+static int s_tour_n; /* the frame counter (out/tour_%04d.png) */
+
+/* A settle after a tap / screen swap (~0.5 s of the film). */
+#define TOUR_SETTLE 8
+/* A sub-screen / machine-screen dwell (~1.3 s). */
+#define TOUR_DWELL 20
+
+/* Dump the display front buffer as the next numbered frame. */
+static int tour_capture(lv_display_t *disp) {
+    lv_refr_now(disp);
+    static uint8_t *rgb;
+    if (!rgb) {
+        rgb = malloc((size_t)W * H * 3);
+        if (!rgb)
+            return 1;
+    }
+    for (int i = 0; i < W * H; i++) {
+        uint16_t p = ((const uint16_t *)s_fb)[i];
+        rgb[i * 3] = (uint8_t)((p >> 11) * 255 / 31);
+        rgb[i * 3 + 1] = (uint8_t)((p >> 5 & 0x3F) * 255 / 63);
+        rgb[i * 3 + 2] = (uint8_t)((p & 0x1F) * 255 / 31);
+    }
+    char path[64];
+    snprintf(path, sizeof path, "out/tour_%04d.png", s_tour_n++);
+    if (!stbi_write_png(path, W, H, 3, rgb, W * 3)) {
+        fprintf(stderr, "tour: failed to write %s\n", path);
+        return 1;
+    }
+    return 0;
+}
+
+/* `frames` film frames: the sim clock advances 20 ms per frame (the
+ * seconds arc and the HH:MM roll keep moving - the film shows a live
+ * clock, not frozen stills). The device's screen tick runs on its own
+ * timer (not the sim's lv_timer_handler), so the first frame gets one
+ * ui_tick() - without it the WiFi list would freeze on its SCANNING
+ * placeholder (the rows render inside the tick, after the stub scan
+ * completes). */
+static int tour_dwell(lv_display_t *disp, int frames) {
+    ui_tick();
+    for (int i = 0; i < frames; i++) {
+        pump(disp, 20);
+        if (tour_capture(disp))
+            return 1;
+    }
+    return 0;
+}
+
+/* A scripted tap at a panel point: the press frame (the touched state)
+ * + a settle dwell. */
+static int tour_tap_at(lv_display_t *disp, int32_t x, int32_t y) {
+    wheel_press_at(disp, x, y);
+    if (tour_capture(disp))
+        return 1;
+    wheel_release_at(disp, x, y);
+    return tour_dwell(disp, TOUR_SETTLE);
+}
+
+/* Tap a real widget at its AABB centre. */
+static int tour_tap_obj(lv_display_t *disp, lv_obj_t *obj) {
+    if (!obj)
+        return 1;
+    lv_area_t a;
+    lv_obj_get_coords(obj, &a);
+    return tour_tap_at(disp, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
+}
+
+/* One roller detent at a panel point: press, drag `dy` px in 5 steps
+ * (so the gesture reads on camera), release (the RELEASED persist). */
+static int tour_roller_drag(lv_display_t *disp, int32_t x, int32_t y, int32_t dy) {
+    wheel_press_at(disp, x, y);
+    const int n = 5;
+    for (int i = 1; i <= n; i++)
+        wheel_move_to(disp, x, y + dy * i / n);
+    if (tour_capture(disp)) /* the mid-drag frame (the rows shifted) */
+        return 1;
+    wheel_release_at(disp, x, y + dy);
+    return tour_dwell(disp, TOUR_SETTLE);
+}
+
+/* One detent on a real roller object (at its centre). */
+static int tour_roller_obj(lv_display_t *disp, lv_obj_t *obj, int32_t dy) {
+    if (!obj)
+        return 1;
+    lv_area_t a;
+    lv_obj_get_coords(obj, &a);
+    return tour_roller_drag(disp, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, dy);
+}
+
+/* The screen ROOT of an id (the layout contract: the objects array is
+ * the ScreensEnum order, 1-based). */
+static lv_obj_t *tour_root(enum ScreensEnum id) { return ((lv_obj_t **)&objects)[id - 1]; }
+
+/* A machine-only screen (the sleep states, the transient sync, the
+ * alarm fire): the sleep MACHINE enters these, not a touch, so the
+ * film loads them directly with the device entry's look mirrored
+ * (snapshot_one): light sleep dims the clock, deep sleep hides it. */
+static int tour_machine_screen(lv_display_t *disp, enum ScreensEnum id) {
+    loadScreen(id);
+    ui_tick();
+    if (id == SCREEN_ID_LIGHT_SLEEP) {
+#ifndef CONFIG_UI_CLOCK_ALPHA_PCT
+#define CONFIG_UI_CLOCK_ALPHA_PCT 20
+#endif
+        lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
+    } else if (id == SCREEN_ID_DEEP_SLEEP) {
+        lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
+    } else if (id == SCREEN_ID_SETTINGS_WIFI) {
+        /* The hub-icon entry path: arm the scan (the stub's canned
+         * list is immediately complete) + render the rows. */
+        settings_screen_refresh_for(id);
+        ui_tick();
+    }
+    pump(disp, 300); /* the HH:MM attach roll must finish before the film */
+    return tour_dwell(disp, TOUR_DWELL);
+}
+
+/* The whole tour: home -> hub -> every ring icon (with its
+ * sub-screen's interactions) -> hub exit -> the machine-only screens
+ * -> home. Returns 0 on success. */
+static int tour_run(lv_display_t *disp) {
+    const int32_t C = UI_PANEL_PX / 2;
+    lv_obj_t *icons[8];
+    enum ScreensEnum targets[8];
+    const int nicons = screens_hub_icons((const lv_obj_t **)icons, targets, 8);
+
+    /* 1. Home: the live moon at the sim's seed, the clock, the seconds
+     * arc - the hero shot. The root pass-through tap opens the hub. */
+    if (tour_dwell(disp, 45))
+        return 1;
+    if (tour_tap_at(disp, C, C))
+        return 1;
+    if (tour_dwell(disp, 45)) /* the hub: the ring reads on camera */
+        return 1;
+
+    /* 2. The ring walk, in ring order (the registry order). */
+    for (int i = 0; i < nicons; i++) {
+        int exited = 0; /* the flow already back at the hub */
+        if (tour_tap_obj(disp, icons[i]))
+            return 1;
+        switch (targets[i]) {
+        case SCREEN_ID_SETTINGS_ALARM:
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            /* NEVER the master glyph (the deactivate-all rule). The
+             * two entries: the pomodoro interval, then the real-alarm
+             * time - each a round trip through its own sub-screen. */
+            if (tour_tap_obj(disp, objects.settings_alarm_pomodoro))
+                return 1;
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            if (tour_roller_obj(disp, objects.settings_pomodoro_roller_h, -100))
+                return 1;
+            if (tour_tap_obj(disp, screens_sub_exit_get(tour_root(SCREEN_ID_SETTINGS_POMODORO))))
+                return 1;
+            if (tour_dwell(disp, 6))
+                return 1;
+            if (tour_tap_obj(disp, objects.settings_alarm_clock))
+                return 1;
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            if (tour_roller_obj(disp, objects.settings_alarm_time_roller_h, -100))
+                return 1;
+            if (tour_tap_obj(disp, screens_sub_exit_get(tour_root(SCREEN_ID_SETTINGS_ALARM_TIME))))
+                return 1;
+            break;
+        case SCREEN_ID_SETTINGS_LIGHT_SLEEP:
+        case SCREEN_ID_SETTINGS_DEEP_SLEEP:
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            if (tour_roller_drag(disp, C, C, -100)) /* the centred minutes roller */
+                return 1;
+            break;
+        case SCREEN_ID_SETTINGS_WIFI:
+            if (tour_dwell(disp, TOUR_DWELL)) /* the canned scan lands: rows */
+                return 1;
+            /* The AP row (the roller's window centre = the selected
+             * entry) opens the wheel keyboard with the SSID prefilled. */
+            if (tour_tap_obj(disp, screens_wifi_row_get(0)))
+                return 1;
+            if (tour_dwell(disp, 30)) /* the wheel: the keyboard hero */
+                return 1;
+            {
+                /* Two letters (press + release commits on release). */
+                lv_point_t p;
+                for (int slot = 7; slot <= 8; slot++) {
+                    wheel_point_deg(wheel_slot_deg(slot), UI_PX(188), &p);
+                    wheel_press_at(disp, p.x, p.y);
+                    if (tour_capture(disp))
+                        return 1;
+                    wheel_release_at(disp, p.x, p.y);
+                    if (tour_dwell(disp, 4))
+                        return 1;
+                }
+                /* The register keys (LVGL 180+60k, r 114): ABC, 123,
+                 * back to abc - the remap reads on camera. */
+                const double regs[3] = {240.0, 300.0, 180.0};
+                for (int k = 0; k < 3; k++) {
+                    wheel_point_deg(regs[k], UI_PX(114), &p);
+                    if (tour_tap_at(disp, p.x, p.y))
+                        return 1;
+                }
+                /* DISCARD (LVGL 120): the password clears. */
+                wheel_point_deg(120.0, UI_PX(114), &p);
+                if (tour_tap_at(disp, p.x, p.y))
+                    return 1;
+                /* The centre long-press exits to the list (a plain tap
+                 * only backspaces). The hold re-drives the indev so the
+                 * 400 ms long-press state machine ages. */
+                wheel_press_at(disp, C, C);
+                if (tour_capture(disp))
+                    return 1;
+                wheel_hold(disp, C, C, 200);  /* ~600 ms of tick: past 400 */
+                wheel_release_at(disp, 5, 5); /* off any row */
+                if (tour_dwell(disp, 6))
+                    return 1;
+            }
+            /* The list's exit back to the hub. */
+            if (tour_tap_obj(disp, screens_sub_exit_get(tour_root(SCREEN_ID_SETTINGS_WIFI))))
+                return 1;
+            exited = 1;
+            break;
+        case SCREEN_ID_SETTINGS_TZ:
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            if (tour_roller_obj(disp, objects.settings_tz_roller, -100))
+                return 1;
+            break;
+        case SCREEN_ID_SETTINGS_ALARM_SOUND:
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            if (tour_roller_obj(disp, objects.settings_alarm_sound_roller, -100))
+                return 1;
+            if (tour_tap_at(disp, C + UI_PX(150), C)) /* the preview speaker */
+                return 1;
+            break;
+        case SCREEN_ID_SETTINGS_DISPLAY:
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            /* The 0..359 trim roller (the centre card tips live): at
+             * the panel centre minus UI_PX(100). */
+            if (tour_roller_drag(disp, C, C - UI_PX(100), -60))
+                return 1;
+            break;
+        default: /* the P4's clock icon (not on the S3/knob ring): dwell */
+            if (tour_dwell(disp, TOUR_DWELL))
+                return 1;
+            break;
+        }
+        if (!exited) {
+            /* Every icon's sub-screen exits to the hub (the shell's
+             * bottom-centre X). */
+            if (tour_tap_obj(disp, screens_sub_exit_get(tour_root(targets[i]))))
+                return 1;
+            if (tour_dwell(disp, 6)) /* a beat so the ring reads again */
+                return 1;
+        }
+    }
+
+    /* 3. The hub's central exit -> home. */
+    if (tour_dwell(disp, 15))
+        return 1;
+    if (tour_tap_obj(disp, objects.settings_hub_exit))
+        return 1;
+    if (tour_dwell(disp, 15))
+        return 1;
+
+    /* 4. The machine-only screens (the sleep machine + the transient
+     * sync + the alarm fire), then the final home hold. */
+    if (tour_machine_screen(disp, SCREEN_ID_LIGHT_SLEEP))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_DEEP_SLEEP))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_WIFI))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_ALARM))
+        return 1;
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
+    ui_tick();
+    pump(disp, 300); /* the attach roll settles before the last frames */
+    return tour_dwell(disp, 45);
 }
 
 struct screen_entry {
@@ -789,6 +1092,28 @@ int main(int argc, char **argv) {
 
         lv_indev_delete(indev);
         return fail;
+    }
+
+    /* --tour: the docs promo film (the S3 466 set only - docs/gen_media.py
+     * pins the frame size like the fade). */
+    if (argc > 1 && !strcmp(argv[1], "--tour")) {
+        if (W != 466) {
+            fprintf(stderr, "--tour is the S3 466 film (run build.sh run --tour without --panel)\n");
+            return 1;
+        }
+        lv_indev_t *indev = lv_indev_create();
+        lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_read_cb(indev, wheel_indev_read);
+        s_wheel_indev = indev;
+        /* The home screen at the sim's seed (the film's opening). */
+        loadScreen(SCREEN_ID_MODEM_SLEEP);
+        ui_tick();
+        pump(disp, 300); /* the attach roll settles before the first frame */
+        int rc = tour_run(disp);
+        lv_indev_delete(indev);
+        if (!rc)
+            printf("tour: %d frames written (out/tour_*.png)\n", s_tour_n);
+        return rc;
     }
 
     int fail = 0;

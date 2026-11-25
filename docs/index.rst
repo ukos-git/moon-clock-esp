@@ -34,6 +34,19 @@ hardware fade
    the minute, the seconds arc. The renders throughout these docs
    show what the *panel* actually shows.
 
+.. raw:: html
+
+   <video src="_static/img/promo.mp4" controls muted playsinline
+          width="400" style="margin: 1em auto; display: block;"></video>
+
+The whole interface on camera — a one-minute tour computed live by
+the docs build from the same simulator that produces the
+screenshots: the real ``screens.c`` driven by a scripted touch
+through every screen, the settings hub and its icon ring, the sleep
+timeouts, the timezone and alarm-sound pickers, and the round
+letter-wheel keyboard (the ``--tour`` capture,
+:doc:`the build system <reference/build-system>`).
+
 This documentation covers a real, working product end to end: the C
 core that bakes a moon frame on a microcontroller, the display
 pipeline that ships each frame as one atomic whole-panel flush, the
