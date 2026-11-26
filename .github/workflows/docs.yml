@@ -61,11 +61,12 @@ jobs:
         run: |
           python3 -m venv host_sim/.venv
           host_sim/.venv/bin/pip install -q -r assets/images/moon/requirements.txt
-      - name: Moon assets (sha256-pinned NASA fetch, the gate refs + the docs foundry faces, then the bake of all three boards)
-        # --refs: the SVS 5415 gate/quarter reference frames (the
-        # MEDIA_NASA leg's answer key) + the 8760-hour mooninfo (the
-        # gate's selector input) — resumable, so a re-run is cheap.
-        # --fonts: the four foundry faces gen_perf_glyphs.py refuses to
+      - name: Moon assets (the committed NASA ground truth + the gate refs + the docs foundry faces, then the bake of all three boards)
+        # The SVS 4720 kit (LFS) + the 36 SVS 5415 gate/quarter frames
+        # + mooninfo_2025.json ship with the repo (static, sha256-pinned,
+        # public domain) — no NASA fetch. --refs re-verifies the frames
+        # and crops the MEDIA_NASA leg's answer key (final_400x400/);
+        # --fonts the four foundry faces gen_perf_glyphs.py refuses to
         # run without. Bootstraps its own assets/images/moon/.venv.
         run: python3 assets/images/moon/get_assets.py --refs --fonts
       - name: Cache the ESP-IDF toolchain (~1.5 GB)

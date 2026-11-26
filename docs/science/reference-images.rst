@@ -98,8 +98,8 @@ below is the exact download-and-reduce recipe, line by line after it.
 
    The answer key, literally: five crops from the 8,760-frame series
    — the four quarter marks plus the final frame — read straight from
-   the gitignored SVS 5415 frames under
-   ``assets/images/moon/final_400x400/`` (``moon.NNNN.png``, 1-based;
+   the answer-key crops under ``assets/images/moon/final_400x400/``
+   (``moon.NNNN.png``, 1-based;
    hour *h* → ``moon.{h+1:04d}.png``, the gate's own reference
    mapping). Each caption's illumination is computed by the project's
    own ``moon.astro.geometry`` — the same physics the devices run —
@@ -113,18 +113,21 @@ The validation reference is NASA's
 `"Moon Phases for 2025" <https://svs.gsfc.nasa.gov/5415/>`_ — 8,760
 frames (one per hour of 2025) of the Moon as seen from Earth,
 rendered by NASA's visualization group with real ephemeris and real
-surface data. ``python3 assets/images/moon/get_assets.py --refs``
-downloads exactly the frames the pipeline reads — the gate's 32-frame
-set plus the five quarter-hours of the strip above — from the
-1920×1080 series and crops each to a 400×400 PNG (the display is
-round, so the crop is a circle; 400 px matches the gate's working
-resolution). The by-hand full-series form of that recipe, run from
+surface data. The 36 frames the pipeline reads — the gate's 32-frame
+set plus the five quarter-hours of the strip above — are committed
+from the 1920×1080 series under
+``assets/images/moon/moon_phases_2025/`` (LFS, sha256-pinned), and
+``python3 assets/images/moon/get_assets.py --refs`` crops each
+committed frame to a 400×400 PNG (the display is round, so the crop is
+a circle; 400 px matches the gate's working resolution). The by-hand
+FULL-SERIES form of that recipe — 8,760 frames, now from the Internet
+Archive since SVS retired its ``/vis/`` tree on 2026-11-26 — run from
 ``assets/images/moon/``, is::
 
    mkdir -p moon_phases_2025
    cd moon_phases_2025
-   seq -f "%04g" 1 8760 | xargs -P 8 -I {} curl -O \
-     "https://svs.gsfc.nasa.gov/vis/a000000/a005400/a005415/frames/1920x1080_16x9_30p/plain/moon.{}.tif"
+   seq -f "%04g" 1 8760 | xargs -P 8 -I {} curl -fL -O \
+     "http://web.archive.org/web/2025id_/https://svs.gsfc.nasa.gov/vis/a000000/a005400/a005415/frames/1920x1080_16x9_30p/plain/moon.{}.tif"
    cd ..
    mkdir -p final_400x400
    ls moon_phases_2025/moon.*.tif | parallel -j 8 --bar \

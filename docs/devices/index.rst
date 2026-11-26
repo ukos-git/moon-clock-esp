@@ -129,7 +129,7 @@ Build and flash conventions
 
 .. graphviz:: ../_graphs/build-flash.dot
    :alt: Build and flash sequence — export, assets, config merge, build, size check, flash, monitor
-   :caption: The unrolled commands: ``source ~/esp/esp-idf/export.sh``, the asset acquisition + bake (``python3 assets/images/moon/get_assets.py`` fetches the NASA kit sha256-pinned and bakes; the bake alone is ``cd assets/images/moon && .venv/bin/python -m moon.assets`` — its outputs are local and gitignored), the size budget (2048 K S3 — the binding constraint — / 9216 K P4 / 4096 K knob), and the port rule that closes the chain: flash the ``chip_id``-verified port, never a remembered one.
+   :caption: The unrolled commands: ``source ~/esp/esp-idf/export.sh``, the asset bake (``python3 assets/images/moon/get_assets.py`` re-verifies the committed NASA kit (LFS, sha256-pinned) and bakes; the bake alone is ``cd assets/images/moon && .venv/bin/python -m moon.assets`` — its outputs are local and gitignored), the size budget (2048 K S3 — the binding constraint — / 9216 K P4 / 4096 K knob), and the port rule that closes the chain: flash the ``chip_id``-verified port, never a remembered one.
    :align: center
 
 The chain above is one leg of the journey. The whole first-bring-up —

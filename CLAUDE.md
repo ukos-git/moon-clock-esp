@@ -200,13 +200,19 @@ idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
 # flash the board you identified (see "Identifying the boards"):
 idf.py flash -p <port>
 idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
-# moon assets — ONE-SHOT acquisition on a fresh clone (stdlib python3; fetches
-# the NASA SVS 4720 kit sha256+size-pinned into assets/images/moon/moon-kit/,
-# bootstraps its own .venv, regenerates tone_lut.bin, bakes out/{s3,p4,knob};
-# --refs adds mooninfo_2025.json + the SVS 5415 gate/docs reference frames,
-# --fonts the four foundry faces under assets/fonts/ (the docs glyph figure,
-# gen_perf_glyphs.py) — everything it writes is gitignored; provenance +
-# pins: assets/images/moon/README.md):
+# moon assets — the NASA ground truth SHIPS WITH THE REPO (static,
+# proven — one constant archive digest 2020-2026; sha256+size-pinned,
+# public domain): the SVS 4720 kit (assets/images/moon/moon-kit/) + the
+# 36 SVS 5415 gate/quarter frames (moon_phases_2025/) via LFS and
+# mooninfo_2025.json as tracked JSON. The ONE-SHOT step on a fresh
+# clone (stdlib python3) re-verifies the committed sources against
+# their pins (re-fetched from the Internet Archive on a failed pin —
+# SVS retired its /vis/ tree 2026-11-26), bootstraps its own .venv,
+# regenerates tone_lut.bin, bakes out/{s3,p4,knob}; --refs adds the
+# final_400x400/ answer-key crops, --fonts the four foundry faces under
+# assets/fonts/ (the docs glyph figure, gen_perf_glyphs.py) — the
+# derived products stay gitignored; provenance + pins:
+# assets/images/moon/README.md):
 python3 assets/images/moon/get_assets.py --refs --fonts
 # moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
 # assets/images/moon/out/{s3,p4,knob}/); the root CMakeLists FATAL_ERRORs on a

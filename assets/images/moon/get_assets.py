@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """One-shot moon-asset acquisition for a fresh clone.
 
-Every moon-asset *binary* in this project is either downloaded or generated
--- nothing in ``assets/`` is committed, and this script is the single
-tracked entry point that re-acquires what ``.gitignore`` deliberately keeps
-out of the tree: the two NASA source TIFFs (``moon-kit/``), the baked
-per-board blobs (``out/<target>/``), the fetched ``mooninfo_2025.json`` and
-the reference renders (``final_400x400/``), plus the local ``.venv``. The
-pipeline *code* (the ``moon/`` package, this script, the research scripts)
-is tracked.
+The STATIC NASA ground truth ships with the repo: the two NASA source TIFFs
+(``moon-kit/``), the 36 SVS 5415 gate/quarter reference frames
+(``moon_phases_2025/``) and the 8760-hour ``mooninfo_2025.json`` are
+committed (the TIFs via LFS) because the data is proven static (the archive
+snapshots carry one constant digest 2020 to 2026) and public-domain — a
+fresh clone therefore works with no network round-trip to NASA. Everything
+ELSE the pipeline needs is still downloaded or generated, and this script
+is the single tracked entry point that acquires it: the baked per-board
+blobs (``out/<target>/``), the answer-key crops (``final_400x400/``),
+``tone_lut.bin``, the docs font faces (``assets/fonts/``) and the local
+``.venv``. The pipeline *code* (the ``moon/`` package, this script, the
+research scripts) is tracked too.
 
 Run it with any Python 3 -- it is stdlib-only and bootstraps its own venv:
 
@@ -24,8 +28,12 @@ Steps
 -----
 1. venv      Create ``.venv`` (uv when present, else venv+pip) and install
              ``requirements.txt`` into it.
-2. sources   Download the CGI Moon Kit pair (NASA SVS 4720) into
-             ``moon-kit/``, sha256- and size-pinned. NASA's edge sometimes
+2. sources   The CGI Moon Kit pair (NASA SVS 4720) in ``moon-kit/`` is
+             COMMITTED (LFS, sha256- and size-pinned) — on a fresh LFS
+             clone this step is a no-op hash pass. It only re-downloads
+             (from the primary or the archive fallback below) when a copy
+             fails its pins (a ``--force``, a missing LFS pull). NASA's
+             edge sometimes
              sends the leaf certificate without its Let's Encrypt
              intermediate; we then emulate the browser's AIA fetch once
              (fetch the CA-Issuers URI over http, add it as an extra trust

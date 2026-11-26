@@ -21,7 +21,7 @@ digraph assets_pipeline {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    src [label="THE SOURCES — LROC\nalbedo + LOLA DEM, one\ndataset, fetched into\nmoon-kit/ by get_assets.py\n(sha256-pinned)",
+    src [label="THE SOURCES — LROC\nalbedo + LOLA DEM, one\ndataset, committed in\nmoon-kit/ (LFS, static,\nsha256-pinned)",
          fillcolor="#efece4"];
     cli [label="THE CLI —\npython -m moon.assets\n--target s3 p4 knob",
          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];

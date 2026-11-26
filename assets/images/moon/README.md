@@ -1,8 +1,12 @@
 # Moon assets — pipeline + acquisition
 
 Everything the `moon_assets` partition and the image gate need, rebuilt from
-NASA's published data. **Nothing binary in this directory is committed** — one
-script fetches and generates it all:
+NASA's published data. The **static NASA ground truth is committed** (the SVS
+4720 kit TIFs and the 36 SVS 5415 gate/quarter frames via LFS, plus the
+8760-hour `mooninfo_2025.json` — proven static: every archive snapshot of the
+kit carries one constant digest from 2020 to 2026, and the files are
+U.S.-government works, public domain). Everything _derived_ is still generated
+locally — one script builds and fetches the rest:
 
 ```bash
 python3 assets/images/moon/get_assets.py            # bake all three boards
@@ -17,19 +21,20 @@ stdlib Python 3 on the host, plus `openssl` (NASA TLS fallback) and ImageMagick
 
 ## What lands where
 
-| Path                                                                     | Comes from                                       | Tracked? |
-| ------------------------------------------------------------------------ | ------------------------------------------------ | -------- |
-| `moon/` (package), `get_assets.py`, `requirements.txt`, research scripts | this repo                                        | **yes**  |
-| `moon-kit/lroc_color_16bit_srgb_4k.tif`                                  | NASA SVS 4720, sha256-pinned                     | no       |
-| `moon-kit/ldem_16.tif`                                                   | NASA SVS 4720, sha256-pinned                     | no       |
-| `tone_lut.bin`                                                           | raw dump of `moon/constants.py::TONE_LUT`        | no       |
-| `out/<target>/moon_assets.bin` + manifest                                | `python -m moon.assets` (bake)                   | no       |
-| `components/moon/generated/<target>/moon_consts.h`                       | same bake (tracked — it is a _source_)           | **yes**  |
-| `mooninfo_2025.json` (+ resumable `.mooninfo/` cache)                    | NASA dialamoon API, 8760 calls                   | no       |
-| `moon_phases_2025/*.tif`, `final_400x400/*.png`                          | NASA SVS 5415, cropped by ImageMagick            | no       |
-| `../../fonts/Montserrat/Montserrat-{Regular,Bold}.ttf`                   | designer's upstream repo, commit + sha256-pinned | no       |
-| `../../fonts/Fontawesome/Font Awesome 7 Free-*.otf`                      | official FA 7.3.1 release zip, member-pinned     | no       |
-| `.venv/`                                                                 | `requirements.txt`                               | no       |
+| Path                                                                     | Comes from                                                                          | Tracked? |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | -------- |
+| `moon/` (package), `get_assets.py`, `requirements.txt`, research scripts | this repo                                                                           | **yes**  |
+| `moon-kit/lroc_color_16bit_srgb_4k.tif`                                  | NASA SVS 4720, sha256-pinned (committed, LFS)                                       | **yes**  |
+| `moon-kit/ldem_16.tif`                                                   | NASA SVS 4720, sha256-pinned (committed, LFS)                                       | **yes**  |
+| `tone_lut.bin`                                                           | raw dump of `moon/constants.py::TONE_LUT`                                           | no       |
+| `out/<target>/moon_assets.bin` + manifest                                | `python -m moon.assets` (bake)                                                      | no       |
+| `components/moon/generated/<target>/moon_consts.h`                       | same bake (tracked — it is a _source_)                                              | **yes**  |
+| `mooninfo_2025.json` (+ resumable `.mooninfo/` cache)                    | NASA dialamoon API, 8760 calls (committed; the `.mooninfo/` cache stays gitignored) | **yes**  |
+| `moon_phases_2025/moon.NNNN.tif` (the 36 gate + quarter frames)          | NASA SVS 5415 (committed, LFS)                                                      | **yes**  |
+| `final_400x400/moon.NNNN.png` (the answer-key crops)                     | cropped from the above with ImageMagick                                             | no       |
+| `../../fonts/Montserrat/Montserrat-{Regular,Bold}.ttf`                   | designer's upstream repo, commit + sha256-pinned                                    | no       |
+| `../../fonts/Fontawesome/Font Awesome 7 Free-*.otf`                      | official FA 7.3.1 release zip, member-pinned                                        | no       |
+| `.venv/`                                                                 | `requirements.txt`                                                                  | no       |
 
 The bake reads the albedo from `moon-kit/` and the DEM from `$MOON_HEIGHT` →
 `moon-kit/ldem_16.tif` → legacy `/tmp/moon-research/ldem_16.tif` (in that
@@ -92,17 +97,20 @@ cover integrity regardless of the transport quirk.
 Retirement note (2026-11-26): `svs.gsfc.nasa.gov` began answering a uniform
 `403 Forbidden` for its whole `/vis/` data tree — the kit TIFFs and the 5415
 frames alike, known paths and unknown, any User-Agent or referrer — while the
-homepage and the `/api/dialamoon` leg stayed live. `get_assets.py`'s `fetch()`
-now therefore offers an Internet Archive fallback for SVS data files: when the
-primary fails, it retries the same path from the archive's status-200 snapshot
-(raw `id_` serve, resolved via the availability API) and holds that copy to the
-**same sha256/size pins** — the archive copy is byte-identical to the
-pre-retirement local copies. The pins, not the server, are the provenance; the
-dialamoon API needs no fallback (still served).
+homepage and the `/api/dialamoon` leg stayed live. The data it serves is proven
+static (one constant archive digest 2020–2026) and public-domain, so it now
+**ships with the repo** (the TIFs via LFS, `mooninfo_2025.json` as plain JSON):
+a fresh clone needs no round-trip to NASA. `get_assets.py`'s `fetch()` still
+offers an Internet Archive fallback for SVS data files (used by a `--force`
+re-download or a re-pin): when the primary fails, it retries the same path from
+the archive's status-200 snapshot (raw `id_` serve, resolved via the
+availability API) and holds that copy to the **same sha256/size pins** — the
+archive copy is byte-identical to the committed copies. The pins, not the
+server, are the provenance; the dialamoon API needs no fallback (still served).
 
 If NASA ever moves a pinned file, `get_assets.py` **refuses** it (sha256
 mismatch) rather than baking unknown bytes — re-verify upstream and update
-`SOURCES` in the script.
+`SOURCES` in the script (and the committed copy).
 
 ## The bake itself
 

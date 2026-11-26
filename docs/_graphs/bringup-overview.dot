@@ -33,7 +33,7 @@ digraph bringup_overview {
           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
     prov [label="the network (step 4)\nhub → WiFi screen → wheel keyboard\n→ wifi_credentials.txt",
           fillcolor="#dfe6f1", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.8];
-    assets [label="moon assets — OPTIONAL\nget_assets.py fetch+bake;\nre-bake after a pipeline or\nMOON_ALBEDO_W change",
+    assets [label="moon assets — OPTIONAL\nget_assets.py bake (the\nNASA sources ship in the\nrepo); re-bake after a\npipeline or MOON_ALBEDO_W\nchange",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
     host -> port [color="#2b5fb0", penwidth=1.6, fontcolor="#1e3f70"];

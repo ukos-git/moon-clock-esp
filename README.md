@@ -63,7 +63,9 @@ esptool.py --port <port> chip_id       # ESP32S3 -> the 1.75; ESP32-P4 -> the 4C
 # build + flash the S3 (the default target)
 git clone <this repo> && cd <this repo>
 
-# one-time NASA asset acquisition (everything it writes is gitignored)
+# the NASA ground truth (kit TIFs + gate/quarter frames) ships with the
+# repo (LFS) — this bakes the per-board blobs from it (writes gitignored
+# out/ output, bootstraps its own .venv; --refs adds the answer-key crops):
 python3 assets/images/moon/get_assets.py --refs
 
 idf.py build
@@ -89,9 +91,12 @@ persist in the board's SPIFFS.
 - **Timezone:** `idf.py menuconfig` → _Component config → Clock Component
   Configuration → Default timezone_.
 - **Moon assets:** the `moon_assets` partition holds the per-board equirect
-  albedo + relief DEM — **nothing binary under `assets/` is committed**. One
-  stdlib script acquires and bakes it all (NASA sources sha256-pinned,
-  bootstraps its own `.venv`; `--refs` adds the image-gate reference frames,
+  albedo + relief DEM. The **NASA ground truth ships with the repo** (the SVS
+  4720 kit TIFs + the 36 SVS 5415 gate/quarter frames via LFS, and
+  `mooninfo_2025.json` — proven static, sha256-pinned, public domain); only the
+  _derived_ products (the baked `out/<target>/` blobs, the `final_400x400/`
+  crops, the venv) are gitignored. One stdlib script bakes and fetches the rest
+  (bootstraps its own `.venv`; `--refs` adds the image-gate answer-key crops,
   `--fonts` the four foundry faces the docs glyph figure needs):
   `python3 assets/images/moon/get_assets.py --refs --fonts`. After a pipeline
   change re-bake with

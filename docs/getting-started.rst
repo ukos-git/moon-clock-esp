@@ -155,29 +155,38 @@ The ``moon_assets`` partition holds the pre-baked equirect albedo +
 relief DEM — one blob **per board target** (the S3's 864×432 albedo
 and 2048×1024 DEM fit its 2560 K partition; the P4's 2048×1024 pair
 fits its 5120 K —
-:doc:`the partition tables <reference/partitions>`). **Nothing binary
-under ``assets/`` is committed** — every downloadable or generated
-file is re-acquired by one stdlib script, and it is idempotent (a
-re-run re-verifies what exists and fetches only what is missing):
+:doc:`the partition tables <reference/partitions>`). The **NASA ground
+truth ships with the repo** — the CGI Moon Kit pair from SVS 4720
+(``moon-kit/``: the 4096×2048 16-bit LROC albedo loaded 16-bit via
+tifffile, carrying the 180° longitude offset, and the LOLA relief DEM)
+and the 36 SVS 5415 gate/quarter reference frames
+(``moon_phases_2025/``) are committed via LFS, and the 8760-hour
+``mooninfo_2025.json`` is plain tracked JSON — proven static (one
+constant archive digest 2020–2026), sha256-pinned, public domain, so a
+fresh clone needs no network round-trip to NASA. Only the *derived*
+products (the ``out/<target>/`` bakes, the ``final_400x400/`` answer-key
+crops, ``tone_lut.bin``, the ``.venv``) are gitignored and re-built by
+one stdlib script, idempotently (a re-run re-verifies what exists and
+builds only what is missing):
 
 .. code-block:: bash
 
    python3 assets/images/moon/get_assets.py --refs
 
 That single command bootstraps the local ``.venv`` (uv when present,
-else ``venv`` + pip) from the tracked ``requirements.txt``, downloads
-the CGI Moon Kit pair from NASA SVS 4720 into ``moon-kit/`` — the
-4096×2048 16-bit LROC albedo (loaded 16-bit via tifffile; the texture
-carries the 180° longitude offset) and the LOLA relief DEM — under
-**sha256 + size pins** (a moved upstream file is refused, not baked),
-regenerates ``tone_lut.bin`` from the tracked ``moon/constants.py``
-table, bakes the per-target blob + manifest + the tracked generated
-header (``components/moon/generated/<target>/``) into
-``out/<target>/``, and — with ``--refs`` — fetches the hourly
-``mooninfo_2025.json`` (the dialamoon API, resumable under
-``.mooninfo/``) plus the SVS 5415 reference frames the image gate and
-the docs' NASA figures read, cropped to ``final_400x400/``.
-Provenance, every URL and pin: ``assets/images/moon/README.md``.
+else ``venv`` + pip) from the tracked ``requirements.txt``,
+re-verifies the committed sources against their **sha256 + size pins**
+(a failing copy is re-fetched from the primary — or the Internet
+Archive fallback, since SVS retired its ``/vis/`` tree on 2026-11-26 —
+and a moved file is refused, not baked), regenerates ``tone_lut.bin``
+from the tracked ``moon/constants.py`` table, bakes the per-target blob
++ manifest + the tracked generated header
+(``components/moon/generated/<target>/``) into ``out/<target>/``, and
+— with ``--refs`` — crops the committed SVS 5415 frames the image gate
+and the docs' NASA figures read into ``final_400x400/`` (the
+``mooninfo`` is already committed; the dialamoon fetch behind it is the
+fresh-acquisition path only). Provenance, every URL and pin:
+``assets/images/moon/README.md``.
 
 The build tolerates the blobs' absence — the configure only *warns*
 and the app boots without the textured moon — so this step is optional

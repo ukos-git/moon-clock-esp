@@ -197,9 +197,12 @@ The two are *different kinds* of flash data:
   the runtime state (accepted; ``spiffs/`` must not contain
   ``settings.txt``, which the app owns at runtime).
 - **``moon_assets``** is a *generated* blob — local-only and gitignored,
-  re-acquired end to end on a fresh clone by
-  ``python3 assets/images/moon/get_assets.py`` (checksum-pinned NASA
-  sources into ``moon-kit/``, the venv, then the bake —
+  baked on a fresh clone by
+  ``python3 assets/images/moon/get_assets.py`` from the NASA ground truth
+  that **ships with the repo** (the SVS 4720 kit TIFs committed via LFS,
+  the 36 SVS 5415 gate/quarter frames and ``mooninfo_2025.json`` —
+  proven static, sha256-pinned, public domain; the script bootstraps its
+  ``.venv`` and then bakes —
   :doc:`the Python API <python-api>`:
   ``cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob``
   — one blob per board under ``out/<target>/``). The build *warns*
@@ -446,9 +449,10 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    # build/moon_sim     the C-sim (the gate's C frames; --neutral for the
    #                    gate's physics config)
    # build/moon_bench   the performance bench (:doc:`performance <../verification/performance>`)
-   python3 assets/images/moon/get_assets.py --refs   # one-shot NASA fetch
-   #  (sha256-pinned kit + mooninfo + the gate/quarter reference frames;
-   #  runs the bake too — --target narrows it; sources cache under moon-kit/)
+   python3 assets/images/moon/get_assets.py --refs   # the image-gate refs
+   #  (crops the committed SVS 5415 frames — the kit TIFs + frames +
+   #  mooninfo_2025.json ship with the repo, LFS-pinned, no NASA fetch;
+   #  runs the bake too — --target narrows it)
    python3 assets/images/moon/get_assets.py --fonts  # the four foundry faces
    #  (assets/fonts/: Montserrat Regular/Bold from the designer's repo at a
    #  pinned commit + Font Awesome 7 Free from the 7.3.1 release zip — all
@@ -551,9 +555,13 @@ root and knob ``managed_components/``), so the job runs the P4 and
 knob builds first and the S3 build LAST — the root
 ``managed_components/`` holds only the last-resolved target's set and
 ``gen_perf_bus.py`` reads the S3 panel driver from it. The NASA legs
-fetch their answer key and the 8760-hour ``mooninfo`` with
-``get_assets.py --refs`` (sha256-pinned, resumable), and the gate
-runs against a fresh ``host_sim/build/moon_sim``. One first-time
+need no network at all: the ground truth (kit TIFs + the 36 SVS 5415
+gate/quarter frames via LFS, ``mooninfo_2025.json``) ships with the
+repo, so the job only crops the answer key with
+``get_assets.py --refs`` (the committed copies re-verify against their
+sha256/size pins; the Internet Archive fallback covers a ``--force``),
+and the gate runs against a fresh ``host_sim/build/moon_sim``. One
+first-time
 setting on the repo: Pages → Source → **GitHub Actions** — after
 that, each green ``main`` push republishes the site, and every
 build also uploads the site as a browsable Actions artifact (no

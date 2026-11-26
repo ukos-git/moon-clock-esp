@@ -6,9 +6,11 @@
 // the root build flow):
 //   source ~/esp/esp-idf/export.sh — ESP-IDF 5.5.1 in every build
 //   shell;
-//   the moon assets are acquired and baked locally and gitignored:
-//   python3 assets/images/moon/get_assets.py fetches the NASA kit
-//   (sha256-pinned) and bakes; the bake alone is
+//   the moon assets are baked locally (the bake is gitignored); the
+//   NASA ground truth (kit TIFs + gate/quarter frames, LFS) ships with
+//   the repo:
+//   python3 assets/images/moon/get_assets.py re-verifies the committed
+//   sources (sha256-pinned) and bakes; the bake alone is
 //   cd assets/images/moon && .venv/bin/python -m moon.assets, writing
 //   components/moon/generated/{s3,p4}/moon_consts.h and
 //   assets/images/moon/moon_assets.bin (the root CMakeLists
@@ -41,7 +43,7 @@ digraph build_flash {
 
     env [label="source the export.sh —\nESP-IDF 5.5.1 in every\nbuild shell",
          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    assets [label="the moon assets —\nget_assets.py fetch+bake\n(or python -m moon.assets):\ngenerated header + board\nblob (local, gitignored)",
+    assets [label="the moon assets —\nget_assets.py bake\n(the NASA sources ship\nwith the repo, LFS):\ngenerated header + board\nblob (local, gitignored)",
             fillcolor="#efece4"];
     cfg [label="set-target + the three\nsdkconfig.defaults merge\n(later file wins)",
          fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70"];
