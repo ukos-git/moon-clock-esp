@@ -89,6 +89,17 @@ its Let's Encrypt intermediate, which plain OpenSSL clients reject.
 what a browser does) and retries with the assembled chain. The checksum pins
 cover integrity regardless of the transport quirk.
 
+Retirement note (2026-11-26): `svs.gsfc.nasa.gov` began answering a uniform
+`403 Forbidden` for its whole `/vis/` data tree — the kit TIFFs and the 5415
+frames alike, known paths and unknown, any User-Agent or referrer — while the
+homepage and the `/api/dialamoon` leg stayed live. `get_assets.py`'s `fetch()`
+now therefore offers an Internet Archive fallback for SVS data files: when the
+primary fails, it retries the same path from the archive's status-200 snapshot
+(raw `id_` serve, resolved via the availability API) and holds that copy to the
+**same sha256/size pins** — the archive copy is byte-identical to the
+pre-retirement local copies. The pins, not the server, are the provenance; the
+dialamoon API needs no fallback (still served).
+
 If NASA ever moves a pinned file, `get_assets.py` **refuses** it (sha256
 mismatch) rather than baking unknown bytes — re-verify upstream and update
 `SOURCES` in the script.

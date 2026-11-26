@@ -30,6 +30,14 @@ Steps
              intermediate; we then emulate the browser's AIA fetch once
              (fetch the CA-Issuers URI over http, add it as an extra trust
              anchor) -- the payload stays checksum-verified regardless.
+             Since 2026-11-26 svs.gsfc.nasa.gov answers a uniform 403 for
+             its whole ``/vis/`` data tree (the homepage and the
+             ``/api/dialamoon`` leg are still live), every SVS data fetch
+             also carries an Internet Archive fallback: on a failed
+             primary, ``fetch()`` retries the file from the archive's
+             status-200 snapshot (raw ``id_`` serve) and holds THAT copy
+             to the same sha256/size pins -- provenance is the pin, not
+             the server.
 3. tone_lut  Regenerate ``tone_lut.bin`` from ``moon.constants.TONE_LUT``
              (the single source of truth the C header is generated from;
              the .bin is a raw dump the docs figures read).
@@ -227,6 +235,45 @@ def _ctx_with_aia(host: str) -> ssl.SSLContext:
 
 # --- downloads --------------------------------------------------------------
 
+def _wayback(url: str, timeout: int = 30) -> str | None:
+    """The Internet Archive's raw (``id_``) copy of ``url``, or None.
+
+    ``svs.gsfc.nasa.gov`` retired its ``/vis/`` data tree (uniform 403 for
+    every path in it, known and unknown alike, since 2026-11-26) while the
+    homepage and the dialamoon API stayed live. The archive holds 200
+    snapshots of the pinned files; only a snapshot the availability API
+    reports as status-200 is offered, and the caller's sha256/size checks
+    still apply to whatever bytes come back, so a broken snapshot can
+    never be kept.
+    """
+    api = ("http://archive.org/wayback/available?url="
+           + urllib.parse.quote(url, safe=""))
+    try:
+        with urllib.request.urlopen(api, timeout=timeout) as r:
+            snap = (json.loads(r.read())
+                    .get("archived_snapshots") or {}).get("closest")
+    except Exception:
+        return None
+    if not snap or snap.get("status") != "200":
+        return None
+    ts = str(snap.get("timestamp") or "")
+    u = snap.get("url") or ""
+    return u.replace(f"/web/{ts}/", f"/web/{ts}id_/", 1) if ts else None
+
+
+def _candidates(url: str):
+    """``url`` and, for NASA SVS data files, the archive fallback.
+
+    Lazy: the archive is only consulted after the primary fails, so a
+    healthy primary costs no extra lookup.
+    """
+    yield url
+    if url.startswith(SVS):
+        wb = _wayback(url)
+        if wb:
+            yield wb
+
+
 def _sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -249,11 +296,29 @@ def fetch(url: str, dest: str, sha256: str | None = None,
     tmp = dest + ".part"
     h = hashlib.sha256()
     n = 0
-    with _ssl_get(url) as r, open(tmp, "wb") as f:
-        for chunk in iter(lambda: r.read(1 << 20), b""):
-            f.write(chunk)
-            h.update(chunk)
-            n += len(chunk)
+    last: Exception | str | None = None
+    for cand in _candidates(url):
+        try:
+            with _ssl_get(cand) as r, open(tmp, "wb") as f:
+                for chunk in iter(lambda: r.read(1 << 20), b""):
+                    f.write(chunk)
+                    h.update(chunk)
+                    n += len(chunk)
+            if cand != url:
+                print(f"  fetched from the Internet Archive snapshot "
+                      f"({url} is down): {cand}")
+            break
+        except Exception as e:      # 403 from the retired tree, network, ...
+            last = e
+            if cand != url:
+                last = (f"{last}; and the Internet Archive snapshot "
+                        f"failed too")
+    else:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise SystemExit(f"{url}: {last} -- the pinned file could not be "
+                         "fetched from svs.gsfc.nasa.gov or the Internet "
+                         "Archive")
     if size is not None and n != size:
         os.unlink(tmp)
         raise SystemExit(f"{url}: got {n} B, expected {size}")
