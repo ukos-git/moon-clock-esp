@@ -14,6 +14,12 @@ Regenerate after any media run that changes the composite (the home
 screen, the product photo, the fit):
 
     docs/.venv/bin/python docs/tools/gen_hero.py
+
+Fresh-tree case (CI's first media run on a clean clone): the composite
+does not exist yet — the figs sweep the media builder runs FIRST
+predates the uisim + composite steps that produce it. That is not an
+error: the committed LFS webp (pulled by the checkout) is what ships,
+and a by-hand run after the media run refreshes it.
 """
 
 import sys
@@ -30,9 +36,9 @@ TARGET = 1024  # the long edge, px (the README's display size with headroom)
 
 def main():
     if not SRC.exists():
-        sys.exit(f"{SRC} missing — run a media build first "
-                 "(make -C docs media) or the composite "
-                 "(docs/tools/composite_dark.py)")
+        print(f"gen_hero.py: {SRC} missing (fresh tree) — keeping the "
+              f"committed {DST.name}")
+        return
     img = Image.open(SRC).convert("RGB")
     w, h = img.size
     scale = TARGET / max(w, h)

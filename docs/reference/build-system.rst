@@ -533,6 +533,33 @@ origin at ``127.0.0.1:8123``, ``DOCS_PORT=`` to move it, storage shared
 as designed) — over http the script degenerates to re-affirming what
 the storage already knows.
 
+GitHub Pages (the CI build + deploy)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``.github/workflows/docs.yml`` builds the site on every push to
+``main`` and deploys it to GitHub Pages. A fresh clone carries none of
+the gitignored media (the pages reference the screenshots, the
+figures, the NASA art and the films), so the CI build is the
+*canonical* media pipeline, not a shortcut: it runs
+``sphinx-build -b media`` with **both** opt-in legs
+(``MEDIA_NASA=1`` the five ``.. figure::`` answer-key refs,
+``MEDIA_VIDEOS=1`` the two raw-``<video>`` embeds) and then the
+``-W`` html build, so a missing media file is a warning and a
+warning is a failure. The perf figs parse the live build trees
+(``build/config``, ``build/esp-idf/``, ``build/moon-phase.bin``, the
+root and knob ``managed_components/``), so the job runs the P4 and
+knob builds first and the S3 build LAST — the root
+``managed_components/`` holds only the last-resolved target's set and
+``gen_perf_bus.py`` reads the S3 panel driver from it. The NASA legs
+fetch their answer key and the 8760-hour ``mooninfo`` with
+``get_assets.py --refs`` (sha256-pinned, resumable), and the gate
+runs against a fresh ``host_sim/build/moon_sim``. One first-time
+setting on the repo: Pages → Source → **GitHub Actions** — after
+that, each green ``main`` push republishes the site, and every
+build also uploads the site as a browsable Actions artifact (no
+branch involved; the deploy job consumes the artifact the build job
+produces).
+
 The standing rule (the doc)
 ---------------------------
 

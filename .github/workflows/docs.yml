@@ -1,0 +1,118 @@
+# Build the docs site and deploy it to GitHub Pages.
+#
+# A fresh clone carries NO docs media (docs/img/, _static/figs, the mp4s
+# are gitignored build output) and the pages reference those files with
+# ``.. figure::`` / raw <video> embeds, so "build the docs" here is the
+# CANONICAL media pipeline (make -C docs media with both opt-in legs):
+# the scripted figs, the NASA answer-key art (MEDIA_NASA=1), the uisim
+# screenshots for all three panels, the annotations, the device
+# composites and the films (MEDIA_VIDEOS=1). The perf figs parse the
+# live build trees (build/config, build/esp-idf/, build/moon-phase.bin,
+# the root + knob managed_components/), so the S3 and P4 device builds
+# and the knob reconfigure run first; the S3 build is LAST because the
+# root managed_components/ holds only the last-resolved target's set
+# and gen_perf_bus reads the S3 panel driver from it.
+#
+# The site deploys from the GitHub Pages artifact (no gh-pages branch):
+# the deploy job consumes the artifact the build job uploads. On a fresh
+# repo, set repo Settings → Pages → Source = "GitHub Actions" once.
+name: docs
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    name: Build the docs site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the three hero webp (docs/_static/photos/sim_home.webp is the
+          # committed README exception; docs/tools/waveshare-*-hero.webp
+          # feed the device composites) are LFS pointers in the tree.
+          lfs: true
+      - name: System tools (graphviz dot, ImageMagick for the --refs crops, ffmpeg for the films)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq graphviz imagemagick ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docs venv (the site + the figs scripts run in it)
+        run: |
+          python3 -m venv docs/.venv
+          docs/.venv/bin/pip install -q -r docs/requirements.txt
+      - name: Host-sim venv (the gate + NASA legs run in it)
+        run: |
+          python3 -m venv host_sim/.venv
+          host_sim/.venv/bin/pip install -q -r assets/images/moon/requirements.txt
+      - name: Moon assets (sha256-pinned NASA fetch, the gate refs + the docs foundry faces, then the bake of all three boards)
+        # --refs: the SVS 5415 gate/quarter reference frames (the
+        # MEDIA_NASA leg's answer key) + the 8760-hour mooninfo (the
+        # gate's selector input) — resumable, so a re-run is cheap.
+        # --fonts: the four foundry faces gen_perf_glyphs.py refuses to
+        # run without. Bootstraps its own assets/images/moon/.venv.
+        run: python3 assets/images/moon/get_assets.py --refs --fonts
+      - name: ESP-IDF 5.5.1 (esp32s3 + esp32p4 toolchains)
+        uses: espressif/action-setup-idf@v3
+        with:
+          idf_version: v5.5.1
+          idf_target: esp32s3 esp32p4
+      - name: Device builds (the figs' inputs)
+        # P4 + knob FIRST, S3 LAST: the root managed_components/ keeps
+        # only the last-resolved target's set, and gen_perf_bus.py reads
+        # the S3 panel driver (espressif__esp_lcd_co5300) from it. The
+        # knob reconfigure populates knob/managed_components/ (its own
+        # set, which gen_perf_bus reads for the SH8601 driver).
+        run: |
+          source "$IDF_PATH/export.sh"
+          idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
+          idf.py -C knob reconfigure
+          idf.py build
+      - name: Host simulator (the gate's C-runtime frames)
+        run: |
+          cmake -B host_sim/build -S host_sim
+          cmake --build host_sim/build -j"$(nproc)"
+      - name: "Media (the canonical regen: figs + NASA art + uisim x3 + annotations + composites + films)"
+        env:
+          MEDIA_NASA: "1" # docs/img/nasa/: five .. figure:: refs
+          MEDIA_VIDEOS: "1" # the index + animations raw <video> embeds
+        run: docs/.venv/bin/sphinx-build -b media docs docs/_build/media
+      - name: HTML (0 warnings is the gate)
+        run: docs/.venv/bin/sphinx-build -W -b html docs docs/_build/html
+      - name: Docs drift gate (single-sourced fragments vs the sources)
+        run: docs/.venv/bin/python docs/tools/check_docs_drift.py
+      - name: Upload the built site (browse it on the run's Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: docs/_build/html
+          retention-days: 14
+      - name: Upload the Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
