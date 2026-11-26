@@ -279,3 +279,13 @@ Conventions
   Data images are measured or fitted pixel data —
   diagrams a native mechanism can express are native
   (``.. graphviz::`` / mermaid) instead.
+
+License
+-------
+
+The firmware and the rest of the software in the repository are under
+the **GPL-2.0-or-later** (the repo-root ``LICENSE``); this documentation
+is under **CC BY-SA 4.0** (``docs/LICENSE``). Third-party attributions —
+the modified Waveshare BSP (Apache-2.0), the ERFA subset, stb, the
+firmware fonts (Montserrat OFL, Font Awesome Free CC BY 4.0) and the
+public-domain NASA lunar imagery — live in the repo-root ``NOTICE``.

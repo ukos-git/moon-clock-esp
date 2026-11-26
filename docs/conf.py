@@ -32,6 +32,10 @@ sys.path.insert(0, MOON_PKG)
 project = "The Moon Phase Clock"
 author = "Matthias Kastner"
 copyright = "2026, Matthias Kastner"
+license = (
+    "Software: GPL-2.0-or-later (repo root LICENSE); "
+    "this documentation: CC BY-SA 4.0 (docs/LICENSE)"
+)
 version = "1.0"
 release = "2026.11"
 

@@ -128,3 +128,18 @@ The hardware and build reference lives in the docs, not here:
 - [The user interface](docs/ui/index.rst) — every screen, element by element
 - [Performance](docs/verification/performance.rst) — how fast everything is,
   with the exact commands to reproduce the numbers
+
+## License
+
+The firmware and all other software in this repository are licensed under the
+**GNU General Public License, version 2 or (at your option) any later version**
+([LICENSE](LICENSE)). The documentation ([docs/](docs/)) is licensed under
+**Creative Commons Attribution-ShareAlike 4.0 International**
+([docs/LICENSE](docs/LICENSE)).
+
+Third-party attributions live in [NOTICE](NOTICE): the Waveshare S3 BSP
+(Apache-2.0, modified — LVGL strip height 50→25), the ERFA subset (BSD-style,
+NumFOCUS/SOFA), stb_image_write (public domain), and the fonts compiled into
+the firmware — Montserrat (SIL OFL 1.1) and Font Awesome 7 Free (glyphs CC BY
+4.0). The lunar imagery comes from NASA (SVS 4720 / 5415, dialamoon) — U.S.
+government works, public domain, credited at their source URLs.
