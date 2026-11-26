@@ -69,6 +69,15 @@ jobs:
         # --fonts the four foundry faces gen_perf_glyphs.py refuses to
         # run without. Bootstraps its own assets/images/moon/.venv.
         run: python3 assets/images/moon/get_assets.py --refs --fonts
+      - name: Movie bake (the moon-movie manifests the perf figs read)
+        # -m moon.movie bakes out/<t>/moon_movie.bin + its manifest for
+        # all three boards — gen_perf_boot / gen_perf_storage /
+        # gen_perf_movie read those manifests (the asset step above bakes
+        # moon.assets only); the device builds tolerate the movie's
+        # absence, the figs do not. The moon package lives in
+        # assets/images/moon/, so it runs from there (like the get_assets
+        # bake leg).
+        run: cd assets/images/moon && .venv/bin/python -m moon.movie --target s3 p4 knob
       - name: Cache the ESP-IDF toolchain (~1.5 GB)
         uses: actions/cache@v4
         with:

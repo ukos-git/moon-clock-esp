@@ -559,8 +559,13 @@ need no network at all: the ground truth (kit TIFs + the 36 SVS 5415
 gate/quarter frames via LFS, ``mooninfo_2025.json``) ships with the
 repo, so the job only crops the answer key with
 ``get_assets.py --refs`` (the committed copies re-verify against their
-sha256/size pins; the Internet Archive fallback covers a ``--force``),
-and the gate runs against a fresh ``host_sim/build/moon_sim``. One
+sha256/size pins; the Internet Archive fallback covers a ``--force``).
+The perf figs read the moon-movie manifests too
+(``gen_perf_boot``/``gen_perf_storage``/``gen_perf_movie``), so the job
+runs the SECOND bake as well — ``python -m moon.movie --target s3 p4
+knob`` (the asset step bakes ``moon.assets`` only; the device builds
+tolerate the movie's absence, the figs do not) — and the gate runs
+against a fresh ``host_sim/build/moon_sim``. One
 first-time
 setting on the repo: Pages → Source → **GitHub Actions** — after
 that, each green ``main`` push republishes the site, and every
