@@ -23,28 +23,21 @@ home is a static LVGL phase now — refreshed once per hour behind the
 hardware fade
 (:doc:`the animation pipelines <implementation/animations>`).
 
-.. figure:: _static/photos/sim_home.png
-   :alt: Simulated render of the finished clock on the Waveshare ESP32-S3-Touch-AMOLED-1.75
-   :figclass: align-center
-
-   The finished clock, simulated: the home screen composited onto the
-   Waveshare ESP32-S3-Touch-AMOLED-1.75's glass (a uisim frame at
-   true panel geometry over the Waveshare product photo) — the moon
-   at the sim's fixed seed (2026-11-01 12:35 UTC, a waning gibbous),
-   the minute, the seconds arc. The renders throughout these docs
-   show what the *panel* actually shows.
-
 .. raw:: html
 
    <video src="_static/img/promo.mp4" controls muted playsinline
-          width="400" style="margin: 1em auto; display: block;"></video>
+          style="display: block; width: 100%; margin: 1em auto;"
+          aria-label="The finished clock in the round product case, a full tour of every screen"></video>
 
-The whole interface on camera — every frame sitting in the round
-product case (the same composite as the hero figure), computed live
-by the docs build from the same simulator that produces the
-screenshots. The moon screens lead — the home hero, the sleep
-states, the wifi sync and the alarm fire — and then the real
-``screens.c`` is driven by a scripted touch through the settings:
+The finished clock, in the round product case — every frame
+computed live by the docs build from the same simulator that
+produces the screenshots (a uisim frame at true panel geometry over
+the Waveshare product photo; the renders throughout these docs show
+what the *panel* actually shows, the moon at the sim's fixed seed —
+2026-11-01 12:35 UTC, a waning gibbous). The moon screens lead —
+the home hero, the sleep states, the wifi sync and the alarm fire —
+and then the real ``screens.c`` is driven by a scripted touch
+through the settings:
 the hub's icon ring (a press highlights the icon before the
 sub-screen appears, the knob's dial-focus look), the sleep
 timeouts, the timezone and alarm-sound pickers, and the round
