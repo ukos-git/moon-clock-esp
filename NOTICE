@@ -1,0 +1,87 @@
+Moon Phase Clock
+================
+
+Copyright (C) 2026 Matthias Kastner
+
+License
+-------
+
+The firmware and all other software in this repository (components/, knob/,
+host_sim/, hardware/housing/, bench/, docs/tools/) are licensed under the
+GNU General Public License, version 2 or (at your option) any later version
+(see LICENSE). The documentation (docs/) is licensed under Creative Commons
+Attribution-ShareAlike 4.0 International (see docs/LICENSE).
+
+Third-party components
+----------------------
+
+The following third-party software is included in or fetched by this
+project. Their license texts are committed alongside the code (LICENSE
+files) or apply to the fetched artifacts.
+
+* Waveshare ESP32-S3-Touch-AMOLED-1.75 BSP — Apache License 2.0
+  (components/esp32_s3_touch_amoled_1_75/LICENSE). Upstream:
+  waveshareteam/Waveshare-ESP32-components, commit
+  d419a0b7c5b991e3ab2e4e29b68f21b89810ca72, path
+  bsp/esp32_s3_touch_amoled_1_75. MODIFIED: the LVGL display strip buffer
+  height is 25 rows instead of the upstream 50, because the board's 16 MB
+  PSRAM is not SPI-DMA-capable and the S3's 32 KiB SPI DMA limit caps the
+  per-strip staging buffer (see the comment in main/idf_component.yml).
+
+* ERFA (Ephemeral Re-computations of Fomalhaut and Asteroids) subset —
+  Copyright (C) 2013-2021, NumFOCUS Foundation; derived from the IAU
+  SOFA software (components/moon/core/erfa/LICENSE, committed alongside
+  the 14-file subset: moon98, epv00, rx, rz, pfw06, obl06, ir, cp,
+  erfa.h, erfam.h, and friends).
+
+* stb_image_write v1.16 — public domain (host_sim/stb_image_write.h,
+  Sean Barrett).
+
+* Montserrat, Regular and Bold (JulietaUla) — SIL Open Font License 1.1.
+  Fetched by assets/images/moon/get_assets.py --fonts from the designer's
+  upstream repository (commit + sha256 pinned).
+
+* Font Awesome 7 Free, v7.3.1 (Fonticons Inc.) — glyphs licensed under
+  Creative Commons Attribution 4.0 International, the font under the SIL
+  Open Font License 1.1. Fetched from the official desktop release zip
+  (zip + member sha256 pinned).
+
+Firmware fonts
+--------------
+
+Glyphs of the faces above are compiled into the firmware as LVGL font
+sources (components/ui/fonts/, components/ui/fonts_p4/,
+components/ui/fonts_knob/) and shipped in every binary built from this
+repository. The SIL OFL 1.1 and CC BY 4.0 attributions above apply to
+those built binaries as well: Montserrat (c) JulietaUla, OFL; Font
+Awesome Free (c) Fonticons Inc., glyphs CC BY 4.0, font OFL.
+
+NASA imagery and the product photos
+-----------------------------------
+
+* The lunar albedo (LROC WAC, 4096x2048) and relief (LOLA, 16 px/deg) used
+  to bake the per-board textures come from the NASA SVS CGI Moon Kit
+  (https://svs.gsfc.nasa.gov/4720/) and the Moon Phases 2025 frames from
+  NASA SVS 5415 (https://svs.gsfc.nasa.gov/5415/); the 8760-hour ephemeris
+  records come from the NASA dialamoon API. These are works of the U.S.
+  government and are not subject to U.S. copyright (17 U.S.C. 105) —
+  NASA's media-usage guidelines state that the materials may be used
+  without permission and request a credit, which the source URLs above
+  give. No binaries from these sources are committed; they are re-fetched
+  (sha256-pinned) by assets/images/moon/get_assets.py.
+
+* The product photos used in the documentation (docs/tools/waveshare-*.webp,
+  and as the backdrop of the committed docs/_static/photos/sim_home.webp
+  hero) are Waveshare product images, credited here: Waveshare —
+  ESP32-S3-Touch-AMOLED-1.75 and ESP32-P4-WIFI6-Touch-LCD-XC product
+  photography (https://www.waveshare.com/).
+
+Build-time dependencies
+-----------------------
+
+LVGL and the other Espressif/Waveshare components (see idf_component.yml
+and dependencies.lock) are fetched from the ESP-IDF component registry at
+build time into the gitignored managed_components/ directory; each ships
+with its own license file in the registry (LVGL 9.6: MIT, Copyright
+(c) 2025 LVGL Kft; esp32_p4_wifi6_touch_lcd_xc: Apache-2.0;
+pcf85063a: Apache-2.0). They are not part of this source tree.
