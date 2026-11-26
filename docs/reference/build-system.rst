@@ -564,8 +564,11 @@ The perf figs read the moon-movie manifests too
 (``gen_perf_boot``/``gen_perf_storage``/``gen_perf_movie``), so the job
 runs the SECOND bake as well — ``python -m moon.movie --target s3 p4
 knob`` (the asset step bakes ``moon.assets`` only; the device builds
-tolerate the movie's absence, the figs do not) — and the gate runs
-against a fresh ``host_sim/build/moon_sim``. One
+tolerate the movie's absence, the figs do not) — and the movie bake
+plus the gate each drive the per-board host sim, so the job builds all
+three first (``host_sim/build``, ``host_sim/build-p4``,
+``host_sim/build-knob``, each configured with its board's
+``MOON_ASSETS_TARGET``). One
 first-time
 setting on the repo: Pages → Source → **GitHub Actions** — after
 that, each green ``main`` push republishes the site, and every

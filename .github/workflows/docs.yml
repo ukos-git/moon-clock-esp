@@ -69,15 +69,6 @@ jobs:
         # --fonts the four foundry faces gen_perf_glyphs.py refuses to
         # run without. Bootstraps its own assets/images/moon/.venv.
         run: python3 assets/images/moon/get_assets.py --refs --fonts
-      - name: Movie bake (the moon-movie manifests the perf figs read)
-        # -m moon.movie bakes out/<t>/moon_movie.bin + its manifest for
-        # all three boards — gen_perf_boot / gen_perf_storage /
-        # gen_perf_movie read those manifests (the asset step above bakes
-        # moon.assets only); the device builds tolerate the movie's
-        # absence, the figs do not. The moon package lives in
-        # assets/images/moon/, so it runs from there (like the get_assets
-        # bake leg).
-        run: cd assets/images/moon && .venv/bin/python -m moon.movie --target s3 p4 knob
       - name: Cache the ESP-IDF toolchain (~1.5 GB)
         uses: actions/cache@v4
         with:
@@ -123,10 +114,28 @@ jobs:
              || [ ! -d managed_components/waveshare__pcf85063a ]; then
             idf.py reconfigure
           fi
-      - name: Host simulator (the gate's C-runtime frames)
+      - name: "Host simulators (one moon_sim per board: the movie bake + the gate's C-runtime frames)"
+        # host_sim is a standalone CMake project (no ESP-IDF) that reads the
+        # get_assets bake outputs; SIM_BUILD_DIRS maps s3 -> host_sim/build,
+        # p4 -> host_sim/build-p4, knob -> host_sim/build-knob, and both
+        # moon.movie and check_gate refuse to run without the per-target
+        # binary (each is configured with its board's MOON_ASSETS_TARGET).
         run: |
-          cmake -B host_sim/build -S host_sim
-          cmake --build host_sim/build -j"$(nproc)"
+          cmake -DMOON_ASSETS_TARGET=s3    -B host_sim/build      -S host_sim
+          cmake --build host_sim/build      -j"$(nproc)"
+          cmake -DMOON_ASSETS_TARGET=p4    -B host_sim/build-p4   -S host_sim
+          cmake --build host_sim/build-p4   -j"$(nproc)"
+          cmake -DMOON_ASSETS_TARGET=knob  -B host_sim/build-knob -S host_sim
+          cmake --build host_sim/build-knob -j"$(nproc)"
+      - name: Movie bake (the moon-movie manifests the perf figs read)
+        # -m moon.movie bakes out/<t>/moon_movie.bin + its manifest for
+        # all three boards, driving each board's moon_sim — gen_perf_boot /
+        # gen_perf_storage / gen_perf_movie read those manifests (the asset
+        # step bakes moon.assets only; the device builds tolerate the
+        # movie's absence, the figs do not). The moon package lives in
+        # assets/images/moon/, so it runs from there (like the get_assets
+        # bake leg).
+        run: cd assets/images/moon && .venv/bin/python -m moon.movie --target s3 p4 knob
       - name: "Media (the canonical regen: figs + NASA art + uisim x3 + annotations + composites + films)"
         env:
           MEDIA_NASA: "1" # docs/img/nasa/: five .. figure:: refs
