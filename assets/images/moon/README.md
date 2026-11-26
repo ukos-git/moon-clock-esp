@@ -105,8 +105,11 @@ offers an Internet Archive fallback for SVS data files (used by a `--force`
 re-download or a re-pin): when the primary fails, it retries the same path from
 the archive's status-200 snapshot (raw `id_` serve, resolved via the
 availability API) and holds that copy to the **same sha256/size pins** — the
-archive copy is byte-identical to the committed copies. The pins, not the
-server, are the provenance; the dialamoon API needs no fallback (still served).
+archive copy is byte-identical to the committed copies. Both the lookup and the
+download retry on transient failures (the availability API rate-limits under
+the 8-way frame fetch; a permanent 403 comes back instantly, so the retries
+cost seconds, not minutes). The pins, not the server, are the provenance; the
+dialamoon API needs no fallback (still served).
 
 If NASA ever moves a pinned file, `get_assets.py` **refuses** it (sha256
 mismatch) rather than baking unknown bytes — re-verify upstream and update

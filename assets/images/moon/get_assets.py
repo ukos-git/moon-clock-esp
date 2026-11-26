@@ -243,7 +243,7 @@ def _ctx_with_aia(host: str) -> ssl.SSLContext:
 
 # --- downloads --------------------------------------------------------------
 
-def _wayback(url: str, timeout: int = 30) -> str | None:
+def _wayback(url: str, timeout: int = 30, attempts: int = 3) -> str | None:
     """The Internet Archive's raw (``id_``) copy of ``url``, or None.
 
     ``svs.gsfc.nasa.gov`` retired its ``/vis/`` data tree (uniform 403 for
@@ -252,16 +252,21 @@ def _wayback(url: str, timeout: int = 30) -> str | None:
     snapshots of the pinned files; only a snapshot the availability API
     reports as status-200 is offered, and the caller's sha256/size checks
     still apply to whatever bytes come back, so a broken snapshot can
-    never be kept.
+    never be kept. The availability API rate-limits under parallel load
+    (the 36-frame fetch runs 8-way), so the lookup itself is retried.
     """
     api = ("http://archive.org/wayback/available?url="
            + urllib.parse.quote(url, safe=""))
-    try:
-        with urllib.request.urlopen(api, timeout=timeout) as r:
-            snap = (json.loads(r.read())
-                    .get("archived_snapshots") or {}).get("closest")
-    except Exception:
-        return None
+    snap = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(api, timeout=timeout) as r:
+                snap = (json.loads(r.read())
+                        .get("archived_snapshots") or {}).get("closest")
+            break
+        except Exception:                   # 429/5xx under parallel load
+            if attempt + 1 < attempts:
+                time.sleep(2 * (attempt + 1))
     if not snap or snap.get("status") != "200":
         return None
     ts = str(snap.get("timestamp") or "")
@@ -302,31 +307,40 @@ def fetch(url: str, dest: str, sha256: str | None = None,
         os.unlink(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".part"
-    h = hashlib.sha256()
-    n = 0
     last: Exception | str | None = None
+    got = False
     for cand in _candidates(url):
-        try:
-            with _ssl_get(cand) as r, open(tmp, "wb") as f:
-                for chunk in iter(lambda: r.read(1 << 20), b""):
-                    f.write(chunk)
-                    h.update(chunk)
-                    n += len(chunk)
+        # A permanent 403 comes back instantly, so the retry cost of a
+        # dead tree is a few seconds; what the retries are FOR is the
+        # transient (a connection refusal, a rate-limited availability
+        # API, a snapshot 503) -- one lost frame must not fail the set.
+        for attempt in range(3):
+            h = hashlib.sha256()
+            n = 0
+            try:
+                with _ssl_get(cand) as r, open(tmp, "wb") as f:
+                    for chunk in iter(lambda: r.read(1 << 20), b""):
+                        f.write(chunk)
+                        h.update(chunk)
+                        n += len(chunk)
+                got = True
+                break
+            except Exception as e:
+                last = e
+                if attempt + 1 < 3:
+                    time.sleep(2 * (attempt + 1))
+        if got:
             if cand != url:
                 print(f"  fetched from the Internet Archive snapshot "
                       f"({url} is down): {cand}")
             break
-        except Exception as e:      # 403 from the retired tree, network, ...
-            last = e
-            if cand != url:
-                last = (f"{last}; and the Internet Archive snapshot "
-                        f"failed too")
-    else:
+    if not got:
         if os.path.exists(tmp):
             os.unlink(tmp)
-        raise SystemExit(f"{url}: {last} -- the pinned file could not be "
-                         "fetched from svs.gsfc.nasa.gov or the Internet "
-                         "Archive")
+        raise SystemExit(
+            f"{url}: {last} -- the pinned file could not be fetched "
+            "(svs.gsfc.nasa.gov, and the Internet Archive snapshot "
+            "where one exists)")
     if size is not None and n != size:
         os.unlink(tmp)
         raise SystemExit(f"{url}: got {n} B, expected {size}")
