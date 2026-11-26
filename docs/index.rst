@@ -39,10 +39,14 @@ hardware fade
    <video src="_static/img/promo.mp4" controls muted playsinline
           width="400" style="margin: 1em auto; display: block;"></video>
 
-The whole interface on camera — a one-minute tour computed live by
-the docs build from the same simulator that produces the
-screenshots: the real ``screens.c`` driven by a scripted touch
-through every screen, the settings hub and its icon ring, the sleep
+The whole interface on camera — every frame sitting in the round
+product case (the same composite as the hero figure), computed live
+by the docs build from the same simulator that produces the
+screenshots. The moon screens lead — the home hero, the sleep
+states, the wifi sync and the alarm fire — and then the real
+``screens.c`` is driven by a scripted touch through the settings:
+the hub's icon ring (a press highlights the icon before the
+sub-screen appears, the knob's dial-focus look), the sleep
 timeouts, the timezone and alarm-sound pickers, and the round
 letter-wheel keyboard (the ``--tour`` capture,
 :doc:`the build system <reference/build-system>`).

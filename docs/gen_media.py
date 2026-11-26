@@ -11,11 +11,15 @@ from uisim frames -- neither is ever committed).
 
   docs/img/promo.mp4        the full-interface tour film (uisim --tour):
                             the scripted round trip through the real
-                            screens.c UI -- the home moon, the settings
-                            hub and its whole ring, the roller pickers,
-                            the letter-wheel keyboard -- one 466 px frame
-                            per 20 ms of sim clock, 15 fps. Embedded by
-                            docs/index.rst.
+                            screens.c UI -- the moon screens first (the
+                            home hero, the sleep states, the sync and
+                            the alarm), the settings hub and its whole
+                            ring last -- one 466 px frame per 20 ms of
+                            sim clock, 15 fps, every frame composited
+                            into the round product case (the device
+                            glass + the dark backdrop, the same
+                            composite_dark base as sim_home.png).
+                            Embedded by docs/index.rst.
 
 The docs/img/nasa/ set is NOT generated here -- it is build output of the
 moonmedia MEDIA_NASA slot (docs/nasa_figs.py + docs/tools/gen_nasa_quarters.py
@@ -139,11 +143,33 @@ def main():
         sys.exit(f"tour frames are {first.size}, not the S3 466 set -- "
                  "run `host_sim/uisim/build.sh run --tour` (default "
                  "panel) first")
+    # Every frame goes in the round product case (sim_home.png's
+    # treatment): the device glass pasted onto the dark-backdrop base.
+    # The base is the hero photo darkened ONCE (composite_dark's feather
+    # + drop shadow are static); per frame only the 466 px content
+    # re-enters the glass pipeline.
+    sys.path.insert(0, str(REPO / "docs" / "tools"))
+    import composite_dark as cd
+    import composite_panel as cp
+
     d = FR / "promo"
     clear(d)
+    base_tmp = d / "case_base.png"
+    shutil.copy(cp.HERO, base_tmp)
+    cd.dark_backdrop(str(base_tmp))
+    base = Image.open(base_tmp).convert("RGB")
+    # The hero photo is 1600x1200 (a studio shot); the film is a square
+    # crop centred on the device (fit.json's cx/cy), the device disc +
+    # its drop shadow + the dark backdrop around it.
+    S = 1180
+    box = (int(cp.CX - S / 2), int(cp.CY - S / 2), int(cp.CX + S / 2), int(cp.CY + S / 2))
     for i, src in enumerate(tour):
-        shutil.copy(src, d / f"sim.{i:04d}.png")
-    encode("promo", 15, d / "sim.%04d.png", OUT / "promo.mp4", size=466)
+        layer, mask, px, py = cp.glass(Image.open(src))
+        fr = base.copy()
+        fr.paste(layer, (px, py), mask)  # paste is in-place
+        fr.crop(box).save(d / f"sim.{i:04d}.png")
+    base_tmp.unlink()
+    encode("promo", 15, d / "sim.%04d.png", OUT / "promo.mp4", size=S)
 
     print(f"done in {(datetime.datetime.now(datetime.timezone.utc) - t0).total_seconds():.0f} s")
 

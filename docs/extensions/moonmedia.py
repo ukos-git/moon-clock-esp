@@ -14,7 +14,8 @@ Two jobs:
   uisim screenshots for ALL THREE boards (``host_sim/uisim/build.sh run``
   + ``--panel 720`` + ``--panel 360``, the ``--wheel`` capture flow for
   the password keyboard on every panel, the S3's ``--tour`` promo
-  frames (encoded into promo.mp4 by ``docs/gen_media.py``), and the
+  frames — encoded into promo.mp4 by ``docs/gen_media.py``, which
+  composites every frame into the round product case), and the
   knob's ``--dial`` dial-cursor shot), runs ``docs/tools/enclose.py`` over every
   ``ui/labels/*.json`` spec for both panels (a ``<screen>-p4.json``
   override replaces the shared spec on the 720 pass when present) —
@@ -216,8 +217,15 @@ def _stale_check(app):
     # one end baked in sideways, with no gate noticing (its mtime sat
     # untouched since 2026-11-07 while its inputs moved on).
     gen_media = _DOCS / "gen_media.py"
+    # The promo film composites every frame into the round product case
+    # (the device glass + the dark backdrop) — composite_panel +
+    # composite_dark, the hero photo + fit — so those are inputs too.
+    film_deps = [
+        gen_media, tools / "composite_panel.py", tools / "composite_dark.py",
+        tools / "waveshare-hero.webp", tools / "fit.json",
+    ]
     for name in VIDEOS:
-        jobs.append((_DOCS / "img" / name, inputs + [gen_media]))
+        jobs.append((_DOCS / "img" / name, inputs + film_deps))
 
     problems: list[str] = []
     for out, deps in jobs:

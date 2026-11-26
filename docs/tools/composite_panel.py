@@ -100,18 +100,25 @@ def make_glass(R):
     return d, alpha.astype(np.float32), shade.astype(np.float32), spec
 
 
-def composite(screen_name, out_path, dim=None):
-    hero = Image.open(HERO).convert("RGB")
+def glass(img, dim=None):
+    """The device-glass layers for one 466x466 frame.
+
+    Returns (layer, mask, px, py): the quantized + glass-finished content
+    layer with its circular alpha mask and its paste position on the
+    1600x1200 hero photo. composite() pastes it onto the white studio
+    hero; the promo-film path (docs/gen_media.py) pastes the same layers
+    onto the dark-backdrop base (composite_dark.py) so the film frames
+    sit in the round product case like sim_home.png.
+    """
     d, alpha, shade, spec = make_glass(R_A)
-    img = Image.open(UISIM / f"{screen_name}.png").convert("RGB")
     if img.size != (466, 466):
         raise SystemExit(
-            f"uisim frame {screen_name} is {img.size[0]}x{img.size[1]}, not 466 — "
+            f"uisim frame is {img.size[0]}x{img.size[1]}, not 466 — "
             "host_sim/uisim/out/ holds another panel's captures (the knob 360 or "
             "P4 720 set; out/ is one dir, last run wins) but the sim_* device "
             "composites are the S3 one. Run host_sim/uisim/build.sh run first "
             "(the moonmedia pipeline orders this right automatically).")
-    rgb = quant565(np.asarray(img, dtype=np.uint8))
+    rgb = quant565(np.asarray(img.convert("RGB"), dtype=np.uint8))
     if dim:
         rgb = hard_dim(rgb, dim)
     content = Image.fromarray(rgb, "RGB").resize((d, d), Image.LANCZOS)
@@ -123,7 +130,13 @@ def composite(screen_name, out_path, dim=None):
     layer = Image.fromarray((c * 255).astype(np.uint8), "RGB")
     mask = Image.fromarray((alpha * 255).astype(np.uint8), "L")
     # Paste centered on the fitted glass center.
-    px, py = int(round(CX - R_A)), int(round(CY - R_A))
+    return layer, mask, int(round(CX - R_A)), int(round(CY - R_A))
+
+
+def composite(screen_name, out_path, dim=None):
+    hero = Image.open(HERO).convert("RGB")
+    layer, mask, px, py = glass(Image.open(UISIM / f"{screen_name}.png"), dim)
+    d = layer.size[0]
     hero.paste(layer, (px, py), mask)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     hero.save(out_path)

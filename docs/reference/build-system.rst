@@ -461,7 +461,9 @@ files: ``docs/.venv`` from ``docs/requirements.txt``, and
    host_sim/uisim/build.sh run                          # the UI simulator
    # (renders the real screens to PNG; --wheel for the keyboard,
    #  --dial <screen> for the knob's dial-cursor shot, --tour for
-   #  the S3 promo film's frames (out/tour_*.png, 15 fps),
+   #  the S3 promo film's frames (out/tour_*.png, 15 fps — moon
+   #  screens first, the settings ring walk last; gen_media.py
+   #  composites every frame into the round product case),
    #  --panel 466/720/360 for the three family panels)
    docs/.venv/bin/sphinx-build -b media docs docs/_build/media
    # (THE media builder — regenerates the site's ENTIRE binary media set:

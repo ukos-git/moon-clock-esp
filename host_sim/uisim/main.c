@@ -329,14 +329,28 @@ static void wheel_enter(lv_display_t *disp, lv_indev_t *indev) {
  * (docs/verification/demo-mode): NEVER the COMMIT key (LVGL 60 deg - it
  * writes wifi_credentials.txt + starts a connect) and NEVER the alarm
  * master glyph (it deactivates every rule); the wheel is left with
- * DISCARD (LVGL 120 deg) + the centre 400 ms long-press. */
+ * DISCARD (LVGL 120 deg) + the centre 400 ms long-press.
+ *
+ * The narrative is MOON-FIRST (the user's call, 2026-11-26): the home
+ * hero + the machine-only moon faces (light sleep, deep sleep, the
+ * wifi sync, the alarm fire) lead the film; the settings journey (the
+ * hub ring walk with its sub-screen interactions) comes LAST. A hub
+ * press highlights its glyph before the release reveals the screen -
+ * the knob's dial-focus look (dial_hub_apply / dial_ring in
+ * screens.c) mirrored here, because the touch hub icons carry no
+ * native pressed state. Gestures are slow on camera: a roller spin is
+ * 16 steps with the mid-drag frames captured every 2nd, then a held
+ * beat before the release commits. */
 
 static int s_tour_n; /* the frame counter (out/tour_%04d.png) */
 
-/* A settle after a tap / screen swap (~0.5 s of the film). */
-#define TOUR_SETTLE 8
-/* A sub-screen / machine-screen dwell (~1.3 s). */
-#define TOUR_DWELL 20
+/* A settle after a tap / screen swap (~0.7 s of the film). */
+#define TOUR_SETTLE 10
+/* A sub-screen / machine-screen dwell (~1.6 s). */
+#define TOUR_DWELL 24
+/* The hub press-highlight hold (~0.15 s): the glyph reads on camera
+ * before the release reveals the screen. */
+#define TOUR_HUB_PRESS 6
 
 /* Dump the display front buffer as the next numbered frame. */
 static int tour_capture(lv_display_t *disp) {
@@ -398,15 +412,66 @@ static int tour_tap_obj(lv_display_t *disp, lv_obj_t *obj) {
     return tour_tap_at(disp, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
 }
 
-/* One roller detent at a panel point: press, drag `dy` px in 5 steps
- * (so the gesture reads on camera), release (the RELEASED persist). */
+/* Tap a hub ring icon WITH the press highlight: the glyph goes white
+ * (the knob's dial-focus look, dial_hub_apply) while the finger is down,
+ * so the press reads on camera BEFORE the release reveals the sub-screen.
+ * The hub icons carry no native pressed state, so the highlight is driven
+ * by hand here. */
+static int tour_tap_hub_icon(lv_display_t *disp, lv_obj_t *icon) {
+    if (!icon)
+        return 1;
+    lv_area_t a;
+    lv_obj_get_coords(icon, &a);
+    const int32_t x = (a.x1 + a.x2) / 2, y = (a.y1 + a.y2) / 2;
+    wheel_press_at(disp, x, y);
+    /* The focus highlight (white glyph) - the knob's dial look. */
+    lv_obj_set_style_text_color(icon, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    if (tour_capture(disp))
+        return 1;
+    if (tour_dwell(disp, TOUR_HUB_PRESS)) /* let the highlight read on camera */
+        return 1;
+    /* Reset the glyph before the release reveals the sub-screen. */
+    /* SETTINGS_GREY is the theme's 0xff787878 (ARGB with an explicit
+     * alpha) - the screens.c local, mirrored here. */
+    lv_obj_set_style_text_color(icon, lv_color_hex(0xff787878), LV_PART_MAIN | LV_STATE_DEFAULT);
+    wheel_release_at(disp, x, y);
+    return tour_dwell(disp, TOUR_SETTLE);
+}
+
+/* The hub's central exit, pressed with the knob's focus RING (the
+ * white circle on the X glyph - dial_ring) before the release. */
+static int tour_tap_hub_exit(lv_display_t *disp, lv_obj_t *exit) {
+    if (!exit)
+        return 1;
+    lv_area_t a;
+    lv_obj_get_coords(exit, &a);
+    const int32_t x = (a.x1 + a.x2) / 2, y = (a.y1 + a.y2) / 2;
+    wheel_press_at(disp, x, y);
+    lv_obj_set_style_border_width(exit, UI_PX(3), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(exit, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(exit, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(exit, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    if (tour_capture(disp))
+        return 1;
+    if (tour_dwell(disp, TOUR_HUB_PRESS))
+        return 1;
+    lv_obj_set_style_border_width(exit, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(exit, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
+    wheel_release_at(disp, x, y);
+    return tour_dwell(disp, TOUR_SETTLE);
+}
+
+/* One roller detent at a panel point: press, drag `dy` px in 12 slow
+ * steps (one frame per step, so the spin reads on camera as a motion),
+ * release (the RELEASED persist). */
 static int tour_roller_drag(lv_display_t *disp, int32_t x, int32_t y, int32_t dy) {
     wheel_press_at(disp, x, y);
-    const int n = 5;
-    for (int i = 1; i <= n; i++)
+    const int n = 12;
+    for (int i = 1; i <= n; i++) {
         wheel_move_to(disp, x, y + dy * i / n);
-    if (tour_capture(disp)) /* the mid-drag frame (the rows shifted) */
-        return 1;
+        if (tour_capture(disp)) /* each step of the spin, on camera */
+            return 1;
+    }
     wheel_release_at(disp, x, y + dy);
     return tour_dwell(disp, TOUR_SETTLE);
 }
@@ -448,9 +513,11 @@ static int tour_machine_screen(lv_display_t *disp, enum ScreensEnum id) {
     return tour_dwell(disp, TOUR_DWELL);
 }
 
-/* The whole tour: home -> hub -> every ring icon (with its
- * sub-screen's interactions) -> hub exit -> the machine-only screens
- * -> home. Returns 0 on success. */
+/* The whole tour, MOON-FIRST (the settings journey comes last): the
+ * home hero -> the machine-only moon faces (light sleep, deep sleep,
+ * the wifi sync, the alarm fire) -> back to the bright home -> the
+ * hub ring walk (every icon's sub-screen interactions) -> the hub's
+ * central exit -> the final home hold. Returns 0 on success. */
 static int tour_run(lv_display_t *disp) {
     const int32_t C = UI_PANEL_PX / 2;
     lv_obj_t *icons[8];
@@ -458,18 +525,38 @@ static int tour_run(lv_display_t *disp) {
     const int nicons = screens_hub_icons((const lv_obj_t **)icons, targets, 8);
 
     /* 1. Home: the live moon at the sim's seed, the clock, the seconds
-     * arc - the hero shot. The root pass-through tap opens the hub. */
+     * arc - the hero shot. */
     if (tour_dwell(disp, 45))
         return 1;
+
+    /* 2. The machine-only moon faces (the sleep machine + the transient
+     * sync + the alarm fire): the moon screens are the film's focus, so
+     * they lead. */
+    if (tour_machine_screen(disp, SCREEN_ID_LIGHT_SLEEP))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_DEEP_SLEEP))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_WIFI))
+        return 1;
+    if (tour_machine_screen(disp, SCREEN_ID_ALARM))
+        return 1;
+    loadScreen(SCREEN_ID_MODEM_SLEEP);
+    ui_tick();
+    pump(disp, 300); /* the attach roll settles before the hub tap */
+    if (tour_dwell(disp, 30))
+        return 1;
+
+    /* 3. The root pass-through tap opens the hub (the settings journey,
+     * last). */
     if (tour_tap_at(disp, C, C))
         return 1;
     if (tour_dwell(disp, 45)) /* the hub: the ring reads on camera */
         return 1;
 
-    /* 2. The ring walk, in ring order (the registry order). */
+    /* 4. The ring walk, in ring order (the registry order). */
     for (int i = 0; i < nicons; i++) {
-        int exited = 0; /* the flow already back at the hub */
-        if (tour_tap_obj(disp, icons[i]))
+        int exited = 0;                        /* the flow already back at the hub */
+        if (tour_tap_hub_icon(disp, icons[i])) /* the press highlights first */
             return 1;
         switch (targets[i]) {
         case SCREEN_ID_SETTINGS_ALARM:
@@ -514,12 +601,15 @@ static int tour_run(lv_display_t *disp) {
             if (tour_dwell(disp, 30)) /* the wheel: the keyboard hero */
                 return 1;
             {
-                /* Two letters (press + release commits on release). */
+                /* Two letters (press + release commits on release);
+                 * the held beat keeps the revealed sector on camera. */
                 lv_point_t p;
                 for (int slot = 7; slot <= 8; slot++) {
                     wheel_point_deg(wheel_slot_deg(slot), UI_PX(188), &p);
                     wheel_press_at(disp, p.x, p.y);
                     if (tour_capture(disp))
+                        return 1;
+                    if (tour_dwell(disp, 4))
                         return 1;
                     wheel_release_at(disp, p.x, p.y);
                     if (tour_dwell(disp, 4))
@@ -590,27 +680,16 @@ static int tour_run(lv_display_t *disp) {
         }
     }
 
-    /* 3. The hub's central exit -> home. */
+    /* 5. The hub's central exit (the focus ring reads before the
+     * release) -> home. */
     if (tour_dwell(disp, 15))
         return 1;
-    if (tour_tap_obj(disp, objects.settings_hub_exit))
+    if (tour_tap_hub_exit(disp, objects.settings_hub_exit))
         return 1;
     if (tour_dwell(disp, 15))
         return 1;
 
-    /* 4. The machine-only screens (the sleep machine + the transient
-     * sync + the alarm fire), then the final home hold. */
-    if (tour_machine_screen(disp, SCREEN_ID_LIGHT_SLEEP))
-        return 1;
-    if (tour_machine_screen(disp, SCREEN_ID_DEEP_SLEEP))
-        return 1;
-    if (tour_machine_screen(disp, SCREEN_ID_WIFI))
-        return 1;
-    if (tour_machine_screen(disp, SCREEN_ID_ALARM))
-        return 1;
-    loadScreen(SCREEN_ID_MODEM_SLEEP);
-    ui_tick();
-    pump(disp, 300); /* the attach roll settles before the last frames */
+    /* 6. The final home hold: the moon closes the film. */
     return tour_dwell(disp, 45);
 }
 

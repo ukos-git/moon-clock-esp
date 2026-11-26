@@ -223,10 +223,12 @@ host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate
 host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # all three board
 host_sim/.venv/bin/python host_sim/check_gate.py --target knob # textures must pass
 host_sim/uisim/build.sh run                    # real screens -> PNG snapshots (466)
-host_sim/uisim/build.sh run --tour              # the promo film's frames (out/tour_*.png, S3 466 only)
+host_sim/uisim/build.sh run --tour              # the promo film's frames (out/tour_*.png, S3 466 only; moon
+                                                       # screens first, the settings ring walk last)
 host_sim/uisim/build.sh run --panel 720        # the P4 set (720, the 2048 texture)
 host_sim/uisim/build.sh run --panel 360        # the knob set (360, CONFIG_BOARD_KNOB, fonts_knob tier)
-python3 docs/gen_media.py                      # docs films: fade.mp4 + promo.mp4 (from the S3 466 out/ set)
+python3 docs/gen_media.py                      # docs films: fade.mp4 + promo.mp4 (from the S3 466 out/ set; the
+                                                   # promo frames go in the round product case)
 docs/.venv/bin/sphinx-build -b html docs docs/_build/html       # the docs site (0 warnings is the gate)
 docs/.venv/bin/python docs/tools/check_docs_drift.py           # drift gate: the single-sourced
                                                                # fragments (Kconfig/consts/

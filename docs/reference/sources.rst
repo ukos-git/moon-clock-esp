@@ -78,8 +78,8 @@ The tools the numbers came from
   (the C numbers, :doc:`performance <../verification/performance>`).
 - ``host_sim/uisim`` — the UI simulator (the screenshots, :doc:`the interactive simulator <../science/interactive>` and :doc:`the round keyboard <../keyboard>`).
 - ``docs/gen_media.py`` — the docs video builder (the fade-to-black
-  switch film + the ``--tour`` promo film, plus the NASA gate
-  frames, :doc:`the build system <build-system>`).
+  switch film + the ``--tour`` promo film, every promo frame
+  composited into the round product case, :doc:`the build system <build-system>`).
 - The serial console (115200) + the ROM reset reason — the device
   verification surface (:doc:`on-device verification <../verification/device-verify>`).
 - ``bench/record_demo.py`` — the bench recording harness: C920
