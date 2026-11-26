@@ -31,7 +31,7 @@ pattern):
        docs/_graphs/input-chain.dot)
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              /home/matthias/esp/build/knob/config/sdkconfig.h
+                              ../build/knob/config/sdkconfig.h
       (the ONE LVGL read+refresh beat: lv_indev.c:105 creates the
        indev timer at LV_DEF_REFR_PERIOD — parsed from ALL THREE
        generated headers and asserted equal; the CST9217's INT-mode IRQ
@@ -89,7 +89,7 @@ DIAL = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_dial.c")
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": "/home/matthias/esp/build/knob/config/sdkconfig.h",
+    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
 }
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_response.png")
 

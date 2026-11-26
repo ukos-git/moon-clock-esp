@@ -105,7 +105,7 @@ KNOB_DIAL = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_dial.c")
 KNOB_POWER = os.path.join(ROOT, "knob", "components", "knob_power",
                           "knob_power.c")
 SDKH = os.path.join(ROOT, "build", "config", "sdkconfig.h")
-KNOB_SDKH = "/home/matthias/esp/build/knob/config/sdkconfig.h"
+KNOB_SDKH = os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_sched.png")
 
 INK = "#1c2128"

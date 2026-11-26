@@ -48,7 +48,7 @@ house pattern), on one log millisecond axis:
       untinted bake self-heals", the code's own words)
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              /home/matthias/esp/build/knob/config/sdkconfig.h
+                              ../build/knob/config/sdkconfig.h
       (the render beat every row lands on — parsed from ALL THREE
       generated headers and asserted equal, the response ladder's
       parser reused)
@@ -95,7 +95,7 @@ KNOB_BATT = os.path.join(ROOT, "knob", "components", "knob_ui",
 SDKHS = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": "/home/matthias/esp/build/knob/config/sdkconfig.h",
+    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
 }
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_fresh.png")
 

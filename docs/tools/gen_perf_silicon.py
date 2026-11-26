@@ -26,7 +26,7 @@ Every bar parsed at figure time (the house pattern):
 
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              /home/matthias/esp/build/knob/config/sdkconfig.h
+                              ../build/knob/config/sdkconfig.h
       (asserted EQUAL across all three, like the response ladder; the
       indev read timer is created with it — lv_indev.c:105
       "indev->read_timer = lv_timer_create(lv_indev_read_timer_cb,
@@ -105,7 +105,7 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": "/home/matthias/esp/build/knob/config/sdkconfig.h",
+    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
 }
 IMU_DRV = os.path.join(ROOT, "components", "imu", "imu_qmi8658.c")
 IMU_STUB = os.path.join(ROOT, "knob", "components", "imu", "imu_stub.c")

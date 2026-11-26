@@ -86,7 +86,7 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": "/home/matthias/esp/build/knob/config/sdkconfig.h",
+    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
 }
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
 KNOB_UI = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")

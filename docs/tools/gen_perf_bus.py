@@ -47,8 +47,8 @@ carries it only while a P4 build is the most recent component solve:
   .pclk_hz = 40 * 1000 * 1000           knob/managed_components/espressif__esp_lcd_sh8601/
       include/esp_lcd_sh8601.h:102 (inside SH8601_PANEL_IO_QSPI_CONFIG :97)
   CONFIG_LV_DEF_REFR_PERIOD 33          build/config/sdkconfig.h:1087,
-      build/p4/config/sdkconfig.h:1308, /home/matthias/esp/build/knob/config/
-      sdkconfig.h:1086 — parsed from ALL THREE and asserted equal (the same
+      build/p4/config/sdkconfig.h:1308, ../build/knob/config/sdkconfig.h:1086
+      — parsed from ALL THREE and asserted equal (the same
       beat gen_perf_response.py and gen_perf_figs assert)
 
 Derived (one division / one product, nothing new measured): the raw

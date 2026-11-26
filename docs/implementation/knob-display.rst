@@ -788,7 +788,7 @@ its own black box, armed in every production build:
   bench:
   ``esptool.py --port <port> read_flash 0x710000 0x10000 core.bin``,
   then ``espcoredump.py info_corefile -t raw -c core.bin
-  /home/matthias/esp/build/knob/knob.elf`` — the **whole partition
+  ../build/knob/knob.elf`` — the **whole partition
   file**, format ``raw``. (An earlier note here said to strip a
   24-byte flash header and pass ``-t elf``; on IDF 5.5.1 that
   StreamErrors partway through the ELF. The ELF is the sibling
