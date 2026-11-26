@@ -8,10 +8,13 @@
 # screenshots for all three panels, the annotations, the device
 # composites and the films (MEDIA_VIDEOS=1). The perf figs parse the
 # live build trees (build/config, build/esp-idf/, build/moon-phase.bin,
-# the root + knob managed_components/), so the S3 and P4 device builds
-# and the knob reconfigure run first; the S3 build is LAST because the
-# root managed_components/ holds only the last-resolved target's set
-# and gen_perf_bus reads the S3 panel driver from it.
+# the root + knob managed_components/), so the P4 and knob device
+# builds and the S3 build (LAST — the root managed_components/ holds
+# only the last-resolved target's set, and gen_perf_bus reads the S3
+# panel driver from it) run first; after the builds the job verifies
+# the vendor headers the two vendor-leg figs parse (the S3 co5300 +
+# pcf85063a AND the P4-only gt911) are all present and re-resolves the
+# target that fetches any missing one.
 #
 # The site deploys from the GitHub Pages artifact (no gh-pages branch):
 # the deploy job consumes the artifact the build job uploads. On a fresh
@@ -45,9 +48,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq graphviz imagemagick ffmpeg
+      # 3.14: the local venvs (docs, host_sim, the moon pipeline) are
+      # 3.14, so the pinned requirements are proven to install on it.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - name: Docs venv (the site + the figs scripts run in it)
         run: |
           python3 -m venv docs/.venv
@@ -63,22 +68,51 @@ jobs:
         # --fonts: the four foundry faces gen_perf_glyphs.py refuses to
         # run without. Bootstraps its own assets/images/moon/.venv.
         run: python3 assets/images/moon/get_assets.py --refs --fonts
-      - name: ESP-IDF 5.5.1 (esp32s3 + esp32p4 toolchains)
-        uses: espressif/action-setup-idf@v3
+      - name: Cache the ESP-IDF toolchain (~1.5 GB)
+        uses: actions/cache@v4
         with:
-          idf_version: v5.5.1
-          idf_target: esp32s3 esp32p4
+          path: |
+            /opt/esp-idf
+            /home/runner/.espressif
+          key: esp-idf-v5.5.1-{{ runner.os }}
+      # The repo's own documented bootstrap (README: clone esp-idf,
+      # checkout v5.5.1, install.sh) — there is no official setup action
+      # to pin against, so the toolchain is installed by the tree the
+      # firmware is built with, and cached.
+      - name: ESP-IDF 5.5.1 (esp32s3 + esp32p4 toolchains)
+        run: |
+          if [ ! -d /opt/esp-idf ]; then
+            git clone --depth 1 --branch v5.5.1 \
+              https://github.com/espressif/esp-idf.git /opt/esp-idf
+            yes | /opt/esp-idf/install.sh esp32s3 esp32p4
+          fi
+          echo "IDF_PATH=/opt/esp-idf" >> "$GITHUB_ENV"
       - name: Device builds (the figs' inputs)
         # P4 + knob FIRST, S3 LAST: the root managed_components/ keeps
         # only the last-resolved target's set, and gen_perf_bus.py reads
         # the S3 panel driver (espressif__esp_lcd_co5300) from it. The
-        # knob reconfigure populates knob/managed_components/ (its own
-        # set, which gen_perf_bus reads for the SH8601 driver).
+        # knob reconfigure (the documented -B ../build/knob — the knob
+        # build dir sits ABOVE the repo, which is where gen_perf_bus
+        # reads its sdkconfig.h) populates knob/managed_components/
+        # (its own set, which gen_perf_bus reads for the SH8601 driver).
+        # The vendor-leg figs (perf_bus, perf_silicon) parse the live
+        # vendor headers — the S3 co5300 + pcf85063a AND the P4-only
+        # gt911 touch driver at once — so after the builds both are
+        # verified present; a missing package triggers the reconfigure
+        # of the target that fetches it (the figure scripts fail loudly
+        # with the rebuild hint if a re-resolve still prunes it).
         run: |
           source "$IDF_PATH/export.sh"
           idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
-          idf.py -C knob reconfigure
+          idf.py -C knob -B ../build/knob reconfigure
           idf.py build
+          if [ ! -d managed_components/espressif__esp_lcd_touch_gt911 ]; then
+            idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 reconfigure
+          fi
+          if [ ! -d managed_components/espressif__esp_lcd_co5300 ] \
+             || [ ! -d managed_components/waveshare__pcf85063a ]; then
+            idf.py reconfigure
+          fi
       - name: Host simulator (the gate's C-runtime frames)
         run: |
           cmake -B host_sim/build -S host_sim
