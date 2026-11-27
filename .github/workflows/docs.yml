@@ -48,6 +48,34 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq graphviz imagemagick ffmpeg
+      # The three housing renders docs/housing.rst embeds
+      # (render_hero_s3/render_hero_p4/render_chassis) are gitignored
+      # Blender output (hardware/housing/renders/) — the 0-warning html
+      # build presumes a render run, like the other docs media. The local
+      # pipeline runs via the flatpak; on the runner: the proven Blender
+      # 5.2.0 LTS from the official tarball (the flatpak build date
+      # 2026-07-14 matches it), sha256-pinned + cached. render.py is
+      # self-contained: build_housing.py builds the scene from the
+      # committed params.json at module level, and Cycles runs on CPU
+      # (no GPU, no network).
+      - name: Cache Blender 5.2.0 (the housing renders)
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: /opt/blender
+          key: blender-5.2.0-linux-x64
+      # Miss only: the pinned LTS tarball (384 MB — the flatpak's version,
+      # verified against it), sha256-checked before unpacking.
+      - name: "Blender 5.2.0 LTS (the official tarball, the housing renders' renderer)"
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz \
+            https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          echo "96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48  /tmp/blender.tar.xz" | sha256sum -c -
+          mkdir -p /opt/blender
+          tar -xJf /tmp/blender.tar.xz -C /opt/blender
+      - name: "Housing renders (Blender 5.2.0 LTS: the housing page's figures)"
+        run: /opt/blender/blender-5.2.0-linux-x64/blender -b -P hardware/housing/render.py
       # 3.14: the local venvs (docs, host_sim, the moon pipeline) are
       # 3.14, so the pinned requirements are proven to install on it.
       - uses: actions/setup-python@v5

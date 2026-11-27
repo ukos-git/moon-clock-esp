@@ -549,7 +549,14 @@ figures, the NASA art and the films), so the CI build is the
 (``MEDIA_NASA=1`` the five ``.. figure::`` answer-key refs,
 ``MEDIA_VIDEOS=1`` the two raw-``<video>`` embeds) and then the
 ``-W`` html build, so a missing media file is a warning and a
-warning is a failure. The ESP-IDF toolchain (~1.5 GB) and the
+warning is a failure. The three housing renders ``housing.rst``
+embeds (``render_hero_s3``/``render_hero_p4``/``render_chassis``
+under ``hardware/housing/renders/``) are gitignored Blender output
+like the other media — a clean build presumes a render run, so the
+job runs ``render.py`` headless with the proven Blender 5.2.0 LTS
+(official tarball, sha256-pinned + cached; Cycles CPU, the scene
+built from the committed ``params.json``, no network). The ESP-IDF
+toolchain (~1.5 GB) and the
 three device build trees (plus the resolved vendor components and
 the two gitignored P4/knob dependency locks) are ``actions/cache``d.
 The build-tree key is a content hash of the whole firmware input
