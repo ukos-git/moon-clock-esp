@@ -115,7 +115,9 @@ CONFIG_LV_USE_WIN=n
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_PERF_MONITOR=n
 CONFIG_LV_CONF_MINIMAL=y
-CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
+# (the legacy LV_ASSERT_HANDLER_INCLUDE="assert.h" is gone — LVGL 9.6
+#  #warning-s it; no custom LV_ASSERT_HANDLER is defined, so the default
+#  while(1) halt applies and assert.h was never needed)
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
