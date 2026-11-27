@@ -103,7 +103,7 @@ GEOM = {
 TABLES = {
     "s3": {"csv": "partitions.csv", "total_kib": 16384, "fixed_kib": 0x9000 // 1024},
     "p4": {"csv": "partitions_p4.csv", "total_kib": 32768, "fixed_kib": 0x9000 // 1024},
-    "knob": {"csv": "knob/partitions.csv", "total_kib": 16384, "fixed_kib": 0x9000 // 1024},
+    "knob": {"csv": "partitions_knob.csv", "total_kib": 16384, "fixed_kib": 0x9000 // 1024},
 }
 
 # Per-target moon_sim build dir (mirrors host_sim/check_gate.py).
