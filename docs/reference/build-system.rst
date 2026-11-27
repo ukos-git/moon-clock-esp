@@ -549,7 +549,21 @@ figures, the NASA art and the films), so the CI build is the
 (``MEDIA_NASA=1`` the five ``.. figure::`` answer-key refs,
 ``MEDIA_VIDEOS=1`` the two raw-``<video>`` embeds) and then the
 ``-W`` html build, so a missing media file is a warning and a
-warning is a failure. The perf figs parse the live build trees
+warning is a failure. The ESP-IDF toolchain (~1.5 GB) and the
+three device build trees (plus the resolved vendor components and
+the two gitignored P4/knob dependency locks) are ``actions/cache``d.
+The build-tree key is a content hash of the whole firmware input
+(``main/``, ``components/``, ``knob/``, the root ``CMakeLists.txt``,
+the ``sdkconfig`` defaults and the locks), so a push that doesn't
+change the firmware restores the previous run's tree and skips the
+device builds entirely — a canary step then asserts the three
+``.bin`` files, the generated ``sdkconfig.h`` and the vendor headers
+the figs parse are present in the restored tree (a failure there
+means the key's input globs need widening). A firmware change
+rebuilds everything and saves the fresh tree for the next identical
+push. (A restored tree would not be a reliable *incremental* ninja
+build anyway: runners are ephemeral and the fresh checkout resets
+source mtimes.) The perf figs parse the live build trees
 (``build/config``, ``build/esp-idf/``, ``build/moon-phase.bin``, the
 root and knob ``managed_components/``). The root
 ``managed_components/`` holds only the last-resolved target's set —

@@ -88,7 +88,32 @@ jobs:
             yes | /opt/esp-idf/install.sh esp32s3 esp32p4
           fi
           echo "IDF_PATH=/opt/esp-idf" >> "$GITHUB_ENV"
+      # The three device build trees (build/ incl. build/p4, plus the knob's
+      # tree) + the resolved vendor components + the two gitignored P4/knob
+      # dependency locks. KEYED ON THE FIRMWARE CONTENT: a hit means every
+      # input the builds consume is byte-identical to the run that saved
+      # the tree, so the .bin + sdkconfig.h + vendor headers the perf figs
+      # parse are already current and the device builds are SKIPPED
+      # (runners are ephemeral — a restored tree would not be a reliable
+      # ninja-incremental build, since the fresh checkout resets source
+      # mtimes; skipping is what makes a non-firmware push fast). The
+      # knob build dir sits ABOVE the checkout (../build/knob — the
+      # documented idf.py -C knob -B ../build/knob), hence the absolute
+      # path. A canary step verifies the artifacts exist after a skip.
+      - name: Cache the device build trees + resolved components
+        id: devbuilds
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            /home/runner/work/moon-clock-esp/build/knob
+            managed_components
+            knob/managed_components
+            dependencies.lock.p4
+            knob/dependencies.lock.knob
+          key: idf551-devbuilds-${{ runner.os }}-${{ hashFiles('dependencies.lock', 'main/**', 'components/**', 'knob/**', 'CMakeLists.txt', 'knob/CMakeLists.txt', 'sdkconfig.defaults*', 'knob/sdkconfig.defaults*') }}
       - name: Device builds (the figs' inputs)
+        if: steps.devbuilds.outputs.cache-hit != 'true'
         # P4 + knob FIRST, S3 LAST: the root managed_components/ keeps
         # only the last-resolved target's set, and gen_perf_bus.py reads
         # the S3 panel driver (espressif__esp_lcd_co5300) from it. The
@@ -134,6 +159,28 @@ jobs:
             cp -a build/p4/.gt911-fig-stash \
               managed_components/espressif__esp_lcd_touch_gt911
           fi
+      - name: Device-build canary (the figs' inputs exist)
+        # Runs on BOTH paths (fresh build, or the builds skipped on a
+        # content-key cache hit): the Media step and the perf figs parse
+        # exactly these files, so their absence is a hard failure either
+        # way. A failure here on a cache hit means the key's input globs
+        # are stale — add the missing path to the hashFiles list.
+        run: |
+          for f in build/moon-phase.bin build/p4/moon-phase.bin \
+                   ../build/knob/knob.bin \
+                   build/config/sdkconfig.h build/p4/config/sdkconfig.h \
+                   ../build/knob/config/sdkconfig.h \
+                   managed_components/espressif__esp_lcd_co5300 \
+                   managed_components/espressif__esp_lcd_touch_gt911 \
+                   managed_components/waveshare__pcf85063a \
+                   knob/managed_components/espressif__esp_lcd_sh8601; do
+            if [ ! -e "$f" ]; then
+              echo "missing $f (device builds $([ "$CACHE_HIT" = true ] && echo 'were skipped on a cache hit' || echo 'ran')); the tree is incomplete"
+              exit 1
+            fi
+          done
+        env:
+          CACHE_HIT: ${{ steps.devbuilds.outputs.cache-hit }}
       - name: "Host simulators (one moon_sim per board: the movie bake + the gate's C-runtime frames)"
         # host_sim is a standalone CMake project (no ESP-IDF) that reads the
         # get_assets bake outputs; SIM_BUILD_DIRS maps s3 -> host_sim/build,
