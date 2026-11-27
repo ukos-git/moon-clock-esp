@@ -7,31 +7,41 @@ Build system and Kconfig
    After this page they can: build all three targets and keep the config split clean.
    Page type: reference (how-to).
 
-Two clock boards, one tree: the S3 build (the Waveshare
+Three boards, one tree: the S3 build (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75) is the default target and the P4 build
 (the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) is a sibling with its own
 partition table, its own dependency
 lock, and a board-select Kconfig that gates the app's board-specific
-code. The knob adds a **third build**: a sibling ESP-IDF project
-under ``knob/`` with its own ``CMakeLists`` / partition table /
-dependency lock / Kconfig, which links the clock's shared
-``clock``/``wifi``/``moon``/``ui`` components through
-``EXTRA_COMPONENT_DIRS`` (as individual dirs, never the parent
-``components/``) and satisfies the component names it lacks with
-same-named silent shims (``board``/``imu``/``esp_codec_dev``) —
+code. The knob (the Waveshare ESP32-S3-Knob-Touch-LCD-1.8) adds a
+**third build of the same tree**: it is an esp32s3 target (like the
+S3), selected by the ``-D KNOB_BOARD=ON`` flag on top of
+``IDF_TARGET=esp32s3`` — which the root ``CMakeLists`` uses to
+exclude the vendored S3 BSP, pick the knob's dependency lock
+(``dependencies.lock.knob``), and promote ``KNOB_BOARD`` into the
+component manager's early requirements pass so the knob-gated
+components (the ``knob_*`` dial/battery/UI glue) and the knob's app
+entry point (``main_knob.c``, where the clocks compile ``main.cpp``)
+build only on the knob. The knob's row in the shared
+``choice BOARD`` Kconfig (``components/board/Kconfig.projbuild``,
+``CONFIG_BOARD_KNOB=y`` in ``sdkconfig.defaults.knob``) gates the
+app-side behaviour, and ``partitions_knob.csv`` its flash layout —
 :doc:`the Knob board <../devices/knob>`. This page is the build layer
-— the three-file
-``sdkconfig.defaults`` split, the P4 target block in the root
-CMakeLists, the two flash-data partitions (SPIFFS + the moon assets
-blob), and the Kconfig conventions the project lives by.
+— the ``sdkconfig.defaults`` split (shared + one file per target,
+plus the knob's explicitly passed file), the P4 and knob target blocks
+in the root CMakeLists, the two flash-data partitions (SPIFFS + the
+moon assets blob), and the Kconfig conventions the project lives by.
 
-The three-file sdkconfig split
-------------------------------
+The sdkconfig defaults split
+----------------------------
 
 ESP-IDF loads ``sdkconfig.defaults``, then appends
 ``sdkconfig.defaults.<target>`` **when it exists** (later file wins).
-The project uses that hook to keep one shared file and two per-target
-files — all three **hand-curated**:
+The project uses that hook to keep one shared file and one per-target
+file — all **hand-curated**. The knob is an esp32s3 target, so the
+auto-append would give it the S3's file; its defaults
+(``sdkconfig.defaults.knob``) are therefore passed **explicitly**
+through ``-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob"``
+on every knob command (the flag set is on the commands below).
 
 .. list-table::
    :header-rows: 1
@@ -60,17 +70,30 @@ files — all three **hand-curated**:
        without it the PSRAM *silently falls back to 20 MHz* and the
        DSI underruns, :doc:`the P4 port <../implementation/p4-port>`), the XIP-from-PSRAM + 256 KB L2
        cache (the 128 B-line M0 values), and the taller main stack
+   * - ``sdkconfig.defaults.knob``
+     - the knob's board line (``CONFIG_BOARD_KNOB=y`` — the choice
+       default is ``BOARD_S3``), the partition file
+       (``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_knob.csv"``),
+       the 16 MB flash header, octal PSRAM at 80 MHz, the 240 MHz
+       core, the 100 Hz systick (the S3 clock's value — the 1 kHz
+       systimer tick crashed the knob's bench builds,
+       :doc:`the Knob board <../devices/knob>`), the taller main
+       stack (16384: the shared home screen is built on the main task
+       there), and the CPU1 idle-WDT check + panic (the
+       yield-everything producer posture). Not auto-appended — the
+       knob is an esp32s3 target, so it is passed with ``-D
+       SDKCONFIG_DEFAULTS`` (above)
 
-The knob does **not** participate in this split — it is its own
-project with ``knob/sdkconfig.defaults`` and a gitignored live
-``knob/sdkconfig`` (the sibling project's Kconfig carries its own
-``choice BOARD``, default ``BOARD_KNOB``).
+The knob's live config is ``sdkconfig.knob`` (gitignored like the
+clocks' ``sdkconfig`` and ``sdkconfig.p4``), passed with ``-D
+SDKCONFIG=sdkconfig.knob`` on every knob command — the knob's
+``CONFIG_BOARD_KNOB=y`` line rides it.
 
 The ``save-defconfig`` warning (the project's Kconfig rule #1):
 ``idf.py save-defconfig`` writes the *shared* file only. With the
 split, a ``save-defconfig`` run would **clobber the board-specific
 lines** (a P4 run would delete the S3's ``buffer_height``; an S3 run
-would delete the P4's ``SPIRAM_SPEED_200M``). The three files are
+would delete the P4's ``SPIRAM_SPEED_200M``). The four files are
 therefore kept by hand — a stray board line in the wrong file is a
 *build-time* error, not a runtime one: the root CMakeLists' guard
 (above) raises ``FATAL_ERROR`` on a target/board mismatch.
@@ -94,10 +117,16 @@ The build commands
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
 
-   # knob (360) — sibling project, own build dir + own
-   # dependencies.lock.knob; app-flash preserves its SPIFFS credentials
-   idf.py -C knob -B ../build/knob build
-   idf.py -C knob -B ../build/knob app-flash -p <port>
+   # knob (360) — the same tree on the esp32s3 target: -D KNOB_BOARD=ON
+   # (the root CMakeLists excludes the S3 BSP + selects dependencies.lock.knob),
+   # own build dir + own live sdkconfig.knob; app-flash preserves its
+   # SPIFFS credentials
+   idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+     -B build/knob build
+   idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+     -B build/knob app-flash -p <port>
 
 Three constraints the commands encode:
 
@@ -116,23 +145,35 @@ Three constraints the commands encode:
   from the defaults split on a fresh clone and stays correct after the
   first configure (it matches the cache entry), so every P4 command
   carries it.
-- **The knob builds outside the clock's tree.** ``-B ../build/knob``
-  resolves relative to the *invoking* directory — ``idf.py -C knob``
-  first changes into ``knob/``, so the build dir lands next to the
-  repo (``<parent of repo>/build/knob``), not inside it. Its live
-  ``knob/sdkconfig`` and ``dependencies.lock.knob`` are gitignored
-  like the clock's, and ``app-flash`` (not a full flash) is the
-  convention that keeps the knob's SPIFFS Wi-Fi credentials.
+- **The knob builds the same tree with ``-D KNOB_BOARD=ON``.** The
+  knob is an esp32s3 target, so the flag (not the target) is what
+  distinguishes its build: the root ``CMakeLists`` uses it to exclude
+  the vendored S3 BSP and to select the knob's own dependency lock
+  (``dependencies.lock.knob``, gitignored), and it promotes
+  ``KNOB_BOARD`` into the component manager's early requirements pass
+  so the knob-gated components compile. It is also a *guard*: a knob
+  ``sdkconfig`` (``CONFIG_BOARD_KNOB=y``) built without the flag
+  ``FATAL_ERROR``s rather than silently resolve the S3 BSP and
+  misdrive the knob's hardware. The knob's live config is
+  ``sdkconfig.knob`` (gitignored like the clock's), and its defaults
+  file is passed explicitly (``-D
+  SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob"``)
+  because the auto-append would give it the S3's per-target file.
+  ``app-flash`` (not a full flash) is the convention that keeps the
+  knob's SPIFFS Wi-Fi credentials.
 - **Never run two ``idf.py`` builds in parallel** (a project rule):
   the builds share the component manager's cache, and parallel
   configures corrupt each other's lock resolution. Build
   sequentially.
 
-The P4 target block
--------------------
+The P4 and knob target blocks
+-----------------------------
+
+Both pre-``project()`` blocks sit at the top of the root ``CMakeLists``,
+before ``project(moon-phase)`` runs the component manager.
 
 .. code-block:: cmake
-   :caption: Root CMakeLists.txt — the esp32p4 block (abridged)
+   :caption: Root CMakeLists.txt — the esp32p4 and KNOB_BOARD blocks (abridged)
 
    if(IDF_TARGET STREQUAL "esp32p4")
        # The vendored S3 BSP is S3-only (its manifest declares
@@ -144,15 +185,25 @@ The P4 target block
            "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
    endif()
 
+   # The knob IS an esp32s3 (same target as the S3 clock), so it is
+   # selected by -D KNOB_BOARD=ON rather than a different IDF_TARGET.
+   if(KNOB_BOARD)
+       set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")
+       idf_build_set_property(DEPENDENCIES_LOCK
+           "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.knob")
+       idf_build_set_property(KNOB_BOARD ON)
+   endif()
+
    project(moon-phase)
 
-   # Target/board mismatch guard
+   # Target/board mismatch guards
    if((IDF_TARGET STREQUAL "esp32p4" AND NOT CONFIG_BOARD_P4) OR
-           (IDF_TARGET STREQUAL "esp32s3" AND NOT CONFIG_BOARD_S3))
+           (IDF_TARGET STREQUAL "esp32s3" AND NOT CONFIG_BOARD_S3
+            AND NOT CONFIG_BOARD_KNOB))
        message(FATAL_ERROR "Board mismatch: IDF_TARGET=...")
    endif()
 
-The two gotchas in the block:
+The two gotchas in the blocks:
 
 1. **The partition table is *not* set in CMake.** The
    ``partition_table`` component's project hook re-derives
@@ -160,12 +211,28 @@ The two gotchas in the block:
    ``set()`` before ``project()`` is clobbered. The selection lives
    in the per-target defaults files (the shared defaults enable
    ``CONFIG_PARTITION_TABLE_CUSTOM=y``; the P4 file sets the
-   ``partitions_p4.csv`` filename; the S3 keeps the default
-   ``partitions.csv``).
-2. **``EXCLUDE_COMPONENTS`` must name the S3 BSP.** The vendored
-   manifest is target-specific (``targets: [esp32s3]``); left in the
-   P4 build, the component manager's local-manifest check
-   raises ``FATAL_ERROR`` on the target mismatch *before* the app builds.
+   ``partitions_p4.csv`` filename, the knob's
+   ``sdkconfig.defaults.knob`` sets ``partitions_knob.csv``; the S3
+   keeps the default ``partitions.csv``).
+2. **``EXCLUDE_COMPONENTS`` must name the S3 BSP — on both builds.**
+   The vendored manifest is target-specific (``targets: [esp32s3]``);
+   left in the P4 build, the component manager's local-manifest check
+   raises ``FATAL_ERROR`` on the target mismatch *before* the app
+   builds. On the knob the exclusion is for a different reason: the
+   S3 BSP's 466 px ``bsp/display.h`` would scale the knob's 360 px
+   round layout wrong, and its ``esp_codec_dev`` public dep would leak
+   in (the knob answers that name with the real driver, declared in
+   ``components/knob_board/idf_component.yml``).
+
+The knob block's third line is the subtle one: ``idf_build_set_property``
+promotes ``KNOB_BOARD`` into the component manager's *early
+requirements pass* — a plain ``-D`` cache variable would not reach that
+pass (it is a ``cmake -P`` subprocess that sees only the four ``-D``
+args it is given plus the build-properties dump). Promoting it is what
+lets the ``board``/``imu``/``knob_*`` components'
+``if(KNOB_BOARD)`` ``SRCS``/``REQUIRES`` branches resolve in *both*
+the early pass and the target pass, the way ``IDF_TARGET`` itself
+resolves.
 
 The flash-data partitions
 -------------------------
@@ -180,8 +247,9 @@ is the third, :doc:`the binary-size chronology <../verification/binary>`):
    spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
 
    # The moon assets: the per-board pre-baked blob (gitignored), the
-   # out/<target>/ dir picked by IDF_TARGET (the knob's own
-   # CMakeLists replicates the guards for --target knob).
+   # out/<target>/ dir picked by the board (s3 by default, p4 on the
+   # P4 target, knob on CONFIG_BOARD_KNOB — the knob build runs the
+   # same file and the same guards).
    set(MOON_ASSET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets/images/moon/out/${MOON_ASSET_TARGET})
    set(MOON_ASSETS_BIN ${MOON_ASSET_DIR}/moon_assets.bin)
    # Guards before the flash, all FATAL_ERROR: MOON_ALBEDO_W must be an
@@ -197,7 +265,11 @@ is the third, :doc:`the binary-size chronology <../verification/binary>`):
 The two are *different kinds* of flash data:
 
 - **``storage`` (SPIFFS)** is baked from the *source tree's*
-  ``spiffs/`` directory on **every** build (``FLASH_IN_PROJECT``) —
+  ``spiffs/`` directory on **every** build (``FLASH_IN_PROJECT``) — on
+  all three boards, including the knob (its rules and credentials
+  files are the clocks' ``spiffs/alarm.txt`` and
+  ``spiffs/wifi_credentials.txt``; the shared ``components/wifi`` reads
+  the clocks' filename) —
   and it is *runtime-owned*: the app writes ``alarm.txt`` and
   ``wifi_credentials.txt`` back to it, so a full flash **clobbers**
   the runtime state (accepted; ``spiffs/`` must not contain
@@ -218,7 +290,10 @@ The two are *different kinds* of flash data:
   enforced as build-time ``FATAL_ERROR``s: an even ``MOON_ALBEDO_W``,
   the manifest's baked width equal to it, and the combined blob within
   the ``moon_assets`` row of the partition CSV the build actually uses
-  (the knob's own CMakeLists replicates the guards for its target).
+  (``partitions.csv`` on the S3, ``partitions_p4.csv`` on the P4,
+  ``partitions_knob.csv`` on the knob — the knob runs the same file
+  and the same guards; the albedo-width cross-check is skipped for the
+  knob target, which has no ``MOON_ALBEDO_W`` Kconfig mirror).
   The blob's layout
   (albedo at 0, then the int8 DEM, ``esp_partition_read`` at boot) is
   the ``moon_assets.h`` contract.
@@ -363,49 +438,53 @@ wifi → board → BSP), and the *portable* core sits at the bottom with
 no upward edges — which is why the host simulator can link it and the
 gate can run it (:doc:`the architecture <../implementation/architecture>` and :doc:`the image gate <../verification/image-gate>`).
 
-The knob's build reuses the ``moon``/``clock``/``wifi``/``ui`` rows
-verbatim through ``EXTRA_COMPONENT_DIRS`` (individual dirs, never the
-parent ``components/`` — the component manager excludes components by
-name only, so the names must be owned one by one), and stands in
-**same-named components** where the shared requirements name something
-the board lacks: its own ``board`` shim (SH8601 display + touch
-init), an ``imu`` **stub** (the board has no IMU), and an empty
-``esp_codec_dev`` (no codec). Its own ``knob_*`` components add the
-dial, battery gauge, power ladder, time handling and the render seam
-(:doc:`the Knob board <../devices/knob>`).
+The knob's build compiles those same ``moon``/``clock``/``wifi``/``ui``
+components from the same ``components/`` tree — the knob is an esp32s3
+target of this project, not a second ``components/`` tree — and adds its
+own ``knob_*`` components for the dial, battery gauge, power ladder,
+time handling and the render seam (:doc:`the Knob board <../devices/knob>`).
+Where the shared requirements name something board-specific, the shared
+components answer the knob with their own ``KNOB_BOARD`` row: ``board``
+dispatches to the ``knob_board`` component (SH8601 + touch + dial),
+``imu`` compiles its absent-IMU stub, and the knob declares the real
+``esp_codec_dev`` managed dep (gated on ``$CONFIG{BOARD_KNOB}``). The
+knob branch keys on ``KNOB_BOARD`` (promoted into the early pass) and
+only ``SRCS``/``INCLUDES`` branch on it, because the component
+manager's early requirements pass sees neither project variables nor
+``CONFIG_`` symbols.
 
 The seam, in pictures
 ---------------------
 
-The pages above state the machine in prose — three projects, one repo,
-two CMake passes, literal requirements, silent shims. This is the
-sealed overview plus four detail sketches; every quoted line was read
-out of ``CMakeLists.txt``, ``knob/CMakeLists.txt`` and the shared
-components' ``CMakeLists`` at sketch time:
+The pages above state the machine in prose — one project, three boards,
+two CMake passes, literal requirements. This is the sealed overview
+plus four detail sketches; every quoted line was read out of
+``CMakeLists.txt`` and the shared components' ``CMakeLists`` at sketch
+time:
 
 .. graphviz:: ../_graphs/build-seam.dot
-   :alt: The build seam — the knob re-using the clock's four shared components through individually-listed EXTRA_COMPONENT_DIRS, same-named silent shims, and KNOB_BOARD branches confined to SRCS because the early requirements pass sees neither project variables nor CONFIG_ symbols
-   :caption: The seam, drawn — the blue edge from the knob project is the seam itself: ``EXTRA_COMPONENT_DIRS`` spelled dir-by-dir, **never** the parent ``components/`` (the rule the shims sketch opens); the two-pass band is the reason for every rule the details carry.
+   :alt: The build seam — one project building three boards; the knob build (an esp32s3 target selected by -D KNOB_BOARD=ON) compiles the four shared components alongside its knob_* components and the board/imu knob rows, with KNOB_BOARD branches confined to SRCS because the early requirements pass sees neither project variables nor CONFIG_ symbols
+   :caption: The seam, drawn — one project, three boards. The blue edge from the knob **build** is the seam itself: the same ``components/`` tree compiled with the knob-gated pieces added (the ``knob_*`` components + the board/imu knob rows), **not** a second tree; the two-pass band is the reason for every rule the details carry.
    :align: center
 
 .. graphviz:: ../_graphs/build-seam-projects.dot
-   :alt: The three projects opened — the root clock project spawning the P4 sibling that excludes the vendored S3 BSP and pins its own lock before project(), and the knob sibling whose KNOB_BOARD is set before project() because the component manager runs there, pre-Kconfig
-   :caption: The projects — the P4 is a sibling build of the root (``-D IDF_TARGET=esp32p4 -B build/p4``) whose target block ``EXCLUDE_COMPONENTS`` the vendored S3 BSP (manifest targets: ``[esp32s3]``) "out of the P4 build AND of the component manager's local-manifest list" (:16-21) and pins ``DEPENDENCIES_LOCK dependencies.lock.p4`` **before** ``project()`` (:27-28, "which runs the component manager", :24-26); the tracked root ``dependencies.lock`` stays the S3's. The knob likewise owns its build dir (``-C knob -B ../build/knob`` — OUTSIDE the repo), its gitignored ``dependencies.lock.knob`` (:47) and its sdkconfig; ``set(KNOB_BOARD ON)`` sits at :23, BEFORE ``project(knob)`` (:49) — "A PROJECT variable, not a ``CONFIG_`` symbol: the component manager resolves requirements BEFORE Kconfig runs, and ``CONFIG_`` variables are unset in that first pass" (:20-22).
+   :alt: One project, three builds opened — the P4 target that excludes the vendored S3 BSP and the knob_board component and pins its own lock before project(), the S3 clock that excludes knob_board, and the knob build whose KNOB_BOARD flag is promoted into the early pass before project() because the component manager runs there, pre-Kconfig
+   :caption: One project, three builds. The P4 is a sibling **target** (``-D IDF_TARGET=esp32p4 -B build/p4``) whose target block ``EXCLUDE_COMPONENTS`` the vendored S3 BSP **and** the ``knob_board`` component (manifest targets: ``[esp32s3]``) "out of the P4 build AND of the component manager's local-manifest list" (:15-33) and pins ``DEPENDENCIES_LOCK dependencies.lock.p4`` **before** ``project()`` (:31, "which runs the component manager"); the tracked root ``dependencies.lock`` stays the S3's. The S3 **clock** block (:35-46) excludes ``knob_board`` so its knob-only managed deps never enter the S3 lock. The knob is a third **build** of the same tree on the esp32s3 target (``-D KNOB_BOARD=ON -B build/knob`` — INSIDE the repo); its block (:63-67) excludes the vendored S3 BSP, pins ``DEPENDENCIES_LOCK dependencies.lock.knob``, and promotes ``KNOB_BOARD`` into the component manager's early requirements pass via ``idf_build_set_property`` (:67) — "a plain ``-D`` cache variable does NOT [reach that pass]".
    :align: center
 
 .. graphviz:: ../_graphs/build-seam-passes.dot
    :alt: The two CMake passes opened — the early requirements pass that sees neither project variables nor CONFIG_ symbols and forces literal REQUIRES, and the target pass where KNOB_BOARD branches live, with the four dropped ui translation units and the fonts_knob flip
-   :caption: The passes — the EARLY one (``build.cmake:664``, ``cmake -P component_get_requirements.cmake``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols, so ``REQUIRES``/``PRIV_REQUIRES`` are spelled out unconditionally on purpose and every name must resolve in all three projects (the ui comment :36-43); an ``if()`` hiding a missing component is invisible in that pass, which is what the silent ``esp_codec_dev`` shim pays for. The target pass is where ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` (``CONFIG_BOARD_P4`` "reads false in that pass (harmless: SRCS are only consumed by the second, target-owning pass)") — the ui component's four dropped translation units (``alarm_audio.c``, ``demo.c``, ``moon_ui.c``, ``moon_tfcache.c``) and the ``fonts_knob`` flip (fonts/ 96-48-32, fonts_p4/ 148-74-50, fonts_knob/ 74-37-25 — identical ``lv_font_t`` symbol names, "so fonts.h and every consumer are unchanged").
+   :caption: The passes — the EARLY one (``cmake -P component_get_requirements.cmake``) evaluates every component ``CMakeLists`` with NEITHER project variables NOR ``CONFIG_`` symbols, so ``REQUIRES``/``PRIV_REQUIRES`` are spelled out unconditionally on purpose and every name must resolve in all three board builds (the ``ui`` comment); an ``if()`` hiding a missing component is invisible in that pass — which is why the knob answers ``ui``'s ``esp_codec_dev`` requirement with a real managed dep gated on ``$CONFIG{BOARD_KNOB}`` in ``knob_board``'s manifest. The knob branch key ``KNOB_BOARD`` is promoted into this pass by the root CMakeLists; the target pass is where the ``KNOB_BOARD`` branches live, and only in ``SRCS``/``INCLUDES`` (``CONFIG_BOARD_P4`` "reads false in that pass (harmless: SRCS are only consumed by the second, target-owning pass)") — the ui component's four dropped translation units (``alarm_audio.c``, ``demo.c``, ``moon_ui.c``, ``moon_tfcache.c``) and the ``fonts_knob`` flip (fonts/ 96-48-32, fonts_p4/ 148-74-50, fonts_knob/ 74-37-25 — identical ``lv_font_t`` symbol names, "so fonts.h and every consumer are unchanged").
    :align: center
 
 .. graphviz:: ../_graphs/build-seam-shims.dot
-   :alt: The silent shims opened — the knob's board shim with its SH8601 init and BOARD_KNOB-default choice, the imu stub answering a fixed upright, the esp_codec_dev component that is only a CMakeLists, and the rule that the parent components/ directory is never added because the component manager excludes by name
-   :caption: The shims — who names what: ``clock`` REQUIRES board (:5, "esp_io_expander board wifi …"), ``ui`` REQUIRES imu, board and ``esp_codec_dev`` (:55-59), while ``moon`` (:46) and ``wifi`` (:4) name NEITHER — the portable core sits below the board. The knob answers with same-named silent components: ``board`` (SH8601 display + touch init; its Kconfig carries ``choice BOARD`` default ``BOARD_KNOB``, ``BOARD_S3``/``BOARD_P4`` selectable-but-unused "so the shared Kconfig's if BOARD_P4 clauses parse" — the clocks answer the same name with the real component, default ``BOARD_S3``), ``imu`` (``imu_stub.c``: a fixed upright, no chip) and ``esp_codec_dev`` (a ``CMakeLists`` and NOTHING ELSE — on the clocks the vendored real component owns that name). Why never add the parent ``components/``: IDF 5.5.1 excludes components by name only — adding it would register the *clock's* ``board``/``imu`` and collide, and EXCLUDE-by-name could not fix that.
+   :alt: The knob's rows opened — the shared board component dispatching to knob_board on KNOB_BOARD, the shared imu component compiling its absent-IMU stub, and the real esp_codec_dev managed dep gated on $CONFIG{BOARD_KNOB} in knob_board's manifest
+   :caption: The knob's rows — who names what: ``clock`` REQUIRES board, ``ui`` REQUIRES imu, board and ``esp_codec_dev`` (unconditionally, so every name must resolve in every board build), while ``moon`` and ``wifi`` name NEITHER board nor imu — the portable core sits below the board. The knob answers with its own **rows in the shared components**, not a second tree: ``board`` (the ``KNOB_BOARD`` branch of ``components/board`` dispatches to the ``knob_board`` component — SH8601 display + touch + dial — and the shared ``choice BOARD`` carries the ``BOARD_KNOB`` row, ``BOARD_S3``/``BOARD_P4`` selectable-but-unused "so the shared Kconfig's if BOARD_P4 clauses parse"), ``imu`` (``imu_stub.c`` on ``KNOB_BOARD``: a fixed upright, no chip) and ``esp_codec_dev`` (a real managed dep declared in ``knob_board``'s manifest, gated on ``$CONFIG{BOARD_KNOB}`` so it stays out of the S3/P4 locks; unused on the codec-less knob, so its objects never link).
    :align: center
 
 .. graphviz:: ../_graphs/build-seam-guards.dot
-   :alt: The configure guards opened — the root's even-width, manifest-width and partition-fit FATAL_ERROR trio, the missing blob as warning only, the knob's stricter manifest-must-exist replicant, and the per-target sdkconfig.defaults as the source of CONFIG_ symbols
-   :caption: The guards — the root's even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio ("All three mismatches have historically surfaced as obscure build/boot failures … so they are FATAL_ERRORs here"; the fit message names the KiB, "they need >= X K"), and the knob's shape-replicant that drops the Kconfig-width check ("the knob has no Kconfig mirror; its single truth is the pipeline-written manifest + header") and is *stricter* about existence: a missing manifest kills the knob build, because a knob without its blob has no moon at all (no SD socket). ``CONFIG_`` symbols come instead from the per-target ``sdkconfig.defaults`` files (``CONFIG_BOARD_P4=y``, ``PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"``), with the root's target/board mismatch guard as referee (:77-88).
+   :alt: The configure guards opened — one FATAL_ERROR trio in the root CMakeLists run by all three boards (even-width, manifest-width, partition-fit), the missing blob as warning only, the knob running the same block with only the width check skipped, and the sdkconfig.defaults files as the source of CONFIG_ symbols
+   :caption: The guards — ONE guard block in the root ``CMakeLists`` (:138-204) run by **all three** boards: the even-width / manifest-width / partition-fit ``FATAL_ERROR`` trio ("All three mismatches have historically surfaced as obscure build/boot failures … so they are FATAL_ERRORs here"; the fit message names the KiB, "they need >= X K"), with a missing blob a **warning** only for every board (the app boots without the moon). The knob runs the same block on its esp32s3 target; the one knob-only difference is that the manifest-width cross-check is **skipped** for the knob target (it has no ``MOON_ALBEDO_W`` Kconfig mirror — the knob code reads the width from the generated header + manifest). ``CONFIG_`` symbols come instead from the ``sdkconfig.defaults`` files — ``sdkconfig.defaults.esp32p4`` and ``sdkconfig.defaults.knob`` pin their board row + partition CSV, the knob's passed explicitly via ``-D SDKCONFIG_DEFAULTS`` — with the root's target/board mismatch guard (:116-121) and the knob-flag guard (:132) as referees.
    :align: center
 
 The seam's *runtime* side — ``knob_moon_render.c`` implementing
@@ -419,7 +498,8 @@ The seam has a ledger: how many parts each image assembles from
 (the shared-4 under every bar, the registry set each lock resolves),
 what it drops on the knob side (the four ``UI_BOARD_SRCS``
 translations, 5,178 lines) against what answers its three board-side
-names (44 lines and one CMakeLists), and which four ``REQUIRES``
+names (the ``knob_board`` dispatch, the ``imu_stub`` and the real
+``esp_codec_dev`` managed dep), and which four ``REQUIRES``
 literals oblige the early pass at all — counted in **parts** at
 :ref:`the build census <census-ladder-perf>`. The same seam counted
 in **choices** — the 69/57/85 menuconfig entries the three menus
@@ -585,8 +665,8 @@ so the job runs the P4 and knob builds first and the S3 build LAST,
 leaving the S3 set ``gen_perf_bus.py`` reads its panel driver
 (``co5300``) from. The knob leg is a full ``idf.py build`` (not just
 a reconfigure): ``gen_perf_storage.py`` measures the size of
-``../build/knob/knob.bin`` alongside the two ``moon-phase.bin``
-binaries, and a reconfigure alone leaves no binary. But ``gen_perf_silicon.py`` needs a P4-ONLY touch
+``build/knob/moon-phase.bin`` alongside the two clock
+``moon-phase.bin`` binaries, and a reconfigure alone leaves no binary. But ``gen_perf_silicon.py`` needs a P4-ONLY touch
 driver (``gt911``) the S3 set lacks, and no single target's lock
 carries both — so after the S3 build the job makes the UNION by
 stashing the ``gt911`` dir through a P4 reconfigure and copying it

@@ -69,7 +69,7 @@ def parse_current() -> list[tuple[str, int, int, str]]:
                          f"{len(rows)} — update the parser with the table")
     board_of = {"build/moon-phase.bin": ("S3 466", BLUE),
                 "build/p4/moon-phase.bin": ("P4 720", VERM),
-                "../build/knob/knob.bin": ("knob 360", VIOLET)}
+                "build/knob/moon-phase.bin": ("knob 360", VIOLET)}
     out = []
     for f, size, ceil in rows:
         name, color = board_of[f]

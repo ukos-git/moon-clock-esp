@@ -8,25 +8,31 @@ touch, remote C6 Wi-Fi over SDIO, 32 MB flash + PSRAM — the full sibling port;
 `docs/devices/p4`). ESP-IDF 5.5.1, LVGL 9.6. The portable moon core
 (`components/moon/core`) is shared verbatim with the host simulator
 (`host_sim/`) and with the third board of the moon-clock family — the
-ESP32-S3-Knob-Touch-LCD-1.8 "knob" (the `knob/` sibling project: its own
-ESP-IDF project, build dir, `dependencies.lock.knob` and gitignored
-`knob/sdkconfig`, its third asset target `--target knob`; `docs/devices/knob`
-and `docs/implementation/knob-display`). Since the P1 home parity step it links
+ESP32-S3-Knob-Touch-LCD-1.8 "knob": a **third build of the same tree** on the
+esp32s3 target, selected by `-D KNOB_BOARD=ON` (own build dir,
+`dependencies.lock.knob` and gitignored `sdkconfig.knob`, its third asset
+target `--target knob`; `docs/devices/knob` and
+`docs/implementation/knob-display`). Since the P1 home parity step it compiles
 the clock's shared components (`clock`, `wifi`, `moon`, and `ui` — the shared
 home screen over the knob's `knob_moon_render.c` seam + generated `fonts_knob/`
-tier; legacy own-screen view behind `KNOB_UI_ENABLE=n`) through
-`EXTRA_COMPONENT_DIRS` — added as **individual dirs, never the parent
-`components/`** (IDF 5.5.1 excludes components by name only, so the knob's own
-`board`/`imu` shims must own those names; the shim's Kconfig carries the
-`choice BOARD`, default `BOARD_KNOB`) — and adds the dial, battery gauge and
-real `esp_deep_sleep_start` armed with RTC **TIMER** wake for the fixed alarm
-rule (never an early ring; see the ladder + arbitration in
-`docs/implementation/knob-display`). Component `REQUIRES`/`PRIV_REQUIRES` must
-stay **literal**: the component manager's early requirements pass
-(`build.cmake` → `cmake -P component_get_requirements .cmake`) sees neither
-project variables nor `CONFIG_` symbols — branch only SRCS/INCLUDES (target
-pass), and satisfy names the knob lacks with same-named silent shim components
-(the `board`/`imu`/`esp_codec_dev` trick).
+tier; legacy own-screen view behind `KNOB_UI_ENABLE=n`) as ordinary sibling
+components of the SAME `components/` tree (entry point `main/main_knob.c`,
+`knob_*` components alongside the shared ones; the shared `board`/`imu`
+components answer the knob's board-coupled REQUIREs with their `KNOB_BOARD`
+rows — `knob_board` + `knob_include` and `imu_stub.c` — and `esp_codec_dev` is
+the real managed dependency declared in `knob_board`'s manifest, gated on
+`$CONFIG{BOARD_KNOB}` so it stays out of the S3/P4 locks; the shared
+`choice BOARD` in `components/board/Kconfig.projbuild` carries the `BOARD_KNOB`
+row, default `BOARD_S3`, pinned `y` in `sdkconfig.defaults.knob`) and adds the
+dial, battery gauge and real `esp_deep_sleep_start` armed with RTC **TIMER**
+wake for the fixed alarm rule (never an early ring; see the ladder +
+arbitration in `docs/implementation/knob-display`). Component
+`REQUIRES`/`PRIV_REQUIRES` must stay **literal**: the component manager's early
+requirements pass (`build.cmake` →
+`cmake -P component_get_requirements .cmake`) sees neither project variables
+nor `CONFIG_` symbols — branch only SRCS/INCLUDES (target pass), and the knob's
+branch key `KNOB_BOARD` reaches that early pass only through
+`idf_build_set_property` (a plain `-D` cache variable does not).
 
 ## Standing rule: keep the documentation current
 
@@ -66,11 +72,11 @@ system, build steps) **update the site** — do not let it drift:
    faces under `assets/fonts/` — fetched once, sha256-pinned, by
    `python3 assets/images/moon/get_assets.py --fonts`. The by-hand path
    (`build.sh run` → `docs/img/screens/`, `build.sh run --panel 720` →
-   `docs/img/screens/p4/`, `--panel 360` → `knob/`, then re-run `enclose.py`
-   for the affected label specs) stays fine for single-screen iterations. If
-   the change only touches the moon bake path, the host image gate must pass
-   before the doc's numbers are trustworthy — ALL THREE board textures (the
-   knob sibling included):
+   `docs/img/screens/p4/`, `--panel 360` → `docs/img/screens/knob/`, then
+   re-run `enclose.py` for the affected label specs) stays fine for
+   single-screen iterations. If the change only touches the moon bake path, the
+   host image gate must pass before the doc's numbers are trustworthy — ALL
+   THREE board textures (the knob build included):
    `host_sim/.venv/bin/python host_sim/check_gate.py --target s3` and
    `--target p4` and `--target knob` (the gate exits 2 on a stale sim binary
    built against the other target's texture).
@@ -216,15 +222,25 @@ idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <por
 python3 assets/images/moon/get_assets.py --refs --fonts
 # moon assets: per-board pre-baked albedo + DEM blobs (gitignored,
 # assets/images/moon/out/{s3,p4,knob}/); the root CMakeLists FATAL_ERRORs on a
-# width/manifest/partition mismatch (knob/CMakeLists.txt replicates the
-# guards) — regenerate after touching the pipeline or MOON_ALBEDO_W (sources
+# width/manifest/partition mismatch (one guard block run by all three boards —
+# the knob build skips only the albedo-width check, no Kconfig mirror) —
+# regenerate after touching the pipeline or MOON_ALBEDO_W (sources
 # stay cached under moon-kit/, so the bake leg needs no network):
 cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob
-# knob moon display (sibling project, own build dir + own gitignored
-# dependencies.lock.knob + knob/sdkconfig; flash the board chip_id-verified
-# as the bench's ESP32-S3; app-flash preserves its spiffs credentials):
-idf.py -C knob -B ../build/knob build
-idf.py -C knob -B ../build/knob app-flash -p <port>
+# knob moon display (third build of the SAME tree: esp32s3 target,
+# -D KNOB_BOARD=ON; own build dir + gitignored dependencies.lock.knob +
+# sdkconfig.knob — the knob is an esp32s3 target, so its live config
+# cannot ride the IDF_TARGET hook and is passed explicitly; the defaults
+# files are likewise passed explicitly because sdkconfig.defaults.knob is
+# not auto-appended for a non-target build — only <file>.<idf_target> is;
+# flash the board chip_id-verified as the bench's ESP32-S3; app-flash
+# preserves the shared spiffs credentials):
+idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+  -B build/knob build
+idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+  -B build/knob app-flash -p <port>
 host_sim/.venv/bin/python host_sim/check_gate.py --target s3   # moon image gate (NASA refs)
 host_sim/.venv/bin/python host_sim/check_gate.py --target p4   # all three board
 host_sim/.venv/bin/python host_sim/check_gate.py --target knob # textures must pass

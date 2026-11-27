@@ -175,7 +175,7 @@ The action layer (``components/ui/actions.c``) refuses anything that would take 
 The knob tour
 -------------
 
-With ``KNOB_DEMO_MODE`` set, the producer task (``knob/components/knob_ui``) replaces the day-tick loop after the boot presentation.
+With ``KNOB_DEMO_MODE`` set, the producer task (``components/knob_ui``) replaces the day-tick loop after the boot presentation.
 It shows eight canonical phases of the current synodic month (epochs pinned at k/8 of the month).
 A ninth step shows the live current phase, re-baked every cycle and re-reading the current time at the step itself, with events on.
 

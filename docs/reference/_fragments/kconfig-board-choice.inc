@@ -3,7 +3,12 @@
    them), and :doc: targets use the ../<section>/<page> form, which resolves
    identically from any depth-1 docs/ directory.
 
-The board selection itself is a Kconfig ``choice``:
+The board selection itself is a Kconfig ``choice`` in the shared
+board component (``components/board/Kconfig.projbuild``) — one entry
+per board of the family.
+The knob is an esp32s3 *target* (like the S3), so its build selects
+it additionally through the ``-D KNOB_BOARD=ON`` flag
+(:doc:`the build system <../reference/build-system>`):
 
 .. list-table::
    :header-rows: 1
@@ -14,7 +19,7 @@ The board selection itself is a Kconfig ``choice``:
      - Meaning
    * - ``BOARD`` (choice)
      - ``BOARD_S3``
-     - the board selector prompt; one of the two below
+     - the board selector prompt; one of the three below
    * - ``CONFIG_BOARD_S3``
      - ``y``
      - the Waveshare ESP32-S3-Touch-AMOLED-1.75: 466×466 CO5300 QSPI
@@ -28,30 +33,8 @@ The board selection itself is a Kconfig ``choice``:
        esp_wifi_remote), ES8311 codec, **no** RTC IC / IO expander /
        IMU — the time base is the 32 kHz crystal RTC timer + SNTP,
        alarms are software ``esp_timer``; 32 MB flash, 32 MB PSRAM
-
-An asymmetry worth knowing: the S3 selection is the *default* of the
-choice, so ``sdkconfig.defaults.esp32s3`` does **not** carry
-``CONFIG_BOARD_S3=y`` (the default already selects it), whereas
-``sdkconfig.defaults.esp32p4`` **does** carry ``CONFIG_BOARD_P4=y``
-(overriding the default back to the P4). The root ``CMakeLists``
-guard (:doc:`the build system <../reference/build-system>`) is what
-makes a stray board line in the wrong file a build-time error rather
-than a silent runtime mix-up.
-
-The knob project carries a **mirror of this choice in its ``board``
-shim's Kconfig** (the shared board component is not in that build, and
-ESP-IDF 5.5 does not process the root ``Kconfig.projbuild``): the same
-three symbols with ``BOARD_KNOB`` added and made the default.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 28 12 60
-
-   * - Symbol
-     - Default
-     - Meaning
-   * - ``BOARD_KNOB``
-     - ``y``
+   * - ``CONFIG_BOARD_KNOB``
+     - ``n``
      - the Waveshare ESP32-S3-Knob-Touch-LCD-1.8: 360×360 SH8601 QSPI
        round LCD, CST816S touch, EC1 dial (no push-button), LEDC
        backlight, battery ADC on GPIO 1, **no** IMU / RTC IC / audio
@@ -59,7 +42,19 @@ three symbols with ``BOARD_KNOB`` added and made the default.
        internal RTC timer + SNTP (software path, as on the P4)
        (:doc:`the Knob board <../devices/knob>`)
 
-``BOARD_S3``/``BOARD_P4`` stay selectable-but-unused there — the
-shared components' Kconfig lines reference the symbols (``default
-2048 if BOARD_P4`` in moon), and Kconfig errors on undefined symbols
-in ``if`` clauses, so all three must exist in every project.
+An asymmetry worth knowing: the S3 selection is the *default* of the
+choice, so ``sdkconfig.defaults.esp32s3`` does **not** carry
+``CONFIG_BOARD_S3=y`` (the default already selects it), whereas the
+P4's per-target file **does** carry ``CONFIG_BOARD_P4=y``, and the
+knob's ``sdkconfig.defaults.knob`` carries ``CONFIG_BOARD_KNOB=y``
+(the knob's defaults file is passed explicitly — ``-D
+SDKCONFIG_DEFAULTS`` — because the knob is an esp32s3 target, not its own
+target). The root ``CMakeLists`` guard
+(:doc:`the build system <../reference/build-system>`) is what makes a
+stray board line in the wrong file a build-time error rather than a
+silent runtime mix-up.
+
+The two symbols of the other boards stay selectable-but-unused on a
+given build — the shared components' Kconfig lines reference the
+symbols (``default 2048 if BOARD_P4`` in moon), and Kconfig errors on
+undefined symbols in ``if`` clauses, so all three must exist.

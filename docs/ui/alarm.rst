@@ -93,7 +93,7 @@ The audio side of the ringing state is :cfile:`components/ui/alarm_audio.c`.
 It holds four baked loops in PSRAM (the external pseudo-static RAM), starts one short-lived player task per ring or preview, and streams over blocking I2S, which paces its own volume ramp.
 
 The two AMOLED clocks have the codec and a speaker amplifier.
-The knob has neither: it answers the same header with silent no-ops (``knob/components/knob_ui/knob_alarm_audio_stub.c``), so the shared :cfile:`actions.c` links on all three boards.
+The knob has neither: it answers the same header with silent no-ops (``components/knob_ui/knob_alarm_audio_stub.c``), so the shared :cfile:`actions.c` links on all three boards.
 Both init steps (opening the codec, allocating the loops) fail softly, like the IMU: on failure the alarm stays display-only and the sound selection still remembers its choice.
 
 .. graphviz:: ../_graphs/alarm-audio.dot

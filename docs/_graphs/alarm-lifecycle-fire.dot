@@ -38,7 +38,7 @@
 //   the poll's schedule_next — the dismiss only ends the show.
 //   Registration is family-wide since 2026-11-16: the clocks call
 //   action_register_alarm_touch at main/main.cpp:641, the knob at
-//   knob/main/main.c:409 — until then the knob's alarm screen had NO
+//   main/main_knob.c:409 — until then the knob's alarm screen had NO
 //   awake dismiss (its idle-wake pair does not exist there), a
 //   one-way door (bench RED 3/3; harness a5f23fe).
 // The sealed version is alarm-lifecycle.dot; the write side is

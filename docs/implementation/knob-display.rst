@@ -14,8 +14,8 @@ The hardware side is :doc:`the Knob board <../devices/knob>`.
 The short version
 -----------------
 
-The ``knob/`` sibling project links the clock's shared ``components/{clock, ui, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``.
-It answers the board-specific symbol surface with its own ``board``/``imu`` shim, the way the P4 port answers it with its BSP.
+The knob is an esp32s3 target of the same project, selected by ``-D KNOB_BOARD=ON`` (:doc:`the build system <../reference/build-system>`), and it compiles the clock's shared ``components/{clock, ui, wifi, moon}`` alongside its own ``knob_*`` components.
+It answers the board-specific symbol surface with the knob's rows in the shared shims — ``components/board`` dispatching to the ``knob_board`` component, ``components/imu`` compiling its absent-IMU stub — the way the P4 port answers it with its BSP.
 The family seam came in five steps (P0 family seam, P1 home parity, P2 dial-driven settings, P3 alarm editing, P4 battery gauge; :commit:`d96fdaff`).
 
 - The app on glass is the family app.
@@ -114,7 +114,7 @@ Everything long on it yields:
 - The core's classify scan runs on a 20 ms wall-clock budget (``moon_event.c``'s ``CONFIG_BOARD_KNOB`` branches cover the coarse grid and ``se_argmax``'s 73-sample fine window).
 - The bake runs row by row.
 
-So ``knob/sdkconfig.defaults`` keeps ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` on and sets ``CONFIG_ESP_TASK_WDT_PANIC``.
+So ``sdkconfig.defaults.knob`` keeps ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` on and sets ``CONFIG_ESP_TASK_WDT_PANIC``.
 A wall-clock budget caps every stretch at about 20 ms plus one evaluation.
 ``full_moments`` logs its cost (``N evals in M ms``), once per calendar day through the cache.
 The classify scan measures 463 ephemeris evaluations in 24.6 s (about 53 ms each at ``-Og``).
@@ -316,7 +316,7 @@ The caption path stays alive only in the legacy build.
 The power ladder
 ----------------
 
-``knob/components/knob_power`` runs a 500 ms supervisor task: active → backlight dim → ``esp_deep_sleep_start``.
+``components/knob_power`` runs a 500 ms supervisor task: active → backlight dim → ``esp_deep_sleep_start``.
 It reads the same store pair the clocks' sleep screens own (P2).
 
 - The dim rung fires after ``settings_idle_timeout_sec`` (the light-sleep screen's roller, ``settings.txt`` ``idle_timeout_sec``, default 60).
@@ -440,7 +440,7 @@ The EC1 has no push-button, so the tap is the only commit gesture.
 The whole input chain (encoder pulse pair, the 20 ms consumer task, the polled CST816S, and where the dial task meets the LVGL lock) is drawn in :ref:`input-chain-ui <input-chain-ui>`.
 
 Two files carry it.
-``knob/components/knob_ui/knob_dial.c`` runs the input side.
+``components/knob_ui/knob_dial.c`` runs the input side.
 A 20 ms task consumes the debounced encoder count (vendor pulse-pair scheme, A-rise +1 / B-rise −1) one detent at a time under the LVGL mutex.
 Every rotation is ladder activity, except the home brightness turn in the table below.
 
@@ -555,7 +555,7 @@ The clocks keep limb-to-ink gaps of 12 px (S3) and 9 px (P4).)
 The render seam sets the geometry through ``knob_ui_set_disk_geom`` (:commit:`28162660`), so the moon sits inside the seconds arc as on the P4 and the S3 AMOLED.
 The legacy own-screen view keeps the foot-band bake (r 150 at cy 168), whose 12 px below centre keeps its bottom-edge caption row clear of the lunar limb (:commit:`19351f01`).
 
-The reading lives in ``knob/components/knob_battery``.
+The reading lives in ``components/knob_battery``.
 It uses ``adc_oneshot`` on ADC1 channel ``KNOB_BATTERY_ADC_CHANNEL`` (GPIO 1; ADC2 is unusable with the radio on) at 12 dB attenuation.
 The eFuse curve-fitting calibration converts the raw value, with a linear raw approximation as fallback.
 The result is scaled by ``KNOB_BATTERY_DIV_NUM``/``_DEN`` across the 10K/10K divider, then mapped linearly between ``KNOB_BATTERY_MV_EMPTY`` and ``KNOB_BATTERY_MV_FULL`` (clamped).
@@ -594,7 +594,7 @@ The swap would then die at SWAP\_REFR/FLUSH with ``pub != applied``.
 The coredump ring
 .................
 
-A 64 K ``coredump`` partition sits at the tail of ``knob/partitions.csv``, with ``CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`` (ELF format).
+A 64 K ``coredump`` partition sits at the tail of ``partitions_knob.csv``, with ``CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`` (ELF format).
 A panic writes an ELF core there that outlives the reset.
 On the churn axis its schedule is a flat zero: it is the only media target whose every write is an accident, not a timer (:ref:`the write ladder <write-ladder-perf>`).
 
@@ -603,11 +603,11 @@ Read it back on the bench:
 .. code-block:: console
 
    esptool.py --port <port> read_flash 0x710000 0x10000 core.bin
-   espcoredump.py info_corefile -t raw -c core.bin ../build/knob/knob.elf
+   espcoredump.py info_corefile -t raw -c core.bin build/knob/moon-phase.elf
 
 Pass the whole partition file, format ``raw``.
 Stripping a 24-byte flash header and passing ``-t elf`` StreamErrors partway through the ELF on IDF 5.5.1.
-The ELF is the sibling build's, outside the repo (``../build/knob/knob.elf``).
+The ELF is the knob build's own (``build/knob/moon-phase.elf``, gitignored like the clock's).
 This IDF tree registers no ``idf.py coredump-read`` action.
 The new partition table must be flashed once; the added partition sits after ``moon_assets``, so nvs, SPIFFS and assets stay intact.
 

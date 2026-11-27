@@ -16,7 +16,7 @@
 // tick + snapshot, :183 fire gate), components/clock/clock_tz.c
 // (:63-117 apply), components/ui/screens.c (:2890-2911 manual commit,
 // :3646-3658 unsynced dim), components/ui/moon_ui.c (:2744 start),
-// knob/main/main.c (:210-245 wall-arms, :278-292 rule gate), knob/
+// main/main_knob.c (:210-245 wall-arms, :278-292 rule gate),
 // components/knob_power/knob_power.c (:56 plausibility floor, :196
 // pre-sleep save) and main/main.cpp (:508 settings before clock_init,
 // :512 enable_ntp_sync, :532-541 airplane before the panel, :681 the

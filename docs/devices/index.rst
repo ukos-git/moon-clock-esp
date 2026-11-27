@@ -39,7 +39,7 @@ It is the default build target and the only board with a real-time clock (RTC) c
    * - Build target
      - ``esp32s3`` (default)
      - ``esp32p4``
-     - ``esp32s3``, sibling project under ``knob/``
+     - ``esp32s3``, the same tree with ``-D KNOB_BOARD=ON``
    * - Screen
      - 1.75-inch, 466×466 CO5300 QSPI AMOLED
      - 4-inch, 720×720 JD9365 MIPI-DSI IPS
@@ -158,25 +158,29 @@ These rules hold for all three:
 A full flash resets the runtime SPIFFS state.
 The app writes ``alarm.txt``, ``wifi_credentials.txt`` and ``settings.txt`` back at run time, and a re-flash replaces them with the ``spiffs/`` defaults (:doc:`the SPIFFS store <../reference/spiffs-store>`).
 
-If the board is the knob, build and flash it as its own project.
-Its build directory lands outside the clock's tree:
+If the board is the knob, build and flash it from the same tree — it is an esp32s3 target, so the knob's flag (not the target) selects it, and its defaults file is passed explicitly:
 
 .. code-block:: bash
 
-   idf.py -C knob -B ../build/knob build
-   idf.py -C knob -B ../build/knob app-flash -p <port>
+   idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+     -B build/knob build
+   idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+     -B build/knob app-flash -p <port>
 
 ``app-flash`` keeps the knob's SPIFFS Wi-Fi credentials; a full flash resets them (:doc:`the Knob board <knob>`).
 
 How the default configuration is merged
 ---------------------------------------
 
-The build configuration is a three-file ``sdkconfig.defaults`` split: one shared file, plus a per-target file that the build system appends automatically.
+The build configuration is a ``sdkconfig.defaults`` split: one shared file, plus a per-target file that the build system appends automatically.
 The later file wins.
+The knob is an esp32s3 target, so the auto-append would give it the S3's file; its defaults are passed explicitly instead.
 
 .. graphviz:: ../_graphs/sdkconfig-merge.dot
-   :alt: The sdkconfig merge order: the shared file, then the per-target file, then the live configuration, checked by the board guard.
-   :caption: The merge order, top to bottom. kconfgen appends the per-target file when it exists, and the later file wins. The live files are the gitignored ``sdkconfig`` and ``sdkconfig.p4``. A hand-edited pin in a live file beats every ``default`` line, so after you change a default, delete the stale pin. The knob has its own ``knob/sdkconfig.defaults`` and never sees this split.
+   :alt: The sdkconfig merge order: the shared file, then the per-target file, then the live configuration, checked by the board guard; the knob's explicitly passed file and live config as the third lane.
+   :caption: The merge order, top to bottom. kconfgen appends the per-target file when it exists, and the later file wins. The live files are the gitignored ``sdkconfig``, ``sdkconfig.p4`` and ``sdkconfig.knob``. A hand-edited pin in a live file beats every ``default`` line, so after you change a default, delete the stale pin. The knob's lane is the explicitly passed one: ``-D SDKCONFIG_DEFAULTS`` selects ``sdkconfig.defaults.knob`` and ``-D SDKCONFIG`` the live ``sdkconfig.knob``.
    :align: center
 
 ``sdkconfig.defaults``
@@ -188,9 +192,10 @@ The later file wins.
 ``sdkconfig.defaults.esp32p4``
    The P4's values: ``CONFIG_BOARD_P4=y``, ``partitions_p4.csv``, the 32 MB flash header, rev v1.3, PSRAM at 200 MHz with the experimental flag, XIP with a 256 KB L2 cache, PCF85063A off, and the C6-over-SDIO settings.
 
-``knob/sdkconfig.defaults``
-   The knob's own defaults.
-   The sibling project never sees the root split, and its live ``knob/sdkconfig`` is gitignored like the clock's (:doc:`the Knob board <knob>`).
+``sdkconfig.defaults.knob``
+   The knob's own defaults (``CONFIG_BOARD_KNOB=y``, ``partitions_knob.csv``, the 100 Hz systick, …).
+   The knob is an esp32s3 target, so the auto-append gives it the S3's per-target file on top of the shared one, and this file is added last, explicitly (``-D SDKCONFIG_DEFAULTS``) — later file wins, so it sets the knob's values (:doc:`the Knob board <knob>`).
+   Its live config ``sdkconfig.knob`` is gitignored like the clock's.
 
 Keep the root files by hand.
 ``idf.py save-defconfig`` writes only the shared file and would clobber the board lines.

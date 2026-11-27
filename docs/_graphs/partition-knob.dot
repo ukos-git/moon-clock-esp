@@ -1,4 +1,4 @@
-// knob (16 MB flash) partition layout — knob/partitions.csv,
+// knob (16 MB flash) partition layout — partitions_knob.csv,
 // verified against the tracked CSV before drawing: bootloader +
 // partition table (nvs 24 K + phy 4 K), factory app 4096 K, storage
 // SPIFFS 512 K, moon_assets 2560 K (864x432 albedo + 1024x512 DEM =
@@ -18,7 +18,7 @@
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph partitions_knob {
     rankdir=TB;
-    label="knob/partitions.csv — 16 MB flash, 16384 K table";
+    label="partitions_knob.csv — 16 MB flash, 16384 K table";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.4, ranksep=0.36];

@@ -1,8 +1,8 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no top-level headings, ../<section>/<page> :doc: targets).
 
-The knob (16 MB, sibling project)
-----------------------------------
+The knob (16 MB, third board)
+------------------------------
 .. graphviz:: ../_graphs/partition-knob.dot
    :alt: knob partition layout
    :align: center
@@ -27,9 +27,9 @@ The knob (16 MB, sibling project)
      - app/factory
      - **4096 K**
      - The application binary (moon display on the shared clock
-       components; measured 1,644,832 B (0x191920) on 2026-11-25 —
-       ~39 % used;
-       the ``knob/`` sibling project's own app —
+       components; measured 1,572,752 B (0x17ff90) on 2026-11-27 —
+       ~37 % used;
+       the knob build's own app —
        :doc:`the binary-size chronology <../verification/binary>`)
    * - ``storage``
      - data/spiffs
@@ -79,7 +79,7 @@ rows): the 16 MB chip is fully allocated, the ``moon_movie`` row
 owning the space the earlier tables left unused. The 4 MB
 ``factory`` is the board's binding constraint — the binary-size
 chronology (:doc:`the binary-size chronology <../verification/binary>`)
-tracks it. The table is ``knob/partitions.csv``, selected by
-``knob/sdkconfig.defaults`` (``CONFIG_PARTITION_TABLE_CUSTOM=y`` +
-filename, the same mechanism as the clock's, in the sibling
-project's own config).
+tracks it. The table is ``partitions_knob.csv``, selected by
+``sdkconfig.defaults.knob`` (``CONFIG_PARTITION_TABLE_CUSTOM=y`` +
+filename, passed explicitly with ``-D SDKCONFIG_DEFAULTS`` — the
+same mechanism as the clock's, in the knob build's own config).

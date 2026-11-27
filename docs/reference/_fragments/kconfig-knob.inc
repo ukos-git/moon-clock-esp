@@ -1,10 +1,10 @@
 .. NOTE: shared fragment — see kconfig-board-choice.inc for the conventions
    (no headings, ../<section>/<page> :doc: targets).
 
-Thirty keys across five menus (the sibling project's own
-components; the shared clock keys the P0 seam brings in are listed on
-the page above; the battery divider's ``_NUM``/``_DEN`` pair shares
-one row):
+Thirty keys across five menus (the ``knob_*`` components' own
+``Kconfig`` files; the shared clock keys the P0 seam brings in are
+listed on the page above; the battery divider's ``_NUM``/``_DEN`` pair
+shares one row):
 
 .. list-table::
    :header-rows: 1

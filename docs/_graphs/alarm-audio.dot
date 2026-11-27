@@ -15,7 +15,7 @@
 // codec NULL or loops malloc failed (the IMU's rule): the alarm stays
 // DISPLAY-ONLY, ring/preview warn and return, the sound selection still
 // remembers its choice. The knob has no codec at all:
-// knob/components/knob_ui/knob_alarm_audio_stub.c answers the same
+// components/knob_ui/knob_alarm_audio_stub.c answers the same
 // header with silent no-ops and four honest "Silent" names. Details:
 // alarm-audio-loops.dot (the four loops) and alarm-audio-play.dot
 // (the player task + dismiss fade).

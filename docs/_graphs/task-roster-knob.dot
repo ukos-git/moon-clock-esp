@@ -1,6 +1,6 @@
 // THE KNOB crew opened: the renderer is the foreground — knob_lvgl
 // out-priorities everything the boot spawns (10 > 7 > 5). Every edge
-// read out of the live source before drawing (knob/main/main.c and the
+// read out of the live source before drawing (main/main_knob.c and the
 // knob's components): app_main starts knob_lvgl (p10, 8 KiB, unpinned —
 // painter, indev and the 1300 ms software clock tick in one task);
 // start_tasks spawns knob_moon (p5, core 1, 12 KiB INTERNAL RAM —
@@ -17,8 +17,8 @@
 // 2026-11-21) waits for NTP and arms. The dashed
 // arrows are the hand-offs: the producer marks its back buffer, the
 // swapper publishes, the encoder forwards count deltas. The knob has NO
-// IMU (the imu shim answers ready=false) and NO RTC — the 1300 ms tick
-// is software-synthesized (knob/main/main.c:525-526). The crew in black
+// IMU (the imu component's stub, imu_stub.c, answers ready=false) and NO RTC — the 1300 ms tick
+// is software-synthesized (main/main_knob.c:668-669). The crew in black
 // boxes is docs/_graphs/task-roster.dot (this page); what these hands
 // ask of the silicon is docs/_graphs/task-roster-chips.dot; the panel
 // side is docs/implementation/knob-display. FONTS: 12 pt = the page's

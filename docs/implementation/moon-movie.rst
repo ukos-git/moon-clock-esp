@@ -116,7 +116,7 @@ A malformed manifest or a blob that does not fit is an error.
 The reader
 ----------
 
-:cfile:`components/moon/esp/moon_esp_movie.c` is shared by all three boards; the knob links it through ``EXTRA_COMPONENT_DIRS`` like the other shared components.
+:cfile:`components/moon/esp/moon_esp_movie.c` is shared by all three boards; the knob build compiles the same ``components/moon`` alongside its own ``knob_*`` components, so the reader is in its firmware too.
 :cfunc:`moon_movie_init` finds the partition with ``esp_partition_find_first(DATA, UNDEFINED, "moon_movie")``, reads the 62-byte header, and checks the magic and the calcver.
 A mismatch reads as *no movie*.
 A stale movie also implies a stale card folder, because the TF cache's folder is versioned by the same calcver; the fallback then lands on the same disc or black floor that the stale folder gives.

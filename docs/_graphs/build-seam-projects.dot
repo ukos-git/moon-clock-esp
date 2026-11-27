@@ -1,29 +1,33 @@
-// The three projects, opened (verified before drawing):
-//   The root CMakeLists is the CLOCK project: S3 is the default
-//   target; the P4 is a sibling build (-D IDF_TARGET=esp32p4 -B
+// One project, three builds, opened (verified before drawing):
+//   The root CMakeLists is the single project: S3 is the default
+//   target; the P4 is a sibling TARGET (-D IDF_TARGET=esp32p4 -B
 //   build/p4) whose target block EXCLUDE_COMPONENTS the vendored S3
-//   BSP (manifest targets: [esp32s3]) 'out of the P4 build AND of the
-//   component manager's local-manifest list' (:16-21), and pins
-//   DEPENDENCIES_LOCK dependencies.lock.p4 BEFORE project() (:27-28,
-//   'which runs the component manager', :24-26); the tracked root
-//   dependencies.lock stays the S3's.
-//   knob/CMakeLists.txt is the SIBLING project (Waveshare
-//   ESP32-S3-Knob-Touch-LCD-1.8): own build dir (-C knob -B
-//   ../build/knob — OUTSIDE the repo), own gitignored lock
-//   dependencies.lock.knob (:47) and sdkconfig. set(KNOB_BOARD ON)
-//   sits at :23, BEFORE project(knob) (:49) — the file's own comment:
-//   'A PROJECT variable, not a CONFIG_ symbol: the component manager
-//   resolves requirements BEFORE Kconfig runs, and CONFIG_ variables
-//   are unset in that first pass' (:20-22).
+//   BSP + the knob_board component (manifest targets: [esp32s3]) 'out
+//   of the P4 build AND of the component manager's local-manifest
+//   list' (:15-33), and pins DEPENDENCIES_LOCK dependencies.lock.p4
+//   BEFORE project() (:31-32, 'which runs the component manager',
+//   :29-30); the tracked root dependencies.lock stays the S3's.
+//   The knob is a third BUILD of the same tree on the esp32s3 TARGET
+//   (Waveshare ESP32-S3-Knob-Touch-LCD-1.8), selected by
+//   -D KNOB_BOARD=ON: own build dir (-B build/knob — INSIDE the
+//   repo), own gitignored lock dependencies.lock.knob and live
+//   sdkconfig.knob. The knob block (:63-65) EXCLUDE_COMPONENTS the
+//   vendored S3 BSP, pins DEPENDENCIES_LOCK dependencies.lock.knob,
+//   and promotes KNOB_BOARD into the component manager's early
+//   requirements pass via idf_build_set_property — 'a plain -D cache
+//   variable does NOT [reach that pass]', so the board/imu/knob_*
+//   `if(KNOB_BOARD)` branches resolve in BOTH the early pass and the
+//   target pass (:48-62). The S3-clock block (:35-46) EXCLUDE_COMPONENTS
+//   knob_board so its knob-only managed deps stay out of the S3 lock.
 // The sealed version is build-seam.dot; the passes are
-// build-seam-passes.dot, the shims build-seam-shims.dot, the guards
+// build-seam-passes.dot, the knob pieces build-seam-shims.dot, the guards
 // build-seam-guards.dot.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph build_seam_projects {
     rankdir=TB;
-    label="The projects — the clock, the knob, and three locks";
+    label="One project, three builds — and three locks";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.45, ranksep=0.5];
@@ -32,15 +36,15 @@ digraph build_seam_projects {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    rootp [label="root — the CLOCK\nproject; S3 default;\nits lock stays S3's",
+    rootp [label="the ONE project —\nS3 default target;\nits lock stays S3's",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    p4sib [label="the P4 sibling —\n-B build/p4, own\nlock dependencies.\nlock.p4"];
-    excl [label="EXCLUDE_COMPONENTS\nthe vendored S3 BSP\n(manifest targets:\n[esp32s3])"];
-    lockpin [label="DEPENDENCIES_LOCK\npinned BEFORE\nproject() :27-28",
+    p4sib [label="the P4 BUILD —\n-D IDF_TARGET=esp32p4\n-B build/p4, own\nlock dependencies.lock.p4"];
+    excl [label="EXCLUDE_COMPONENTS\nthe vendored S3 BSP +\nknob_board (P4);\njust the S3 BSP\n(knob build)"];
+    lockpin [label="DEPENDENCIES_LOCK\npinned BEFORE\nproject() :31-32",
              fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    knobp [label="the knob — build dir\nOUTSIDE the repo,\ngitignored lock +\nsdkconfig",
+    knobp [label="the knob BUILD —\n-D KNOB_BOARD=ON on\nesp32s3, -B build/knob,\ngitignored lock + sdkconfig.knob",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    knb [label="set(KNOB_BOARD ON)\n:23 — BEFORE\nproject(knob) :49",
+    knb [label="idf_build_set_property\n(KNOB_BOARD ON) :67\n— promoted into the\nEARLY requirements pass",
          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
     mgr [label="the component\nmanager runs inside\nproject() — before\nany CONFIG_ exists",
          fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];

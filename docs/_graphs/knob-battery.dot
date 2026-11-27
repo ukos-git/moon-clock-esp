@@ -1,11 +1,11 @@
 // The knob battery gauge — black-box view: one ADC read path, two
 // honest placeholders — the Kconfig calibration pair and the VBUS
 // charging heuristic. Every edge verified in
-// knob/components/knob_battery/knob_battery.c (init :47, cell_mv :88,
-// percent :120, charging :138) and knob/components/knob_ui/
+// components/knob_battery/knob_battery.c (init :47, cell_mv :88,
+// percent :120, charging :138) and components/knob_ui/
 // knob_battery_ui.c (attach :157, timer_cb :127, geometry + palette
-// defines :52-70), with the attach sites at knob/main/main.c:501-502.
-// The read path: knob_battery_init (main.c:501, inside the P1 umbrella)
+// defines :52-70), with the attach sites at main/main_knob.c:640-641.
+// The read path: knob_battery_init (main/main_knob.c:640, inside the P1 umbrella)
 // — adc_oneshot unit ADC_UNIT_1, channel KNOB_BATTERY_ADC_CHANNEL
 // (GPIO 1 = ADC1_CH0 — ADC2 is unusable with the radio on), 12 dB
 // attenuation; either failure logs "gauge off" and leaves s_adc NULL —

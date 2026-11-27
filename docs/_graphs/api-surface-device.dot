@@ -21,7 +21,7 @@
 //     moon_event_classify_here :1280 routes cold day scans to
 //     core 1 (worker :1270, day tick :3073); seam reads :1726/:1731,
 //     eager warmup guard :2863 ("moon assets unavailable").
-//   knob/components/knob_moon/knob_moon.c (the knob's whole moon
+//   components/knob_moon/knob_moon.c (the knob's whole moon
 //     caller): geometry :118, bake_rows row-by-row :128/:145
 //     (dark_zero 1), gray565 per row :133/:157, set_event :83,
 //     classify :82/:94, any :119, signature :85/:95, seam :55/:56 —

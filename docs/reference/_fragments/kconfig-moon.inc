@@ -23,10 +23,12 @@ One key, menu *Moon Phase Asset Configuration* (``components/moon/Kconfig``
        the S3 (2,470,400 B of the 2560 K partition — the max the PSRAM
        pool can spare), 2048 on the P4 (4,194,304 B of the 5120 K
        partition, matching the 2048-wide relief DEM grid). The width
-       must be **even**, and the root ``CMakeLists`` (replicated by
-       ``knob/CMakeLists.txt``) ``FATAL_ERROR``s on an odd width, on a
-       manifest width different from this value, or on a blob that
-       overflows the partition. The Kconfig only selects which
+       must be **even**, and the root ``CMakeLists``'s guard block —
+       one block run by all three boards, the knob build's only
+       difference being the skipped manifest-width cross-check (no
+       ``MOON_ALBEDO_W`` Kconfig mirror) — ``FATAL_ERROR``s on an odd
+       width, on a manifest width different from this value, or on a
+       blob that overflows the partition. The Kconfig only selects which
        pre-baked texture the build flashes — after changing it,
        regenerate the target: ``cd assets/images/moon &&
        .venv/bin/python -m moon.assets --target <t>``

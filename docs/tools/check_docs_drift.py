@@ -11,7 +11,7 @@ Checks
 ------
 1. ``docs/reference/_fragments/kconfig-*.inc`` vs the project Kconfigs
    (``components/{ui,clock,moon}/Kconfig``,
-   ``components/board/Kconfig.projbuild``, ``knob/components/*/Kconfig``):
+   ``components/board/Kconfig.projbuild``, ``components/knob_*/Kconfig``):
    every documented key exists, and every documented default is one of
    the source's ``default`` lines (first-match-wins allows several).
    Reverse coverage: every ``config`` symbol in a covered source
@@ -58,9 +58,9 @@ KCONFIG_SOURCES = {
     "components/moon/Kconfig",
     "components/board/Kconfig.projbuild",
 }
-KNOB_SOURCES = {f"knob/components/{p}/Kconfig"
+KNOB_SOURCES = {f"components/{p}/Kconfig"
                 for p in ("knob_ui", "knob_moon", "knob_time", "knob_power",
-                          "board", "knob_battery")}
+                          "knob_battery")}
 FRAGMENT_FOR = {  # fragment -> sources it alone must cover (coverage pass)
     "kconfig-ui.inc": ["components/ui/Kconfig"],
     "kconfig-clock.inc": ["components/clock/Kconfig"],
@@ -297,7 +297,7 @@ def check_moon_consts() -> None:
 def check_partitions() -> None:
     csvs = {"s3": REPO / "partitions.csv",
             "p4": REPO / "partitions_p4.csv",
-            "knob": REPO / "knob/partitions.csv"}
+            "knob": REPO / "partitions_knob.csv"}
     for board, path in csvs.items():
         if not path.exists():
             drift(f"partition CSV missing: {path.relative_to(REPO)}")
@@ -391,7 +391,7 @@ def check_ui_matrix() -> None:
 def check_binary_sizes() -> None:
     bins = {"S3": REPO / "build/moon-phase.bin",
             "P4": REPO / "build/p4/moon-phase.bin",
-            "knob": REPO.parent / "build/knob/knob.bin"}
+            "knob": REPO / "build/knob/moon-phase.bin"}
     text = (DOCS / "verification/binary.rst").read_text()
     present = {b: p for b, p in bins.items() if p.exists()}
     if not present:

@@ -8,14 +8,17 @@ The Knob board
    Page type: reference (board page).
 
 **Status: moon-display firmware on the bench, on the clock's shared
-components** — the ``knob/`` sibling project boots its QSPI panel,
+components** — the knob build (an esp32s3 target of the same tree,
+selected by ``-D KNOB_BOARD=ON``; :doc:`the build system <../reference/build-system>`)
+boots its QSPI panel,
 loads the pre-baked moon assets into PSRAM and renders the physical
 moon (K7 milestones: K7a asset target + gate green, K7b static
 frame, K7c sky-event tint + day tick, K7d SNTP time with the honest
 ``no time`` posture, K7e idle ladder + EXT0 dial wake). It is the
-third board of the moon-clock family: the project links the clock's
-shared ``components/{clock, ui, wifi, moon}`` behind a knob-owned
-``board``/``imu`` shim (:commit:`d96fdaff`), and the shared home
+third board of the moon-clock family: the build compiles the clock's
+shared ``components/{clock, ui, wifi, moon}`` alongside the knob's
+own ``knob_*`` components, the ``board``/``imu`` shims resolving to
+the knob's rows (:commit:`d96fdaff`), and the shared home
 screen — moon image, split-flap HH:MM, alarm row, seconds arc — runs
 over the ``knob_moon_render.c`` seam (generated ``fonts_knob/``
 tier). The idle ladder dims to the clocks' light-sleep look (LEDC
@@ -298,8 +301,8 @@ cannot tell them apart. The identifying check stays
 U4 path — and the same single check that already catches a stale
 port guess on the clock boards).
 
-Firmware (``knob/`` sibling project)
--------------------------------------
+Firmware (the knob build)
+--------------------------
 
 The shipping firmware is the **moon display**: LVGL 9.6,
 one full-panel disk baked by the clock's portable moon core under the
@@ -332,38 +335,37 @@ frame path, opening act, ladder, dial — is
 :doc:`the knob display <../implementation/knob-display>`.
 Layout and commands:
 
-* ESP-IDF project at ``knob/`` — ``main/`` plus ``components/
-  {board, imu, knob_board, knob_ui, knob_moon, knob_power,
-  knob_time, knob_battery}`` (plus the silent ``esp_codec_dev``
-  shim) and the shared ``../components/{clock, ui, wifi,
-  moon}`` brought in through ``EXTRA_COMPONENT_DIRS`` (individual
-  dirs, never the parent — the shims own the ``board``/``imu``
-  names). The seam's
-  ``board``/``imu`` shims answer the board-specific symbol surface
-  the way the P4's BSP does (panel handle + ``bsp/esp-bsp.h``
-  provider + IO-expander-to-NULL; a fixed-upright IMU — there is no
-  chip), and the shim's Kconfig carries the ``choice BOARD``
-  (``BOARD_KNOB`` default; ``BOARD_S3``/``BOARD_P4`` stay
-  selectable-but-unused so the shared Kconfig's ``if BOARD_P4``
-  clauses parse — ESP-IDF 5.5 errors on undefined symbols there).
-  The shared dirs are added **individually, never the parent
-  ``components/``**: IDF 5.5.1 excludes components by name only, so
-  the shims must own the names ``board``/``imu``. ``knob_moon`` is
-  glue only — the shared ``components/moon`` compiles the core TUs
-  once and picks ``generated/knob`` through a ``CONFIG_BOARD_KNOB``
-  branch, so ``check_gate.py --target knob`` still describes exactly
-  the physics the panel shows. (The seam as a whole — three projects,
-  two CMake passes, literal requirements, silent shims — is drawn in
+* The knob builds the root project with ``-D KNOB_BOARD=ON`` — the
+  ``knob_*`` components under the same ``components/``, the app entry
+  point ``main/main_knob.c``, and the clock's own shared
+  ``components/{clock, ui, wifi, moon}``.
+  The knob's rows in the shared shims answer the board-specific
+  symbol surface the way the P4's BSP does (``components/board``
+  dispatches to ``knob_board``'s SH8601 bring-up; ``components/imu``
+  compiles the absent-IMU stub — a fixed-upright IMU, but the board
+  has no chip), and the shared ``choice BOARD``
+  (``components/board/Kconfig.projbuild``) carries the knob's row:
+  ``sdkconfig.defaults.knob`` pins ``CONFIG_BOARD_KNOB=y``, while
+  ``BOARD_S3``/``BOARD_P4`` stay selectable-but-unused so the shared
+  Kconfig's ``if BOARD_P4`` clauses parse — ESP-IDF 5.5 errors on
+  undefined symbols in ``if`` clauses.
+  ``knob_moon`` is glue only — the shared ``components/moon``
+  compiles the core TUs once and picks ``generated/knob`` through a
+  ``CONFIG_BOARD_KNOB`` branch, so ``check_gate.py --target knob``
+  still describes exactly the physics the panel shows. (The seam as a
+  whole — one project, three boards, two CMake passes, literal
+  requirements — is drawn in
   :doc:`the build system <../reference/build-system>`.)
 * Moon assets: the pipeline's third target —
   ``--target s3 p4 knob`` bakes albedo 864×432 + DEM 1024×512 into
-  the 2560 KiB ``moon_assets`` partition of ``knob/partitions.csv``
-  (manifest existence and blob fit are configure-time
-  ``FATAL_ERROR``\\ s in ``knob/CMakeLists.txt`` — *stricter than the
-  clock, where a missing blob is only a warning*: the knob has no SD
-  socket, so a knob without its pipeline output has no moon at all;
-  a hand-deleted ``.bin`` beside a live manifest still only warns,
-  per the guard's own comment. The generated
+  the 2560 KiB ``moon_assets`` partition of ``partitions_knob.csv``
+  (blob fit is a configure-time ``FATAL_ERROR`` in the root
+  ``CMakeLists`` — one guard block run by all three boards, the knob
+  running the same block with only the manifest-width cross-check
+  skipped; a missing blob still only warns, per the guard's own
+  comment — with no SD socket the knob's flash is its only moon
+  source, so a knob without its pipeline output has no moon at all,
+  but the build succeeds. The generated
   ``components/moon/generated/knob/moon_consts.h`` is tracked).
 * Boot movie: the ``moon_movie`` row (9088 K, the chip's leftover)
   carries the precomputed synodic cycle of q90 gray JPEGs
@@ -375,9 +377,10 @@ Layout and commands:
   exception — the frames ride the ``s_buf[2]`` swap seam, ONE atomic
   whole-panel flush each); a missing/stale movie never blocks a flash
   (the build warns, the boot falls back to the saved-frame / disc
-  path). The root CMake's ``MOON_CALC_VER`` derive is replicated in
-  ``knob/CMakeLists.txt`` — the reader rejects a calcver-stale movie
-  at boot, and the knob's table is fully allocated (16384 K, the
+  path). The root CMake's ``MOON_CALC_VER`` derive stamps the knob
+  build too (one project, one derive) — the reader rejects a
+  calcver-stale movie at boot, and the knob's table is fully
+  allocated (16384 K, the
   64 K ``coredump`` ring after the movie; the offset move is safe —
   consumers find partitions by label).
 * K7c threading mirrors the clock's moon pipeline minus the AMOLED
@@ -389,7 +392,7 @@ Layout and commands:
   posture — the re-bake/hourly tasks) because the core's classify
   scan runs ~25 s end to end; everything long on it yields (the scan
   on a 20 ms wall-clock budget, the bake by rows), so
-  ``knob/sdkconfig.defaults`` **keeps**
+  ``sdkconfig.defaults.knob`` **keeps**
   ``CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`` on with
   ``CONFIG_ESP_TASK_WDT_PANIC`` — the 2026-11-11 bench lesson: an
   unyielding stretch must die as a backtrace, not a naked reset.
@@ -413,7 +416,7 @@ Layout and commands:
 * K7d time — on the clock's shared time path (P0 family seam): the
   board has **no RTC**, so the display arms only on SNTP truth.
   ``components/clock`` runs its software path (the P4's posture:
-  ``CONFIG_CLOCK_USE_PCF85063A=n`` in ``knob/sdkconfig.defaults``,
+  ``CONFIG_CLOCK_USE_PCF85063A=n`` in ``sdkconfig.defaults.knob``,
   boot log ``No external RTC IC``); its ``clock_sntp`` is the
   one-shot lwIP POLL over the shared ``components/wifi`` join, and
   the answer counts only with a plausible epoch (> 2021-01-01) — the
@@ -459,7 +462,7 @@ Layout and commands:
   stays on glass`` and the glass stayed ``no time`` with zero bake
   lines — the refusal never guesses a phase (with a snapshot stored
   it arms on the last known instant, logged as such).
-* K7e power (``knob/components/knob_power``): an idle-ladder supervisor
+* K7e power (``components/knob_power``): an idle-ladder supervisor
   (500 ms poll) dims the backlight (LEDC duty ``KNOB_DIM_DUTY``,
   default **64** = 25 %, the P1 dim-parity value matching the clocks'
   light-sleep panel; a registered dim observer drops the shared clock
@@ -535,21 +538,22 @@ Layout and commands:
   live on every minute tick so a theme change propagates
   (:commit:`3cd836aa`, replacing the reference iOS green); the fill is white
   normally and red at or below ``KNOB_BATTERY_LOW_PCT``.
-* Own build dir, lock and config (like the P4): ``idf.py -C knob -B
-  ../build/knob build`` from the repo root; ``dependencies.lock.knob``
-  and ``knob/sdkconfig`` are gitignored. Flash with ``app-flash``
+* Own build dir, lock and config (like the P4): ``idf.py -D KNOB_BOARD=ON -D
+  SDKCONFIG=sdkconfig.knob -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob"
+  -B build/knob build`` from the repo root; ``dependencies.lock.knob``
+  and ``sdkconfig.knob`` are gitignored. Flash with ``app-flash``
   (spiffs-preserving) after ``esptool.py --port <port> chip_id``
   identifies the board (it is the bench's only ESP32-S3 while the
   AMOLED is unplugged).
-* Wi-Fi credentials come from ``knob/spiffs/wifi_credentials.txt``
+* Wi-Fi credentials come from the shared ``spiffs/wifi_credentials.txt``
   (gitignored — the **clock's filename**: the shared
   ``components/wifi`` reads it; the example file is committed, and a
   full ``idf.py flash`` — not ``app-flash`` — is what carries a
   rename like this into ``storage``). The join is connectivity only
   — no peer protocol; it exists for the SNTP fixes (and the
   settings Wi-Fi screen with the parity phases).
-* ``knob/spiffs/alarm.txt`` is the **clock's tracked rules file**,
-  same contents — it is what the shared alarm scheduler mounts at
+* ``spiffs/alarm.txt`` is the **clock's tracked rules file** — it is
+  what the shared alarm scheduler mounts at
   ``/spiffs/alarm.txt`` (without it boot logged ``ESP_ERR_NOT_FOUND``
   and the "Loaded N alarm rules from SPIFFS" path never ran; boot
   stayed healthy either way). The scheduler is loaded and its rules

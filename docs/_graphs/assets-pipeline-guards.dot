@@ -1,8 +1,11 @@
 // The referee side, opened (verified before drawing):
 //   Kconfig MOON_ALBEDO_W carries the per-board widths — 864 on
 //   S3/knob, 2048 on P4 (the 'default X if BOARD_P4' pattern).
-//   The three root-CMakeLists configure guards, all FATAL_ERROR
-//   (knob/CMakeLists.txt replicates them for --target knob): the
+//   The three root-CMakeLists configure guards, all FATAL_ERROR — ONE
+//   block run by all three boards (the knob builds through the same
+//   root CMakeLists with -D KNOB_BOARD=ON, so it runs the same block;
+//   its only difference is the skipped width cross-check, no
+//   MOON_ALBEDO_W Kconfig mirror): the
 //   width is EVEN (equirect 2:1, height = width/2); manifest alb_w
 //   == CONFIG_MOON_ALBEDO_W (a blob baked for another board is a
 //   BUILD error); manifest combined_bytes <= the moon_assets row of

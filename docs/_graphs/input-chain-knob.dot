@@ -1,9 +1,9 @@
 // THE KNOB'S INPUT BOX opened: our own tasks own both inputs — the
 // polled CST816S touch with its own indev, and the EC1 pulse-pair
 // dial behind its poller and dial task. Every edge verified in
-// knob/main/main.c, knob/components/knob_board/knob_board_touch.c,
-// knob_board_encoder.c, knob/components/knob_ui/knob_dial.c,
-// knob_ui.c and knob/components/knob_power/knob_power.c; the pin
+// main/main_knob.c, components/knob_board/knob_board_touch.c,
+// knob_board_encoder.c, components/knob_ui/knob_dial.c,
+// knob_ui.c and components/knob_power/knob_power.c; the pin
 // numbers, cadences, bench stories and line refs live in the page
 // caption. The chain in black boxes is docs/_graphs/input-chain.dot
 // (this page); the clocks side is input-chain-clocks.dot. The

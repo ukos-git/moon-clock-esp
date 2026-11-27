@@ -5,19 +5,22 @@
 //   component CMakeLists.txt in CMake scripting mode'):
 //   cmake -P component_get_requirements.cmake evaluates every
 //   component CMakeLists with NEITHER project variables NOR CONFIG_
-//   symbols (ui/CMakeLists:7-13) — so REQUIRES/PRIV_REQUIRES are
+//   symbols (ui/CMakeLists) — so REQUIRES/PRIV_REQUIRES are
 //   spelled out UNCONDITIONALLY on purpose, every name resolving in
-//   all three projects (:36-43; an if() hiding a missing component is
-//   INVISIBLE in this pass — hence the silent esp_codec_dev shim,
-//   build-seam-shims.dot).
+//   all three board builds (an if() hiding a missing component is
+//   INVISIBLE in this pass — the knob answers ui's esp_codec_dev
+//   REQUIRE with a real managed dep gated on $CONFIG{BOARD_KNOB},
+//   build-seam-shims.dot). The knob branch key KNOB_BOARD is promoted
+//   into this pass by idf_build_set_property (root CMakeLists) — a
+//   plain -D cache variable would not reach it.
 //   The TARGET pass (full configure): the project scope is complete —
 //   branches may key on KNOB_BOARD, and the house rule says branch
 //   only SRCS/INCLUDES there, never requirements (CONFIG_BOARD_P4
 //   'reads false in that pass (harmless: SRCS are only consumed by
-//   the second, target-owning pass)', :11-13). The ui component's
-//   knob branch (ui:31-35): UI_BOARD_SRCS — 'alarm_audio.c demo.c
+//   the second, target-owning pass)'). The ui component's
+//   knob branch: UI_BOARD_SRCS — 'alarm_audio.c demo.c
 //   moon_ui.c moon_tfcache.c' — becomes EMPTY, and FONT_DIR flips to
-//   fonts_knob (:14-20; fonts/ 96-48-32, fonts_p4/ 148-74-50,
+//   fonts_knob (fonts/ 96-48-32, fonts_p4/ 148-74-50,
 //   fonts_knob/ 74-37-25 — identical lv_font_t symbol names, 'so
 //   fonts.h and every consumer are unchanged').
 // The sealed version is build-seam.dot.
@@ -37,7 +40,7 @@ digraph build_seam_passes {
 
     early [label="the EARLY pass —\nexpand requirements\npre-vars, pre-Kconfig",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    literals [label="REQUIRES spelled\nUNCONDITIONALLY —\nevery name resolves\nin all three projects",
+    literals [label="REQUIRES spelled\nUNCONDITIONALLY —\nevery name resolves\nin all three board builds",
               fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     targetp [label="the TARGET pass —\nfull configure, the\nproject scope done"];
     br [label="KNOB_BOARD branches\nlive here — SRCS /\nINCLUDES only",

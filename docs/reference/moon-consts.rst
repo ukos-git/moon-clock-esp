@@ -18,8 +18,7 @@ The single source of truth is ``assets/images/moon/moon/constants.py``, shared v
 
 ``components/moon/CMakeLists.txt`` selects the directory from the ``BOARD`` symbols with a first-match ``if/elseif/else``:
 ``generated/knob`` on ``CONFIG_BOARD_KNOB``, ``generated/p4`` on ``CONFIG_BOARD_P4``, ``generated/s3`` otherwise.
-Every consumer's ``#include "moon_consts.h"`` therefore resolves to the board's own texture dimensions.
-The ``knob/`` sibling project supplies the symbol through its own board shim.
+Every consumer's ``#include "moon_consts.h"`` therefore resolves to the board's own texture dimensions — the knob's build compiles the shared ``components/moon`` with its ``CONFIG_BOARD_KNOB`` selection, so it resolves to the knob's header the same way.
 The bake's geometry, the lighting model and the asset blobs agree because they all read the same table.
 
 What differs per board
@@ -36,8 +35,7 @@ How to regenerate
 -----------------
 
 The asset pipeline (:doc:`the Python API <python-api>`) regenerates the headers, the blobs and the ``moon_assets.bin`` partition image together.
-The root ``CMakeLists`` raises ``FATAL_ERROR`` on a width, manifest or partition mismatch.
-``knob/CMakeLists.txt`` replicates the guards without the Kconfig check.
+The root ``CMakeLists`` raises ``FATAL_ERROR`` on a width, manifest or partition mismatch — one guard block run by all three boards; the knob build runs the same block and only skips the manifest-width cross-check (it has no ``MOON_ALBEDO_W`` Kconfig mirror).
 After you touch the pipeline or ``MOON_ALBEDO_W``, regenerate all three targets' headers and blobs:
 
 .. code-block:: bash

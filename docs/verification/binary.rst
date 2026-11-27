@@ -9,7 +9,7 @@ Binary size chronology
 
 Every board's app binary must fit its ``factory`` partition, and the S3 is the board where that is tight.
 Today the S3 binary is 1,734,304 B against a 2,097,152 B (2048 K) ceiling, which leaves 17 % headroom.
-The P4 binary is 1,900,672 B against 9216 K (80 % free), and the knob's is 1,644,832 B against 4096 K (61 % free).
+The P4 binary is 1,900,672 B against 9216 K (80 % free), and the knob's is 1,572,752 B against 4096 K (63 % free).
 This page is the flash budget log: the current sizes, the partition tables that set the ceilings, the S3's size history, and the policy for when the S3 runs short.
 
 The current binaries
@@ -19,11 +19,13 @@ The sizes below come from the bench build trees measured on 2026-11-25.
 The S3 and P4 trees were configured at the ``0.2.0`` commitizen checkpoint, with the compute progress (:doc:`the compute progress <../implementation/compute-progress>`) and the flash-resident boot movie (:doc:`the boot movie <../implementation/moon-movie>`) in the tree.
 The boot movie's ``moon_movie`` reader links ``esp_new_jpeg`` into the app.
 
-Each binary embeds the calcver ``0.2.0``: the root ``CMakeLists`` reads the commitizen ``version`` line from ``.cz.toml``, and ``strings`` on the binary confirms it.
-The knob's ``CMakeLists.txt`` repeats the same derivation, because the reader's boot-time calcver check accepts the knob's own movie only when the firmware carries the same version.
+Each binary embeds the calcver ``0.2.0``: the root ``CMakeLists`` reads the commitizen ``version`` line from ``.cz.toml`` and stamps it into the compile options of every board's build — including the knob's (it runs the same file, ``-D KNOB_BOARD=ON``), so the reader's boot-time calcver check, which accepts a movie only when the firmware carries the same version, is satisfied.
+``strings`` on any of the three binaries confirms it.
 The knob has no TF card, so its ``moon_tfcache.c`` is inert.
 Docs-only commits after these builds do not change a size.
-The knob's build tree is the sibling project's own ``../build/knob`` outside the repo, never ``build/knob``.
+The knob builds the same tree with ``-D KNOB_BOARD=ON`` and its own
+build dir ``build/knob`` (gitignored like the clock's), so its binary
+is ``build/knob/moon-phase.bin``.
 
 .. list-table::
    :header-rows: 1
@@ -45,10 +47,10 @@ The knob's build tree is the sibling project's own ``../build/knob`` outside the
      - 9,437,184 B (9216 K)
      - 7,536,512 B (80 %)
    * - Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360)
-     - ``../build/knob/knob.bin``
-     - 1,644,832 B (0x191920)
+     - ``build/knob/moon-phase.bin``
+     - 1,572,752 B (0x17ff90)
      - 4,194,304 B (4096 K)
-     - 2,549,472 B (61 %)
+     - 2,621,552 B (63 %)
 
 The S3's 17 % is the number that matters.
 The S3 is the board the app grew into (see `The S3 ceiling's chronology`_), and the project rule is to check the binary size after every build and keep the S3 well under its ceiling.
@@ -76,7 +78,7 @@ To check a fresh build, compare its size with the table:
 
 .. code-block:: bash
 
-   ls -l build/moon-phase.bin build/p4/moon-phase.bin ../build/knob/knob.bin
+   ls -l build/moon-phase.bin build/p4/moon-phase.bin build/knob/moon-phase.bin
    docs/.venv/bin/python docs/tools/check_docs_drift.py
 
 The partition tables
@@ -295,5 +297,5 @@ Where to go next
 Flash is the last of the four budgets the product runs on.
 The others are the compute budget (:doc:`performance <performance>`) and the panel-write budget (:doc:`the display pipeline <../implementation/display>`).
 
-- :doc:`The build system <../reference/build-system>` covers the build and Kconfig that keep the board family buildable: the two clock boards from one tree, and the knob as a sibling project linking the shared components.
+- :doc:`The build system <../reference/build-system>` covers the build and Kconfig that keep the board family buildable: the three boards from one tree, the knob an esp32s3 target selected by ``-D KNOB_BOARD=ON``.
 - The reference section holds the rest of the material: the input-method research behind the circular keyboard (:doc:`the round keyboard <../keyboard>`), the APIs (:doc:`the Python API <../reference/python-api>` and :doc:`the C API <../reference/c-api>`), and :doc:`the glossary <../glossary>`.

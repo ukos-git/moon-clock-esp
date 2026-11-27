@@ -567,6 +567,6 @@ run the *device's math* on the host and call it verified: the math
 and the display are different layers, and only the math is portable.
 
 The next page is the *build* layer that keeps the core building
-everywhere — the two clock boards from one tree, the knob as a
-sibling project that links the same shared components
+everywhere — the three boards from one tree, the knob an esp32s3
+target of the same project that compiles the same shared components
 (:doc:`the build system <build-system>`).

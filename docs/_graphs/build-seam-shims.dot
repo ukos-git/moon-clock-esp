@@ -1,36 +1,35 @@
-// The shims — same-named SILENT components the knob owns, answering
-// names the early pass cannot see (verified before drawing):
-//   Who names what: clock REQUIRES board (clock/CMakeLists:5 'esp_io_
-//   expander board wifi …'); ui REQUIRES imu, board and esp_codec_dev
-//   (ui:55-59); moon (moon:46 'REQUIRES esp_partition esp_timer log')
-//   and wifi (wifi:4) name NEITHER board nor imu — the portable core
-//   sits below the board.
-//   knob/components/board — SH8601 display + touch init, answers the
-//   REQUIRES 'board' that clock and ui name; its Kconfig carries the
-//   choice BOARD with default BOARD_KNOB (:11-13; BOARD_S3/BOARD_P4
-//   stay selectable-but-unused 'so the shared Kconfig's if BOARD_P4
-//   clauses parse'). The CLOCKS answer the same name with the real
-//   component components/board (choice BOARD default BOARD_S3,
-//   :12-14).
-//   knob/components/imu — imu_stub.c: a fixed upright, no chip;
-//   answers ui's REQUIRES 'imu'.
-//   knob/components/esp_codec_dev — a CMakeLists file and NOTHING
-//   ELSE: no sources, no headers. The silent NAME shim that lets ui's
-//   unconditional REQUIRES 'esp_codec_dev' resolve; on the clocks the
-//   vendored real component owns the name.
-//   Why the parent components/ is NEVER added: 'IDF 5.5.1 excludes
-//   components by name only, so we simply never add the directories —
-//   the shims carry the component names board/imu that the shared
-//   code REQUIRESs' (knob CMakeLists header :10-13) — adding the
-//   parent would register the CLOCK's board/imu and collide,
-//   EXCLUDE-by-name could not fix that.
+// How the knob answers the shared REQUIRES names (verified before
+// drawing). The knob is NOT a second components/ tree — it builds the
+// same components, so the board-coupled names the shared code REQUIRESs
+// resolve to the knob's rows, not to same-named silent shims:
+//   Who names what: clock REQUIRES board (components/clock/CMakeLists);
+//   ui REQUIRES imu, board and esp_codec_dev
+//   (components/ui/CMakeLists, REQUIRES spelled UNCONDITIONALLY so every
+//   name resolves in every board build); moon and wifi name NEITHER board
+//   nor imu — the portable core sits below the board.
+//   board — the SHARED components/board answers the knob with its own
+//   row: CMakeLists sets BSP_COMPONENT=knob_board + BOARD_EXTRA_INCLUDES
+//   =knob_include on KNOB_BOARD (the knob's SH8601 display + touch +
+//   dial bring-up), versus the vendored S3 BSP / the P4 BSP on the
+//   clocks. The choice BOARD it hosts lives in
+//   components/board/Kconfig.projbuild (BOARD_KNOB row; BOARD_S3 default,
+//   BOARD_S3/BOARD_P4 selectable-but-unused so the shared `if BOARD_P4`
+//   clauses parse).
+//   imu — the SHARED components/imu answers the knob with imu_stub.c
+//   (a fixed upright, no chip) on KNOB_BOARD, versus the QMI8658
+//   (imu_qmi8658.c) on the clocks.
+//   esp_codec_dev — a REAL managed dependency (espressif/esp_codec_dev),
+//   declared in components/knob_board/idf_component.yml and gated on
+//   $CONFIG{BOARD_KNOB} so it stays out of the S3/P4 dependency locks; on
+//   the clocks the vendored BSP exposes the same name. It is unused on
+//   the codec-less knob, so its objects never link.
 // The sealed version is build-seam.dot.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph build_seam_shims {
     rankdir=TB;
-    label="The silent shims — names first, behaviour where the board has it";
+    label="The knob's rows — the shared components answer the board-coupled names";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.35, ranksep=0.55];
@@ -39,11 +38,11 @@ digraph build_seam_shims {
           color="#b07d10", fontcolor="#6b4e08", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    why [label="never add the parent\ncomponents/ — IDF 5.5.1\nexcludes by NAME only:\nit would register the\nCLOCK's board/imu",
+    why [label="ONE components/ tree — the\nknob builds the SAME components,\nso the shared REQUIRES\nnames resolve to its rows\n(no silent same-name shims)",
          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
-    board [label="components/board —\nSH8601 + touch init;\nchoice BOARD default\nBOARD_KNOB"];
-    imu [label="components/imu —\nimu_stub.c: fixed\nupright, no chip"];
-    codec [label="esp_codec_dev — a\nCMakeLists and\nNOTHING ELSE"];
+    board [label="components/board on KNOB_\nBOARD — knob_board (SH8601 +\ntouch + dial) + knob_include;\nchoice BOARD incl. BOARD_KNOB"];
+    imu [label="components/imu on KNOB_BOARD\n— imu_stub.c: fixed\nupright, no chip"];
+    codec [label="esp_codec_dev — a REAL managed\ndep in knob_board's yml,\ngated on $CONFIG{BOARD_KNOB}"];
 
     why -> board;
     why -> imu;

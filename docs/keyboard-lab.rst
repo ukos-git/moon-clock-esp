@@ -442,4 +442,4 @@ Where to go next
 
 - :doc:`The sources <reference/sources>` lists the HCI literature (C-QWERTY, COMPASS, WrisText, Crownboard, Tap'nSwipe, the in-car dial study) with the evidence report.
 - :doc:`The round keyboard <keyboard>` is the shipped wheel's design record.
-- For the developer-facing interfaces: :doc:`the Python API <reference/python-api>` that the examples and the gate are built on, :doc:`the C API <reference/c-api>` that the device compiles, and :doc:`the build system <reference/build-system>` that keeps the two clock boards buildable from one tree, with the knob's sibling project linking the same shared components. Unfamiliar terms are in :doc:`the glossary <glossary>`.
+- For the developer-facing interfaces: :doc:`the Python API <reference/python-api>` that the examples and the gate are built on, :doc:`the C API <reference/c-api>` that the device compiles, and :doc:`the build system <reference/build-system>` that keeps the three boards buildable from one tree. Unfamiliar terms are in :doc:`the glossary <glossary>`.

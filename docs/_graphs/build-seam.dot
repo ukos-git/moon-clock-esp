@@ -1,42 +1,46 @@
-// The seam the build layer states in prose: three projects, one repo —
-// the knob re-uses the clock's shared components through
-// individually-listed EXTRA_COMPONENT_DIRS, satisfies the names it
-// lacks with silent same-name shims, and branches on the PROJECT
-// variable KNOB_BOARD — because the component manager's early
-// requirements pass sees neither project variables nor CONFIG_
-// symbols. The sealed shape is this sketch; the internals are opened
-// in the detail sketches:
-//   build-seam-projects.dot  the P4 sibling block, the lock pinning,
-//                            the KNOB_BOARD placement
+// The seam the build layer states in prose: ONE project, three boards —
+// the S3 is the default target, the P4 a sibling target
+// (-D IDF_TARGET=esp32p4), and the knob a third BUILD of the same tree
+// on the esp32s3 target, selected by -D KNOB_BOARD=ON. The knob build
+// compiles the clock's shared components (clock · wifi · moon · ui)
+// alongside its own knob_* components, and the shared board/imu
+// components answer the knob with their KNOB_BOARD rows — because the
+// component manager's early requirements pass sees neither project
+// variables nor CONFIG_ symbols, so the knob branch keys on KNOB_BOARD
+// (promoted into that pass) and only SRCS/INCLUDES branch on it. The
+// sealed shape is this sketch; the internals are opened in the detail
+// sketches:
+//   build-seam-projects.dot  the P4 block, the knob KNOB_BOARD block,
+//                            and the three locks
 //   build-seam-passes.dot    the two CMake passes, the literal
 //                            REQUIRES, the KNOB_BOARD SRCS branch
-//   build-seam-shims.dot     the three same-named shims and why the
-//                            parent components/ is never added
-//   build-seam-guards.dot    the configure-time FATAL_ERROR trio and
-//                            the knob's stricter replicant
-// Every edge and quote verified in CMakeLists.txt (P4 block :16-29,
-// board/target mismatch :77-88, asset guards :94-163, spiffs :168,
-// blob flash-vs-warn :179-185), knob/CMakeLists.txt (KNOB_BOARD
-// :22-28, EXTRA_COMPONENT_DIRS :29-41, lock :43-47, guards :51-88,
-// spiffs :93, flash :99-103), components/ui/CMakeLists.txt (early-pass
-// comment :7-13, FONT_DIR :14-20, UI_BOARD_SRCS :31-35,
-// unconditional-REQUIRES comment :36-43, REQUIRES :55-59),
-// components/clock/CMakeLists.txt:5 (REQUIRES board),
-// components/moon/CMakeLists.txt:46 + components/wifi/CMakeLists.txt:4
-// (name NEITHER board nor imu), knob/components/board/Kconfig:11-13
-// (choice BOARD default BOARD_KNOB), and ~/esp/esp-idf/tools/cmake/
-// build.cmake:659-664 (__component_get_requirements). The seam's
-// RUNTIME side (knob_moon_render's thirteen functions, the reentrant
-// mutex) belongs to docs/implementation/knob-display.rst; the blob the
-// fit guard prices belongs to docs/_graphs/assets-pipeline.dot (this
-// page) and the storage ladder (verification/performance.rst) —
-// cross-refs kept reciprocal there.
+//   build-seam-shims.dot     how the knob's board/imu rows + real
+//                            managed deps answer the shared REQUIRES
+//   build-seam-guards.dot    the one configure-time FATAL_ERROR trio,
+//                            run by all three boards
+// Every edge verified in CMakeLists.txt (P4 block :15-33, S3-clock
+// knob_board exclusion :35-46, knob KNOB_BOARD block :48-65,
+// board/target mismatch :115-121, knob-flag guard :126-136, asset
+// guards :138-204, spiffs :211, blob flash-vs-warn :214-228),
+// components/ui/CMakeLists.txt (early-pass comment + FONT_DIR +
+// UI_BOARD_SRCS + unconditional REQUIRES),
+// components/board/CMakeLists.txt (BSP_COMPONENT knob_board / knob_include
+// on KNOB_BOARD), components/imu/CMakeLists.txt (imu_stub.c on
+// KNOB_BOARD), components/knob_board/idf_component.yml (the real
+// esp_lcd_sh8601 + esp_codec_dev deps gated on $CONFIG{BOARD_KNOB}),
+// components/board/Kconfig.projbuild (choice BOARD incl. BOARD_KNOB), and
+// ~/esp/esp-idf/tools/cmake/build.cmake:659-664
+// (__component_get_requirements). The seam's RUNTIME side
+// (knob_moon_render's thirteen functions, the reentrant mutex) belongs
+// to docs/implementation/knob-display.rst; the blob the fit guard prices
+// belongs to docs/_graphs/assets-pipeline.dot (this page) and the storage
+// ladder (verification/performance.rst) — cross-refs kept reciprocal there.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
 // Rendered inline as SVG by sphinx.ext.graphviz (dot on PATH).
 digraph build_seam {
     rankdir=TB;
-    label="The build seam — three projects, one repo, two CMake passes";
+    label="The build seam — one project, three boards, two CMake passes";
     labelloc="t"; labeljust="c";
     fontname="Helvetica"; fontsize=12;
     graph [nodesep=0.4, ranksep=0.55];
@@ -45,23 +49,23 @@ digraph build_seam {
           color="#525252", penwidth=1.2];
     edge [fontname="Helvetica", fontsize=12, color="#8a8a8a", penwidth=1.3];
 
-    rootp [label="the root project —\nS3 default, P4\nsibling build",
+    rootp [label="the ONE project —\nS3 default target,\nP4 + knob builds",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    knobp [label="the knob project —\nown dir, lock,\nsdkconfig",
+    knobp [label="the knob BUILD —\n-D KNOB_BOARD=ON on\nesp32s3, own lock +\nsdkconfig.knob",
            fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
     passes [label="THE TWO PASSES —\nearly: no vars,\ntarget: complete",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    shared4 [label="THE SHARED 4 —\nclock · wifi ·\nmoon · ui VERBATIM",
+    shared4 [label="THE SHARED 4 —\nclock · wifi ·\nmoon · ui, compiled\nby every board",
              fillcolor="#dbe7f6", color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    shims [label="THE SILENT SHIMS —\nboard · imu ·\nesp_codec_dev",
+    knobc [label="THE KNOB PIECES —\nknob_* components +\nboard/imu knob rows\n+ sh8601/codec deps",
            fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
-    guards [label="THE GUARDS —\nconfigure FATAL_\nERRORs, both projects",
+    guards [label="THE GUARDS —\nONE configure FATAL_\nERROR trio, all boards",
             fillcolor="#f6f1e2", color="#b07d10", fontcolor="#6b4e08"];
 
     rootp -> shared4;
-    knobp -> shared4 [label="EXTRA_COMPONENT_\nDIRS, dir-by-dir",
+    knobp -> shared4 [label="same tree, KNOB_\nBOARD-gated SRCS",
                       color="#2b5fb0", fontcolor="#1e3f70", penwidth=1.6];
-    knobp -> shims;
+    knobp -> knobc;
     passes -> shared4 [color="#2b5fb0", penwidth=1.6];
     rootp -> guards [style=dashed, color="#b07d10"];
 }

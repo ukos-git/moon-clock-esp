@@ -11,7 +11,7 @@ Each board has its own flash partition table:
 
 - the S3: ``partitions.csv`` (16 MB chip);
 - the P4: ``partitions_p4.csv`` (32 MB chip);
-- the knob: the ``knob/`` sibling project's ``knob/partitions.csv`` (16 MB chip).
+- the knob: ``partitions_knob.csv`` (16 MB chip).
 
 Consumers find every partition by label, not by offset, so the three tables are free to differ in size.
 
@@ -21,6 +21,7 @@ How the build picks a table
 The per-target defaults files select the table, not CMake.
 The shared ``sdkconfig.defaults`` enables ``CONFIG_PARTITION_TABLE_CUSTOM=y``.
 The P4 file sets ``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"``.
+The knob's ``sdkconfig.defaults.knob`` sets it to ``partitions_knob.csv`` (the knob is an esp32s3 target, so its defaults file is passed explicitly, with ``-D SDKCONFIG_DEFAULTS``).
 The S3 keeps the default ``partitions.csv``.
 The ``partition_table`` component's project hook re-derives ``PARTITION_CSV_PATH`` from the Kconfig values and overwrites any plain ``set()`` in CMake (:doc:`the build system <build-system>`).
 
@@ -46,7 +47,7 @@ P4 — ``partitions_p4.csv``
    :caption: The P4 table in flash order. ``factory`` is 9216 K. ``moon_assets`` 5120 K holds the 2048×1024 albedo and the 2048×1024 DEM (4096 K combined). The last row, ``moon_movie`` 18304 K, takes the chip's leftover (one synodic cycle of q90 gray JPEGs, 178 frames at 4 h each), so the table fills the whole 32768 K chip. ``moon_movie`` starts at 14464 K, beyond the 16 MB mark; the binary header declares 32 MB, so esptool prints no size-mismatch warning on this board.
    :align: center
 
-knob — ``knob/partitions.csv``
+knob — ``partitions_knob.csv``
 ------------------------------
 
 .. include:: _fragments/partitions-knob.inc
@@ -81,14 +82,14 @@ The root ``CMakeLists`` flashes the data partitions alongside the ``factory`` ap
    The build warns, and does not fail, when the blob is missing.
    The boot then falls back to the card replay, the saved frame or the disc (the card-less path), so a missing movie never blocks a flash.
 
-The ``knob/`` sibling project mirrors all three:
+The knob build runs through the **same root** ``CMakeLists``, so it is covered by the very guards described above — no knob-side copy:
 
-- ``storage`` comes from ``knob/spiffs/`` and holds ``wifi_credentials.txt`` (the clock's filename, because the shared ``components/wifi`` reads it).
+- ``storage`` comes from the shared ``spiffs/`` and holds ``wifi_credentials.txt`` (the clock's filename, because the shared ``components/wifi`` reads it).
 - A missing ``moon_assets`` blob warns.
-  A malformed manifest, or a blob that does not fit its row, is a configure-time ``FATAL_ERROR`` in ``knob/CMakeLists.txt``: a knob that boots without the moon is a bench mistake, not a shipping failure mode.
-- The ``moon_movie`` blob goes through the mirrored movie-guard block and only warns when missing.
-- The root CMake's ``MOON_CALC_VER`` derive is replicated for the knob.
-  The reader rejects a blob with a stale calculation version at boot, so the knob build must stamp the same version its firmware checks.
+  A malformed manifest, or a blob that does not fit its row, is a configure-time ``FATAL_ERROR`` from the root CMakeLists (the knob's table is ``partitions_knob.csv``, read through ``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``): a knob that boots without the moon is a bench mistake, not a shipping failure mode.
+  The albedo-width cross-check is skipped for the knob target (it has no ``MOON_ALBEDO_W`` Kconfig mirror; the manifest's ``alb_w`` and the partition fit are its guards).
+- The ``moon_movie`` blob goes through the same movie-guard block and only warns when missing.
+- The root CMake's ``MOON_CALC_VER`` derive stamps the knob's firmware, and the reader rejects a blob with a stale calculation version at boot.
 
 Where to go next
 ----------------
