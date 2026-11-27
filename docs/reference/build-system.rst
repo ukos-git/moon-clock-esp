@@ -556,7 +556,10 @@ root and knob ``managed_components/``). The root
 the component manager prunes it to its own lock on every re-resolve —
 so the job runs the P4 and knob builds first and the S3 build LAST,
 leaving the S3 set ``gen_perf_bus.py`` reads its panel driver
-(``co5300``) from. But ``gen_perf_silicon.py`` needs a P4-ONLY touch
+(``co5300``) from. The knob leg is a full ``idf.py build`` (not just
+a reconfigure): ``gen_perf_storage.py`` measures the size of
+``../build/knob/knob.bin`` alongside the two ``moon-phase.bin``
+binaries, and a reconfigure alone leaves no binary. But ``gen_perf_silicon.py`` needs a P4-ONLY touch
 driver (``gt911``) the S3 set lacks, and no single target's lock
 carries both — so after the S3 build the job makes the UNION by
 stashing the ``gt911`` dir through a P4 reconfigure and copying it

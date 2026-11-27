@@ -92,10 +92,14 @@ jobs:
         # P4 + knob FIRST, S3 LAST: the root managed_components/ keeps
         # only the last-resolved target's set, and gen_perf_bus.py reads
         # the S3 panel driver (espressif__esp_lcd_co5300) from it. The
-        # knob reconfigure (the documented -B ../build/knob — the knob
-        # build dir sits ABOVE the repo, which is where gen_perf_bus
-        # reads its sdkconfig.h) populates knob/managed_components/
-        # (its own set, which gen_perf_bus reads for the SH8601 driver).
+        # knob BUILD (the documented -B ../build/knob — the knob build
+        # dir sits ABOVE the repo) populates ../build/knob/config/
+        # sdkconfig.h (gen_perf_fresh/locks/sched/silicon/response read
+        # it) and knob/managed_components/ (gen_perf_bus reads the SH8601
+        # driver from it) — and emits ../build/knob/knob.bin, whose size
+        # gen_perf_storage.py measures (a reconfigure alone leaves no
+        # binary). The knob is its own IDF project (own lock, own
+        # managed_components), so its build never prunes the root set.
         # The two vendor-leg figs (perf_bus, perf_silicon) parse the live
         # vendor headers from the SAME root managed_components/ but need
         # packages from DIFFERENT targets: gen_perf_bus the S3-only panel
@@ -110,7 +114,7 @@ jobs:
         run: |
           source "$IDF_PATH/export.sh"
           idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
-          idf.py -C knob -B ../build/knob reconfigure
+          idf.py -C knob -B ../build/knob build
           idf.py build
           # Base the union on the S3 set (the S3 binary's co5300 driver +
           # pcf85063a must be present for gen_perf_bus):
