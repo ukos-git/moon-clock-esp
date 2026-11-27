@@ -8,13 +8,17 @@
 # screenshots for all three panels, the annotations, the device
 # composites and the films (MEDIA_VIDEOS=1). The perf figs parse the
 # live build trees (build/config, build/esp-idf/, build/moon-phase.bin,
-# the root + knob managed_components/), so the P4 and knob device
-# builds and the S3 build (LAST — the root managed_components/ holds
-# only the last-resolved target's set, and gen_perf_bus reads the S3
-# panel driver from it) run first; after the builds the job verifies
-# the vendor headers the two vendor-leg figs parse (the S3 co5300 +
-# pcf85063a AND the P4-only gt911) are all present and re-resolves the
-# target that fetches any missing one.
+# the root managed_components/), so the P4 and knob device builds and
+# the S3 build (LAST — the root managed_components/ holds only the
+# last-resolved target's set, and BOTH the P4's and the knob's builds
+# prune it to their own locks, exactly like the S3's, so gen_perf_bus
+# reads the S3 panel driver from it only because the S3 build runs
+# last) run first; after the builds the job verifies the vendor
+# headers the vendor-leg figs parse (the S3 co5300 + pcf85063a, the
+# P4-only gt911 AND the knob-only sh8601) are all present and
+# re-resolves the target that fetches any missing one (each private
+# package is stashed through a reconfigure and copied back AFTER the
+# final S3 reconfigure, which prunes both).
 #
 # The site deploys from the GitHub Pages artifact (no gh-pages branch):
 # the deploy job consumes the artifact the build job uploads. On a fresh
@@ -116,58 +120,63 @@ jobs:
             yes | /opt/esp-idf/install.sh esp32s3 esp32p4
           fi
           echo "IDF_PATH=/opt/esp-idf" >> "$GITHUB_ENV"
-      # The three device build trees (build/ incl. build/p4, plus the knob's
-      # tree) + the resolved vendor components + the two gitignored P4/knob
+      # The three device build trees (build/ incl. build/p4 + build/knob —
+      # the knob is the third build of the SAME tree, so it lives inside the
+      # repo) + the resolved vendor components + the two gitignored P4/knob
       # dependency locks. KEYED ON THE FIRMWARE CONTENT: a hit means every
       # input the builds consume is byte-identical to the run that saved
       # the tree, so the .bin + sdkconfig.h + vendor headers the perf figs
       # parse are already current and the device builds are SKIPPED
       # (runners are ephemeral — a restored tree would not be a reliable
       # ninja-incremental build, since the fresh checkout resets source
-      # mtimes; skipping is what makes a non-firmware push fast). The
-      # knob build dir sits ABOVE the checkout (../build/knob — the
-      # documented idf.py -C knob -B ../build/knob), hence the absolute
-      # path. A canary step verifies the artifacts exist after a skip.
+      # mtimes; skipping is what makes a non-firmware push fast). The knob's
+      # components now live under components/, so the knob build's inputs
+      # are already inside the hashFiles globs. A canary step verifies the
+      # artifacts exist after a skip.
       - name: Cache the device build trees + resolved components
         id: devbuilds
         uses: actions/cache@v4
         with:
           path: |
             build
-            /home/runner/work/moon-clock-esp/build/knob
             managed_components
-            knob/managed_components
             dependencies.lock.p4
-            knob/dependencies.lock.knob
-          key: idf551-devbuilds-${{ runner.os }}-${{ hashFiles('dependencies.lock', 'main/**', 'components/**', 'knob/**', 'CMakeLists.txt', 'knob/CMakeLists.txt', 'sdkconfig.defaults*', 'knob/sdkconfig.defaults*') }}
+            dependencies.lock.knob
+          key: idf551-devbuilds-${{ runner.os }}-${{ hashFiles('dependencies.lock', 'main/**', 'components/**', 'CMakeLists.txt', 'sdkconfig.defaults*') }}
       - name: Device builds (the figs' inputs)
         if: steps.devbuilds.outputs.cache-hit != 'true'
         # P4 + knob FIRST, S3 LAST: the root managed_components/ keeps
         # only the last-resolved target's set, and gen_perf_bus.py reads
         # the S3 panel driver (espressif__esp_lcd_co5300) from it. The
-        # knob BUILD (the documented -B ../build/knob — the knob build
-        # dir sits ABOVE the repo) populates ../build/knob/config/
-        # sdkconfig.h (gen_perf_fresh/locks/sched/silicon/response read
-        # it) and knob/managed_components/ (gen_perf_bus reads the SH8601
-        # driver from it) — and emits ../build/knob/knob.bin, whose size
-        # gen_perf_storage.py measures (a reconfigure alone leaves no
-        # binary). The knob is its own IDF project (own lock, own
-        # managed_components), so its build never prunes the root set.
-        # The two vendor-leg figs (perf_bus, perf_silicon) parse the live
-        # vendor headers from the SAME root managed_components/ but need
-        # packages from DIFFERENT targets: gen_perf_bus the S3-only panel
-        # driver (co5300) and gen_perf_silicon the P4-only touch driver
-        # (gt911) — pcf85063a + lvgl are in both. A single target's lock
-        # never provides both (the component manager prunes to its own
-        # lock on every re-resolve), so the S3 build last leaves the S3
-        # set; the union is then made by stashing the P4-only gt911
-        # through a P4 reconfigure and copying it back over the S3 set
-        # (the Media step runs no idf.py, so the copied package survives
-        # to figure time).
+        # knob build (the third build of the SAME tree — KNOB_BOARD
+        # promoted, own sdkconfig.knob + lock, own build/knob dir)
+        # populates build/knob/config/sdkconfig.h (gen_perf_fresh/locks/
+        # sched/silicon/response read it) and emits build/knob/
+        # moon-phase.bin, whose size gen_perf_storage.py measures (a
+        # reconfigure alone leaves no binary). The knob shares the repo's
+        # managed_components/, so its build prunes the root set to the
+        # knob's own lock (seven keys — the knob-only esp_lcd_sh8601 +
+        # esp_codec_dev among them) exactly as the P4 build prunes it.
+        # The vendor-leg figs parse live vendor headers from the SAME
+        # root managed_components/ but need packages from DIFFERENT
+        # targets: gen_perf_bus the S3-only panel driver (co5300),
+        # gen_perf_silicon the P4-only touch driver (gt911) and the knob-
+        # only panel driver (sh8601) — pcf85063a + lvgl are in all. A
+        # single target's lock never provides its siblings' packages (the
+        # component manager prunes to its own lock on every re-resolve),
+        # so the S3 build last leaves the S3 set; the union is then made
+        # by reconfiguring the P4 and the knob, stashing each private
+        # package, restoring the S3 set, and copying BOTH back AFTER that
+        # final S3 reconfigure — which is what prunes them again (the
+        # knob reconfigure prunes the gt911 the P4 leg fetched, so the
+        # copies must outlive it). The Media step runs no idf.py, so the
+        # copied packages survive to figure time.
         run: |
           source "$IDF_PATH/export.sh"
           idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
-          idf.py -C knob -B ../build/knob build
+          idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+            -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+            -B build/knob build
           idf.py build
           # Base the union on the S3 set (the S3 binary's co5300 driver +
           # pcf85063a must be present for gen_perf_bus):
@@ -175,18 +184,24 @@ jobs:
              || [ ! -d managed_components/waveshare__pcf85063a ]; then
             idf.py reconfigure
           fi
-          # Add the P4-only touch driver (gt911) gen_perf_silicon parses.
-          # The P4 reconfigure prunes the S3 co5300, so: fetch gt911, stash
-          # it, restore the S3 set, then copy gt911 back (see the step note):
-          if [ ! -d managed_components/espressif__esp_lcd_touch_gt911 ]; then
-            idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 reconfigure
-            cp -a managed_components/espressif__esp_lcd_touch_gt911 \
-              build/p4/.gt911-fig-stash
-            idf.py reconfigure
-            rm -rf managed_components/espressif__esp_lcd_touch_gt911
-            cp -a build/p4/.gt911-fig-stash \
-              managed_components/espressif__esp_lcd_touch_gt911
-          fi
+          # Add the P4-only touch driver (gt911) and the knob-only panel
+          # driver (sh8601) the vendor-leg figs parse. Every reconfigure
+          # prunes the set to its own lock, so: fetch each private package,
+          # stash it, restore the S3 set, then copy both back (see the step
+          # note — the copies AFTER the final S3 reconfigure):
+          idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 reconfigure
+          cp -a managed_components/espressif__esp_lcd_touch_gt911 \
+            build/p4/.gt911-fig-stash
+          idf.py -D KNOB_BOARD=ON -D SDKCONFIG=sdkconfig.knob \
+            -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.knob" \
+            -B build/knob reconfigure
+          cp -a managed_components/espressif__esp_lcd_sh8601 \
+            build/knob/.sh8601-fig-stash
+          idf.py reconfigure
+          cp -a build/p4/.gt911-fig-stash \
+            managed_components/espressif__esp_lcd_touch_gt911
+          cp -a build/knob/.sh8601-fig-stash \
+            managed_components/espressif__esp_lcd_sh8601
       - name: Device-build canary (the figs' inputs exist)
         # Runs on BOTH paths (fresh build, or the builds skipped on a
         # content-key cache hit): the Media step and the perf figs parse
@@ -195,13 +210,13 @@ jobs:
         # are stale — add the missing path to the hashFiles list.
         run: |
           for f in build/moon-phase.bin build/p4/moon-phase.bin \
-                   ../build/knob/knob.bin \
+                   build/knob/moon-phase.bin \
                    build/config/sdkconfig.h build/p4/config/sdkconfig.h \
-                   ../build/knob/config/sdkconfig.h \
+                   build/knob/config/sdkconfig.h \
                    managed_components/espressif__esp_lcd_co5300 \
                    managed_components/espressif__esp_lcd_touch_gt911 \
-                   managed_components/waveshare__pcf85063a \
-                   knob/managed_components/espressif__esp_lcd_sh8601; do
+                   managed_components/espressif__esp_lcd_sh8601 \
+                   managed_components/waveshare__pcf85063a; do
             if [ ! -e "$f" ]; then
               echo "missing $f (device builds $([ "$CACHE_HIT" = true ] && echo 'were skipped on a cache hit' || echo 'ran')); the tree is incomplete"
               exit 1

@@ -59,10 +59,10 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
   #define BSP_LCD_H_RES (466) / _V_RES / _BITS      vendored S3 BSP include/bsp/display.h
   .max_transfer_sz = BSP_LCD_H_RES * 25 * ... / .buffer_height = 25  vendored S3 BSP .c (asserted EQUAL — the bus lesson)
   CONFIG_BSP_LCD_TYPE_720_720_4_INCH                build/p4/config/sdkconfig.h
-  #define KNOB_LCD_H_RES / _V_RES / _ROWS_PER_BUF   knob/components/knob_board/include/knob_board.h
+  #define KNOB_LCD_H_RES / _V_RES / _ROWS_PER_BUF   components/knob_board/include/knob_board.h
   .max_transfer_sz = KNOB_LCD_H_RES * KNOB_LCD_ROWS_PER_BUF * sizeof(uint16_t)   knob_board_display.c (shape-asserted)
-  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       knob/components/knob_ui/knob_ui.c:89/:107 (the bake square IS the panel)
-  knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2) knob/components/knob_ui/knob_moon_render.c (the drawn disk, as gen_perf_sharp parses it)
+  #define MOON_SIZE KNOB_LCD_H_RES + s_buf[2]       components/knob_ui/knob_ui.c:89/:107 (the bake square IS the panel)
+  knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2) components/knob_ui/knob_moon_render.c (the drawn disk, as gen_perf_sharp parses it)
   MOON_ALB_W/_H + MOON_DEM_W/_H                     components/moon/generated/{s3,p4,knob}/moon_consts.h (albedo asserted 2:1 equirect)
 
 Identity colors per gen_perf_figs.py: S3 blue, P4 vermillion, knob
@@ -92,12 +92,12 @@ BSP_DISPLAY_H = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
 BSP_C = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                      "esp32_s3_touch_amoled_1_75.c")
 CFG_P4 = os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h")
-KNOB_BOARD_H = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_BOARD_H = os.path.join(ROOT, "components", "knob_board",
                             "include", "knob_board.h")
-KNOB_DISP_C = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_DISP_C = os.path.join(ROOT, "components", "knob_board",
                            "knob_board_display.c")
-KNOB_UI_C = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")
-KNOB_RENDER_C = os.path.join(ROOT, "knob", "components", "knob_ui",
+KNOB_UI_C = os.path.join(ROOT, "components", "knob_ui", "knob_ui.c")
+KNOB_RENDER_C = os.path.join(ROOT, "components", "knob_ui",
                              "knob_moon_render.c")
 
 INK = "#1c2128"

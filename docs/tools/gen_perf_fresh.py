@@ -21,7 +21,7 @@ house pattern), on one log millisecond axis:
       (refresh_alarm_display at the minute tick — the weekday prefix
       flips at the 24 h boundary and lands within one minute)
   lv_timer_create(battery_timer_cb, 60000, NULL)
-      knob/components/knob_ui/knob_battery_ui.c:204 (+205 first fill) —
+      components/knob_ui/knob_battery_ui.c:204 (+205 first fill) —
       "the cell moves on the minute scale, not the second" (:6)
   #define CLOCK_NVS_SAVE_INTERVAL_SEC 900
       components/clock/clock_sntp.c:52 (+76 gate, +116 FORCE on every
@@ -48,7 +48,7 @@ house pattern), on one log millisecond axis:
       untinted bake self-heals", the code's own words)
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              ../build/knob/config/sdkconfig.h
+                              build/knob/config/sdkconfig.h
       (the render beat every row lands on — parsed from ALL THREE
       generated headers and asserted equal, the response ladder's
       parser reused)
@@ -90,12 +90,12 @@ CLOCK_INT = os.path.join(ROOT, "components", "clock", "clock_interrupt.c")
 SNTP = os.path.join(ROOT, "components", "clock", "clock_sntp.c")
 CLOCK_KCONFIG = os.path.join(ROOT, "components", "clock", "Kconfig")
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
-KNOB_BATT = os.path.join(ROOT, "knob", "components", "knob_ui",
+KNOB_BATT = os.path.join(ROOT, "components", "knob_ui",
                          "knob_battery_ui.c")
 SDKHS = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
+    "knob": os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h"),
 }
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_fresh.png")
 

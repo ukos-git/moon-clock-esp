@@ -26,7 +26,7 @@ Every bar parsed at figure time (the house pattern):
 
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              ../build/knob/config/sdkconfig.h
+                              build/knob/config/sdkconfig.h
       (asserted EQUAL across all three, like the response ladder; the
       indev read timer is created with it — lv_indev.c:105
       "indev->read_timer = lv_timer_create(lv_indev_read_timer_cb,
@@ -53,7 +53,7 @@ Every bar parsed at figure time (the house pattern):
       zero: NO pcf85063a token in the knob's OWN sources (the vendored
       managed_components package is never linked) AND the literal
       lv_timer_create(clock_rtc_interrupt_handler_cb, 1300) at
-      knob/main/main.c:526 ("RTC_POLL_INTERVAL_MS on the clocks is
+      main/main_knob.c:526 ("RTC_POLL_INTERVAL_MS on the clocks is
       1300", :525).
   microSD: hour centre hour * 3600 + 1800 (moon_ui.c:1808, the hourly
       probe's own epoch); S3 legs SPI3_HOST x2 + GPIO_NUM_41 CS +
@@ -105,24 +105,24 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
+    "knob": os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h"),
 }
 IMU_DRV = os.path.join(ROOT, "components", "imu", "imu_qmi8658.c")
-IMU_STUB = os.path.join(ROOT, "knob", "components", "imu", "imu_stub.c")
+IMU_STUB = os.path.join(ROOT, "components", "imu", "imu_stub.c")
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
 TFCACHE = os.path.join(ROOT, "components", "ui", "moon_tfcache.c")
 UI_CMAKE = os.path.join(ROOT, "components", "ui", "CMakeLists.txt")
 ACTIONS = os.path.join(ROOT, "components", "ui", "actions.c")
 CLOCK_INT = os.path.join(ROOT, "components", "clock", "clock_interrupt.c")
 MAIN_CPP = os.path.join(ROOT, "main", "main.cpp")
-KNOB_MAIN = os.path.join(ROOT, "knob", "main", "main.c")
-KNOB_ENC = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_MAIN = os.path.join(ROOT, "main", "main_knob.c")
+KNOB_ENC = os.path.join(ROOT, "components", "knob_board",
                         "knob_board_encoder.c")
-KNOB_TOUCH = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_TOUCH = os.path.join(ROOT, "components", "knob_board",
                           "knob_board_touch.c")
-KNOB_BATT_UI = os.path.join(ROOT, "knob", "components", "knob_ui",
+KNOB_BATT_UI = os.path.join(ROOT, "components", "knob_ui",
                             "knob_battery_ui.c")
-KNOB_BATT = os.path.join(ROOT, "knob", "components", "knob_battery",
+KNOB_BATT = os.path.join(ROOT, "components", "knob_battery",
                          "knob_battery.c")
 GT911_H = os.path.join(ROOT, "managed_components",
                        "espressif__esp_lcd_touch_gt911", "include",

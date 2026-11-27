@@ -76,8 +76,7 @@ import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KCONFIG = os.path.join(HERE, "..", "..", "components", "ui", "Kconfig")
-KNOB_KCONFIG = os.path.join(HERE, "..", "..", "knob",
-                            "components", "knob_ui", "Kconfig")
+KNOB_KCONFIG = os.path.join(HERE, "..", "..", "components", "knob_ui", "Kconfig")
 MOVIE_MANIFEST = os.path.join(HERE, "..", "..",
                               "assets", "images", "moon", "out")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_boot.png")

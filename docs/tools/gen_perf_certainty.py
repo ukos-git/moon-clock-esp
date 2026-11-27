@@ -65,7 +65,7 @@ number, a name, or a verdict drifts between them:
       the "circle-xmark discard key" (2026-11-08). The two operable
       mocks never followed the pairing: the ladder SystemExits if the
       firmware reverts the pairing while the docs' fidelity notes
-      (keyboard.rst "frozen at the 2026-11-02 proposal",
+      (keyboard.rst "shows the original proposal's keys",
       keyboard-lab.rst "the mock's pairing, frozen") still claim it
       — those notes and the firmware comment are asserted together.
   build/config/sdkconfig.h + the vendored LVGL indev
@@ -185,7 +185,7 @@ def main() -> None:
     labrst, kbrst = _read(LABRST), _read(KBRST)
 
     # ---- the report: baseline cost model --------------------------------
-    m = expect(rpt, r"([\d.]+)–([\d.]+) s\s*\nper sweep", "the wheel's "
+    m = expect(rpt, r"([\d.]+)–([\d.]+) s\s+per sweep", "the wheel's "
                "per-sweep seconds (the cost model's motion pair)")
     sec_fast, sec_slow = float(m.group(1)), float(m.group(2))  # 0.7, 1.5
     expect(rpt, r"~4–8 CPM", "the report's own 4–8 CPM gloss (kept as a "
@@ -365,15 +365,17 @@ def main() -> None:
     # the fidelity notes the docs pages owe the frozen mocks (asserted with
     # the firmware comment above — pairing changed IN firmware while the
     # notes claim the mocks are frozen is the drift this ladder refuses)
-    expect(kbrst, r"frozen at the 2026-11-02 proposal",
+    expect(kbrst, r"shows the original proposal's keys, ⊗ for commit and a "
+           r"trash can for discard",
            "keyboard.rst no longer tells the reader the widget keeps the "
            "proposal's ⊗/trash pairing")
-    expect(kbrst, r"circle-\*\*check\*\* COMMIT", "keyboard.rst's shipped "
+    expect(kbrst, r"circle-check COMMIT key", "keyboard.rst's shipped "
            "pairing sentence")
-    expect(kbrst, r"circle-\*\*xmark\*\* DISCARD", "keyboard.rst's shipped "
+    expect(kbrst, r"circle-xmark DISCARD key", "keyboard.rst's shipped "
            "pairing sentence")
-    expect(labrst, r"the mock's pairing,\s+frozen", "keyboard-lab.rst panel "
-           "#1 no longer scopes its ⊗/trash line to the mock")
+    expect(labrst, r"mock's bottom band shows the proposal's ⊗ commit and "
+           r"trash-can discard", "keyboard-lab.rst panel #1 no longer "
+           "scopes its ⊗/trash line to the mock")
     expect(labrst, r"16–32 CPM", "keyboard-lab.rst panel #1 no longer "
            "carries the re-derived wall-clock bill")
     expect(labrst, r"40–86 CPM", "keyboard-lab.rst panel #1 no longer "

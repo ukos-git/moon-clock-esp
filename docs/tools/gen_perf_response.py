@@ -17,7 +17,7 @@ family (how OFTEN / how LONG allowed / how SOON noticed).
 Every number is PARSED from the live sources at figure time (the house
 pattern):
 
-  #define ENC_POLL_MS 3            knob/components/knob_board/knob_board_encoder.c:32
+  #define ENC_POLL_MS 3            components/knob_board/knob_board_encoder.c:32
       (vendor TICKS_INTERVAL; the row's annotation owns the tick-safe
        floor: pdMS_TO_TICKS(3) == 0 at the knob's 100 Hz tick, so the
        vTaskDelay lands at 1 tick = 10 ms — the bench lesson that cost
@@ -25,13 +25,13 @@ pattern):
   #define ENC_DEBOUNCE 2           .../knob_board_encoder.c:33
       (edge accepted after DEBOUNCE_TICKS consecutive identical samples
        — :11; right panel derives 2 x 3)
-  vTaskDelay(pdMS_TO_TICKS(20))    knob/components/knob_ui/knob_dial.c:85
+  vTaskDelay(pdMS_TO_TICKS(20))    components/knob_ui/knob_dial.c:85
       (dial_task period; xTaskCreate "knob_dial" prio 5 — :140; the
        consumer of the encoder queue — knob_dial.c:140 era note in
        docs/_graphs/input-chain.dot)
   #define CONFIG_LV_DEF_REFR_PERIOD 33   build/config/sdkconfig.h,
                               build/p4/config/sdkconfig.h,
-                              ../build/knob/config/sdkconfig.h
+                              build/knob/config/sdkconfig.h
       (the ONE LVGL read+refresh beat: lv_indev.c:105 creates the
        indev timer at LV_DEF_REFR_PERIOD — parsed from ALL THREE
        generated headers and asserted equal; the CST9217's INT-mode IRQ
@@ -80,16 +80,16 @@ ROOT = os.path.join(HERE, "..", "..")
 UI_KCONFIG = os.path.join(ROOT, "components", "ui", "Kconfig")
 ACTIONS = os.path.join(ROOT, "components", "ui", "actions.c")
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
-ENCODER = os.path.join(ROOT, "knob", "components", "knob_board",
+ENCODER = os.path.join(ROOT, "components", "knob_board",
                        "knob_board_encoder.c")
-DIAL = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_dial.c")
+DIAL = os.path.join(ROOT, "components", "knob_ui", "knob_dial.c")
 # The three generated headers — the same three the scheduler ladder
 # reads its WDT baseline from (house precedent: the lvgl Kconfig is
 # vendor default, the generated header is what the firmware ships).
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
+    "knob": os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h"),
 }
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_response.png")
 

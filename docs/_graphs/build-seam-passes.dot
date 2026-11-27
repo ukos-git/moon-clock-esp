@@ -9,8 +9,9 @@
 //   spelled out UNCONDITIONALLY on purpose, every name resolving in
 //   all three board builds (an if() hiding a missing component is
 //   INVISIBLE in this pass — the knob answers ui's esp_codec_dev
-//   REQUIRE with a real managed dep gated on $CONFIG{BOARD_KNOB},
-//   build-seam-shims.dot). The knob branch key KNOB_BOARD is promoted
+//   REQUIRE with the real managed dep knob_board's manifest declares
+//   under a target == esp32s3 rule, build-seam-shims.dot). The knob
+//   branch key KNOB_BOARD is promoted
 //   into this pass by idf_build_set_property (root CMakeLists) — a
 //   plain -D cache variable would not reach it.
 //   The TARGET pass (full configure): the project scope is complete —

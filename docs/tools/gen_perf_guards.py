@@ -33,10 +33,10 @@ house pattern):
        the annotation the attempt count)
   CLOCK_NTP_TIMEOUT_MS (Kconfig 10000)     components/clock/Kconfig
       (the synchronous boot fix window inside clock_init)
-  KNOB_TIME_BOOT_SYNC_MS (Kconfig 20000)   knob/components/knob_time/Kconfig
+  KNOB_TIME_BOOT_SYNC_MS (Kconfig 20000)   components/knob_time/Kconfig
       (the knob's fix window; after it the glass arms on the NVS
        snapshot as "last known")
-  while (!connected) <= 15000              knob/main/main.c:225
+  while (!connected) <= 15000              main/main_knob.c:225
       (the join wait before any NTP attempt)
   #define HOURLY_BUDGET_MS 5000            components/ui/moon_ui.c:1070
   UI_MOON_REPLAY_BUDGET_MS (Kconfig)       components/ui/Kconfig
@@ -65,11 +65,11 @@ ROOT = os.path.join(HERE, "..", "..")
 UI_KCONFIG = os.path.join(ROOT, "components", "ui", "Kconfig")
 CLOCK_KCONFIG = os.path.join(ROOT, "components", "clock", "Kconfig")
 KNOB_TIME_KCONFIG = os.path.join(
-    ROOT, "knob", "components", "knob_time", "Kconfig")
+    ROOT, "components", "knob_time", "Kconfig")
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
 ACTIONS = os.path.join(ROOT, "components", "ui", "actions.c")
 WIFI = os.path.join(ROOT, "components", "wifi", "wifi.c")
-KNOB_MAIN = os.path.join(ROOT, "knob", "main", "main.c")
+KNOB_MAIN = os.path.join(ROOT, "main", "main_knob.c")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_guards.png")
 
 INK = "#1c2128"
@@ -177,7 +177,7 @@ def main() -> None:
         (f"boot NTP fix window\nCLOCK_NTP_TIMEOUT_MS", ntp, TEAL, True,
          "clock/Kconfig"),
         (f"knob join wait\nwhile (!connected) <=", join, TEAL, False,
-         "knob/main/main.c:225"),
+         "main/main_knob.c:225"),
         (f"knob NTP fix window\nKNOB_TIME_BOOT_SYNC_MS", knob_fix, TEAL, True,
          "knob_time/Kconfig"),
         (f"hourly producer budget\nHOURLY_BUDGET_MS", hourly, VIOLET, False,

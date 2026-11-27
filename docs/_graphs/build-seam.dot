@@ -27,7 +27,9 @@
 // components/board/CMakeLists.txt (BSP_COMPONENT knob_board / knob_include
 // on KNOB_BOARD), components/imu/CMakeLists.txt (imu_stub.c on
 // KNOB_BOARD), components/knob_board/idf_component.yml (the real
-// esp_lcd_sh8601 + esp_codec_dev deps gated on $CONFIG{BOARD_KNOB}),
+// esp_lcd_sh8601 + esp_codec_dev deps under a target == esp32s3 rule —
+// the gate must evaluate in prepare_dependencies, BEFORE kconfig, so a
+// $CONFIG{} rule could not resolve on a fresh knob build),
 // components/board/Kconfig.projbuild (choice BOARD incl. BOARD_KNOB), and
 // ~/esp/esp-idf/tools/cmake/build.cmake:659-664
 // (__component_get_requirements). The seam's RUNTIME side

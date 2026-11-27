@@ -15,7 +15,8 @@ documented option vanishes or a new one appears unread:
 
   the Kconfig sources              the first-party inventory by NAME:
       components/{ui,clock,moon}/Kconfig + components/board/Kconfig.projbuild
-      + the six knob/components/*/Kconfig — every `config` symbol parsed,
+      (the shared choice BOARD — BOARD_S3 / BOARD_KNOB / BOARD_P4) + the
+      five components/knob_*/Kconfig — every `config` symbol parsed,
       each file's set asserted name-for-name (a new or renamed option
       refuses to draw until this figure is re-read)
   the kconfig-*.inc fragments      every parsed name must appear backticked
@@ -27,8 +28,9 @@ documented option vanishes or a new one appears unread:
       the registry needs ("They must be INT, not bool") — the figure dies
       if someone boolifies them (the eval_bool("1") fatal)
   the reader scan                  every name's CONFIG_<NAME> token grep-walked
-      over components/ + main/ + knob/ (.c/.h/.cpp, the vendored BSP dir
-      only for BSP names); each name's category (alive / silent-on-knob /
+      over components/ + main/ (.c/.h/.cpp, the vendored BSP dir only for
+      BSP names; the knob's menus count readers in the knob_* components
+      + main_knob.c); each name's category (alive / silent-on-knob /
       dead letter / configure-only / registry-only / S3-only) asserted
       against the expected dict — if a silent option gains a shared reader
       the figure refuses to keep claiming it silent
@@ -51,7 +53,7 @@ documented option vanishes or a new one appears unread:
       nobody (the ghosts), the seven live keys read at least once outside
       the store
   the live sdkconfigs              every parsed name present in sdkconfig,
-      sdkconfig.p4, or knob/sdkconfig (value or "is not set") — the menu's
+      sdkconfig.p4, or sdkconfig.knob (value or "is not set") — the menu's
       offer checked against what a real configure produced
 
 Identity colors per gen_perf_figs.py: S3 blue, P4 vermillion, knob violet.
@@ -92,7 +94,7 @@ LILAC = "#a78bfa"    # knob-native shims
 MENU_COL = {
     "UI": STEEL, "CLOCK": TEAL, "MOON": SLATE, "BOARD": INDIGO,
     "BSP (vendored)": GREY,
-    "board shim": INDIGO, "battery": LILAC, "power": LILAC,
+    "battery": LILAC, "power": LILAC,
     "ui shim": LILAC, "knob moon": LILAC, "knob time": LILAC,
 }
 
@@ -119,13 +121,12 @@ SOURCES = {  # menu label -> source file
     "MOON": "components/moon/Kconfig",
     "BOARD": "components/board/Kconfig.projbuild",
 }
-KNOB_SOURCES = {  # menu label -> knob shim source
-    "board shim": "knob/components/board/Kconfig",
-    "battery": "knob/components/knob_battery/Kconfig",
-    "power": "knob/components/knob_power/Kconfig",
-    "knob time": "knob/components/knob_time/Kconfig",
-    "ui shim": "knob/components/knob_ui/Kconfig",
-    "knob moon": "knob/components/knob_moon/Kconfig",
+KNOB_SOURCES = {  # menu label -> knob component Kconfig
+    "battery": "components/knob_battery/Kconfig",
+    "power": "components/knob_power/Kconfig",
+    "knob time": "components/knob_time/Kconfig",
+    "ui shim": "components/knob_ui/Kconfig",
+    "knob moon": "components/knob_moon/Kconfig",
 }
 BSP_SOURCE = "BSP (vendored)"
 
@@ -153,10 +154,10 @@ EXPECTED = {
               "CLOCK_NTP_SYNC_INTERVAL_HOURS", "CLOCK_NTP_TIMEOUT_MS",
               "CLOCK_IDLE_TIMEOUT_SEC", "CLOCK_IDLE_CHECK_INTERVAL_MS"],
     "MOON": ["MOON_ALBEDO_W"],
-    "BOARD": ["BOARD_S3", "BOARD_P4", "ESP_HOSTED_HOST_USB_CDC_ACM_MANIFEST",
+    "BOARD": ["BOARD_S3", "BOARD_KNOB", "BOARD_P4",
+              "ESP_HOSTED_HOST_USB_CDC_ACM_MANIFEST",
               "ESP_HOSTED_HOST_USB_CHERRYUSB_MANIFEST",
               "ESP_HOSTED_HOST_USB_RNDIS_MANIFEST"],
-    "board shim": ["BOARD_KNOB", "BOARD_S3", "BOARD_P4"],
     "battery": ["KNOB_BATTERY_GAUGE", "KNOB_BATTERY_ADC_CHANNEL",
                 "KNOB_BATTERY_DIV_NUM", "KNOB_BATTERY_DIV_DEN",
                 "KNOB_BATTERY_MV_EMPTY", "KNOB_BATTERY_MV_FULL",
@@ -251,7 +252,8 @@ if dropped_tus != DROPPED - {"main/main.cpp", "components/moon/host/moon_host_as
                      f"silent-on-knob classification is computed from it")
 
 C_SRC = []  # (repo-relative path, text) of every scannable source
-SCAN_DIRS = ["components", "main", "knob"]
+SCAN_DIRS = ["components", "main"]  # the knob lives in the SAME tree: its
+# knob_* components + main_knob.c sit under components/ + main/
 for base in SCAN_DIRS:
     for dp, _, fs in os.walk(os.path.join(ROOT, base)):
         rel_dp = os.path.relpath(dp, ROOT).replace(os.sep, "/")
@@ -263,7 +265,7 @@ for base in SCAN_DIRS:
                 rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
                 with open(p, encoding="utf-8", errors="replace") as fh:
                     C_SRC.append((rel, fh.read()))
-cm_txt = _read("CMakeLists.txt") + _read(os.path.join("knob", "CMakeLists.txt"))
+cm_txt = _read("CMakeLists.txt")  # the knob builds through this same file
 
 
 def readers(name: str, only_in: str | None = None) -> set:
@@ -294,12 +296,15 @@ def category(name: str, menu: str) -> str:
             raise SystemExit(f"{name} no longer named in any CMakeLists — "
                              f"the configure-time reader is gone")
         return "configure"
-    # a knob-shim option only exists in the knob build, so only knob/ files
-    # can honour it; the vendored BSP dir only counts for BSP names
+    # the knob's menu only exists in the knob build — but the knob build
+    # compiles the WHOLE shared tree minus the DROPPED TUs, so a knob
+    # option is alive whenever any non-dropped file honours it (usually
+    # the knob_* components or main_knob.c); the vendored BSP dir only
+    # counts for BSP names
     if menu == BSP_SOURCE:
         rs = readers(name, "components/esp32_s3_touch_amoled_1_75/")
     elif menu in KNOB_SOURCES:
-        rs = readers(name, "knob/")
+        rs = readers(name) - DROPPED
     else:
         rs = readers(name)
     if not rs:
@@ -348,16 +353,16 @@ EXPECTED_CAT = {
 for n in parsed["UI"]:
     if n not in EXPECTED_CAT:
         EXPECTED_CAT[n] = "clock-only"
-for label in ("CLOCK", "board shim", "battery", "power", "knob time", "ui shim", "knob moon"):
+for label in ("CLOCK", "battery", "power", "knob time", "ui shim", "knob moon"):
     for n in parsed[label]:
         EXPECTED_CAT.setdefault(n, "alive")
+# the shared choice BOARD's two selected legs: BOARD_S3 is configure-only
+# (the root CMakeLists' mismatch guard names it — no C reader), BOARD_P4
+# and BOARD_KNOB are alive (screens.c / actions.c / board_display.c gate
+# on them in files every build compiles)
 EXPECTED_CAT["BOARD_P4"] = "alive"
+EXPECTED_CAT["BOARD_KNOB"] = "alive"
 EXPECTED_CAT["BSP_ERROR_CHECK"] = "s3-only"  # rest of BSP handled below
-# the knob's choice BOARD must carry all three members, but its two foreign
-# legs are read by no knob file (BOARD_P4's readers are clock-side files the
-# knob never compiles) — unselected legs, not broken options
-EXP_OVERRIDE = {("board shim", "BOARD_S3"): "dead",
-                ("board shim", "BOARD_P4"): "dead"}
 
 counts: dict[str, dict[str, int]] = {}
 for label in list(SOURCES) + list(KNOB_SOURCES) + [BSP_SOURCE]:
@@ -365,8 +370,7 @@ for label in list(SOURCES) + list(KNOB_SOURCES) + [BSP_SOURCE]:
          "registry": 0, "s3-only": 0}
     for n in parsed[label]:
         cat = category(n, label)
-        exp = EXP_OVERRIDE.get((label, n),
-                               EXPECTED_CAT.get(n, "s3-only" if label == BSP_SOURCE else "alive"))
+        exp = EXPECTED_CAT.get(n, "s3-only" if label == BSP_SOURCE else "alive")
         if cat != exp:
             raise SystemExit(f"{n}: computed category {cat!r} != expected "
                              f"{exp!r} — a reader appeared or vanished; "
@@ -376,7 +380,7 @@ for label in list(SOURCES) + list(KNOB_SOURCES) + [BSP_SOURCE]:
 
 # ------------------------------------------------------------------ live sdkconfigs
 cfg_blobs = {}
-for f in ("sdkconfig", "sdkconfig.p4", os.path.join("knob", "sdkconfig")):
+for f in ("sdkconfig", "sdkconfig.p4", os.path.join("sdkconfig.knob")):
     if not os.path.exists(os.path.join(ROOT, f)):
         raise SystemExit(f"{f}: missing — build the targets first; the "
                          f"menu's offer is checked against a real configure")
@@ -417,7 +421,7 @@ for label in list(SOURCES) + list(KNOB_SOURCES) + [BSP_SOURCE]:
            all(cfg_false(b, p) for b in cfg_blobs.values()):
             continue
         raise SystemExit(f"CONFIG_{n}: in no live sdkconfig (neither "
-                         f"sdkconfig, sdkconfig.p4, nor knob/sdkconfig)"
+                         f"sdkconfig, sdkconfig.p4, nor sdkconfig.knob)"
                          f"{' and its gate ' + p + ' is not off everywhere' if p else ''}"
                          f" — the menu claims an entry no configure ever made")
 for n in parsed[BSP_SOURCE]:
@@ -522,9 +526,9 @@ rows = [("S3 AMOLED\n(466, default target)", BLUE,
           ("BOARD", "BOARD"), ("BSP (vendored)", BSP_SOURCE)]),
         ("P4 4C\n(720, sibling build)", VERM,
          [("UI", "UI"), ("CLOCK", "CLOCK"), ("MOON", "MOON"), ("BOARD", "BOARD")]),
-        ("knob\n(sibling PROJECT)", VIOLET,
+        ("knob\n(360, -D KNOB_BOARD=ON)", VIOLET,
          [("UI", "UI"), ("CLOCK", "CLOCK"), ("MOON", "MOON"),
-          ("board shim", "board shim"), ("battery", "battery"),
+          ("BOARD", "BOARD"), ("battery", "battery"),
           ("power", "power"), ("knob time", "knob time"),
           ("ui shim", "ui shim"), ("knob moon", "knob moon")])]
 for y, (label, idc, segs) in enumerate(rows):
@@ -563,7 +567,7 @@ for s in ("top", "right"):
 ax_l.set_ylim(3.05, -0.6)
 notes = [f"+{len(parsed[BSP_SOURCE])} vendored BSP options ride ONLY here;\nthe P4 excludes the BSP by name",
          f"same {proj_n} project entries as the S3;\nno vendored menu at all",
-         f"{shared_n} shared + {knob_native_n} knob-native (six shims) —\nthe SMALLEST screen carries the BIGGEST menu"]
+         f"{shared_n} shared + {knob_native_n} knob-native (five knob_*\ncomponents) — the SMALLEST screen carries the\nBIGGEST menu"]
 for y, (_, _, _) in enumerate(rows):
     ax_l.text(0.5, y + 0.32, notes[y], fontsize=5.8, color=MUTED, va="top")
 

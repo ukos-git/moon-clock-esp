@@ -41,7 +41,7 @@ Every number is PARSED at figure time (the house pattern):
   play_task 4 / wifi_scan 5 / wifi_sync 6144-prio-10   alarm_audio.c:337,
                               wifi.c:551, actions.c:146
   knob_lvgl 10, boot_arm 6, swap 7, moon 5 (core 1, INTERNAL-RAM,
-  "unregistered from TWDT"), enc 5, dial 5, power 4      knob/main/main.c:653
+  "unregistered from TWDT"), enc 5, dial 5, power 4      main/main_knob.c:653
                               /:681, knob_ui.c:1044/:1045,
                               knob_board_encoder.c:88, knob_dial.c:140,
                               knob_power.c:283
@@ -97,15 +97,15 @@ ACTIONS = os.path.join(ROOT, "components", "ui", "actions.c")
 MAIN_CPP = os.path.join(ROOT, "main", "main.cpp")
 BSP_S3 = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                       "esp32_s3_touch_amoled_1_75.c")
-KNOB_MAIN = os.path.join(ROOT, "knob", "main", "main.c")
-KNOB_UI = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")
-KNOB_ENC = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_MAIN = os.path.join(ROOT, "main", "main_knob.c")
+KNOB_UI = os.path.join(ROOT, "components", "knob_ui", "knob_ui.c")
+KNOB_ENC = os.path.join(ROOT, "components", "knob_board",
                         "knob_board_encoder.c")
-KNOB_DIAL = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_dial.c")
-KNOB_POWER = os.path.join(ROOT, "knob", "components", "knob_power",
+KNOB_DIAL = os.path.join(ROOT, "components", "knob_ui", "knob_dial.c")
+KNOB_POWER = os.path.join(ROOT, "components", "knob_power",
                           "knob_power.c")
 SDKH = os.path.join(ROOT, "build", "config", "sdkconfig.h")
-KNOB_SDKH = os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h")
+KNOB_SDKH = os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_sched.png")
 
 INK = "#1c2128"
@@ -307,7 +307,7 @@ def main() -> None:
     klv = task_at(KNOB_MAIN, "knob_lvgl", "knob LVGL task")
     knob_prio = resolve(klv["prio_expr"])
     knob.append(("LVGL\nknob_lvgl_task", knob_prio, klv["stack"], None, BLUE,
-                 "own task", "knob/main/main.c:653"))
+                 "own task", "main/main_knob.c:653"))
     scan = task_at(WIFI, "wifi_scan", "wifi scan")
     clocks.append(("wifi scan\nbounded retry", resolve(scan["prio_expr"]),
                    scan["stack"], None, TEAL, "", "wifi.c:551"))
@@ -340,7 +340,7 @@ def main() -> None:
                  "knob_ui.c:1045"))
     boot = task_at(KNOB_MAIN, "knob_boot", "boot arm")
     knob.append(("boot arm\nknob_boot (one-shot)", resolve(boot["prio_expr"]),
-                 boot["stack"], None, GRAY, "boot-only", "knob/main/main.c:681"))
+                 boot["stack"], None, GRAY, "boot-only", "main/main_knob.c:681"))
     sup = task_at(KNOB_POWER, "knob_power", "power supervisor")
     knob.append(("power supervisor\nknob_power", resolve(sup["prio_expr"]),
                  sup["stack"], None, GRAY, "ladder rungs",

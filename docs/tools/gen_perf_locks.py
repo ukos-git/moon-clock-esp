@@ -28,10 +28,12 @@ The comparisons the ladder makes visible:
     parsed grace window and the straight-away heal (~50 ms) — ~60x
     under the watchdog limit; the pre-pacing ladder burned a de-facto
     ~640 ms per verified flush.
-  * The knob's single mutex takes ONE physical take site but serves
-    SIXTEEN wrapper entries — the owner-recursion depth counter is
-    what the TAP deadlock (bench 2026-11-10) forced, because "a
-    FreeRTOS mutex is NOT recursively takable by its owner".
+  * The knob's single mutex has TWO physical take sites (the knob_ui.c
+    reentrant wrapper, and knob_power.c's shared-UI rungs — manual time
+    entry, 2026-11-25) but serves SIXTEEN wrapper entries — the
+    owner-recursion depth counter is what the TAP deadlock (bench
+    2026-11-10) forced, because "a FreeRTOS mutex is NOT recursively
+    takable by its owner".
   * The presence matrix is the ladder's other half: moon_ui.c is not
     compiled on the knob at all (UI_BOARD_SRCS "" under KNOB_BOARD),
     the drain witness take is compiled out on the P4 (#if
@@ -51,7 +53,7 @@ SystemExits when its fact moved:
       drain body inside #if !defined(CONFIG_BOARD_P4) with its
       audited rule 3; 8 drain call sites; the panel_wdg spawn
       literal; the draw_bitmap wrapper install; the notify pair.
-  knob/components/knob_ui/knob_ui.c — the reentrant wrapper
+  components/knob_ui/knob_ui.c — the reentrant wrapper
       (s_lvgl_holder/s_lvgl_depth, owner bump, non-owner give
       rejected); exactly one xSemaphoreTake in the whole file; the
       16 wrapper entries across four files; six SEQ_CST fences
@@ -67,7 +69,7 @@ SystemExits when its fact moved:
   components/ui/CMakeLists.txt — UI_BOARD_SRCS the four names, and
       the KNOB_BOARD leg that empties it (the knob's x-marks).
   the three generated sdkconfig.h (clocks, P4, knob — the knob's
-      lives OUTSIDE the repo at ~/esp/build/knob) — the trans-queue
+      lives OUTSIDE the repo at ~/ebuild/knob) — the trans-queue
       depth (S3 only, = 1), the NTP timeout (all three), the orbit
       gate (unset everywhere: the "orbit batch" leg is a ghost).
 """
@@ -86,16 +88,18 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SDKH = {
     "S3": os.path.join(ROOT, "build", "config", "sdkconfig.h"),
     "P4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
-    "knob": os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h"),
+    "knob": os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h"),
 }
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
-KNOB_UI = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")
-KNOB_MAIN = os.path.join(ROOT, "knob", "main", "main.c")
-KNOB_DIAL = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_dial.c")
-KNOB_RENDER = os.path.join(ROOT, "knob", "components", "knob_ui",
+KNOB_UI = os.path.join(ROOT, "components", "knob_ui", "knob_ui.c")
+KNOB_MAIN = os.path.join(ROOT, "main", "main_knob.c")
+KNOB_DIAL = os.path.join(ROOT, "components", "knob_ui", "knob_dial.c")
+KNOB_RENDER = os.path.join(ROOT, "components", "knob_ui",
                            "knob_moon_render.c")
-KNOB_MOON = os.path.join(ROOT, "knob", "components", "knob_moon",
+KNOB_MOON = os.path.join(ROOT, "components", "knob_moon",
                          "knob_moon.c")
+KNOB_POWER = os.path.join(ROOT, "components", "knob_power",
+                          "knob_power.c")
 SNTP = os.path.join(ROOT, "components", "clock", "clock_sntp.c")
 CLOCK_C = os.path.join(ROOT, "components", "clock", "clock.c")
 WIFI = os.path.join(ROOT, "components", "wifi", "wifi.c")
@@ -103,10 +107,11 @@ MAIN_CPP = os.path.join(ROOT, "main", "main.cpp")
 BSP = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                    "esp32_s3_touch_amoled_1_75.c")
 UI_CMAKE = os.path.join(ROOT, "components", "ui", "CMakeLists.txt")
-KNOB_SDKCONFIG = os.path.join(ROOT, "knob", "sdkconfig")
+KNOB_SDKCONFIG = os.path.join(ROOT, "sdkconfig.knob")
+# the knob lives in the SAME tree: its files sit under components/ +
+# main/, so no separate knob/ walk root
 APP_TREES = (os.path.join(ROOT, "components"),
-             os.path.join(ROOT, "main"),
-             os.path.join(ROOT, "knob"))
+             os.path.join(ROOT, "main"))
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_locks.png")
 
 INK = "#1c2128"
@@ -232,23 +237,26 @@ def main() -> None:
                       if re.search(r"\bbsp_display_lock\s*\(", ln)]
     if len(create_sites) != 3 or not all(
             (os.path.join("components", "ui", "moon_ui.c") in rel
-             or rel in (os.path.join("knob", "main", "main.c"),))
+             or rel in (os.path.join("main", "main_knob.c"),))
             for rel, _ in create_sites):
         raise SystemExit(f"mutex creation census moved: {create_sites}")
     if take_files != {os.path.join("components", "ui", "moon_ui.c"),
-                      os.path.join("knob", "components", "knob_ui",
-                                   "knob_ui.c")}:
+                      os.path.join("components", "knob_ui",
+                                   "knob_ui.c"),
+                      os.path.join("components", "knob_power",
+                                   "knob_power.c")}:
         raise SystemExit(f"semaphore take/give lives in {sorted(take_files)} "
-                         "— the two-file claim no longer holds")
+                         "— the knob's reentrant wrapper + its power-rung "
+                         "take (manual time entry) are the only knob sites")
     if queue_sites != 0:
         raise SystemExit(f"xQueueCreate: {queue_sites} sites in app code — "
                          "the zero-queue claim no longer holds")
     if evgroup_create != 2 or evgroup_wait != 2:
         raise SystemExit(f"event groups: {evgroup_create} create / "
                          f"{evgroup_wait} wait — expected 2/2")
-    if fence_sites != {os.path.join("knob", "components", "knob_ui",
+    if fence_sites != {os.path.join("components", "knob_ui",
                                     "knob_ui.c"): 5,
-                       os.path.join("knob", "components", "knob_moon",
+                       os.path.join("components", "knob_moon",
                                     "knob_moon.c"): 1}:
         raise SystemExit(f"SEQ_CST fence census moved: {fence_sites}")
     if notify_gives != 1 or notify_takes != 1:
@@ -367,7 +375,8 @@ def main() -> None:
     expect(mu, r"xTaskNotifyGive\(s_event_task\)",
            "the classify worker's wake")
 
-    # ---- the knob: ONE reentrant mux, six fences, zero panel locks ----
+    # ---- the knob: ONE reentrant mux (two take sites), six fences, zero
+    # ---- panel locks ----
     count(ku, r"xSemaphoreTake\(", "knob_ui.c takes", 1)
     count(ku, r"xSemaphoreGive\(", "knob_ui.c gives", 1)
     expect(ku, r"static TaskHandle_t s_lvgl_holder;", "the wrapper holder")
@@ -403,6 +412,18 @@ def main() -> None:
            "main.c's local forwarder")
     count(kd, r"knob_ui_lvgl_lock\(\);", "dial entry", 1)
     count(kr, r"knob_ui_lvgl_lock\(\);", "seam entries (refr + home dim)", 2)
+    # knob_power.c's second physical take: the shared-UI rungs take the
+    # same handle (knob_power_set_lvgl_lock) around the screen load —
+    # manual time entry (2026-11-25) — so the mux now has TWO take
+    # sites, both portMAX_DELAY; the wrapper's depth counter still
+    # serves the 16 entries
+    kp = _read(KNOB_POWER)
+    count(kp, r"xSemaphoreTake\(s_lvgl_mux, portMAX_DELAY\)",
+          "knob_power.c's LVGL-mux take", 1)
+    count(kp, r"xSemaphoreGive\(s_lvgl_mux\)",
+          "knob_power.c's LVGL-mux give", 1)
+    expect(kp, r"void knob_power_set_lvgl_lock\(SemaphoreHandle_t mux\)",
+           "knob_power.c's shared-handle wiring")
     expect(km, r"lvgl_lock\(\);\s*\n\s*uint32_t wait_ms = "
                r"lv_timer_handler\(\);", "the hold across lv_timer_handler")
     expect(km, r"s_lvgl_mux = xSemaphoreCreateMutex\(\)",
@@ -468,7 +489,6 @@ def main() -> None:
     watchdog_ms = 3000                           # asserted against the define
     headroom = watchdog_ms / drain_ms            # ~60x under the pacing build
     old_head = watchdog_ms / old_ladder_ms       # the retired ladder's ratio
-    mux_ratio = 16 / 1                            # entries per physical take
 
     # ---- draw ------------------------------------------------------------
     # rows: (label, forever_sites, bounded_sites, policy_note, color,
@@ -483,10 +503,11 @@ def main() -> None:
          "6x forever + witness 2 s + quiesce 500 ms + probe 3 s", VIOLET,
          {"S3": (9, "n", "9 takes"), "P4": (8, "n", "8 — drain #if'd out"),
           "knob": (None, "x", "")}),
-        ("s_lvgl_mux  (knob main.c)", 1, 0,
-         "1 take, 16 entries — owner re-entry is a depth bump", AMBER,
+        ("s_lvgl_mux  (knob main.c)", 2, 0,
+         "2 take sites (wrapper + power rungs), 16 wrapper entries — "
+         "owner re-entry is a depth bump", AMBER,
          {"S3": (None, "x", ""), "P4": (None, "x", ""),
-          "knob": (1, "n", "1 + 16")}),
+          "knob": (2, "n", "2 + 16")}),
         ("s_sntp_event_group  (clock_sntp.c)", 0, 1,
          "WaitBits bounded by caller: 10 s / 20 s / 2 s", STEEL,
          {"S3": (1, "n", "1 wait"), "P4": (1, "n", "1 wait"),
@@ -556,8 +577,9 @@ def main() -> None:
             f"~{old_ladder_ms} ms: {old_head:.1f}x)",
             fontsize=5.6, color=RED, va="top")
     ax.text(12.2, len(rows) - 0.62,
-            f"the knob's one physical take serves {mux_ratio:.0f} wrapper "
-            "entries;\nthe clocks' app takes the vendored adapter lock once",
+            "the knob's wrapper take serves 16 wrapper\n"
+            "entries (the power rungs take the mux a 2nd time);\n"
+            "the clocks' app takes the vendored adapter lock once",
             fontsize=5.6, color=MUTED, va="top")
     ax.set_title("every synchronization object the app owns — 3 mutexes, "
                  "2 event groups,\nzero queues; the bounded takes are all "
@@ -598,9 +620,9 @@ def main() -> None:
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     fig.savefig(OUT, dpi=200, bbox_inches="tight")
     print(f"wrote {os.path.relpath(OUT, ROOT)}  (rgb 18 forever; panel 6+3 "
-          f"[2000/500/3000 ms]; mux 1 take / 16 entries; fences 6; notify "
-          f"1+1; drain 8 sites [S3-only]; watchdog headroom {headroom:.0f}x; "
-          f"queue sites 0; P4 drain takes 8)")
+          f"[2000/500/3000 ms]; mux 2 takes / 16 wrapper entries; fences 6; "
+          f"notify 1+1; drain 8 sites [S3-only]; watchdog headroom "
+          f"{headroom:.0f}x; queue sites 0; P4 drain takes 8)")
 
 
 if __name__ == "__main__":

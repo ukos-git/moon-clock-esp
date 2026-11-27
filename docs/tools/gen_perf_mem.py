@@ -15,9 +15,10 @@ every runtime watermarks story stays on the device's own heap log lines):
     the LVGL draw buffers (S3: buffer_height 25, require_double_buffer,
       466*25*2 = 23,300 B each — the vendored BSP; P4: three 50-row
       MIPI buffers per the published strip-staging figure)
-    knob: the producer's double buffer 2 x 360^2 x 2  (knob_ui.c:1054;
-      the knob EXCLUDES moon_ui.c — components/ui/CMakeLists.txt drops
-      the four board TUs, so its working set lives in knob_ui instead)
+    knob: the producer's double buffer 2 x 360^2 x 2  (knob_ui.c's
+      s_buf[2]; the knob EXCLUDES moon_ui.c — components/ui/
+      CMakeLists.txt drops the four board TUs, so its working set lives
+      in knob_ui instead)
     hatched overlay: the rotated root's layer while rotated (panel^2 x 2
       from the clib malloc -> PSRAM, actions.c ori_apply_v10's comment)
   Middle — internal-RAM commitments (the resource that caused both
@@ -62,8 +63,9 @@ S3_BSP_C = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                         "esp32_s3_touch_amoled_1_75.c")
 S3_BSP_H = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                         "include", "bsp", "display.h")
-KNOB_UI = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_ui.c")
-KNOB_H = os.path.join(ROOT, "knob", "components", "board", "include", "bsp",
+KNOB_UI = os.path.join(ROOT, "components", "knob_ui", "knob_ui.c")
+# the knob's bsp/ headers live under the shared board component's knob_include
+KNOB_H = os.path.join(ROOT, "components", "board", "knob_include", "bsp",
                       "display.h")
 LVGL_KCONFIG = os.path.join(ROOT, "managed_components", "lvgl__lvgl", "Kconfig")
 MANIFEST = os.path.join(ROOT, "assets", "images", "moon", "out")

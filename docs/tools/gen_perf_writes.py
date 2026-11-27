@@ -46,7 +46,7 @@ Parsed at figure time (a drifted source kills the run):
   sdkconfig state (per board, three independent layers):
     S3  build/config/sdkconfig.h        #define CONFIG_CLOCK_USE_PCF85063A 1
     P4  sdkconfig.defaults.esp32p4      CONFIG_CLOCK_USE_PCF85063A=n
-    knob knob/sdkconfig (fallback: ../build/knob/config/sdkconfig.h
+    knob sdkconfig.knob (fallback: build/knob/config/sdkconfig.h
         absence)  "# CONFIG_CLOCK_USE_PCF85063A is not set"
   components/clock/settings_store.c
     SETTINGS_PATH; the 11 fprintf lines asserted verbatim (2 comment
@@ -66,7 +66,7 @@ Parsed at figure time (a drifted source kills the run):
     is written by the spiffs image at flash time, never at runtime
   partitions CSVs: storage rows (S3/P4 64 K, knob 512 K) and the knob's
     64 K coredump row; S3/P4 carry NO coredump row
-  knob/main/main.c
+  main/main_knob.c
     the legacy-snapshot promotion (one forced clock_nvs_save_epoch)
 
 Left panel: scheduled flash writes PER DAY per board — stacked by leg
@@ -106,14 +106,14 @@ SCHED_H = os.path.join(REPO, "components", "clock", "include",
 WIFI = os.path.join(REPO, "components", "wifi", "wifi.c")
 SCREENS = os.path.join(REPO, "components", "ui", "screens.c")
 MAIN = os.path.join(REPO, "main", "main.cpp")
-KNOB_MAIN = os.path.join(REPO, "knob", "main", "main.c")
+KNOB_MAIN = os.path.join(REPO, "main", "main_knob.c")
 PART_S3 = os.path.join(REPO, "partitions.csv")
 PART_P4 = os.path.join(REPO, "partitions_p4.csv")
-PART_KNOB = os.path.join(REPO, "knob", "partitions.csv")
+PART_KNOB = os.path.join(REPO, "partitions_knob.csv")
 S3_HDR = os.path.join(REPO, "build", "config", "sdkconfig.h")
 P4_DEF = os.path.join(REPO, "sdkconfig.defaults.esp32p4")
-KNOB_CFG = os.path.join(REPO, "knob", "sdkconfig")
-KNOB_HDR = os.path.join(REPO, "..", "build", "knob", "config", "sdkconfig.h")
+KNOB_CFG = os.path.join(REPO, "sdkconfig.knob")
+KNOB_HDR = os.path.join(REPO, "build", "knob", "config", "sdkconfig.h")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_writes.png")
 
 INK = "#1c2128"

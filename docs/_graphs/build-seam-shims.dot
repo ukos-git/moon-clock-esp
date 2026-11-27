@@ -19,10 +19,15 @@
 //   (a fixed upright, no chip) on KNOB_BOARD, versus the QMI8658
 //   (imu_qmi8658.c) on the clocks.
 //   esp_codec_dev — a REAL managed dependency (espressif/esp_codec_dev),
-//   declared in components/knob_board/idf_component.yml and gated on
-//   $CONFIG{BOARD_KNOB} so it stays out of the S3/P4 dependency locks; on
-//   the clocks the vendored BSP exposes the same name. It is unused on
-//   the codec-less knob, so its objects never link.
+//   declared in components/knob_board/idf_component.yml under a
+//   `target == "esp32s3"` rule: the gate must be evaluable in the
+//   component manager's prepare_dependencies step, which runs BEFORE
+//   kconfig (no sdkconfig.json yet, so a $CONFIG{} rule cannot resolve
+//   on a fresh knob build). The clocks keep it OUT of their locks by the
+//   root's EXCLUDE_COMPONENTS knob_board — a target rule alone could not
+//   (the knob IS an esp32s3); on the clocks the vendored BSPs expose the
+//   same name. It is unused on the codec-less knob, so its objects never
+//   link.
 // The sealed version is build-seam.dot.
 // FONTS: 12 pt = the page's 16 px body text at 1:1 — kept inside the
 // content column.
@@ -42,7 +47,7 @@ digraph build_seam_shims {
          fillcolor="#efece4", color="#8a8a8a", fontcolor="#3f3f3f"];
     board [label="components/board on KNOB_\nBOARD — knob_board (SH8601 +\ntouch + dial) + knob_include;\nchoice BOARD incl. BOARD_KNOB"];
     imu [label="components/imu on KNOB_BOARD\n— imu_stub.c: fixed\nupright, no chip"];
-    codec [label="esp_codec_dev — a REAL managed\ndep in knob_board's yml,\ngated on $CONFIG{BOARD_KNOB}"];
+    codec [label="esp_codec_dev — a REAL managed\ndep in knob_board's yml\n(target == esp32s3 rule;\nEXCLUDED from the clock locks)"];
 
     why -> board;
     why -> imu;

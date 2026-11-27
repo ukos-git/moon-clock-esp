@@ -463,7 +463,7 @@ the current phase (budget-bounded), and the card's stored hours play
 only as the fallback source (budget-bounded; the SD bus is touched on
 that leg only). Its pacing constants are the device's own — the
 generator *parses the live* ``components/ui/Kconfig`` and the knob's
-``knob/components/knob_ui/Kconfig`` (plus the baked manifests, the same
+``components/knob_ui/Kconfig`` (plus the baked manifests, the same
 sources the storage ladder re-derives), so figure and Kconfig cannot
 drift apart:
 
@@ -520,7 +520,7 @@ drift apart:
    the bake is its stopper. Solid = live, dotted = dated. The
    generator is ``docs/tools/gen_perf_boot.py`` (the pacing/budget
    constants parsed from ``components/ui/Kconfig`` +
-   ``knob/components/knob_ui/Kconfig``, the frame counts from the baked
+   ``components/knob_ui/Kconfig``, the frame counts from the baked
    ``moon_movie_manifest.json`` files — the same sources the storage
    ladder re-derives — at figure time; the capture windows quoted
    beside it).
@@ -1063,7 +1063,8 @@ strip/compute geometry (``MOON_STRIP_ROWS`` 25/130,
 one-row-per-watermark compute rule (read out of the comments that state
 them), the panel sizes from the
 vendored BSP header / the generated
-``CONFIG_BSP_LCD_TYPE_720_720_4_INCH`` / the knob shim, the
+``CONFIG_BSP_LCD_TYPE_720_720_4_INCH`` / the knob's
+``components/knob_board/include/knob_board.h``, the
 ``max_transfer_sz`` formulas parsed out of the vendored sources (the
 bus generator's strip-equality lesson re-applied: the S3's
 ``max_transfer_sz`` rows must equal its ``buffer_height``), the knob's
@@ -1252,8 +1253,8 @@ parsers die when a source drifts.
   ``clock_interrupt.c`` (:124 to the ``#else`` at :200) — the S3's
   built ``sdkconfig.h`` defines the RTC, so **the S3's daily NVS bill
   is zero, compiled out**, while the P4 (``sdkconfig.defaults.esp32p4``
-  pins ``=n``) and the knob (``knob/sdkconfig`` leaves it unset) each
-  pay the 96.
+  pins ``=n``) and the knob (``sdkconfig.defaults.knob`` pins ``=n`` —
+  no PCF85063A on that board) each pay the 96.
 - **The knob's day carries no scheduled write but its clock.**
   ``moon_tfcache.c`` is a ``UI_BOARD_SRCS`` member the ``KNOB_BOARD``
   branch empties (``components/ui/CMakeLists.txt:31-33``) — the TF legs
@@ -1270,7 +1271,7 @@ parsers die when a source drifts.
   (``main.cpp:275``); ``wifi_credentials.txt`` only by the
   provisioning wheel's commit (``screens.c:2407``, its single caller,
   87 B with a sample SSID). The knob's 64 K coredump partition
-  (``knob/partitions.csv:18``) sees its first bytes on a crash — the
+  (``partitions_knob.csv:39``) sees its first bytes on a crash — the
   coredump row the storage ladder drew italic *no bytes until a crash*
   is a write target whose schedule is a flat zero.
 
@@ -1330,38 +1331,42 @@ The build census (how many parts make each image, and how many are silent)
 **The short version.** The binary chronology counts bytes and the
 storage ladder counts bytes lying still; the seam sketch
 (:doc:`the build system <../reference/build-system>`,
-``build-seam.dot``) draws the *shape* of the three projects. Nobody
-had yet counted the **parts** that shape prices — how many components
-each board's image is assembled from, and how many of them compile to
-nothing. Three panels, every number parsed at figure time from the
-directory listings, the two ``CMakeLists.txt`` files, the three
-dependency locks, the font tiers and the two clock build trees:
+``build-seam.dot``) draws the *shape* of the seam — one project,
+three builds. Nobody had yet counted the **parts** that shape
+prices — how many components each board's image is assembled from,
+and how many of them compile to nothing. Three panels, every number
+parsed at figure time from the one component inventory, the root
+``CMakeLists.txt`` (its three pre-``project()`` blocks), the three
+dependency locks, the font tiers and the three build trees:
 **left**, one stacked bar per board of the components under project
 control (the same steel **shared-4** — ``clock``/``wifi``/``moon``/``ui``
 — under all three bars, then the app, the board-side pair, the
-vendored BSP, the knob-native six, the shims, and the registry set
-each lock resolves: 29 / 31 / 20 parts; the IDF core set is
-target-specific and deliberately not counted); **middle**, the seam's
-prices in lines of code — the four ``UI_BOARD_SRCS`` translations the
-knob build never compiles (3,219 + 815 + 792 + 352 = **5,178**),
-against the knob's three answers to the board-specific names
-(16 + 28 + **0** lines); **right**, who names what — the
-``board``/``imu``/``esp_codec_dev`` matrix read out of the four
-shared ``REQUIRES`` literals (clock names ``board``; ui names all
-three; wifi and moon name none), plus the ``FONT_DIR`` branch's one
-tier per build. The family's discipline holds: the parsers assert the
-``EXCLUDE_COMPONENTS`` literal predates ``project()``, that
-``EXTRA_COMPONENT_DIRS`` lists exactly the four dirs and never the
-parent, that the KNOB branch still empties the four TUs, that the
-three locks still disagree per target (hosted never on S3, the co5300
-BSP never on P4, the knob's six name-for-name against
-``knob/managed_components/`` on disk), and that the codec shim is
-still *a CMakeLists file and nothing else* — the figure is the
-docs-side twin of the seam's rules and refuses to draw when one is
-removed.
+vendored BSP, the knob-native six, and the registry set each lock
+resolves: 29 / 31 / 20 parts; the IDF core set is target-specific
+and deliberately not counted); **middle**, the seam's prices in
+lines of code — the four ``UI_BOARD_SRCS`` translations the knob
+build never compiles (3,614 + 818 + 792 + 370 = **5,594**), against
+the knob's answers to the board-specific names (the clock's
+38-line ``board_display.c``, the knob's 522-line ``knob_board``
+bring-up, the 28-line ``imu_stub.c``, and **0** in-tree lines for
+``esp_codec_dev`` — a real managed dependency); **right**, who
+names what — the ``board``/``imu``/``esp_codec_dev`` matrix read
+out of the four shared ``REQUIRES`` literals (clock names
+``board``; ui names all three; wifi and moon name none), plus the
+``FONT_DIR`` branch's one tier per build. The family's discipline
+holds: the parsers assert the three ``EXCLUDE_COMPONENTS`` blocks
+and both ``DEPENDENCIES_LOCK`` pins and the ``KNOB_BOARD``
+promotion all predate ``project()``, that the KNOB branch still
+empties the four TUs, that the three locks still disagree per build
+(hosted never on S3, the co5300 BSP never on P4, the knob's seven
+name-for-name, sh8601 never on a clock lock), and that the on-disk
+``managed_components/`` holds the CI union (the S3 set plus the
+P4-only ``gt911`` and the knob-only ``sh8601``) — the figure is
+the docs-side twin of the seam's rules and refuses to draw when
+one is removed.
 
 .. figure:: ../_static/figs/perf_census.png
-   :alt: three panels — per-board stacked bars of components under project control (S3 29 with its in-tree BSP, P4 31 with the BSP excluded and 24 managed, knob 20 with six native components and three shims), the four knob-dropped UI translations by LOC against the shims' 44 lines and the zero-source codec shim, and the REQUIRES naming matrix for board/imu/esp_codec_dev with the one-tier-per-build FONT_DIR note
+   :alt: three panels — per-board stacked bars of components under project control (S3 29 with its in-tree BSP, P4 31 with the BSP and knob_board excluded and 24 managed, knob 20 with six knob_* components and the shared board/imu answering with their KNOB_BOARD rows), the four knob-dropped UI translations by LOC against the 588 answer lines and the zero-in-tree-lines esp_codec_dev managed dep, and the REQUIRES naming matrix for board/imu/esp_codec_dev with the one-tier-per-build FONT_DIR note
    :figclass: align-center
 
    **Left:** one bar per board, segments by family (legend below).
@@ -1369,54 +1374,70 @@ removed.
    fact is that the seam only ever moves the *ends*. The S3 carries
    the vendored AMOLED BSP in-tree (its managed name shadowed, the
    25-row patch living there); the P4's bar is grown by
-   ``EXCLUDE_COMPONENTS`` instead — one name removed (:20), and the
-   XC BSP + ``esp_hosted`` + ``esp_wifi_remote`` return as managed
-   entries (the bar grows 21 → 24); the knob adds neither side — no
-   ``board``, no ``imu``, no BSP — and answers their names with three
-   silent shims. **Middle:** amber = a TU the knob build never
-   compiles (the sum 5,178 is in the axis label); each bar is
-   annotated with what answers it on the knob side. The
-   ``esp_codec_dev`` row is the honest *no such leg* drawn as a
-   **zero** bar (the bus ladder's precedent): the shim is one
-   ``CMakeLists.txt`` and nothing else, so the name exists, the
-   early pass is satisfied, and zero lines compile. **Right:** filled
-   = the component's ``REQUIRES`` literal names that register — four
-   hits total, exactly the four answers the three projects must each
-   provide; below it, the three font tiers (7 ``.c`` files each,
-   asserted the *same file names* across all three) of which
-   ``FONT_DIR`` compiles exactly one per build.
+   ``EXCLUDE_COMPONENTS`` instead — the vendored BSP *and*
+   ``knob_board`` removed, and the XC BSP + ``esp_hosted`` +
+   ``esp_wifi_remote`` return as managed entries (the bar grows 21
+   → 24); the knob keeps the *same* ``board`` and ``imu`` components
+   — they compile their ``KNOB_BOARD`` rows (``knob_board`` +
+   ``knob_include``, ``imu_stub.c``) — while the vendored S3 BSP is
+   excluded from the tree. **Middle:** amber = a TU the knob build
+   never compiles (the sum 5,594 is in the axis label); each bar is
+   annotated with what answers it. The ``esp_codec_dev`` row is the
+   honest *no such leg* drawn as a **zero** bar (the bus ladder's
+   precedent): it is a real managed dependency in ``knob_board``'s
+   manifest (under a ``target == "esp32s3"`` rule — the component
+   manager's ``prepare_dependencies`` step runs before kconfig, so a
+   ``$CONFIG`` rule could not resolve there), so the name exists,
+   the early pass is satisfied, and zero in-tree lines compile.
+   **Right:** filled = the component's ``REQUIRES`` literal names
+   that register — four hits total, exactly the four answers the
+   shared tree must each provide; below it, the three font tiers
+   (7 ``.c`` files each, asserted the *same file names* across all
+   three) of which ``FONT_DIR`` compiles exactly one per build.
 
 Three counting facts the byte view cannot show:
 
-- **The knob answers three names it never compiles with 44 lines and
-  one CMakeLists — while 5,178 lines drop out on the other side of
-  the seam.** The shim side is 16 (board) + 28 (imu) + 0 (codec);
-  the drop side is the four ``UI_BOARD_SRCS`` files, each of which
-  the knob re-answers *elsewhere* (``knob_moon_render.c`` for the
-  whole 3,219-line UI, a ``"Silent"`` stub for the audio, nothing at
-  all for the TF cache and the demo — no SD socket, no demos). The
-  seam costs 44 lines to keep and re-prices 5,178 into new files.
-- **The P4's single excluded name is repaid by a managed set grown
-  to 24.** The vendored S3 BSP is one ``EXCLUDE_COMPONENTS`` entry
-  (:20), and what arrives in its place is a whole radio stack: the
+- **The knob drops 5,594 lines and re-prices them with 588 — the
+  answers live in the shared tree itself.** The drop side is the
+  four ``UI_BOARD_SRCS`` files, each of which the knob re-answers
+  *elsewhere* (``knob_moon_render.c`` for the whole 3,614-line UI,
+  a ``"Silent"`` stub for the audio, nothing at all for the TF cache
+  and the demo — no SD socket, no demos). The answer side is the
+  38-line shared board surface (``board_display.c`` — one surface,
+  three boards, its ``KNOB_BOARD`` row dispatching to
+  ``knob_board`` + ``knob_include``), the knob's own 522-line
+  bring-up (``knob_board``:
+  SH8601 display + touch + dial), the 28-line ``imu_stub.c``, and a
+  managed dependency (``esp_codec_dev``, zero in-tree lines) — all
+  asserted name-for-name at figure time.
+- **The P4's excluded names are repaid by a managed set grown to
+  24.** The vendored S3 BSP *and* ``knob_board`` are
+  ``EXCLUDE_COMPONENTS`` entries — the knob's exclusion is what
+  keeps its knob-only managed deps (``esp_lcd_sh8601``,
+  ``esp_codec_dev``) out of the P4 lock, since the knob is an
+  esp32s3 target and a target rule alone could not discriminate —
+  and what arrives in the BSP's place is a whole radio stack: the
   XC BSP plus ``esp_hosted`` plus ``esp_wifi_remote`` (the remote
-  C6) are lock entries, not tree entries — the target-gating is
-  asserted both ways (hosted never on S3, co5300 never on P4).
-- **The clock's whole named "board" is 28 lines, and the purest
+  C6) are lock entries, not tree entries. The target-gating is
+  asserted both ways (hosted never on S3, co5300 never on P4,
+  sh8601 never on a clock lock).
+- **The clock's whole named "board" is 38 lines, and the purest
   price of the early pass compiles 0.** The name ``board`` that
   ``clock`` and ``ui`` list in ``REQUIRES`` is answered by a
-  28-line forwarding shim over the BSP; ``esp_codec_dev`` is the
-  limiting case — a component that must *exist* for the requirements
+  38-line component over the BSP (its ``KNOB_BOARD`` row dispatches
+  to ``knob_board`` + ``knob_include``); ``esp_codec_dev`` is the
+  limiting case — a name that must *exist* for the requirements
   pass (build.cmake sees neither project variables nor ``CONFIG_``
-  symbols) and exists as a build file only. A name, not code, is the
-  seam's smallest currency.
+  symbols) and exists, on the knob, as a managed dependency whose
+  objects never link on the codec-less board. A name, not code, is
+  the seam's smallest currency.
 
 The census is the seam sketch's ledger twin: ``build-seam.dot``
 (:doc:`the build system <../reference/build-system>`) says *where*
 the names resolve, ``build-flash.dot``
 (:doc:`the boards <../devices/index>`) says *what the command
 carries*, and this counts *how many parts* each image assembles from
-— with the shims as the only segments that compile to silence.
+— with the knob's answers the only segments that compile to silence.
 
 .. _sharing-ladder-perf:
 
@@ -1450,17 +1471,18 @@ tracked in git), and that the font tiers
 are 7 files each with identical names.
 
 .. figure:: ../_static/figs/perf_share.png
-   :alt: two panels — left, 22 horizontal bars of "images per part" against a dotted line at twelve (the seventeen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, knob-native fifteen at 1, the three throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 49, P4 49, knob 59, each sim 20, each bench 20, each uisim 32 with a plus-412-vendored annotation
+   :alt: two panels — left, 26 horizontal bars of "images per part" against a dotted line at twelve (the seventeen portable-core TUs at 12/12, vendored LVGL hatched at 6, screens/styles/images at 6, the host backend at 9, per-target generated asset tables at 3, clock 11 TUs at 3, board_display.c at 3, the clocks' imu_qmi8658.c at 2, the knob's imu_stub.c at 1, the four UI_BOARD_SRCS at 2, one font tier of 7 at 2, the knob's main + native 12 at 1, the four throwaway probes dashed at 0); right, "parts per image" — twelve bars: S3 51, P4 51, knob 59, each sim 20, each bench 20, each uisim 32 with a plus-412-vendored annotation
    :figclass: align-center
 
    **Left:** the file side — who compiles this, with the "every
    image" witness line at 12. Blue is the portable core (the
    founding invariant, drawn as the only bar that reaches the line);
    steel the shared UI; slate the clock-side device TUs; amber the
-   four the knob drops; violet the knob's own fifteen; teal the host
-   tools' own files; the grey hatched row is the cited 412-TU LVGL
-   walk (``drivers/`` excluded, counted from the uisim's own find);
-   the dashed ghost at zero is the throwaway trio. **Right:** the
+   four the knob drops; violet the knob's own 13 (the board-selected
+   ``main_knob.c`` + the twelve knob_* TUs); teal the host tools'
+   own files; the grey hatched row is the cited 412-TU LVGL walk
+   (``drivers/`` excluded, counted from the uisim's own find);
+   the dashed ghost at zero is the throwaway quartet. **Right:** the
    image side — the same rows summed per link image, never
    hand-summed: three firmwares, three gates, three benches, three
    screenshot rigs.
@@ -1468,7 +1490,7 @@ are 7 files each with identical names.
 Three counting facts the census's part-view cannot show:
 
 - **The core is the family's only everywhere-code, and the figure is
-  its guard.** 17 of the ~49 repo-owned TUs in a device image belong
+  its guard.** 17 of the 51 repo-owned TUs in a device image belong
   to ``components/moon/core`` — six math files and eleven public-
   domain ERFA files — and they are the ONLY repo-owned files compiled
   into all twelve images. The parser reads the core list out of three
@@ -1477,12 +1499,12 @@ Three counting facts the census's part-view cannot show:
   three are name-for-name equal, so the "shared verbatim" promise the
   project instructions make is now also a *figure-time* promise.
 - **The knob builds the largest repo-owned image while re-using the
-  least of itself.** 59 TUs beat the clocks' 49 — the shared clock's
-  whole 11-TU body arrives through ``EXTRA_COMPONENT_DIRS``, plus the
-  knob's fifteen own files, plus the inherited core and UI. Yet the
-  violet row tops out at **1**: nothing knob-owned compiles twice,
-  and the four ``UI_BOARD_SRCS`` the census priced at 5,178 lines top
-  out at **2** images (S3 + P4). It is the configuration ladder's
+  least of itself.** 59 TUs beat the clocks' 51 — the shared clock's
+  whole 11-TU body compiles from the very ``components/`` tree, plus
+  the knob's 13 own files, plus the inherited core and UI. Yet the
+  violet rows top out at **1**: nothing knob-owned compiles twice,
+  and the four ``UI_BOARD_SRCS`` the census priced at 5,594 lines
+  top out at **2** images (S3 + P4). It is the configuration ladder's
   finding mirrored: the smallest screen carries the biggest menu *and*
   the biggest one-shot image.
 - **Screenshots are the most expensive host artefact — and the dead
@@ -1503,7 +1525,7 @@ ledger: :ref:`the surface in one picture <c-api-surface>` names who
 *calls* each core entry; this prices how many times each source is
 *compiled*. See also :doc:`the build system <../reference/build-system>`
 for where the lists live and :doc:`the knob display
-<../implementation/knob-display>` for the fifteen one-shot files.
+<../implementation/knob-display>` for the 13 one-shot files.
 
 .. _config-ladder-perf:
 
@@ -1513,20 +1535,24 @@ The configuration ladder (how many choices each layer hands over)
 **The short version.** The build census counted the *parts* each
 image assembles from and which of them compile to silence; it never
 priced the layer above the parts — the **options**. This ladder counts
-the knobs: every ``config`` entry the three projects' ``menuconfig``
-menus define (left), who actually reads each one (middle — the
-census's silence, re-counted for the menu), and the whole layer the
+the knobs: every ``config`` entry the one tree's ``menuconfig``
+menus define across the three builds (left), who actually reads each
+one (middle — the census's silence, re-counted for the menu), and
+the whole layer the
 *user* owns: the nine keys on ``settings.txt`` (right). A
 configuration option is the product's cheapest component and its
 most numerous — and it can be silent four different ways.
 
-**Left: what each menu hands over.** The shared 52 (UI 42 + CLOCK 9 +
-MOON 1, every name parsed from the five first-party Kconfigs) sit
-under every bar; on top of them the S3 carries the clock's BOARD menu
-(5) *and* the vendored AMOLED BSP's 12 options (hatched — upstream's
-file, counted not curated) for **69**; the P4 excludes that BSP by
-name and lands at **57**; the knob answers with 52 shared + 33
-knob-native across its six shim menus for **85**. The counting is
+**Left: what each menu hands over.** The shared 58 (UI 42 + CLOCK 9
++ MOON 1 + BOARD 6, every name parsed from the five first-party
+Kconfigs) sit under every bar — the knob no longer re-declares the
+board ``choice``: the shared ``components/board`` menu carries
+``BOARD_S3`` / ``BOARD_KNOB`` / ``BOARD_P4`` plus the three
+``esp_hosted`` registry guards. On top of them the S3 carries the
+vendored AMOLED BSP's 12 options (hatched — upstream's file, counted
+not curated) for **70**; the P4 excludes that BSP by name and lands
+at **58**; the knob answers with 58 shared + 30 knob-native across
+its five ``knob_*`` component menus for **88**. The counting is
 per-file and name-for-name: the generator SystemExits if a single
 option is added, renamed or removed in any of the ten Kconfig files.
 
@@ -1539,18 +1565,22 @@ dark-grey hatch a key read by no C at all (the three ``int``
 esp_hosted manifest guards, whose only consumer is the registry's
 if-clause parser), pale-grey dots read by nobody anywhere. The
 ledger's numbers: **28 of the 42 UI entries and 1 of the 9 CLOCK
-entries compile to silence on the knob** — 29 of the 52 the knob
+entries compile to silence on the knob** — 29 of the 58 the knob
 inherits are clock-private. Five entries are dead letters
 repo-wide: the two ``CLOCK_TIME_FORMAT_*`` (the 12/24 h choice is
 runtime — no C ever reads them), ``UI_IMU_ROLL_OFFSET_DEG`` (the
 obsolete spin-era rest angle, still stamped ``=0`` into all three
-live sdkconfigs), ``BSP_I2C_FAST_MODE``, and the knob shim's two
-*unselected legs* of ``choice BOARD`` (the choice must carry all
-three members; only ``BOARD_KNOB`` has a knob-side reader). Two
-further entries never even reach a menu: ``UI_DEMO_FULL_TOUR`` is
-hidden behind ``depends on UI_DEMO_MODE`` — off in all three
-configures — and the generator only accepts that absence when it can
-prove the gate off everywhere. Only **twelve** UI entries are read
+live sdkconfigs), ``BSP_I2C_FAST_MODE`` (the vendored BSP's I2C-speed
+leg, read by no C outside the BSP it lives in), and
+``UI_DEMO_FULL_TOUR``. Two entries never even reach a menu:
+``UI_DEMO_FULL_TOUR`` is hidden behind ``depends on UI_DEMO_MODE``
+and the knob's ``KNOB_DEMO_PHASE_SEC`` behind
+``depends on KNOB_DEMO_MODE`` — both parents off in all three
+configures, so neither is stamped into a live ``sdkconfig`` — and
+the generator only accepts that absence when it can prove the gate
+off everywhere. The knob's is not a dead letter for being absent:
+``knob_moon`` honours ``KNOB_DEMO_PHASE_SEC``, so it stays blue in
+the ledger. Only **twelve** UI entries are read
 by shared code — and one of them is the most surprising:
 ``UI_SCREEN_SWITCH_FADE``, which the knob's own ``knob_moon_render.c``
 gates its fade-to-black on.
@@ -1575,15 +1605,18 @@ dots are grey because the ``#ifndef`` beside them names a macro no
 Kconfig defines anymore.
 
 .. figure:: ../_static/figs/perf_config.png
-   :alt: three panels — stacked menuconfig-entry bars per board (S3 69 with the hatched vendored BSP, P4 57, knob 85 with its six shim menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a nine-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
+   :alt: three panels — stacked menuconfig-entry bars per board (S3 70 with the hatched vendored BSP, P4 58, knob 88 with its five knob_* menus), a per-menu ledger of who reads each entry (alive, amber knob-silent, configure-only, registry-only, vendored, dead letters), and a nine-key matrix of settings.txt (writer, seed origin, range, still-read) with the two ghost keys drawn dashed-grey
    :figclass: align-center
 
    **Left:** one bar per board (legend below the figure); the shared
-   52 under every bar, the S3's hatched BSP tail drawn only there,
-   the knob's six violet shim segments at the end. **Middle:** one
-   row per menu, coloured by who reads it — the amber 28 is the UI
-   menu's knob-inert majority, the pale 2s the dead letters, the
-   dark-grey hatch the three registry guard keys. **Right:** a
+   58 under every bar (the board ``choice`` now lives in the shared
+   menu, so there is no knob-side re-declaration), the S3's hatched
+   BSP tail drawn only there, the knob's five violet ``knob_*``
+   segments at the end. **Middle:** one row per menu, coloured by
+   who reads it — the amber 29 (28 of them in the UI menu) is the
+   knob-inert majority, the hatched pale rows the five dead
+   letters, the dark-grey ``///`` hatch the three registry guard
+   keys. **Right:** a
    filled dot = the column's claim holds; the two ghost rows hang
    grey with writer and reader open. Every number is parsed at
    figure time — the generator refuses to draw when a Kconfig entry
@@ -1598,16 +1631,18 @@ Kconfig defines anymore.
 Three counting facts no other ladder can show:
 
 - **The menu is inverted against the product.** The smallest screen
-  (the knob, 360 px) carries the *biggest* menu — 85 entries against
-  the S3's 69 and the P4's 57 — because the seam forces it to
-  re-declare the board ``choice`` and grow six shim menus of its own,
-  while **29 of the 52 entries it inherits are clock-private**: a
-  third of the knob's menu compiles to silence in the knob build.
+  (the knob, 360 px) carries the *biggest* menu — 88 entries against
+  the S3's 70 and the P4's 58 — because it grows thirty knob-native
+  entries across its five ``knob_*`` component menus, while
+  **29 of the 58 shared entries it inherits are clock-private**
+  (amber): a third of the knob's menu compiles to silence in the
+  knob build.
 - **Silence has four prices, not one.** 29 entries are read only by
-  the *other* build's files (amber); 7 are dead letters no file
+  the *other* build's files (amber); 5 are dead letters no file
   anywhere reads; 2 are configure-time only (a CMake guard is their
-  sole reader); 3 are read by no C at all and exist to answer the
-  esp_hosted registry's ``if:`` clauses. A Kconfig entry can be
+  sole reader — the ``MOON_ALBEDO_W`` fit check, the ``BOARD_S3``
+  mismatch referee); 3 are read by no C at all and exist to answer
+  the esp_hosted registry's ``if:`` clauses. A Kconfig entry can be
   simultaneously documented, configured, stamped into ``sdkconfig``
   — and inert four different ways.
 - **The user's configurability is nine keys wide — and two of them
@@ -1622,7 +1657,7 @@ the ten Kconfig files, the ``kconfig-*.inc`` fragments (including the
 ``KNOB_BATTERY_DIV_NUM`` / ``_DEN`` shared-prefix idiom), the
 ``UI_BOARD_SRCS`` set out of ``components/ui/CMakeLists.txt``, the
 ``CONFIG_*`` tokens of every ``.c``/``.h``/``.cpp`` under
-``components/``, ``main/`` and ``knob/``, the seeds, clamps and
+``components/`` and ``main/``, the seeds, clamps and
 ghosts of ``settings_store.c``, the five writer sites in
 ``screens.c`` (their line numbers quoted live), and the three live ``sdkconfig`` files. The
 configuration sibling of :ref:`the build census <census-ladder-perf>`
@@ -2258,7 +2293,8 @@ out of the live sources** — and its parsers are the gate, SystemExit-
 failing when a guard appears, vanishes, or changes its mind:
 
 * exactly **3** mutex-creation sites (``moon_ui.c:2880-2881`` and the
-  knob's ``main.c:465``) and ``xQueueCreate`` **zero** in app code —
+  knob's ``main_knob.c:465``) and ``xQueueCreate`` **zero** in app
+  code —
   the zero is an assertion, not an absence of evidence;
 * all **18** ``s_rgb_mtx`` takes are ``portMAX_DELAY``, and the
   ``s_panel_mtx`` take-policy **multiset** matches exactly
@@ -2278,14 +2314,16 @@ failing when a guard appears, vanishes, or changes its mind:
   ``"panel_wdg", 4096, NULL, 3, &s_panel_watchdog, 0``, the
   ``xSemaphoreGetMutexHolder`` holder-naming, the "PANEL IO STUCK"
   restart line, and the 2000/3000 ms defines;
-* the knob's mux is pinned to **one** ``xSemaphoreTake`` in
-  ``knob_ui.c`` behind the holder+depth wrapper ("NOT recursively
-  takable", the non-owner guard), with its **16 entries** recounted
-  across four files (8 internal — the boot movie added the movie
-  arm's stage — knob main.c's five: the park loop, the
+* the knob's mux is pinned to **two** take sites — the
+  ``knob_ui.c`` wrapper take behind the holder+depth guard ("NOT
+  recursively takable", the non-owner guard) and the shared-UI
+  rungs' take in ``knob_power.c`` (the manual-time-entry commit's
+  ``knob_power_set_lvgl_lock``) — with the wrapper's **16 entries**
+  recounted across four files (8 internal — the boot movie added the
+  movie arm's stage — knob main_knob.c's five: the park loop, the
   transient-WiFi arm, the two modem-sleep swaps, the alarm wake —
-  the dial, the two seam legs), and its seam is asserted **mutex-free** —
-  the ``moon_ui_init`` shim carries no lock;
+  the dial, the two seam legs), and its seam is asserted
+  **mutex-free** — the ``moon_ui_init`` seam carries no lock;
 * the two event groups are pinned to their waits (``WaitBits`` bounded
   ``pdMS_TO_TICKS(timeout_ms)`` with callers passing 10000 from
   ``clock.c`` + ``actions.c``, 20000/2000 on the knob; 8000 ms join);

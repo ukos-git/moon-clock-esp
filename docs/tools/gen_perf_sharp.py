@@ -37,11 +37,11 @@ pattern); nothing is measured, nothing is invented:
       components/ui/moon_ui.c:174-178/:185 (the disk radius on the
       clocks: R = MOON_PX/2 = 325/200)
   knob_ui_set_disk_geom(150.0f, KNOB_LCD_H_RES / 2)
-      knob/components/knob_ui/knob_moon_render.c:179 — the shared-home
+      components/knob_ui/knob_moon_render.c:179 — the shared-home
       disk radius r = 150 at cy = 180 (parsed, not recalled)
   #define BSP_LCD_H_RES (466)            components/esp32_s3_touch_amoled_1_75/include/bsp/display.h:20
   CONFIG_BSP_LCD_TYPE_720_720_4_INCH     build/p4/config/sdkconfig.h (P4 panel 720)
-  #define KNOB_LCD_H_RES 360             knob/components/knob_board/include/knob_board.h:22
+  #define KNOB_LCD_H_RES 360             components/knob_board/include/knob_board.h:22
   NN rounding shape asserts              components/moon/core/moon_bake.c:457/:460
   "is >= 1 texel per screen px on the disk ON AVERAGE" + "pick error is
       half a texel" shapes   components/moon/core/moon_bake.c header comment
@@ -76,8 +76,8 @@ UI_C = os.path.join(ROOT, "components", "ui", "moon_ui.c")
 BSP_DISPLAY_H = os.path.join(ROOT, "components", "esp32_s3_touch_amoled_1_75",
                              "include", "bsp", "display.h")
 P4_CFG_H = os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h")
-KNOB_UI_C = os.path.join(ROOT, "knob", "components", "knob_ui", "knob_moon_render.c")
-KNOB_BOARD_H = os.path.join(ROOT, "knob", "components", "knob_board", "include",
+KNOB_UI_C = os.path.join(ROOT, "components", "knob_ui", "knob_moon_render.c")
+KNOB_BOARD_H = os.path.join(ROOT, "components", "knob_board", "include",
                             "knob_board.h")
 
 INK = "#1c2128"

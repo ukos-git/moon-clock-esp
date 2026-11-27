@@ -23,7 +23,7 @@ Parsed at figure time (SystemExit-failing, the house pattern — figure
 and sources cannot drift apart):
 
   moon_movie rows            partitions.csv, partitions_p4.csv,
-                             knob/partitions.csv (K or hex size)
+                             partitions_knob.csv (K or hex size)
   the blobs + manifests      assets/images/moon/out/{s3,p4,knob}/
                              moon_movie.bin (on-disk size — asserted
                              EQUAL to the manifest's total_bytes, the
@@ -60,7 +60,7 @@ OUT = os.path.join(HERE, "..", "_static", "figs", "perf_movie.png")
 
 TARGETS = ("s3", "p4", "knob")
 CSV = {"s3": "partitions.csv", "p4": "partitions_p4.csv",
-       "knob": "knob/partitions.csv"}
+       "knob": "partitions_knob.csv"}
 OUT_DIR = {"s3": "s3", "p4": "p4", "knob": "knob"}
 
 INK = "#1c2128"

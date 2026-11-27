@@ -1,38 +1,49 @@
 #!/usr/bin/env python3
 """Generate the build census for docs/verification/performance.rst — the
 counting axis next to perf_storage (how many BYTES lie in the flash): **how
-many PARTS make each board's image, and how many of them are silent**. The
-binary page counts bytes, the storage ladder counts bytes lying still, and
-build-seam.dot draws the SHAPE of the three-projects seam — nobody has yet
-counted the parts that shape prices: the four shared components every board
-carries, the board-side pair the knob never adds, the shims that answer its
-names, the registry set each target resolves, and the 5,178 lines the knob
-build drops instead of compiling.
+many PARTS make each board's image, and how many of them are silent**. One
+project, three builds: the S3 clock (default target), the P4 (sibling
+target) and the knob (a third build of the SAME tree on the esp32s3 target,
+selected by -D KNOB_BOARD=ON). The binary page counts bytes, the storage
+ladder counts bytes lying still, and build-seam.dot draws the SHAPE of the
+seam — this figure counts the parts: the four shared components every board
+compiles, the board-side pair the shared board/imu components answer with
+their KNOB_BOARD rows on the knob, the registry set each build resolves,
+and the 5,594 lines the knob build drops instead of compiling.
 
 Nothing is recalled. Every number is parsed at figure time with
 SystemExit-failing parsers (the house pattern), and the parsers double as
 docs-side twins of the build guards — the figure refuses to draw when the
 seam's rules are removed:
 
-  components/ + knob/components/ dirs    the first-party inventory, asserted
-      against the exact expected sets (clock 7, knob 9) — the census is a
-      directory listing, not a memory
-  EXCLUDE_COMPONENTS (root :20)          must literally name the vendored S3
-      BSP and sit BEFORE project() (:31) — assert the exclusion the P4 page
-      states; build/p4/esp-idf must NOT contain the dir, and build/esp-idf
-      must contain all eight clock-side first-party components
-  DEPENDENCIES_LOCK before project()     both per-target pins (root :27-28,
-      knob :47) — the figure dies if the lock split is undone
-  EXTRA_COMPONENT_DIRS (knob :36-41)     four entries, each an existing
-      component dir named clock/wifi/moon/ui; the parent components/ is
-      asserted absent from the list (IDF 5.5.1 excludes by NAME only — the
-      CLAUDE.md invariant)
-  KNOB_BOARD before project(knob)        the PROJECT-variable-before-project
-      rule (knob :23 before :49)
+  components/ dirs                       the single first-party inventory,
+      asserted against the exact expected set (13: the clock's seven —
+      board/clock/esp32_s3_touch_amoled_1_75/imu/moon/ui/wifi — plus the
+      knob's six knob_* components) — the census is a directory listing,
+      not a memory
+  the root CMakeLists, three ways         EXCLUDE_COMPONENTS before
+      project(moon-phase): the P4 block names the vendored S3 BSP AND
+      knob_board, the S3-clock block names knob_board (its knob-only managed
+      deps must stay out of the clock locks — a target rule alone cannot,
+      the knob IS an esp32s3), the knob block names the vendored S3 BSP;
+      both DEPENDENCIES_LOCK pins (p4 + knob) AND idf_build_set_property
+      (KNOB_BOARD ON) must predate project() — the figure dies if the lock
+      split or the early-pass promotion is undone
+  build trees                            build/esp-idf (S3) + build/p4
+      (P4) + build/knob (knob) must exist; the vendored S3 BSP must NOT
+      link on P4 or knob, and every first-party component must link on all
+      three (the knob's board/imu compile their KNOB_BOARD rows)
+  the knob's answers, three ways         board: components/board's
+      KNOB_BOARD branch dispatches to knob_board + knob_include; imu:
+      imu_stub.c (the soft-fail posture); esp_codec_dev: a REAL managed
+      dep in knob_board's idf_component.yml under a target == esp32s3 rule
+      (prepare_dependencies runs before kconfig, so no $CONFIG rule could
+      resolve) — the clocks keep it out of their locks by the knob_board
+      exclusion, asserted lock-for-lock (S3/P4 carry NO sh8601)
   UI_BOARD_SRCS / UI_CORE_SRCS (ui)      exactly the four dropped TUs and
       the six unchanged ones; the KNOB branch must empty the four
-      (ui :31-35); every named file must exist
-  FONT_DIR branch (ui :14-20)            fonts/fonts_p4/fonts_knob map; the
+      (ui :40-42); every named file must exist
+  FONT_DIR branch (ui :22-28)            fonts/fonts_p4/fonts_knob map; the
       three tiers carry the SAME seven file names (the identical
       lv_font_t-symbol promise) — each build compiles exactly ONE tier
   REQUIRES names                         parsed from the four shared
@@ -40,22 +51,25 @@ seam's rules are removed:
       wifi and moon name NONE of the three — the exact matrix this figure
       draws; the literals are what the EARLY pass sees
   the three dependency locks             top-level keys minus idf, per
-      target: S3 21 (carries esp_lcd_co5300 + the CST9217 touch, NO
+      build: S3 21 (carries esp_lcd_co5300 + the CST9217 touch, NO
       esp_hosted), P4 24 (carries the XC BSP + esp_hosted +
-      esp_wifi_remote, NO co5300/CST9217 — the target rules hold), knob 6
-      (asserted name-for-name, and the on-disk knob/managed_components/
-      must equal the lock set — registry drift fails the figure)
+      esp_wifi_remote, NO co5300/CST9217 — the target rules hold), knob 7
+      (the six registry entries of the clocks' shared world PLUS
+      esp_codec_dev — asserted name-for-name); the on-disk
+      managed_components/ must hold the S3 set PLUS the P4-only gt911 and
+      the knob-only sh8601 — the CI union state (every other knob-lock
+      entry sits in the S3 set already) — registry drift fails the figure
   LOC counts                             the four dropped TUs, the clock's
-      own 28-line board shim, the knob's 16-line board shim and 28-line
-      imu_stub.c; the esp_codec_dev shim must contain exactly ONE file
-      (its CMakeLists — "a CMakeLists file and NOTHING ELSE", zero sources,
-      zero headers — drawn italic *no such leg*)
+      board_display.c, the knob's knob_board answer (its own sources) and
+      the 28-line imu_stub.c; the esp_codec_dev answer is a MANAGED dep —
+      zero in-tree lines (drawn italic *no such leg*)
   the knob's honest stubs                knob_alarm_audio_stub.c must still
       return "Silent" (the answer to the dropped alarm_audio.c)
 
 Identity colors per gen_perf_figs.py: S3 blue, P4 vermillion, knob violet.
-Segment families keep one colour across all three bars; the shims are the
-amber of build-seam.dot (the seam's price), managed the registry grey.
+Segment families keep one colour across all three bars; the seam's answers
+are the amber/steel of build-seam.dot (the seam's price), managed the
+registry grey.
 Hatched = cited (the bus ladder's precedent); italic = the honest *no such
 leg*.
 
@@ -85,18 +99,20 @@ VIOLET = "#7c3aed"    # knob identity
 AMBER = "#b07d10"     # the seam's price (build-seam.dot)
 STEEL = "#5c7fb8"     # shared-4
 SLATE = "#4b5563"     # the app/main component
-TEAL = "#0f766e"      # board-side (clock family: real board shim + IMU)
+TEAL = "#0f766e"      # board-side (the shared board + imu components)
 GREY = "#9ca3af"      # manager-vendored (the registry's problem)
 
 INKC = {t: c for t, c in (("s3", BLUE), ("p4", VERM), ("knob", VIOLET))}
 
 
 def _read(path: str) -> str:
+    if not os.path.isabs(path):
+        path = os.path.join(ROOT, path)
     if not os.path.exists(path):
         raise SystemExit(f"{os.path.relpath(path, ROOT)}: not found — this "
                          f"figure reads the CMakeLists files, the three "
-                         f"dependency locks, the font tiers and the two "
-                         f"clock build trees")
+                         f"dependency locks, the font tiers and the three "
+                         f"build trees")
     with open(path, encoding="utf-8", errors="replace") as f:
         return f.read()
 
@@ -121,72 +137,107 @@ def _strip_comments(text: str) -> str:
 
 
 # ---------------------------------------------------------------- first-party
-# The component inventories, asserted against the exact expected sets.
+# The ONE component inventory, asserted against the exact expected set.
 comps = _dirs("components")
-if comps != {"board", "clock", "esp32_s3_touch_amoled_1_75", "imu", "moon", "ui", "wifi"}:
-    raise SystemExit(f"components/ inventory drifted: {sorted(comps)} — the census "
-                     f"expects the clock's seven first-party components")
-knob_comps = _dirs(os.path.join("knob", "components"))
-if knob_comps != {"board", "esp_codec_dev", "imu", "knob_battery", "knob_board",
-                  "knob_moon", "knob_power", "knob_time", "knob_ui"}:
-    raise SystemExit(f"knob/components/ inventory drifted: {sorted(knob_comps)} — the "
-                     f"census expects six knob-native components plus the three shims")
+CLOCK_COMPS = {"board", "clock", "esp32_s3_touch_amoled_1_75", "imu", "moon",
+               "ui", "wifi"}
+KNOB_COMPS = {"knob_battery", "knob_board", "knob_moon", "knob_power",
+              "knob_time", "knob_ui"}
+if comps != CLOCK_COMPS | KNOB_COMPS:
+    raise SystemExit(f"components/ inventory drifted: {sorted(comps)} — the "
+                     f"census expects the one shared tree: the clock's seven "
+                     f"first-party components plus the knob's six knob_* "
+                     f"components")
 if not os.path.exists(os.path.join(ROOT, "main", "main.cpp")):
-    raise SystemExit("main/main.cpp: the clock project's app TU is missing")
-if not os.path.exists(os.path.join(ROOT, "knob", "main", "main.c")):
-    raise SystemExit("knob/main/main.c: the knob project's app TU is missing")
-for t, d in (("s3", "build/esp-idf"), ("p4", "build/p4/esp-idf")):
+    raise SystemExit("main/main.cpp: the clock build's app TU is missing")
+if not os.path.exists(os.path.join(ROOT, "main", "main_knob.c")):
+    raise SystemExit("main/main_knob.c: the knob build's app TU is missing")
+for t, d in (("s3", "build/esp-idf"), ("p4", "build/p4/esp-idf"),
+             ("knob", "build/knob/esp-idf")):
     if not os.path.isdir(os.path.join(ROOT, d)):
         raise SystemExit(f"{d}/: missing — build the target first; the census "
                          f"cross-checks the linked component sets on disk")
-s3_linked = set(os.listdir(os.path.join(ROOT, "build", "esp-idf")))
-p4_linked = set(os.listdir(os.path.join(ROOT, "build", "p4", "esp-idf")))
-for c in comps:  # every clock-side first-party component really links on S3
-    if c not in s3_linked:
-        raise SystemExit(f"build/esp-idf lacks {c} — the S3 census is wrong")
-if "esp32_s3_touch_amoled_1_75" in p4_linked:
-    raise SystemExit("build/p4/esp-idf contains the vendored S3 BSP — the P4 "
-                     "EXCLUDE_COMPONENTS guard has been undone")
+linked = {t: set(os.listdir(os.path.join(ROOT, "build", *d.split("/")[1:])))
+          for t, d in (("s3", "build/esp-idf"), ("p4", "build/p4/esp-idf"),
+                       ("knob", "build/knob/esp-idf"))}
+# the two exclusions, asserted both ways: the vendored S3 BSP links ONLY
+# on the S3 build, and knob_board (whose yml resolves the knob-only
+# managed deps) links ONLY on the knob build — everything else links on
+# all three (the knob's board/imu compile their KNOB_BOARD rows)
+for c in comps - {"esp32_s3_touch_amoled_1_75", "knob_board"}:
+    for t in ("s3", "p4", "knob"):
+        if c not in linked[t]:
+            raise SystemExit(f"{t} build tree lacks {c} — every first-party "
+                             f"component but the two exclusions links on all "
+                             f"three builds")
+if "knob_board" in linked["s3"] or "knob_board" in linked["p4"]:
+    raise SystemExit("knob_board linked on a clock build — the knob-only "
+                     "managed deps (sh8601, esp_codec_dev) would leak into "
+                     "the clock locks")
+if "esp32_s3_touch_amoled_1_75" in linked["p4"] or \
+        "esp32_s3_touch_amoled_1_75" in linked["knob"]:
+    raise SystemExit("the vendored S3 BSP linked on the P4 or knob build — "
+                     "the root EXCLUDE_COMPONENTS guards have been undone")
+if "esp32_s3_touch_amoled_1_75" not in linked["s3"]:
+    raise SystemExit("build/esp-idf lacks the vendored S3 BSP — the S3 bar's "
+                     "'IN-TREE' segment is wrong")
 
 # ------------------------------------------------------------- root CMakeLists
 root_cm = _read("CMakeLists.txt")
 proj_at = root_cm.index("project(moon-phase)")
-m = re.search(r'set\(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75"\)', root_cm)
-if not m:
-    raise SystemExit("root CMakeLists: the EXCLUDE_COMPONENTS literal no longer "
-                     "names the vendored S3 BSP — the figure states it verbatim")
-if root_cm.index('set(EXCLUDE_COMPONENTS') > proj_at:
-    raise SystemExit("root CMakeLists: EXCLUDE_COMPONENTS moved after project() — "
-                     "the P4 block must predate the component manager")
-if root_cm.index("idf_build_set_property(DEPENDENCIES_LOCK") > proj_at:
-    raise SystemExit("root CMakeLists: the P4 DEPENDENCIES_LOCK pin moved after "
-                     "project() — 'which runs the component manager' (:24-26)")
+p4_excl = root_cm.index('set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75;knob_board")')
+knob_only_excl = root_cm.index('set(EXCLUDE_COMPONENTS "knob_board")')
+s3_excl = root_cm.index('set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")')
+for name, i in (("the P4 block's EXCLUDE (BSP + knob_board)", p4_excl),
+                ("the S3-clock block's EXCLUDE (knob_board)", knob_only_excl),
+                ("the knob block's EXCLUDE (the vendored BSP)", s3_excl)):
+    if i > proj_at:
+        raise SystemExit(f"root CMakeLists: {name} moved after project() — the "
+                         f"exclusions must predate the component manager")
+lock_pins = [m.start() for m in
+             re.finditer(r"idf_build_set_property\(DEPENDENCIES_LOCK", root_cm)]
+if len(lock_pins) != 2 or any(i > proj_at for i in lock_pins):
+    raise SystemExit("root CMakeLists: the two DEPENDENCIES_LOCK pins (p4 + "
+                     "knob) must both predate project()")
+if root_cm.index("idf_build_set_property(KNOB_BOARD ON)") > proj_at:
+    raise SystemExit("root CMakeLists: the KNOB_BOARD promotion moved after "
+                     "project() — the component manager's early pass would "
+                     "not see the flag")
 
-# ------------------------------------------------------------- knob CMakeLists
-knob_cm = _read(os.path.join("knob", "CMakeLists.txt"))
-knob_proj = knob_cm.index("project(knob)")
-if knob_cm.index("set(KNOB_BOARD ON)") > knob_proj:
-    raise SystemExit("knob/CMakeLists.txt: KNOB_BOARD is set AFTER project() — "
-                     "the PROJECT variable must predate the early pass")
-if knob_cm.index("idf_build_set_property(DEPENDENCIES_LOCK") > knob_proj:
-    raise SystemExit("knob/CMakeLists.txt: the lock pin moved after project()")
-m = re.search(r'set\(EXTRA_COMPONENT_DIRS(.*?)\)\n', knob_cm, re.S)
-if not m:
-    raise SystemExit("knob/CMakeLists.txt: EXTRA_COMPONENT_DIRS block not found")
-entries = re.findall(r'"\$\{CMAKE_CURRENT_SOURCE_DIR\}/\.\./components/([A-Za-z_0-9]+)"',
-                     m.group(1))
-if sorted(entries) != ["clock", "moon", "ui", "wifi"]:
-    raise SystemExit(f"knob/CMakeLists.txt: EXTRA_COMPONENT_DIRS drifted {entries} "
-                     f"— the seam is four individually-listed dirs")
-if re.search(r'EXTRA_COMPONENT_DIRS[^)]*"\$\{CMAKE_CURRENT_SOURCE_DIR\}/\.\./components"\s*\)',
-             knob_cm):
-    raise SystemExit("knob/CMakeLists.txt: the PARENT components/ was added — "
-                     "IDF excludes by name only; the shims would collide")
-for d in entries:
-    p = os.path.join(ROOT, "components", d, "CMakeLists.txt")
-    if not os.path.exists(p):
-        raise SystemExit(f"components/{d}: listed in EXTRA_COMPONENT_DIRS but is no "
-                         f"component (no CMakeLists.txt)")
+# ------------------------------------------------- the knob's answers (in-tree)
+board_cm = _read(os.path.join("components", "board", "CMakeLists.txt"))
+if 'set(BSP_COMPONENT knob_board)' not in board_cm or \
+        'set(BOARD_EXTRA_INCLUDES "knob_include")' not in board_cm:
+    raise SystemExit("components/board: the KNOB_BOARD branch no longer "
+                     "dispatches to knob_board + knob_include")
+imu_cm = _read(os.path.join("components", "imu", "CMakeLists.txt"))
+if 'SRCS "imu_stub.c"' not in imu_cm:
+    raise SystemExit("components/imu: the KNOB_BOARD branch no longer "
+                     "compiles imu_stub.c")
+knob_yml = _read(os.path.join("components", "knob_board", "idf_component.yml"))
+for dep in ("espressif/esp_lcd_sh8601", "espressif/esp_codec_dev"):
+    if f"{dep}:" not in knob_yml:
+        raise SystemExit(f"knob_board idf_component.yml: {dep} no longer "
+                         f"declared — the knob's managed answers changed")
+if 'target == "esp32s3"' not in knob_yml:
+    raise SystemExit("knob_board idf_component.yml: the target == esp32s3 "
+                     "rule is gone — prepare_dependencies runs BEFORE kconfig, "
+                     "so a $CONFIG rule could not resolve there")
+kb_cs = sorted(f for f in os.listdir(os.path.join(ROOT, "components", "knob_board"))
+               if f.endswith(".c"))
+if not kb_cs:
+    raise SystemExit("components/knob_board: no sources — the knob's board "
+                     "answer vanished")
+knob_board_loc = sum(_loc(os.path.join("components", "knob_board", f))
+                     for f in kb_cs)
+imu_stub = os.path.join("components", "imu", "imu_stub.c")
+if 'return false' not in _read(imu_stub):
+    raise SystemExit("imu_stub.c no longer returns the soft-fail posture — "
+                     "the 'ready=false' annotation is dead")
+if '"Silent"' not in _read(os.path.join("components", "knob_ui",
+                                        "knob_alarm_audio_stub.c")):
+    raise SystemExit("knob_alarm_audio_stub.c no longer names the sounds "
+                     "'Silent' — the answer to the dropped alarm_audio.c changed")
 
 # ------------------------------------------------------------ ui CMakeLists
 ui_cm = _read(os.path.join("components", "ui", "CMakeLists.txt"))
@@ -241,21 +292,6 @@ if who_names != {"clock": {"board"}, "wifi": set(), "moon": set(),
     raise SystemExit(f"REQUIRES naming drifted: {who_names} — the matrix is drawn "
                      f"from these literals (the early pass sees nothing else)")
 
-# --------------------------------------------------------------- shim anatomy
-shim_codec = os.path.join(ROOT, "knob", "components", "esp_codec_dev")
-codec_files = [os.path.join(dp, f) for dp, _, fs in os.walk(shim_codec) for f in fs]
-if [os.path.basename(f) for f in codec_files] != ["CMakeLists.txt"]:
-    raise SystemExit(f"knob esp_codec_dev shim grew files: {codec_files} — the "
-                     f"'name only, CMakeLists and NOTHING ELSE' fact is dead")
-imu_stub = os.path.join("knob", "components", "imu", "imu_stub.c")
-if 'return false' not in _read(imu_stub):
-    raise SystemExit("imu_stub.c no longer returns the soft-fail posture — "
-                     "the 'ready=false' annotation is dead")
-if '"Silent"' not in _read(os.path.join("knob", "components", "knob_ui",
-                                        "knob_alarm_audio_stub.c")):
-    raise SystemExit("knob_alarm_audio_stub.c no longer names the sounds "
-                     "'Silent' — the answer to the dropped alarm_audio.c changed")
-
 # ------------------------------------------------------------------- lock sets
 def _lock_keys(path: str) -> set:
     if not os.path.exists(path):
@@ -270,47 +306,66 @@ def _lock_keys(path: str) -> set:
 
 LOCK = {"s3": os.path.join(ROOT, "dependencies.lock"),
         "p4": os.path.join(ROOT, "dependencies.lock.p4"),
-        "knob": os.path.join(ROOT, "knob", "dependencies.lock.knob")}
+        "knob": os.path.join(ROOT, "dependencies.lock.knob")}
 managed = {t: _lock_keys(p) for t, p in LOCK.items()}
 for t, names in (("s3", {"espressif/esp_lcd_co5300", "waveshare/esp_lcd_touch_cst9217"}),
                  ("p4", {"waveshare/esp32_p4_wifi6_touch_lcd_xc", "espressif/esp_hosted",
                          "espressif/esp_wifi_remote"}),
-                 ("knob", {"espressif/esp_lcd_sh8601", "espressif/esp_io_expander",
-                           "waveshare/pcf85063a"})):
+                 ("knob", {"espressif/esp_lcd_sh8601", "espressif/esp_codec_dev",
+                           "espressif/esp_io_expander", "waveshare/pcf85063a"})):
     missing = names - managed[t]
     if missing:
         raise SystemExit(f"{os.path.basename(LOCK[t])}: missing {sorted(missing)} — "
-                         f"the per-target registry set changed shape")
+                         f"the per-build registry set changed shape")
 if "espressif/esp_hosted" in managed["s3"] or "espressif/esp_lcd_co5300" in managed["p4"]:
     raise SystemExit("the target rules collapsed — hosted on S3 or co5300 on P4 "
                      "means the locks are no longer per-target")
-if managed["knob"] != {"espressif/cmake_utilities", "espressif/esp_io_expander",
-                       "espressif/esp_lcd_sh8601", "espressif/esp_new_jpeg",
-                       "lvgl/lvgl", "waveshare/pcf85063a"}:
+for t in ("s3", "p4"):
+    if "espressif/esp_lcd_sh8601" in managed[t]:
+        raise SystemExit(f"{os.path.basename(LOCK[t])}: the knob-only sh8601 "
+                         f"leaked into the {t} lock — the knob_board "
+                         f"EXCLUDE_COMPONENTS guard is undone")
+if managed["knob"] != {"espressif/cmake_utilities", "espressif/esp_codec_dev",
+                       "espressif/esp_io_expander", "espressif/esp_lcd_sh8601",
+                       "espressif/esp_new_jpeg", "lvgl/lvgl",
+                       "waveshare/pcf85063a"}:
     raise SystemExit(f"knob lock set drifted: {sorted(managed['knob'])}")
-vendored = {d for d in os.listdir(os.path.join(ROOT, "knob", "managed_components"))}
-if vendored != {n.replace("/", "__") for n in managed["knob"]}:
-    raise SystemExit(f"knob/managed_components/ disagrees with the knob lock: "
-                     f"{sorted(vendored)}")
+vendored = {d for d in os.listdir(os.path.join(ROOT, "managed_components"))}
+# The CI union state: the S3 set (the S3 build runs LAST) plus the P4-only
+# gt911 (gen_perf_silicon) and the knob-only sh8601 (gen_perf_bus). Every
+# other knob-lock entry sits in the S3 set already.
+expected_union = {n.replace("/", "__") for n in managed["s3"]} | {
+    "espressif__esp_lcd_touch_gt911", "espressif__esp_lcd_sh8601"}
+if vendored != expected_union:
+    raise SystemExit(f"managed_components/ is not the CI union state (S3 set + "
+                     f"gt911 + sh8601): {sorted(vendored)}")
 # The P4 page states the XC BSP arrives managed — check the linked set on disk:
 for n in ("espressif__esp_hosted", "espressif__esp_wifi_remote",
           "waveshare__esp32_p4_wifi6_touch_lcd_xc"):
-    if n not in p4_linked:
+    if n not in linked["p4"]:
         raise SystemExit(f"build/p4/esp-idf lacks {n} — the P4 managed bar is wrong")
+for n in ("espressif__esp_lcd_sh8601", "espressif__esp_codec_dev"):
+    if n not in linked["knob"]:
+        raise SystemExit(f"build/knob/esp-idf lacks {n} — the knob's managed "
+                         f"answers never resolved")
+if "espressif__esp_lcd_sh8601" in linked["s3"] or \
+        "espressif__esp_lcd_sh8601" in linked["p4"]:
+    raise SystemExit("sh8601 linked on a clock build — the knob's managed "
+                     "answer leaked into a clock tree")
 
 # ------------------------------------------------------------------- assembly
 FAMILIES = [
     ("shared-4", STEEL), ("main", SLATE), ("board-side", TEAL),
-    ("vendored BSP", BLUE), ("knob-native", VIOLET), ("shims", AMBER),
+    ("vendored BSP", BLUE), ("knob-native", VIOLET),
     ("managed (registry)", GREY),
 ]
 COUNTS = {
     "s3":   {"shared-4": 4, "main": 1, "board-side": 2, "vendored BSP": 1,
-             "knob-native": 0, "shims": 0},
+             "knob-native": 0},
     "p4":   {"shared-4": 4, "main": 1, "board-side": 2, "vendored BSP": 0,
-             "knob-native": 0, "shims": 0},
-    "knob": {"shared-4": 4, "main": 1, "board-side": 0, "vendored BSP": 0,
-             "knob-native": 6, "shims": 3},
+             "knob-native": 0},
+    "knob": {"shared-4": 4, "main": 1, "board-side": 2, "vendored BSP": 0,
+             "knob-native": 6},
 }
 for t in COUNTS:
     COUNTS[t]["managed (registry)"] = len(managed[t])
@@ -323,7 +378,7 @@ fig, (ax_l, ax_m, ax_r) = plt.subplots(1, 3, figsize=(12.8, 5.0))
 # --------------------------------------------------------------- left: census
 boards = ["s3", "p4", "knob"]
 labels = {"s3": "S3 AMOLED\n(466, default target)", "p4": "P4 4C\n(720, sibling build)",
-          "knob": "knob\n(sibling PROJECT)"}
+          "knob": "knob\n(360, -D KNOB_BOARD=ON)"}
 ys = [0, 1, 2]
 for y, t in zip(ys, boards):
     left = 0
@@ -354,16 +409,17 @@ for s in ("top", "right"):
 notes = {
     "s3": "the vendored AMOLED BSP is IN-TREE (the managed\nname is shadowed; "
           "the 25-row patch lives here)",
-    "p4": "EXCLUDE_COMPONENTS removes the vendored BSP (:20);\nthe XC BSP + hosted "
-          "+ wifi_remote arrive MANAGED instead",
-    "knob": "board/imu/BSP never added — three same-named\nshims answer what "
-            "clock/ui REQUIRES",
+    "p4": "EXCLUDE_COMPONENTS removes the vendored BSP\n+ knob_board; the XC "
+          "BSP + hosted +\nwifi_remote arrive MANAGED instead",
+    "knob": "the shared board/imu answer with their\nKNOB_BOARD rows; the "
+            "vendored S3 BSP is\nEXCLUDED from the tree",
 }
 ax_l.set_ylim(3.05, -0.55)
 for y, t in zip(ys, boards):
     ax_l.text(0.5, y + 0.33, notes[t], fontsize=5.8, color=MUTED, va="top")
 
 # --------------------------------------------------- middle: what the seam costs
+board_loc = _loc(os.path.join("components", "board", "board_display.c"))
 rows = [
     ("moon_ui.c", dropped_loc["moon_ui.c"], AMBER,
      "not compiled for the knob — answered by knob_moon_render.c"),
@@ -373,16 +429,17 @@ rows = [
      "not compiled — no SD socket on the knob"),
     ("alarm_audio.c", dropped_loc["alarm_audio.c"], AMBER,
      "not compiled — answered by knob_alarm_audio_stub.c: 'Silent'"),
-    ("board shim (clock)", _loc(os.path.join("components", "board", "board_display.c")),
-     STEEL, "the whole 'board' the clocks answer: 28 lines over the BSP"),
-    ("board shim (knob)", _loc(os.path.join("knob", "components", "board",
-                                            "board_display.c")), VIOLET,
-     "the knob's answer to the same name: 16 lines"),
+    ("board answer (clock)", board_loc, STEEL,
+     "the clocks' answer: board_display.c over the BSP"),
+    ("board answer (knob)", knob_board_loc, VIOLET,
+     "the knob's answer: knob_board's own SH8601 bring-up (3 TUs)"),
     ("imu_stub.c (knob)", _loc(imu_stub), VIOLET,
      "the 'imu' answer: 'ready=false, gravity all-zero, roll 0'"),
-    ("esp_codec_dev shim (knob)", 0, AMBER,
-     "name only: 'a CMakeLists file and NOTHING ELSE' — 0 sources, 0 headers"),
+    ("esp_codec_dev (knob)", 0, GREY,
+     "a MANAGED dep in knob_board's yml (target == esp32s3\nrule) — 0 "
+     "in-tree lines, its objects never link"),
 ]
+answer_loc = board_loc + knob_board_loc + _loc(imu_stub)
 ysm = list(range(len(rows)))
 for y, (name, n, col, note) in zip(ysm, rows):
     if n == 0:
@@ -395,12 +452,12 @@ ax_m.set_yticks(ysm)
 ax_m.set_yticklabels([r[0] for r in rows], fontsize=6.9)
 ax_m.invert_yaxis()
 ax_m.set_ylim(len(rows) - 0.35, -0.65)
-ax_m.set_xlim(0, 3450)
+ax_m.set_xlim(0, 4000)
 ax_m.set_xlabel("lines of code (the four amber bars: the knob build never "
                 f"compiles them — sum {sum(dropped_loc.values()):,})", fontsize=6.8)
 ax_m.set_title(f"middle: what the seam prices — {sum(dropped_loc.values()):,} dropped,\n"
-               f"{_loc(os.path.join('knob', 'components', 'board', 'board_display.c')) + _loc(imu_stub)} "
-               "lines + one CMakeLists answer them", loc="left", fontsize=8.6)
+               f"{answer_loc:,} lines + a managed dep answer them",
+               loc="left", fontsize=8.6)
 ax_m.grid(axis="x", color=HAIR, linewidth=0.6, zorder=0)
 ax_m.set_axisbelow(True)
 for s in ("top", "right"):
@@ -431,7 +488,7 @@ for s in ("top", "right", "left", "bottom"):
 # one tier per build, as a text stack below the matrix (three tiers exist,
 # exactly one compiles — the FONT_DIR branch); placed below the rotated
 # x tick labels, inside the widened ylim:
-ax_r.text(-0.42, 3.95, "FONT_DIR (ui :14-20): one tier per build:",
+ax_r.text(-0.42, 3.95, "FONT_DIR (ui :22-28): one tier per build:",
           fontsize=6.4, color=INK, fontweight="bold", va="top")
 for i, (lab, d, col) in enumerate((("S3", "fonts", BLUE), ("P4", "fonts_p4", VERM),
                                    ("knob", "fonts_knob", VIOLET))):
@@ -446,7 +503,7 @@ ax_r.text(-0.30, 5.55, "filled dot = that component's REQUIRES names it",
 fig.suptitle("The build census: how many parts make each board's image — and how many of them are silent",
              fontsize=9.5, color=INK, y=0.985)
 fig.legend(handles=[Patch(facecolor=c, label=f) for f, c in FAMILIES],
-           fontsize=6.4, loc="lower center", frameon=False, ncol=7,
+           fontsize=6.4, loc="lower center", frameon=False, ncol=6,
            bbox_to_anchor=(0.28, 0.005))
 fig.tight_layout(rect=(0, 0.05, 1, 0.96))
 os.makedirs(os.path.dirname(OUT), exist_ok=True)

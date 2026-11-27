@@ -20,8 +20,12 @@ components of the SAME `components/` tree (entry point `main/main_knob.c`,
 `knob_*` components alongside the shared ones; the shared `board`/`imu`
 components answer the knob's board-coupled REQUIREs with their `KNOB_BOARD`
 rows — `knob_board` + `knob_include` and `imu_stub.c` — and `esp_codec_dev` is
-the real managed dependency declared in `knob_board`'s manifest, gated on
-`$CONFIG{BOARD_KNOB}` so it stays out of the S3/P4 locks; the shared
+the real managed dependency `knob_board`'s manifest declares under a
+`target == "esp32s3"` rule (the gate must be evaluable in the component
+manager's `prepare_dependencies` step, which runs BEFORE kconfig: no
+`sdkconfig.json` yet, so a `$CONFIG{…}` rule cannot resolve there); the clock
+blocks' `EXCLUDE_COMPONENTS knob_board` is what keeps those deps out of the
+S3/P4 locks (a target rule alone cannot, the knob IS an esp32s3); the shared
 `choice BOARD` in `components/board/Kconfig.projbuild` carries the `BOARD_KNOB`
 row, default `BOARD_S3`, pinned `y` in `sdkconfig.defaults.knob`) and adds the
 dial, battery gauge and real `esp_deep_sleep_start` armed with RTC **TIMER**

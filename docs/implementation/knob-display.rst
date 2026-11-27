@@ -175,16 +175,17 @@ The knob answers their public headers from its own components.
 Ring and preview are silent no-ops, and every selectable sound is named "Silent" because the board has no codec.
 The shared alarm paths link and run.
 
-The ``board``/``imu`` shims (P0) stay, plus a silent name-shim component ``esp_codec_dev``.
+The ``board``/``imu`` components answer the knob with their ``KNOB_BOARD`` rows, and ``esp_codec_dev`` is a real managed dependency ``knob_board``'s manifest declares under a ``target == "esp32s3"`` rule.
 The ui component's REQUIRES must be unconditional, because the component manager's early requirements pass evaluates component CMakeLists with neither project variables nor ``CONFIG_`` symbols.
 (``build.cmake``'s ``__component_get_requirements`` runs ``cmake -P`` on the properties files only.)
 For the same reason the knob branches there key on the project variable ``KNOB_BOARD``, never on ``CONFIG_BOARD_KNOB``.
+The knob-only managed deps stay out of the clock locks because the clock builds ``EXCLUDE_COMPONENTS knob_board`` (its yml is never evaluated), not because of a ``$CONFIG{…}`` rule — that step runs before kconfig.
 The seam pictures (overview, projects, passes, shims, guards) are drawn in :doc:`the build system <../reference/build-system>`.
 The size of the seam is counted in four ladders:
 
-- the shims compile to 16 + 28 + 0 lines against the 5,178 the build drops (:ref:`the build census <census-ladder-perf>`);
-- the knob's menu has 85 entries, the biggest on the bench, and 29 of its 52 inherited entries are clock-private (:ref:`the configuration ladder <config-ladder-perf>`);
-- the knob's fifteen own files compile exactly once each, in the largest repo-owned image of the family (59 TUs) with the least reuse (:ref:`the sharing ladder <sharing-ladder-perf>`).
+- the knob's answers (the 38-line shared ``board_display.c`` surface, the knob's 522-line ``knob_board`` bring-up, the 28-line ``imu_stub.c``, and the zero-in-tree-lines ``esp_codec_dev`` managed dep) compile to 588 lines against the 5,594 the build drops (:ref:`the build census <census-ladder-perf>`);
+- the knob's menu has 88 entries, the biggest on the bench, and 29 of its 58 inherited entries are clock-private (:ref:`the configuration ladder <config-ladder-perf>`);
+- the knob's 13 own files compile exactly once each, in the largest repo-owned image of the family (59 TUs) with the least reuse (:ref:`the sharing ladder <sharing-ladder-perf>`).
 
 Why the LVGL mutex is reentrant
 ...............................

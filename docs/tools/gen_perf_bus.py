@@ -40,14 +40,17 @@ carries it only while a P4 build is the most recent component solve:
   #define MOON_PX 650 / 400             components/ui/moon_ui.c:175/:177
       (the hourly disk-only flush is MOON_PX² * 2 B)
   #define KNOB_LCD_H_RES 360, KNOB_LCD_ROWS_PER_BUF 30
-      knob/components/knob_board/include/knob_board.h:22/:27
+      components/knob_board/include/knob_board.h:22/:27
   .max_transfer_sz = KNOB_LCD_H_RES * KNOB_LCD_ROWS_PER_BUF * sizeof(uint16_t)
-      knob/components/knob_board/knob_board_display.c:243
+      components/knob_board/knob_board_display.c:243
   .data0_io_num .. .data3_io_num        same file :237 — four lanes
-  .pclk_hz = 40 * 1000 * 1000           knob/managed_components/espressif__esp_lcd_sh8601/
+  .pclk_hz = 40 * 1000 * 1000           managed_components/espressif__esp_lcd_sh8601/
       include/esp_lcd_sh8601.h:102 (inside SH8601_PANEL_IO_QSPI_CONFIG :97)
+      — the knob's driver from the root union (the knob build shares the
+      repo's managed_components; the figure-time state is the S3 set +
+      gt911 + sh8601, as the CI workflow leaves it)
   CONFIG_LV_DEF_REFR_PERIOD 33          build/config/sdkconfig.h:1087,
-      build/p4/config/sdkconfig.h:1308, ../build/knob/config/sdkconfig.h:1086
+      build/p4/config/sdkconfig.h:1308, build/knob/config/sdkconfig.h:1086
       — parsed from ALL THREE and asserted equal (the same
       beat gen_perf_response.py and gen_perf_figs assert)
 
@@ -79,16 +82,18 @@ BSP_DISPLAY_H = os.path.join(BSP_DIR, "include", "bsp", "display.h")
 CO5300_H = os.path.join(ROOT, "managed_components", "espressif__esp_lcd_co5300",
                         "include", "esp_lcd_co5300.h")
 MOON_UI = os.path.join(ROOT, "components", "ui", "moon_ui.c")
-KNOB_BOARD_H = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_BOARD_H = os.path.join(ROOT, "components", "knob_board",
                             "include", "knob_board.h")
-KNOB_DISP_C = os.path.join(ROOT, "knob", "components", "knob_board",
+KNOB_DISP_C = os.path.join(ROOT, "components", "knob_board",
                            "knob_board_display.c")
-SH8601_H = os.path.join(ROOT, "knob", "managed_components",
+# the knob's driver from the root union (the knob build shares the repo's
+# managed_components; the figure-time state is the S3 set + gt911 + sh8601)
+SH8601_H = os.path.join(ROOT, "managed_components",
                         "espressif__esp_lcd_sh8601", "include",
                         "esp_lcd_sh8601.h")
 CFG_S3 = os.path.join(ROOT, "build", "config", "sdkconfig.h")
 CFG_P4 = os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h")
-CFG_KNOB = os.path.join(ROOT, "..", "build", "knob", "config", "sdkconfig.h")
+CFG_KNOB = os.path.join(ROOT, "build", "knob", "config", "sdkconfig.h")
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_bus.png")
 
 INK = "#1c2128"
@@ -176,8 +181,9 @@ def main() -> None:
     k_lanes = len(re.findall(r"\.data\d_io_num = LCD_PIN_D\d", _read(KNOB_DISP_C)))
     k_pclk = regex_int(SH8601_H, r"#define SH8601_PANEL_IO_QSPI_CONFIG.*?"
                        r"\.pclk_hz = (\d+) \* 1000 \* 1000",
-                       "SH8601 QSPI pclk (run a knob build to populate "
-                       "knob/managed_components/)") * 10**6
+                       "SH8601 QSPI pclk (the knob build shares the repo's "
+                       "managed_components/ — run it to populate that set)")
+    k_pclk *= 10**6  # the header's "40 * 1000 * 1000" — Hz, like the S3 side
 
     # ---- shared: the hourly disk and the beat ---------------------------
     m = re.search(r"#if defined\(CONFIG_BOARD_P4\)\s*\n#define MOON_PX (\d+)\s*"

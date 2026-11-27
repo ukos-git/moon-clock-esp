@@ -47,14 +47,17 @@ stops being shared verbatim between the device component and the host tools:
       images/*.c glob is asserted EMPTY (the images/ dir does not exist —
       the masks are hand-rasterised into images.c)
   clock / wifi / apps                    clock's eleven TUs by name, wifi.c,
-      main/main.cpp (two boards), knob/main/main.c (one)
-  knob/components/                       per-component SRCS parsed into an exact
-      dict (board 1, imu 1, esp_codec_dev 0 — the register() call must be
-      EMPTY — battery 1, board 3, moon 1, power 1, time 1, ui 5); the knob's
-      fifteen TUs compile into exactly ONE image each
-  knob/CMakeLists.txt                    EXTRA_COMPONENT_DIRS still the four dirs
-      name-for-name, parent components/ still absent (the census's rule,
-      re-asserted here so both twins die together)
+      main/main.cpp (two boards), main/main_knob.c (one)
+  components/                       per-component SRCS parsed into an exact
+      dict (board 1 — the same board_display.c on all three builds — imu's
+      two-implementation contract, the six knob_* components: battery 1,
+      board 3, moon 1, power 1, time 1, ui 5); the knob's twelve knob_*
+      TUs compile into exactly ONE image each
+  the shared-tree rule, two ways       the root CMakeLists' knob block
+      (EXCLUDE the vendored S3 BSP, its own lock, KNOB_BOARD promoted into
+      the early pass) + the main component's board-selected entry point
+      (main_knob.c on KNOB_BOARD, main.cpp on the clocks) — the census's
+      shared-tree rule, re-asserted here so both twins die together
 
 Identity colors per gen_perf_figs.py: S3 blue, P4 vermillion, knob violet;
 TEAL is the host world (the gate's own images), GREY hatch the vendored
@@ -247,20 +250,35 @@ wifi_cm = _read(os.path.join("components", "wifi", "CMakeLists.txt"))
 if 'SRCS "wifi.c"' not in wifi_cm:
     raise SystemExit("wifi SRCS drifted — one TU, three images")
 
-knob_cm = _read(os.path.join("knob", "CMakeLists.txt"))
-m = re.search(r'set\(EXTRA_COMPONENT_DIRS(.*?)\)\n', knob_cm, re.S)
-entries = re.findall(r'"\$\{CMAKE_CURRENT_SOURCE_DIR\}/\.\./components/([A-Za-z_0-9]+)"',
-                     m.group(1)) if m else []
-if sorted(entries) != ["clock", "moon", "ui", "wifi"]:
-    raise SystemExit(f"knob EXTRA_COMPONENT_DIRS drifted {entries}")
-if re.search(r'EXTRA_COMPONENT_DIRS[^)]*"\$\{CMAKE_CURRENT_SOURCE_DIR\}/\.\./components"\s*\)',
-             knob_cm):
-    raise SystemExit("the PARENT components/ was added to EXTRA_COMPONENT_DIRS — "
-                     "the census and this ladder die together")
+# the shared-tree rule (the census's twin): the root knob block + the
+# main component's board-selected entry point. The knob builds the SAME
+# components/ tree — no EXTRA_COMPONENT_DIRS, no second project.
+root_cm = _read(os.path.join("CMakeLists.txt"))
+if 'set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")' not in root_cm \
+        or "idf_build_set_property(KNOB_BOARD ON)" not in root_cm:
+    raise SystemExit("root CMakeLists: the knob block (vendored-BSP "
+                     "EXCLUDE + KNOB_BOARD promotion) drifted — the "
+                     "census and this ladder die together")
+main_cm = _read(os.path.join("main", "CMakeLists.txt"))
+if not re.search(r'if\(KNOB_BOARD\)\s*\n[\s\S]*?SRCS "main_knob\.c"', main_cm):
+    raise SystemExit("main/CMakeLists: the KNOB_BOARD branch no longer "
+                     "compiles main_knob.c")
+if 'SRCS "main.cpp"' not in main_cm:
+    raise SystemExit("main/CMakeLists: the clocks' main.cpp row vanished")
+# the shared board/imu components: the knob's board-coupled answers
+board_cm = _read(os.path.join("components", "board", "CMakeLists.txt"))
+if 'SRCS "board_display.c"' not in board_cm:
+    raise SystemExit("components/board: SRCS drifted — one TU, three images")
+if 'set(BSP_COMPONENT knob_board)' not in board_cm:
+    raise SystemExit("components/board: the KNOB_BOARD branch no longer "
+                     "dispatches to knob_board")
+imu_cm = _read(os.path.join("components", "imu", "CMakeLists.txt"))
+if sorted(re.findall(r'SRCS "([A-Za-z_0-9.]+\.c)"', imu_cm)) != \
+        ["imu_qmi8658.c", "imu_stub.c"]:
+    raise SystemExit("components/imu: the two-implementation contract "
+                     "drifted — one TU per board row")
+# the knob's own six knob_* components
 KNOB_SRCS = {
-    "board": ["board_display.c"],
-    "esp_codec_dev": [],
-    "imu": ["imu_stub.c"],
     "knob_battery": ["knob_battery.c"],
     "knob_board": ["knob_board_display.c", "knob_board_touch.c", "knob_board_encoder.c"],
     "knob_moon": ["knob_moon.c"],
@@ -271,18 +289,18 @@ KNOB_SRCS = {
 }
 knob_total = 0
 for comp, expected in KNOB_SRCS.items():
-    cm = _read(os.path.join("knob", "components", comp, "CMakeLists.txt"))
+    cm = _read(os.path.join("components", comp, "CMakeLists.txt"))
     srcs = re.findall(r'"([A-Za-z_0-9.]+\.c)"', cm)
     if sorted(srcs) != sorted(expected):
-        raise SystemExit(f"knob/components/{comp}: SRCS drifted {sorted(srcs)} "
+        raise SystemExit(f"components/{comp}: SRCS drifted {sorted(srcs)} "
                          f"vs {sorted(expected)}")
     for f in expected:
-        if not os.path.exists(os.path.join(ROOT, "knob", "components", comp, f)):
-            raise SystemExit(f"knob/components/{comp}/{f} named in SRCS but missing")
+        if not os.path.exists(os.path.join(ROOT, "components", comp, f)):
+            raise SystemExit(f"components/{comp}/{f} named in SRCS but missing")
     knob_total += len(srcs)
-if knob_total != 14:
-    raise SystemExit(f"knob-native TU count {knob_total} != 14 — the violet "
-                     f"single-build bar and the 58-TU knob bar both move")
+if knob_total != 12:
+    raise SystemExit(f"knob-native TU count {knob_total} != 12 — the violet "
+                     f"single-build bar moves")
 
 # the generated per-target asset tables are real files on disk (gitignored)
 for t in ("s3", "p4", "knob"):
@@ -326,6 +344,11 @@ for t in ("s3", "p4", "knob"):
         "generated asset table, 3 images per target")
 add("clock (11 TUs) — re-used whole by the knob", 11, DEV, SLATE)
 add("wifi.c", 1, DEV, SLATE)
+add("board_display.c — one board surface, three boards", 1, DEV, SLATE,
+    "the shared board component; the knob's row dispatches to knob_board")
+add("imu_qmi8658.c — the clocks' IMU", 1, (S3, P4), SLATE)
+add("imu_stub.c — the knob's no-IMU answer", 1, (KN,), VIOLET,
+    "the shared imu component's KNOB_BOARD row")
 add("ui.c + actions.c + vars.c", 3, DEV, STEEL)
 add("esp/moon_esp_assets.c — device backend", 1, DEV, SLATE)
 add("esp/moon_esp_movie.c — the boot movie's flash reader", 1, DEV, SLATE)
@@ -340,7 +363,7 @@ for tier, dev, panel in (("fonts", S3, "uisim466"), ("fonts_p4", P4, "uisim720")
 add("main.cpp (one source, both clocks)", 1, (S3, P4), SLATE)
 add("bench.c (one source, three bench builds)", 1, BENCHES, TEAL,
     "moon_bench is linked into every target build dir")
-add("knob main + native 14 (nine components)", 15, (KN,), VIOLET,
+add("knob main + native 12 (six components)", 13, (KN,), VIOLET,
     "every knob-owned TU compiles ONCE")
 add("throwaway probes dark_test.c / newmoon_test.c / viewport_test.c / "
     "phase_dummy_test.c", 4, (), GHOST,
@@ -355,7 +378,7 @@ for r in rows:
         continue  # vendored + never-linked live on their own axis
     for i in r["imgs"]:
         per_image[i] += r["n"]
-EXPECTED = {S3: 49, P4: 49, KN: 59, "sim_s3": 20, "sim_p4": 20, "sim_knob": 20,
+EXPECTED = {S3: 51, P4: 51, KN: 59, "sim_s3": 20, "sim_p4": 20, "sim_knob": 20,
             "bench_s3": 20, "bench_p4": 20, "bench_knob": 20,
             "uisim466": 32, "uisim720": 32, "uisim360": 32}
 for i, want in EXPECTED.items():
@@ -434,7 +457,7 @@ handles = [
     Patch(facecolor=STEEL, label="shared UI (core six + rendered three + fonts)"),
     Patch(facecolor=SLATE, label="clock-side device TUs"),
     Patch(facecolor=AMBER, label="board-only UI (the knob drops these)"),
-    Patch(facecolor=VIOLET, label="knob-native (main + 14)"),
+    Patch(facecolor=VIOLET, label="knob-native (main + 12)"),
     Patch(facecolor=TEAL, label="host tools (gate, bench, uisim)"),
     Patch(facecolor=GREY, hatch="///", label="vendored (cited)"),
     Patch(facecolor="none", edgecolor=GHOST, linestyle="--",
@@ -444,12 +467,12 @@ fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8,
            frameon=False, bbox_to_anchor=(0.5, -0.005))
 fig.suptitle(
     f"The sharing ladder: {len(CORE_MATH) + len(ERFA)} core TUs compile into all "
-    f"{len(ALL)} images; the four board TUs top out at 2, the knob's 15 at 1",
+    f"{len(ALL)} images; the four board TUs top out at 2, the knob's 13 at 1",
     fontsize=12.5, color=INK, weight="bold", y=0.985)
 fig.text(0.5, 0.935,
          "parsed live: core set-equality across the three build systems, the two "
          "linked host executables, the uisim's 32+412 list, the four dropped UI "
-         "TUs, the knob's 14+1",
+         "TUs, the knob's 12+1",
          ha="center", fontsize=8.6, color=MUTED)
 fig.tight_layout(rect=(0, 0.055, 1, 0.925))
 fig.savefig(OUT, dpi=150)

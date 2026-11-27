@@ -23,8 +23,9 @@ Left panel — what each data row actually holds (fraction used):
   moon_movie     the S3's, the P4's AND the knob's LAST row: the
                  boot-movie blob — the on-disk .bin vs the manifest's
                  total_bytes, both parsed, both asserted equal (the
-                 root CMake's movie guard #2 / the knob's mirrored
-                 guard prices the same pair at configure)
+                 root CMake's movie guard #2 prices the same pair at
+                 configure — the knob builds through this same file,
+                 so there is no knob-side copy)
   coredump       the knob's 64 K ring — drawn italic, no bytes until a
                  crash (the *no such leg* precedent, honest: the space
                  is RESERVED, not filled)
@@ -51,7 +52,7 @@ Right panel — the moon_assets row, the product's tightest budget:
 Parsed at figure time (SystemExit-failing parsers, the house pattern):
 
   nvs/phy/factory/storage/moon_assets/moon_movie/coredump rows
-      partitions.csv, partitions_p4.csv, knob/partitions.csv (sizes K or
+      partitions.csv, partitions_p4.csv, partitions_knob.csv (sizes K or
       hex; ALL THREE tables' comment totals — "Total = 16384K" (S3 and
       knob)/"Total = 32768K" (P4), the tables fully allocated — are
       parsed and re-derived)
@@ -59,8 +60,8 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
       assets/images/moon/out/{s3,p4,knob}/
       moon_movie.bin (on-disk size) + moon_movie_manifest.json
       (total_bytes — asserted equal; the blob must fit its board's
-      moon_movie row, the root CMake's movie guard #2 / the knob's
-      mirrored guard asserted the same way)
+      moon_movie row, the root CMake's movie guard #2 asserted the
+      same way for all three builds)
   alb_w/h, dem_w/h, *_bytes, combined_bytes, partition_kib
       assets/images/moon/out/{s3,p4,knob}/moon_assets_manifest.json —
       each asserted u8-albedo / i8-DEM product, file size, sum, and
@@ -70,22 +71,23 @@ Parsed at figure time (SystemExit-failing parsers, the house pattern):
       sharpness funnel)
   CONFIG_MOON_ALBEDO_W             build/config/sdkconfig.h + build/p4/
       config/sdkconfig.h (the guard's twin; the knob deliberately has
-      NO Kconfig mirror — asserted absent from its CMakeLists, the
-      documented asymmetry)
+      NO Kconfig mirror — the root block skips its width cross-check
+      for the knob target, asserted in the same file)
   the FATAL_ERROR trio             CMakeLists.txt ("must be an even
-      width", the manifest-width equality, the partition fit) + the
-      knob's replicant ("Missing knob moon assets", its fit guard) —
-      the figure refuses to draw if a guard is removed
+      width", the manifest-width equality, the partition fit) — the
+      knob builds through this same block (MOON_ASSET_TARGET=knob), so
+      there is no knob-side copy; the figure refuses to draw if a
+      guard is removed
   spiffs payload                   spiffs/ file sizes; settings.txt must
       be ABSENT (CLAUDE.md's rule: the app owns it at runtime)
   the P4 2560-wide hypothetical    partitions_p4.csv comment (claimed
       albedo/DEM/sum + "need >= 5248K") — re-derived from the layout
       rule, the comment's arithmetic is checked, not trusted
-  the knob 2048x1024-DEM sizing    knob/partitions.csv comment ("albedo
+  the knob 2048x1024-DEM sizing    partitions_knob.csv comment ("albedo
       864x432 u8 then relief DEM 1024x512 i8 = 897,536 B"; "sized for
       the proven 2048x1024-DEM bake too")
   binary sizes                     build/moon-phase.bin, build/p4/
-      moon-phase.bin, ../build/knob/knob.bin (check_docs_drift.py's
+      moon-phase.bin, build/knob/moon-phase.bin (check_docs_drift.py's
       exact paths — one truth with the binary page's rows)
 
 Identity colors per gen_perf_figs.py: S3 blue, P4 vermillion, knob
@@ -108,19 +110,18 @@ import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-REPO_PARENT = os.path.dirname(ROOT)     # the knob builds OUTSIDE the repo
 OUT = os.path.join(HERE, "..", "_static", "figs", "perf_storage.png")
 
 TARGETS = ("s3", "p4", "knob")
 CSV = {
     "s3": os.path.join(ROOT, "partitions.csv"),
     "p4": os.path.join(ROOT, "partitions_p4.csv"),
-    "knob": os.path.join(ROOT, "knob", "partitions.csv"),
+    "knob": os.path.join(ROOT, "partitions_knob.csv"),
 }
 BIN = {
     "s3": os.path.join(ROOT, "build", "moon-phase.bin"),
     "p4": os.path.join(ROOT, "build", "p4", "moon-phase.bin"),
-    "knob": os.path.join(REPO_PARENT, "build", "knob", "knob.bin"),
+    "knob": os.path.join(ROOT, "build", "knob", "moon-phase.bin"),
 }
 MANIFEST = {t: os.path.join(ROOT, "assets", "images", "moon", "out", t,
                             "moon_assets_manifest.json") for t in TARGETS}
@@ -133,7 +134,6 @@ SDKCFG = {
     "p4": os.path.join(ROOT, "build", "p4", "config", "sdkconfig.h"),
 }
 ROOT_CMAKE = os.path.join(ROOT, "CMakeLists.txt")
-KNOB_CMAKE = os.path.join(ROOT, "knob", "CMakeLists.txt")
 SPIFFS = os.path.join(ROOT, "spiffs")
 
 INK = "#1c2128"
@@ -290,10 +290,19 @@ for t in ("s3", "p4"):
         raise SystemExit(f"{t}: CONFIG_MOON_ALBEDO_W={got} but the blob is "
                          f"baked at alb_w={mani[t]['alb_w']} — exactly what "
                          f"the root's manifest-equality FATAL_ERROR guards")
-if "CONFIG_MOON_ALBEDO_W" in _read(KNOB_CMAKE):
-    raise SystemExit("knob/CMakeLists.txt now checks CONFIG_MOON_ALBEDO_W — "
-                     "the documented 'no Kconfig mirror' asymmetry changed; "
-                     "re-read knob/CMakeLists.txt:51-54")
+# the knob has NO MOON_ALBEDO_W Kconfig mirror — the knob runs this SAME
+# root guard block (MOON_ASSET_TARGET knob) but its width cross-check is
+# skipped (the documented asymmetry); the knob's own guards are the
+# manifest's alb_w + the partition fit below
+root_txt = _read(ROOT_CMAKE)
+if "set(MOON_ASSET_TARGET knob)" not in root_txt:
+    raise SystemExit("root CMakeLists: MOON_ASSET_TARGET no longer selects "
+                     "knob — the knob build no longer runs the root guard "
+                     "block")
+if 'NOT MOON_ASSET_TARGET STREQUAL "knob"' not in root_txt:
+    raise SystemExit("root CMakeLists: the knob's width-cross-check skip is "
+                     "gone — the documented 'no Kconfig mirror' asymmetry "
+                     "changed; re-read the MOON_ASSET_TARGET block")
 
 # the guards themselves must still EXIST (the figure is the docs' twin of
 # the build-time trio — a removed guard must not keep drawing quietly)
@@ -302,8 +311,6 @@ must(r"but the Kconfig is MOON_ALBEDO_W", ROOT_CMAKE, "root manifest-width guard
 # the root's fit message is SPLIT across two CMake string literals
 # ("... do not " / "fit the ..."), so quotes may sit between the words
 must(r'do not\s*["\s]*fit the', ROOT_CMAKE, "root partition-fit guard", re.I)
-must(r"Missing knob moon assets", KNOB_CMAKE, "knob manifest-existence guard")
-must(r"do not fit the moon_assets partition", KNOB_CMAKE, "knob fit guard")
 
 # spiffs payload: the files the storage image bakes (FLASH_IN_PROJECT);
 # settings.txt must be ABSENT — the app owns it at runtime (CLAUDE.md)
@@ -387,12 +394,13 @@ if _n(m.group(1)) != mani["s3"]["dem_bytes"]:
 
 # the moon_movie rows (LAST, all three tables): the boot-movie blobs —
 # the on-disk .bin sizes and the manifests' total_bytes, both parsed,
-# both asserted equal (the root CMake's movie guard #2 / the knob's
-# mirrored guard prices the same pair at configure; guard #1 keeps the
-# whole table inside the chip, the figure's own total re-derivation
-# above is that arithmetic). The P4's row starts past the old 16 MB
-# mark — the 32 MB bump prices it; the knob's row fills the leftover
-# after the 64 K coredump ring moved after it.
+# both asserted equal (the root CMake's movie guard #2 prices the same
+# pair at configure for all three builds — the knob builds through this
+# same file; guard #1 keeps the whole table inside the chip, the
+# figure's own total re-derivation above is that arithmetic). The P4's
+# row starts past the old 16 MB mark — the 32 MB bump prices it; the
+# knob's row fills the leftover after the 64 K coredump ring moved
+# after it.
 movies = {}
 for _t in TARGETS:
     _d = os.path.join(ROOT, "assets", "images", "moon", "out", _t)
