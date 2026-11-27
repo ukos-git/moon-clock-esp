@@ -1,13 +1,6 @@
 # Moon Phase Clock
 
-<img src="https://img.shields.io/badge/runs%20offline-e3a33b" alt="runs offline">
-<img src="https://img.shields.io/badge/vibecoded-100%25-c2577a" alt="vibecoded: 100 %">
-<a href="https://github.com/ukos-git/moon-clock-esp/actions/workflows/docs.yml"><img src="https://github.com/ukos-git/moon-clock-esp/actions/workflows/docs.yml/badge.svg" alt="docs"></a>
-&nbsp; <img src="https://img.shields.io/badge/C-92.6%25-555555" alt="C">
-<img src="https://img.shields.io/badge/Python-5.6%25-3572A5" alt="Python">
-<img src="https://img.shields.io/badge/CMake-1.0%25-644917" alt="CMake">
-<img src="https://img.shields.io/badge/C%2B%2B-0.6%25-f34b7d" alt="C++">
-<img src="https://img.shields.io/badge/Shell-0.2%25-89e051" alt="Shell">
+<p align="center"><img src="https://img.shields.io/badge/runs-offline-e3a33b" alt="runs offline"><img src="https://img.shields.io/badge/vibecoded-100%25-c2577a" alt="vibecoded: 100 %"><a href="https://github.com/ukos-git/moon-clock-esp/actions/workflows/docs.yml"><img src="https://github.com/ukos-git/moon-clock-esp/actions/workflows/docs.yml/badge.svg" alt="docs"></a><img src="https://img.shields.io/badge/C-92.6%25-237893" alt="C"><img src="https://img.shields.io/badge/Python-5.6%25-3572A5" alt="Python"><img src="https://img.shields.io/badge/Shell-0.2%25-89e051" alt="Shell"></p>
 
 A round desk clock that shows the Moon as it looks right now. A microcontroller
 computes where the Sun, the Earth and the Moon are, then draws the Moon pixel
