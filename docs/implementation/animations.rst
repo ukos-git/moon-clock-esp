@@ -1,70 +1,65 @@
 The animation pipelines
 =======================
 
+.. brief:
+   Reader: a developer working on the home's live motion: the orbit, the hourly
+   refresh, the boot presentation, the fade.
+   They already know: C, FreeRTOS tasks, the atomic-display rule.
+   After this page they can: trace each live pipeline from trigger to the atomic show.
+   Page type: explanation.
+
 A moon clock is mostly *waiting* — waiting for the next minute, the
-next hour, the next wake. The project's answer to waiting used to be
-to make the waiting itself the interface: three motion pipelines, all
-built on
-the one atomic-display rule (:doc:`the architecture <architecture>`) and the one panel-write
-discipline (:doc:`the display pipeline <display>`). All three were retired :commit:`79937e37`. What is left on the home:
+next hour, the next wake. The home has three live pipelines, all built
+on the one atomic-display rule (:doc:`the architecture
+<architecture>`) and the one panel-write discipline (:doc:`the display
+pipeline <display>`):
 
 1. **The orbit** — a *response*, not an animation: the tilt viewport
    re-bake, one atomic frame per sustained pose change.
 2. **The hourly refresh** — the moon redraws once per hour with the
-   OLD frame up the whole cycle: the producer produces the
+   old frame up the whole cycle: the producer produces the
    current-phase frame (a cache hit or a cold bake, the seconds arc
    sweeping the bake's rows watermark as a progress bar —
    :doc:`the compute progress <compute-progress>`), the finished
-   frame landing as ONE atomic whole-panel flush in the bright panel.
-   No 0x51 traffic at all (the fade retired :commit:`ee4e3efd`). The one live
-   motion left on the home (see *The hourly refresh* below).
+   frame landing as one atomic whole-panel flush in the bright panel.
+   No 0x51 traffic at all.
 3. **The fade** — the screen-switch dim (and the light-sleep dim and
-   wake ramp), which writes no pixels. This is the ONE
+   wake ramp), which writes no pixels. It is the one
    hardware-brightness-ramp exception to the atomic-display rule
-   (the hourly refresh stopped riding it on :commit:`ee4e3efd` — the compute
-   progress change) (:doc:`the architecture <architecture>`).
+   (:doc:`the architecture <architecture>`).
 
-Retired :commit:`79937e37`, one after the other: **the free spin** (the
-ball-in-hand burn-in rotation — *"It does more things worse than
-good."*), **the boot sweep** (the current synodic month played at
-boot), and **the dusk** (the light-sleep pole spin to the dark side —
-light sleep is a **static dim frame** now: panel to 25 %, clock to
-20 % alpha, and the deep-sleep countdown armed at the entry itself;
-:doc:`the clock and sleep machine <clock-sleep>`). The home sleeps as a
-static dim and refreshes its moon once per hour (below). At boot it
-**presents the boot movie** (:doc:`the boot movie <moon-movie>`): a
-precomputed synodic cycle baked at build time and flashed into the
-``moon_movie`` data partition plays **looping** while a second core-1
-task bakes the live current phase in PARALLEL (the seconds arc
-sweeping the bake's rows watermark as a progress bar, the compute
-section's dummy — :doc:`the compute progress <compute-progress>` —
-is the floor under both); when the bake lands the movie plays forward
-to the frame matching the current phase and the live-computed frame
-lands as the final frame, ONE atomic whole-panel flush over it (with
-no valid movie the card's stored hours play ascending instead — the
-:commit:`dabbf475` card replay, demoted to the fallback — and with neither
-source the quick phase disc holds until the final bake lands — *The
-boot replay*, below). This is
-storage playback (the flash-resident movie first, the hour cache as
-fallback) — not a return of the computed
-boot animation the project retired; with ``UI_MOON_BOOT_REPLAY=n`` the
-home boots straight to the static current phase again (no SD bus at
-boot either way). The home's moon
-is plain LVGL, shown static; see :doc:`the architecture <architecture>`
-for what the removals left of the exceptions list. The removed
-subsystems are summarized below as dated history (their full per-frame
-measurements live in the git history of this page). The TF card cache
-module outlived the sweep it was built for and now serves the hourly
-refresh as the **TF hour cache** (below); its sweep-era Kconfig keys
-(``UI_MOON_TFCACHE_FPS``, ``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) were
-retired with the config sweep.
+Light sleep is a **static dim frame**: panel to 25 %, clock to 20 %
+alpha, and the deep-sleep countdown armed at the entry itself
+(:doc:`the clock and sleep machine <clock-sleep>`).
 
-**Burn-in is accepted.** With the rotation gone, the S3's AMOLED shows
-the moon in one place for weeks on end, so a faint burn-in of the moon
-into the panel is *likely* over the device's life. As of :commit:`eed1d856`
-that is a settled product decision, not an oversight: a burned-in moon counts
-as a **feature rather than a bug** — the ghost is the
-clock's own subject, and it will likely not disturb reading the
+At boot the home **presents the boot movie** (:doc:`the boot movie
+<moon-movie>`): a precomputed synodic cycle baked at build time and
+flashed into the ``moon_movie`` data partition plays **looping** while
+a second core-1 task bakes the live current phase in parallel (the
+seconds arc sweeping the bake's rows watermark as a progress bar, the
+compute section's dummy — :doc:`the compute progress
+<compute-progress>` — is the floor under both); when the bake lands
+the movie plays forward to the frame matching the current phase and
+the live-computed frame lands as the final frame, one atomic whole-
+panel flush over it (with no valid movie the card's stored hours play
+ascending instead, and with neither source the quick phase disc holds
+until the final bake lands — *The boot presentation*, below). It is
+storage playback — the flash-resident movie first, the hour cache as
+fallback; with ``UI_MOON_BOOT_REPLAY=n`` the home boots straight to
+the static current phase (no SD bus at boot either way).
+
+The home's moon is plain LVGL, shown static. The motion pipelines that
+existed before — the free spin, the computed boot sweep, the dusk —
+are summarized in :doc:`the design history <../project/history>`,
+together with their per-frame measurements. The TF card cache module
+serves the hourly refresh as the **TF hour cache** (below).
+
+**Burn-in is accepted.** The S3's AMOLED shows the moon in one place
+for weeks on end, so a faint burn-in of the moon into the panel is
+*likely* over the device's life. That is a settled product decision
+(:doc:`the design history <../project/history>`), not an oversight: a
+burned-in moon counts as a **feature rather than a bug** — the ghost
+is the clock's own subject, and it will likely not disturb reading the
 display. Re-introducing any anti-burn-in machinery (a rotation, a
 pixel nudge, anything) needs a fresh product decision first.
 
@@ -406,79 +401,23 @@ back on the home), and a degraded run sets ``s_frame_stale`` — the
 panel rests on the last COMPLETE frame (a movie frame or the disc);
 nothing to heal.
 
-The boot sweep (retired :commit:`51119200`)
--------------------------------------------
+The boot sweep (removed)
+------------------------
 
-Retired with the rest of the animation stack: the COMPUTED boot
-animation is gone — no per-frame bake task, no 1344-frame montage. With
-``UI_MOON_BOOT_REPLAY=n``, ``moon_ui_start`` bakes the CURRENT phase
-directly and boot is one static frame, like every wake. What returned is a different animal: the boot replay (*above*) plays
-**stored** hour frames — pure playback, one JPEG decode per frame, no
-bake — and ends on the newest stored hour plus the computed now-frame,
-not on a computed montage endpoint. ``new_moon_epoch`` lives again in
-that service (the cache policy's new-moon floor, not a sweep span); the
-sweep itself is gone. The knob sibling followed :commit:`e8efbee3`,
-retiring its own cold-boot sweep, and with no SD socket it boots to the
-single static frame — and since :commit:`ee4e3efd` (the compute-progress
-change) its boot without a saved frame holds the quick phase disc
-instead of black (:doc:`the compute progress <compute-progress>`,
-:doc:`the knob display <knob-display>`). The subsystem as shipped is
-summarized here only as dated history; the sweep code
-(``moon_sweep_task`` / ``moon_sweep_interrupt`` / ``s_sweep_*``) and its
-Kconfig (``UI_MOON_ANIM_*``) are gone from the clock tree.
-
-What it did: at boot the moon replayed the **current synodic cycle** —
-from the last new moon (a dark disk) to *now*, at most 29.53 days — in
-``UI_MOON_ANIM_FRAMES`` frames (1344 since :commit:`57aa0cae`, when the per-frame
-illumination jump at the old 336-frame density read as a visible stutter).
-The span came from ``new_moon_epoch``, a two-pass backward scan of
-``moon_geometry``'s illumination (a 6 h coarse grid over one synodic month,
-then a 20-min fine pass around the coarse minimum, the 1e-6 slack keeping a
-tied coarse step from drifting into a neighbouring cycle). A core-1 bake
-task produced the frames **off screen** and published them one at a time;
-the tick displayed each as one atomic whole frame (the whole-panel
-``lv_refr_now``, measured 304 ms S3 / 207 ms P4), and the **backpressure**
-rule — the bake did not start frame *f*+1 until the tick had displayed
-frame *f* — is what kept a mixed (torn) frame off screen. Because the
-display was faster than the bake (~1.3 s at native resolution), the bake
-paced the sweep: a full-res boot ran ~36.5 min (S3, 1344 frames) / ~40 min
-(P4), intermediate frames baked at native ``MOON_PX`` (400 / 650) since
-:commit:`7c3a39d1`, so the montage was pixel-identical to the static bake. The
-per-frame cost carried over unchanged to the deferred re-bake and the
-hourly producer, which bake at the same native resolution and hit the same
-864-albedo PSRAM load-latency floor (:doc:`the C core <core-c>`); the
-retired subsystem's full per-resolution bake table and the
-TF-cache-state × board wall table are the 2026-11-08 bench captures in this
-page's git history.
-
-The TF card cache it drove was the **sweep's** cache — its prefetch task
-(``moon_tfprefetch``, core 0), its replay pacing (``UI_MOON_TFCACHE_FPS``)
-and PSRAM slot floor (``UI_MOON_TFCACHE_PREFETCH_MIN_SLOTS``) retired with
-the sweep, and the config sweep deleted those keys. The *module* outlived
-it: ``moon_tfcache.c`` now serves the hourly refresh as the **TF hour
-cache** (*The TF hour cache*, above) — the same versioned, self-describing
-``/sdcard/moon_cache/<calcver>_<target>_<px>/`` folder, the same gray-JPEG
-codec (``esp_new_jpeg``, format self-probed at init), the same
-tint-LUT-identical fetch, and the same silent card-less fallback, all on
-the per-board mount (S3 SPI 1-bit on SPI3_HOST, P4 4-bit SDMMC) and
-``CONFIG_FATFS_LFN_HEAP``. Two dated facts about that module stay worth
-knowing because they still shape it: the folder is keyed on the
-commitizen-set version (the ``version`` line in ``.cz.toml``, which
-``cz bump`` writes; the ``git describe`` short hash keys it only until the
-first bump), so **the card re-keys on a deliberate version bump** and the
-stale sibling folders are pruned then — plain commits no longer start the
-cache from zero (the old per-commit ``git describe`` key did, ``-dirty``
-suffix and all, until :commit:`56ce4dea`); and the
-decode out-buffer is allocated **lazily** on the first hit rather than at
-init (:commit:`0dd75745`) — holding the ``3·S²`` buffer eagerly starved
-the 8 MB S3's slot floor and silently killed the card path *every* boot, so
-the cache could never warm. The spin's keep-mask/snapshot starvation that a
-healthy card once exposed has no surface left to starve — the
-spin and its full-screen ``lv_snapshot`` are gone
-(:doc:`the architecture <architecture>`). The once-a-day sky-events day
-scan that used to print ``IDLE0`` watchdog bursts on the LVGL task at boot
-was root-caused and moved off it :commit:`36f1a635` (the core-1 sky-events worker,
-*Who pays for the day scan*, below).
+The computed boot animation (the current synodic month played at boot,
+1344 baked frames) is gone: no per-frame bake task, no montage. With
+``UI_MOON_BOOT_REPLAY=n``, ``moon_ui_start`` bakes the current phase
+directly and boot is one static frame, like every wake. The boot
+presentation (*above*) is a different animal: it plays **stored** hour
+frames — pure playback, one JPEG decode per frame, no bake — and ends
+on the newest stored hour plus the computed now-frame. ``new_moon_epoch``
+lives on as the TF hour cache's new-moon floor (not a sweep span). The
+knob has no SD socket and boots to the single static frame; a boot
+without a saved frame holds the quick phase disc instead of black
+(:doc:`the compute progress <compute-progress>`, :doc:`the knob
+display <knob-display>`). What the sweep did, and what its TF-cache
+era established, is in :doc:`the design history
+<../project/history>`.
 
 Who pays for the day scan
 ..........................
@@ -570,46 +509,22 @@ change (the tilt confirmation — 1 s windowed mean, integer
 quadrant, sustained confirmation, :doc:`the clock and sleep machine <clock-sleep>` — exists precisely so a
 single sample never pays that cost).
 
-The dusk (retired :commit:`f7740500`)
--------------------------------------
+The dusk (removed)
+------------------
 
-Retired with the rest of the animation stack: the light-sleep entry is
-now the **static dim** itself — ``moon_ui_pause(true)`` interrupts the
-orbit and pauses the tick, the clock widget drops to
-``UI_CLOCK_ALPHA_PCT`` (20 %), ``moon_ui_panel_dim_ramp`` walks the
-panel to ``UI_LIGHT_SLEEP_DIM_PCT`` (25 %), and the deep-sleep countdown
-is armed at the entry itself (the countdown used to fire only once the
-dusk's dark side was on screen — sleep depth followed the animation; it
-now follows the timer, :doc:`the clock and sleep machine <clock-sleep>`).
-The code (``moon_dusk_task`` / ``moon_ui_dusk_start`` / ``MOON_DUSK_*``
-and the shade-map decls) is gone from the clock tree.
-
-What it did: the entry rotated the camera about the Moon's **pole**
-(body-frame +z) at the current phase, 1°/frame along the shortest arc to
-the fully unilluminated side (14–95 s, display-paced at ~0.2 s/frame),
-then armed the countdown. It was cheap because of the
-**constant-projection property**
-(:doc:`the dark side <../science/darkside>`, :doc:`the C core <core-c>`):
-a pixel's color depends on the body-frame surface direction and the
-epoch's fixed Sun only — the view basis selects *which* direction is
-visible but never enters the *color* — so the full body-frame shade map
-was **built once** for the epoch (``moon_shade_map_build``, ~1.6 s S3 /
-~282 ms P4) and every frame **re-projected** it through the folded camera
-basis (a ``moon_rotate``-class gather, ~50 ms, **not** a ~1.3 s re-bake).
-A fixed surface point kept exactly its map cell's color on every frame, so
-the terminator could not flicker. The endpoint is where
-:math:`\mathbf{E}\cdot\mathbf{S}` is minimized (the disk fully night-side;
-the shortest-arc minimum :math:`\phi^* = \mathrm{atan2}(-B,\,-A)`,
-host-verified against a full-circle grid), and with :math:`\mathbf{E}` the
-orbit-folded view direction (the tilt peeks the view, so the endpoint was
-computed from the folded, not the plain, :math:`\mathbf{E}`). The **final
-frame** was one full-``MOON_PX`` bake at ``phi*``; its thin sun-lit rim was
-handled by the ``dk_sup`` backlit-sliver parameter — the bake entry point
-still carries it (the portable core is shared verbatim with the host tools)
-but every device bake today passes 0, and :doc:`the dark side
-<../science/darkside>` documents the model. The shade-map and pole-rotate
-entry points stay in the portable core, exercised by the shared host tools
-(:doc:`the C core <core-c>`).
+The dusk spin (the light-sleep entry's pole rotation to the dark side)
+is gone. The light-sleep entry is the **static dim** itself:
+``moon_ui_pause(true)`` interrupts the orbit and pauses the tick, the
+clock widget drops to ``UI_CLOCK_ALPHA_PCT`` (20 %),
+``moon_ui_panel_dim_ramp`` walks the panel to ``UI_LIGHT_SLEEP_DIM_PCT``
+(25 %), and the deep-sleep countdown is armed at the entry itself —
+sleep depth follows the timer
+(:doc:`the clock and sleep machine <clock-sleep>`). What the dusk did,
+and the constant-projection property that made it cheap, is in :doc:`the
+design history <../project/history>`. The bake entry point still carries
+the ``dk_sup`` backlit-sliver parameter (the portable core is shared
+verbatim with the host tools); every device bake passes 0, and :doc:`the
+dark side <../science/darkside>` documents the model.
 
 The fade (no pixels written)
 ----------------------------
@@ -766,21 +681,16 @@ this page.
 The clock digit roll (opt-in)
 -----------------------------
 
-Task #54's split-flap look animated a minute-pair change as a
-roller-style roll (two-line strip, ease-out, ``CLOCK_ROLL_MS`` 300 ms,
-in the wheel-delta direction — the 5456799-era shared home). It is
-gated by ``UI_CLOCK_ROLL_ENABLE`` and **OFF by default**: the roll
-fires exactly when the seconds arc completes its cycle, and read as a
-spurious ARC animation ("the arc seems to have an
-animation active when completing the full cycle to update top-to
-bottom the spinner. If this can be switched off, that would be
-good"). With it off, every pair change takes the mixed-jump
-hard-swap branch — the label changes in one frame. (The shared
-``label_changed`` tail that used to rebuild the spin keep-mask on
-this signal died with the spin subsystem, :commit:`79937e37`.) (The seconds
-arc itself never
-animated: LVGL 9.6's ``lv_arc_set_value`` is instant and the arc
-styles carry no transitions.)
+The clock digits can animate a minute-pair change as a roller-style
+roll (two-line strip, ease-out, ``CLOCK_ROLL_MS`` 300 ms, in the wheel-
+delta direction). It is gated by ``UI_CLOCK_ROLL_ENABLE`` and **OFF by
+default**: the roll fires exactly when the seconds arc completes its
+cycle, and read as a spurious arc animation on the bench ("the arc
+seems to have an animation active when completing the full cycle").
+With it off, every pair change takes the mixed-jump hard-swap branch —
+the label changes in one frame. The seconds arc itself never animates:
+LVGL 9.6's ``lv_arc_set_value`` is instant and the arc styles carry no
+transitions.
 
 Next: the machine that decides *when* all of this runs — the clock,
 the idle/sleep state machine, and the wake paths (:doc:`the clock and sleep machine <clock-sleep>`).

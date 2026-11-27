@@ -1,6 +1,12 @@
 Manual time entry (P4)
 ======================
 
+.. brief:
+   Reader: a developer working on the manual time screen or the P4 time base.
+   They already know: C, the settings store and the P4's crystal time base.
+   After this page they can: find the two rollers, the commit path and why the screen is P4-only.
+   Page type: reference.
+
 Manual time entry — **P4 only**: the S3's PCF85063A is the time base and needs no manual entry, while the P4 (the crystal RTC timer + SNTP) carries the clock icon first on its hub ring (7 icons) to reach this screen. Two rows: the **time** HH:MM (the 96 px clock font, at the home clock label's position — no seconds: the home label shows none either, and adjusting them here would have no visible effect) and the **date** DD.MM.YY (the 48 px font, below). Releasing any ONE roller commits the whole value (the exit button's click commits it too, ``event_handler_cb_settings_time_exit``).
 
 The screen itself compiles unconditionally (only the hub *icon* is

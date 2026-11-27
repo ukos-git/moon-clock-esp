@@ -1,39 +1,21 @@
-Compute progress — the phase disc and the arc
-=============================================
+Compute progress: the phase disc and the arc
+============================================
 
-The brief (:commit:`ee4e3efd`): *"There is no point currently in giving out
-iteratively the result of the current calculation. It is simply not
-performant enough to yield calculation-steps. Instead, show the calculation
-progress in reasonable update steps using the seconds display arc that is
-already showing on the display after startup — use it as a calculation
-progress bar. As a dummy image (instead of the black image), use a plain
-sphere projection of the moon with its current phase … easiest and quickest
-to calculate … this stays as a dummy during calculation of the more advanced
-image."* — with the mid-turn refinement: *"if a calculated image is present
-you might as well stay on that; only if there would be a dark background,
-show the quick-calculated phase image."*
+.. brief:
+   Reader: a firmware developer working on the moon pipeline or the home screen.
+   They already know: C, FreeRTOS tasks, LVGL objects, the atomic-frame rule.
+   After this page they can: say what the panel shows while a bake runs, and change the progress seam without breaking the frame rule.
+   Page type: explanation.
 
-It replaced the strip-by-strip **bake reveal** (:commit:`5008dade`,
-this page's predecessor ``bake-reveal.rst`` — its 2026-11-14/15 bench
-numbers below remain the accepted bake-cost measurements). The reveal's
-entire display side is gone: the band state machine, the one-strip-per-tick
-pacing rule, the catch-up bands, the heal path, the ``s_hourly_faded``
-fade choreography — and with it four Kconfig keys
-(``UI_MOON_BAKE_REVEAL``, ``KNOB_UI_BAKE_REVEAL``,
-``UI_MOON_HOURLY_FADE_MS``, ``TEST_BAKE_REVEAL_TRACE``; all three trees,
-:commit:`ee4e3efd`). What remains of the reveal is its **producer** — the
-strip loop with the rows-completed watermark — repurposed: the watermark
-now feeds a progress bar instead of a display. And the display side is two
-small things: a **quick phase disc** in the dark windows, and the home/wifi
-**seconds arc** doubling as the progress bar.
+While the clock computes a new moon frame (a *bake*, about 1.3 s on the S3), the panel never shows a half-finished image.
+It keeps the last complete frame on the panel, or a cheap flat phase disc when there is none, and the seconds arc on the home and Wi-Fi screens turns into a progress bar.
+When the bake finishes, the new frame lands in one atomic whole-panel flush.
+This page explains the three pieces that make this work, where the disc appears, and what it costs.
 
-The invariant is unchanged — in fact it got simpler: there is now exactly
-ONE sanctioned exception to the one-atomic-whole-panel rule (the
-screen-switch 0x51 ramp), where the reveal was the second. Every image that
-lands on the panel — the disc, the old frame, the finished bake — is ONE
-atomic ``lv_refr_now`` under ``s_rgb_mtx``; the only thing that moves
-continuously during a bake is the arc, and the arc is an ordinary LVGL
-object, not a panel-write.
+Every image that reaches the panel (the disc, the old frame, the finished bake) is one atomic ``lv_refr_now`` under ``s_rgb_mtx``.
+The only thing that moves during a bake is the arc, and the arc is an ordinary LVGL object, not a panel write.
+That leaves one sanctioned exception to the atomic-frame rule: the screen-switch brightness ramp (register 0x51), which writes no pixels.
+The strip-by-strip bake reveal that came before this design is described in :doc:`/project/history`.
 
 The three pieces
 ----------------
@@ -41,9 +23,8 @@ The three pieces
 The flat phase disc (core: ``moon_bake_phase_dummy``)
 ........................................................
 
-``components/moon/core/moon_bake.c`` (declared in
-``components/moon/include/moon.h``) carries the dummy — shared verbatim
-with the host simulator and the knob like the rest of the core:
+:cfile:`components/moon/core/moon_bake.c` holds the disc, declared in :cfile:`components/moon/include/moon.h`.
+Like the rest of the portable core, it is shared verbatim with the host simulator and the knob.
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c — the whole function is one row loop
@@ -57,33 +38,27 @@ with the host simulator and the knob like the rest of the core:
         * dark side = 0  */
    }
 
-The exact sphere geometry of the real bake's ``bake_px`` — the same
-``right``/``up`` basis, the same ``E`` (Moon's unit normal), the same
-``S`` (Sun direction) — with everything expensive removed: no albedo tap,
-no relief gradient, no event tint, no PSRAM texture loads. The cost is one
-``sqrtf`` and two dot products per in-disk pixel: **tens of ms on the S3**
-vs ~1.3 s for the full bake, ~1 s on the knob. A full moon is a uniform
-bright disc with a Lambert limb falloff; a crescent is the lit wedge the
-phase dictates; the dark side is plain 0 (no earthshine, no backlit
-surface — the brief's "easiest and quickest", and the same
-``dark_zero=1`` posture the display bakes pass). The disc is a *dummy*:
-it shows the current phase at the correct size and position with uniform
-albedo, so the panel reads as "the moon, computing" instead of black.
+:cfunc:`moon_bake_phase_dummy` uses the same sphere geometry as the real bake's ``bake_px``.
+It has the same ``right``/``up`` basis, the same ``E`` (the Moon's unit normal) and the same ``S`` (the Sun direction).
+Everything expensive is gone: no albedo tap, no relief gradient, no event tint, and no texture loads from PSRAM (the external pseudo-static RAM).
+Each pixel inside the disk costs one ``sqrtf`` and two dot products.
+That is tens of ms on the S3, against about 1.3 s for the full bake (about 1 s on the knob).
 
-The watermark and the arc (the seam)
-....................................
+A full moon comes out as a uniform bright disc with a Lambert falloff towards the limb.
+A crescent is the lit wedge the phase dictates.
+The dark side is plain 0, with no earthshine and no backlit surface, the same ``dark_zero=1`` posture the display bakes use.
+The disc shows the current phase at the correct size and position with uniform albedo, so the panel reads as "the moon, computing" instead of black.
 
-The producer keeps the reveal's strip loop (renamed
-``moon_bake_progress``, ``moon_ui.c:1402``): ``moon_bake_rows`` per
-``MOON_COMPUTE_ROWS``-row chunk (10 rows S3 → **40 watermark steps**, 13
-rows P4 → **50**; a ``#error`` pins the divisibility, ``moon_ui.c:1324``)
-into the same PSRAM bounce, the rows-completed watermark
-(``s_compute_pub``) bumped under ``s_rgb_mtx`` after every chunk
-(``moon_ui.c:1420``), ``vTaskDelay(1)`` per strip for the IDLE1/TWDT —
-and the **owner** (``s_compute_owner``: ``COMPUTE_HOURLY`` /
-``COMPUTE_REPLAY_FINAL``) cleared LAST under the same mutex
-(``moon_ui.c:1429``). Nothing display-side converts the watermark anymore;
-the screens read it:
+The watermark and the arc
+.........................
+
+The producer is the strip loop :cfunc:`moon_bake_progress` in :cfile:`components/ui/moon_ui.c`.
+It calls ``moon_bake_rows`` once per ``MOON_COMPUTE_ROWS``-row chunk into the PSRAM bounce buffer.
+The chunk is 10 rows on the S3 (**40 watermark steps**) and 13 rows on the P4 (**50**); a ``#error`` pins the divisibility (:clabel:`components/ui/moon_ui.c:1350`).
+After every chunk the producer raises the rows-completed watermark (``s_compute_pub``) under ``s_rgb_mtx``.
+It calls ``vTaskDelay(1)`` per strip so the IDLE1 task can feed the task watchdog (TWDT).
+The owner flag (``s_compute_owner``: ``COMPUTE_HOURLY`` or ``COMPUTE_REPLAY_FINAL``) is cleared last, under the same mutex.
+Nothing on the display side converts the watermark; the screens read it through the seam:
 
 .. code-block:: c
    :caption: components/ui/moon_ui.h — the seam (the knob's seam answers the same pair; the uisim stubs it)
@@ -91,48 +66,40 @@ the screens read it:
    bool    moon_ui_compute_active(void);   /* a compute bake is in flight */
    int32_t moon_ui_compute_progress(void); /* 0..100 (pub*100/MOON_PX) */
 
-The home and wifi screens' tick (``arc_seconds_tick``,
-``components/ui/screens.c``) drives the existing seconds arc
-(``objects.arc_clock_seconds_modem`` / ``_wifi``, range 0–60) from it:
-while a compute is active the arc value is ``progress * 60 / 100`` —
-the watermark advances per strip, so the arc sweeps in the same
-reasonable steps the watermark produces (40/50 over the S3/P4 final
-bake); the moment the compute completes the very next tick restores the
-real seconds. The update is a plain LVGL invalidate (no whole-panel
-flush, no drain witness) — the arc rides normal LVGL refresh, which is
-exactly why it can move per strip while the frame rule stays untouched.
-The readers owe no lock: the watermark only moves up within one bake,
-and the owner flips back to ``COMPUTE_NONE`` under ``s_rgb_mtx`` after
-the last strip, so a tick sees either (active, rising) or (inactive,
-ignored) — never a torn pair.
+The tick of the home and Wi-Fi screens, :cfunc:`arc_seconds_tick` in :cfile:`components/ui/screens.c`, drives the existing seconds arc from the seam.
+The arcs are ``objects.arc_clock_seconds_modem`` and ``_wifi``, with a range of 0 to 60.
+While a compute is active the arc value is ``progress * 60 / 100``.
+The watermark advances per strip, so the arc sweeps in 40 steps on the S3 and 50 on the P4 over the final bake.
+On the first tick after the compute completes, the arc shows the real seconds again.
 
-The old-frame-then-atomic hourly (the fade retires)
-....................................................
+The arc update is a plain LVGL invalidate, with no whole-panel flush and no drain witness.
+It rides the normal LVGL refresh, which is why it can move per strip while the frame rule stays intact.
+The readers need no lock.
+The watermark only rises within one bake, and the owner flips back to ``COMPUTE_NONE`` under ``s_rgb_mtx`` after the last strip.
+A tick therefore sees either (active, rising) or (inactive, ignored), never a torn pair.
 
-The once-per-hour refresh no longer owns ANY 0x51 traffic
-(``UI_MOON_HOURLY_FADE_MS`` and ``s_hourly_faded`` are gone): the probe's
-gates are unchanged (``moon_hourly_probe``), but the tick's start leg
-simply spawns the producer — **the old frame stays on the panel the whole
-bake** (the brief's "if a calculated image is present, stay on it"), and
-the finished frame lands as ONE atomic whole-panel flush in the BRIGHT
-panel (``moon_hourly_finish``'s done leg, ``moon_ui.c:1789`` onward).
-On a TF fetch hit the hit frame likewise lands atomically over the old
-frame — no fade, no black. The arc sweeps during the cold bake; on a hit
-there is no compute, so the arc shows real seconds. Every exit path is
-now trivial because the old frame is always a consistent whole-panel
-state: a blown deadline or a failed producer leaves the old frame up
-(nothing to restore); a sleep entry mid-bake sets ``s_compute_stop``
-(``moon_ui_pause``, ``moon_ui.c:2975``) and the producer deletes itself
-*before* the publish (the partial bounce is never shown — the watermark's
-bounce-only rule), the wake re-bakes on its next cycle; the replay's
-final leg observes ``s_replay_abort`` the same way. There is no heal path
-left: the partial rows of an in-flight bake are NEVER displayed.
+The hourly refresh keeps the old frame up
+.........................................
 
-Where the disc shows (and where it does not)
---------------------------------------------
+The once-per-hour refresh sends no brightness (0x51) traffic.
+The probe's gates are in :cfunc:`moon_hourly_probe`; when they pass, the tick's start leg spawns the producer.
+The old frame stays on the panel for the whole bake.
+The finished frame then lands as one atomic whole-panel flush in the bright panel (the done leg of :cfunc:`moon_hourly_finish`).
+On a TF (microSD) cache hit, the cached frame also lands atomically over the old frame, with no fade and no black.
+The arc sweeps during a cold bake; on a cache hit there is no compute, so the arc keeps showing seconds.
 
-The disc appears ONLY where the panel would otherwise be dark — i.e.
-there is no committed frame to stay on:
+Every exit path is simple because the old frame is always a consistent whole-panel state:
+
+* A blown deadline or a failed producer leaves the old frame up, so there is nothing to restore.
+* A sleep entry mid-bake sets ``s_compute_stop`` (in :cfunc:`moon_ui_pause`), and the producer deletes itself before the publish. The partial bounce is never shown, and the wake re-bakes on its next cycle.
+* The replay's final leg watches ``s_replay_abort`` the same way.
+
+There is no heal path, because the partial rows of an in-flight bake are never displayed.
+
+Where the disc shows, and where it does not
+-------------------------------------------
+
+The disc appears only where the panel would otherwise be dark, that is, when there is no committed frame to stay on:
 
 .. list-table::
    :header-rows: 1
@@ -142,148 +109,116 @@ there is no committed frame to stay on:
      - On the panel while it computes
      - Notes
    * - Clock boot, first frame (replay or sync path)
-     - the quick phase disc (``moon_boot_disc``, ``moon_ui.c:2823``;
-       ``moon_ui.c:2860`` replay path, ``moon_ui.c:2893`` sync path)
+     - the quick phase disc (:cfunc:`moon_boot_disc`, called on both the replay path and the sync path)
      - baked into ``s_frame`` under ``s_rgb_mtx`` + ``moon_convert_to_rgb``,
        shown by the ordinary tick as one atomic flush; moves no
        ``s_baked_day``/``s_baked_hour`` bookkeeping (set from the real
        epoch); the first replay frame or the finished bake replaces it
        atomically; the arc sweeps the final bake
    * - Clock boot, no time
-     - stays black — no epoch, no phase, no disc
-     - exactly as before; the day-tick re-bakes once the clock syncs
+     - stays black: no epoch, no phase, no disc
+     - the day-tick re-bakes once the clock syncs
    * - Hourly cold bake / replay final bake
-     - the OLD frame (or the newest stored replay frame) stays up; the
-       disc does NOT appear
-     - computed image present → stay on it; the arc sweeps the watermark
+     - the old frame (or the newest stored replay frame) stays up; the
+       disc does not appear
+     - a computed image is present, so the panel stays on it; the arc sweeps the watermark
    * - Knob boot, saved frame on glass (``KNOB_UI_LAST_FRAME``)
      - the saved frame (≤ 2 days old, crc intact) stays up
-     - the fresh bake swaps over it old-frame-then-atomic; the arc sweeps
-   * - Knob boot, NO saved frame (first boot after a fresh flash)
-     - the quick phase disc (``disc_publish``, ``knob_ui.c``)
+     - the fresh bake swaps over it, old frame first and then one atomic swap; the arc sweeps
+   * - Knob boot, no saved frame (first boot after a fresh flash)
+     - the quick phase disc (:cfunc:`disc_publish`, :cfile:`components/knob_ui/knob_ui.c`)
      - published through the ordinary ``s_pub``/swap machinery (the swap
        unhides the disk atomically), ``wait_ack()`` before the real bake
        reuses the other slot; the arc sweeps the per-row watermark; the
-       disc is **never persisted** — ``/spiffs/moon_frame.bin`` stays the
-       last REAL bake
+       disc is never persisted, so ``/spiffs/moon_frame.bin`` stays the
+       last real bake
 
 The watermark contract
 ----------------------
 
-One rule carries the whole design: **the producer writes the PSRAM bounce
-strip-wise; it never writes a display buffer strip-wise.** Everything the
-panel can show (the disc, the old frame, the saved frame) is a complete
-frame that lands through the existing atomic publish/show paths; the only
-strip-wise artifact is the watermark, a counter the screens read for the
-arc. Consequences:
+One rule carries the whole design: **the producer writes the PSRAM bounce strip by strip, and never writes a display buffer strip by strip.**
+Everything the panel can show (the disc, the old frame, the saved frame) is a complete frame that lands through the existing atomic publish and show paths.
+The only strip-wise artifact is the watermark, a counter the screens read for the arc.
+That has three consequences:
 
-* No half-old/half-new composite is possible — there is nothing to
-  composite (the reveal's black-canvas premise is gone with it).
-* No heal path is possible — an abort (sleep entry, replay abort, blown
-  budget) leaves a complete frame on the panel by construction; the
-  producer simply does not publish.
-* ``s_frame`` (the 8-bit truth) is written whole, exactly as before; the
-  image gate's byte-identity proof is untouched — the finished bounce is
-  exactly what ``moon_bake`` would have produced (same ``moon_bake_rows``
-  calls, same ``dark_zero=1, dk_sup=0.0f``), and the disc is an additive
-  function the gate's frames never call.
+* No half-old, half-new composite is possible, because there is nothing to composite.
+* No heal path is needed. An abort (sleep entry, replay abort, blown budget) leaves a complete frame on the panel by construction; the producer does not publish.
+* ``s_frame`` (the 8-bit truth) is written whole. The image gate's byte-identity proof still holds: the finished bounce is exactly what ``moon_bake`` would produce (the same ``moon_bake_rows`` calls, the same ``dark_zero=1, dk_sup=0.0f``). The disc is an additive function that the gate's frames never call.
 
 Cost
 ----
 
-* **The disc**: one row loop with no texture loads — tens of ms (S3), a
-  fraction of one second (knob). It is the *only* new computation in the
-  pipeline; it runs on the boot task (clocks) or the producer (knob) and
-  is replaced atomically by the real frame.
-* **The arc**: one ``lv_arc_set_value`` per tick while a compute is
-  active — an ordinary LVGL invalidate, the same cost the seconds tick
-  already pays. No 0x51 traffic, no extra flushes, no drain-witness
-  churn: the 2026-11-15 lesson (every probe that follows a multi-strip
-  flush loses its own completion) is moot for this design, because the
-  bake itself is still ONE atomic whole-panel show at the end — the
-  ~53 ms witness per *completed* flush, not per strip.
-* **The hourly cycle loses both fade legs** (2 × 240 ms of 0x51
-  traffic); the dark window on the hourly is now *zero* — the old frame
-  is up the whole cycle.
-* **The knob's band-flush tax is gone**: the 2026-11-14 bench measured
-  the revealed boot bake at 2028–2059 ms vs the 991 ms hidden baseline —
-  the swap task's per-band ``lv_refr_now`` (prio 7) preempting the
-  producer (prio 5). With the band display deleted, the knob's boot bake
-  is back at the ~991 ms plain baseline plus the disc's tens of ms.
-* **No added memory**: the disc bakes into the existing ``s_frame``
-  (clocks) / back buffer (knob); the watermark reuses the reveal's
-  flags (three of them: owner, pub, stop).
+The disc is one row loop with no texture loads: tens of ms on the S3, a fraction of a second on the knob.
+It is the only extra computation in the pipeline.
+It runs on the boot task (clocks) or the producer (knob), and the real frame replaces it atomically.
+
+The arc costs one ``lv_arc_set_value`` per tick while a compute is active.
+That is an ordinary LVGL invalidate, the same cost the seconds tick already pays.
+There is no 0x51 traffic, no extra flush and no churn on the drain witness.
+A probe that follows a multi-strip flush loses its own completion (see :doc:`display`), but that does not apply here.
+The bake is still one atomic whole-panel show at the end, so the clock pays the ~53 ms witness once per completed flush, not once per strip.
+
+The hourly cycle has no fade legs (the earlier design spent 2 × 240 ms of 0x51 traffic on them).
+The dark window on the hourly refresh is zero, because the old frame is up the whole cycle.
+
+The knob's boot bake runs at its ~991 ms plain baseline plus the disc's tens of ms.
+With a per-band display, the knob measured 2028–2059 ms, because the swap task's per-band ``lv_refr_now`` (priority 7) preempted the producer (priority 5).
+
+No memory is added.
+The disc bakes into the existing ``s_frame`` (clocks) or back buffer (knob), and the watermark uses three flags: owner, pub and stop.
 
 Configuration
 -------------
 
-No new keys. The behavior is unconditional family-wide; the four
-retired keys were deleted from ``components/ui/Kconfig`` and
-``knob/components/knob_ui/Kconfig`` (:commit:`ee4e3efd`), and the live pins
-(``CONFIG_UI_MOON_BAKE_REVEAL``, ``CONFIG_KNOB_UI_BAKE_REVEAL``,
-``CONFIG_UI_MOON_HOURLY_FADE_MS``, ``CONFIG_TEST_BAKE_REVEAL_TRACE``)
-sedded out of ``sdkconfig`` / ``sdkconfig.p4`` / ``knob/sdkconfig`` per
-the standing rule. The "off" postures (black windows / strip reveal) are
-both retired — there is no knob to fall back to, by design.
+There are no Kconfig keys for this behaviour.
+It is unconditional on every board, with no option to fall back to black windows or a strip reveal.
+The keys that controlled the earlier reveal and hourly fade were deleted; :doc:`/project/history` lists them.
 
-Measured history (the 2026-11-14/15 reveal bench)
--------------------------------------------------
+Measured bake cost
+------------------
 
-The predecessor page's bench numbers remain the accepted **bake-cost**
-measurements of this pipeline's producer legs — the strip loop with the
-watermark is the same producer (its internals are display-independent on
-the clocks; the knob's numbers include the now-retired band-flush tax and
-are re-measured in :doc:`on-device verification <../verification/device-verify>`
-on this change's flash):
+The bench numbers below were taken with the earlier reveal firmware.
+They remain the accepted bake-cost measurements, because the producer (the strip loop with the watermark) is the same.
+On the clocks its internals do not depend on the display.
+The knob's numbers include the band-flush tax of the reveal display; :doc:`on-device verification <../verification/device-verify>` re-measures them on the current firmware.
 
 .. list-table::
    :header-rows: 1
    :widths: 40 28 32
 
-   * - Flow (2026-11-14/15 bench, reveal era)
+   * - Flow (reveal-era bench)
      - Measured
      - Today
    * - S3 boot final bake, strip loop
      - **2009–2615 ms** (400/400 rows), 40 one-strip watermark states
-       at ~80 ms cadence (2026-11-15 re-measure)
+       at ~80 ms cadence (re-measured)
      - same producer; the watermark drives the arc, not a band display;
        the disc is up from boot (~tens of ms) instead of black
    * - S3 hourly cold bake
      - **2687 ms** internals, whole cycle **3083 ms** (inside the 5 s
        budget)
-     - same internals; the cycle now owes no fade legs (no 0x51
+     - same internals; the cycle owes no fade legs (no 0x51
        traffic), so the whole cycle is the bake + one atomic show
    * - S3 hourly warm TF hit
-     - **185–235 ms** frame land (+ the two retired 240 ms fade legs)
-     - hit lands atomically over the old frame in the bright panel;
+     - **185–235 ms** frame land (+ two 240 ms fade legs)
+     - the hit lands atomically over the old frame in the bright panel;
        no fade
    * - P4 boot final bake
      - **2662 ms** (650/650 rows, 50 one-strip states)
      - same producer, 50 watermark steps
    * - Knob boot bake
      - 991 ms hidden baseline / **2028–2059 ms** revealed (the band tax)
-     - back to the ~991 ms baseline + the disc (tens of ms); the arc
+     - the ~991 ms baseline + the disc (tens of ms); the arc
        sweeps the per-row watermark over 360 rows
 
-The P4's 4C bench of THIS change (hourly no-fade + arc) remains an open
-item with the rest of the bench list — the 4C was off the bench for the
-2026-11-14 pass as well.
+The P4 (4C) bench of this design (hourly refresh with no fade, plus the arc) is still open, with the rest of the bench list.
 
-Cross-references
-................
+Where to go next
+----------------
 
-* :doc:`architecture` — the invariant, now with ONE sanctioned exception.
-* :doc:`animations` — the boot replay and hourly sections (disc + arc,
-  no fade).
-* :doc:`knob-display` — the knob's boot posture (disc publish + the
-  saved-frame path) and its seam.
-* :doc:`display` — the drain witness (the multi-strip-flush lesson that
-  shaped this design's no-band-display rule).
-* :doc:`../verification/performance` — the ladders (the pacing figure's
-  reveal-tick row is now the watermark's tick; the hourly ladder owes no
-  fade legs).
-* ``components/ui/moon_ui.c`` (the compute section at :1286, the seam at
-  :1443, ``moon_boot_disc`` at :2823), ``components/ui/screens.c``
-  (``arc_seconds_tick``), ``components/moon/core/moon_bake.c``
-  (``moon_bake_phase_dummy``) and the knob's ``knob_ui.c`` /
-  ``knob_moon.c`` are the authoritative sources.
+* :doc:`architecture`: the atomic-frame invariant and its one sanctioned exception.
+* :doc:`animations`: the boot replay and the hourly refresh, with the disc and the arc.
+* :doc:`knob-display`: the knob's boot posture (the disc publish and the saved-frame path) and its seam.
+
+Other pages this one depends on: :doc:`display` (the drain witness, and why the design avoids a band display) and :doc:`../verification/performance` (the ladders; the pacing figure's tick row is the watermark's tick, and the hourly ladder owes no fade legs).
+The authoritative sources are :cfile:`components/ui/moon_ui.c` (the compute section, the seam and :cfunc:`moon_boot_disc`), :cfile:`components/ui/screens.c` (:cfunc:`arc_seconds_tick`), :cfile:`components/moon/core/moon_bake.c` (:cfunc:`moon_bake_phase_dummy`), and the knob's ``knob_ui.c`` / ``knob_moon.c``.

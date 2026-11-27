@@ -1,6 +1,12 @@
 Getting started
 ===============
 
+.. brief:
+   Reader: someone with a new board and no ESP-IDF experience.
+   They already know: how to type commands into a Linux terminal.
+   After this page they can: build, flash and connect a working clock.
+   Page type: tutorial (the "Behind the scenes" section is explanation for developers).
+
 This tutorial takes you from a new board to a working clock on your
 desk. You install the tools, build the firmware, copy it onto the
 board, and connect the clock to Wi-Fi. The commands are for Linux and
@@ -143,8 +149,16 @@ The clock connects, sets the time, and returns to the home screen.
 :doc:`Using the clock <using-the-clock>` explains the keyboard and the
 other settings.
 
-That's it: you have a working clock. Everything else in these docs is
-for people who want to change it.
+You now have a working clock on your desk. Everything else in these
+docs is for people who want to change it.
+
+Where to go next
+----------------
+
+- :doc:`Using the clock <using-the-clock>`: every screen and setting.
+- :doc:`How the clock works <how-it-works>`: why the Moon looks right.
+- :doc:`The boards <devices/index>`: the details of each board, if you
+  want to change the build.
 
 Behind the scenes
 -----------------

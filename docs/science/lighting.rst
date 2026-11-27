@@ -1,87 +1,69 @@
 The lighting model
 ==================
 
-The lighting model answers one question per pixel: *how much sunlight
-reaches this point of the surface, toward the viewer?* The answer has to
-be good enough that the terminator — the line between day and night —
-looks like the ragged, mountain-shadowed edge in NASA's frames, not a
-smooth mathematical arc. That is what separates a physically rendered
-moon from a shaded circle.
+.. brief:
+   Reader: a developer or technical reader who has read the geometry page.
+   They already know: the S, E, right and up vectors; the dot product; Lambert's cosine law in outline.
+   After this page they can: follow the per-pixel bake in moon_bake.c from screen offset to output byte, and say why the relief term and the gradient cache exist.
+   Page type: explanation.
+
+The lighting model answers one question per pixel: how much sunlight reaches this point of the surface, toward the viewer?
+:doc:`How the clock works <../how-it-works>` gave the short answer: albedo times the cosine of the Sun's angle, with the height map tilting each patch.
+This page gives the full model and the code from ``moon_bake.c``.
+The result has to make the terminator (the line between day and night) look like the ragged, mountain-shadowed edge in NASA's frames, not a smooth arc.
+That edge is what separates a physically rendered moon from a shaded circle.
 
 The short version
 -----------------
 
-The picture on the panel is not a stored photo — it is computed, pixel
-by pixel, on the device. Every pixel goes through the same recipe, and
-the recipe has just five ingredients:
+The picture on the panel is not a stored photo.
+The device computes it pixel by pixel, and every pixel goes through the same five steps:
 
-1. **Find the point.** Work out which spot on the Moon's ball the pixel
-   is looking at.
-2. **Ask how directly the Sun hits it** — as if the Moon were a perfect
-   ball with no mountains.
-3. **Correct for the local tilt.** The real surface has mountains and
-   crater walls; a surface tilted *toward* the Sun catches more light
-   than the ball says, one tilted *away* catches less (and can sit in a
-   shadow the ball model knows nothing about). The tilt comes from a
-   terrain height map measured by lunar orbiters.
-4. **Multiply by the paint.** A sunlit basalt sea is still darker than
-   a sunlit highland — the albedo (reflectivity) map supplies that.
-5. **Fix the lookups.** Push the raw brightness through a calibrated
-   brightness table so it matches NASA's rendered frames, and add the
-   faint Earth-reflected glow (*earthshine*) to the night side.
+1. Find the point.
+   Work out which spot on the Moon's ball the pixel shows.
+2. Ask how directly the Sun hits it, as if the Moon were a perfect ball with no mountains.
+3. Correct for the local tilt.
+   The real surface has mountains and crater walls.
+   A patch tilted toward the Sun catches more light than the ball says; one tilted away catches less, and can sit in a shadow the ball model knows nothing about.
+   The tilt comes from a terrain height map measured by lunar orbiters.
+4. Multiply by the paint.
+   A sunlit basalt sea is still darker than a sunlit highland; the albedo (reflectivity) map supplies that.
+5. Map to display values.
+   A calibrated brightness table converts the raw brightness so it matches NASA's rendered frames, and a faint Earth-reflected glow (*earthshine*) goes onto the night side.
 
-Every section below takes one of these ingredients, says the plain
-version first, and then gives the math and the actual code from
-``moon_bake.c``. The four input vectors the recipe needs — where the
-Sun is (:math:`\mathbf{S}`), where the Earth is (:math:`\mathbf{E}`),
-and the screen's :math:`\mathbf{right}`/:math:`\mathbf{up}` axes — are
-built on the previous page, :doc:`the geometry <geometry>`.
+The four input vectors (the Sun direction :math:`\mathbf{S}`, the Earth direction :math:`\mathbf{E}`, and the screen's :math:`\mathbf{right}`/:math:`\mathbf{up}` axes) come from :doc:`the geometry <geometry>`.
 
 Vocabulary
 ----------
 
-Seven terms carry the whole page (the full definitions live in the
-:doc:`glossary <../glossary>`):
+Seven terms carry the page.
+The :doc:`glossary <../glossary>` has the full definitions.
 
-- **Terminator** — the day/night boundary line on the visible disk.
-- **Albedo** — how much light the surface material itself reflects: a
-  dark lava sea has low albedo, a bright highland rock high. It is the
-  Moon's *paint*, independent of lighting.
-- **Surface normal** — an arrow standing straight up out of the surface
-  at a point. How much sunlight a patch catches depends on the angle
-  between this arrow and the Sun's direction.
-- **Dot product** — the vector multiply ``A · B`` of two unit arrows.
-  It equals the cosine of the angle between them: ``1`` when they point
-  the same way, ``0`` at right angles, negative when they point apart.
-  It is how "how directly does the surface face the Sun?" gets computed
-  with three multiplies and two adds.
-- **Lambert** (Lambert's cosine law) — a surface's brightness is
-  proportional to how directly it faces the light:
-  ``L = max(0, cos(angle to the Sun))``. Surfaces facing away are dark.
-- **DEM / gradient** — the *Digital Elevation Model*: a map of surface
-  heights in meters (here: laser-altimeter data from the LOLA
-  instrument). Its **gradient** at a point is the pair of numbers
-  saying how fast the ground rises going east, and going north — the
-  local slope, in two numbers.
-- **LUT** — a *Look-Up Table*: a fixed array of numbers, here
-  256 of them, where entry ``n`` says "turn raw value ``n`` into display
-  brightness ``T[n]``". One array read replaces a whole curve
-  evaluation.
+- **Terminator**: the day/night boundary on the visible disk.
+- **Albedo**: how much light the surface material reflects.
+  A dark lava sea has low albedo, a bright highland rock high.
+  It is the Moon's paint, independent of lighting.
+- **Surface normal**: an arrow standing straight up out of the surface at a point.
+  How much sunlight a patch catches depends on the angle between this arrow and the Sun's direction.
+- **Dot product**: ``A · B`` of two unit arrows equals the cosine of the angle between them: ``1`` when they point the same way, ``0`` at right angles, negative when they point apart.
+  It answers "how directly does the surface face the Sun?" with three multiplies and two adds.
+- **Lambert** (Lambert's cosine law): a surface's brightness is proportional to how directly it faces the light, ``L = max(0, cos(angle to the Sun))``.
+  Surfaces facing away are dark.
+- **DEM / gradient**: the *Digital Elevation Model* is a map of surface heights in metres, here laser-altimeter data from the LOLA instrument.
+  Its *gradient* at a point is the pair of numbers saying how fast the ground rises going east and going north: the local slope.
+- **LUT**: a *look-up table*, here an array of 256 numbers.
+  Entry ``n`` says "turn raw value ``n`` into display brightness ``T[n]``", so one array read replaces a curve evaluation.
 
-The orthographic view
----------------------
+From pixel to sphere: the orthographic view
+-------------------------------------------
 
-**The short version.** The pixel grid is a flat shadow of the ball. A
-pixel's position in the disk (measured from the center, in units of the
-disk radius) says exactly which point of the sphere sits behind it —
-the farther from the center, the more the surface has curved away from
-the viewer. The only geometry needed is the Pythagorean theorem.
+The pixel grid is a flat shadow of the ball.
+A pixel's position in the disk, measured from the centre in units of the disk radius, says which point of the sphere sits behind it.
+The farther from the centre, the more the surface has curved away from the viewer.
+The only geometry needed is Pythagoras.
 
-The camera is, for our purposes, at infinity: it is 384,400 km away and
-the Moon's radius is 1,737 km, so the view is effectively **orthographic**.
-Every screen pixel :math:`(x, y)` maps to a unit direction
-:math:`\hat{\mathbf{r}}` on the Moon's base sphere (the sphere *without*
-relief), built from the camera basis:
+The camera is 384,400 km away and the Moon's radius is 1,737 km, so for our purposes the camera is at infinity and the view is *orthographic*.
+Every screen pixel :math:`(x, y)` maps to a unit direction :math:`\hat{\mathbf{r}}` on the Moon's base sphere (the sphere without relief), built from the camera basis:
 
 .. math::
 
@@ -89,20 +71,20 @@ relief), built from the camera basis:
    \qquad
    w = \sqrt{1 - (u^2 + v^2)}
 
-where :math:`u` and :math:`v` are the pixel's offsets from the disk
-center in units of the disk radius. Outside the unit circle
-(:math:`u^2 + v^2 > 1`) the pixel is off the disk and is black. The
-:math:`w` term is the part of the direction that points along the line
-of sight — it is what makes the surface curve toward the viewer at the
-limb:
+:math:`u` and :math:`v` are the pixel's offsets from the disk centre in units of the disk radius.
+Outside the unit circle (:math:`u^2 + v^2 > 1`) the pixel is off the disk and black.
+The :math:`w` term is the part of the direction along the line of sight; it is what makes the surface curve toward the viewer at the limb.
 
 .. figure:: ../_graphs/lighting_ortho.svg
-   :alt: Orthographic view construction. (a) The pixel's screen offset (u, v) plus the out-of-page component w times E form the base direction. (b) Side view: the pixel sits off the line of sight by angle phi, so w equals cos(phi), 1 at the disk centre and 0 at the limb.
+   :alt: Two panels. (a) The pixel's screen offset (u, v) plus w times E form the base direction. (b) A side view in which w equals cos(phi), 1 at the disk centre and 0 at the limb.
    :figclass: align-center
    :width: 100%
 
-   The orthographic view. (a) The pixel's screen offset builds the base direction: the in-page part is the 2-D offset :math:`(u, v)`, and the missing third component :math:`w\,\mathbf{E}` points at the viewer (out of the page). (b) Side view: the pixel sits off the line of sight by the angle :math:`\varphi`; :math:`w = \cos\varphi` is 1 at the disk centre and 0 at the limb — the term that pulls :math:`\hat{\mathbf{r}}` back toward the camera and makes the limb curve.
+   The orthographic view.
+   (a) The in-page part of the base direction is the 2-D offset :math:`(u, v)`; the third component :math:`w\,\mathbf{E}` points at the viewer, out of the page.
+   (b) Side view: the pixel sits off the line of sight by the angle :math:`\varphi`, and :math:`w = \cos\varphi` is 1 at the disk centre and 0 at the limb.
 
+The :math:`w` term pulls :math:`\hat{\mathbf{r}}` back toward the camera and makes the limb curve.
 In the C core, per pixel:
 
 .. code-block:: c
@@ -118,80 +100,63 @@ In the C core, per pixel:
    float rz = u * g->right[2] + c->v * g->up[2] + w * g->E[2];
    float d  = rx * g->S[0] + ry * g->S[1] + rz * g->S[2];
 
-The dot :math:`d = \hat{\mathbf{r}}\cdot\mathbf{S}` is the **base-sphere**
-sub-solar cosine — plain-language: *"how directly does the perfect ball,
-at this point, face the Sun?"* On a perfect sphere with no relief, the lit/dark
-terminator is exactly :math:`d = 0`, and the Lambert term would be
-:math:`\max(0, d)`. That is the cheap model — and it is *wrong* in exactly
-the place it matters: the terminator.
+The dot :math:`d = \hat{\mathbf{r}}\cdot\mathbf{S}` is the *base-sphere* sub-solar cosine: how directly the perfect ball faces the Sun at this point.
+On a perfect sphere with no relief the terminator is exactly :math:`d = 0`, and the Lambert term would be :math:`\max(0, d)`.
+That cheap model is wrong in the place that matters most, the terminator.
 
 Why the flat model fails at the terminator
 ------------------------------------------
 
-**The short version.** The Moon has mountains. Right at the day/night
-line the Sun skims the surface almost sideways, so a ridge a few
-kilometers tall casts a long visible shadow into the valley behind it —
-and a crater's inner wall can catch sunlight while its floor stays
-dark. A model that ignores the terrain paints those spots the wrong
-color, and the eye reads the difference instantly as a "cartoon moon".
+The Moon has mountains.
+At the day/night line the Sun skims the surface almost sideways.
+A ridge a few kilometres tall casts a long shadow into the valley behind it: the ridge's sunlit face is bright, and the valley a few kilometres away is dark.
+A crater's inner wall can catch sunlight while its floor stays dark.
+These effects are largest where the Sun grazes the surface.
+That is why NASA's frames show a jagged terminator that follows crater rims and mountain chains, and a smooth cosine terminator shows none of it.
+A model that ignores the terrain paints those spots the wrong colour, and the eye reads the result as a "cartoon moon".
 
-The real surface is not a sphere. A mountain ridge standing at the
-terminator throws a shadow: the sunlit face of the ridge is bright while
-the valley behind it, only a few kilometers away, is in shadow. A
-crater's inner wall can be sunlit while its floor is dark. At the
-terminator, where the Sun grazes the surface, these effects are maximal
-— which is why NASA's frames show a *jagged* terminator that hugs
-crater rims and mountain chains, and a smooth cosine terminator would
-show none of that.
-
-The fix is to give every surface point its **own normal**, displaced from
-the base-sphere normal by the local slope, and take the Lambert with that
-normal. That is the **displaced-normal** model.
+The fix gives every surface point its own normal, displaced from the base-sphere normal by the local slope, and takes the Lambert with that normal.
+This is the *displaced-normal* model.
 
 .. figure:: ../_graphs/lighting_terminator.svg
-   :alt: Cross-section of a ridge at the terminator. The flat model's straight lit/dark boundary (blue) misplaces two points against the jagged true boundary (red): M sits in the ridge's cast shadow but the flat model calls it lit; N sits night-side of the flat line but its inner wall is lit on the true surface.
+   :alt: Cross-section of a ridge at the terminator, with a straight blue boundary for the flat model and a jagged red true boundary. Point M is in the ridge's shadow; point N is on a lit inner wall beyond the flat line.
    :figclass: align-center
    :width: 78%
 
-   Why the flat model fails, in one cross-section. The flat model's terminator is the straight line :math:`d = 0` (blue); the true lit/dark boundary (red) is jagged. M sits *day* side of the flat line but in the ridge's cast shadow — the flat model calls it lit, the true surface is dark. N sits *night* side of the flat line, but its inner wall turns toward the Sun — the flat model calls it black, the true surface is lit. These are exactly the jagged-edge details NASA's frames show.
+   Why the flat model fails, in one cross-section.
+   The flat model's terminator is the straight line :math:`d = 0` (blue); the true lit/dark boundary (red) is jagged.
+   M is on the day side of the flat line but in the ridge's cast shadow: the flat model calls it lit, the true surface is dark.
+   N is on the night side of the flat line, but its inner wall turns toward the Sun: the flat model calls it black, the true surface is lit.
 
 The displaced-normal Lambert
 ----------------------------
 
-**The short version.** Instead of asking how the *ball* faces the Sun,
-ask how the *actual tilted ground* faces it. The ground's tilt at each
-point is read from the terrain height map (two slope numbers per map
-cell: how fast the ground rises eastward, how fast northward). Tilt the
-"straight up" arrow by that slope, take the dot product with the Sun,
-and you get the honest brightness — which is exactly what the one
-division in the formula below does.
+Instead of asking how the ball faces the Sun, the model asks how the tilted ground faces it.
+The ground's tilt at each point comes from the terrain height map, as two slope numbers per map cell: how fast the ground rises eastward and how fast northward.
+Tilting the "straight up" arrow by that slope and taking the dot product with the Sun gives the brightness.
 
-For a height field :math:`h` on the sphere, a point's true surface normal
-is the base-sphere normal displaced by the height gradient. Let
-:math:`\mathbf{G}` be the gradient of :math:`h/R` (height in meters
-divided by the Moon's radius, so it is dimensionless) in the local
-east–north tangent basis. The exact radial-displacement normal is
+For a height field :math:`h` on the sphere, a point's true surface normal is the base-sphere normal displaced by the height gradient.
+Let :math:`\mathbf{G}` be the gradient of :math:`h/R` (height in metres divided by the Moon's radius, so dimensionless) in the local east–north tangent basis.
+The exact radial-displacement normal is
 
 .. math::
 
    \mathbf{N} = \mathrm{normalize}\big((1 + s)\,\hat{\mathbf{r}} - \mathbf{G}\big),
    \qquad s = h/R
 
-and the Lambert is :math:`\mathbf{N}\cdot\mathbf{S}`. Working the
-normalization out, the dot becomes a ratio that needs no explicit
-normalization — and for the small slopes the Moon actually has
-(<< 0.3 rad), the **small-slope form** is accurate to under 0.5%:
+and the Lambert is :math:`\mathbf{N}\cdot\mathbf{S}`.
+Working out the normalization turns the dot into a ratio that needs no explicit normalization.
+For the small slopes the Moon has (<< 0.3 rad), this *small-slope form* is accurate to under 0.5%:
 
 .. math::
 
    \mathbf{N}\cdot\mathbf{S} = \frac{\hat{\mathbf{r}}\cdot\mathbf{S} - \mathbf{G}\cdot\mathbf{S}}{\sqrt{1 + \lVert\mathbf{G}\rVert^2}}
    = \frac{d - \mathbf{G}\cdot\mathbf{S}}{\sqrt{1 + |\mathbf{G}|^2}}
 
-Reading the formula piece by piece: ``d`` is the ball's answer from the
-previous section; ``G · S`` subtracts the extra (or missing) sun facing
-the slope provides; the square root merely re-scales the tilted arrow
-back to unit length (it barely moves at real slopes — which is why the
-cheap approximation is safe).
+Piece by piece: ``d`` is the ball's answer from the previous section.
+``G · S`` subtracts the extra (or missing) Sun-facing that the slope provides.
+The square root rescales the tilted arrow back to unit length.
+It barely moves at real slopes, which is why the approximation is safe.
 
 The C core calls the unclipped quantity :math:`lns`:
 
@@ -201,49 +166,42 @@ The C core calls the unclipped quantity :math:`lns`:
    float gs = glon * east_s + glat * north_s;
    lns = (d - gs) / sqrtf(1.0f + glon * glon + glat * glat);
 
-The lit-side Lambert is then the clip:
+The lit-side Lambert is the clip:
 
 .. math::
 
    L = \mathrm{clip}(lns,\, 0,\, 1)
 
-and the *unclipped* :math:`lns` is kept around because the dark side
-(:doc:`the dark side <darkside>`) needs :math:`\mathrm{clip}(-lns, 0, 1)` — the same surface
-lit from the anti-solar direction.
+The code keeps the unclipped :math:`lns` because the dark side (:doc:`the dark side <darkside>`) needs :math:`\mathrm{clip}(-lns, 0, 1)`: the same surface lit from the anti-solar direction.
 
 .. figure:: ../_graphs/lighting_displaced_normal.svg
-   :alt: The displaced-normal construction. (a) A point on a flank sloping toward the grazing Sun: the flat model's radial normal reads d about 0.07, the slope-tilted true normal reads lns about 0.22. (b) The small-slope form: lns = (d minus G dot S) over the square root of (1 plus the squared norm of G), accurate to under 0.5% at the Moon's real slopes.
+   :alt: Two panels. (a) A flank sloping toward a grazing Sun, where the radial normal gives d about 0.07 and the tilted normal gives lns about 0.22. (b) The small-slope formula for lns.
    :figclass: align-center
    :width: 100%
 
-   The displaced-normal construction. (a) A point on a flank that slopes toward the grazing Sun: the flat model takes the radial (straight-up) normal and reads :math:`d \approx 0.07` (barely lit); the true normal, tilted by the local slope :math:`\mathbf{G}`, reads :math:`lns \approx 0.22` — three times brighter, and the difference is the ridge-shadow contrast the flat model cannot see. (b) The small-slope form worked out: :math:`lns = (d - \mathbf{G}\cdot\mathbf{S}) / \sqrt{1 + \lVert\mathbf{G}\rVert^2}` needs no explicit normalization, and is accurate to under 0.5% at the Moon's real slopes.
+   The displaced-normal construction.
+   (a) On a flank that slopes toward the grazing Sun, the radial normal reads :math:`d \approx 0.07` (barely lit) and the slope-tilted normal reads :math:`lns \approx 0.22`.
+   (b) The small-slope form :math:`lns = (d - \mathbf{G}\cdot\mathbf{S}) / \sqrt{1 + \lVert\mathbf{G}\rVert^2}`.
 
-The model is applied over the **whole lit disk**, not just the terminator
-band. An earlier version blended a clipped relief term only in a thin
-band around :math:`d=0` (a compute shortcut); it left the terminator
-3–7× too soft, because the mountain shadows extend well into the lit
-side. The current full-disk displaced-normal model is what matches NASA's
-terminator contrast.
+In panel (a) the tilted normal gives three times the brightness of the flat one.
+That difference is the ridge-shadow contrast the flat model cannot see.
+
+The bake applies the model over the whole lit disk, not only near the terminator.
+Mountain shadows reach well into the lit side, and the full-disk model is what matches NASA's terminator contrast.
+(A band-only variant was measured and rejected; see :doc:`/project/history`.)
 
 The relief DEM and its gradient cache
 -------------------------------------
 
-**The short version.** All the terrain knowledge lives in one height
-map downloaded from lunar orbiters. The bake doesn't need the heights
-themselves — only how steep the ground is, in two numbers per point.
-Computing the steepness fresh for every screen pixel is six separate
-reads from the ESP32-S3's slow external RAM (PSRAM), which measured at
-~3.3 s per frame. But steepness depends only on the height map, not on
-the Moon's phase — so the device computes it **once** for every map cell
-at boot, packs the two slope numbers into one 16-bit word, and the
-bake reads just one word per pixel. That drops the frame time to
-~1.3 s.
+All the terrain knowledge lives in one height map from lunar orbiters.
+The bake does not need the heights themselves, only how steep the ground is, as two numbers per point.
+Steepness depends only on the height map, not on the Moon's phase.
+So the device computes it once for every map cell at boot, packs the two slopes into one 16-bit word, and the bake reads one word per pixel.
+On the S3 that brings the frame time from about 3.3 s to about 1.3 s.
 
-The height data is the **LOLA** (Lunar Orbital Laser Altimeter) DEM,
-stored on the clock boards as a **2048×1024 int8** equirect map (the
-knob's is the halved 1024×512 — the per-board sizes are
-:doc:`the moon constants <../reference/moon-consts>`). Each cell is
-the LOLA height quantized to 8 bits over a fixed meter range:
+The height data is the LOLA (Lunar Orbiter Laser Altimeter) DEM.
+The clock boards store it as a 2048×1024 int8 equirectangular map; the knob's is the halved 1024×512 (the per-board sizes are in :doc:`the moon constants <../reference/moon-consts>`).
+Each cell is the LOLA height quantized to 8 bits over a fixed range in metres:
 
 .. code-block:: c
    :caption: components/moon/generated/<board>/moon_consts.h (the relief DEM)
@@ -256,12 +214,9 @@ the LOLA height quantized to 8 bits over a fixed meter range:
    #define MOON_DEM_MIN_M  -8518.19921875
    #define MOON_DEM_MAX_M  10416.568359375
 
-The bake needs the *gradient* of this map, not the heights. The naive
-approach — a 4-neighbor central-difference gather per pixel — is six
-dependent PSRAM loads per pixel, which on the S3 (the Waveshare
-ESP32-S3-Touch-AMOLED-1.75) measured at ~3.3 s/frame.
-The key optimization (:doc:`the C core <../implementation/core-c>`) is to **precompute the gradient once,
-per DEM cell**, into a packed cache:
+The naive way to get the gradient is a 4-neighbour central difference per pixel.
+That is six dependent loads per pixel from the S3's external RAM (PSRAM, pseudo-static RAM), and on the S3 (the Waveshare ESP32-S3-Touch-AMOLED-1.75) it measured about 3.3 s per frame.
+The core instead precomputes the gradient once per DEM cell into a packed cache (:doc:`the C core <../implementation/core-c>`):
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (relief_cell, the cache entry)
@@ -271,49 +226,32 @@ per DEM cell**, into a packed cache:
    int8_t qn = slope_q(dhlon * inv_glon), qt = slope_q(dhlat * inv_glat);
    gpack[c] = (uint16_t)((uint16_t)(uint8_t)qn | ((uint16_t)(uint8_t)qt << 8));
 
-What that code does line by line, for a new reader: the east-west slope
-starts as "the height one cell east, minus the height one cell west"
-(likewise north-south). The stored bytes first become meters — the full
-height range is spread over 254 quantization steps, and the ``mps``
-factor is the meters-per-step decoder. The height difference is then
-divided by the ground distance those cells cover on the sphere;
-``inv_glon``/``inv_glat`` are those reciprocals, and the east-west one
-carries the ``rho`` = cos(lat) factor, because a cell of longitude
-narrows toward the poles and the same height difference then means a
-steeper slope. Each slope is then rounded to a single signed byte
-(quantization step 0.003 rad) and the two bytes are packed low-and-high
-into one 16-bit word.
+What the code does:
 
-Each cache cell packs the quantized east (glon) and north (glat) slopes
-into a single 16-bit word (one in the low byte, one in the high byte).
-The bake then reads **one** 16-bit load per pixel instead of six
-dependent byte loads — dropping the per-pixel PSRAM traffic from 6 to 3
-(1 albedo byte + 1 packed 2-byte gradient + the texture-coordinate math)
-and cutting the frame time to ~1.3 s on the S3. The quantization step
-(0.003 rad) costs less than 0.3% of :math:`L`, and the image gate
-(:doc:`the image gate <../verification/image-gate>`) re-verifies it after any change.
+1. The east–west slope starts as the height one cell east minus the height one cell west; north–south likewise.
+2. ``mps`` (metres per step) converts the stored bytes to metres; the full height range is spread over 254 quantization steps.
+3. The height difference is divided by the ground distance the cells cover on the sphere.
+   ``inv_glon``/``inv_glat`` are those reciprocals.
+   The east–west one carries the ``rho`` = cos(lat) factor, because a cell of longitude narrows toward the poles, so the same height difference means a steeper slope.
+4. Each slope is rounded to one signed byte (quantization step 0.003 rad).
+5. The two bytes are packed, low and high, into one 16-bit word.
 
-The slopes are a *pure function of the DEM cell* — the four-neighbor
-height differences — so the cache is phase-independent: it is built once
-at boot and reused for every frame. That is what made the boot sweep
-(1344 frames, retired :commit:`51119200`) and the dusk's map build (retired
-the same day, :commit:`f7740500`) affordable — and what keeps the
-orbit re-bakes cheap.
+The bake then does one 16-bit load per pixel for the relief instead of six dependent byte loads.
+Per-pixel PSRAM traffic drops from 6 to 3 (1 albedo byte, 1 packed 2-byte gradient, and the texture-coordinate maths), and the frame time on the S3 drops to about 1.3 s.
+The quantization step (0.003 rad) costs less than 0.3% of :math:`L`, and :doc:`the image gate <../verification/image-gate>` re-checks it after any change.
+
+The slopes are a pure function of the DEM cell (the four-neighbour height differences), so the cache does not depend on the phase.
+The device builds it once at boot and reuses it for every frame, which keeps the orbit re-bakes cheap.
 
 The tangent basis
 -----------------
 
-**The short version.** "Slope east" and "slope north" are only
-meaningful once you draw an east arrow and a north arrow on the sphere
-at that exact point — the two arrows that lie flat on the surface there.
-Instead of computing the point's latitude and longitude and calling
-trigonometry on them, the core builds those two arrows directly from
-the direction vector it already has, with one square root.
+"Slope east" and "slope north" only mean something once you draw an east arrow and a north arrow lying flat on the sphere at that point.
+The core does not compute the point's latitude and longitude and call trigonometry on them.
+It builds the two arrows directly from the direction vector it already has, with one square root.
 
-The gradient :math:`\mathbf{G}` lives in the local east–north tangent
-plane of the unit sphere. Those two unit vectors are built from the base
-direction :math:`\hat{\mathbf{r}} = (rx, ry, rz)` itself — no
-longitude/latitude transcendentals needed:
+The gradient :math:`\mathbf{G}` lives in the local east–north tangent plane of the unit sphere.
+The two unit vectors come from the base direction :math:`\hat{\mathbf{r}} = (rx, ry, rz)`, with no longitude/latitude transcendentals:
 
 .. math::
 
@@ -321,8 +259,7 @@ longitude/latitude transcendentals needed:
    \text{north} = \frac{(-rz\,rx,\; -rz\,ry,\; \rho)}{\rho}, \qquad
    \rho = \sqrt{rx^2 + ry^2} = \cos(\text{lat})
 
-and only the *dots with* :math:`\mathbf{S}` are needed, which the core
-computes directly:
+Only their dot products with :math:`\mathbf{S}` are needed, and the core computes those directly:
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (tangent dots with the Sun)
@@ -333,40 +270,30 @@ computes directly:
    float east_s  = (-ry * g->S[0] + rx * g->S[1]) * inv;
    float north_s = (-rz * rx * g->S[0] - rz * ry * g->S[1] + rho * g->S[2]) * inv;
 
-The :math:`\rho < 10^{-4}` guard is the polar cap, where the east–north
-basis degenerates (there, :math:`lns \to 0` anyway, so the guard is
-inert).
+The :math:`\rho < 10^{-4}` guard covers the polar cap, where the east–north basis degenerates.
+There :math:`lns \to 0` anyway, so the guard changes nothing visible.
 
-Albedo, nearest-neighbor
-------------------------
+Albedo, nearest-neighbour
+-------------------------
 
-**The short version.** Lighting says *how much* light; the albedo map
-says *how much of it the ground bounces back*. The map carries roughly
-one texture pixel per screen pixel on the disk *on average*, and the
-nearest-neighbour pick can at worst mis-choose by half a texture pixel
-— under one screen pixel on every board and every source — so there is
-no detail to lose by simply picking the nearest texture point, and no
-interpolation math to pay for it. (The Xtensa FPU has no
-``atan``/``asin`` at all, so even the "which map point is this?"
-question is answered with a tiny lookup table.)
+Lighting says how much light arrives; the albedo map says how much of it the ground sends back.
+The colour is the LROC WAC albedo, an equirectangular map of 864×432 on the S3 and the knob and 2048×1024 on the P4.
+Row 0 is north, and column 0 is the texture longitude 0, with the 180° offset from :doc:`the geometry <geometry>`.
 
-The color is the **LROC WAC** albedo — an equirect map, 864×432 on
-the S3 and the knob, 2048×1024 on the P4 (row 0 = north, column 0 =
-the texture longitude 0, with the 180° offset from
-:doc:`the geometry <geometry>`). The Xtensa FPU has no ``atan``/``asin``, so the texture
-longitude/latitude come from two small 257-entry internal-RAM lookup
-tables (worst-case error << one texture row) rather than libm calls.
-The albedo is sampled **nearest-neighbor**, and the guarantee behind
-that is the half-texel **pick error**, not the density: the disk-averaged
-density is 1.08 texels per screen pixel on the S3 (864 columns over the
-400 px disk) and 1.58 on the P4, but the orthographic worst case sits at
-the disk centre, where the S3 albedo dips to 0.69 — and the pick still
-never moves a feature by more than half a texel, i.e. ≤ 0.73 px (the
-relief caches, the P4 pair and the knob pair land between 0.31 and 0.55
-px). :ref:`The resolution funnel <sharpness-funnel-perf>` in the
-performance page plots all six source legs with their parsed widths;
-the bake's header comment cites it directly. The sampling itself costs
-one byte load.
+The Xtensa FPU (floating-point unit) has no ``atan`` or ``asin``.
+The texture longitude and latitude therefore come from two small 257-entry lookup tables in internal RAM (worst-case error far below one texture row) instead of libm calls.
+
+The bake samples the albedo *nearest-neighbour*, with no interpolation.
+What makes that safe is the half-texel pick error, not the texel density:
+
+- The disk-averaged density is 1.08 texels per screen pixel on the S3 (864 columns over the 400 px disk) and 1.58 on the P4.
+- The orthographic worst case sits at the disk centre, where the S3 albedo density dips to 0.69.
+- Even there the pick never moves a feature by more than half a texel, that is ≤ 0.73 px.
+  The relief caches, the P4 pair and the knob pair land between 0.31 and 0.55 px.
+
+So no detail is lost by picking the nearest texel, and no interpolation maths has to be paid for.
+:ref:`The resolution funnel <sharpness-funnel-perf>` on the performance page plots all six source legs with their parsed widths; the bake's header comment cites it.
+The sample itself costs one byte load:
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (albedo sample)
@@ -377,20 +304,15 @@ one byte load.
    int r   = (int)(row_frac * (float)c->alb_h + 0.5f);
    float A = (float)c->alb[r * c->alb_w + col];
 
-Earthshine (the validated dark-side model)
-------------------------------------------
+Earthshine, the validated dark-side model
+-----------------------------------------
 
-**The short version.** The night side of the Moon is not pitch black:
-sunlight bounces off the Earth and faintly backlights it (the same
-effect that lets you sometimes see the unlit crescent in a photograph).
-The model adds a deliberately faint glow to the dark half that grows
-with distance from the terminator toward the anti-solar point — three
-tuned numbers in a cubic polynomial, fitted so the result matches
-NASA's reference frames.
+The night side of the Moon is not pitch black.
+Sunlight bounces off the Earth and faintly lights it, the effect that sometimes shows the unlit part of a crescent in a photograph.
+The model adds a faint glow to the dark half that grows from the terminator toward the anti-solar point.
 
-With :math:`dark_zero = 0` — the path the image gate validates — the
-dark side is not flat black. It carries a faint, **phase-independent**
-anti-solar gradient, a fit to the reference frames' Earthlight. It is a cubic in :math:`x = \max(0, -d)`:
+With ``dark_zero = 0``, the path the image gate validates, the dark side carries this faint, *phase-independent* anti-solar gradient, fitted to the Earthlight in the reference frames.
+It is a cubic in :math:`x = \max(0, -d)`:
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (earthshine)
@@ -407,43 +329,34 @@ anti-solar gradient, a fit to the reference frames' Earthlight. It is a cubic in
    #define MOON_ES_B -11.733
    #define MOON_ES_C -2.615
 
-The constants are fitted (``python -m moon.validate --fit``) so the dark
-side matches the reference's faint gradient. This is the *physics*
-dark side. The *display* dark side — the computed backlit surface — is
-the subject of :doc:`the dark side <darkside>`; the artistic pass that made the dark side read
-as a real moon is :doc:`the artistic pass <art-pass>`.
+The three constants are fitted with ``python -m moon.validate --fit`` so that the dark side matches the reference's faint gradient.
+This is the physics dark side.
+The display dark side, the computed backlit surface, is the subject of :doc:`the dark side <darkside>`.
+The display-only adjustments that make it read as a real moon are :doc:`the artistic pass <art-pass>`.
 
 .. figure:: ../_static/figs/earthshine.png
-   :alt: The fitted earthshine cubic with the device constants: zero at the terminator (x = 0), peaking at only about 16 grey levels at the centre of the night disk (x = 1).
+   :alt: A curve that starts at zero at x = 0 and rises to about 16 grey levels at x = 1.
    :figclass: align-center
    :width: 72%
 
-   The fitted earthshine cubic with the device constants (``moon_consts.h``). It peaks at only ~16 grey levels at the dark-side centre (:math:`x = 1`) — deliberately faint. :math:`x = 0` at the terminator, :math:`x = 1` at the centre of the night disk.
+   The fitted earthshine cubic with the device constants (``moon_consts.h``).
+   :math:`x = 0` is the terminator and :math:`x = 1` the centre of the night disk, where the glow peaks at only about 16 grey levels.
 
 The tone LUT
 ------------
 
-**The short version.** The raw physics number (paint × sunlight, 0–255)
-does not *look* like NASA's rendered frames, which were themselves
-beautified. Rather than invent a curve, the project stores a 256-entry
-table — one entry per possible raw brightness — that says exactly what
-display value each raw value should become, fitted to the reference. A
-pixel's final brightness is one table read plus the earthshine.
-
-The raw product is :math:`A \cdot L` (albedo times the lit-side
-Lambert), in 8-bit units. The reference frames are "optimized for
-aesthetics" — their brightness is not the raw physical
-:math:`\text{albedo}\times L`, it has a gamma and a highlight
-compression applied. Rather than fit a per-pixel curve, the project
-freezes a **256-entry 8-bit tone LUT** that maps the raw
-:math:`\text{albedo}\cdot L` index to the reference's brightness:
+The raw physics value (paint times sunlight, 0–255) does not look like NASA's rendered frames.
+Those frames are "optimized for aesthetics": their brightness is not the raw :math:`\text{albedo}\times L`, but has a gamma and a highlight compression applied.
+Rather than invent a curve, the project stores a 256-entry 8-bit tone LUT, fitted to the reference, that maps the raw :math:`\text{albedo}\cdot L` index to the reference's brightness.
+A pixel's final brightness is one table read plus the earthshine.
 
 .. figure:: ../_static/figs/tone_lut.png
-   :alt: The shipped 256-entry tone LUT: display brightness (y) against the raw albedo-times-L index (x). Bin 0 is 0, and the tail is not monotonic past about 220, so the brightest floors roll off rather than pinning at 255.
+   :alt: A curve of display brightness against the raw albedo-times-L index from 0 to 255. It starts at 0 and dips slightly past about 220 instead of reaching 255.
    :figclass: align-center
    :width: 72%
 
-   The shipped 256-entry tone LUT (``tone_lut.bin``), raw :math:`\text{albedo}\times L` index (x) against display brightness (y). Two load-bearing properties are visible: **bin 0 is 0** (no sunlight → the LUT contributes nothing; only earthshine remains), and the **tail is not monotonic past ~220** — the brightest crater floors and mare lowlands compress and dip slightly rather than pinning at 255, matching the reference's highlight rolloff.
+   The shipped 256-entry tone LUT (``tone_lut.bin``): raw :math:`\text{albedo}\times L` index (x) against display brightness (y).
+   Bin 0 is 0, and the tail is not monotonic past about 220.
 
 .. code-block:: c
    :caption: components/moon/core/moon_bake.c (the final pixel)
@@ -453,23 +366,21 @@ freezes a **256-entry 8-bit tone LUT** that maps the raw
    float out = MOON_TONE_LUT[idx] + earthshine(d);
    c->row[x] = (uint8_t)(out < 0.0f ? 0.0f : (out > 255.0f ? 255.0f : out + 0.5f));
 
-Two properties of the LUT are worth noting. **Bin 0 is 0**: a pixel with
-no sunlight (:math:`L = 0`) gets no contribution from the LUT — its
-brightness is the earthshine alone, which is what keeps the pure dark side
-consistent. The tail is *not* monotonic past ~220: the LUT was fit to the
-reference's highlight rolloff, so the brightest crater floors and mare
-lowlands compress and can dip slightly rather than pin to 255. That
-non-linearity is why the backlit dark side (:doc:`the dark side <darkside>`) uses a *linear*
-gray instead of the LUT — running the faint dark side through a LUT
-tuned for the lit side would over-brighten it.
+Two properties of the LUT matter:
 
-The full per-pixel model, assembled
------------------------------------
+- *Bin 0 is 0.*
+  A pixel with no sunlight (:math:`L = 0`) gets nothing from the LUT; its brightness is the earthshine alone.
+  That keeps the pure dark side consistent.
+- *The tail is not monotonic past about 220.*
+  The LUT was fitted to the reference's highlight roll-off, so the brightest crater floors and mare lowlands compress and can dip slightly instead of pinning at 255.
 
-Here is the five-ingredient recipe from the top of the page again, now
-as the exact ten steps the code takes. Everything above was a detour
-into one of these lines; everything below is the same, in one place.
-One lit pixel is:
+That non-linearity is why the backlit dark side (:doc:`the dark side <darkside>`) uses a linear grey instead of the LUT.
+Running the faint dark side through a LUT tuned for the lit side would over-brighten it.
+
+The full per-pixel model
+------------------------
+
+Here are the five steps from the top of the page as the ten lines the code runs for one lit pixel:
 
 .. code-block:: text
    :caption: The complete per-pixel bake (lit side)
@@ -485,32 +396,33 @@ One lit pixel is:
    9. idx        = round(A * L)
    10. out       = TONE_LUT[idx] + earthshine(d)   (8-bit)
 
-Every step is a few FPU ops plus byte/word loads from PSRAM. The next
-page shows what happens to the pixels where :math:`lns \le 0` — the
-dark side, which is where this product made its most deliberate choices.
+Every step is a few FPU operations plus byte or word loads from PSRAM.
 
 .. figure:: ../_static/figs/bake_pipeline.png
-   :alt: One frame through the whole bake pipeline, eight intermediate maps of a waning gibbous at 466 by 466: the base-sphere cosine d, the displaced-normal result lns (ragged terminator), the clipped lit side L, the unlit albedo A, the raw A-times-L product idx, the tone-mapped LUT, the earthshine term es (exaggerated 8x), and the final out the device shows.
+   :alt: Eight greyscale maps of the same waning gibbous Moon, one per step of the bake, from the smooth cosine d to the final output.
    :figclass: align-center
    :width: 100%
 
-   One frame through the whole pipeline — each panel is the actual
-   intermediate result at one step of the 10-line model above (a waning
-   gibbous, 466×466, the same code the Moon Lab
-   simulator runs). :math:`d`: the smooth base-sphere cosine.
-   :math:`lns`: the displaced-normal result — the terminator is now
-   ragged, and the dark side is not perfectly flat. :math:`L`: the clip
-   — the dark side is hard black, but the lit side keeps the ridge
-   shadows. :math:`A`: the albedo, unlit. :math:`idx`: the raw
-   :math:`A\cdot L` product. :math:`\mathrm{LUT}`: the tone-mapped
-   brightness. :math:`\mathrm{es}`: the earthshine added to the dark
-   side (exaggerated ×8 for visibility — it is a ~16-grey-level
-   gradient). :math:`\mathrm{out}`: the final pixel the device shows.
+   One frame (a waning gibbous, 466×466) through the pipeline, one panel per intermediate of the ten-line model.
+   Panels: :math:`d`, :math:`lns`, :math:`L`, :math:`A`, :math:`idx`, :math:`\mathrm{LUT}`, :math:`\mathrm{es}` (exaggerated ×8), :math:`\mathrm{out}`.
 
-The figure is generated from the same code the reader drives:
-``node docs/tools/gen_bake_intermediates.js`` dumps the eight
-intermediate maps, ``docs/tools/gen_bake_strip.py`` lays them out.
+How to read the panels:
 
-To put the model through its own paces — change the phase, the date, the
-camera, and watch each intermediate — see :doc:`the interactive
-simulator <interactive>`.
+- :math:`d` is the smooth base-sphere cosine.
+- :math:`lns` is the displaced-normal result: the terminator is ragged, and the dark side is not perfectly flat.
+- :math:`L` is the clip: the dark side is hard black, but the lit side keeps the ridge shadows.
+- :math:`A` is the albedo, unlit.
+- :math:`idx` is the raw :math:`A\cdot L` product.
+- :math:`\mathrm{LUT}` is the tone-mapped brightness.
+- :math:`\mathrm{es}` is the earthshine added to the dark side, exaggerated ×8 for visibility; it is a gradient of about 16 grey levels.
+- :math:`\mathrm{out}` is the final pixel the device shows.
+
+The figure comes from the same code the Moon Lab simulator runs.
+``node docs/tools/gen_bake_intermediates.js`` dumps the eight intermediate maps, and ``docs/tools/gen_bake_strip.py`` lays them out.
+
+Where to go next
+----------------
+
+- :doc:`The dark side <darkside>`: what the bake writes where :math:`lns \le 0`, and the deliberate choices behind it.
+- :doc:`The interactive simulator <interactive>`: change the phase, the date and the camera, and watch each intermediate.
+- :doc:`The C core <../implementation/core-c>`: how this loop is laid out for speed on the device.

@@ -1,6 +1,12 @@
 Rotation and the gray→RGB565 LUT
 ================================
 
+.. brief:
+   Reader: a developer working on frame rotation or the color conversion.
+   They already know: the C core and the panel's RGB565 format.
+   After this page they can: find the Q15.15 rotation LUT and the gray→RGB565 table, and their costs.
+   Page type: explanation.
+
 Two small functions close the core: the **in-plane rotation**
 ("ball-in-hand" free spin) and the **gray→RGB565** conversion. Both
 were latency-optimized for the frame rate of the burn-in spin, which

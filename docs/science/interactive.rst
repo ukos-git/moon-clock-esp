@@ -1,6 +1,12 @@
 The interactive simulator
 =========================
 
+.. brief:
+   Reader: someone who wants the model running live, or the JavaScript port's API.
+   They already know: the four science pages (or will read them alongside).
+   After this page they can: drive Moon Lab and watch each design decision take effect.
+   Page type: explanation (with an API reference).
+
 The previous four pages described a model. This page gives you
 the model — running live, in your browser, at the exact math the device
 runs. Below is **Moon Lab**: a line-faithful JavaScript port of the

@@ -1,6 +1,12 @@
 The alarm sound
 ===============
 
+.. brief:
+   Reader: a developer working on the alarm audio or its settings screen.
+   They already know: C, the ES8311 codec module and the settings store.
+   After this page they can: find the four loops, the preview path and the store key.
+   Page type: reference.
+
 The alarm sound: one roller over the four baked loops (two-tone / beep / bell / arpeggio — the ES8311 codec module, :cfile:`components/ui/alarm_audio.h`'s ``ALARM_SOUND_COUNT`` = 4; no board gate on the screen itself). Releasing the roller applies + persists the selection and **plays a preview**; the speaker button re-hears the standing choice without touching the roller. Reached by the hub's speaker icon on all three family boards — the two clocks have the ES8311; the knob's roller still applies and persists its choice, but its preview plays through the silent ``esp_codec_dev`` shim (its figure below). On the P4 this is the screen the ``TEST_ALARM_RING_SEC`` hook proves end to end (the codec's open/stream/ramp/fade/close/re-open cycle).
 
 .. figure:: ../img/screens/annot/settings-alarm-sound_s3.png

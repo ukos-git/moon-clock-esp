@@ -1,6 +1,12 @@
 Verification and performance
 ============================
 
+.. brief:
+   Reader: a developer who wants to reproduce a claim or change a number.
+   They already know: the project and its build/flash commands.
+   After this page they can: pick the right evidence page for a claim.
+   Page type: reference (section index).
+
 This section holds the evidence behind the claims elsewhere in the
 docs: that the Moon matches NASA, that the boards really behave as
 described, how fast each step runs, and how the firmware size has

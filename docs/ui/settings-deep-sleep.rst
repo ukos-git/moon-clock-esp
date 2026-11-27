@@ -1,7 +1,13 @@
 The sleep countdown (deep sleep)
 ================================
 
-The twin of the :doc:`idle-timeout screen <settings-light-sleep>` (the same parameterized builder, ``screen = 1``): the **deep-sleep countdown** roller, in minutes, centred on its row, with the icon-only **power-off kill switch** (96 px solid ``power-off`` glyph, the same "roller + icon toggle to the right" layout) at its right edge. The countdown takes effect at the **next light-sleep entry** — the RTC one-shot is armed right there (the dusk spin that used to own the arming was retired :commit:`f7740500`; sleep depth follows the timer, :doc:`the sleep machine <../implementation/clock-sleep>`) and triggers the deep-sleep transition on expiry. The deep transition itself ends on the flat-black disk with the backlight off.
+.. brief:
+   Reader: a developer working on the deep-sleep countdown or its kill switch.
+   They already know: C, the sleep state machine and the settings store.
+   After this page they can: find the countdown roller, the kill switch and their store keys.
+   Page type: reference.
+
+The twin of the :doc:`idle-timeout screen <settings-light-sleep>` (the same parameterized builder, ``screen = 1``): the **deep-sleep countdown** roller, in minutes, centred on its row, with the icon-only **power-off kill switch** (96 px solid ``power-off`` glyph, the same "roller + icon toggle to the right" layout) at its right edge. The countdown takes effect at the **next light-sleep entry** — the light-sleep entry itself arms the RTC one-shot (sleep depth follows the timer, :doc:`the sleep machine <../implementation/clock-sleep>`) and triggers the deep-sleep transition on expiry. The deep transition itself ends on the flat-black disk with the backlight off.
 
 The kill switch (the store key ``deep_sleep_countdown_enable``, default on) is the countdown's **disable**. Tapping the glyph flips the flag, saves the store, and recolours it: **white = the countdown is armed**, **grey = it will not be armed and the roller is locked** (no scroll, no commit — the ``RELEASED`` handler refuses; on the knob the dial steps are refused at the dial layer too; the selected row dims to moon grey). With the countdown off the device **stays dimmed in light sleep indefinitely** — the entry logs "not armed, staying in light sleep" — and the existing touch/tilt wake paths still bring it home. The gate is **live at the arming site**: the flag is read when the next light-sleep entry would arm the one-shot, so a re-enable takes effect at that very entry, and a disable at the next. Re-entering the screen re-applies the lock (the per-entry refresh).
 

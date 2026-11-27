@@ -1,6 +1,12 @@
 The C API
 =========
 
+.. brief:
+   Reader: a developer building against the Moon core, on the device or the host.
+   They already know: C headers and the architecture page.
+   After this page they can: find every core function, its fixed-point contract and its asset seam.
+   Page type: reference.
+
 The portable core (``components/moon/core``) exposes a small C API —
 three headers in ``components/moon/include``: ``moon.h`` (the
 geometry, the observer viewport, the bake, the rotation, the

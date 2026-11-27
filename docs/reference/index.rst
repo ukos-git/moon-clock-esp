@@ -1,6 +1,12 @@
 Reference
 =========
 
+.. brief:
+   Reader: a developer looking up an option, constant, layout or API.
+   They already know: the project and its build.
+   After this page they can: find the exact reference page for a fact.
+   Page type: reference (section index).
+
 Look-up material: the build system, every compile-time option, the
 constants, the flash layout, the stored settings, and the APIs. These
 pages describe; they do not teach. For explanations, see :doc:`the

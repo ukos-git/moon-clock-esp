@@ -1,6 +1,12 @@
 The user interface
 ==================
 
+.. brief:
+   Reader: a developer working on any screen or the navigation graph.
+   They already know: C, LVGL and the sim screenshot pipeline.
+   After this page they can: find every screen's page and know which board reaches it.
+   Page type: reference (section index + reachability matrix).
+
 One page per screen. The UI has seventeen screens — the five moon
 screens (the clock plus the moon, in the product's sleep/wake states)
 and the twelve settings screens (the hub and its eleven sub-screens) —

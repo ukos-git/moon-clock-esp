@@ -1,71 +1,198 @@
 The S3 board
 ============
 
-The primary target is the **Waveshare ESP32-S3-Touch-AMOLED-1.75**: a
-1.75-inch round capacitive-touch AMOLED development board. It is the
-whole product — the panel, the touch, the motion sensor, and the real-time
-clock are all on the same small board, and the clock body (a 3-D-printed
-stand holding the board and a battery, the panel render on the
-:doc:`start page <../index>`) is mostly the board plus a
-battery.
+.. brief:
+   Reader: a developer building or changing the firmware for the S3 AMOLED board.
+   They already know: C, ESP-IDF basics, and the board comparison on the boards page.
+   After this page they can: look up any S3 pin, bus, default or Kconfig value, and build and flash the S3.
+   Page type: reference.
 
-The whole product is one small board: the panel, the touch, the motion
-sensor, and the real-time clock all share the ESP32-S3's QSPI, I²C, and
-I²S buses. The overview below seals each bus into one box; the two
-sketches after it open the bus bars (every GPIO number) and trace the
-one wiring detail that constrains the sleep machine — the RTC's alarm
-line never reaches a wake input.
+This page is the reference for the Waveshare ESP32-S3-Touch-AMOLED-1.75, the clock's default board.
+It lists the hardware, the pin map, the build commands, the pre-configured defaults and every compile-time setting the S3 build uses.
+The facts that shape the firmware most are near the top: the PSRAM cannot do DMA, the panel has no alpha channel, and the RTC alarm line reaches no wake input.
+
+What the board is
+-----------------
+
+The ESP32-S3-Touch-AMOLED-1.75 is a 1.75-inch round capacitive-touch AMOLED development board.
+It is the whole product.
+The panel, the touch controller, the motion sensor and the real-time clock (RTC) all sit on the same small board and share the ESP32-S3's QSPI, I²C and I²S buses.
+The clock body is a 3D-printed stand that holds the board and a battery (the panel render on the :doc:`start page <../index>`).
+
+Hardware summary
+----------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Part
+     - What it is
+   * - SoC
+     - ESP32-S3, dual-core Xtensa LX7, up to 240 MHz, with an FPU
+   * - Memory
+     - 16 MB flash, 8 MB in-package octal PSRAM (not SPI-DMA-capable)
+   * - Panel
+     - CO5300, 466×466 RGB565 AMOLED over QSPI, brightness register 0x51
+   * - Touch
+     - CST9217, I²C
+   * - Motion
+     - QMI8658C accelerometer + gyro, I²C
+   * - Clock
+     - PCF85063A RTC, I²C, alarm output on a TCA9554 IO expander
+   * - Audio
+     - ES8311 codec, I²S
+   * - Storage
+     - TF (microSD) socket, SPI 1-bit
+   * - Power
+     - USB in this build
+
+SoC and memory
+~~~~~~~~~~~~~~
+
+The ESP32-S3's FPU is what the bake uses (:doc:`the C core <../implementation/core-c>`).
+``partitions.csv`` splits the 16 MB flash into four partitions:
+
+- a 2 MB ``factory`` app partition;
+- a 64 KB SPIFFS ``storage`` partition (credentials and alarm rules);
+- a 2.5 MB ``moon_assets`` data partition with the equirectangular albedo and the int8 relief DEM;
+- the ``moon_movie`` last row (11648 K, the chip's leftover), which holds the precomputed synodic boot movie (:doc:`the boot movie <../implementation/moon-movie>`).
+
+The DEM's 2 MB size is what forced the 16 MB chip (:doc:`performance <../verification/performance>`).
+The boot movie is 355 frames at 2 h spacing (``python -m moon.movie --target s3``).
+A missing or stale movie never blocks a flash.
+
+The S3's octal PSRAM is not SPI-DMA-capable.
+Every DMA transfer the display stack makes must land in internal SRAM.
+This one fact explains two settings that look arbitrary otherwise.
+The LVGL flush strips are staged through internal RAM at 25 rows high, under the 32 KiB S3 SPI DMA cap (:doc:`the display pipeline <../implementation/display>`).
+The 2 MB relief DEM lives in PSRAM and the CPU reads it; it is never sent by DMA.
+
+The panel: CO5300 over QSPI
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The CO5300 controller drives a 466×466 RGB565 (5-6-5, no alpha) AMOLED panel over QSPI.
+Three properties matter to the rest of these docs.
+
+The panel has no alpha channel.
+Each pixel is on with an RGB565 color or off; there is no per-pixel transparency.
+To fade out a screen, the firmware ramps the panel's hardware brightness register (0x51) instead of writing alpha.
+:doc:`The display pipeline <../implementation/display>` and :doc:`the clock and sleep machine <../implementation/clock-sleep>` both rely on this.
+
+Brightness is a register, not a backlight PWM.
+The CO5300 has a per-panel brightness value.
+The screen-switch fade to black and the light-sleep dim (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) are slow writes to that register while the pixels stay constant.
+That is why they are cheap.
+It is also why a lost QSPI write shows up as a frozen frame, not a dimmed one (the GPSPI-stall incident, :doc:`on-device verification <../verification/device-verify>`).
+
+The 466 panel draws the family's baseline type tier.
+``components/ui/fonts/`` bakes the seven faces at 96/48/32 px (237 glyphs, 85 KiB of 4 bpp raster).
+The P4 and knob tiers are the same faces re-baked at their panel ratios.
+:ref:`The type sketch <type-family-ui>` draws the family, and :ref:`the glyph ladder <glyph-ladder-perf>` prices all three tiers.
+
+Touch, motion and time
+~~~~~~~~~~~~~~~~~~~~~~
+
+The CST9217 capacitive touch controller sits on I²C.
+The UI's input-device layer polls it.
+The settings screens (:doc:`the round keyboard <../keyboard>`) and the clock-roll gesture (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) both depend on it.
+
+The QMI8658C IMU (accelerometer and gyro) sits on I²C and drives two behaviours that a photo does not show.
+The tilt wake wakes the device when it leaves a settled pose.
+The clock roll counter-rotates the clock face so it stays upright as you tilt the board.
+Both are described in :doc:`the clock and sleep machine <../implementation/clock-sleep>`.
+Both run on the 1 s monitor tick, not the chip's stream.
+The firmware asks 86,400 times a day while the chip produces samples at its 1000 Hz output data rate, so the firmware reads one sample in a thousand (:ref:`the silicon ladder <silicon-ladder-perf>`).
+
+The PCF85063A RTC sits behind a TCA9554 IO expander on I²C.
+The RTC keeps the clock running through light sleep.
+The product's deep sleep is app-level (backlight off, CPU still running), so the alarm still fires from the dark screen.
+It fires by polling, not by a wake line.
+The PCF's ALM output is wired to pin 3 of the TCA9554, and the running CPU reads that pin every 1.3 s (the ``lv_timer`` interrupt handler).
+The firmware arms the alarm through the RTC's hardware alarm (``clock_clear_alarm`` and re-arm).
+:doc:`The clock and sleep machine <../implementation/clock-sleep>` documents the bug where a stale armed ALM fired a phantom alarm, which is why a boot with zero rules disarms it.
+
+Power
+~~~~~
+
+The board runs from USB in this build (the bench stand has a coiled cable in the photos).
+The sleep machine (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) exists because an always-on AMOLED on a desk draws power and risks burn-in.
+Light sleep keeps the panel on but dims it.
+Deep sleep turns the panel's backlight off.
+
+The moon is shown static, so it burns faintly into the panel over weeks of always-on display.
+This is an accepted trade-off: a faint burned-in moon is a feature, not a bug, and it is unlikely to make the display harder to read (:doc:`the animation pipelines <../implementation/animations>`, :doc:`/project/history`).
+
+The board shim
+~~~~~~~~~~~~~~
+
+A vendored Waveshare BSP component (``components/esp32_s3_touch_amoled_1_75``) drives the board.
+The project's own board logic sits in a thin shim, ``components/board``.
+The shim (``board_display.c``) gives the rest of the code one ``board_panel()``, one ``board_panel_io()`` and one ``board_io_expander_init()`` that behave the same on the S3 and the P4.
+The P4 has a different panel handle, no QSPI panel IO and no IO expander, so on the P4 the shim returns the P4 handle, NULL and NULL:
+
+.. code-block:: c
+   :caption: components/board/board_display.c (the whole shim)
+
+   #include "board_display.h"
+
+   esp_lcd_panel_handle_t board_panel(void) {
+   #if defined(CONFIG_BOARD_P4)
+       return bsp_display_get_panel_handle();
+   #else
+       return bsp_display_get_panel();
+   #endif
+   }
+
+   esp_lcd_panel_io_handle_t board_panel_io(void) {
+   #if defined(CONFIG_BOARD_P4)
+       /* The P4's MIPI-DSI panel has no QSPI io; its drain witness is
+        * S3-only, so this name only needs to LINK on the P4. */
+       return NULL;
+   #else
+       return bsp_display_get_panel_io();
+   #endif
+   }
+
+   esp_io_expander_handle_t board_io_expander_init(void) {
+       /* The P4 board has no IO expander (no PCF85063A interrupt line). */
+   #if defined(CONFIG_BOARD_P4)
+       return NULL;
+   #else
+       return bsp_io_expander_init();
+   #endif
+   }
+
+The panel's DMA staging, the 25-row flush-strip limit and the ``s_panel_mtx`` that serializes brightness writes are described in :doc:`the display pipeline <../implementation/display>` and :doc:`the clock and sleep machine <../implementation/clock-sleep>`.
+
+Wiring and pin map
+------------------
+
+The overview below draws each bus as one closed box.
+The two sketches after it open the bus bars (every GPIO number) and trace the one wiring detail that constrains the sleep machine: the RTC's alarm line never reaches a wake input.
 
 .. graphviz:: ../_graphs/s3-wiring.dot
-   :alt: S3 component wiring overview
+   :alt: The S3 board's parts grouped by bus: QSPI to the panel, I²C to touch, IMU, expander and RTC, I²S to the codec.
    :align: center
-   :caption: The overview — one sealed box per bus: QSPI (CO5300 AMOLED), I²C (touch, IMU, TCA9554 expander, PCF85063A RTC), I²S (ES8311 codec), plus the flash budget and the PSRAM's DMA caveat; the orange callout is the wake story the last sketch opens.
+   :caption: One box per bus: QSPI (CO5300 AMOLED), I²C (touch, IMU, TCA9554 expander, PCF85063A RTC), I²S (ES8311 codec), plus the flash budget and the PSRAM's DMA caveat. The orange callout is the wake path that the last sketch opens.
 
 .. graphviz:: ../_graphs/s3-wiring-bus.dot
-   :alt: S3 bus pin map
+   :alt: The S3 buses drawn pin by pin, with every GPIO number.
    :align: center
-   :caption: The buses pin by pin — QSPI CS 12, PCLK 38, D0–D3 4–7, RST 39 to the CO5300 (RGB565, no alpha, brightness register 0x51); I²C SCL GPIO14 / SDA GPIO15 with CST9217, QMI8658C, the TCA9554 8-bit expander and the 32.768 kHz PCF85063A; I²S SCLK 9, MCLK 42, LCLK 45, DOUT 8 to the ES8311; the bold orange ALM line lands on the expander.
+   :caption: The buses pin by pin. QSPI: CS 12, PCLK 38, D0–D3 4–7, RST 39 to the CO5300 (RGB565, no alpha, brightness register 0x51). I²C: SCL GPIO14, SDA GPIO15 to the CST9217, the QMI8658C, the TCA9554 8-bit expander and the 32.768 kHz PCF85063A. I²S: SCLK 9, MCLK 42, LCLK 45, DOUT 8 to the ES8311. The bold orange ALM line lands on the expander.
 
 .. graphviz:: ../_graphs/s3-wiring-wake.dot
-   :alt: S3 alarm wake path
+   :alt: The S3 alarm path from the RTC's alarm output to the IO expander, ending at software.
    :align: center
-   :caption: The alarm's whole journey — PCF85063A ALM → TCA9554 pin 3, read by a running CPU; the path stops at software, because no wire reaches an ESP wake input.
+   :caption: The alarm's path: PCF85063A ALM to TCA9554 pin 3, read by a running CPU. The path stops at software, because no wire reaches an ESP wake input.
 
-The orange path is the wake-up caveat: the RTC's ALM output lands on the
-TCA9554 expander's pin 3, which a running CPU polls at 1.3 s — it is
-**not** wired to an ESP wake input, so a true ``esp_deep_sleep`` could
-never be woken by a timer or alarm on this board. (The product's "deep
-sleep" is app-level — the backlight off, the CPU still running — so the
-alarm still fires via that poll. :doc:`The clock and sleep machine <../implementation/clock-sleep>`.)
+The orange path is the wake-up caveat.
+The RTC's ALM output lands on pin 3 of the TCA9554, which the running CPU polls every 1.3 s.
+It is not wired to an ESP wake input, so a true ``esp_deep_sleep`` could never be woken by a timer or alarm on this board.
+The product's deep sleep is app-level (backlight off, CPU still running), so the alarm still fires through that poll (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
 
-Pin map (Waveshare datasheet)
------------------------------
-
-The full GPIO assignment from the Waveshare datasheet — the schematic
-above traces the buses the project actually uses; this table is the
-complete reference, including the un-used GPS / expander (``EXIO``)
-lines. The SD socket is **SPI 1-bit** (MOSI GPIO01 / SCK GPIO02 /
-MISO GPIO03 / CS GPIO41, D1–D7 not wired); there is no SDMMC wiring on
-this board. The TF hour cache (``UI_MOON_TFCACHE``,
-:doc:`the animation pipelines <../implementation/animations>`) mounts it with
-``esp_vfs_fat_sdspi_mount`` on **SPI3_HOST** — not through the vendored
-BSP's ``bsp_sdcard_mount()``, which attaches to SPI2_HOST, and SPI2 is
-already the QSPI **panel's** bus (``BSP_LCD_SPI_NUM``), so sharing it
-starves the card to a 0x107 timeout. ``moon_tfcache`` therefore
-initializes the SPI3 bus itself (the caller owns ``spi_bus_initialize``
-under the SDSPI contract) and attaches the card there — a missing card
-is a silent no-op and the hourly refresh just bakes on-device. The
-module survives the sweep it was built for: it now serves the
-**hourly refresh** and the **boot replay's fallback leg** (
-``UI_MOON_BOOT_REPLAY``, :doc:`the animation pipelines
-<../implementation/animations>`) — since the :commit:`7693bffa` boot
-re-source the presentation's first source is the flash-resident boot
-movie (:doc:`the boot movie <../implementation/moon-movie>`), and the
-card's stored hour frames play only when the movie is missing or
-calcver-stale. The card mounts lazily on the first producer to run —
-with the boot replay on (the default) that is the movie-loop /
-card-fallback leg at boot (the ~1 s SD probe is paid on that leg only);
-with the replay off the first hourly refresh mounts.
+The table below is the full GPIO assignment from the Waveshare datasheet.
+The sketches above trace only the buses the project uses; the table also lists the unused GPS and expander (``EXIO``) lines.
 
 .. code-block:: text
    :caption: Waveshare ESP32-S3-Touch-AMOLED-1.75 pin map (LCD / USB / RTC / SD / ES8311 / QMI8658C / SYS / GPS / OUT)
@@ -111,148 +238,34 @@ with the replay off the first hourly refresh mounts.
    EXIO6   -          -      -        -       -          QMI INT1  -         -           -
    EXIO7   -          -      -        -       -          -          GPS RST   -           -
 
-SoC and memory
---------------
+The TF card socket
+~~~~~~~~~~~~~~~~~~
 
-- **ESP32-S3**: dual-core Xtensa LX7, up to 240 MHz, with an FPU the
-  bake uses (:doc:`the C core <../implementation/core-c>`).
-- **16 MB flash** with an octal PSRAM. The flash is split by
-  ``partitions.csv`` into a 2 MB ``factory`` app partition, a 64 KB
-  SPIFFS ``storage`` (credentials + alarm rules), a 2.5 MB
-  ``moon_assets`` data partition that holds the equirect albedo and
-  the int8 relief DEM (see :doc:`performance <../verification/performance>` for why the DEM's 2 MB size
-  forced the 16 MB chip), and the ``moon_movie`` LAST row (11648 K,
-  the chip's leftover) that carries the precomputed synodic boot
-  movie — :doc:`the boot movie <../implementation/moon-movie>`
-  (355 frames @ 2 h today, ``python -m moon.movie --target s3``); a
-  missing/stale movie never blocks a flash.
-- **PSRAM caveat**: the S3's octal PSRAM is **not SPI-DMA-capable**.
-  Every DMA transfer that the display stack performs must land in
-  internal SRAM. This single fact shapes two things that look
-  arbitrary until you know it: the LVGL flush strips are staged
-  through internal RAM at 25 rows high (a 32 KiB S3 SPI DMA cap,
-  :doc:`the display pipeline <../implementation/display>`), and the 2 MB relief DEM lives in PSRAM and is read by
-  the CPU, never DMA'd.
+The SD socket is SPI 1-bit: MOSI GPIO01, SCK GPIO02, MISO GPIO03, CS GPIO41, with D1–D7 not wired.
+The board has no SDMMC wiring.
 
-The panel: CO5300 over QSPI
-----------------------------
+The TF hour cache (``UI_MOON_TFCACHE``, :doc:`the animation pipelines <../implementation/animations>`) mounts the card with ``esp_vfs_fat_sdspi_mount`` on SPI3_HOST.
+It does not use the vendored BSP's ``bsp_sdcard_mount()``, because that attaches to SPI2_HOST.
+SPI2 is already the QSPI panel's bus (``BSP_LCD_SPI_NUM``), and sharing it starves the card into a 0x107 timeout.
+So ``moon_tfcache`` initializes the SPI3 bus itself (under the SDSPI contract the caller owns ``spi_bus_initialize``) and attaches the card there.
+A missing card is a silent no-op, and the hourly refresh then bakes on the device.
 
-The **CO5300** controller drives a 466×466 RGB565 (5-6-5, no alpha)
-AMOLED panel over **QSPI**. Two properties matter to the rest of these
-docs:
+The cache serves two producers: the hourly refresh, and the fallback leg of the boot replay (``UI_MOON_BOOT_REPLAY``, :doc:`the animation pipelines <../implementation/animations>`).
+The boot replay plays the flash-resident boot movie first (:doc:`the boot movie <../implementation/moon-movie>`).
+The card's stored hour frames play only when the movie is missing or its calcver is stale.
+The card mounts lazily, on the first producer that runs.
+With the boot replay on (the default), that is the movie-loop / card-fallback leg at boot, and only that leg pays the ~1 s SD probe.
+With the replay off, the first hourly refresh mounts the card.
 
-- **No alpha channel.** The panel is either on with an RGB565 color or
-  off; there is no per-pixel transparency. "Fading out" a screen means
-  ramping the panel's *hardware brightness register* (register 0x51),
-  not writing alpha. :doc:`The display pipeline <../implementation/display>` and :doc:`the clock and sleep machine <../implementation/clock-sleep>` both lean on this.
-- **A brightness register, not a backlight PWM.** The CO5300 exposes a
-  per-panel brightness value. The screen-switch "fade to black" and
-  the light-sleep dim (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) are both just slow writes to that
-  register while the pixel content is held constant — which is also
-  exactly why they are cheap and why a lost QSPI write shows up as a
-  frozen frame, not a dimmed one (the GPSPI-stall incident,
-  :doc:`on-device verification <../verification/device-verify>`).
-- **The baseline type tier.** The 466 panel draws on the family's
-  baseline: ``components/ui/fonts/`` bakes the seven faces at
-  96/48/32 px (237 glyphs, 85 KiB of 4 bpp raster), and the P4 and
-  knob tiers are the same faces re-baked at their panel ratios —
-  :ref:`the type sketch <type-family-ui>` draws the family, and
-  :ref:`the glyph ladder <glyph-ladder-perf>` prices all three.
-
-Touch, motion, time
--------------------
-
-- **CST9217** capacitive touch, I²C. The UI's indev layer polls it;
-  the settings screens (:doc:`the round keyboard <../keyboard>`) and the clock-roll gesture
-  (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) both key off it.
-- **QMI8658C** IMU (accelerometer + gyro), I²C. This drives two
-  behaviors that are easy to miss in a photo: the **tilt wake**
-  (departure from a settled pose wakes the device, :doc:`the clock and sleep machine <../implementation/clock-sleep>`) and
-  the **clock roll** (the clock face counter-rotates to stay upright
-  as you tilt the board, :doc:`the clock and sleep machine <../implementation/clock-sleep>`).
-  Both key off the 1 s monitor tick, not the chip's stream: the
-  firmware asks 86,400 times a day while the chip produces at its
-  1000 Hz ODR — one sample in a thousand is ever read
-  (:ref:`the silicon ladder <silicon-ladder-perf>`).
-- **PCF85063A** RTC, behind a **TCA9554** IO expander, I²C. The RTC
-  keeps the clock alive through light sleep, and because the product's
-  "deep sleep" is app-level (the backlight off, the CPU still running)
-  the alarm still fires from the dark screen. It fires by *polling*,
-  not by a wake line: the PCF's ALM output is wired to the TCA9554
-  expander's pin 3, and a running CPU reads that pin at 1.3 s intervals
-  (the ``lv_timer`` interrupt handler). That line is **not** an ESP
-  wake input, which is why the board could never be woken from a true
-  ``esp_deep_sleep`` on a timer or alarm — the same fact the schematic
-  above calls out. The alarm is armed through the RTC's hardware alarm
-  (``clock_clear_alarm`` / re-arm — :doc:`the clock and sleep machine <../implementation/clock-sleep>` documents the "stale
-  armed ALM fires a phantom alarm" bug that required disarming on a
-  zero-rule boot).
-
-Power
------
-
-The board is powered from USB in this build (the bench stand has a
-coiled cable in the photos). The sleep machine (:doc:`the clock and sleep machine <../implementation/clock-sleep>`) exists
-largely because an always-on AMOLED on a desk is a burn-in risk and a
-power draw; light sleep keeps the panel on but dims it, deep sleep
-turns the panel's backlight off entirely. The rotation that once spread
-the first risk was retired with the animation stack :commit:`79937e37`;
-what follows from it — the moon burning itself faintly into the panel
-over weeks of always-on display — is an accepted trade-off
-(:commit:`eed1d856`): a burned-in moon is a feature, not a bug, and it is
-unlikely to disturb reading the display
-(:doc:`the animation pipelines <../implementation/animations>`).
-
-The custom shim
+Build and flash
 ---------------
 
-The board is driven through a vendored Waveshare BSP component
-(``components/esp32_s3_touch_amoled_1_75``), but all the project's own
-board logic sits in a thin shim, ``components/board``. The shim
-(``board_display.c``) is deliberately small — it exists to give the
-rest of the code one ``board_panel()`` and one
-``board_io_expander_init()`` that behave identically on the S3 and the
-P4 (the P4 has no IO expander and a different panel handle, so the
-shim returns NULL / the P4 handle respectively):
-
-.. code-block:: c
-   :caption: components/board/board_display.c (the whole shim)
-
-   #include "board_display.h"
-
-   esp_lcd_panel_handle_t board_panel(void) {
-   #if defined(CONFIG_BOARD_P4)
-       return bsp_display_get_panel_handle();
-   #else
-       return bsp_display_get_panel();
-   #endif
-   }
-
-   esp_io_expander_handle_t board_io_expander_init(void) {
-       /* The P4 board has no IO expander (no PCF85063A interrupt line). */
-   #if defined(CONFIG_BOARD_P4)
-       return NULL;
-   #else
-       return bsp_io_expander_init();
-   #endif
-   }
-
-The panel's DMA staging, the 25-row flush-strip limit, and the
-``s_panel_mtx`` that serializes brightness writes are described where
-they matter: the display pipeline (:doc:`the display pipeline <../implementation/display>`) and the sleep/dim
-machinery (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
-
-Building and flashing the S3
-----------------------------
-
-The S3 is the **default target**: a plain ``idf.py build`` (fresh
-clone, no ``sdkconfig``) configures ``esp32s3`` from
-``sdkconfig.defaults``. The full build + flash sequence
-(:doc:`the board index <index>` for the shared conventions and the
-port-identification procedure):
+The S3 is the default target.
+A plain ``idf.py build`` on a fresh clone (no ``sdkconfig``) configures ``esp32s3`` from ``sdkconfig.defaults``.
+Before you start, identify the port and confirm the chip (:doc:`the board index <index>` has the procedure and the shared conventions).
 
 .. code-block:: bash
-   :caption: The S3 target (``<port>`` = the identified port — run ``esptool.py --port <port> chip_id`` first)
+   :caption: The S3 target (``<port>`` = the identified port; run ``esptool.py --port <port> chip_id`` first)
 
    source ~/esp/esp-idf/export.sh
 
@@ -272,9 +285,9 @@ port-identification procedure):
 Pre-configured defaults
 -----------------------
 
-The S3 build merges the shared defaults with
-``sdkconfig.defaults.esp32s3`` (auto-appended for
-``IDF_TARGET=esp32s3``, later file wins). The S3 file, in full:
+The S3 build merges the shared defaults with ``sdkconfig.defaults.esp32s3``.
+The build system appends the per-target file for ``IDF_TARGET=esp32s3``, and the later file wins.
+The S3 file in full:
 
 .. code-block:: text
    :caption: sdkconfig.defaults.esp32s3 (the S3-specific values)
@@ -282,6 +295,9 @@ The S3 build merges the shared defaults with
    # S3-only defaults (auto-loaded after sdkconfig.defaults when
    # IDF_TARGET=esp32s3). Keep the shared file board-neutral.
    CONFIG_IDF_TARGET="esp32s3"
+   # Flash size header: the S3's 16 MB chip (moved out of the shared
+   # defaults 2026-11-25 when the P4 took its real 32 MB chip).
+   CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
    # Octal PSRAM at 80 MHz: the S3's in-package 8 MB.
    CONFIG_SPIRAM_MODE_OCT=y
    CONFIG_SPIRAM_SPEED_80M=y
@@ -303,72 +319,78 @@ The S3 build merges the shared defaults with
    # BSP buffer_height 50->25 fix). S3 BSP symbol only.
    CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=1
 
-**The board line asymmetry:** this file carries **no**
-``CONFIG_BOARD_S3=y`` — the S3 is the *default* of the board
-``choice`` (see below), so the default already selects it. The P4
-file, by contrast, **does** carry ``CONFIG_BOARD_P4=y`` (overriding
-the default back to the P4). The root ``CMakeLists``
-target/board guard makes a stray board line in the wrong file a
-build-time ``FATAL_ERROR``.
+This file has no ``CONFIG_BOARD_S3=y`` line.
+The S3 is the default of the board ``choice`` (see `Board selection`_ below), so the default already selects it.
+The P4 file does carry ``CONFIG_BOARD_P4=y``, to override that default.
+The root ``CMakeLists`` target/board guard turns a stray board line in the wrong file into a build-time ``FATAL_ERROR``.
 
-The shared file (``sdkconfig.defaults``) contributes the board-neutral
-values: the 16 MB flash header (``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y``
-— both boards flash a 16 MB header), ``CONFIG_PARTITION_TABLE_CUSTOM=y``
-(the S3 keeps the default ``partitions.csv``), ``CONFIG_SPIRAM=y``,
-``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF hour cache
-hour keys exceed 8.3; a historic ``LFN_NONE`` pin was stripped from
-the live configs),
-the LVGL 9.6 setup (notably ``CONFIG_LV_USE_CLIB_MALLOC=y`` — the
-clock-roll's full-screen PSRAM transform layer needs the libc
-allocator, not LVGL's 64 KB static pool), the hardware
-brightness fade + the once-per-hour refresh (``CONFIG_UI_SCREEN_SWITCH_FADE=240``,
-``CONFIG_UI_MOON_HOURLY_ENABLE=y``), ``CONFIG_UI_CLOCK_ALPHA_PCT=20``,
-and ``CONFIG_LV_USE_SNAPSHOT=n`` (the burn-in spin's keep-mask was its
-only device user; gone with the spin :commit:`79937e37`). The spin / boot-anim /
-dusk pins the file once carried are gone with the whole animation stack.
+The shared file (``sdkconfig.defaults``) adds the board-neutral values:
+
+- ``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the S3 keeps the default ``partitions.csv``);
+- ``CONFIG_SPIRAM=y``;
+- ``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames, because the TF hour cache's hour keys exceed 8.3);
+- the LVGL 9.6 setup, notably ``CONFIG_LV_USE_CLIB_MALLOC=y``: the clock roll's full-screen PSRAM transform layer needs the libc allocator, not LVGL's 64 KB static pool;
+- the hardware brightness fade and the once-per-hour refresh (``CONFIG_UI_SCREEN_SWITCH_FADE=240``, ``CONFIG_UI_MOON_HOURLY_ENABLE=y``);
+- ``CONFIG_UI_CLOCK_ALPHA_PCT=20``;
+- ``CONFIG_LV_USE_SNAPSHOT=n`` (nothing on the device captures the screen).
+
+The flash size header is per board: the S3 file sets the 16 MB header, the P4 file the 32 MB one.
 
 Compile-time settings
 ---------------------
 
-The full Kconfig reference the S3 build compiles against follows —
-the board choice, the esp_hosted guard keys (defined in the board
-Kconfig; evaluated only against the P4's esp_hosted dependency set,
-but part of the same menu), the clock keys, the full UI menu, the
-moon constants, and the S3 partition table. The tables are
-single-sourced with :doc:`the reference section <../reference/index>`
-(the same fragments are included there), so the two can't drift.
+The full Kconfig reference that the S3 build compiles against follows: the board choice, the esp_hosted guard keys, the clock keys, the full UI menu, the moon constants and the S3 partition table.
+The esp_hosted guard keys are defined in the board Kconfig and sit in the same menu, but only the P4's esp_hosted dependency set evaluates them.
+These tables come from the same fragments as :doc:`the reference section <../reference/index>`, so the two cannot drift.
 
 Board selection
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-board-choice.inc
 
 The esp_hosted guard keys
--------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-guard-keys.inc
 
 Clock component
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-clock.inc
 
 UI component
-------------
+~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-ui.inc
 
 Moon constants
---------------
+~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/moon-consts.inc
 
 Moon asset Kconfig
-------------------
+~~~~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-moon.inc
 
 Partition table
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/partitions-s3.inc
+
+Known limits
+------------
+
+- The ``factory`` partition is 2,097,152 bytes (2 MiB), the tightest budget of the three boards. Check the binary size after every build (:doc:`the binary-size chronology <../verification/binary>`).
+- The octal PSRAM is not SPI-DMA-capable. Keep the BSP ``buffer_height`` at 25 and the flush queue depth at 1.
+- The RTC's alarm line reaches no ESP wake input, so the board cannot wake from a true ``esp_deep_sleep``. Deep sleep is app-level, and the alarm fires through the 1.3 s poll.
+- The panel has no alpha channel. Fades are brightness ramps on register 0x51.
+- The static moon burns faintly into the AMOLED over time. This is an accepted trade-off; do not add anti-burn-in machinery without a fresh decision.
+- The TF card must sit on SPI3_HOST, never the panel's SPI2_HOST.
+
+Where to go next
+----------------
+
+- :doc:`The display pipeline <../implementation/display>`: how a frame reaches the CO5300.
+- :doc:`The clock and sleep machine <../implementation/clock-sleep>`: tilt wake, dim, deep sleep and the alarm poll.
+- :doc:`The P4 4C port <p4>`: the second board and how it differs.

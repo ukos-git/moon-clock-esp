@@ -1,44 +1,137 @@
 The settings hub
 ================
 
-The settings root: a black screen, a central exit — the fa-circle-xmark glyph IS the button (the white disk is the 96 px font's ink, the ``UI_PX(150)`` argument only widens the tap box) — back to the calling level, and a ring of sub-screen icons at EQUAL arc distances — 360/n degrees apart (S3 and knob: 7 icons × ~51.4°, P4: 8 icons × 45°; the P4 ring opens with the clock icon for manual time entry). The deep-sleep icon is anchored at the bottom (180°) and found **by target**, not by index, so the anchor cannot drift when the ring's count differs between the boards. Moon weight distinguishes the two sleep screens (regular = light sleep, solid = deep sleep); the ring radius is ``UI_PX(140)`` — 140 / 216 / 108 px on the three panels — balanced against the exit disk with equal breathing room both sides.
+.. brief:
+   Reader: a firmware developer working on the settings menu.
+   They already know: C, LVGL basics, the ``UI_PX`` scaling macro.
+   After this page they can: find each hub icon's target and explain the ring geometry on all three panels.
+   Page type: reference.
+
+The settings hub is the root of the settings menu: a black screen with an exit button in the centre and a ring of icons, one per settings screen.
+A tap on the home screen opens it.
+
+How it behaves
+--------------
+
+A tap on a ring icon opens that settings screen.
+A tap on the centre exit returns to the calling level, which is the airplane home screen on the normal path.
+
+The icons sit at equal arc distances, 360/n degrees apart.
+The S3 and the knob have 7 icons, about 51.4° apart; the P4 has 8, 45° apart.
+The P4 ring opens with a clock icon for manual time entry.
+
+The deep-sleep icon is anchored at the bottom (180°).
+The code finds it by target, not by index, so the anchor cannot drift when the ring's count differs between boards.
+The moon icon's weight tells the two sleep screens apart: regular for light sleep, solid for deep sleep.
+
+On the knob, a dial detent moves a focus cursor round the ring and a tap commits (:ref:`dial-semantics-knob <dial-semantics-knob>`).
+
+Screenshots
+-----------
 
 .. figure:: ../img/screens/annot/settings-hub_s3.png
-   :alt: the settings hub — the S3 panel (466, annotated)
+   :alt: The settings hub on the S3 panel, with numbered callouts on the exit and each ring icon.
    :align: center
 
-   The settings hub — S3 466×466 (the badges are the legend numbers)
+   S3, 466×466. The numbered badges match the Elements table.
 
 .. figure:: ../img/screens/annot/settings-hub_p4.png
-   :alt: the settings hub — the P4 panel (720, annotated)
+   :alt: The settings hub on the P4 panel, with numbered callouts on the exit and each ring icon.
    :align: center
 
-   The settings hub — P4 720×720 (the same UI_PX layout, scaled)
+   P4, 720×720. The same ``UI_PX`` layout, scaled.
 
 .. figure:: ../img/screens/knob/settings_hub.png
-   :alt: the settings hub — the knob panel (360)
+   :alt: The settings hub on the knob's 360 px panel at rest: seven icons and a white centre exit.
    :align: center
 
-   The settings hub — knob 360×360 at rest (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; seven icons like the S3, centre exit white)
+   Knob, 360×360, at rest: the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``.
+   Seven icons, like the S3; the centre exit is white.
 
 .. figure:: ../img/screens/knob/settings_hub_dial.png
-   :alt: the settings hub with the dial cursor focused — the knob panel (360)
+   :alt: The settings hub on the knob after one clockwise dial detent, with one ring icon white and the others grey.
    :align: center
 
-   The same hub after one clockwise dial detent — ``screens_dial_step(+1)``: the focused ring icon goes white (grey = unfocused), the central exit carries the focus ring when it is the cursor. Touch the knob's EC1 encoder, the cursor rides the shared handlers (:ref:`dial-semantics-knob <dial-semantics-knob>`)
+   The same hub after one clockwise dial detent (``screens_dial_step(+1)``).
+   The focused ring icon is white and the unfocused ones grey; when the centre exit is the cursor, it carries the focus ring.
+   The knob's EC1 encoder moves the cursor over the shared handlers (:ref:`dial-semantics-knob <dial-semantics-knob>`).
+
+Elements
+--------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 4 24 44 28
+
+   * - #
+     - Element
+     - Purpose
+     - Code / option
+
+   * - 1
+     - Exit (centre circle-xmark)
+     - Back to the calling level: the airplane screen on the normal path. The exit loads the home screen only and starts no sync. The sync triggers are the hourly gate, the wake path on the clocks and the keyboard commit (:doc:`the transient WiFi screen <wifi>`).
+     - ``event_handler_cb_hub_exit``, :cfunc:`settings_hub_icon`'s sibling :cfunc:`settings_create_exit_button`
+
+   * - 2
+     - Alarm sound (speaker, solid)
+     - The four-loop sound picker. The ES8311 codec is on both clocks; the knob reaches the screen on the shared ring, but its silent ``esp_codec_dev`` shim previews nothing.
+     - :doc:`settings-alarm-sound <settings-alarm-sound>`; option ``alarm_sound_id``
+
+   * - 3
+     - Alarm (clock, regular)
+     - The alarm rules screen (the master toggle and the two entries).
+     - :doc:`settings-alarm <settings-alarm>`
+
+   * - 4
+     - Light sleep (regular moon)
+     - The idle-timeout picker (1–30 min).
+     - :doc:`settings-light-sleep <settings-light-sleep>`; option ``idle_timeout_sec``
+
+   * - 5
+     - Deep sleep (solid moon)
+     - The sleep-countdown picker (1–30 min).
+     - :doc:`settings-deep-sleep <settings-deep-sleep>`; option ``deep_sleep_countdown_sec``
+
+   * - 6
+     - WiFi
+     - The access-point scan list. A background scan runs while the screen is open.
+     - :doc:`settings-wifi <settings-wifi>`
+
+   * - 7
+     - Timezone (globe, solid)
+     - The named-zone picker (67 curated cities).
+     - :doc:`settings-tz <settings-tz>`; key ``timezone``
+
+   * - 8
+     - Display base angle (rotate, solid)
+     - The wall-mount base-angle trim. A 0..359 roller sets the display's zero angle, and the value saves on release (settings.txt ``display_rotation_deg``).
+     - :doc:`settings-display <settings-display>`
+
+   * - —
+     - Time (clock, regular), P4 only
+     - The ring's manual-time-entry icon, compiled in only under ``CONFIG_BOARD_P4``. The S3's PCF85063A needs no manual entry and the knob has no such flow. This icon makes the P4 ring 8 icons and the other two 7.
+     - ``#if defined(CONFIG_BOARD_P4)`` in the ring array → :doc:`settings-time <settings-time>`
+
+Implementation notes
+--------------------
+
+The centre exit is the fa-circle-xmark glyph itself: the white disk is the 96 px font's ink.
+The ``UI_PX(150)`` argument only widens the tap box.
+The ring radius is ``UI_PX(140)``: 140, 216 and 108 px on the three panels.
+It is balanced against the exit disk, with equal space on both sides.
+
+The wheel keyboard (:doc:`settings-wifi-password <settings-wifi-password>`) has no hub icon.
+You reach it by tapping an access-point row on the WiFi screen, and its only way back is the centre long press.
 
 The ring, computed per variant
-------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Every hub dimension is a ``UI_PX()`` literal of the 466 px design
-(``UI_PX(x) = x · panel / 466``, integer division) except the icon
-ink, which comes from the per-panel pre-baked font tier — 96 / 148 /
-74 px is the same 466 → 720 → 360 ratio, baked once into
-``fonts{,_p4,_knob}/`` (:doc:`the knob display <../implementation/knob-display>`
-records the tiers). So the ring geometry is not three designs, it is
-**one design read at three scales** — and the balance it was tuned at
-466 px (inner gap 44 vs outer 45, the :commit:`1d994b0d` "stacked icons"
-fix) holds on every board:
+Every hub dimension is a ``UI_PX()`` literal of the 466 px design (``UI_PX(x) = x · panel / 466``, integer division).
+The one exception is the icon ink, which comes from the per-panel pre-baked font tier.
+Its sizes, 96, 148 and 74 px, follow the same 466 → 720 → 360 ratio and are baked once into ``fonts{,_p4,_knob}/`` (:doc:`the knob display <../implementation/knob-display>` records the tiers).
+So the ring is one design read at three scales.
+The balance it was tuned to at 466 px (inner gap 44, outer gap 45) holds on every board:
 
 .. list-table::
    :header-rows: 1
@@ -93,80 +186,24 @@ fix) holds on every board:
      - 148
      - 74
 
-The chord clearance is the crowding margin: every ring keeps at least
-17 px of air between neighbouring icons — the P4's 8-icon ring runs
-the tightest (17 px ≈ one-ninth of one icon). Integer division floors
-each literal separately, so the gaps are exact ``UI_PX`` differences,
-not ``UI_PX`` of a difference (``216 − 148 = 68`` while ``UI_PX(44)``
-would floor to 67).
+The chord clearance is the crowding margin.
+Every ring keeps at least 17 px between neighbouring icons; the P4's 8-icon ring is the tightest (17 px, about one-ninth of an icon).
+Integer division floors each literal separately, so the gaps are exact differences of ``UI_PX`` values, not ``UI_PX`` of a difference: ``216 − 148 = 68``, while ``UI_PX(44)`` floors to 67.
 
-The figure is drawn by ``docs/tools/gen_hub_ring.py`` straight from
-the code's ring arithmetic — the icon centres are the positions
-``create_screen_settings_hub`` computes (θ clockwise from 12 o'clock,
-``θ = 180° + step·(i − deep)``, position ``(R·sin θ, −R·cos θ)``),
-not a schematic guess:
+``docs/tools/gen_hub_ring.py`` draws the figure from the code's ring arithmetic.
+The icon centres are the positions ``create_screen_settings_hub`` computes: θ clockwise from 12 o'clock, ``θ = 180° + step·(i − deep)``, position ``(R·sin θ, −R·cos θ)``.
 
 .. figure:: ../_static/figs/hub_ring.png
-   :alt: The hub ring geometry on the three panels — panel edge, ring circle, exit disk, icon centres at the computed angles
+   :alt: The hub ring on the three panels, drawn to scale: panel edge, ring circle, exit disk and icon centres at the computed angles.
    :align: center
 
-   The three rings to scale: panel edge (solid), ring circle at ``R`` (dashed), exit disk (amber, with its tap box dotted), icon centres (blue) with the clock-face they land on. The 7-icon ring anchors **deep-sleep at exactly 6 o'clock** and runs alarm → light-sleep → deep-sleep → WiFi → timezone → speaker (~11 o'clock) → rotate (~26° past 12); the 8-icon P4 ring inserts the clock icon at 45° (~1:30) and lands rotate exactly at 12 — the deep-sleep anchor holds because it is found by target, not index.
+   The three rings to scale: panel edge (solid), ring circle at ``R`` (dashed), exit disk (amber, tap box dotted) and icon centres (blue) with the clock position they land on.
+   The 7-icon ring anchors deep-sleep at exactly 6 o'clock and runs alarm → light-sleep → deep-sleep → WiFi → timezone → speaker (about 11 o'clock) → rotate (about 26° past 12).
+   The 8-icon P4 ring inserts the clock icon at 45° (about 1:30) and puts rotate exactly at 12; the deep-sleep anchor holds because the code finds it by target, not index.
 
-The wheel keyboard (:doc:`settings-wifi-password <settings-wifi-password>`) has no hub icon of its own — it is reached by tapping an AP row on the WiFi screen, and its only way back is the centre long press.
+Where to go next
+----------------
 
-Elements
---------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 4 24 44 28
-
-   * - #
-     - Element
-     - Purpose
-     - Code / option
-
-   * - 1
-     - Exit (centre circle-xmark)
-     - Back to the CALLING level — the airplane screen for the normal path. The exit loads the home screen only; it kicks off no sync (the sync triggers are the hourly gate, the wake path on the clocks, and the keyboard commit — :doc:`the transient WiFi screen <wifi>`).
-     - ``event_handler_cb_hub_exit``, :cfunc:`settings_hub_icon`'s sibling :cfunc:`settings_create_exit_button`
-
-   * - 2
-     - Alarm sound (speaker, solid)
-     - The 4-loop sound picker (the ES8311 codec is on both clocks; the knob reaches the screen on the shared ring but its silent ``esp_codec_dev`` shim previews nothing).
-     - :doc:`settings-alarm-sound <settings-alarm-sound>` — option ``alarm_sound_id``
-
-   * - 3
-     - Alarm (clock, regular)
-     - The alarm rules screen (the master toggle + the two entries).
-     - :doc:`settings-alarm <settings-alarm>`
-
-   * - 4
-     - Light sleep (regular moon)
-     - The idle-timeout picker (1–30 min).
-     - :doc:`settings-light-sleep <settings-light-sleep>` — option ``idle_timeout_sec``
-
-   * - 5
-     - Deep sleep (solid moon)
-     - The sleep-countdown picker (1–30 min).
-     - :doc:`settings-deep-sleep <settings-deep-sleep>` — option ``deep_sleep_countdown_sec``
-
-   * - 6
-     - WiFi
-     - The AP scan list (a background scan runs while the screen is open).
-     - :doc:`settings-wifi <settings-wifi>`
-
-   * - 7
-     - Timezone (globe, solid)
-     - The named-zone picker (67 curated cities).
-     - :doc:`settings-tz <settings-tz>` — key ``timezone``
-
-   * - 8
-     - Display base angle (rotate, solid)
-     - The wall-mount base-angle trim: drag the rim handle to set the dial's zero angle, the value saves on release (settings.txt ``display_rotation_deg``).
-     - :doc:`settings-display <settings-display>`
-
-   * - —
-     - Time (clock, regular) — **P4 only**
-     - The ring's manual-time-entry icon, compiled in only under ``CONFIG_BOARD_P4`` (the S3's PCF85063A needs no manual entry; the knob has no such flow) — which is what makes the P4 ring 8-icon and the other two 7-icon.
-     - ``#if defined(CONFIG_BOARD_P4)`` in the ring array → :doc:`settings-time <settings-time>`
+- :doc:`The UI index <index>`: the full navigation graph the hub sits in.
+- :doc:`The display trim <settings-display>`: the rotate icon's screen and its roller.
+- :ref:`dial-semantics-knob <dial-semantics-knob>`: how the knob's dial drives the same ring.

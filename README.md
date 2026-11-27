@@ -1,47 +1,42 @@
 # Moon Phase Clock
 
-A desk clock that shows you the real Moon, as it is tonight. The current phase
-of the Moon — from the last new moon to now — is rendered **live on a
-microcontroller**, not from a photo or a moon icon on a clock face: the crater
-shadows, the libration, the terminator, and the computed backlit dark side all
-come out of the rendering pipeline, and they match NASA's own rendered moon to
-within a couple of gray levels per pixel. The same pipeline also gives you a
-small, complete device project around the moon: a settings hub with sleep
-timeouts, timezones, alarm sounds and display trim, and a round letter-wheel
-keyboard for the WiFi password.
+A round desk clock that shows the Moon as it looks right now. A microcontroller
+computes where the Sun, the Earth and the Moon are, then draws the Moon pixel
+by pixel from NASA maps of the lunar surface: the right phase, the crater
+shadows along the day/night line, and the Moon's tilt as seen from your time
+zone's city. An automated test checks every change against NASA's own rendered
+Moon; on average the two differ by about 7 brightness steps out of 255.
 
-Under the hood: the moon is baked on the fly from LRO Wide-Angle Camera albedo
-and LOLA relief, lit with full-disk displaced-normal Lambert shading at the
-exact Sun/Moon/Earth geometry of the ephemeris (JPL Moon98 + ERFA EPV). A full
-frame lands on the panel as one atomic whole-panel flush, and the board spends
-most of its life asleep — light sleep is a dimmed static frame, deep sleep
-turns the backlight off.
+![The clock's home screen in its round case (simulator render)](docs/_static/photos/sim_home.webp)
 
-![The finished clock, simulated](docs/_static/photos/sim_home.webp)
+Around the Moon it is a complete clock: Wi-Fi time sync, a daily alarm or
+interval timer with four sounds, a round letter-wheel keyboard for the Wi-Fi
+password, and two sleep stages (dimmed, then dark) that a touch or a tilt
+undoes.
 
-The [docs landing page](https://ukos-git.github.io/moon-clock-esp/) carries a
-short film of the whole interface, computed by the docs build from the same
-simulator that renders the screenshots above.
+## Start here
 
-The same portable C core runs on three Waveshare boards from one tree:
+The documentation lives at
+[ukos-git.github.io/moon-clock-esp](https://ukos-git.github.io/moon-clock-esp/).
 
-- **ESP32-S3 Touch AMOLED 1.75** — 466×466 QSPI CO5300 AMOLED (the default
-  target, the product's face)
-- **ESP32-P4 WIFI6 Touch LCD XC "4C"** — 720×720 round MIPI-DSI JD9365 IPS,
-  remote C6 Wi-Fi over SDIO (ported as a full sibling)
-- **ESP32-S3 Knob Touch LCD 1.8** — 360×360 backlit QSPI LCD + EC1 dial (the
-  dial board of the family, built as a sibling project under `knob/` that links
-  the clock's shared components)
+- **Understand it:**
+  [How the clock works](https://ukos-git.github.io/moon-clock-esp/how-it-works.html)
+  explains moon phases and how a small chip draws the Moon. School maths is
+  enough.
+- **Try it without a board:**
+  [Draw the Moon on your computer](https://ukos-git.github.io/moon-clock-esp/try-the-simulator.html)
+  runs the clock's Moon code on a Linux PC in about 15 minutes.
+- **Build one:**
+  [Getting started](https://ukos-git.github.io/moon-clock-esp/getting-started.html)
+  goes from a new board to a clock on your desk.
 
-The complete documentation — the science, the implementation, the build system,
-the per-board references (pin maps, build/flash, partitions), and the
-per-screen UI reference with three-panel screenshots — is the Sphinx site under
-`docs/`, live at
-[https://ukos-git.github.io/moon-clock-esp/](https://ukos-git.github.io/moon-clock-esp/)
-(the docs CI builds and deploys it on every push to `main`; locally:
-`docs/.venv/bin/sphinx-build -b html docs docs/_build/html`, with code links
-resolving to the locally generated source pages). This README is the entry
-point, not the reference.
+It runs on three Waveshare boards. You need one:
+
+| Board                                | Screen                 | Notes                                                            |
+| ------------------------------------ | ---------------------- | ---------------------------------------------------------------- |
+| ESP32-S3-Touch-AMOLED-1.75           | 466 × 466 round AMOLED | The default target. Real-time clock chip, motion sensor, audio.  |
+| ESP32-P4-WIFI6-Touch-LCD-XC ("4C")   | 720 × 720 round LCD    | Largest screen, fastest chip. No clock chip.                     |
+| ESP32-S3-Knob-Touch-LCD-1.8 ("knob") | 360 × 360 round LCD    | Turning dial and battery. No motion sensor, clock chip or audio. |
 
 ## Build & flash
 
@@ -63,7 +58,8 @@ ls /dev/ttyACM*                        # /dev/ttyUSB* on some hosts
 esptool.py --port <port> chip_id       # ESP32S3 -> the 1.75; ESP32-P4 -> the 4C
 
 # build + flash the S3 (the default target)
-git clone <this repo> && cd <this repo>
+git lfs install
+git clone https://github.com/ukos-git/moon-clock-esp.git moon-phase && cd moon-phase
 
 # the NASA ground truth (kit TIFs + gate/quarter frames) ships with the
 # repo (LFS) — this bakes the per-board blobs from it (writes gitignored
@@ -80,9 +76,10 @@ For the **P4 4C**, pin the target, build dir and live config on every command:
 `flash -p <port>` (the flag gives the P4 its own gitignored `sdkconfig.p4` —
 the root `sdkconfig` pins the S3).
 
-On first boot the board scans for networks and lands on the WiFi screen — tap
-an access point and enter the password on the round keyboard. The credentials
-persist in the board's SPIFFS.
+On first boot the clock has no network yet: it shows the Wi-Fi screen for about
+20 seconds, then the home screen. Tap the screen, tap the Wi-Fi icon, pick your
+network and type the password on the round keyboard. The credentials are saved
+on the board.
 
 ## Notes
 

@@ -1,6 +1,12 @@
 How the clock works
 ===================
 
+.. brief:
+   Reader: anyone curious about the clock.
+   They already know: school maths and physics (angles, cosine, the solar system).
+   After this page they can: explain why the clock's Moon looks the way it does.
+   Page type: explanation.
+
 This page explains the idea behind the clock without code. If you
 know what a cosine is and that the Earth goes round the Sun, you have
 all the background you need. Each section ends with a link to the
@@ -16,6 +22,14 @@ page that does the same thing properly, with the maths.
 
 Why the Moon has phases
 -----------------------
+
+You can see the idea with a lamp and a ball. In a dark room, hold a
+light-coloured ball at arm's length, with one lamp on the far side of
+the room. Turn slowly on the spot so the ball goes round your head.
+Facing the lamp, you see the ball's dark side. With the lamp behind you
+(keep your head out of its light), the ball is fully lit. In between
+you see a half or a crescent. You are the Earth, the ball is the Moon,
+and the lamp is the Sun.
 
 The Sun always lights exactly half of the Moon, the half that faces
 it. What changes during a month is how much of that lit half we can
@@ -38,6 +52,11 @@ pattern runs backwards.
    North Pole. Its left half is always lit. Bottom: what you see from
    the northern hemisphere at each point. From the southern hemisphere
    the shapes are mirrored left to right.
+
+Phases are not the Earth's shadow. That is a common mix-up. The Earth's
+shadow falls on the Moon only during a lunar eclipse, which happens at
+most a few times a year, always at full moon. On every other day the dark part of the
+Moon is its own night side, facing away from the Sun.
 
 The number of days since the last new moon is called the Moon's
 *age*. A clock that only showed phases could stop here: work out the

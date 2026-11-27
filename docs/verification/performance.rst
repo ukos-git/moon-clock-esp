@@ -1,6 +1,12 @@
 Performance, measured
 =====================
 
+.. brief:
+   Reader: a developer who wants to reproduce a timing, or to explain a number on another page.
+   They already know: the project's build and the board set.
+   After this page they can: re-run the benchmark suite and read every figure.
+   Page type: reference (benchmarks, with commands).
+
 This page is the performance comparison the project owes: the
 same moon bake, timed on **six engines** — the C core on the host,
 the C core on each of the three boards (the Waveshare

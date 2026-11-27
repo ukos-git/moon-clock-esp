@@ -1,6 +1,12 @@
 The display pipeline
 ====================
 
+.. brief:
+   Reader: a developer working on the panel, the DMA strips or the frame flush.
+   They already know: C, FreeRTOS and the S3 board's panel.
+   After this page they can: size a DMA transfer, hold the panel mutex and avoid the bus hang.
+   Page type: explanation.
+
 This page is the one a moon clock's design is actually made of:
 a 466×466 RGB565 QSPI panel driven by a dual-core CPU whose display
 DMA can move **32 KiB at a time**, whose PSRAM is **not DMA-capable**,

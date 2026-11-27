@@ -1,46 +1,47 @@
 The Knob board
 ==============
 
+.. brief:
+   Reader: a developer working on the knob firmware or its port to the shared screens.
+   They already know: the family's other two boards and the build system.
+   After this page they can: build, flash and understand the knob's seams, dial and battery path.
+   Page type: reference (board page).
+
 **Status: moon-display firmware on the bench, on the clock's shared
 components** — the ``knob/`` sibling project boots its QSPI panel,
 loads the pre-baked moon assets into PSRAM and renders the physical
 moon (K7 milestones: K7a asset target + gate green, K7b static
-frame, K7c sky-event tint + day tick — its cold-boot synodic sweep
-retired :commit:`e8efbee3`, the clocks having dropped their own the day
-before —, K7d
-SNTP time with the honest ``no time`` posture, K7e idle ladder +
-EXT0 dial wake). The **P0 family seam** (:commit:`d96fdaff`) made it the
-third board of the moon-clock family: the project now links the
-clock's shared ``components/{clock, ui, wifi, moon}`` behind a
-knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
-put the family's own app on the glass: the shared home screen —
-moon image, split-flap HH:MM, alarm row, seconds arc — runs over the
-``knob_moon_render.c`` seam (generated ``fonts_knob/`` tier), the
-idle ladder dims to the clocks' light-sleep look (LEDC 25 % + clock widget
-20 %), and a fixed alarm rule **shows** across real deep sleep via
-the internal RTC **TIMER** wake (silent — no codec). The **P2 dial
-step** (same day) made the settings surface operable without touch:
-hub ring, alarm screen, rollers, the WiFi list (an ``lv_roller`` in
-the 37 px SSID font since :commit:`47c5e8b0` — the label rows read too small
-on the 1.8", so the dial *rolls* the list now) and the wheel keyboard
-each carry one dial-stepped edit cursor, and a background tap
-commits it through the native handlers
-(:ref:`dial-semantics-knob`). The **P3 alarm-editing step** (same
-day) put the weekday-arc range handles under the dial as well, so a
-full rule — hour, minute, start/end day — is set with dial + tap and
-saved through the native handler into ``/spiffs/alarm.txt``. The
-**P4 battery gauge** (same day) added the battery home-screen
-overlay reading GPIO 1 behind the divider on the **placeholder**
-LiPo calibration — redone :commit:`e9fbd623` as a small iPhone-style
-status-bar icon (capsule + nub + fill + docked-bolt heuristic) at
-the bottom centre — the gauge ships, the multimeter ritual still
-owes it honest numbers.
-The earlier
-**companion-input** role (milestones K0–K6, UDP frames driving the
-clock's screens) was **discarded :commit:`955cf91c`** at the owner's
-direction — no companion code remains anywhere in the repo, and the
-clock lost its listener in the same change. This page records the
-bench-observed facts the port started from.
+frame, K7c sky-event tint + day tick, K7d SNTP time with the honest
+``no time`` posture, K7e idle ladder + EXT0 dial wake). It is the
+third board of the moon-clock family: the project links the clock's
+shared ``components/{clock, ui, wifi, moon}`` behind a knob-owned
+``board``/``imu`` shim (:commit:`d96fdaff`), and the shared home
+screen — moon image, split-flap HH:MM, alarm row, seconds arc — runs
+over the ``knob_moon_render.c`` seam (generated ``fonts_knob/``
+tier). The idle ladder dims to the clocks' light-sleep look (LEDC
+25 % + clock widget 20 %), and a fixed alarm rule **shows** across
+real deep sleep via the internal RTC **TIMER** wake (silent — no
+codec).
+
+The settings surface is operable without touch: hub ring, alarm
+screen, rollers, the WiFi list and the wheel keyboard each carry one
+dial-stepped edit cursor (the WiFi list is an ``lv_roller`` in the
+37 px SSID font — the label rows read too small on the 1.8", so the
+dial *rolls* the list), and a background tap commits the cursor
+through the native handlers (:ref:`dial-semantics-knob`). The
+weekday-arc range handles are dial-stepped too, so a full rule —
+hour, minute, start/end day — is set with dial + tap and saved
+through the native handler into ``/spiffs/alarm.txt``. The battery
+home-screen overlay reads GPIO 1 behind the divider on a
+**placeholder** LiPo calibration, drawn as a small status-bar icon
+(capsule + nub + fill + docked-bolt heuristic) at the bottom centre
+(:commit:`e9fbd623`); the multimeter ritual still owes it honest
+numbers.
+
+The companion-input role (UDP frames driving the clock's screens)
+is gone (:doc:`the design history <../project/history>`) — no
+companion code remains in the repo, and the clock has no listener.
+This page records the bench-observed facts the port started from.
 
 What it is
 ----------

@@ -1,110 +1,66 @@
 The P4 4C port
 ==============
 
-The second target is the **Waveshare ESP32-P4-WIFI6-Touch-LCD-XC**
-("4C"): a 720×720 round IPS panel driven by a **JD9365** MIPI-DSI
-controller, **GT911** touch, a remote **C6 Wi-Fi chip over SDIO**
-(ESP-Hosted), 32 MB flash, and a 400 MHz quad-core RISC-V P4 core.
-Porting to it was a full second board, not a configuration toggle —
-the panel is a different *technology* (MIPI-DSI vs QSPI) with a
-different controller, a different pixel format, and a different DMA
-story. This page covers what the port took and what the
-measurements showed.
+.. brief:
+   Reader: a developer building or changing the firmware for the P4 4C board.
+   They already know: C, ESP-IDF basics, the S3 board page.
+   After this page they can: look up any P4 pin, default or Kconfig value, build and flash the P4, and see how it differs from the S3.
+   Page type: reference.
 
-**Panel-technology posture.** Burn-in is an AMOLED duty — and the
-burn-in duty was consciously dropped :commit:`79937e37`, when the burn-in
-spin subsystem was removed family-wide (the call — "non-amoled screens
-(e.g. lcd) do not need to use the anti-burnin moon-spin animation" —
-came first; "lets completely remove the moon spin anti-burn-in"
-followed the same day). On this IPS board there is no spin to run and
-never was much need for one: the moon is the static LVGL frame. The
-spin-era facts quoted on this page (the 103-row strips, the 1-FB +
-``LV_DISPLAY_RENDER_MODE_NONE`` posture, the async-DMA reject
-absorption) are the display-pipeline contract as measured when the
-spin ran, kept as history; the ``UI_MOON_SPIN_*`` Kconfig symbols
-were retired with the spin subsystem :commit:`79937e37` (the config
-sweep deleted the keys).
+This page is the reference for the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC ("4C"), the clock's second board.
+It lists the hardware, the wiring, the build commands, the pre-configured defaults and every compile-time setting the P4 build uses.
+The P4 is a full port, not a configuration toggle: its panel uses a different technology (MIPI-DSI instead of QSPI), a different controller, a different pixel format and a different DMA path.
+It also has no real-time clock (RTC) chip, so an alarm keeps the board in light sleep.
 
-Component wiring
+What the board is
+-----------------
+
+The 4C has a 720×720 round IPS panel driven by a JD9365 MIPI-DSI controller, GT911 touch, a remote ESP32-C6 Wi-Fi chip over SDIO (ESP-Hosted), 32 MB flash, and an ESP32-P4 with a 400 MHz dual-core RISC-V CPU.
+Like the S3, it is a single board: the panel, the touch, the Wi-Fi and the ES8311 audio codec all hang off the P4's peripheral buses.
+
+The S3 AMOLED is the product's face, but its panel is 466×466 with a 25-row flush-strip ceiling (:doc:`the S3 board <s3>`).
+The P4's 720×720 panel shows the same moon larger, and the RISC-V cores give the bake real headroom.
+The port follows two design rules:
+
+- The portable C core is shared verbatim.
+  ``components/moon/core`` has no P4 changes; the same translation units compile for both targets.
+  Board differences live in the UI layer (panel scale, fonts, the DSI flush path) and in the board shim.
+- One Kconfig board choice, three config files.
+  ``sdkconfig.defaults`` (shared) plus ``sdkconfig.defaults.esp32s3`` / ``sdkconfig.defaults.esp32p4`` (per target, appended when present; the later file wins).
+  The P4 build sets ``CONFIG_BOARD_P4=y`` from its per-target file.
+  The root ``CMakeLists`` cross-checks the target against the board choice and stops the build with a ``FATAL_ERROR`` if they disagree.
+
+The panel is IPS, so the AMOLED burn-in question does not arise.
+The moon is the static LVGL frame on all boards.
+
+Hardware summary
 ----------------
 
-Like the S3, the 4C is a single board: the panel, the touch, and the
-Wi-Fi all hang off the P4's peripheral buses, plus the ES8311 audio
-codec. The overview below seals each bus into one box; the two
-sketches after it open the bus bars (every GPIO number) and show the
-key difference from the S3 in the wake-up story — **the board carries
-no RTC IC and no IO expander**, so ``board_io_expander_init()``
-returns ``NULL`` and the only wake source is a software ``esp_timer``
-one-shot.
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
 
-.. graphviz:: ../_graphs/p4-wiring.dot
-   :alt: P4 component wiring overview
-   :align: center
-   :caption: The overview — one sealed box per bus: MIPI-DSI (JD9365 IPS), I²C (GT911 touch), SDIO (ESP32-C6 Wi-Fi via esp_hosted), I²S (ES8311 codec), plus the 32 MB flash budget and the 200 MHz PSRAM the DPI FIFO feeds; the green callout is the wake story the last sketch opens.
+   * - Part
+     - What it is
+   * - SoC
+     - ESP32-P4, dual-core RISC-V at 400 MHz, board revision v1.3
+   * - Memory
+     - 32 MB flash; in-package PSRAM at 200 MHz with XIP and a 256 KB L2 cache
+   * - Panel
+     - JD9365, 720×720 RGB888 IPS over MIPI-DSI (2 data lanes at 1500 Mb/s)
+   * - Touch
+     - GT911, I²C
+   * - Wi-Fi
+     - ESP32-C6 over SDIO (esp_hosted 1.4.7, esp_wifi_remote 0.14.5), STA only
+   * - Clock
+     - no RTC chip, no IO expander: an external 32 kHz crystal (VBAT battery header) feeds the internal RTC timer, plus SNTP
+   * - Audio
+     - ES8311 codec, I²S
+   * - Storage
+     - microSD slot on its own 4-bit SDMMC host
 
-.. graphviz:: ../_graphs/p4-wiring-bus.dot
-   :alt: P4 bus pin map
-   :align: center
-   :caption: The buses pin by pin — MIPI-DSI 2 data lanes at 1500 Mb/s, RGB888, to the JD9365 (backlight GPIO 26, RST GPIO 27); I²C SCL GPIO8 / SDA GPIO7 to the GT911, whose RST/INT sit at NC so the driver polls; SDIO to the ESP32-C6 (esp_hosted 1.4.7, esp_wifi_remote 0.14.5); I²S SCLK 12, MCLK 13, LCLK 10, DOUT 9 to the ES8311.
-
-.. graphviz:: ../_graphs/p4-wiring-wake.dot
-   :alt: P4 wake story
-   :align: center
-   :caption: The wake story — with no RTC and a NULL expander, only an esp_timer one-shot (a running CPU) can wake the board, so a pending alarm keeps the device in light sleep instead of the deep state.
-
-The green box is the wake-up caveat: with no RTC and no expander, an
-alarm can only be caught by a running CPU's ``esp_timer`` one-shot, so
-while an alarm is pending the device deliberately stays in **light
-sleep** (dim panel) instead of dropping to the deep state (backlight
-off) — a deep-sleep wake does not exist on this board (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
-
-TF card slot (hour cache)
--------------------------
-
-The 4C also carries an onboard **microSD slot on its own 4-bit SDMMC
-host** — separate from the Wi-Fi link: **CLK GPIO43, CMD GPIO44, D0–D3
-GPIO39–42** (the official Waveshare ``08_SD_Card`` / ``05_sdmmc``
-examples; callout #18 of the board's docs page). The registry BSP
-exposes it as ``bsp_sdcard_mount()`` with exactly those pins
-(``BSP_SD_*``, ``width = 4``) — the same call shape as the S3's 1-bit
-socket — so the **TF hour cache** (``UI_MOON_TFCACHE``,
-:doc:`the animation pipelines <../implementation/animations>`) serves
-the hourly refresh symmetrically on both boards: the producer mounts the
-card **lazily on the first producer to run** — with ``UI_MOON_BOOT_REPLAY``
-on (the default) that is the boot replay task, which plays the stored
-hour frames ascending and ends on the computed now-frame; with the
-replay off boot never touches the SD bus — and every card failure falls
-back silently to on-device baking. The module outlived the boot sweep
-it was built for (retired :commit:`51119200`; the replay plays **stored**
-frames, it computes none) and now caches one gray JPEG per hour,
-pruned to the current synodic month at each new moon. The pins are disjoint from the C6's
-SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
-SDMMC hosts, and the bench confirmed it: **Wi-Fi-connected + card
-mounted** runs (2026-11-08) brought the card up at t≈40 s with the C6
-link already at 4-bit/40 MHz — zero SDIO / esp_hosted / sdmmc errors.
-
-Why a second board
-------------------
-
-The S3 AMOLED is the product's face, but its panel is 466×466 with a
-25-row flush-strip ceiling (:doc:`the S3 board <s3>`). The P4's 720×720 panel makes
-the same moon larger and, with the RISC-V cores, gives the bake real
-headroom. The design goal for the port was:
-
-- **The portable C core is shared verbatim.** No changes to
-  ``components/moon/core`` — the same translation units compile for
-  both targets. Board-specific differences live in the UI layer
-  (panel scale, fonts, the DSI flush path) and the board shim.
-- **One Kconfig board choice, three config files.**
-  ``sdkconfig.defaults`` (shared) plus
-  ``sdkconfig.defaults.esp32s3`` / ``sdkconfig.defaults.esp32p4``
-  (per-target, auto-appended when present; later file wins). The P4
-  build sets ``CONFIG_BOARD_P4=y`` from the per-target file; the root
-  ``CMakeLists`` cross-checks the target against the board choice and
-  fails the build with a ``FATAL_ERROR`` if they disagree.
-
-Panel differences that matter to the pipeline
----------------------------------------------
+How the panel differs from the S3's
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -121,101 +77,102 @@ Panel differences that matter to the pipeline
      - RGB888
    * - Flush path
      - QSPI strip writes (25-row internal-RAM strips, 32 KiB DMA cap)
-     - DSI async DMA (the async-DMA2D throughput floor shows up as "previous draw not finished" rejects, absorbed by the ``moon_panel_draw_wait`` retry — ~3,900 measured in the spin era — :doc:`the display pipeline <../implementation/display>`)
+     - DSI async DMA. The async-DMA2D throughput floor shows up as "previous draw not finished" rejects, which the ``moon_panel_draw_wait`` retry absorbs (:doc:`the display pipeline <../implementation/display>`)
    * - Moon scale
      - MOON_PX 400, MOON_R 200
-     - MOON_PX 650, MOON_R 325 (upscaled from 618/309 with the :commit:`f23f9c77` seam work)
-   * - Teardown mode
+     - MOON_PX 650, MOON_R 325
+   * - Tear control
      - n/a
-     - 1-FB ``LV_COLOR_FORMAT`` single-buffer with ``LV_DISPLAY_RENDER_MODE_NONE`` (the 3-FB partial-mode scanout flip showed a stale spin pose from an old frame's last visit — the spin-era CCW flicker; the posture outlived the spin — :doc:`the display pipeline <../implementation/display>`)
+     - 1-FB ``LV_COLOR_FORMAT`` single-buffer with ``LV_DISPLAY_RENDER_MODE_NONE``. With 3 frame buffers, the scanout flips between buffers and a partial flush can land on a buffer the scanout has left (:doc:`the display pipeline <../implementation/display>`)
 
-The spin-era direct writes ran 103-row strips (the DPI FIFO underruns
-at 206 on X16+XIP PSRAM), settled to 65 rows for the 650 px disk; that
-write path retired with the spin subsystem (:commit:`79937e37`), and the
-surviving strip pitch — ``MOON_STRIP_ROWS`` 130 — only *paces* the
-LVGL invalidations the atomic displays use
-(:doc:`the P4 port <../implementation/p4-port>`). The gray→RGB
-conversion is an identity swap (888 panel, no 5-6-5 quantization) —
-the art pass's warm LUT still applies because it is a *color* choice,
-not a quantization artifact.
+``MOON_STRIP_ROWS`` is 130 on the P4.
+It only paces the LVGL invalidations that the atomic frame displays use (:doc:`the P4 port <../implementation/p4-port>`).
+The gray-to-RGB conversion is an identity swap, because the 888 panel has no 5-6-5 quantization.
+The art pass's warm lookup table (LUT) still applies, because it is a color choice, not a quantization artifact.
 
-What the port took (M0–M4)
---------------------------
+The P4's bake size is not a Kconfig value.
+It is ``#define MOON_PX 650`` in ``components/ui/moon_ui.c``, behind ``#if defined(CONFIG_BOARD_P4)``.
 
-The port landed as a milestone sequence (the letters below are the
-milestone labels used in the project's tracking):
+The UI scales to 720 through ``ui_px.h``, which scales about 70 literals in ``screens.c``.
+The S3 stays byte-identical at 466 through the ``--panel``-aware build.
+The P4 fonts (148/74/50 px) carry the same ``lv_font_t`` symbols, and CMake selects them on ``CONFIG_BOARD_P4`` (238 glyphs, 222 KiB of raster).
+The ``fonts_p4/`` tier also carries the clock icon U+F017, which the S3's regular set lacks, because the 7th entry of the P4 hub ring uses it (:ref:`the type sketch <type-family-ui>`, :ref:`the glyph ladder <glyph-ladder-perf>`).
 
-- **M0 — bring-up**: board shim + board Kconfig + the 3-file
-  sdkconfig split + ``partitions_p4.csv`` (9 MB ``factory``) +
-  ``EXCLUDE_COMPONENTS`` per target + a separate gitignored
-  ``dependencies.lock.p4`` (the P4's C6/esp_hosted dependency set
-  differs from the S3's). (M0 shipped with a 16 MB binary header —
-  a shared-defaults leftover — whose esptool size-mismatch warning
-  was expected; the boot-movie wave, :commit:`1703e278`, bumped the header
-  to the real 32 MB and added the ``moon_movie`` LAST row, so the
-  warning is gone and the table fills the whole chip.)
-- **M1 — plumbing**: rev v1.3 board, PSRAM at 200 MHz, JD9365 + GT911
-  + 32 MB all verified.
-- **M2 — Wi-Fi**: the C6 over SDIO (esp_hosted 1.4.7,
-  esp_wifi_remote 0.14.5): association + SNTP + AP scan verified.
-- **M3 — moon @ 720**: board-conditional ``moon_ui.c`` (no new
-  Kconfig): MOON_PX/MOON_R scaled, spin strips 103 rows, the
-  ``--panel 720`` simulator path.
-- **M4 — UI upscale**: ``ui_px.h`` scales ~70 literals in
-  ``screens.c`` (S3 stays byte-identical at 466 via the
-  ``--panel``-aware build); the P4 fonts (148/74/50 px) carry
-  identical ``lv_font_t`` symbols selected by CMake on
-  ``CONFIG_BOARD_P4`` (238 glyphs, 222 KiB of raster — the
-  ``fonts_p4/`` tier also carries the clock icon U+F017 the S3's
-  regular set lacks, because the P4 hub ring's 7th entry asks for
-  it: :ref:`the type sketch <type-family-ui>`,
-  :ref:`the glyph ladder <glyph-ladder-perf>`); the keep-mask
-  (burn-in spin's UI mask) was re-derived on the upscaled arc.
+Measured on the device
+~~~~~~~~~~~~~~~~~~~~~~
 
-M5 (clock degradation + manual time entry on P4) is the remaining
-open firmware item as of this writing; the M6 docs milestone is the
-Sphinx site this page belongs to.
+On-device captures ran clean (0 WDT, 0 panic):
 
-Measured results on the P4
---------------------------
+- The final bake takes about 959 ms at 650 px.
+- The async-DMA rejects are absorbed: 0 dropped strips after the ``moon_panel_draw_wait`` retry, which the atomic flushes use on the same path.
 
-On-device captures (full run, 0 WDT / 0 panic; the boot sweep, the
-dusk and the reject accounting are spin/sweep-era captures of now
-retired subsystems, quoted as history):
+:doc:`The binary-size chronology <../verification/binary>` tracks the current P4 and S3 binary sizes.
+Older captures (the boot sweep, the dusk, the spin-era rejects) are in :doc:`/project/history`.
 
-- Boot sweep (retired :commit:`51119200`): 336/336 frames completed.
-- Final bake: ~959 ms at 650 px (599 ms at the earlier 618 px scale,
-  before the upscale).
-- Dusk (retired :commit:`f7740500`): ~43 s for the full constant-projection
-  spin.
-- The async-DMA rejects during the spin are absorbed — 0 dropped
-  strips after the ``moon_panel_draw_wait`` retry (the retry rides
-  today's atomic flushes on the same path).
+Wiring and pin map
+------------------
 
-After the :commit:`5f50c8d0` clock rollers landed, the P4 binary is 1,605,984 B
-(``0x188160``) — about 17 % of the 9 MB factory partition. The S3
-binary at the same point is 1,511,280 B (``0x170f70``), about 72 % of
-its 2 MB factory partition (the ~28 % headroom under the 2,097,152 B
-ceiling; :doc:`the binary-size chronology <../verification/binary>` tracks the full binary-size chain).
+The overview below draws each bus as one closed box.
+The two sketches after it open the bus bars (every GPIO number) and show the main difference from the S3 in the wake-up story.
+The board carries no RTC IC and no IO expander, so ``board_io_expander_init()`` returns ``NULL`` and the only wake source is a software ``esp_timer`` one-shot.
 
-Building and flashing the P4
-----------------------------
+.. graphviz:: ../_graphs/p4-wiring.dot
+   :alt: The P4 board's parts grouped by bus: MIPI-DSI to the panel, I²C to touch, SDIO to the C6 Wi-Fi chip, I²S to the codec.
+   :align: center
+   :caption: One box per bus: MIPI-DSI (JD9365 IPS), I²C (GT911 touch), SDIO (ESP32-C6 Wi-Fi via esp_hosted), I²S (ES8311 codec), plus the 32 MB flash budget and the 200 MHz PSRAM that feeds the DPI FIFO. The green callout is the wake path that the last sketch opens.
 
-The P4 is the second target: the build pins ``IDF_TARGET=esp32p4``
-and keeps its own build directory (``build/p4``), its own
-dependency lock (``dependencies.lock.p4``, gitignored — the S3 build
-keeps ``dependencies.lock``) and its own live config (``sdkconfig.p4``,
-gitignored — every P4 command carries ``-D SDKCONFIG=sdkconfig.p4``;
-without it the P4 configure reads the root ``sdkconfig``, sees its
-``IDF_TARGET=esp32s3`` pin and aborts in ``targets.cmake`` — "Target
-… does not match currently selected IDF_TARGET". On a fresh clone the
-flag creates ``sdkconfig.p4`` from the defaults split; afterwards it
-also matches the ``build/p4`` cache entry, so keep passing it)
-(:doc:`the board index <index>` for the shared conventions, the
-sequential-build rule, and the port-identification procedure):
+.. graphviz:: ../_graphs/p4-wiring-bus.dot
+   :alt: The P4 buses drawn pin by pin, with every GPIO number.
+   :align: center
+   :caption: The buses pin by pin. MIPI-DSI: 2 data lanes at 1500 Mb/s, RGB888, to the JD9365 (backlight GPIO 26, RST GPIO 27). I²C: SCL GPIO8, SDA GPIO7 to the GT911, whose RST and INT are NC, so the driver polls. SDIO to the ESP32-C6 (esp_hosted 1.4.7, esp_wifi_remote 0.14.5). I²S: SCLK 12, MCLK 13, LCLK 10, DOUT 9 to the ES8311.
+
+.. graphviz:: ../_graphs/p4-wiring-wake.dot
+   :alt: The P4 wake path: with no RTC and no expander, only an esp_timer one-shot can wake the board.
+   :align: center
+   :caption: The wake path. With no RTC and a NULL expander, only an esp_timer one-shot on a running CPU can wake the board, so a pending alarm keeps the device in light sleep instead of the deep state.
+
+The green box is the wake-up caveat.
+With no RTC and no expander, only a running CPU's ``esp_timer`` one-shot can catch an alarm.
+So while an alarm is pending, the device stays in light sleep (dim panel) instead of dropping to the deep state (backlight off).
+This board has no deep-sleep wake (:doc:`the clock and sleep machine <../implementation/clock-sleep>`).
+
+The C6 SDIO link uses CLK 18, CMD 19, D0–D3 14–17, the slave reset on GPIO54, and a 4-bit bus at 40 MHz.
+All of these are esp_hosted defaults that match the board.
+
+The TF card slot
+~~~~~~~~~~~~~~~~
+
+The 4C has an onboard microSD slot on its own 4-bit SDMMC host, separate from the Wi-Fi link.
+Its pins are CLK GPIO43, CMD GPIO44 and D0–D3 GPIO39–42 (the official Waveshare ``08_SD_Card`` / ``05_sdmmc`` examples; callout #18 of the board's docs page).
+The registry BSP exposes it as ``bsp_sdcard_mount()`` with those pins (``BSP_SD_*``, ``width = 4``), the same call shape as the S3's 1-bit socket.
+
+So the TF hour cache (``UI_MOON_TFCACHE``, :doc:`the animation pipelines <../implementation/animations>`) works the same on both boards.
+It caches one gray JPEG per hour and prunes to the current synodic month at each new moon.
+It serves the hourly refresh, and it is the fallback leg of the boot replay (``UI_MOON_BOOT_REPLAY``): the boot replay plays the flash-resident boot movie first (:doc:`the boot movie <../implementation/moon-movie>`) and uses the card's stored hour frames only when the movie is missing or calcver-stale.
+The card mounts lazily on the first producer that runs.
+Every card failure falls back silently to baking on the device.
+
+The card pins are disjoint from the C6's SDIO link (CLK 18 / CMD 19 / D0–3 14–17); the two are different SDMMC hosts.
+The bench confirmed it: runs with Wi-Fi connected and the card mounted brought the card up at t≈40 s with the C6 link already at 4-bit/40 MHz, with zero SDIO, esp_hosted or sdmmc errors.
+
+Build and flash
+---------------
+
+The P4 build pins ``IDF_TARGET=esp32p4`` and keeps three things of its own:
+
+- the build directory ``build/p4``;
+- the dependency lock ``dependencies.lock.p4`` (gitignored; the S3 build keeps ``dependencies.lock``);
+- the live config ``sdkconfig.p4`` (gitignored).
+
+Every P4 command carries ``-D SDKCONFIG=sdkconfig.p4``.
+Without it, the P4 configure reads the root ``sdkconfig``, sees its ``IDF_TARGET=esp32s3`` pin and aborts in ``targets.cmake`` with "Target … does not match currently selected IDF_TARGET".
+On a fresh clone the flag creates ``sdkconfig.p4`` from the defaults split.
+After that it also matches the ``build/p4`` cache entry, so keep passing it.
+
+Before you start, identify the port and confirm the chip (:doc:`the board index <index>` has the procedure, the sequential-build rule and the shared conventions).
 
 .. code-block:: bash
-   :caption: The P4 target (``<port>`` = the identified port — run ``esptool.py --port <port> chip_id`` first)
+   :caption: The P4 target (``<port>`` = the identified port; run ``esptool.py --port <port> chip_id`` first)
 
    source ~/esp/esp-idf/export.sh
 
@@ -232,19 +189,15 @@ sequential-build rule, and the port-identification procedure):
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p <port>
    idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 monitor -p <port>
 
-The first ``set-target esp32p4`` pulls the P4's component set (the
-vendored 4C BSP; esp_hosted + esp_wifi_remote for the remote C6 over
-SDIO, pinned in ``main/idf_component.yml``) — the three ``int``
-``ESP_HOSTED_HOST_USB_*_MANIFEST`` guard keys
-(:doc:`board selection <../reference/kconfig-board>`) keep the
-component manager's version solver from aborting on that set.
+The first ``set-target esp32p4`` pulls the P4's component set: the vendored 4C BSP, and esp_hosted + esp_wifi_remote for the remote C6 over SDIO, pinned in ``main/idf_component.yml``.
+The three ``int`` ``ESP_HOSTED_HOST_USB_*_MANIFEST`` guard keys (:doc:`board selection <../reference/kconfig-board>`) keep the component manager's version solver from aborting on that set.
 
 Pre-configured defaults
 -----------------------
 
-The P4 build merges the shared defaults with
-``sdkconfig.defaults.esp32p4`` (auto-appended for
-``IDF_TARGET=esp32p4``, later file wins). The P4 file, in full:
+The P4 build merges the shared defaults with ``sdkconfig.defaults.esp32p4``.
+The build system appends the per-target file for ``IDF_TARGET=esp32p4``, and the later file wins.
+The P4 file in full:
 
 .. code-block:: text
    :caption: sdkconfig.defaults.esp32p4 (the P4-specific values)
@@ -262,6 +215,12 @@ The P4 build merges the shared defaults with
    # cmake set). The S3 keeps its default "partitions.csv" (2048K factory);
    # the P4 takes the 32 MB table with the 9216K factory.
    CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
+   # Flash size header: the P4's REAL 32 MB chip (bumped from the inherited
+   # 16 MB header 2026-11-25). The 16 MB header was a shared-defaults
+   # leftover; the esptool size-mismatch warning it caused is gone -- the
+   # header now matches the hardware, and the partition table (the
+   # moon_movie LAST row) can use the whole 32 MB.
+   CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
    # Silicon: the attached board is rev v1.3 (legacy profile). 5.5.1 has no
    # ESP32P4_SELECTS_REV_LESS_V3 / REV_MIN_300 — 100..199 is the rev1_3 band.
    CONFIG_ESP32P4_REV_MIN_100=y
@@ -341,95 +300,85 @@ The P4 build merges the shared defaults with
    # accurate and is unusable as a clock time base.
    CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 
-What the *live* ``sdkconfig.p4`` (the file ``-D SDKCONFIG=sdkconfig.p4``
-selects) pins is what ``-B build/p4`` builds —
-a stale line there shadows every defaults-file default; the built
-binary's clock source is verified in ``build/p4/config/sdkconfig.h``,
-and the bench-note lives in
-:doc:`the clock and the sleep machine <../implementation/clock-sleep>`.
+What ``-B build/p4`` builds is what the live ``sdkconfig.p4`` pins (the file that ``-D SDKCONFIG=sdkconfig.p4`` selects).
+A stale line there shadows every defaults-file default.
+You can verify the built binary's clock source in ``build/p4/config/sdkconfig.h``; the bench note is in :doc:`the clock and the sleep machine <../implementation/clock-sleep>`.
 
-The other half of that core-1-bakes comment sits in the adapter
-config: the S3 BSP pins the LVGL painter to core 0 itself
-(``esp32_s3_touch_amoled_1_75.c:581-590``), while the P4 branch of
-``main.cpp`` passes ``ESP_LV_ADAPTER_DEFAULT_CONFIG()`` through —
-overriding only ``task_stack_size = 12288`` (:cfile:`main/main.cpp:558-570`)
-— so the 4C's painter keeps the adapter default ``task_core_id = -1``,
-"no affinity", and the producers' pinning alone carries the split on
-this board. The affinity split, the spawn edges and the chip
-interrogations of the whole crew are drawn in
-:ref:`the crew sketch <task-roster-arch>`.
+The watchdog comment above has a second half in the LVGL adapter config.
+The S3 BSP pins the LVGL painter to core 0 itself (:cfile:`components/esp32_s3_touch_amoled_1_75/esp32_s3_touch_amoled_1_75.c:581-590`).
+The P4 branch of ``main.cpp`` passes ``ESP_LV_ADAPTER_DEFAULT_CONFIG()`` through and overrides only ``task_stack_size = 12288`` (:cfile:`main/main.cpp:558-570`).
+So the 4C's painter keeps the adapter default ``task_core_id = -1`` ("no affinity"), and on this board the producers' pinning alone carries the split.
+:ref:`The crew sketch <task-roster-arch>` draws the affinity split, the spawn edges and the chip queries of all the tasks.
 
-**The board line asymmetry, the P4 half:** this file **does** carry
-``CONFIG_BOARD_P4=y`` — the Kconfig ``choice``'s default is the S3,
-so selecting the P4 must override it, while the S3 file needs no
-board line at all (:doc:`the S3 board <s3>`). The root
-``CMakeLists`` target/board guard makes a stray board line in the
-wrong file a build-time ``FATAL_ERROR``.
+This file carries ``CONFIG_BOARD_P4=y``.
+The Kconfig ``choice`` defaults to the S3, so selecting the P4 must override it, while the S3 file needs no board line at all (:doc:`the S3 board <s3>`).
+The root ``CMakeLists`` target/board guard turns a stray board line in the wrong file into a build-time ``FATAL_ERROR``.
 
-The shared file (``sdkconfig.defaults``) contributes the
-board-neutral values: the 16 MB flash header
-(``CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y`` — both boards flash a 16 MB
-header even though the P4's chip is 32 MB),
-``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the P4 file then selects
-``partitions_p4.csv`` through
-``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``), ``CONFIG_SPIRAM=y``,
-``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames — the TF hour cache
-hour keys exceed 8.3; a historic ``LFN_NONE`` pin was stripped from
-the live configs),
-the LVGL 9.6 setup (notably
-``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y`` — which the P4 file
-**flips to ``n``** above, because on the RISC-V P4 ``IRAM_ATTR``
-would overflow the scarce ``sram_low``), and the same UI seeds the
-S3 page lists. The P4's native bake size is not a Kconfig value at
-all: it is ``#define MOON_PX 650`` (``components/ui/moon_ui.c``,
-behind ``#if defined(CONFIG_BOARD_P4)``) — the old
-``UI_MOON_ANIM_BAKE_PX`` Kconfig key was deleted with the sweep
-:commit:`51119200`.
+The shared file (``sdkconfig.defaults``) adds the board-neutral values:
+
+- ``CONFIG_PARTITION_TABLE_CUSTOM=y`` (the P4 file then selects ``partitions_p4.csv`` through ``CONFIG_PARTITION_TABLE_CUSTOM_FILENAME``);
+- ``CONFIG_SPIRAM=y``;
+- ``CONFIG_FATFS_LFN_HEAP`` (FATFS long filenames, because the TF hour cache's hour keys exceed 8.3);
+- the LVGL 9.6 setup, notably ``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y``, which the P4 file sets to ``n`` above because on the RISC-V P4 ``IRAM_ATTR`` would overflow the scarce ``sram_low``;
+- the same UI seeds the S3 page lists.
+
+The flash size header is per board: the P4 file sets the real 32 MB header, the S3 file the 16 MB one.
 
 Compile-time settings
 ---------------------
 
-The full Kconfig reference the P4 build compiles against follows —
-the board choice (with the ``CONFIG_BOARD_P4=y`` line above), the
-esp_hosted guard keys (the P4 is the target whose esp_hosted
-dependency set their ``if:`` clauses evaluate against), the clock
-keys (with ``CLOCK_USE_PCF85063A`` off — the board carries no RTC
-IC), the full UI menu, the moon constants, and the P4 partition
-table. The tables are single-sourced with :doc:`the reference
-section <../reference/index>` (the same fragments are included
-there), so the two can't drift.
+The full Kconfig reference that the P4 build compiles against follows: the board choice (with the ``CONFIG_BOARD_P4=y`` line above), the esp_hosted guard keys, the clock keys (with ``CLOCK_USE_PCF85063A`` off, because the board has no RTC IC), the full UI menu, the moon constants and the P4 partition table.
+The P4 is the target whose esp_hosted dependency set the guard keys' ``if:`` clauses evaluate against.
+These tables come from the same fragments as :doc:`the reference section <../reference/index>`, so the two cannot drift.
 
 Board selection
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-board-choice.inc
 
 The esp_hosted guard keys
--------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-guard-keys.inc
 
 Clock component
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-clock.inc
 
 UI component
-------------
+~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-ui.inc
 
 Moon constants
---------------
+~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/moon-consts.inc
 
 Moon asset Kconfig
-------------------
+~~~~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/kconfig-moon.inc
 
 Partition table
----------------
+~~~~~~~~~~~~~~~
 
 .. include:: ../reference/_fragments/partitions-p4.inc
+
+Known limits
+------------
+
+- The board has no RTC chip and no deep-sleep wake. A pending alarm keeps it in light sleep.
+- Time depends on SNTP and the 32 kHz crystal. The fallback for a clock that cannot sync is the manual time entry screen (:doc:`/ui/settings-time`), opened by the settings hub's clock icon and reachable only on the P4.
+- The board has no motion sensor, so there is no tilt wake and no clock roll.
+- Every P4 command needs ``-D SDKCONFIG=sdkconfig.p4``; without it the configure aborts.
+- ``CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM`` must stay ``n`` on the P4, or the link overflows ``sram_low``.
+- PSRAM at 200 MHz needs ``CONFIG_IDF_EXPERIMENTAL_FEATURES=y``; without it the speed falls back to 20 MHz and the DSI underruns.
+
+Where to go next
+----------------
+
+- :doc:`The P4 port <../implementation/p4-port>`: how the port is built, milestone by milestone.
+- :doc:`The display pipeline <../implementation/display>`: the DSI flush path and the reject retry.
+- :doc:`The Knob board <knob>`: the third board.

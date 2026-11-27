@@ -1,6 +1,12 @@
 The firmware
 ============
 
+.. brief:
+   Reader: a developer who wants to change the firmware.
+   They already know: C, FreeRTOS tasks and the LVGL basics.
+   After this page they can: find the right page for the part they will change.
+   Page type: reference (section index).
+
 This section explains how the firmware is built: which code runs
 where, how a computed Moon reaches the screen, and how the clock
 decides when to sleep. It is written for people who want to change the

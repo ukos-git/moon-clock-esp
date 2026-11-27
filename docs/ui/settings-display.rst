@@ -1,9 +1,15 @@
 The display trim
 ================
 
+.. brief:
+   Reader: a developer working on the wall-mount trim or the orientation pipeline.
+   They already know: C, the orientation base and the settings store.
+   After this page they can: find the roller, the preview card and the live-tilt commit path.
+   Page type: reference.
+
 The display trim: a 0..359 house **roller** that sets the clock's **zero angle** — the rotation the whole screen carries when it is mounted on the wall at an angle that is not a multiple of 90°. Degrees clockwise from 12 o'clock, 0..359, persisted as the ``display_rotation_deg`` line of ``settings.txt`` (:cfunc:`settings_display_rotation_deg` / :cfunc:`settings_set_display_rotation_deg`, the store clamps to 0..359). The trim is the *user half* of the orientation base — :cfunc:`action_orientation_set_user_base_deg` adds it to the build-time ``UI_ORI_BASE_V10`` (now a single shared ``900`` on all three panels; times ``UI_CLOCK_ROLL_SIGN``) and re-pushes ``transform_rotation`` to every screen root, so **the screen under the finger tilts for real on release** — that live tilt is the calibration itself. Reached by the hub's rotate-arrow icon on all three family boards; the knob steps the same roller in 5° detents on the dial and commits with a tap.
 
-The roller replaced the old rim-handle arc drag (:commit:`81bce40c`): the thin ring handle at the panel rim was too fiddly to grab on a touch panel, so the value now lives in the house single-slot roller (the alarm/time/pomodoro picker, ``settings_create_roller``) — **the roller IS the value display**, no separate readout. Scrolling moves the working angle live (``LV_EVENT_VALUE_CHANGED`` tips the preview card); ``LV_EVENT_RELEASED`` persists and re-pushes.
+The value lives in the house single-slot roller (the alarm/time/pomodoro picker, ``settings_create_roller``): **the roller is the value display**, with no separate readout. A thin handle at the panel rim is too small to grab reliably on a touch panel. Scrolling moves the working angle live (``LV_EVENT_VALUE_CHANGED`` tips the preview card); ``LV_EVENT_RELEASED`` persists and re-pushes.
 
 .. figure:: ../img/screens/annot/settings-display_s3.png
    :alt: the display trim — the S3 panel (466, annotated)

@@ -1,6 +1,12 @@
 The dark side
 =============
 
+.. brief:
+   Reader: a developer who wants the two dark-side models and why the display computes instead of painting the night half.
+   They already know: the geometry, the lighting model and the tone LUT.
+   After this page they can: switch the physics and product dark sides and explain the backlit-surface level.
+   Page type: explanation.
+
 The lit side has a validated model. The dark side is where the project
 made its most deliberate *product* decisions — and the single most
 visible one. This page covers the two dark-side models, why the

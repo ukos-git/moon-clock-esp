@@ -1,371 +1,268 @@
 The boot movie
 ==============
 
-The boot presentation's first source (:commit:`7693bffa`): a
-**precomputed synodic cycle of the moon phases**, baked once at build
-time by the portable C core, stored **flash-resident** in the
-``moon_movie`` data partition, and played **looping** on the panel
-while the live current phase bakes in parallel. When the live bake
-lands, the movie plays forward to the frame matching the current
-phase — and the computed frame reveals over it, atomically.
+.. brief:
+   Reader: a firmware developer working on the boot presentation, the partitions or the asset pipeline.
+   They already know: C, ESP-IDF partitions and CMake, the moon bake and the atomic-frame rule.
+   After this page they can: explain how the movie is baked, flashed, read and played, and change its size or pacing safely.
+   Page type: explanation.
 
-The movie exists because the pre-movie boot had a cold gap: the card
-replay (:commit:`dabbf475`) played *stored* hour frames, so a first boot —
-empty card, wiped folder, or no card at all — had nothing to show and
-sat on the quick phase disc (or black, pre-:commit:`ee4e3efd`) until the live
-bake landed. A movie baked at build time is present on *every* boot:
-no SD card, no probe, no cold folder. The TF card keeps its job — the
-**hourly refresh cache** only (:doc:`the animation pipelines
-<animations>`) — and the boot's movie path **never touches the SD
-bus** (the ~1 s mount probe now lives only on the card-fallback leg,
-below).
+At boot, every board plays a precomputed synodic cycle of moon phases while the live current phase bakes in parallel.
+The portable C core bakes the movie once at build time, and the movie lives in flash, in the ``moon_movie`` data partition.
+It plays looping on the panel.
+When the live bake lands, the movie plays forward to the frame that matches the current phase, and the computed frame replaces it atomically.
+
+A movie baked at build time is present on every boot: it needs no SD card, no probe and no warm cache folder.
+Without it, a first boot (empty card, wiped folder or no card at all) would have nothing to show but the quick phase disc until the live bake landed.
+The TF (microSD) card is the hourly refresh cache only (:doc:`the animation pipelines <animations>`).
+The boot's movie path never touches the SD bus; the ~1 s mount probe happens only on the card-fallback leg, described below.
 
 .. figure:: ../_static/figs/perf_movie.png
-   :alt: the boot movie — per-board footprint against the moon_movie row, and the frames over the synodic cycle
+   :alt: Left, each board's movie size against its moon_movie partition row. Right, the movie frames of each board spread over one synodic cycle.
    :figclass: align-center
 
-   The movie, priced. **Left:** each board's baked blob against its
-   ``moon_movie`` row (the white bar is the row — the ceiling; the
-   generator fills it with the finest phase step that fits — the "fill
-   the space, never hinder the code build" policy). **Right:** the
-   frames over the cycle — one strip per board over the 709 h from the
-   header's ``ref_center``, every tick one baked frame; the density is
-   what adapts to the row (S3 and knob at 355 × 2 h, P4 at 178 × 4 h),
-   not the playback rate — and the loop's last step is one hour of
-   phase (frame n−1 at 708 h wraps to frame 0 ≡ 709 h), so the loop is
-   seamless by construction. The time paths against the 240 s budget
-   are :doc:`the boot figure <../verification/performance>`. The
-   generator is ``docs/tools/gen_perf_movie.py`` (manifests + the
-   committed partition rows + the on-disk blob sizes asserted equal —
-   parsed at figure time, so figure and sources cannot drift apart).
+   The movie's flash cost and frame spacing.
+   **Left:** each board's baked blob against its ``moon_movie`` row (the white bar is the row, the ceiling).
+   **Right:** one strip per board over the 709 h from the header's ``ref_center``; every tick is one baked frame.
+   The generator is ``docs/tools/gen_perf_movie.py``.
+
+The generator fills each row with the finest phase step that fits (the "fill the space, never hinder the code build" policy).
+The figure shows that the density adapts to the row (S3 and knob at 355 × 2 h, P4 at 178 × 4 h), not the playback rate.
+The loop's last step is one hour of phase: frame n−1 at 708 h wraps to frame 0 ≡ 709 h, so the loop is seamless by construction.
+The time paths against the 240 s budget are in :doc:`the boot figure <../verification/performance>`.
+The figure script parses the manifests, the committed partition rows and the on-disk blob sizes, and asserts that they agree, so the figure and the sources cannot drift apart.
 
 What is in the movie
 --------------------
 
-One **synodic cycle** per board: one frame per
-``hours_per_frame`` hour centre spanning 709 h (29.53 d — the same
-span the hour cache caps at, ``TF_MAX_HOURS``), each frame a q90
-**grayscale** JPEG of a *neutral* bake — event-independent, exactly
-like the stored TF-cache grays (classifying ~700 epochs would cost
-more than the animation is worth; the final reveal carries the event
-tint). Each frame is a RAW bake of the **portable C core** (the
-``moon_sim`` path with the board's own ``--radius`` geometry,
-``dark_zero``, neutral LUT) — **pixel-identical to a device bake**,
-the same provenance rule as the on-disk textures
-(:doc:`the C core <core-c>`). Frame *i*'s hour centre is
-``ref_center + i * hours_per_frame * 3600`` (epoch seconds, UTC), and
-``ref_center`` is a fixed constant baked into the header — 1767226800
-(2026-01-01T01:00Z) today — so a movie's phase-to-index mapping is
-identical across firmware versions with the same calcver.
+Each board's movie is one synodic cycle.
+It holds one frame per ``hours_per_frame`` hour centre, spanning 709 h (29.53 d, the same span the hour cache caps at, ``TF_MAX_HOURS``).
+Each frame is a q90 grayscale JPEG of a neutral bake, independent of sky events, like the stored TF-cache grays.
+Classifying ~700 epochs would cost more than the animation is worth, so the final frame alone carries the event tint.
 
-Because the span is one synodic month, **frame 0 ≈ frame n−1**: the
-loop wraps with at most a half-step of phase (the seam is a sub-frame
-jump — invisible at the panel's drain rate), so the loop is seamless
-by construction. The *density* of the cycle — how many frames fill it
-— is what adapts to the flash budget, never the playback rate:
-playback is panel-capped (~6 fps S3) and independent of how many
-frames the movie holds.
+Each frame is a raw bake of the portable C core: the ``moon_sim`` path with the board's own ``--radius`` geometry, ``dark_zero`` and the neutral LUT (look-up table).
+The frames are pixel-identical to a device bake, by the same provenance rule as the on-disk textures (:doc:`the C core <core-c>`).
+Frame *i*'s hour centre is ``ref_center + i * hours_per_frame * 3600`` (epoch seconds, UTC).
+``ref_center`` is a fixed constant in the header, 1767226800 (2026-01-01T01:00Z).
+A movie's phase-to-index mapping is therefore identical across firmware versions with the same calcver.
+
+Because the span is one synodic month, frame 0 ≈ frame n−1.
+The loop wraps with at most a half-step of phase, a sub-frame jump that is invisible at the panel's drain rate.
+The density of the cycle (how many frames fill it) adapts to the flash budget; the playback rate does not.
+Playback is capped by the panel (~6 fps on the S3) and does not depend on how many frames the movie holds.
 
 The container
 -------------
 
-``assets/images/moon/moon/movie.py`` (``.venv/bin/python -m moon.movie
---target s3 p4 knob``) bakes one blob per board under
-``assets/images/moon/out/<target>/`` (gitignored, like the other
-asset outputs — :doc:`the Python API <../reference/python-api>`):
-``moon_movie.bin`` + ``moon_movie_manifest.json``. The bin is a
-62-byte little-endian header (magic ``MOOV``, the **calcver**, the
-target, ``s`` = the board's ``MOON_PX``, the disk radius, ``q90``,
-``hours_per_frame``, ``frame_count``, ``ref_center``, and the table /
-frame offsets), then a ``frame_count`` × u32 offset table (offsets
-relative to the first frame), then the q90 gray JPEGs packed back to
-back. The manifest carries the same facts plus the measured sizes —
-the single source the docs figures and the CMake guards re-derive
-from.
+``assets/images/moon/moon/movie.py`` (``.venv/bin/python -m moon.movie --target s3 p4 knob``) bakes one blob per board under ``assets/images/moon/out/<target>/``.
+Like the other asset outputs, these are gitignored (:doc:`the Python API <../reference/python-api>`).
+Each board gets ``moon_movie.bin`` and ``moon_movie_manifest.json``.
 
-The generator is **size-adaptive**: it reads the committed
-``moon_movie`` partition row's size (the row is the source of truth —
-the partition CSVs are committed, static files), tries the finest
-phase step first (1 h/frame = 709 frames), and steps coarser (2 h, 4
-h, …) until the measured JPEG total fits the row. It needs only the
-cached ``moon-kit/`` — no network. If **zero** frames fit it still
-emits a valid zero-frame blob, so a movie never blocks a flash: a
-zero-frame movie reads as *no movie* and the presentation falls back
-(the ladder below).
+The bin starts with a 62-byte little-endian header.
+It holds the magic ``MOOV``, the **calcver**, the target, ``s`` (the board's ``MOON_PX``), the disk radius, ``q90``, ``hours_per_frame``, ``frame_count``, ``ref_center``, and the table and frame offsets.
+Next comes a ``frame_count`` × u32 offset table (offsets relative to the first frame), then the q90 gray JPEGs packed back to back.
+The manifest carries the same facts plus the measured sizes.
+It is the single source that the docs figures and the CMake guards re-derive from.
+
+The generator adapts to the size of the row.
+It reads the size of the committed ``moon_movie`` partition row; the partition CSVs are committed, static files, so the row is the source of truth.
+It tries the finest phase step first (1 h/frame = 709 frames) and steps coarser (2 h, 4 h, …) until the measured JPEG total fits the row.
+It needs only the cached ``moon-kit/`` and no network.
+If zero frames fit, it still emits a valid zero-frame blob.
+A zero-frame movie reads as *no movie* and the presentation falls back (see the ladder below), so a movie never blocks a flash.
 
 Flash residency (all three tables)
 ----------------------------------
 
-Every table grew a ``moon_movie`` row, sized to the chip's leftover
-after the other rows (the single-sourced tables:
-:doc:`the partitions <../reference/partitions>`):
+Every partition table has a ``moon_movie`` row, sized to the chip's leftover after the other rows (the single-sourced tables are in :doc:`the partitions <../reference/partitions>`):
 
-- **S3** — ``11648 K``, the LAST row (after ``moon_assets``). 355
-  frames @ 2 h = 10,264,284 B today.
-- **P4** — ``18304 K``, the LAST row — the row's start sits **past
-  the old 16 MB mark**, which is what the wave's 32 MB header bump
-  exists for (:doc:`the binary-size chronology <../verification/binary>`,
-  the P4's 32 MB header). 178 frames @ 4 h = 12,842,691 B today.
-- **Knob** — ``9088 K``, the LAST-but-one row, with the 64 K
-  ``coredump`` witness ring after it (consumers find every partition
-  by label, so the ring's offset move was free). The knob has **no SD
-  socket — flash is its ONLY movie source**. 355 frames @ 2 h =
-  6,075,946 B today.
+.. list-table::
+   :header-rows: 1
+   :widths: 12 18 70
 
-The **sizing policy** ("fill the space, never hinder the code build"):
-the app is bounded by its own ``factory`` row (S3 2048 K / P4 9216 K /
-knob 4096 K), so **the movie can never crowd the code** — a flash
-always succeeds. If the code grows later, the fix is a
-``partitions.csv`` edit: widen ``factory``, shrink ``moon_movie``,
-re-run the generator — and it lands on a coarser frame step
-automatically. That *is* the "dynamically decrease the phase-frame
-density" decision, and it is a generator property, not a build-time
-resize.
+   * - Board
+     - Row
+     - Notes
+   * - S3
+     - ``11648 K``, last row
+     - after ``moon_assets``; 355 frames @ 2 h = 10,264,284 B
+   * - P4
+     - ``18304 K``, last row
+     - the row starts past the 16 MB mark, which is why the P4 image header declares 32 MB (:doc:`the binary-size chronology <../verification/binary>`); 178 frames @ 4 h = 12,842,691 B
+   * - Knob
+     - ``9088 K``, last but one
+     - the 64 K ``coredump`` witness ring follows it (consumers find every partition by label, so moving the ring's offset cost nothing); the knob has no SD socket, so flash is its only movie source; 355 frames @ 2 h = 6,075,946 B
+
+The sizing policy is "fill the space, never hinder the code build".
+The app is bounded by its own ``factory`` row (S3 2048 K, P4 9216 K, knob 4096 K), so the movie can never crowd the code, and a flash always succeeds.
+If the code grows, edit ``partitions.csv``: widen ``factory``, shrink ``moon_movie`` and re-run the generator.
+The generator then lands on a coarser frame step automatically.
+That is how the phase-frame density decreases when space runs short: it is a property of the generator, not a resize at build time.
 
 The build chain
 ---------------
 
-One ``idf.py flash`` writes the app **and** the movie (the storage
-SPIFFS and the ``moon_assets`` blob too): the root ``CMakeLists.txt``
-and the knob's own add ``esptool_py_flash_to_partition(flash
-"moon_movie" ...)``, mirroring the ``moon_assets`` rule. Three
-configure-time guards run before the app compiles (the knob's
-``CMakeLists.txt`` replicates the trio):
+One ``idf.py flash`` writes the app and the movie, plus the storage SPIFFS and the ``moon_assets`` blob.
+The root ``CMakeLists.txt`` and the knob's own both add ``esptool_py_flash_to_partition(flash "moon_movie" ...)``, mirroring the ``moon_assets`` rule.
+Three configure-time guards run before the app compiles (the knob's ``CMakeLists.txt`` replicates the trio):
 
-1. **The whole partition table fits the flash** — the row sizes sum
-   to at most ``CONFIG_ESPTOOLPY_FLASHSIZE`` (16 MB S3 / 32 MB P4 /
-   16 MB knob): the "never hinder the code build" gate.
-2. **The blob fits its row** — ``moon_movie.bin`` ≤ the
-   ``moon_movie`` row (a belt for the generator; a resize mistake
-   fails fast with the KiB named).
-3. **The manifest matches the firmware** — the manifest's target and
-   its **calcver** equal the version the firmware is stamped with:
-   the root ``CMakeLists`` derives ``MOON_CALC_VER`` from the
-   commitizen ``.cz.toml`` ``version`` line (git ``describe``
-   fallback) into ``-DMOON_CALC_VER`` on every compile, and the knob
-   replicates the derive against ``../.cz.toml``. A blob baked for
-   another board or an older core is a build-time ``FATAL_ERROR``, not
-   a boot-time surprise.
+1. **The whole partition table fits the flash.** The row sizes sum to at most ``CONFIG_ESPTOOLPY_FLASHSIZE`` (16 MB S3, 32 MB P4, 16 MB knob). This is the "never hinder the code build" gate.
+2. **The blob fits its row.** ``moon_movie.bin`` must be ≤ the ``moon_movie`` row. This backs up the generator; a resize mistake fails fast and names the KiB.
+3. **The manifest matches the firmware.** The manifest's target and its **calcver** must equal the version the firmware is stamped with. The root ``CMakeLists`` derives ``MOON_CALC_VER`` from the ``version`` line of the commitizen ``.cz.toml`` (with a git ``describe`` fallback) and passes ``-DMOON_CALC_VER`` on every compile. The knob replicates the derive against ``../.cz.toml``. A blob baked for another board or an older core is a build-time ``FATAL_ERROR``, not a surprise at boot.
 
-A *missing* blob is only a warning (the movie degrades to the card /
-disc path, and the code build flashes) — a malformed manifest or a
-non-fitting blob is not.
+A missing blob is only a warning: the movie degrades to the card or disc path, and the code build still flashes.
+A malformed manifest or a blob that does not fit is an error.
 
 The reader
 ----------
 
-``components/moon/esp/moon_esp_movie.c`` (shared by all three
-boards; the knob links it through ``EXTRA_COMPONENT_DIRS`` like the
-other shared components): ``moon_movie_init()`` finds the partition
-(``esp_partition_find_first(DATA, UNDEFINED, "moon_movie")``), reads
-the 62-byte header and validates the magic **and the calcver** (a
-mismatch reads as *no movie* — and a stale movie implies a stale card
-folder, since the TF cache's folder is versioned by the same calcver,
-so the fallback lands on the same disc/black floor the stale folder
-already gives). ``moon_movie_fetch(idx, gray_out, s_px)`` reads one
-frame's JPEG and decodes it through the **same ``esp_new_jpeg`` codec
-path the TF hour cache runs** (RGB888 out, take R — a gray JPEG
-decodes with R == G == B) into the caller's ``s_px``-square gray
-bounce; the transient decode scratch (``s_px``²·3, PSRAM, lazy) is the
-same shape ``tfcache_fetch`` already allocated. Single-threaded caller
-contract, no locking — the same rule as tfcache (the boot producer is
-the sole caller). Runtime RAM cost is one more PSRAM bounce per
-board; **internal RAM is untouched**, and the partition is read-only
-at runtime (no flash wear).
+:cfile:`components/moon/esp/moon_esp_movie.c` is shared by all three boards; the knob links it through ``EXTRA_COMPONENT_DIRS`` like the other shared components.
+:cfunc:`moon_movie_init` finds the partition with ``esp_partition_find_first(DATA, UNDEFINED, "moon_movie")``, reads the 62-byte header, and checks the magic and the calcver.
+A mismatch reads as *no movie*.
+A stale movie also implies a stale card folder, because the TF cache's folder is versioned by the same calcver; the fallback then lands on the same disc or black floor that the stale folder gives.
+
+``moon_movie_fetch(idx, gray_out, s_px)`` reads one frame's JPEG.
+It decodes it through the same ``esp_new_jpeg`` codec path that the TF hour cache uses (RGB888 out, take R; a gray JPEG decodes with R == G == B) into the caller's ``s_px``-square gray bounce.
+The transient decode scratch (``s_px``²·3, in PSRAM, allocated lazily) has the same shape that ``tfcache_fetch`` allocates.
+The caller contract is single-threaded with no locking, the same rule as tfcache; the boot producer is the only caller.
+The runtime cost is one more PSRAM bounce per board.
+Internal RAM is untouched, and the partition is read-only at runtime, so there is no flash wear.
 
 The clocks' presentation (``UI_MOON_BOOT_REPLAY``)
 ---------------------------------------------------
 
-The gate stays ``UI_MOON_BOOT_REPLAY`` (default y — the movie is the
-new first source under it; one gate, not a second). Two core-1 tasks
-(12 KB internal-RAM stacks, ``configMAX_PRIORITIES − 3``, spawned by
-``moon_ui_start`` in that order — :doc:`the architecture
-<architecture>`):
+The movie is the first source under the ``UI_MOON_BOOT_REPLAY`` gate (default y); there is no separate gate.
+Two core-1 tasks run the presentation.
+Both have 12 KB internal-RAM stacks and priority ``configMAX_PRIORITIES − 3``, and ``moon_ui_start`` spawns them in this order (:doc:`the architecture <architecture>`).
 
-**The parallel bake (``moon_bake``)** — spawned FIRST so a failed
-spawn degrades the presentation straight to the stale-frame re-bake.
-It owns the live leg: if the clock holds no trustworthy instant yet
-(RTC unset, NTP not synced) it polls at 500 ms — the movie keeps
-looping meanwhile — and once the clock syncs it classifies the day's
-sky event, bakes the current phase into the shared ``s_hourly_gray``
-bounce with the compute-progress watermark (``COMPUTE_REPLAY_FINAL`` —
-the seconds arc sweeps its rows-completed bar, exactly like the
-hourly leg; :doc:`the compute progress <compute-progress>`), and
-sets ``s_boot_bake_done`` (or ``s_boot_bake_failed`` on abort / no
-time / no albedo). The strip loop yields per strip (``vTaskDelay(1)``
-inside ``moon_bake_progress``), so the same-priority, same-core
-producer keeps feeding movie frames while the bake runs. It **never**
-touches ``s_frame`` / ``s_rgb`` / the panel — the producer owns the
-publish, and the two tasks never share a buffer (the bake owns
-``s_hourly_gray``; the producer plays from its own fetch bounce).
+The parallel bake (``moon_bake``)
+.................................
 
-**The producer (``moon_replay``)** — plays the **source ladder**:
+``moon_bake`` is spawned first, so a failed spawn degrades the presentation straight to the stale-frame re-bake.
+It owns the live leg.
+If the clock holds no trustworthy instant yet (RTC unset, NTP not synced), it polls every 500 ms while the movie keeps looping.
+Once the clock syncs, it classifies the day's sky event and bakes the current phase into the shared ``s_hourly_gray`` bounce with the compute-progress watermark (``COMPUTE_REPLAY_FINAL``).
+The seconds arc sweeps its rows-completed bar, as on the hourly leg (:doc:`the compute progress <compute-progress>`).
+At the end it sets ``s_boot_bake_done``, or ``s_boot_bake_failed`` on an abort, missing time or missing albedo.
 
-1. **The flash movie** (``moon_movie_init`` valid: magic + calcver +
-   ``s`` + at least one frame): the frames play **LOOPING** — one
-   frame per tick, wrapping, neutral LUT (``moon_gray565_set_event``
-   off — the frames are event-independent), each publish in ONE
-   ``s_rgb_mtx`` block, each show landed by the tick as ONE atomic
-   whole-panel ``lv_refr_now`` under ``s_rgb_mtx``, drain-witnessed
-   (the family invariant; the movie adds **no new exception** — its
-   reads happen off-panel on core 1 and its shows ride the
-   sanctioned atomic-show path). The loop is **unbounded** — there is
-   no stop while it loops: the loop IS the animation, and the bake
-   completing is what ends it. (A *repeating* fetch failure — 100
-   consecutive misses, a torn partition or flash error — stops the
-   loop and degrades to the final leg; a healed single miss is
-   skipped.)
-2. **The card fallback** (no partition / calcver mismatch /
-   zero-frame movie): the :commit:`dabbf475` card replay verbatim — the lazy
-   mount happens on THIS leg's first moment (a card-less fallback pays
-   the ~1 s probe here; the movie path never touches the bus at
-   boot), the stored hours play ascending, neutral tint, the
-   ``UI_MOON_REPLAY_BUDGET_MS`` budget bounding that leg.
-3. **The floor**: the quick phase disc ``moon_ui_start`` painted
-   before the spawn (or black without a trustworthy time) stays up
-   under both.
+The strip loop yields per strip (``vTaskDelay(1)`` inside :cfunc:`moon_bake_progress`).
+The producer runs on the same core at the same priority, so it keeps feeding movie frames while the bake runs.
+The bake task never touches ``s_frame``, ``s_rgb`` or the panel; the producer owns the publish.
+The two tasks never share a buffer: the bake owns ``s_hourly_gray``, and the producer plays from its own fetch bounce.
 
-**Catch-up and reveal.** When ``s_boot_bake_done`` flips, the
-producer maps the now hour to the **nearest** loop index by hour
-arithmetic on the header's ``ref_center`` — no new-moon scan: frame
-*i*'s centre is ``ref + i·hpf`` hours, so the nearest frame is within
-``hpf/2`` hours of the now-frame's phase and the swap over it is
-seamless. Far targets (more than ``n/4`` of the cycle ahead,
-``REPLAY_CATCHUP_QUARTER``) take **one settle frame at the target
-then the reveal** (a hard cut — it's a loading screen); near targets
-**play forward one frame per tick** to the current phase,
-budget-bounded. Then the **final leg** — common to both sources: a
-bounded wait if the bake is still running (the budget cuts the
-*animation*, never the moon — an overrunning wait degrades to the
-stale-frame re-bake backstop), a bounded handshake that the last
-published frame has *landed* before the now-frame replaces it
-("play to the current phase, **then** reveal the computed image"),
-the now-frame published under ``s_rgb_mtx`` with the bake's **event
-tint** (the producer is the presentation's sole LUT writer), the
-bookkeeping committed there and only there (``s_orbit_epoch`` /
-``s_baked_hour`` / ``s_baked_event`` / ``s_baked_day``), and the tick
-lands it as the last atomic show (drain-witnessed as
-``boot replay final``). The card's new-moon prune (the ~8 s
-``new_moon_epoch`` scan) still rides the final leg. Movie frames never
-move ``s_orbit_epoch`` — they are historic phases; only the final
-bake may.
+The producer (``moon_replay``) and its source ladder
+....................................................
 
-**Pacing and the budget.** The producer paces at the floor
-``1000 / UI_MOON_REPLAY_FPS`` (default 8 → 125 ms/frame minimum
-dwell); the actual rate is what the 50 ms tick and the whole-panel
-flush allow on top (~6 fps measured S3 — :doc:`the performance
-comparison <../verification/performance>`). ``UI_MOON_REPLAY_BUDGET_MS``
-(240 s default) now bounds the **bounded legs only** — the
-card-fallback leg and the catch-up leg. The movie **loop itself is
-unbounded**: its stopper is the bake, and the bake's stopper is the
-clock sync.
+The producer plays the first source on this ladder that is available:
 
-**Arbitration and abort.** While ``moon_ui_replaying()`` is true the
-hourly probe/spawn, the day-tick and the orbit gate out and every
-idle re-arm site defers — the three core-1 producers (replay,
-parallel bake, hourly) never run at once, which is what keeps
-tfcache's single-caller contract intact. A sleep entry or a screen
-switch away from the moon raises ``s_replay_abort``: the un-shown
-frames are dropped, the final publish is skipped, ``s_baked_day``
-stays 0 — the minute day-tick queues the corrective re-bake on
-return — and ``s_frame_stale`` marks a degraded run (the panel rests
-on the last COMPLETE frame, a movie frame or the disc; nothing to
-heal). Demo mode boots without the presentation (its scripted tour
-owns the display); ``UI_MOON_BOOT_REPLAY=n`` boots straight to the
-static current phase, touching no SD bus.
+1. **The flash movie**, when :cfunc:`moon_movie_init` finds it valid (magic, calcver and ``s`` match, and at least one frame).
+   The frames play looping, one frame per tick, with the neutral LUT (``moon_gray565_set_event`` off, because the frames do not depend on sky events).
+   Each publish happens in one ``s_rgb_mtx`` block.
+   The tick lands each show as one atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx``, drain-witnessed.
+   The movie adds no exception to the atomic-frame invariant: its reads happen off-panel on core 1, and its shows ride the sanctioned atomic-show path.
+   The loop has no time bound; the loop is the animation, and the bake completing ends it.
+   A repeating fetch failure (100 consecutive misses, from a torn partition or a flash error) stops the loop and degrades to the final leg; a single miss that heals is skipped.
+2. **The card fallback**, when there is no partition, the calcver does not match or the movie has zero frames.
+   This is the card replay of :commit:`dabbf475`, unchanged.
+   The lazy mount happens at the start of this leg, so a fallback without a card pays the ~1 s probe here (the movie path never touches the bus at boot).
+   The stored hours play ascending with the neutral tint, and ``UI_MOON_REPLAY_BUDGET_MS`` bounds the leg.
+3. **The floor**: the quick phase disc that ``moon_ui_start`` painted before the spawn (or black, without a trustworthy time) stays up under both.
+
+Catch-up and the final frame
+............................
+
+When ``s_boot_bake_done`` flips, the producer maps the current hour to the nearest loop index by hour arithmetic on the header's ``ref_center``.
+There is no new-moon scan.
+Frame *i*'s centre is ``ref + i·hpf`` hours, so the nearest frame is within ``hpf/2`` hours of the current phase, and the swap over it is seamless.
+A target far ahead (more than ``n/4`` of the cycle, ``REPLAY_CATCHUP_QUARTER``) gets one settle frame at the target, then the final frame; this is a hard cut, acceptable on a loading screen.
+A near target plays forward one frame per tick to the current phase, bounded by the budget.
+
+Both sources then share the final leg:
+
+* A bounded wait, if the bake is still running. The budget cuts the animation, never the moon: a wait that overruns degrades to the stale-frame re-bake backstop.
+* A bounded handshake that the last published frame has landed before the current frame replaces it. The presentation plays to the current phase, and then shows the computed image.
+* The current frame, published under ``s_rgb_mtx`` with the bake's event tint. The producer is the presentation's only LUT writer.
+* The bookkeeping (``s_orbit_epoch``, ``s_baked_hour``, ``s_baked_event``, ``s_baked_day``), committed here and nowhere else.
+* The last atomic show, landed by the tick and drain-witnessed as ``boot replay final``.
+
+The card's new-moon prune (the ~8 s ``new_moon_epoch`` scan) also rides the final leg.
+Movie frames never move ``s_orbit_epoch``, because they are historic phases; only the final bake may.
+
+Pacing and the budget
+.....................
+
+The producer paces at a floor of ``1000 / UI_MOON_REPLAY_FPS`` (default 8, so at least 125 ms per frame).
+The actual rate is what the 50 ms tick and the whole-panel flush allow on top: ~6 fps measured on the S3 (:doc:`the performance comparison <../verification/performance>`).
+``UI_MOON_REPLAY_BUDGET_MS`` (240 s default) bounds only the bounded legs: the card-fallback leg and the catch-up leg.
+The movie loop itself has no time bound; the bake stops it, and the clock sync is what lets the bake finish.
+
+Arbitration and abort
+.....................
+
+While ``moon_ui_replaying()`` is true, the hourly probe and spawn, the day-tick and the orbit stay out, and every idle re-arm site defers.
+The three core-1 producers (replay, parallel bake, hourly) therefore never run at once, which keeps tfcache's single-caller contract intact.
+
+A sleep entry or a screen switch away from the moon raises ``s_replay_abort``.
+The frames not yet shown are dropped, the final publish is skipped and ``s_baked_day`` stays 0, so the minute day-tick queues the corrective re-bake on return.
+``s_frame_stale`` marks the degraded run.
+The panel rests on the last complete frame (a movie frame or the disc), so there is nothing to heal.
+
+Demo mode boots without the presentation, because its scripted tour owns the display.
+With ``UI_MOON_BOOT_REPLAY=n`` the clock boots straight to the static current phase and touches no SD bus.
 
 The knob (``KNOB_UI_MOVIE_ENABLE``)
 -----------------------------------
 
-The knob's seam forces a **single-producer shape** (its swap task is
-the only thing that may flush the panel, and its opening act is the
-NTP window — :doc:`the knob display <knob-display>`):
+The knob's seam forces a single-producer shape.
+Its swap task is the only thing that may flush the panel, and its opening act is the NTP window (:doc:`the knob display <knob-display>`).
 
-- **Warm.** ``show_moon``'s first arm (``app_main``, **before**
-  ``ui_init``) stages movie frame 0 on the front buffer + descriptor +
-  ``s_shown`` — the ``KNOB_UI_LAST_FRAME`` warm-arm shape — so the
-  retained-panel first screen flush already carries a movie frame
-  (never-black). The **saved frame takes precedence** (it is the
-  latest *real* phase; the movie is a generic cycle — the
-  never-a-phantom-phase discipline: a movie frame is never *claimed*
-  as the current phase, and the caption is only rewritten to the real
-  bake's instant by the day tick's force-rebake).
-- **Loop.** The producer (``moon_task``) runs the loop **in place of
-  the static opening presentation** while no trustworthy instant
-  exists — the knob's whole opening act is the NTP window + the
-  opening classify scan, so the loop replaces the disc the disc would
-  have owned (the disc gate skips itself while ``s_movie_warmed`` is
-  sticky — no disc flash between the movie and the reveal). The loop
-  body is a **LUT pass only** (``knob_moon_bake_movie_frame``: no
-  geometry, no erfa, no PSRAM texture loads), so it never starves the
-  core the way a full bake would; each frame goes out through the
-  ordinary ``s_buf[2]`` back-buffer → swap task → ONE atomic
-  whole-panel ``lv_refr_now`` seam (the family invariant the movie
-  rides — no new exception). Pacing waits are ≥ 10 ms = one tick at
-  ``CONFIG_FREERTOS_HZ = 100``.
-- **Catch-up + reveal.** Once the clock holds a plausible instant
-  (SNTP fix, or a plausible NVS-restored wall clock — the same
-  ``ui_now_epoch()`` the opening bake uses, so the loop can never
-  catch up to a different instant than the one the reveal bakes), the
-  loop maps ``now`` to the nearest frame (the clocks'
-  ``hpf``-aware rounding), plays forward there (far target: one
-  settle frame + the reveal), then the **opening bake** lands over
-  the movie frame as the day tick's ordinary force-rebake swap.
-- **No-clock edge.** No plausible instant by loop end — the loop
-  exits after **one full cycle** (355 frames ≈ 44 s at the default
-  pacing) and the opening bake reveals over the last movie frame
-  (there is no ``now`` to aim the catch-up at; the day tick's
-  late-fix re-bake takes the real phase when the fix lands).
+Warm arm
+   ``show_moon``'s first arm (in ``app_main``, before ``ui_init``) stages movie frame 0 on the front buffer, the descriptor and ``s_shown``, the same shape as the ``KNOB_UI_LAST_FRAME`` warm arm.
+   The first screen flush of the retained panel therefore already carries a movie frame, so the panel is never black.
+   The saved frame takes precedence, because it is the latest real phase and the movie is a generic cycle.
+   This is the knob's rule against phantom phases: a movie frame is never claimed as the current phase, and only the day tick's force-rebake rewrites the caption to the real bake's instant.
 
-``KNOB_UI_MOVIE_FPS`` (default 8, 2–20 — the clocks'
-``UI_MOON_REPLAY_FPS`` value; the knob's wire floor is 13 ms, so 8 fps
-paces the flash reads, not the panel) and the 120 s
-``MOVIE_CATCHUP_BUDGET_MS`` (compile-time, the knob's own constant)
-bound the catch-up leg only — the loop is unbounded, the plausible-
-instant check ending it, like the clocks' bake-done check ends theirs.
-Movie frames are **never persisted** (``maybe_persist_frame`` skips
-them): ``moon_frame.bin`` always holds the last REAL bake.
+Loop
+   The producer (``moon_task``) runs the loop in place of the static opening presentation while no trustworthy instant exists.
+   The knob's whole opening act is the NTP window plus the opening classify scan, so the loop takes the slot the disc would otherwise hold.
+   The disc gate skips itself while ``s_movie_warmed`` is set (it stays set), so no disc flashes between the movie and the final frame.
+   The loop body is a LUT pass only (``knob_moon_bake_movie_frame``: no geometry, no erfa, no PSRAM texture loads), so it never starves the core the way a full bake would.
+   Each frame goes out through the ordinary ``s_buf[2]`` back buffer, the swap task and one atomic whole-panel ``lv_refr_now``, the same seam the family invariant requires; the movie adds no exception.
+   Pacing waits are ≥ 10 ms, one tick at ``CONFIG_FREERTOS_HZ = 100``.
+
+Catch-up and the final frame
+   Once the clock holds a plausible instant (an SNTP fix, or a plausible wall clock restored from NVS), the loop maps ``now`` to the nearest frame with the clocks' ``hpf``-aware rounding.
+   It uses the same ``ui_now_epoch()`` as the opening bake, so the loop cannot catch up to a different instant than the one the final frame bakes.
+   It plays forward to that frame (a far target gets one settle frame), and then the opening bake lands over the movie frame as the day tick's ordinary force-rebake swap.
+
+No clock
+   With no plausible instant by the end of the loop, the loop exits after one full cycle (355 frames ≈ 44 s at the default pacing).
+   The opening bake then lands over the last movie frame, because there is no ``now`` to aim the catch-up at.
+   The day tick's late-fix re-bake takes the real phase when the fix arrives.
+
+``KNOB_UI_MOVIE_FPS`` defaults to 8 (range 2–20), the value of the clocks' ``UI_MOON_REPLAY_FPS``.
+The knob's wire floor is 13 ms, so 8 fps paces the flash reads, not the panel.
+That rate and the 120 s ``MOVIE_CATCHUP_BUDGET_MS`` (a compile-time constant of the knob) bound only the catch-up leg.
+The loop has no time bound; the plausible-instant check ends it, as the bake-done check ends the clocks' loop.
+Movie frames are never persisted (``maybe_persist_frame`` skips them), so ``moon_frame.bin`` always holds the last real bake.
 
 Edge cases
 ----------
 
-- **NTP not synced at boot.** The clocks' bake task polls until the
-  clock syncs; the movie keeps looping (unbounded) until the frame
-  lands, then play-to-current. The knob exits after one full cycle and
-  reveals over the last movie frame; the late fix re-bakes through the
-  force-rebake path.
-- **Sleep entry / screen switch mid-loop.** ``s_replay_abort`` (clocks)
-  / the arm's interrupt (knob): un-shown frames dropped, final publish
-  skipped, ``s_baked_day`` stays 0 → corrective re-bake on return
-  (knob: the never-black saved frame, or the last movie frame).
-- **calcver mismatch.** Movie unavailable → the card fallback (whose
-  folder is versioned by the same calcver, so a stale movie implies a
-  stale folder → the disc floor). The partition is rewritten by the
-  next ``idf.py flash``.
-- **Zero-frame movie** (the row shrank below one frame's budget): the
-  generator emits a valid zero-frame blob; the reader reads it as *no
-  movie*; the ladder falls through. The movie never blocks a flash.
-- **Wi-Fi storm.** The movie's shows ride the same drain-witnessed
-  path — a storm stalls shows like any replay; the bounded
-  handshakes (``REPLAY_FRAME_WAIT_MS``) release a paused or starved
-  tick, so the producer can never wedge it.
-- **Flash wear.** The partition is read-only at runtime.
+- **NTP not synced at boot.** The clocks' bake task polls until the clock syncs; the movie keeps looping until the frame lands, then plays to the current phase. The knob exits after one full cycle and shows the final frame over the last movie frame; the late fix re-bakes through the force-rebake path.
+- **Sleep entry or screen switch mid-loop.** ``s_replay_abort`` (clocks) or the arm's interrupt (knob) fires. Frames not yet shown are dropped, the final publish is skipped and ``s_baked_day`` stays 0, which triggers the corrective re-bake on return (on the knob: the never-black saved frame, or the last movie frame).
+- **calcver mismatch.** The movie is unavailable, so the card fallback runs. Its folder is versioned by the same calcver, so a stale movie implies a stale folder and the disc floor. The next ``idf.py flash`` rewrites the partition.
+- **Zero-frame movie** (the row shrank below one frame's budget). The generator emits a valid zero-frame blob, the reader reads it as *no movie*, and the ladder falls through. The movie never blocks a flash.
+- **Wi-Fi storm.** The movie's shows ride the same drain-witnessed path, so a storm stalls them like any replay. The bounded handshakes (``REPLAY_FRAME_WAIT_MS``) release a paused or starved tick, so the producer can never wedge it.
+- **Flash wear.** None; the partition is read-only at runtime.
 
-See also
---------
+Where to go next
+----------------
 
-The presentation's pacing arithmetic and the boot paths against the
-budget — :doc:`the performance comparison
-<../verification/performance>` (the boot-path ladder); the flash
-budget the movie owns the leftover of — :doc:`the binary-size
-chronology <../verification/binary>` and :doc:`the partitions
-<../reference/partitions>`; the Kconfig keys (single-sourced
-fragments) — :doc:`the Kconfig keys <../reference/kconfig-ui>` (clocks:
-``UI_MOON_BOOT_REPLAY``, ``UI_MOON_REPLAY_FPS``,
-``UI_MOON_REPLAY_BUDGET_MS``; knob: ``KNOB_UI_MOVIE_ENABLE``,
-``KNOB_UI_MOVIE_FPS``); the animation pipelines and the retired sweep
-— :doc:`the animation pipelines <animations>`; the compute progress
-the reveal rides — :doc:`the compute progress <compute-progress>`; the
-knob's seam — :doc:`the knob display <knob-display>`; the asset
-pipeline that bakes the frames — :doc:`the Python API
-<../reference/python-api>`.
+* :doc:`The performance comparison <../verification/performance>`: the pacing arithmetic and the boot paths against the budget (the boot-path ladder).
+* :doc:`The animation pipelines <animations>`: the boot replay, the hourly refresh and the sweep the movie replaced; :doc:`the compute progress <compute-progress>` covers the progress bar during the final bake.
+* :doc:`The knob display <knob-display>`: the knob's seam.
+
+The flash budget the movie fills is in :doc:`the binary-size chronology <../verification/binary>` and :doc:`the partitions <../reference/partitions>`.
+The Kconfig keys are in :doc:`the Kconfig keys <../reference/kconfig-ui>` (clocks: ``UI_MOON_BOOT_REPLAY``, ``UI_MOON_REPLAY_FPS``, ``UI_MOON_REPLAY_BUDGET_MS``; knob: ``KNOB_UI_MOVIE_ENABLE``, ``KNOB_UI_MOVIE_FPS``).
+The asset pipeline that bakes the frames is in :doc:`the Python API <../reference/python-api>`.

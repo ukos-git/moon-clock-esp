@@ -1,6 +1,12 @@
 Using the clock
 ===============
 
+.. brief:
+   Reader: someone holding a finished clock.
+   They already know: nothing about the firmware.
+   After this page they can: read the home screen, change settings, set an alarm, connect Wi-Fi.
+   Page type: user guide (how-to).
+
 This page explains how to operate a finished clock: what the home
 screen shows, how to reach the settings, and what each setting does.
 For every screen there is also a detailed page in :doc:`the screen

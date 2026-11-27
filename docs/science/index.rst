@@ -1,6 +1,12 @@
 The science
 ===========
 
+.. brief:
+   Reader: a developer who wants the model with the maths behind it.
+   They already know: vectors, the dot product and basic trigonometry.
+   After this page they can: pick the right science page and read order.
+   Page type: reference (section index).
+
 This section explains how the clock computes a picture of the Moon and
 why the result can be trusted. It is the detailed version of
 :doc:`How the clock works <../how-it-works>`: the same ideas, with the

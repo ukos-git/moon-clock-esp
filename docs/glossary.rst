@@ -1,266 +1,175 @@
 Glossary
 ========
 
-The terms the running text resolves to: the lunar astronomy, the
-rendering model, the device pipeline, and the project's own
-jargon. The sources behind the numbers live in
-:doc:`Sources and references <reference/sources>`.
+.. brief:
+   Reader: anyone who meets an unfamiliar word on this site, from a school student to a firmware developer.
+   They already know: nothing specific; each entry starts in plain language.
+   After this page they can: understand a term well enough to keep reading, and follow the link to the page that explains it fully.
+   Page type: reference.
 
-Lunar astronomy
-^^^^^^^^^^^^^^^
+This page defines the words the rest of the site uses.
+Each entry starts with a plain sentence; the technical detail follows.
+The groups are the Moon itself, the hardware, how the picture is drawn, how the firmware puts it on the screen, and the project's own words.
+The sources behind the numbers are in :doc:`Sources and references <reference/sources>`.
 
-- **Body frame** — the Moon's rotating reference frame (pole = +z),
-  the IAU_Moon rotation: the calibrated pole
-  (RA 269.839977° / Dec 68.110423°) + the prime-meridian rate
-  (13.17617251°/day). The frame a surface direction lives in before
-  the camera sees it (:doc:`the geometry <science/geometry>`).
-- **Subsolar point** — the surface point where the Sun is zenith
-  (``subsolar_lon/lat``); its distance from the subearth point sets
-  the terminator.
-- **Subearth point** — the surface point under the observer
-  (``subearth_lon/lat``); the visible pole of the disk.
-- **Position angle (posangle)** — the angle of celestial north east
-  of the observer's zenith, in degrees; the camera basis' in-plane
-  rotation (:doc:`the geometry <science/geometry>` and :doc:`the dark side <science/darkside>`).
-- **Parallactic angle** — the angle of celestial north east of the
-  vertical at the *observer's* horizon, ``q = atan2(sin H, tan φ cos δ
-  − sin δ cos H)`` from the hour angle ``H``, the site latitude ``φ``
-  and the Moon's declination ``δ``; what turns a north-up disk into
-  the view an observer at that city has (the in-plane rotation of the
-  *observer view*, :doc:`the observer view <implementation/observer-view>`).
-- **Phase angle** — the Sun–Moon–observer angle ``i``; the
-  illumination is ``(1 + cos i) / 2`` (the ``illum``).
-- **Libration** — the Moon's apparent wobble (geometric, not
-  physical): the posangle sweep + the subearth point's excursion,
-  which lets ~59 % of the surface be seen over a cycle. The cheap
-  ephemeris carries it (the subsolar/subearth residual, :doc:`the geometry <science/geometry>`).
-- **Synodic month** — 29.530589 days; the phase cycle (the
-  clock's boot sweep played it until :commit:`51119200`, the knob companion
-  at cold boot until :commit:`e8efbee3`, :doc:`the animation pipelines <implementation/animations>`).
-- **New-moon epoch** — the instant of zero phase; the retired boot
-  sweep's start (the two-pass 6 h coarse + 20 min fine scan came down
-  with it, :doc:`the animation pipelines <implementation/animations>`).
+The Moon and its motion
+^^^^^^^^^^^^^^^^^^^^^^^
 
-The rendering model
-^^^^^^^^^^^^^^^^^^^
+- **Phase**: the shape of the lit part of the Moon that we see, from new moon (nothing lit) through first quarter and full moon back to new moon.
+  It depends on the angle between the Sun and the Moon as seen from Earth (see *Phase angle*).
+- **Synodic month**: the time from one new moon to the next, 29.530589 days.
+  It is the length of one full cycle of phases.
+- **New-moon epoch**: the moment of a new moon, when the phase is zero.
+  The firmware finds the last one before the current time; the TF hour cache clears every frame older than it (:doc:`the animation pipelines <implementation/animations>`).
+- **Terminator**: the line on the Moon between day and night.
+  Points on it see the Sun exactly on their horizon.
+  In the model it is where ``d = r·S = 0``, the edge of the displaced lighting model (the band-only A/B in :doc:`the lighting model <science/lighting>`).
+- **Earthshine**: sunlight that bounces off the Earth and lights the Moon's night side very faintly.
+  In the code, the earthshine model is a phase-independent dark-side gradient ``R = A·x + B·x² + C·x³`` in the dark disk fraction ``x``, used when ``dark_zero = 0``.
+  The device bakes use the *backlit night side* instead (:doc:`the dark side <science/darkside>`).
+- **Libration**: a slow apparent wobble of the Moon that lets us see a little way round its edges.
+  It comes from the shape and tilt of the orbit, not from the Moon itself rocking, and it shows about 59 % of the surface over a cycle.
+  In the model it is the posangle sweep plus the excursion of the subearth point; the cheap ephemeris carries it (the subsolar/subearth residual, :doc:`the geometry <science/geometry>`).
+- **Ephemeris**: a table or formula that gives where a body in the sky is at a given time.
+  The clock evaluates published formulas for the Sun, Earth and Moon on the chip, with no internet connection (:doc:`the geometry <science/geometry>`).
+- **Phase angle**: the angle Sun–Moon–observer, ``i``.
+  The lit fraction of the disk is ``(1 + cos i) / 2`` (the ``illum``).
+- **Subsolar point**: the place on the Moon where the Sun stands straight overhead (``subsolar_lon/lat``).
+  Its distance from the subearth point sets where the terminator falls.
+- **Subearth point**: the place on the Moon where the Earth stands straight overhead (``subearth_lon/lat``).
+  It is the centre of the disk we see.
+- **Body frame**: a set of axes fixed to the Moon and turning with it, with +z along the Moon's pole.
+  It is the IAU_Moon rotation: the calibrated pole (RA 269.839977° / Dec 68.110423°) plus the prime-meridian rate (13.17617251°/day).
+  A surface direction lives in this frame before the camera sees it (:doc:`the geometry <science/geometry>`).
+- **Position angle (posangle)**: how far the Moon's north is turned, measured east of the observer's zenith, in degrees.
+  It is the in-plane rotation of the camera basis (:doc:`the geometry <science/geometry>` and :doc:`the dark side <science/darkside>`).
+- **Parallactic angle**: how far celestial north is turned from straight up at the observer's horizon.
+  It is ``q = atan2(sin H, tan φ cos δ − sin δ cos H)`` from the hour angle ``H``, the site latitude ``φ`` and the Moon's declination ``δ``.
+  It turns a north-up disk into the view an observer in that city has; it is the in-plane rotation of the *observer view* (:doc:`the observer view <implementation/observer-view>`).
 
-- **Base-sphere direction** — the per-pixel unit vector
-  ``r = u·right + v·up + w·E`` (the bake's first step; the
-  257-entry atan/row-frac table pass, :doc:`the C core <implementation/core-c>`).
-- **Displaced-normal Lambert** — the per-pixel lighting model:
-  ``L = clip(lns, 0, 1)`` where ``lns`` is the relief-normal sun dot
-  — the mountain shadows at the terminator (:doc:`the geometry <science/geometry>` and :doc:`the lighting model <science/lighting>`).
-- **Terminator** — the day/night boundary (``d = r·S = 0``); the
-  displaced model's edge (the band-only A/B, :doc:`the lighting model <science/lighting>`).
-- **Earthshine** — the phase-independent dark-side gradient
-  (``R = A·x + B·x² + C·x³`` in the dark disk fraction ``x``); the
-  ``dark_zero = 0`` dark side (:doc:`the dark side <science/darkside>`).
-- **Backlit night side** — the *computed* dark side (``dark_zero = 1``):
-  the albedo + relief lit from the anti-solar direction (``−S``) at a
-  faint level (peak gray ~51) — the "the unilluminated side is fully
-  calculated" decision (:doc:`the dark side <science/darkside>`).
-- **dk_sup** — the dusk's dark-side bound (retired with the dusk :commit:`f7740500`; the bake parameter stays in the portable core — every
-  device bake today passes 0): the dark side was written
-  for ``d < dk_sup`` instead of ``d < 0``, killing the geometrically
-  lit rim sliver (the "white ray") with the ``MOON_DK_MARGIN`` NN
-  erosion (:doc:`the dark side <science/darkside>`).
-- **Shade map** — the pre-shaded body-frame equirect map the dusk
-  re-projected (the constant-projection pair, :doc:`the dark side <science/darkside>` and :doc:`the animation pipelines <implementation/animations>`; host-side callers only
-  since the dusk's retirement).
-- **Constant projection** — the property that made the dusk cheap:
-  the bake's color depends only on the body direction + the epoch
-  sun; the camera basis selects the view but never enters the color
-  (:doc:`the dark side <science/darkside>`).
-- **Tone LUT** — the 256-entry calibrated gray→gray curve (the fit
-  to NASA's lit-region balance, :doc:`the lighting model <science/lighting>`); ``MOON_TONE_LUT``.
-- **Tint (warm LUT)** — the display's gray→RGB565 warm cast
-  (R ×1.038 / B ×0.933); the art pass's one display knob
-  (``moon_gray565``, :doc:`the artistic pass <science/art-pass>` and :doc:`rotation and the LUT <implementation/rotate-lut>`).
-- **Gate (image gate)** — the host validation: the C core's frames
-  image-diffed against NASA SVS 5415 (≤ 12 MAE/frame) and the Python
-  prototype (≤ 2 MAE/frame), the 32-frame set (:doc:`the image gate <verification/image-gate>`).
+The hardware
+^^^^^^^^^^^^
 
-The device pipeline
-^^^^^^^^^^^^^^^^^^^
+- **Microcontroller**: a small, cheap computer on a single chip, with its processor, memory and radio together.
+  The clocks run on Espressif ESP32-S3 and ESP32-P4 chips (:doc:`the boards <devices/index>`).
+- **Firmware**: the program stored on the microcontroller that runs when it powers up.
+  For this project it is built with ESP-IDF and LVGL from the source in ``components/`` and ``main/`` (:doc:`the build system <reference/build-system>`).
+- **Flash**: memory on the board that keeps its contents without power.
+  It holds the firmware, the Moon maps (the ``moon_assets`` partition) and the saved settings (:doc:`the build system <reference/build-system>`).
+- **PSRAM**: extra working memory (pseudo-static RAM) next to the chip.
+  It is larger and slower than the chip's internal RAM; the Moon maps and frames live there.
+- **AMOLED**: a screen type in which every pixel makes its own light, so black pixels are fully off.
+  The S3 board has one; a picture shown for a long time can leave a faint trace (see *Burn-in*).
+- **NTP**: the Network Time Protocol, the standard way to get the exact time from a server on the internet.
+  The clock uses it over Wi-Fi and then switches the radio off (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
+- **RTC**: real-time clock, a small chip or circuit that keeps counting time between NTP updates.
+  The S3 board has a separate PCF85063A RTC chip; the other boards use the main chip's low-power timer.
 
-- **Atomic frame** — the invariant: every moon-pipeline frame hits
-  the panel as ONE whole-panel ``lv_refr_now`` under ``s_rgb_mtx``;
-  the ONE sanctioned exception is the fade-to-black (the hardware
-  brightness ramp, which writes no pixels — the bake reveal's second
-  exception, its atomicity-per-state band states, retired :commit:`ee4e3efd`
-  with the compute-progress change)
-  (:doc:`the architecture <implementation/architecture>` and :doc:`the
-  compute progress <implementation/compute-progress>`).
-- **s_rgb_mtx / s_panel_mtx** — the two locks: the *image* lock
-  (bake/display of the moon buffer) and the *panel-io* lock
-  (LVGL flushes, the 0x51 brightness)
-  (:doc:`the architecture <implementation/architecture>`).
-- **Spin** *(removed :commit:`79937e37`)* — the former burn-in rotation: a
-  once-baked frame re-projected by the Q15.15 gather at 8 fps and
-  written *directly* to the panel (LVGL bypassed for that frame).
-  Retired entirely — the home moon is plain LVGL, shown static
-  (:doc:`the architecture <implementation/architecture>`).
-- **Burn-in** *(accepted :commit:`eed1d856`)* — the AMOLED consequence of the
-  static home: with the spin retired, a faint ghost of the moon is
-  likely to settle into the S3 panel over weeks of always-on use — and
-  it is deliberately counted a feature, not a bug: it will likely
-  not disturb reading the display
-  (:doc:`the animation pipelines <implementation/animations>`).
-- **Sweep** *(removed from the clocks :commit:`51119200`)* — the former boot
-  animation: the last synodic month — card-less, 1344 tick-displayed
-  frames at ``UI_MOON_ANIM_BAKE_PX``; with the TF sweep cache, the
-  cycle's hour list replayed as the same tick-displayed frames —
-  always ending on the live full-resolution final bake. Its COMPUTED
-  animation stayed removed (every wake is static; with
-  ``UI_MOON_BOOT_REPLAY=n`` so is boot); the knob sibling followed :commit:`e8efbee3`, retiring its own cold-boot sweep. What returned is the **boot replay** — pure playback of stored frames,
-  no per-frame bake
-  (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
-- **Boot replay** *(``UI_MOON_BOOT_REPLAY``, added :commit:`dabbf475`)* — the
-  boot presentation on the card-boards: a core-1 task plays ALL stored
-  TF hour frames ascending and stops on the newest, then the
-  live-computed current phase lands as the final frame (one
-  drain-witnessed atomic whole-panel flush per frame, no fade, the
-  idle→sleep ladder held until the end leg; while the final bake
-  computes the seconds arc sweeps its rows watermark as a progress
-  bar — see *Compute progress*). While the first frames prepare the
-  panel shows the quick **phase disc** (*Phase disc*) instead of
-  black; with no usable cache the replay is simply absent and the disc
-  holds until the final bake lands. The knob (no SD socket) computes at
-  every boot — with no saved last frame on glass it publishes the disc
-  first and the fresh bake swaps over it; ``KNOB_UI_LAST_FRAME`` shows
-  the persisted ``/spiffs/moon_frame.bin`` first and the fresh bake
-  swaps over it
-  (:doc:`the animation pipelines <implementation/animations>` and
-  :doc:`the knob display <implementation/knob-display>`).
-- **Dusk** — the retired (:commit:`f7740500`) light-sleep entry: the
-  constant-projection pole spin to the dark side (the shade map + the
-  re-projects), the backlight dim to 25 %, the RTC countdown armed on
-  the last frame. Light sleep is a **static dim frame** now (panel
-  25 %, clock 20 % alpha, countdown armed at the entry — and the
-  dim *is* the sleep indicator)
-  (:doc:`the animation pipelines <implementation/animations>` and :doc:`the clock and sleep machine <implementation/clock-sleep>`).
-- **phi\*** — the dusk's retired endpoint latitude (``atan2(−B, −A)``),
-  the pole angle that put the visible disk fully in the dark side
-  (:doc:`the animation pipelines <implementation/animations>`).
-- **Hourly refresh** *(``UI_MOON_HOURLY_ENABLE``)* — the one live motion
-  left on the home: once per hour a core-1 producer rebuilds the
-  current-phase frame at the **hour centre** (a TF hour-cache fetch,
-  else a full bake) with the **old frame up the whole cycle** (no fade,
-  no 0x51 traffic — the fade retired :commit:`ee4e3efd`, the compute-progress
-  change), the finished frame landing as ONE atomic whole-panel flush in
-  the bright panel; the seconds arc sweeps the bake's rows watermark as
-  a progress bar on a cache miss (a hit runs no strip loop, so the arc
-  shows real seconds). Replaces the retired boot sweep; the TF hour
-  cache is its card-side fetch
-  (:doc:`the animation pipelines <implementation/animations>`).
-- **Compute progress** *(replaced the bake reveal, :commit:`ee4e3efd`)* —
-  showing the moon's computation while it runs without displaying it
-  strip-wise: the producer bakes strip-chunked and publishes a
-  rows-completed watermark (the reveal's repurposed producer), the
-  home/wifi **seconds arc** reads it as a progress bar (``progress * 60
-  / 100``; plain LVGL invalidate, snaps back to real seconds the next
-  tick), and where the panel would otherwise be dark the **phase disc**
-  stands in. Every image that lands stays ONE atomic whole-panel flush —
-  the atomic-flush rule's second exception is gone, and with it the
-  heal path (the partial bounce is never displayed)
-  (:doc:`the compute progress <implementation/compute-progress>`).
-- **Bake reveal** *(``UI_MOON_BAKE_REVEAL`` / ``KNOB_UI_BAKE_REVEAL``,
-  added :commit:`5008dade`, retired :commit:`ee4e3efd`)* — the predecessor of
-  *Compute progress*: a computing frame displayed as a black canvas +
-  one atomic strip band per 50 ms tick (the *atomicity-per-state*
-  exception to the atomic-flush rule). Its display side (band state
-  machine, pacing, heal, the hourly fade choreography) is deleted —
-  the strip loop with the rows watermark survived as the progress
-  source, and the 2026-11-14/15 bench numbers remain the accepted
-  bake-cost measurements
-  (:doc:`the compute progress <implementation/compute-progress>`).
-- **Phase disc** *(added :commit:`ee4e3efd`)* — the quick dummy image for the
-  dark computation windows: ``moon_bake_phase_dummy`` (core, shared
-  verbatim with host + knob) projects the current phase as a flat
-  sphere — the real bake's geometry with no albedo, no relief, no
-  events; lit side through the tone LUT (full moon = a uniform bright
-  disc with a Lambert limb falloff), dark side plain black. Tens of ms
-  vs the ~1.3 s full bake; shown at boot (before the now-frame) and at
-  the knob's first boot with no saved frame; NEVER shown when a
-  computed frame is present
-  (:doc:`the compute progress <implementation/compute-progress>`).
-- **Observer view** *(``UI_MOON_OBSERVER_ENABLE``, added :commit:`d177a8fb`)*
-  — the timezone's payoff: every gray→RGB565 build leg gathers the
-  north-up baked frame through the Q15.15 in-plane rotation at the
-  Moon's parallactic angle for the active timezone's reference city,
-  so the crescent lies down at dusk and stands up at midnight and the
-  tilt follows the zone's local time. The bake stays north-up (the
-  gate's frames, the TF hour cache zone-agnostic); the compute bake's
-  rows watermark is the north-up strip loop's, so the seconds-arc
-  progress is honest with or without the tilt (the gather runs at
-  publish); a changed zone re-gathers the resting frame in place
-  (``moon_ui_tz_changed``)
-  (:doc:`the observer view <implementation/observer-view>`).
-- **DPI FIFO underrun** — the P4 scanout failure: the DPI controller
-  cannot fetch the strip from XIP PSRAM fast enough (the 103/65-row
-  strip fix, :doc:`the P4 port <implementation/p4-port>`).
-- **Strip** — the flush/write unit: the S3's 25-row (23,300 B)
-  buffer, the P4's 103/65-row buffer (the DMA cap + the FIFO budget)
-  (:doc:`the display pipeline <implementation/display>` and :doc:`the P4 port <implementation/p4-port>`).
-- **Panel-io watchdog** — the ``panel_wdg`` task: a stuck panel-io
-  (the lost-DMA-completion freeze, :doc:`the display pipeline <implementation/display>`) restarts the board
-  after ``PANEL_IO_WATCHDOG_LIMIT_MS`` (3000 ms).
-- **Fade-to-black** — the ONE sanctioned exception to the
-  atomic-flush rule (the bake reveal's second exception retired
-  :commit:`ee4e3efd`): the CO5300's *hardware*
-  brightness ramp (0x51, 12 steps, 240 ms)
-  writes no pixels, and the new frame's one atomic flush runs while the
-  panel is still black. Flows ride it — the screen switch
-  (``UI_SCREEN_SWITCH_FADE``) and the light-sleep dim/wake ramp (the
-  hourly refresh stopped riding it on :commit:`ee4e3efd`: the old frame stays
-  up the whole cycle)
-  (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
-- **Keep-mask** *(removed with the spin, :commit:`79937e37`)* — the spin's
-  former UI overlay: a full-screen ``lv_snapshot`` that kept the
-  clock legible while the moon rotated beneath it under the direct
-  writes.
-- **90°-step orientation** — the tilt roll: whole-screen orientation
-  in 90° steps (the int4-quantized g + the 1 s windowed mean + the
-  integer dot/cross quadrant), the +90° mount base (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
-- **Departure wake** — the tilt-wake model: the wake fires on
-  *departure* from a settled-pose EMA (two bars + a 2-sample
-  streak), not raw per-sample deltas (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
-- **moon_assets** — the 2,560 K flash partition carrying the
-  generated blob: the 864×432 equirect albedo + the 2048×1024 int8
-  relief DEM, a 2,470,400 B combined image on the S3
-  (:doc:`the binary-size chronology <verification/binary>` and :doc:`the build system <reference/build-system>`).
-- **Relief gradient cache** — the one-time boot build of the DEM's
-  quantized slopes into a packed uint16 array (the 2 PSRAM loads/px
-  bake, :doc:`the C core <implementation/core-c>` and :doc:`performance <verification/performance>`).
+How the picture is computed
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Project jargon
-^^^^^^^^^^^^^^^
+- **Albedo**: how light or dark the surface is at a place, from 0 (black) to 1 (white).
+  The clock stores it as a map of the whole Moon, made from NASA Lunar Reconnaissance Orbiter data (:doc:`the lighting model <science/lighting>`).
+- **Lambert's cosine law**: the rule that a surface looks brightest when light hits it head-on and dimmer as the light comes in at a slant.
+  The brightness is the albedo times the cosine of the angle between the Sun and the surface's vertical (:doc:`the lighting model <science/lighting>`).
+- **Displaced-normal Lambert**: the clock's lighting model, Lambert's law applied with the surface tilted by the height map.
+  Per pixel, ``L = clip(lns, 0, 1)``, where ``lns`` is the dot product of the relief normal and the Sun direction.
+  It draws the mountain shadows at the terminator (:doc:`the geometry <science/geometry>` and :doc:`the lighting model <science/lighting>`).
+- **Bake**: the step that computes one complete picture of the Moon from the maps and the Sun and Earth directions.
+  It runs pixel by pixel and takes about 1.3 s for a full frame on the S3 (:doc:`the C core <implementation/core-c>`).
+- **Base-sphere direction**: the unit vector from the Moon's centre to the point a pixel shows, ``r = u·right + v·up + w·E``.
+  It is the bake's first step (the 257-entry atan/row-frac table pass, :doc:`the C core <implementation/core-c>`).
+- **Backlit night side**: the clock's computed dark side (``dark_zero = 1``).
+  The albedo and relief are lit from the direction opposite the Sun (``−S``) at a faint level (peak gray about 51), so craters stay visible on the night side.
+  This follows the decision that the unlit side is fully calculated (:doc:`the dark side <science/darkside>`).
+- **dk_sup**: a bake parameter of the portable core that moves the dark-side bound from ``d < 0`` to ``d < dk_sup``.
+  Every device bake passes 0, the plain ``d < 0`` terminator; the parameter's origin is in :doc:`the design history </project/history>` (:doc:`the dark side <science/darkside>`).
+- **Shade map**: a pre-shaded map of the Moon in the body frame (equirectangular), which can be re-projected to any view.
+  Only host-side callers use it (:doc:`the dark side <science/darkside>` and :doc:`the animation pipelines <implementation/animations>`).
+- **Constant projection**: the property that a baked pixel's colour depends only on its body direction and the Sun at the epoch.
+  The camera basis chooses the view but never enters the colour, which is what makes a shade map re-projectable (:doc:`the dark side <science/darkside>`).
+- **Tone LUT**: a look-up table (LUT) of 256 entries that maps each computed gray to a displayed gray.
+  It is fitted to NASA's balance in the lit region (:doc:`the lighting model <science/lighting>`); ``MOON_TONE_LUT``.
+- **Tint (warm LUT)**: the display's gray→RGB565 warm cast (R ×1.038 / B ×0.933).
+  It is the art pass's one display setting (``moon_gray565``, :doc:`the artistic pass <science/art-pass>` and :doc:`rotation and the LUT <implementation/rotate-lut>`).
+- **Image gate (gate)**: the automated test that checks the drawing against NASA's pictures.
+  It runs the C core on a PC for the 32-frame set and image-diffs each frame against NASA SVS 5415 (at most 12 mean absolute error per frame) and against the Python prototype (at most 2 per frame) (:doc:`the image gate <verification/image-gate>`).
 
-- **The art pass** — the display-constant pass (the backlit dark
-  side, the soft terminator, the warm tint) that is *deliberately*
-  outside the gate's physics path (:doc:`the artistic pass <science/art-pass>`).
-- **The standing rule** — CLAUDE.md's doc rule: after every change,
-  fix the affected RST pages, regenerate the screenshots when screens
-  changed, and commit the docs with the code (:doc:`the build system <reference/build-system>`).
-- **The clean-tree gate** — the stop-hook that commits an in-flight
-  working tree; the ``wip:`` commits in the project's history are
-  its records (:doc:`the binary-size chronology <verification/binary>`).
-- **Board identification** — the S3 and P4 claim ``/dev/ttyACM*``
-  through their USB serial adapters (the knob's app MCU does the same
-  via native USB; the knob's second-MCU plug orientation claims
-  ``/dev/ttyUSB*`` instead); which port is which changes with
-  USB topology, so identify before flashing (``lsusb`` / ``dmesg`` on
-  plug-in, then ``esptool --port <port> chip_id`` — the procedure in
-  :doc:`the boards <devices/index>`).
-- **The wheel (v2)** — the shipped 12-sector hybrid password
-  keyboard (:doc:`the round keyboard <keyboard>`).
-- **The lab** — the interactive design lab at
-  ``docs/_static/keyboard/round-keyboard-lab.html`` (the 13 operable
-  input-method panels, each in its own widget,
-  :doc:`the round keyboard lab <keyboard-lab>`).
-- **uisim** — the host UI simulator: the real screens rendered to
-  PNG with re-driven indev timestamps (``host_sim/uisim``).
-- **moon_sim / moon_bench** — the host C-sim (the gate's C frames)
-  and the host performance bench (the exact device core, :doc:`performance <verification/performance>`).
-- **A/B** — the relief-on/off comparison (the PSRAM-load-latency
-  floor, :doc:`performance <verification/performance>`).
+Putting frames on the screen
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **Atomic frame**: the rule that a new Moon picture always reaches the screen in one piece, never half old and half new.
+  Every moon-pipeline frame goes to the panel as one whole-panel ``lv_refr_now`` under ``s_rgb_mtx``.
+  The one sanctioned exception is the fade-to-black, a hardware brightness ramp that writes no pixels (:doc:`the architecture <implementation/architecture>` and :doc:`the compute progress <implementation/compute-progress>`).
+- **s_rgb_mtx / s_panel_mtx**: the two locks.
+  ``s_rgb_mtx`` is the image lock (bake and display of the Moon buffer); ``s_panel_mtx`` is the panel-io lock (LVGL flushes, the 0x51 brightness) (:doc:`the architecture <implementation/architecture>`).
+- **Fade-to-black**: the screen dims to black, changes, and brightens again.
+  It uses the CO5300's hardware brightness ramp (0x51, 12 steps, 240 ms), which writes no pixels; the new frame's one atomic flush runs while the panel is still black.
+  Two flows use it: the screen switch (``UI_SCREEN_SWITCH_FADE``) and the light-sleep dim/wake ramp.
+  The hourly refresh does not; the old frame stays up the whole cycle (:doc:`the display pipeline <implementation/display>` and :doc:`the animation pipelines <implementation/animations>`).
+- **Hourly refresh** (``UI_MOON_HOURLY_ENABLE``): once an hour the clock draws a fresh Moon; it is the only live motion on the home screen.
+  A core-1 producer rebuilds the current-phase frame at the hour centre, from a TF hour-cache fetch or else a full bake.
+  The old frame stays up the whole cycle, with no fade and no 0x51 traffic, and the finished frame lands as one atomic whole-panel flush in the bright panel.
+  On a cache miss the seconds arc shows the bake's rows watermark as a progress bar; a hit runs no strip loop, so the arc shows real seconds (:doc:`the animation pipelines <implementation/animations>`).
+- **Compute progress**: while a new Moon is being computed, the seconds ring shows how far the work has got, and the old picture stays on screen.
+  The producer bakes in strip chunks and publishes a rows-completed watermark.
+  The home and Wi-Fi **seconds arc** reads it as a progress bar (``progress * 60 / 100``; a plain LVGL invalidate that snaps back to real seconds on the next tick).
+  Where the panel would otherwise be dark, the phase disc stands in.
+  Every image that lands is one atomic whole-panel flush, and the partial bounce buffer is never displayed, so there is no heal path (:doc:`the compute progress <implementation/compute-progress>`).
+- **Phase disc**: a quick, plain stand-in picture of the current phase, shown while the first real Moon is still being computed.
+  ``moon_bake_phase_dummy`` (core, shared verbatim with host and knob) projects the phase as a flat sphere: the real bake's geometry with no albedo, no relief and no events.
+  The lit side goes through the tone LUT (a full moon is a uniform bright disc with a Lambert limb falloff); the dark side is plain black.
+  It takes tens of ms against about 1.3 s for the full bake.
+  It shows at boot (before the current frame) and at the knob's first boot with no saved frame, and never when a computed frame is present (:doc:`the compute progress <implementation/compute-progress>`).
+- **Boot replay** (``UI_MOON_BOOT_REPLAY``): at start-up the clock plays back the Moon pictures it saved over the past hours, then shows the current one.
+  On the boards with a card, a core-1 task plays all stored TF hour frames in ascending order and stops on the newest; then the live-computed current phase lands as the final frame.
+  Each frame is one drain-witnessed atomic whole-panel flush with no fade, and the idle→sleep ladder is held until the end leg.
+  While the final bake computes, the seconds arc shows its rows watermark (see *Compute progress*).
+  While the first frames prepare, the panel shows the phase disc instead of black; with no usable cache there is no replay and the disc holds until the final bake lands.
+  The knob (no SD socket) computes at every boot. With no saved last frame on glass it publishes the disc first; with ``KNOB_UI_LAST_FRAME`` it shows the persisted ``/spiffs/moon_frame.bin`` first. In both cases the fresh bake swaps over it (:doc:`the animation pipelines <implementation/animations>` and :doc:`the knob display <implementation/knob-display>`).
+- **Observer view** (``UI_MOON_OBSERVER_ENABLE``): the Moon on screen is turned to match how it looks from the city of your time zone.
+  Every gray→RGB565 build leg gathers the north-up baked frame through the Q15.15 in-plane rotation at the Moon's parallactic angle for the active zone's reference city.
+  So the crescent lies down at dusk and stands up at midnight, and the tilt follows the zone's local time.
+  The bake stays north-up (the gate's frames and the TF hour cache are zone-agnostic).
+  The gather runs at publish, so the seconds-arc progress (the north-up strip loop's rows watermark) is honest with or without the tilt.
+  A changed zone re-gathers the resting frame in place (``moon_ui_tz_changed``) (:doc:`the observer view <implementation/observer-view>`).
+- **Strip**: the block of rows the firmware writes to the panel at a time.
+  The S3 uses a 25-row (23,300 B) buffer and the P4 a 103/65-row buffer, set by the DMA (direct memory access) cap and the FIFO budget (:doc:`the display pipeline <implementation/display>` and :doc:`the P4 port <implementation/p4-port>`).
+- **DPI FIFO underrun**: the P4's picture breaks up because the display controller cannot read the strip from XIP PSRAM fast enough.
+  The fix is the 103/65-row strip (:doc:`the P4 port <implementation/p4-port>`).
+- **Panel-io watchdog**: the ``panel_wdg`` task, which restarts the board when the panel stops responding.
+  A stuck panel-io (the lost-DMA-completion freeze, :doc:`the display pipeline <implementation/display>`) triggers it after ``PANEL_IO_WATCHDOG_LIMIT_MS`` (3000 ms).
+- **Burn-in**: a faint ghost of a picture that stays on an AMOLED screen after it has been shown for a long time.
+  The S3 shows the Moon statically, so a faint Moon is likely to settle into its panel over weeks of always-on use.
+  The project counts this as a feature, not a bug, because it will likely not disturb reading the display (:doc:`the animation pipelines <implementation/animations>`).
+- **90°-step orientation**: the whole screen turns in 90° steps to stay upright when the clock is turned.
+  It uses the int4-quantized gravity vector, a 1 s windowed mean and an integer dot/cross quadrant test, with a +90° mount base (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
+- **Departure wake**: the rule for waking the clock by movement.
+  The wake fires when the pose departs from a settled-pose average (an EMA with two bars and a 2-sample streak), not on raw per-sample changes (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
+- **moon_assets**: the flash partition, 2,560 K, that holds the Moon maps.
+  It carries the generated blob: the 864×432 equirectangular albedo and the 2048×1024 int8 relief DEM (digital elevation model), a 2,470,400 B combined image on the S3 (:doc:`the binary-size chronology <verification/binary>` and :doc:`the build system <reference/build-system>`).
+- **Relief gradient cache**: a table of the height map's slopes, built once at boot so each bake pixel needs fewer memory reads.
+  It packs the DEM's quantized slopes into a uint16 array, which brings the bake to 2 PSRAM loads per pixel (:doc:`the C core <implementation/core-c>` and :doc:`performance <verification/performance>`).
+
+Project words
+^^^^^^^^^^^^^
+
+- **The art pass**: the settings that make the Moon look good on the display but are not physics.
+  It covers the backlit dark side, the soft terminator and the warm tint, and it sits deliberately outside the gate's physics path (:doc:`the artistic pass <science/art-pass>`).
+- **The standing rule**: the project rule in CLAUDE.md that every change updates the docs.
+  After every change, fix the affected RST pages, regenerate the screenshots when screens changed, and commit the docs with the code (:doc:`the build system <reference/build-system>`).
+- **The clean-tree gate**: the stop-hook that commits an in-flight working tree.
+  The ``wip:`` commits in the project's history are its records (:doc:`the binary-size chronology <verification/binary>`).
+- **Board identification**: finding out which USB port belongs to which board before you flash it.
+  The S3 and P4 claim ``/dev/ttyACM*`` through their USB serial adapters; the knob's app MCU does the same via native USB, and the knob's second-MCU plug orientation claims ``/dev/ttyUSB*`` instead.
+  Which port is which changes with USB topology, so identify before flashing: ``lsusb`` / ``dmesg`` on plug-in, then ``esptool --port <port> chip_id`` (the procedure is in :doc:`the boards <devices/index>`).
+- **The wheel (v2)**: the round on-screen keyboard used to type a Wi-Fi password, with 12 letter sectors around the edge (:doc:`the round keyboard <keyboard>`).
+- **The lab**: the interactive design study of 13 ways to type on the round screen, at ``docs/_static/keyboard/round-keyboard-lab.html``.
+  Each input method is an operable panel in its own widget (:doc:`the round keyboard lab <keyboard-lab>`).
+- **uisim**: the UI simulator that runs the real screens on a PC and saves them as PNG pictures.
+  It re-drives the input device with simulated timestamps (``host_sim/uisim``).
+- **moon_sim / moon_bench**: two PC programs built from the device's Moon code.
+  ``moon_sim`` is the host C simulator that produces the gate's C frames; ``moon_bench`` is the host performance bench running the exact device core (:doc:`performance <verification/performance>`).
+- **A/B**: a comparison of the bake with relief on and off, which measures the floor set by PSRAM load latency (:doc:`performance <verification/performance>`).
+
+Retired features (the spin, the dusk, the boot sweep, the bake reveal) are described in :doc:`the design history </project/history>`.

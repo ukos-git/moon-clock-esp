@@ -24,16 +24,16 @@ repeatable.
 What the clock does
 -------------------
 
-- **Shows the real Moon.** The phase, the shadows and the Moon's tilt
+- Shows the real Moon. The phase, the shadows and the Moon's tilt
   are computed for the current time, and for the city of the time
   zone you pick. The picture is refreshed once an hour.
-- **Keeps time by itself.** It sets its clock over Wi-Fi, then turns
+- Keeps time by itself. It sets its clock over Wi-Fi, then turns
   the radio off. One tap opens the settings.
-- **Wakes you up.** A daily alarm with a choice of weekdays, or a
+- Wakes you up. A daily alarm with a choice of weekdays, or a
   repeating interval timer (a "pomodoro"), with four alarm sounds.
-- **Sleeps when nobody is looking.** After a minute without touch or
+- Sleeps when nobody is looking. After a minute without touch or
   movement it dims, and later it goes dark. A touch or a tilt wakes it.
-- **Matches NASA.** An automated test compares the clock's Moon with
+- Matches NASA. An automated test compares the clock's Moon with
   NASA's own computer-rendered Moon. On average the two differ by
   about 7 brightness steps out of 255 (:doc:`the image gate
   <verification/image-gate>`).
@@ -54,6 +54,9 @@ and links to the detail when you need it.
      - :doc:`How the clock works <how-it-works>` explains moon phases,
        how a small chip can draw the Moon, and how we check the result.
        School maths and physics are enough.
+   * - try it without a board
+     - :doc:`Draw the Moon on your computer <try-the-simulator>` runs the
+       clock's Moon code on a Linux PC in about 15 minutes.
    * - build one
      - :doc:`Getting started <getting-started>` takes you from a new
        board to a working clock on your desk: install the tools,
@@ -131,6 +134,7 @@ public-domain NASA imagery and the fonts, are in the ``NOTICE`` file.
    :caption: Start here
 
    how-it-works
+   try-the-simulator
    getting-started
    using-the-clock
 
@@ -173,6 +177,13 @@ public-domain NASA imagery and the fonts, are in the ``NOTICE`` file.
 
    reference/index
    glossary
+
+.. toctree::
+   :hidden:
+   :caption: About the project
+
+   project/history
+   project/style-guide
 
 .. toctree::
    :hidden:

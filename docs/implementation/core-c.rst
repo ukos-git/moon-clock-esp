@@ -1,6 +1,12 @@
 The portable C core
 ===================
 
+.. brief:
+   Reader: a developer who wants to change the renderer or port it to new hardware.
+   They already know: C and the science pages.
+   After this page they can: trace a frame from epoch in to gray square out.
+   Page type: explanation.
+
 This page walks the device-side renderer: the dependency-free C
 library in ``components/moon`` that turns a UTC epoch into a 400×400
 gray frame. Everything in it compiles unchanged on the host (the

@@ -1,38 +1,29 @@
 Binary size chronology
 ======================
 
-The last budget of the product is *flash*: the app must fit its
-``factory`` partition with headroom, and every change that adds code
-has to earn its bytes. This page is the budget log — the current
-binary sizes, the partition tables that define the ceilings, and the
-chronology of the sizes that got the app where it is.
+.. brief:
+   Reader: a developer about to add code or a font subset, who needs to know how much flash is left.
+   They already know: what an ESP-IDF partition table and an app binary are.
+   After this page they can: read each board's headroom, check a new build against its ceiling, and know what to do when the S3 runs out.
+   Page type: reference, with a chronology log.
+
+Every board's app binary must fit its ``factory`` partition, and the S3 is the board where that is tight.
+Today the S3 binary is 1,734,304 B against a 2,097,152 B (2048 K) ceiling, which leaves 17 % headroom.
+The P4 binary is 1,900,672 B against 9216 K (80 % free), and the knob's is 1,644,832 B against 4096 K (61 % free).
+This page is the flash budget log: the current sizes, the partition tables that set the ceilings, the S3's size history, and the policy for when the S3 runs short.
 
 The current binaries
 --------------------
 
-Measured from the build trees (2026-11-25): the S3 and P4 trees were
-configured at the ``0.2.0`` commitizen checkpoint — the first ``cz
-bump`` (the pre-bump fallback, the ``git describe`` short hash, no
-longer applies) — with this wave's code in the tree (the
-**compute-progress repurpose** and the **flash-resident boot movie**:
-the strip-by-strip bake reveal and the hourly fade-to-black retired,
-the seconds arc now doubles as the bake's progress bar and the boot
-shows the quick phase disc —
-:doc:`the compute progress <../implementation/compute-progress>`, and
-the ``moon_movie`` reader links ``esp_new_jpeg`` into the app and
-re-sources the boot animation from the precomputed synodic cycle —
-:doc:`the boot movie <../implementation/moon-movie>`) —
-and built from
-it (the sizes below are those bench binaries; each embeds the calcver
-``0.2.0`` — the commitizen ``version`` line the root ``CMakeLists``
-reads from ``.cz.toml``, verified by ``strings``. The knob's
-``CMakeLists.txt`` replicates the derive for the sibling — the
-reader's boot-time calcver check accepts the knob's own movie only
-when the firmware is stamped with the same version — and the knob has
-no TF card, so its ``moon_tfcache.c`` is inert there). Docs-only
-commits after these builds do not move a size. The knob's tree is the
-sibling project's own ``../build/knob`` outside the repo, never
-``build/knob``):
+The sizes below come from the bench build trees measured on 2026-11-25.
+The S3 and P4 trees were configured at the ``0.2.0`` commitizen checkpoint, with the compute progress (:doc:`the compute progress <../implementation/compute-progress>`) and the flash-resident boot movie (:doc:`the boot movie <../implementation/moon-movie>`) in the tree.
+The boot movie's ``moon_movie`` reader links ``esp_new_jpeg`` into the app.
+
+Each binary embeds the calcver ``0.2.0``: the root ``CMakeLists`` reads the commitizen ``version`` line from ``.cz.toml``, and ``strings`` on the binary confirms it.
+The knob's ``CMakeLists.txt`` repeats the same derivation, because the reader's boot-time calcver check accepts the knob's own movie only when the firmware carries the same version.
+The knob has no TF card, so its ``moon_tfcache.c`` is inert.
+Docs-only commits after these builds do not change a size.
+The knob's build tree is the sibling project's own ``../build/knob`` outside the repo, never ``build/knob``.
 
 .. list-table::
    :header-rows: 1
@@ -59,84 +50,86 @@ sibling project's own ``../build/knob`` outside the repo, never
      - 4,194,304 B (4096 K)
      - 2,549,472 B (61 %)
 
-The three numbers are asymmetric on purpose, and the S3's 17 % is the
-meaningful one: the S3 is the board the app *grew into* (the
-chronology below), and the project rule is to **check the binary size
-after every build** and keep the S3 comfortably under its ceiling.
-The S3 has outgrown the old 30 % comfort mark with the family build
-(the shared hub, the sky events, the settings stack — see the
-chronology); the honest reading is that the *next* meaningful feature
-likely triggers the partition widening of rule 3 below. The P4's
-9216 K ``factory`` is generous by design (the 32 MB chip, the DSI
-stack, LVGL 9 — the P4 app has never been close to a wall), and its
-header now matches the hardware (the boot-movie wave bumped it to the
-real 32 MB; the old 16 MB header's size-mismatch warning is gone —
-:ref:`below <p4-header-32mb>`). The knob's 4096 K ceiling (twice the
-S3's, for a board that links the same components minus the codecs and
-sensors) has never been approached either.
+The S3's 17 % is the number that matters.
+The S3 is the board the app grew into (see `The S3 ceiling's chronology`_), and the project rule is to check the binary size after every build and keep the S3 well under its ceiling.
+The S3 is below the old 30 % comfort mark because of the family build: the shared hub, the sky events and the settings stack.
+The next large feature will probably need the partition widening in rule 3 of `The headroom policy`_.
+
+The P4's 9216 K ``factory`` partition is generous by design: the chip has 32 MB, and the DSI stack and LVGL 9 have never brought the P4 app near a wall.
+Its binary header matches the hardware's 32 MB (:ref:`see below <p4-header-32mb>`).
+The knob's 4096 K ceiling is twice the S3's, for a board that links the same components minus the codecs and sensors, and its binary has never come close to it.
 
 .. figure:: ../_static/figs/binary_budget.png
-   :alt: current binaries against their factory ceilings, and the S3 chronology
+   :alt: Left, each board's current binary as a bar inside its factory partition. Right, the S3 binary size over time against its old and new ceilings.
    :figclass: align-center
 
-   The budget, drawn. **Left:** each current binary against its
-   ``factory`` partition (gray = the partition, filled = the app) —
-   the S3's 82 % is the live constraint, the P4's 20 % and the knob's
-   39 % are headroom by design. The bars are **parsed from the table
-   above** (``docs/tools/gen_binary_figs.py`` reads this page), and
-   :doc:`the docs drift check <../reference/build-system>`
-   (``docs/tools/check_docs_drift.py``) verifies the page against the
-   binaries on disk — figure, table and disk are one chain.
-   **Right:** the chronology below as a step history — the production
-   build punching through the original 1392 KiB ceiling, the widening
-   to 2048 K, and the family build growing to 82 % under it.
+   The flash budget.
+   **Left:** each current binary against its ``factory`` partition (gray is the partition, the filled bar is the app).
+   The S3 at 82 % is the live constraint; the P4 at 20 % and the knob at 39 % have headroom by design.
+   **Right:** the S3 chronology as a step history: the production build breaking through the original 1392 KiB ceiling, the widening to 2048 K, and the family build growing to 82 % under it.
+
+``docs/tools/gen_binary_figs.py`` draws the left panel from the table above, which it parses from this page.
+:doc:`The docs drift check <../reference/build-system>` (``docs/tools/check_docs_drift.py``) compares the same table with the binaries on disk.
+The figure, the table and the files on disk are one chain, so a stale size fails the build.
+
+To check a fresh build, compare its size with the table:
+
+.. code-block:: bash
+
+   ls -l build/moon-phase.bin build/p4/moon-phase.bin ../build/knob/knob.bin
+   docs/.venv/bin/python docs/tools/check_docs_drift.py
 
 The partition tables
 --------------------
 
-The tables are the ceilings, and they are the interesting part —
-they encode the history of the asset pipeline, not just the app.
-Each table below is the **single-sourced fragment** the device pages
-include (the same file in both places, so this page and the per-board
-pages cannot drift; the partition diagrams come along with them):
+The partition tables set the ceilings, and they also record how the asset pipeline grew.
+Each table below is the single-sourced fragment that the device pages include as well, so this page and the per-board pages cannot drift apart.
+The partition diagrams come with them.
 
 .. include:: ../reference/_fragments/partitions-s3.inc
 
-The ``moon_assets`` row is the one the *device* loads (the
-relief cache's 4 MB build in :doc:`the C core <../implementation/core-c>` comes from that 2 MB DEM),
-and it explains why the S3's 16 MB chip was a *requirement*, not a
-convenience: the 2048×1024 relief DEM alone is 2,097,152 B — the
-2 MB flash layout in the project's git history could not hold the
-DEM *and* the app. The comment in ``partitions.csv`` records it:
-*"the 2MB layout in git history was a config choice, not a hardware
-limit — the 2048x1024 relief DEM (2,097,152 B) needed the headroom."*
+The ``moon_assets`` row is the one the device loads.
+The relief cache's 4 MB build in :doc:`the C core <../implementation/core-c>` comes from that 2 MB DEM (digital elevation model).
+The DEM is why the S3's 16 MB chip is a requirement, not a convenience: the 2048×1024 relief DEM alone is 2,097,152 B.
+The 2 MB flash layout in the project's git history could not hold both the DEM and the app.
+The comment in ``partitions.csv`` records it:
+*"the 2MB layout in git history was a config choice, not a hardware limit — the 2048x1024 relief DEM (2,097,152 B) needed the headroom."*
 
 .. include:: ../reference/_fragments/partitions-p4.inc
 
 .. include:: ../reference/_fragments/partitions-knob.inc
 
-The three ``moon_assets`` rows carry **per-board blobs**: the asset
-pipeline (:doc:`the Python API <../reference/python-api>`) bakes one
-blob per board from the same LROC/LOLA sources under
-``assets/images/moon/out/{s3,p4,knob}/`` — the 864-wide albedo on the
-S3 and knob, the 2048-wide one on the P4 (``MOON_ALBEDO_W``,
-:doc:`the moon constants <../reference/moon-consts>`), the knob's DEM
-halved to 1024×512. The boards differ only in the *display* pipeline
-(the bake size, the strip geometry); the source data is identical.
-The root ``CMakeLists`` (replicated by the knob's own) checks the
-manifest width and the partition fit at configure time — a blob
-baked for another board is a build-time ``FATAL_ERROR``, not a
-boot-time surprise (:doc:`the build system <../reference/build-system>`).
-This page is the *app* side of the flash budget; the data side —
-every row's occupancy against its reservation, the shipped blobs and
-the what-ifs their CSV comments keep — is
-:ref:`the storage ladder <storage-ladder-perf>`.
+The three ``moon_assets`` rows hold per-board blobs.
+The asset pipeline (:doc:`the Python API <../reference/python-api>`) bakes one blob per board from the same LROC/LOLA sources, under ``assets/images/moon/out/{s3,p4,knob}/``.
+The S3 and the knob get the 864-wide albedo, the P4 the 2048-wide one (``MOON_ALBEDO_W``, :doc:`the moon constants <../reference/moon-consts>`), and the knob's DEM is halved to 1024×512.
+The boards differ only in the display pipeline (the bake size and the strip geometry); the source data is the same.
+
+The root ``CMakeLists`` (and the knob's copy of its guards) checks the manifest width and the partition fit at configure time.
+A blob baked for another board is a build-time ``FATAL_ERROR``, not a surprise at boot (:doc:`the build system <../reference/build-system>`).
+
+This page covers the app side of the flash budget.
+The data side (every row's occupancy against its reservation, the shipped blobs, and the what-ifs in the CSV comments) is :ref:`the storage ladder <storage-ladder-perf>`.
+
+.. _p4-header-32mb:
+
+The P4's 32 MB header
+---------------------
+
+The P4 binary's header declares 32 MB of flash, which matches the hardware.
+The flash-size setting lives in the per-target defaults files: ``sdkconfig.defaults.esp32s3`` keeps 16 MB for the S3's chip, and ``sdkconfig.defaults.esp32p4`` sets 32 MB.
+
+``partitions_p4.csv`` ends with the ``moon_movie`` row (18304 K).
+The table fills the whole 32 MB chip (32768 K including the 64 K prefix), and the movie row starts at 14464 K, above the 16 MB mark.
+A data partition above 16 MB reads back correctly on the real 32 MB chip (bench-verified).
+The knob needs no such note: its chip has 16 MB, and header and hardware agree.
+
+The P4 header declared 16 MB until :commit:`1703e278`; see :doc:`/project/history`.
 
 The S3 ceiling's chronology
 ---------------------------
 
-The ``factory`` size is the one that has *moved*, and its history is
-the app's growth history:
+The S3 ``factory`` size is the ceiling that has moved, and its history is the app's growth history.
+Each line is a measured binary or a ceiling change, oldest first:
 
 .. code-block:: text
    :caption: The S3 factory partition, 2026
@@ -264,91 +257,43 @@ the app's growth history:
                                               three raster tiers dominate);
                                               17% under the ceiling
 
-The widening is the lesson: the app *hit* the ceiling (the production
-build at 1,451,472 B exceeded the 1,425,408 B ceiling by ~26 KB),
-and the fix was not to *shrink* the app (the coredump/trace facility
-was not shrinkable) but to *widen the partition* — a change the 16 MB
-chip made free, because the other partitions (``moon_assets`` 2560 K,
-``storage`` 64 K, the fixed 64 K prefix) left the chip's remaining
-~11 MB unused (today the ``moon_movie`` row owns that space). The
-invariant in CLAUDE.md records the new ceiling
-(**S3 factory 2,097,152 B / 2048 K**) and the rule that the binary
-size is checked after every build — the ceiling is a *recorded*
-number, not a hardware limit, and the check is what keeps it honest.
+The widening is the lesson of this log.
+The production build at 1,451,472 B exceeded the 1,425,408 B ceiling by about 26 KB.
+The fix was not to shrink the app, because the coredump/trace facility could not shrink.
+The fix was to widen the partition, which the 16 MB chip made free.
+The other partitions (``moon_assets`` 2560 K, ``storage`` 64 K, and the fixed 64 K prefix) left about 11 MB of the chip unused; the ``moon_movie`` row owns that space today.
 
-.. _p4-header-32mb:
-
-The P4's 32 MB header
----------------------
-
-The P4 binary's header used to declare a 16 MB flash even though the
-hardware is 32 MB — a shared-defaults leftover (the ``ESPTOOLPY
-_FLASHSIZE_16MB`` pin lived in the board-neutral ``sdkconfig.defaults``
-because the P4 build inherited it), and it produced a *size-mismatch
-warning* on every ``idf.py flash``:
-
-.. code-block:: text
-   :caption: The (now-gone) warning, recorded for history
-
-   Warning: The chip has 32MB of flash, but the binary's header
-   says 16MB. This is not an error; the flash will proceed.
-
-The boot-movie wave fixed it properly (:commit:`1703e278`): the flash-size pin
-moved out of the shared defaults into the per-target files — the S3
-keeps 16 MB (its chip), the P4 took its real 32 MB
-(``sdkconfig.defaults.esp32p4``) — and the P4's ``partitions_p4.csv``
-grew the ``moon_movie`` LAST row (18304 K), so the table now fills the
-whole 32 MB chip (32768 K including the 64 K prefix) and the movie
-partition's row starts at 14464 K, **past the old 16 MB mark**. The
-header now matches the hardware, the size-mismatch warning is gone,
-and a data partition living above 16 MB reads back correctly on the
-real 32 MB chip (bench-verified). (The knob needs no such note: its
-chip *is* 16 MB, header and hardware agree.)
+The invariant in CLAUDE.md records the ceiling (S3 factory 2,097,152 B / 2048 K) and the rule to check the binary size after every build.
+The ceiling is a recorded number, not a hardware limit, and the check after every build is what keeps it honest.
 
 The headroom policy
 -------------------
 
-The project's policy for the S3 (the binding budget):
+The S3 is the binding budget, and the project follows four rules for it:
 
-1. **Check after every build.** The binary size is a *measured*
-   number (``ls -l build/moon-phase.bin``), recorded in the commit
-   that produced it. A build that grows the S3 binary by more than a
-   few KB without a recorded reason is a regression to investigate,
-   not a fact to accept.
-2. **Keep 30 %+ headroom — as a trend alarm, honestly recorded.**
-   The family build landed at **390,192 B (19 %)** on 2026-11-15,
-   under the comfort mark: the chronology above is the record of how
-   it got there, not a number to sandbag. A build that lands at 90 %
-   of the ceiling is the signal that the next feature (a new screen,
-   a new font subset, a new animation — the font bill is priced
-   glyph-by-glyph at :ref:`the glyph ladder <glyph-ladder-perf>`)
-   will *hit* the ceiling — the
-   same situation the 1,451,472 B production build was in — and rule
-   3 is the answer, not a code shrink under protest.
-3. **Widen the partition, not the chip.** The 16 MB chip's leftover
-   is now spoken for by the ``moon_movie`` row (11648 K, the boot
-   movie's synodic cycle) — so the ``factory`` ceiling is a *config*
-   choice, and if the app outgrows it again the fix is a
-   ``partitions.csv`` edit (a tracked file, a reviewed commit): widen
-   ``factory``, shrink ``moon_movie``, re-run the movie generator (it
-   lands on a coarser frame step) — not a code shrink. The shrink is
-   the last resort — the coredump/trace facility, the font subsets,
-   and the animation code are not optional.
-4. **The P4 and the knob are not the budget.** The P4's 9216 K
-   ceiling is generous by design and the knob got a 4096 K one from
-   the start; both binaries are checked (the rule is
-   "check after every build," not "check the S3 after every build")
-   but neither is the *binding* constraint. The S3 is the board the
-   app has to fit; the P4 and the knob are boards the app *fits
-   into*.
+1. Check after every build.
+   The binary size is a measured number (``ls -l build/moon-phase.bin``), recorded in the commit that produced it.
+   A build that grows the S3 binary by more than a few KB without a recorded reason is a regression to investigate, not a fact to accept.
+2. Keep 30 % or more headroom as a trend alarm, and record honestly when you miss it.
+   The family build landed at 390,192 B (19 %) on 2026-11-15, under the comfort mark.
+   The chronology above records how it got there; it is not a number to sandbag.
+   A build at 90 % of the ceiling signals that the next feature will hit the ceiling, as the 1,451,472 B production build did.
+   That feature might be a new screen, a new font subset or a new animation; :ref:`the glyph ladder <glyph-ladder-perf>` prices the fonts glyph by glyph.
+   Rule 3 is the answer then, not a reluctant code shrink.
+3. Widen the partition, not the chip.
+   The ``moon_movie`` row (11648 K, the boot movie's synodic cycle) uses the 16 MB chip's leftover space, so the ``factory`` ceiling is a configuration choice.
+   If the app outgrows it again, edit ``partitions.csv`` in a reviewed commit: widen ``factory``, shrink ``moon_movie``, and re-run the movie generator (it lands on a coarser frame step).
+   Shrinking code is the last resort; the coredump/trace facility, the font subsets and the animation code are not optional.
+4. The P4 and the knob are not the budget.
+   The P4's 9216 K ceiling is generous by design, and the knob has had a 4096 K ceiling from the start.
+   Both binaries are checked (the rule is "check after every build", not "check the S3 after every build"), but neither is the binding constraint.
+   The S3 is the board the app has to fit; the P4 and the knob are boards the app fits into.
 
-The flash budget is the last of the four budgets the product runs on
-(the compute budget, :doc:`performance <performance>`; the panel-write budget, :doc:`the display pipeline <../implementation/display>`;
-the flash budget, this page). The reference section is the
-material: the input-method research the product's circular keyboard
-came from (:doc:`the round keyboard <../keyboard>`), the Python and C APIs
-use (:doc:`the Python API <../reference/python-api>` and :doc:`the C API <../reference/c-api>`), the build system and Kconfig that keep the
-board family buildable — the two clock boards from one tree, the
-knob as a sibling project linking the shared components
-(:doc:`the build system <../reference/build-system>`), and the glossary and
-references (:doc:`the glossary <../glossary>`).
+Where to go next
+----------------
+
+Flash is the last of the four budgets the product runs on.
+The others are the compute budget (:doc:`performance <performance>`) and the panel-write budget (:doc:`the display pipeline <../implementation/display>`).
+
+- :doc:`The build system <../reference/build-system>` covers the build and Kconfig that keep the board family buildable: the two clock boards from one tree, and the knob as a sibling project linking the shared components.
+- The reference section holds the rest of the material: the input-method research behind the circular keyboard (:doc:`the round keyboard <../keyboard>`), the APIs (:doc:`the Python API <../reference/python-api>` and :doc:`the C API <../reference/c-api>`), and :doc:`the glossary <../glossary>`.

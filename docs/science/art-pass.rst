@@ -1,6 +1,12 @@
 The artistic pass
 =================
 
+.. brief:
+   Reader: a developer who wants the display-only changes and their proof of no effect on the gate.
+   They already know: the lighting model and the dark side.
+   After this page they can: name the three display changes and run the gate without them.
+   Page type: explanation.
+
 The lit side was validated to match NASA. The dark side was a measured,
 *correct* choice — and then the product direction came down:
 

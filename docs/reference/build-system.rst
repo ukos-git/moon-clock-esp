@@ -1,6 +1,12 @@
 Build system and Kconfig
 ========================
 
+.. brief:
+   Reader: a developer building, flashing or reconfiguring any of the three boards.
+   They already know: the project layout and ``idf.py`` basics.
+   After this page they can: build all three targets and keep the config split clean.
+   Page type: reference (how-to).
+
 Two clock boards, one tree: the S3 build (the Waveshare
 ESP32-S3-Touch-AMOLED-1.75) is the default target and the P4 build
 (the Waveshare ESP32-P4-WIFI6-Touch-LCD-XC) is a sibling with its own

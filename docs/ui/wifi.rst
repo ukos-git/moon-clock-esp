@@ -1,25 +1,51 @@
 The transient WiFi screen
 =========================
 
-Shown while a WiFi + NTP sync runs — the hourly gate at rest on the home screen (``CLOCK_NTP_SYNC_INTERVAL_HOURS``, checked at the top of a minute by :cfunc:`action_update_clock_display`), the wake path on the two clocks, or the wheel keyboard's commit — and dropped back to the airplane screen when the sync completes. Leaving the settings hub starts no sync (it loads the home screen only). Same structure as the airplane screen — the moon, the clock, the seconds arc — with a connection indicator below the clock. The two screens share the ONE moon image, so the switch between them is the atomic whole-panel flush (the both-moon exception in :doc:`the display pipeline <../implementation/display>`). The knob reaches this screen through the hourly gate and the keyboard commit; its background boot SNTP join (``boot_arm_task``) shows no screen.
+.. brief:
+   Reader: a firmware developer working on the network sync.
+   They already know: C, LVGL basics, the airplane home screen.
+   After this page they can: say what starts and ends this screen and where each step runs.
+   Page type: reference.
+
+The transient WiFi screen shows while the clock syncs its time over WiFi and NTP.
+It looks like the airplane screen, plus a connection indicator below the clock, and it drops back to the airplane screen when the sync completes.
+
+How it behaves
+--------------
+
+Three things start a sync and show this screen:
+
+- the hourly gate, at rest on the home screen (``CLOCK_NTP_SYNC_INTERVAL_HOURS``, checked at the top of a minute by :cfunc:`action_update_clock_display`);
+- the wake path, on the two clocks;
+- the wheel keyboard's commit.
+
+Leaving the settings hub starts no sync: it loads the home screen only.
+A tap anywhere opens the settings hub, the same as on the airplane screen.
+
+The knob reaches this screen through the hourly gate and the keyboard commit.
+Its background SNTP join at boot (``boot_arm_task``) shows no screen.
+
+Screenshots
+-----------
 
 .. figure:: ../img/screens/annot/wifi_s3.png
-   :alt: the transient wifi screen — the S3 panel (466, annotated)
+   :alt: The transient WiFi screen on the S3 panel, with numbered callouts on each element.
    :align: center
 
-   The transient WiFi screen — S3 466×466 (the badges are the legend numbers)
+   S3, 466×466. The numbered badges match the Elements table.
 
 .. figure:: ../img/screens/annot/wifi_p4.png
-   :alt: the transient wifi screen — the P4 panel (720, annotated)
+   :alt: The transient WiFi screen on the P4 panel, with numbered callouts on each element.
    :align: center
 
-   The transient WiFi screen — P4 720×720 (the same UI_PX layout, scaled)
+   P4, 720×720. The same ``UI_PX`` layout, scaled.
 
 .. figure:: ../img/screens/knob/wifi.png
-   :alt: the transient wifi screen — the knob panel (360)
+   :alt: The transient WiFi screen on the knob's 360 px panel, without callouts.
    :align: center
 
-   The transient WiFi screen — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; reached here by the hourly gate or the keyboard commit, never by the background boot join)
+   Knob, 360×360: the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``.
+   The knob reaches it through the hourly gate or the keyboard commit, never through the background boot join.
 
 Elements
 --------
@@ -35,12 +61,12 @@ Elements
 
    * - 1
      - Moon (shared image)
-     - The same moon image object as the airplane screen — the switch between the two is one atomic flush, never a moon re-bake.
+     - The same moon image object as the airplane screen. The switch between the two is one atomic flush, never a moon re-bake.
      - :cfunc:`create_screen_wifi`
 
    * - 2
      - Clock HH:MM
-     - The shared widget's PARENT container (``wifi_clock``) — the widget itself is reparented here at the switch (layout contract 2).
+     - The shared widget's parent container (``wifi_clock``). The widget itself is reparented here at the switch (layout contract 2).
      - :cfunc:`ui_clock_attach_to`
 
    * - 3
@@ -50,35 +76,57 @@ Elements
 
    * - 4
      - WiFi indicator
-     - Below the clock at (185, 320): grey = still connecting, white = connected. The tick recolours it the moment ``wifi_manager_is_connected()`` flips (a state compare, not a per-tick style set). Non-clickable: a tap on it still opens the settings hub.
-     - :cfunc:`tick_screen_wifi`, ``event_handler_cb_home_tap`` — option ``CLOCK_NTP_TIMEOUT_MS`` (the sync's bound)
+     - Below the clock at (185, 320). Grey means still connecting, white means connected. The tick recolours it when ``wifi_manager_is_connected()`` flips (a state compare, not a style set on every tick). It is not clickable, so a tap on it still opens the settings hub.
+     - :cfunc:`tick_screen_wifi`, ``event_handler_cb_home_tap``; option ``CLOCK_NTP_TIMEOUT_MS`` (the sync's bound)
 
    * - 5
      - Tap anywhere
      - Opens the settings hub (same root handler as the airplane screen).
      - ``event_handler_cb_home_tap``
 
-The whole lifecycle — the three starters, what runs off the UI task,
-and the one poll that drops the screen — drawn from the code:
+Implementation notes
+--------------------
+
+This screen and the airplane screen share the one moon image.
+The switch between them is therefore the atomic whole-panel flush with no fade, the both-moon case in :doc:`the display pipeline <../implementation/display>`.
+
+The three figures below draw the whole lifecycle from the code: the three starters, what runs off the UI task, and the one poll that drops the screen.
 
 .. graphviz:: ../_graphs/wifi-sync.dot
-   :alt: The transient WiFi screen sealed — three starters, the sync kickoff, the shown screen, the task, the tick poll, the airplane return
-   :caption: The box first: there is no menu entry — hourly gate, wake path and keyboard commit are the only starters; one poll on the UI tick is the only thing that ever leaves the screen.
+   :alt: The sync lifecycle as sealed boxes: three starters, the sync kickoff, the shown screen, the sync task, the tick poll and the return to the airplane screen.
+   :caption: The lifecycle in outline. There is no menu entry: the hourly gate, the wake path and the keyboard commit are the only starters, and one poll on the UI tick is the only exit.
    :align: center
+
+The hourly gate fires only at rest: at minute 0, not idle, not in demo mode, not connected, SNTP due per ``CLOCK_NTP_SYNC_INTERVAL_HOURS``, and on the airplane screen.
+That keeps a sleeping clock from waking for a 30 s radio fetch and keeps a settings session from being pulled away.
+The wake path runs on the wake task itself, and the keyboard commits credentials first.
+All three enter the one guarded :cfunc:`action_start_wifi_sync`.
+It checks a re-entry guard, disables the idle ladder (so no sleep transition races the task's init), sets the panel dim to 100, holds display traffic before the radio starts, and starts the task (6144 B stack, priority 10).
 
 .. graphviz:: ../_graphs/wifi-sync-start.dot
-   :alt: The three starters opened — hourly gate at rest, wake path on RTC due, keyboard commit — all through the guarded kickoff
-   :caption: The starters in full: the hourly gate (~:940) only fires at rest — minute 0, not idle, not demo, not connected, SNTP due per ``CLOCK_NTP_SYNC_INTERVAL_HOURS``, and on the airplane screen (never wake a sleeper for a 30 s radio fetch, never yank a settings session); the wake path rides the wake task itself; the keyboard commits credentials first. All three enter one guarded ``action_start_wifi_sync``: re-entry guard, idle DISABLED (no sleep transition may race the task's init), panel dim 100, traffic hold BEFORE the storm, task 6144 B prio 10.
+   :alt: The three starters (hourly gate at rest, wake path when the RTC is due, keyboard commit), all entering the guarded sync kickoff.
+   :caption: The three starters opened. The hourly gate is drawn near line 940 of the actions file; all three paths meet at ``action_start_wifi_sync``.
    :align: center
+
+The sync task first probes the heap (the leak watch), then initialises the WiFi manager, and runs SNTP only if it is due.
+An NTP failure keeps the RTC (real-time clock) time and still returns to airplane mode.
+Airplane mode runs inside the task because an associated station wakes the modem for DTIM beacons, and that receive traffic steals QSPI DMA completions on the S3 AMOLED.
+The one exception is a deferred init that hits an in-flight scan: ``ESP_ERR_INVALID_STATE`` means the scan owns the radio.
+
+The tick poll claims the done flag, with three exceptions:
+
+- If the clock went to sleep after the handshake, the poll does not claim the flag; the next wake triggers it again.
+- In demo mode the flag stays unclaimed for the demo's own SYNC phase.
+- The return to airplane mode re-arms the idle ladder, unless the boot replay holds it (the P4's sync runs for about 30 s through the boot).
 
 .. graphviz:: ../_graphs/wifi-sync-task.dot
-   :alt: The sync task opened — SNTP bound with RTC kept on failure, airplane inside the task, the tick poll claiming DONE, idle and demo defers
-   :caption: The task opened: a heap probe (the leak watch), manager init, and SNTP only if due — an NTP failure KEEPS the RTC time and still lands airplane. Airplane runs INSIDE the task because an associated station wakes the modem for DTIM beacons and that RX churn steals QSPI DMA completions on the S3 AMOLED — the one exception is a deferred init hitting an in-flight scan (``ESP_ERR_INVALID_STATE``: the scan owns the radio). The tick poll claims DONE — but a sleeper after the handshake defers (the flag is NOT claimed; the next wake re-triggers), demo leaves it unclaimed for the demo's own SYNC phase, and the airplane return re-arms the idle ladder UNLESS the boot replay holds it (the P4's sync runs ~30 s through the boot).
+   :alt: The sync task opened: SNTP with the RTC time kept on failure, airplane mode inside the task, the tick poll claiming the done flag, and the idle and demo deferrals.
+   :caption: The sync task opened. Read top to bottom: init, the optional SNTP step, airplane mode, then the tick poll that decides whether to leave the screen.
    :align: center
 
-Where the screen first meets a new user — the fresh board whose
-blocking boot sync failed, the drop to the airplane screen, and the
-hub → roller → keyboard chain whose circle-check commit re-runs this
-very sync (one of the three starters above) — is drawn as the whole
-beginner's journey on
-:doc:`the getting-started page <../getting-started>`.
+Where to go next
+----------------
+
+- :doc:`The getting-started page <../getting-started>`: where a new user first meets this screen. A fresh board whose blocking boot sync failed drops to the airplane screen, and the hub, roller and keyboard chain then re-runs this sync through the keyboard commit.
+- :doc:`The wheel keyboard <settings-wifi-password>`: the commit that starts one of the three syncs.
+- :doc:`The display pipeline <../implementation/display>`: how the switch to and from this screen reaches the panel.

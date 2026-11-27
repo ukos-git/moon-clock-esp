@@ -1,31 +1,49 @@
 Alarm rules
 ===========
 
-The alarm rules screen: the large central alarm-clock is the **master toggle** — white while any rule is loaded (``clock_alarm_rule_types() != 0``), moon grey when everything is off; a tap deactivates ALL rules (and disarms the RTC alarm via the scheduler reload — which now drops the cached next-alarm time on **every** board and fires the same alarm-update callback a rule write does, so the home screen's alarm row goes to ``--:--`` immediately, not at the next minute tick; the 0-rule reload path was missing both — and on the PCF85063A boards the cache clear was compiled out entirely, so even the minute ticks kept re-rendering the deactivated time from the stale cache, caught on the bench and fixed in :commit:`94806f03`). The left stopwatch and the right alarm-clock are the two **mutually-exclusive entries**: activating one replaces the other's rule, so exactly one kind of rule ever exists. Colours are refreshed on entry and after each save — the tick must not re-set styles every frame (style sets invalidate).
+.. brief:
+   Reader: a firmware developer working on alarms.
+   They already know: C, LVGL basics, the settings hub.
+   After this page they can: say what each alarm-rules glyph does and how a deactivation reaches the home screen.
+   Page type: reference.
+
+The alarm rules screen turns alarms off and leads to the two kinds of alarm: a repeating pomodoro interval and a real alarm at a fixed time.
+The hub's alarm icon opens it.
+
+How it behaves
+--------------
+
+The large central alarm clock is the master toggle.
+It is white while any rule is loaded (``clock_alarm_rule_types() != 0``) and moon grey when everything is off.
+A tap on it deactivates all rules.
+
+The deactivation reloads the scheduler, which disarms the RTC (real-time clock) alarm.
+The reload drops the cached next-alarm time on every board and fires the same alarm-update callback that a rule write fires.
+The home screen's alarm row therefore reads ``--:--`` at once, not at the next minute tick.
+
+The left stopwatch and the right alarm clock are the two mutually exclusive entries.
+Activating one replaces the other's rule, so only one kind of rule ever exists.
+
+Screenshots
+-----------
 
 .. figure:: ../img/screens/annot/settings-alarm_s3.png
-   :alt: alarm rules — the S3 panel (466, annotated)
+   :alt: The alarm rules screen on the S3 panel, with numbered callouts on the three glyphs and the exit.
    :align: center
 
-   Alarm rules — S3 466×466 (the badges are the legend numbers)
+   S3, 466×466. The numbered badges match the Elements table.
 
 .. figure:: ../img/screens/annot/settings-alarm_p4.png
-   :alt: alarm rules — the P4 panel (720, annotated)
+   :alt: The alarm rules screen on the P4 panel, with numbered callouts on the three glyphs and the exit.
    :align: center
 
-   Alarm rules — P4 720×720 (the same UI_PX layout, scaled)
+   P4, 720×720. The same ``UI_PX`` layout, scaled.
 
 .. figure:: ../img/screens/knob/settings_alarm.png
-   :alt: alarm rules — the knob panel (360)
+   :alt: The alarm rules screen on the knob's 360 px panel, without callouts.
    :align: center
 
-   Alarm rules — knob 360×360 (the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``; raw panel capture, :doc:`the UI index <index>`)
-
-The triangle is one of the computed menu figures: the middle row of
-:ref:`menu-geometry` (``docs/tools/gen_menu_geom.py``) draws exactly
-this screen per panel — master at (0, −``UI_PX(30)``), the entries at
-(±``UI_PX(130)``, +``UI_PX(130)``), the disks sized by the tier's FA
-icon face (96/148/74 px).
+   Knob, 360×360: the shared ``screens.c`` compiled under ``CONFIG_BOARD_KNOB``, as a raw panel capture (:doc:`the UI index <index>`).
 
 Elements
 --------
@@ -40,8 +58,8 @@ Elements
      - Code / option
 
    * - 1
-     - Master — tap deactivates all
-     - The central 96 px regular alarm glyph; white = at least one rule armed, grey = everything off (a tap then is a no-op — re-arming goes through the two entries).
+     - Master (tap deactivates all)
+     - The central 96 px regular alarm glyph. White means at least one rule is armed, grey means everything is off. A tap on the grey glyph does nothing; re-arming goes through the two entries.
      - ``event_handler_cb_settings_alarm_master``, :cfunc:`settings_alarm_screen_refresh`
 
    * - 2
@@ -51,10 +69,27 @@ Elements
 
    * - 3
      - Real alarm (clock, regular)
-     - The fixed-time + day-range entry (bit 2). Entering it replaces any pomodoro rule.
+     - The fixed-time and day-range entry (bit 2). Entering it replaces any pomodoro rule.
      - :doc:`settings-alarm-time <settings-alarm-time>` via ``event_handler_cb_settings_alarm_entry``
 
    * - 4
      - Exit → hub
-     - The shared bottom-centre exit (the 96 px circle-xmark) back to the CALLING level — the hub here.
+     - The shared bottom-centre exit (the 96 px circle-xmark), back to the calling level: the hub here.
      - :cfunc:`settings_sub_screen_prepare`
+
+Implementation notes
+--------------------
+
+The screen sets its glyph colours on entry and after each save.
+The tick must not set styles every frame, because each style set invalidates the object.
+
+The triangle layout is one of the computed menu figures.
+The middle row of :ref:`menu-geometry` (``docs/tools/gen_menu_geom.py``) draws this screen per panel.
+The master sits at (0, −``UI_PX(30)``), the entries at (±``UI_PX(130)``, +``UI_PX(130)``), and the disks take the size of the tier's FA icon face (96/148/74 px).
+
+Where to go next
+----------------
+
+- :doc:`The pomodoro interval <settings-pomodoro>`: the stopwatch entry and the rule arithmetic behind both entries.
+- :doc:`The real alarm <settings-alarm-time>`: the fixed-time entry.
+- :doc:`The alarm screen <alarm>`: what happens when a rule fires.
