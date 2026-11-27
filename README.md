@@ -9,7 +9,7 @@ shadows along the day/night line, and the Moon's tilt as seen from your time
 zone's city. An automated test checks every change against NASA's own rendered
 Moon; on average the two differ by about 7 brightness steps out of 255.
 
-![The clock's home screen in its round case (simulator render)](docs/_static/photos/sim_home.webp)
+<a href="https://ukos-git.github.io/moon-clock-esp/"><img src="docs/_static/photos/sim_home.webp" alt="The clock's home screen in its round case (simulator render)"></a>
 
 Around the Moon it is a complete clock: Wi-Fi time sync, a daily alarm or
 interval timer with four sounds, a round letter-wheel keyboard for the Wi-Fi
