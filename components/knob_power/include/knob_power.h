@@ -21,6 +21,9 @@
 
 #include <stdbool.h>
 
+#include "freertos/FreeRTOS.h" /* must precede semphr.h (IDF rule) */
+#include "freertos/semphr.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,6 +49,15 @@ void knob_power_set_hold(bool hold);
  *         dusk. NULL (default) = backlight dim only. */
 typedef void (*knob_power_dim_cb_t)(bool dimmed);
 void knob_power_set_dim_cb(knob_power_dim_cb_t cb);
+
+/** @brief Hand the ladder the UI's LVGL mutex (shared-UI path): the
+ *         light/deep-sleep rungs load the family sleep screens from the
+ *         supervisor task and take it around the screen load so the
+ *         screen_switched atomic flush + the object writes are one
+ *         critical section (the same handle the boot arm and the
+ *         knob_ui seam use; main passes it before the ladder runs).
+ *         Legacy own-screen path (KNOB_UI_ENABLE=n): not needed. */
+void knob_power_set_lvgl_lock(SemaphoreHandle_t mux);
 
 /** @brief Epoch arithmetic for the fixed-time alarm rule (the TIMER
  *         deep-sleep arm and the wake arbitration share this one truth).

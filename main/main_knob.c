@@ -621,10 +621,13 @@ void app_main(void) {
      * seconds arc sat frozen between minute ticks (user 2026-11-10).
      * Creation-phase call (lvgl_task does not exist yet), like ui_init. */
     action_ensure_ui_timers();
-    /* P1 dim parity: the ladder's dim rung drops the clock widget to
-     * UI_CLOCK_ALPHA_PCT alongside the 25 % LEDC backlight (the clocks'
-     * dusk posture; knob_power.c calls it from the supervisor task). */
-    knob_power_set_dim_cb(knob_render_set_home_dim);
+    /* Sleep screens (family parity): the ladder's dim / deep-sleep
+     * rungs LOAD the family light/deep-sleep screens from the
+     * supervisor task -- they need the UI's LVGL mutex (the screen
+     * load's screen_switched atomic flush + the object writes are one
+     * critical section). The legacy in-place dim observer is not wired
+     * on this path: the screens carry the dusk look. */
+    knob_power_set_lvgl_lock(s_lvgl_mux);
     /* P2 dial input: tap-to-commit listeners on the settings roots +
      * dial task (encoder deltas -> cursor steps, every turn is
      * activity). Runs in the single-threaded UI-creation phase, like
@@ -638,6 +641,10 @@ void app_main(void) {
     knob_battery_ui_attach();
 #else
     knob_ui_create();
+    /* Legacy own-screen view (KNOB_UI_ENABLE=n): no shared screens, so
+     * the ladder keeps the in-place dim -- the dim observer drops the
+     * home clock to UI_CLOCK_ALPHA_PCT and hides the seconds arc. */
+    knob_power_set_dim_cb(knob_render_set_home_dim);
     if (assets_ready) {
         /* K7d: the honest pre-frame state while boot_arm_task chases an
          * NTP fix ("moon unavailable" stays if the buffers failed). */

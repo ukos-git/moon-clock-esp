@@ -105,7 +105,7 @@ typedef struct _objects_t {
     lv_obj_t *settings_deep_sleep;
     lv_obj_t *settings_wifi;
     lv_obj_t *settings_wifi_password;
-    lv_obj_t *settings_time;        /* manual time/date entry (P4 entry point; the screen is shared) */
+    lv_obj_t *settings_time;        /* manual time/date entry (P4 + knob entry point; the screen is shared) */
     lv_obj_t *settings_tz;          /* timezone / UTC offset picker (S3 + P4 entry point) */
     lv_obj_t *settings_alarm_sound; /* alarm sound picker (S3 + P4 entry point) */
     lv_obj_t *settings_display;     /* display base-orientation trim (wall-mount rotation) */
@@ -228,9 +228,9 @@ void tick_screen_settings_deep_sleep();
 void create_screen_settings_wifi();
 void tick_screen_settings_wifi();
 
-/* Manual time/date entry (the P4's fallback for a clock it could not
- * sync: reached by the settings hub's clock icon, P4-only -- the S3's
- * time comes from the PCF85063A and the icon is not added there).
+/* Manual time/date entry (the fallback for a clock with no RTC it could
+ * sync: reached by the settings hub's clock icon on the P4 and the knob --
+ * the S3's time comes from the PCF85063A and the icon is not added there).
  * Six clock-style rollers in two rows (the time HH:MM:SS at the home
  * clock label's position, the date DD.MM.YY below) seed from the wall
  * clock; releasing a roller commits the whole value (clock_set_time +

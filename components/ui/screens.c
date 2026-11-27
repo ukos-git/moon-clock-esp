@@ -86,7 +86,7 @@ static void event_handler_cb_wifi_arc_clock_seconds_wifi(lv_event_t *e) {
 #define GLYPH_WIFI "\xEF\x87\xAB"      /* U+F1EB */
 #define GLYPH_STOPWATCH "\xEF\x8B\xB2" /* U+F2F2 (was \xEF\xA7\xB2 = U+F9F2, absent -> a box) */
 #define GLYPH_ALARM "\xEF\x8D\x8E"     /* U+F34E */
-#define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 regular set only) */
+#define GLYPH_CLOCK "\xEF\x80\x97"     /* U+F017 (manual time entry; the fonts_p4 + fonts_knob regular sets only) */
 #define GLYPH_GLOBE "\xEF\x82\xAC"     /* U+F0AC (timezone entry; the solid set -- both boards) */
 #define GLYPH_SPEAKER "\xEF\x80\xA8"   /* U+F028 (alarm-sound entry; the solid set -- both boards) */
 #define GLYPH_ROTATE "\xEF\x8B\xB1"    /* U+F2F1 (display base-orientation entry; the solid set -- all three boards) */
@@ -603,20 +603,21 @@ void create_screen_settings_hub() {
     lv_obj_add_event_cb(objects.settings_hub_exit, event_handler_cb_hub_exit, LV_EVENT_CLICKED, 0);
 
     /* Icon ring: EQUAL ARC DISTANCES -- the icons sit 360/n degrees apart
-     * on the ring (S3: 7 icons, ~51.4 deg; P4: 8 icons, 45 deg), the
-     * deep-sleep icon anchored at the bottom (180 deg). On the P4 the
-     * ring carries the clock (manual time entry, U+F017 -- the P4
-     * fonts_p4 regular set only) first. Moon weight distinguishes the
-     * two sleep screens (regular / solid); the globe (timezone, U+F0AC,
-     * solid), the speaker (alarm sound, U+F028, solid) and the rotate
-     * arrow (display trim, U+F2F1, solid) are on all three boards. */
+     * on the ring (S3: 7 icons, ~51.4 deg; P4/knob: 8 icons, 45 deg), the
+     * deep-sleep icon anchored at the bottom (180 deg). On the P4 and the
+     * knob the ring carries the clock (manual time entry, U+F017 -- the
+     * fonts_p4 / fonts_knob regular sets only) first. Moon weight
+     * distinguishes the two sleep screens (regular / solid); the globe
+     * (timezone, U+F0AC, solid), the speaker (alarm sound, U+F028, solid)
+     * and the rotate arrow (display trim, U+F2F1, solid) are on all three
+     * boards. */
     struct hub_icon {
         const char *glyph;
         const lv_font_t *font;
         enum ScreensEnum target;
     };
     static const struct hub_icon ring[] = {
-#if defined(CONFIG_BOARD_P4)
+#if defined(CONFIG_BOARD_P4) || defined(CONFIG_BOARD_KNOB)
         {GLYPH_CLOCK, &ui_font_fontawesome7_regular_96_icons, SCREEN_ID_SETTINGS_TIME},
 #endif
         {GLYPH_ALARM, &ui_font_fontawesome7_regular_96_icons, SCREEN_ID_SETTINGS_ALARM},
@@ -636,16 +637,18 @@ void create_screen_settings_hub() {
      * 720 the same UI_PX ratio gives R = 216 (inner 68 / outer 70). The
      * 7-icon S3 ring's chord at 140 is 121 px > the 96 px icon width, so
      * the icons never crowd each other. */
-    /* The P4 carries an 8th icon (the manual-time clock), so its ring's
-     * angular step is 45 deg, not the 51.4 deg of the 7-icon S3/knob
-     * ring -- and the adjacent chord (2 R sin(pi/n)) at R=140 is only
-     * ~107 px (466 space) vs the ~121 px the 7-icon ring gets: the icon
-     * ink boxes then touch (the 2026-11-16 "speaker + rotate overlap on
-     * the P4" report). Push the P4 ring out to R=162 so its chord (~124)
-     * matches the S3's clearance; the inner/outer margins still clear
-     * (central disk + panel rim) with headroom. The 7-icon boards keep
-     * 140. */
-#if defined(CONFIG_BOARD_P4)
+    /* The P4 and the knob carry an 8th icon (the manual-time clock), so
+     * their ring's angular step is 45 deg, not the 51.4 deg of the
+     * 7-icon S3 ring -- and the adjacent chord (2 R sin(pi/n)) at R=140
+     * is only ~107 px (466 space) vs the ~121 px the 7-icon ring gets:
+     * the icon ink boxes then touch (the 2026-11-16 "speaker + rotate
+     * overlap on the P4" report). Push the ring out to R=162 so its chord
+     * (~124) matches the S3's clearance; the inner/outer margins still
+     * clear (central disk + panel rim) with headroom -- at the knob's 360
+     * px the same UI_PX ratio gives R ~125 (chord ~96 px vs the 74 px
+     * icon ink, inner edge 88 off the exit disk's rim, outer 162 of the
+     * 180 px panel radius). The 7-icon S3 keeps 140. */
+#if defined(CONFIG_BOARD_P4) || defined(CONFIG_BOARD_KNOB)
     const int32_t R = UI_PX(162);
 #else
     const int32_t R = UI_PX(140);
@@ -671,8 +674,8 @@ void create_screen_settings_hub() {
         /* Demo-mode walk registry (screens_hub_icons): the tour taps
          * the REAL icons (hit test + CLICKED handler) instead of
          * loadScreen, so it verifies the touch entry path on camera.
-         * The hub is created once at boot; 8 covers the 7-icon P4 ring
-         * and the 6-icon S3 ring with headroom. */
+         * The hub is created once at boot; 8 covers the 8-icon P4/knob
+         * ring exactly and the 7-icon S3 ring with headroom. */
         if (s_hub_icons_n < (int)(sizeof(s_hub_icons) / sizeof(s_hub_icons[0]))) {
             s_hub_icons[s_hub_icons_n] = icon;
             s_hub_icon_targets[s_hub_icons_n] = ring[i].target;

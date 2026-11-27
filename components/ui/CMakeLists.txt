@@ -5,13 +5,15 @@ file(GLOB_RECURSE IMAGE_SOURCES "images/*.c")
 # fonts.h and every consumer are unchanged. fonts_knob/ is the knob's 360 px
 # tier (74/37/25, same Opts scaled by 360/466). The one exception to
 # "SAME source Opts": the regular icon face carries the clock 61463
-# (U+F017) only in the 720/360 tiers -- it is the P4 hub ring's 7th
-# entry (screens.c's #if CONFIG_BOARD_P4), so the knob inherited that
-# glyph from the P4 bake and never draws it. The other six faces are
+# (U+F017) only in the 720/360 tiers -- it is the P4 + knob hub ring's
+# 8th entry (screens.c's #if CONFIG_BOARD_P4 || CONFIG_BOARD_KNOB), so
+# the knob inherited that glyph from the P4 bake and the S3 (the icon's
+# board gate) has no need of it. The other six faces are
 # charset-identical across tiers; docs/tools/gen_perf_glyphs.py asserts
 # all of it at figure time.
-# The branch keys are PROJECT variables (KNOB_BOARD is set in
-# knob/CMakeLists.txt before project()), deliberately NOT CONFIG_ symbols:
+# The branch keys are PROJECT variables (KNOB_BOARD is promoted into the
+# early pass by the root CMakeLists' idf_build_set_property), deliberately
+# NOT CONFIG_ symbols:
 # the component manager's early requirements pass (build.cmake's
 # __component_get_requirements -> cmake -P component_get_requirements.cmake)
 # evaluates this file with NEITHER project variables NOR CONFIG_ symbols,
@@ -41,12 +43,14 @@ endif()
 
 # REQUIRES/PRIV_REQUIRES are spelled out UNCONDITIONALLY on purpose (the
 # same early-pass rule as above): every name they carry must resolve in all
-# three projects. esp_codec_dev is satisfied on the knob by a silent,
-# no-header same-name shim component (knob/components/esp_codec_dev -- the
-# board/imu naming trick), on the clocks by the vendored real component;
-# the other names are IDF core components or the manager-vendored
-# esp_new_jpeg (declared in idf_component.yml, so the knob lock file carries
-# it too).
+# three boards. esp_codec_dev is satisfied on the knob by the real driver,
+# declared component-locally in components/knob_board/idf_component.yml
+# (knob_board is EXCLUDED from the S3/P4 builds, so its yml — and this
+# dep — is never evaluated there and stays out of the S3/P4 locks; unused
+# on the codec-less board, so its objects never link), and on the clocks by
+# the vendored BSP's public exposure; the other names are IDF
+# core components or the manager-vendored esp_new_jpeg (declared in
+# idf_component.yml, so the knob lock file carries it too).
 idf_component_register(
   SRCS
     ${UI_CORE_SRCS}

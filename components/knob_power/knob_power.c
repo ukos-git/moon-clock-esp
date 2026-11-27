@@ -1,7 +1,19 @@
 /**
  * @file knob_power.c
- * @brief K7e idle ladder: active -> dim (KNOB_DIM_AFTER_S) -> deep sleep
- *        (KNOB_SLEEP_TIMEOUT_S), EXT0 wake on dial-A GPIO 8.
+ * @brief K7e idle ladder: active -> light sleep (KNOB_DIM_AFTER_S) -> deep
+ *        sleep (KNOB_SLEEP_TIMEOUT_S), EXT0 wake on dial-A GPIO 8.
+ *
+ * The two rungs load the FAMILY's sleep screens on the shared-UI path
+ * (CONFIG_KNOB_UI_ENABLE, the default) -- the clocks' posture
+ * (components/ui/actions.c): the dim rung loads SCREEN_ID_LIGHT_SLEEP
+ * (clock widget at UI_CLOCK_ALPHA_PCT, LEDC ramp to
+ * UI_LIGHT_SLEEP_DIM_PCT) and the deep rung loads SCREEN_ID_DEEP_SLEEP
+ * (clock hidden) as the last-lit frame before the backlight off +
+ * esp_deep_sleep_start. Each screen swap is ONE atomic flush (the
+ * screen_switched seam) at the CURRENT backlight, and the hardware LEDC
+ * ramp writes no pixels. The legacy own-screen view (KNOB_UI_ENABLE=n)
+ * has no shared screens: its rungs keep the in-place backlight dim + the
+ * dim observer callback.
  *
  * The supervisor is a plain registered task on a 500 ms cadence -- it
  * only delays and logs, so a watchdog on it is a feature. Activity
@@ -25,10 +37,15 @@
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "knob_board.h"
 #include "knob_power.h"
+#include "lvgl.h"
+#include "moon_ui.h"
+#include "screens.h"
 #include "settings_store.h"
+#include "ui.h"
 
 static const char *TAG = "knob_power";
 
@@ -47,6 +64,12 @@ static const char *TAG = "knob_power";
 #ifndef CONFIG_KNOB_DIM_DUTY
 #define CONFIG_KNOB_DIM_DUTY 64 /* P1 dim parity: 25 %, the clocks' dusk */
 #endif
+#ifndef CONFIG_UI_LIGHT_SLEEP_DIM_PCT
+#define CONFIG_UI_LIGHT_SLEEP_DIM_PCT 25 /* the family light-sleep panel level */
+#endif
+#ifndef CONFIG_UI_CLOCK_ALPHA_PCT
+#define CONFIG_UI_CLOCK_ALPHA_PCT 20 /* the family light-sleep clock opacity */
+#endif
 #ifndef CONFIG_KNOB_ALARM_MAX_SLEEP_GAP_S
 #define CONFIG_KNOB_ALARM_MAX_SLEEP_GAP_S 82800
 #endif
@@ -59,9 +82,29 @@ static volatile int64_t s_last_activity_us; /* written by any task, read by the 
 static volatile bool s_hold;                /* presentation hold (knob_ui) */
 static bool s_dimmed;                       /* supervisor-private */
 static volatile bool s_sleeping;            /* stable-dark log-only state (KNOB_SLEEP_ALLOW=n) */
-static knob_power_dim_cb_t s_dim_cb;        /* P1 dim parity observer */
+static knob_power_dim_cb_t s_dim_cb;        /* in-place dim observer (legacy own-screen path) */
+static SemaphoreHandle_t s_lvgl_mux;        /* the UI's LVGL mutex (shared-UI sleep rungs) */
 
 void knob_power_set_dim_cb(knob_power_dim_cb_t cb) { s_dim_cb = cb; }
+
+/* The UI's LVGL mutex (main passes the same handle the knob_ui seam and
+ * the boot arm take): the shared-UI rungs take it around the screen load
+ * so the screen_switched atomic flush + the object writes are one critical
+ * section. The mutex is recursive (IDF), so loadScreen's own re-take in
+ * moon_ui_screen_switched is safe from the supervisor task (the boot arm
+ * runs the same pattern). */
+void knob_power_set_lvgl_lock(SemaphoreHandle_t mux) { s_lvgl_mux = mux; }
+
+static void ui_lvgl_lock(void) {
+    if (s_lvgl_mux != NULL) {
+        xSemaphoreTake(s_lvgl_mux, portMAX_DELAY);
+    }
+}
+static void ui_lvgl_unlock(void) {
+    if (s_lvgl_mux != NULL) {
+        xSemaphoreGive(s_lvgl_mux);
+    }
+}
 
 bool knob_power_rule_epochs_around(int64_t now_epoch, int64_t *prev, int64_t *next) {
     int hour = 0, minute = 0;
@@ -207,7 +250,23 @@ static void enter_deep_sleep(int64_t idle) {
              " SKIPPED (KNOB_SLEEP_ALLOW=n: log-only)"
 #endif
     );
+#if CONFIG_KNOB_UI_ENABLE
+    /* The family deep-sleep screen as the last-lit frame (the clocks'
+     * actions.c posture): the moon-only screen, the shared clock widget
+     * hidden. ONE atomic flush under the UI lock (the screen_switched
+     * seam), then the backlight off immediately -- the LCD's panel RAM
+     * retains the frame across the power-down (the never-black wake
+     * advantage). The legacy own-screen view has no screens: its last
+     * frame is the dimmed home. */
+    ui_lvgl_lock();
+    loadScreen(SCREEN_ID_DEEP_SLEEP);
+    lv_obj_add_flag(objects.deep_sleep_clock, LV_OBJ_FLAG_HIDDEN);
+    ui_tick();
+    ui_lvgl_unlock();
+    moon_ui_panel_brightness_set(0); /* immediate, mirror-consistent */
+#else
     knob_board_backlight_set(0);
+#endif
 #if CONFIG_KNOB_SLEEP_ALLOW
     esp_deep_sleep_start(); /* does not return */
 #else
@@ -267,20 +326,53 @@ static void supervisor_task(void *arg) {
          * (idle < 0 never holds). */
         if (s_dimmed && !s_sleeping && (dim_s == 0 || idle < dim_s)) {
             s_dimmed = false;
+#if CONFIG_KNOB_UI_ENABLE
+            /* Back to the family home (both-moon plain flush -- the same
+             * disk, so loadScreen skips the fade). The backlight restore
+             * rides the seam's brightness set so its LEDC mirror (s_duty)
+             * stays consistent with what the panel actually shows. */
+            ui_lvgl_lock();
+            loadScreen(SCREEN_ID_MODEM_SLEEP);
+            ui_tick();
+            ui_lvgl_unlock();
+            moon_ui_panel_brightness_set(100);
+#else
             knob_board_backlight_set(255);
             if (s_dim_cb != NULL) {
-                s_dim_cb(false); /* P1: clock widget back to full opacity */
+                s_dim_cb(false); /* legacy in-place undim (home clock full) */
             }
+#endif
             ESP_LOGI(TAG, "backlight back to full (%s)", dim_s == 0 ? "dim rung off" : "activity");
             continue;
         }
         if (!s_dimmed && dim_s > 0 && idle >= dim_s) {
             s_dimmed = true;
+#if CONFIG_KNOB_UI_ENABLE
+            /* The family light-sleep screen (the clocks' posture,
+             * components/ui/actions.c): the dusk screen REPLACES the
+             * home (both-moon plain flush -- loadScreen skips the fade
+             * for the shared disk), the shared clock widget drops to
+             * UI_CLOCK_ALPHA_PCT, then the panel LEDC RAMPs to the
+             * family level. The ramp writes no pixels (the sanctioned
+             * brightness exception), so the dimmed frame is the one
+             * atomic flush that just landed at full level. The
+             * light-sleep screen carries no seconds arc, so nothing
+             * ticks through the dim. */
+            ui_lvgl_lock();
+            loadScreen(SCREEN_ID_LIGHT_SLEEP);
+            lv_obj_set_style_opa(objects.light_sleep_clock, LV_OPA_MAX * CONFIG_UI_CLOCK_ALPHA_PCT / 100, 0);
+            ui_tick();
+            ui_lvgl_unlock();
+            moon_ui_panel_dim_ramp(CONFIG_UI_LIGHT_SLEEP_DIM_PCT);
+            ESP_LOGI(TAG, "idle %lld s -- light-sleep screen up, LEDC -> %d%%", (long long)idle,
+                     (int)CONFIG_UI_LIGHT_SLEEP_DIM_PCT);
+#else
             knob_board_backlight_set(CONFIG_KNOB_DIM_DUTY);
             if (s_dim_cb != NULL) {
-                s_dim_cb(true); /* P1 dim parity: widget to ALPHA_PCT */
+                s_dim_cb(true); /* legacy in-place dim + the dim observer */
             }
             ESP_LOGI(TAG, "idle %lld s -- backlight dimmed to %d", (long long)idle, (int)CONFIG_KNOB_DIM_DUTY);
+#endif
         }
         if (deep_on && !s_sleeping && countdown > 0 && idle >= sleep_s) {
             enter_deep_sleep(idle);
@@ -290,7 +382,11 @@ static void supervisor_task(void *arg) {
 
 void knob_power_init(void) {
     knob_power_notify_activity();
-    xTaskCreate(supervisor_task, "knob_power", 3072, NULL, 4, NULL);
+    /* 8 K (was 3 K): the shared-UI rungs load the family sleep screens
+     * from here -- loadScreen drives ONE atomic whole-panel lv_refr_now
+     * (LVGL sw render + QSPI flush), the same work the 8 K lvgl_task
+     * does. The ladder otherwise only delays and logs. */
+    xTaskCreate(supervisor_task, "knob_power", 8192, NULL, 4, NULL);
 #if CONFIG_KNOB_SLEEP_ALLOW
     const char *sleep_mode = "";
 #else
