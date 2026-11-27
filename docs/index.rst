@@ -1,291 +1,185 @@
 The Moon Phase Clock
 ====================
 
-The Moon Phase Clock is a small desk clock that renders the Moon
-*physically*: the same crater shadows, the same libration, the same
-terminator position you would get from a NASA ephemeris renderer —
-computed live on a microcontroller, at the exact phase for the current
-UTC time, on a 466×466 round AMOLED panel.
-
-It is not a photo. It is not a clock face with a moon icon. It is a
-3-D-shaded rendering of the real lunar surface (LRO WAC albedo + LOLA
-relief), lit by the real Sun from the real subsolar point of the
-current moment, projected through the real camera libration. The
-pipeline is small enough to run in about 1.7 MB of flash (the current
-S3 binary measures 1,706,960 bytes — the measured record lives in
-:doc:`the binary-size chronology <verification/binary>`) and to bake a
-full 400-px frame in roughly 1.3 s on the S3 board (the Waveshare
-ESP32-S3-Touch-AMOLED-1.75, :doc:`the S3 board <devices/s3>`,
-:doc:`performance <verification/performance>`) — which is what made the
-animation stack (the free spin, the boot sweep, the "dusk") possible
-on a $20 board; all three were retired :commit:`79937e37`, and the
-home is a static LVGL phase now — refreshed once per hour behind the
-hardware fade
-(:doc:`the animation pipelines <implementation/animations>`).
+The Moon Phase Clock is a small round desk clock that shows the Moon as
+it looks right now. It does not use a photo or an icon. A
+microcontroller works out where the Sun, the Earth and the Moon are at
+this moment and then draws the Moon pixel by pixel, from NASA maps of
+the real lunar surface. You get the right phase, crater shadows along
+the day/night line, and the slight wobble that lets us see a little
+around the Moon's edges over a month.
 
 .. raw:: html
 
    <video src="_static/img/promo.mp4" controls muted playsinline
           style="display: block; width: 100%; margin: 1em auto;"
-          aria-label="The finished clock in the round product case, a full tour of every screen"></video>
+          aria-label="The finished clock in its round case, showing every screen in turn"></video>
 
-The finished clock, in the round product case — every frame
-computed live by the docs build from the same simulator that
-produces the screenshots (a uisim frame at true panel geometry over
-the Waveshare product photo; the renders throughout these docs show
-what the *panel* actually shows, the moon at the sim's fixed seed —
-2026-11-01 12:35 UTC, a waning gibbous). The moon screens lead —
-the home hero, the sleep states, the wifi sync and the alarm fire —
-and then the real ``screens.c`` is driven by a scripted touch
-through the settings:
-the hub's icon ring (a press highlights the icon before the
-sub-screen appears, the knob's dial-focus look), the sleep
-timeouts, the timezone and alarm-sound pickers, and the round
-letter-wheel keyboard (the ``--tour`` capture,
-:doc:`the build system <reference/build-system>`).
+The film shows the clock in its round case. Every frame comes from the
+project's own simulator, which runs the real firmware's screen code on
+a PC. The Moon in it is fixed to one moment (1 November 2026,
+12:35 UTC, a waning gibbous) so the pictures in these docs are
+repeatable.
 
-This documentation covers a real, working product end to end: the C
-core that bakes a moon frame on a microcontroller, the display
-pipeline that ships each frame as one atomic whole-panel flush, the
-retired animation stack (the free spin, the boot sweep and the
-"dusk" — all retired :commit:`79937e37`, leaving the orbit, the fade, and a
-new once-per-hour moon refresh behind that fade), the
-sleep/wake machine, the settings stack, and the validation gates that
-prove the rendering matches NASA's rendered moon to within a couple of
-gray levels per pixel.
+What the clock does
+-------------------
 
-What makes it different
------------------------
+- **Shows the real Moon.** The phase, the shadows and the Moon's tilt
+  are computed for the current time, and for the city of the time
+  zone you pick. The picture is refreshed once an hour.
+- **Keeps time by itself.** It sets its clock over Wi-Fi, then turns
+  the radio off. One tap opens the settings.
+- **Wakes you up.** A daily alarm with a choice of weekdays, or a
+  repeating interval timer (a "pomodoro"), with four alarm sounds.
+- **Sleeps when nobody is looking.** After a minute without touch or
+  movement it dims, and later it goes dark. A touch or a tilt wakes it.
+- **Matches NASA.** An automated test compares the clock's Moon with
+  NASA's own computer-rendered Moon. On average the two differ by
+  about 7 brightness steps out of 255 (:doc:`the image gate
+  <verification/image-gate>`).
 
-Three properties define the design, and they pull in the same
-direction:
-
-1. **Physically correct, not approximately pretty.**
-   The lighting model is full-disk displaced-normal Lambert with the
-   real relief DEM's 4-neighbor gradients — not the classic
-   "cosine-from-viewer" shortcut that every cheap moon renderer uses.
-   The result: mountain shadows along the terminator that match
-   NASA's own rendered frames, and a dark side that is the *computed*
-   backlit surface (albedo and relief lit from the anti-solar
-   direction), not a black rectangle. :doc:`The lighting model <science/lighting>` is the model;
-   :doc:`the image gate <verification/image-gate>` is the measurement against NASA (mean absolute error
-   6.68 gray levels at 5-bit panel fidelity, worst frame 8.90, gate
-   limit 12).
-
-2. **Atomic frames, always.**
-   Every moon frame reaches the panel as ONE whole-panel flush
-   (:doc:`the display pipeline <implementation/display>`). The AMOLED has no alpha channel and no refresh
-   arbitration the app can rely on, so a torn frame would be a
-   half-moon — visibly wrong. The entire UI architecture (including
-   the animation system and the sleep transitions) is built around
-   this one invariant.
-
-3. **The display is also the sleep surface.**
-   The device is a clock that mostly sleeps. Light sleep is a
-   **static dim frame** (panel to 25 %, clock to 20 % alpha — the
-   dusk's slow constant-projection spin that used to play the
-   transition was retired :commit:`f7740500`, and the dim itself is now the
-   sleep indicator) and deep
-   sleep hides the clock and turns the backlight off. The hardware
-   dim and the fade carry the sleep-state story for
-   an always-on display (:doc:`the animation pipelines <implementation/animations>`) and the entry/exit flow itself
-   (:doc:`the clock and sleep machine <implementation/clock-sleep>`).
-
-The three boards
+Find your way in
 ----------------
 
-The same portable C core runs on three hardware targets — the
-**Waveshare ESP32-S3-Touch-AMOLED-1.75** (the primary, "S3" below),
-the **Waveshare ESP32-P4-WIFI6-Touch-LCD-XC** (the full sibling port,
-"4C" below) and the **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** (the
-knob — the dial board of the family, built as a sibling ESP-IDF
-project that links the clock's shared components):
+Pick the path that matches what you want to do. Each one starts simple
+and links to the detail when you need it.
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 29 28 28
+   :widths: 30 70
 
-   * - Property
-     - S3 (primary)
-     - P4 4C (secondary)
-     - Knob (sibling project)
-   * - SoC
-     - ESP32-S3 (dual Xtensa LX7, 240 MHz)
-     - ESP32-P4 (quad RISC-V, 400 MHz) + remote C6 Wi-Fi over SDIO
-     - ESP32-S3R8 (dual Xtensa LX7, 240 MHz); a second MCU
-       (ESP32-U4WDH) runs the knob side — the firmware never talks
-       to it
-   * - Panel
-     - 466×466 RGB565 AMOLED, CO5300, QSPI (brightness register
-       0x51)
-     - 720×720 round IPS, JD9365, MIPI-DSI
-     - 360×360 round **backlit** LCD, SH8601, QSPI (dimming is a
-       PWM backlight, GPIO 47 — no brightness register)
-   * - Touch
-     - CST9217
-     - GT911
-     - CST816S
-   * - Dial
-     - —
-     - —
-     - EC1 encoder on the app MCU (A GPIO 8, B GPIO 7): cursor
-       stepper, home brightness, EXT0 wake
-   * - Extras
-     - QMI8658C IMU, PCF85063A RTC (via TCA9554), ES8311 audio
-     - QMI8658C IMU, ES8311 audio; **no RTC IC** — time base is the
-       32 kHz crystal + SNTP, the alarm a software one-shot
-     - **none of these**: no IMU, no RTC, no audio — the knob's
-       deep sleep is a real ``esp_deep_sleep_start`` on an RTC
-       **TIMER**, never an early ring
-   * - Flash / PSRAM
-     - 16 MB flash (2 MB app partition), 8 MB octal PSRAM
-     - 32 MB flash (9 MB app partition) + PSRAM
-     - 16 MB flash (4 MB app partition), 8 MB octal PSRAM (in-package)
+   * - I want to…
+     - Start here
+   * - understand how it works
+     - :doc:`How the clock works <how-it-works>` explains moon phases,
+       how a small chip can draw the Moon, and how we check the result.
+       School maths and physics are enough.
+   * - build one
+     - :doc:`Getting started <getting-started>` takes you from a new
+       board to a working clock on your desk: install the tools,
+       build, flash, connect to Wi-Fi.
+   * - use one
+     - :doc:`Using the clock <using-the-clock>` walks through the
+       screens, the settings, the alarm and the sleep modes.
+   * - change the firmware
+     - :doc:`The firmware <implementation/index>` explains how the code
+       is put together, then :doc:`the reference <reference/index>`
+       lists every setting, constant and API.
+   * - check the science
+     - :doc:`The science <science/index>` derives the geometry and the
+       lighting model; :doc:`verification <verification/index>` shows
+       the measurements behind every claim.
 
-:doc:`the S3 board <devices/s3>` covers the S3 in detail; :doc:`the P4 4C port <devices/p4>` covers the P4 port and
-what it takes (and what it did not) to port a pixel-perfect display
-pipeline across panel technologies; :doc:`the knob <devices/knob>`
-covers the dual-MCU board and its sibling build, and
-:doc:`the knob display implementation <implementation/knob-display>`
-its render seam and sleep ladder.
+The boards
+----------
 
-How these docs are organized
-----------------------------
+The same code runs on three boards from Waveshare. You need only one.
 
 .. list-table::
    :header-rows: 1
-   :widths: 14 70
+   :widths: 26 22 52
 
-   * - Section
-     - Question it answers
-   * - Getting started
-     - The minimal, verified way to flash a newly acquired board on
-       Linux.
-   * - The boards
-     - What hardware it runs on, and how to build and flash each
-       board (toolchain, identification, pre-configured defaults,
-       compile-time settings).
-   * - The user interface
-     - Every screen, element by element: what each pointing
-       control does, where it lives in the code, and which option
-       tunes it.
-   * - The science
-     - Where the reference images come from and the
-       geometric/optical model behind the bake (including why the
-       rendering is deliberately better than NASA's).
-   * - The implementation
-     - How the C core works, how frames reach the panel, and how
-       the animations and the sleep machine run.
-   * - Verification and performance
-     - How we know it's right, and how fast everything is.
-   * - Reference
-     - How text is entered on a round screen, the build system,
-       the compile-time reference, and the APIs.
+   * - Board
+     - Screen
+     - Good to know
+   * - :doc:`ESP32-S3-Touch-AMOLED-1.75 <devices/s3>`
+     - 466 × 466 round AMOLED
+     - The main target and the default build. Has a real-time clock
+       chip, a motion sensor and a speaker output.
+   * - :doc:`ESP32-P4-WIFI6-Touch-LCD-XC <devices/p4>` ("4C")
+     - 720 × 720 round LCD
+     - The largest screen and the fastest chip. No clock chip: it keeps
+       time with Wi-Fi and its own crystal.
+   * - :doc:`ESP32-S3-Knob-Touch-LCD-1.8 <devices/knob>` ("knob")
+     - 360 × 360 round LCD
+     - Has a turning dial and runs on a battery. No motion sensor,
+       clock chip or speaker.
 
-A note on numbers
------------------
+:doc:`The boards <devices/index>` compares them in detail, and
+:doc:`the housing <housing>` describes a 3D-printed case that fits all
+three.
 
-Every performance number in these docs comes from a named
-measurement: a benchmark run (:doc:`performance <verification/performance>` gives the exact commands),
-a device serial capture, or a code-size check. Where a number was
-superseded by a later change, the older value is left in place with
-its date — the binary-size chronology in :doc:`the binary-size chronology <verification/binary>` is the canonical
-record of "what was on the device when".
+About these docs
+----------------
 
-Contents
---------
+The site has two layers. The pages under **Start here** assume no
+background beyond school. Everything under **In depth** is written for
+people who want to change or verify the clock, and it assumes you know
+some C and are happy to read equations.
+
+A few conventions hold throughout:
+
+- Times are in UTC unless a page says otherwise.
+- "Gray level" means a brightness from 0 (black) to 255 (white).
+- Screenshots come from the simulator, which runs the unchanged
+  firmware screen code on a PC (:doc:`the build system
+  <reference/build-system>`). Photos of the case are composites of a
+  simulator frame and a product photo.
+- Every number comes from a named measurement: a benchmark, a serial
+  log from a real board, or a size check. :doc:`Performance
+  <verification/performance>` gives the commands that produce them.
+- Links such as :cfile:`components/moon/core/moon_bake.c` open the
+  source code inside this site (:doc:`the source code <code/index>`).
+
+The firmware is licensed under GPL-2.0-or-later (the ``LICENSE`` file
+in the repository root). This documentation is licensed under CC BY-SA
+4.0 (``docs/LICENSE``). Third-party credits, including the
+public-domain NASA imagery and the fonts, are in the ``NOTICE`` file.
 
 .. toctree::
-   :maxdepth: 2
+   :hidden:
    :caption: Start here
 
+   how-it-works
    getting-started
+   using-the-clock
 
 .. toctree::
-   :maxdepth: 2
-   :caption: The boards
+   :hidden:
+   :caption: Build your own
 
    devices/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Hardware
-
    housing
 
 .. toctree::
-   :maxdepth: 2
-   :caption: The user interface
+   :hidden:
+   :caption: In depth: the screens
 
    ui/index
    keyboard
    keyboard-lab
 
 .. toctree::
-   :maxdepth: 2
-   :caption: The science
+   :hidden:
+   :caption: In depth: the science
 
    science/index
 
 .. toctree::
-   :maxdepth: 2
-   :caption: The implementation
+   :hidden:
+   :caption: In depth: the firmware
 
    implementation/index
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Verification and performance
+   :hidden:
+   :caption: In depth: verification
 
    verification/index
 
 .. toctree::
-   :maxdepth: 2
+   :hidden:
    :caption: Reference
 
    reference/index
    glossary
 
 .. toctree::
-   :maxdepth: 1
-   :caption: The source code
+   :hidden:
+   :caption: Source code
 
    code/index
 
-.. note:: The ``code/`` entry is deliberately LAST: the reverse
-   "Referenced from" index on the generated source pages needs every
-   other page's resolved references first (see the ``mooncode``
-   extension).
-
-Conventions
------------
-
-- Times are UTC unless marked otherwise. "Frame" means one 466×466
-  (S3), 720×720 (P4) or 360×360 (knob) whole-panel image.
-- "Gray" means 8-bit luminance 0–255; "5-bit" means the panel's R5G6B5
-  fidelity after the gray→RGB565 LUT.
-- Code links (``:cfile:``, ``:cfunc:``, ``:clabel:``) resolve to the
-  locally generated source pages under :doc:`code/index`; ``:clabel:``
-  line numbers are exact per-line anchors. Line numbers in prose are
-  approximate — use the roles or search for the symbol.
-- Screenshots are the uisim output (the real unmodified
-  ``screens.c`` + LVGL, rendered in software) for all three family
-  panels — 466 (S3), 720 (P4) and 360 (knob, the shared ``screens.c``
-  compiled under ``CONFIG_BOARD_KNOB``); device composites place the
-  uisim frame at true panel geometry over the product photo (authored
-  for the two clock housings; the knob's 360 captures are raw
-  panels). The per-screen pages' layout and element tables apply to
-  the knob as well (:doc:`the knob display implementation <implementation/knob-display>`).
-  Data images are measured or fitted pixel data —
-  diagrams a native mechanism can express are native
-  (``.. graphviz::`` / mermaid) instead.
-
-License
--------
-
-The firmware and the rest of the software in the repository are under
-the **GPL-2.0-or-later** (the repo-root ``LICENSE``); this documentation
-is under **CC BY-SA 4.0** (``docs/LICENSE``). Third-party attributions —
-the modified Waveshare BSP (Apache-2.0), the ERFA subset, stb, the
-firmware fonts (Montserrat OFL, Font Awesome Free CC BY 4.0) and the
-public-domain NASA lunar imagery — live in the repo-root ``NOTICE``.
+.. The code/ entry must stay the LAST toctree entry: the "Referenced
+   from" index on the generated source pages needs every other page's
+   resolved references first (see the mooncode extension).

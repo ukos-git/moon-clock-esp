@@ -1,229 +1,253 @@
 Getting started
 ===============
 
-This site documents the Moon Phase Clock end to end — the physics, the
-implementation, the three boards, the user interface, and the
-validation.
-Start where your job is:
+This tutorial takes you from a new board to a working clock on your
+desk. You install the tools, build the firmware, copy it onto the
+board, and connect the clock to Wi-Fi. The commands are for Linux and
+have been checked on a fresh copy of the project.
 
-- **I want to build and flash one of the boards.**
-  :doc:`The boards <devices/index>` — the shared ESP-IDF 5.5.1 toolchain
-  setup, the board-identification procedure (never hard-code which
-  ``/dev/ttyACM*`` port is which board), the build/flash conventions,
-  and the per-board hardware, pre-configured defaults, and
-  compile-time settings: :doc:`the ESP32-S3 1.75 AMOLED <devices/s3>`
-  (the product's face, the default target) and :doc:`the ESP32-P4 4C
-  <devices/p4>` (the 720×720 round MIPI-DSI board, ported as a full
-  sibling).
-- **I want to understand what this product is and why it is built the
-  way it is.** The :doc:`start page <index>` — the product definition,
-  the three design properties, and the map of the rest of the site.
-- **I want the science** — how a moon frame is computed (the body-frame
-  lighting model, the terrain, the art pass) and validated against
-  NASA's rendered moon. :doc:`The science <science/index>`.
-- **I want the implementation** — the C core, the display pipeline
-  (one atomic whole-panel flush), the animation system, the sleep/wake
-  machine. :doc:`The implementation <implementation/index>`.
-- **I want to see the user interface** — one page per screen, both
-  panels, every element named and linked to its code and its option:
-  :doc:`The user interface <ui/index>`, and the round keyboard's own
-  design record plus the 13-alternative study: :doc:`the round
-  keyboard <keyboard>`, :doc:`the round keyboard lab <keyboard-lab>`.
-- **I want the reference** — the build system, the Kconfig tables, the
-  constants, the partition tables, the SPIFFS store, the Python/C APIs,
-  the sources: :doc:`The reference <reference/index>`.
+The steps use the **ESP32-S3-Touch-AMOLED-1.75**, the default board.
+The 4C board needs slightly different build commands, shown in step 5.
+For the knob board, follow :doc:`its own page <devices/knob>` from
+step 5 on.
 
-Every code link in the site resolves to the locally generated source
-pages (:doc:`The source code <code/index>`), and the reverse "Referenced
-from" index on those pages links back to the docs — the two directions
-keep the documentation and the code from drifting apart.
+What you need
+-------------
 
-Flashing a newly acquired board on Linux
-----------------------------------------
+- one of the three boards (:doc:`the boards <devices/index>`);
+- a USB-C cable that carries data, not just power;
+- a Linux computer with about 5 GB of free disk space;
+- a 2.4 GHz Wi-Fi network and its password;
+- about an hour, most of it waiting for downloads.
 
-The minimal path, verified end to end on a fresh clone. The S3 1.75
-AMOLED is the default target; the commands below are for it — the P4
-4C differs only where marked. :doc:`The board pages <devices/index>`
-carry the details (port identification, pre-configured defaults,
-binary-size checks).
+You do not need to know C. You will type commands into a terminal; if
+one fails, the error message usually names the missing piece.
 
-1. **Install ESP-IDF 5.5.1** (the version the project is built
-   against; the repo's ``idf.py build`` picks it up from the sourced
-   environment)::
+1. Install the ESP-IDF toolchain
+--------------------------------
 
-      # Debian/Ubuntu first (the ESP-IDF installer's prerequisites):
-      sudo apt-get install git wget flex bison gperf python3 \
-          python3-pip python3-venv cmake ninja-build ccache libffi-dev \
-          libssl-dev libusb-1.0-0 dfu-util
+ESP-IDF is Espressif's set of tools for building software for its
+chips. The project is built with version 5.5.1.
 
-      git clone --recursive https://github.com/espressif/esp-idf.git
-      cd esp-idf && git checkout v5.5.1
-      ./install.sh esp32s3            # esp32p4 as well, for the 4C board
-      source ~/esp/esp-idf/export.sh  # every idf.py session starts here
+.. code-block:: bash
 
-   (The ESP-IDF installer's own ``install.sh`` prints the exact package
-   list for your distribution — the line above is the one this repo
-   uses.)
+   # Debian/Ubuntu: the packages ESP-IDF needs
+   sudo apt-get install git git-lfs wget flex bison gperf python3 \
+       python3-pip python3-venv cmake ninja-build ccache libffi-dev \
+       libssl-dev libusb-1.0-0 dfu-util
 
-2. **Clone the project and identify the port.** Plug the board in and
-   find the node it claims — the one that appears on plug-in and
-   disappears on unplug is the board's port. Confirm the chip on it
-   before flashing:
+   mkdir -p ~/esp && cd ~/esp
+   git clone --recursive https://github.com/espressif/esp-idf.git
+   cd esp-idf && git checkout v5.5.1
+   ./install.sh esp32s3            # add esp32p4 if you have the 4C board
 
-   .. code-block:: bash
+Every new terminal you build in needs this line first. It puts the
+tools on your path:
 
-      ls /dev/ttyACM*                          # /dev/ttyUSB* on some hosts
-      esptool.py --port <port> chip_id         # ESP32S3 → the 1.75 AMOLED —
-                                               #   but ALSO the knob: both are
-                                               #   ESP32-S3 with 16 MB flash, so
-                                               #   disambiguate by which board
-                                               #   you just plugged in (the
-                                               #   devices pages carry the full
-                                               #   three-way check)
-                                               # ESP32-P4 → the 4C board
+.. code-block:: bash
 
-3. **Build and flash.** Fresh clones build from the checked-in
-   ``sdkconfig.defaults`` (no manual ``sdkconfig`` anywhere):
+   source ~/esp/esp-idf/export.sh
 
-   .. code-block:: bash
+Check that it worked: ``idf.py --version`` should print ``5.5.1``.
 
-      git clone git@git.project-moby.net:matthias/moon-phase.git
-      cd moon-phase
-      idf.py build                            # default target = esp32s3
-      idf.py flash -p <port>                  # app + SPIFFS + moon assets
-      idf.py monitor -p <port>                # serial console, 115200
+On other distributions, ESP-IDF's ``install.sh`` prints the package
+list it needs.
 
-   For the **P4 4C** instead, the same flow with the target, build
-   directory and live config pinned on every command —
-   ``idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build``
-   and ``… flash -p <port>`` against the port that reported ``ESP32-P4``
-   (the flag gives the P4 its own gitignored ``sdkconfig.p4`` — the root
-   ``sdkconfig`` pins the S3 target and the configure would abort
-   without it).
-   :doc:`The P4 page <devices/p4>` has the exact sequence.
+2. Get the project
+------------------
 
-   A fresh clone has no moon asset blobs yet: the configure *warns*
-   (does not fail) and the clock boots without the textured moon. One
-   command puts the full product in place before that first flash —
-   ``python3 assets/images/moon/get_assets.py --refs``, the
-   `Acquiring the moon assets`_ step below.
+The project stores some large NASA image files with Git LFS, so set
+that up before you clone:
 
-4. **Tell it the network.** A fresh board has no
-   ``/spiffs/wifi_credentials.txt`` yet, so the blocking boot sync
-   (which runs *before* the panel comes up — see the first-boot sketch
-   below)
-   simply fails and the transient WiFi screen rides the ~8 s connect +
-   10 s NTP handshake, then drops to the airplane screen: it shows the
-   handshake, not a list, and never strands the device. The list is
-   one tap away: tap the screen (home and the WiFi screen share the
-   one root handler) to open the settings hub, take the WiFi ring
-   entry, and the settings-WiFi screen starts the scan on entry — its
-   roller shows a centred SCANNING placeholder, then one row per
-   access point. Tap an access point and enter the password on the
-   round keyboard (the :doc:`round keyboard's design record <keyboard>`
-   is what that screen looks like and why); the circle-check key
-   commits. The credentials persist in the board's SPIFFS —
-   :doc:`the SPIFFS store <reference/spiffs-store>` — and the same
-   commit starts the sync: the next boot's blocking sync finds the
-   file and the board lands on the home with its moon.
+.. code-block:: bash
 
-That is the whole bring-up: toolchain, one build, one flash, one
-password. Everything else — the moon asset pipeline, the image gate,
-the uisim screenshot pass — is developer tooling, not part of putting
-a clock on a desk.
+   git lfs install
+   git clone https://github.com/ukos-git/moon-clock-esp.git moon-phase
+   cd moon-phase
+
+3. Prepare the Moon maps
+------------------------
+
+The NASA maps in the repository are too large for the board. One
+script checks them, shrinks them to the size each board can hold and
+packs them into the form the firmware reads. It sets up its own Python
+environment the first time, so it only needs ``python3``:
+
+.. code-block:: bash
+
+   python3 assets/images/moon/get_assets.py
+
+You can skip this step. The clock then still builds and runs, but it
+has no Moon picture. The build prints a warning to remind you.
+
+4. Find the board's port
+------------------------
+
+Plug in the board. Linux gives it a device name such as
+``/dev/ttyACM0``. To find out which one:
+
+.. code-block:: bash
+
+   ls /dev/ttyACM*          # on some computers /dev/ttyUSB*
+
+If you are unsure, unplug the board, run the command again, and see
+which name disappeared. Then check which chip is on that port:
+
+.. code-block:: bash
+
+   esptool.py --port /dev/ttyACM0 chip_id
+
+``ESP32-S3`` means the AMOLED board (or the knob, which uses the same
+chip). ``ESP32-P4`` means the 4C board. Do this check every time you
+plug in more than one board: the names can change.
+
+5. Build and flash
+------------------
+
+"Flashing" means copying the firmware into the board's memory. From
+the project folder:
+
+.. code-block:: bash
+
+   idf.py build                       # the first build takes several minutes
+   idf.py flash -p /dev/ttyACM0       # use the port from step 4
+   idf.py monitor -p /dev/ttyACM0     # show the board's log; Ctrl+] quits
+
+For the **4C board**, every command needs three extra settings: the
+chip, a separate build folder, and a separate configuration file:
+
+.. code-block:: bash
+
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
+   idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 flash -p /dev/ttyACM0
+
+:doc:`The 4C page <devices/p4>` explains why.
+
+6. First start
+--------------
+
+After flashing, the board restarts on its own. It tries to set its
+clock over Wi-Fi, but it does not know your network yet, so this
+fails. You see a Wi-Fi screen for about 20 seconds, then the home
+screen with the Moon. The time is wrong until the next step.
+
+7. Connect to Wi-Fi
+-------------------
+
+1. Tap the screen. The settings open.
+2. Tap the Wi-Fi icon and wait for the list of networks.
+3. Tap your network and type the password on the round keyboard.
+4. Tap the check mark.
+
+The clock connects, sets the time, and returns to the home screen.
+:doc:`Using the clock <using-the-clock>` explains the keyboard and the
+other settings.
+
+That's it: you have a working clock. Everything else in these docs is
+for people who want to change it.
+
+Behind the scenes
+-----------------
+
+This section is for developers. It shows what the steps above do in
+the firmware, and how the Moon maps are made.
 
 .. graphviz:: _graphs/bringup-overview.dot
    :alt: The bring-up as a black-box overview — the host, the optional asset branch, the chip_id gate, the per-target build and flash, the first boot resolving before the panel, and provisioning, closed by one loop into the credential file
    :align: center
-   :caption: The bring-up, drawn as black boxes: the five stages of the journey above, each sealed — no internals on this figure. Every box opens into its own sketch: the *commands* of step 3 are drawn once, :doc:`on the devices page <devices/index>` (``build-flash.dot``); the *optional asset branch* — pipeline, the configure-time ``FATAL_ERROR`` trio, the warning-only missing blob, the image gate — rides the pipeline figure in :doc:`the build-system reference <reference/build-system>`; the *referee* between the two command shapes is the target/board guard described in that same reference; and the two step-4 boxes open below this figure into their own detail sketches. The blue loop is the whole point: provisioning ends where the boot sync began, on the credential file the next boot's sync finds.
+   :caption: The bring-up as five sealed stages. The build and flash commands are drawn in detail on :doc:`the boards page <devices/index>` (``build-flash.dot``). The asset branch (pipeline, the configure-time ``FATAL_ERROR`` checks, the warning for a missing blob, the image gate) is the pipeline figure in :doc:`the build system <reference/build-system>`, which also describes the target/board guard. The two step-7 boxes open in the next two figures. The blue loop: provisioning ends at the credential file that the next boot's sync reads.
 
 .. graphviz:: _graphs/bringup-boot-sync.dot
    :alt: First boot — wifi_manager_init reads the credential file, NTP runs under its bound, the radio deinits before the panel, NTP-fixed wakes to the airplane screen, and the failed handshake shows the transient WiFi screen until the UI tick hands off
    :align: center
-   :caption: The first-boot box, opened. The boot sync is synchronous **before the panel exists** (main.cpp :494-515): the fresh board's missing credential file prints "WiFi credentials not configured. Please set valid credentials." (wifi.c :299) and the NTP leg rides the 10 s bound (actions.c :65-67). The immediate ``wifi_manager_deinit()`` is deliberate — "Airplane before the panel ever wakes up" (main.cpp :532-541; the DTIM beacon theft). The success path never shows the WiFi screen (main.cpp :644-662); the failure path shows it through the "~8+10 s handshake" (actions.c :796; the 8 s + 10 s pair), and the one UI-tick hand-off drops it on *both* handshake outcomes — "a failure must not strand the device on the WiFi screen" (:62-64, :733-734). The sync task's own anatomy — what runs off the UI task, and why — is ``wifi-sync.dot`` on :doc:`the WiFi screen <ui/wifi>` page.
+   :caption: First boot. The boot sync runs synchronously **before the panel exists** (main.cpp :494-515). On a new board the credential file is missing, so ``wifi.c`` :299 logs "WiFi credentials not configured. Please set valid credentials." and the NTP leg runs into its 10 s bound (actions.c :65-67). ``wifi_manager_deinit()`` follows straight away, so the radio is off before the panel wakes (main.cpp :532-541; this stops the DTIM beacon wake-ups). On success the WiFi screen never appears (main.cpp :644-662). On failure it stays up through the ~8 s connect plus 10 s NTP handshake (actions.c :796), and one UI tick drops it on either outcome, so a failure cannot strand the device there (:62-64, :733-734). The sync task itself is ``wifi-sync.dot`` on :doc:`the WiFi screen <ui/wifi>` page.
 
 .. graphviz:: _graphs/bringup-provisioning.dot
    :alt: The provisioning chain — tap opens the hub, the WiFi ring entry arms the scan at entry, the roller tap opens the prefilled wheel keyboard, the circle-check writes both credential lines and re-runs the handshake
    :align: center
-   :caption: The network box, opened. One shared root handler serves the home and the transient WiFi screen, but "the wake tap itself never opens the hub — a deliberate second tap does" (screens.c :108-118); the hub ring's ``GLYPH_WIFI`` entry (screens.c :598) is the same table the tap ladder BFS-walks; the scan is armed at screen *entry*, behind the panel hold (screens.c :1624-1631, wifi.c :545); tapping an access-point row opens the round wheel keyboard with the SSID prefilled (:1574-1577); the circle-check rejects an empty password (:2297-2300) and ``wifi_credentials_write`` lands **both** lines in ``/spiffs/wifi_credentials.txt`` (wifi.c :22, :117) before the same handshake re-runs — and the next boot's blocking sync finds the file. The file stays gitignored ("never commit" it, the hard invariant); ``idf.py flash`` rewrites the partition from ``spiffs/``, so a tracked example is all the image carries. The transient screen's anatomy is :doc:`the WiFi screen <ui/wifi>`.
+   :caption: Provisioning. The home and the transient WiFi screen share one root touch handler, but a wake tap never opens the hub; only a second tap does (screens.c :108-118). The hub ring's ``GLYPH_WIFI`` entry (screens.c :598) starts the scan when the screen opens, behind the panel hold (screens.c :1624-1631, wifi.c :545). Tapping a network row opens the wheel keyboard with the SSID filled in (:1574-1577). The check mark refuses an empty password (:2297-2300); ``wifi_credentials_write`` writes **both** lines to ``/spiffs/wifi_credentials.txt`` (wifi.c :22, :117), and the same handshake runs again. That file is gitignored and must never be committed. ``idf.py flash`` rewrites the partition from ``spiffs/``, so the image carries only the tracked example file.
 
+Where the Moon maps come from
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Acquiring the moon assets
--------------------------
+The ``moon_assets`` partition holds two pre-baked maps per board: the
+brightness map (albedo, equirectangular) and the relief height map
+(DEM). The S3 gets an 864 × 432 albedo and a 2048 × 1024 DEM, which fit
+its 2560 K partition; the P4 gets a 2048 × 1024 pair in its 5120 K
+partition (:doc:`the partition tables <reference/partitions>`).
 
-The ``moon_assets`` partition holds the pre-baked equirect albedo +
-relief DEM — one blob **per board target** (the S3's 864×432 albedo
-and 2048×1024 DEM fit its 2560 K partition; the P4's 2048×1024 pair
-fits its 5120 K —
-:doc:`the partition tables <reference/partitions>`). The **NASA ground
-truth ships with the repo** — the CGI Moon Kit pair from SVS 4720
-(``moon-kit/``: the 4096×2048 16-bit LROC albedo loaded 16-bit via
-tifffile, carrying the 180° longitude offset, and the LOLA relief DEM)
-and the 36 SVS 5415 gate/quarter reference frames
-(``moon_phases_2025/``) are committed via LFS, and the 8760-hour
-``mooninfo_2025.json`` is plain tracked JSON — proven static (one
-constant archive digest 2020–2026), sha256-pinned, public domain, so a
-fresh clone needs no network round-trip to NASA. Only the *derived*
-products (the ``out/<target>/`` bakes, the ``final_400x400/`` answer-key
-crops, ``tone_lut.bin``, the ``.venv``) are gitignored and re-built by
-one stdlib script, idempotently (a re-run re-verifies what exists and
-builds only what is missing):
+The NASA source data ships with the repository:
 
-.. code-block:: bash
+- the CGI Moon Kit from SVS 4720 (``moon-kit/``): the 4096 × 2048
+  16-bit LROC albedo, read as 16-bit with tifffile and carrying a 180°
+  longitude offset, and the LOLA relief DEM;
+- the 36 SVS 5415 reference frames used by the image gate and the
+  quarter figures (``moon_phases_2025/``);
+- ``mooninfo_2025.json``, the 8760-hour table of Moon data, as plain
+  JSON.
 
-   python3 assets/images/moon/get_assets.py --refs
+The image files are stored with Git LFS. All of it is public domain and
+pinned by sha256 and size. The data is static (the archive digest has
+not changed from 2020 to 2026), so a fresh clone needs no download from
+NASA. Only the *derived* files are gitignored and rebuilt: the
+``out/<target>/`` bakes, the ``final_400x400/`` answer-key crops,
+``tone_lut.bin`` and the ``.venv``.
 
-That single command bootstraps the local ``.venv`` (uv when present,
-else ``venv`` + pip) from the tracked ``requirements.txt``,
-re-verifies the committed sources against their **sha256 + size pins**
-(a failing copy is re-fetched from the primary — or the Internet
-Archive fallback, since SVS retired its ``/vis/`` tree on 2026-11-26 —
-and a moved file is refused, not baked), regenerates ``tone_lut.bin``
-from the tracked ``moon/constants.py`` table, bakes the per-target blob
-+ manifest + the tracked generated header
-(``components/moon/generated/<target>/``) into ``out/<target>/``, and
-— with ``--refs`` — crops the committed SVS 5415 frames the image gate
-and the docs' NASA figures read into ``final_400x400/`` (the
-``mooninfo`` is already committed; the dialamoon fetch behind it is the
-fresh-acquisition path only). Provenance, every URL and pin:
+``get_assets.py`` (stdlib only) does the whole job and is safe to run
+again: it checks what already exists and builds only what is missing.
+In order, it:
+
+1. creates the local ``.venv`` (with ``uv`` if present, otherwise
+   ``venv`` and pip) from the tracked ``requirements.txt``;
+2. checks the committed sources against their **sha256 and size pins**.
+   A file that fails is downloaded again from the primary source, or
+   from the Internet Archive copy since SVS retired its ``/vis/`` tree
+   on 2026-11-26. A file that has moved is refused, not baked;
+3. regenerates ``tone_lut.bin`` from the table in ``moon/constants.py``;
+4. bakes each target's blob, its manifest and the tracked generated
+   header (``components/moon/generated/<target>/``) into
+   ``out/<target>/``;
+5. with ``--refs``, crops the committed SVS 5415 frames into
+   ``final_400x400/`` for the image gate and the NASA figures in these
+   docs.
+
+``mooninfo`` is already committed; the dialamoon download behind it is
+only needed to acquire fresh data. Every URL and pin is listed in
 ``assets/images/moon/README.md``.
 
-The build tolerates the blobs' absence — the configure only *warns*
-and the app boots without the textured moon — so this step is optional
-for a bare bring-up and required for the product. The texture width is
-the Kconfig ``MOON_ALBEDO_W`` (height = width / 2, even only),
-defaulting per board to the best resolution each flash + PSRAM budget
-allows (864 on the S3, 2048 on the P4 — the first-match-wins
-``default 2048 if BOARD_P4`` line in
-:cfile:`components/moon/Kconfig`). The **knob** (sibling project
-``knob/``, :doc:`the device page <devices/knob>`) is a third target
-with **no Kconfig mirror**: its sizes (albedo 864, relief DEM halved to
-1024×512 for the PSRAM budget) live only in the pipeline's
-``TARGETS["knob"]`` row, written into its generated header and guarded
-by ``knob/CMakeLists.txt`` against its own partition table.
+The texture width is the Kconfig option ``MOON_ALBEDO_W`` (the height is
+half the width; the value must be even). Its default is the largest
+size each board's flash and PSRAM allow: 864 on the S3 and 2048 on the
+P4, through the first-match-wins line ``default 2048 if BOARD_P4`` in
+:cfile:`components/moon/Kconfig`. The **knob** (:doc:`its page
+<devices/knob>`) has no Kconfig mirror. Its sizes (albedo 864, the
+relief DEM halved to 1024 × 512 to fit its PSRAM) live only in the
+pipeline's ``TARGETS["knob"]`` row, which is written into its generated
+header and checked by the knob's CMake guard against its own partition
+table.
 
-Only regenerate when you change the pipeline or ``MOON_ALBEDO_W`` —
-the sources stay cached under ``moon-kit/``, so the bake leg needs no
-network, and the root ``CMakeLists`` fails the configure
-(``FATAL_ERROR``) on a width/manifest/partition mismatch:
+Rebake only after you change the pipeline or ``MOON_ALBEDO_W``. The
+sources stay cached under ``moon-kit/``, so this needs no network. The
+root ``CMakeLists`` stops the configure step (``FATAL_ERROR``) if the
+width, the manifest and the partition do not match:
 
 .. code-block:: bash
 
    cd assets/images/moon && .venv/bin/python -m moon.assets --target s3 p4 knob
 
-The moon image gate then proves the pipeline's output
-against NASA's reference renders for **all three** board textures
-(one simulator build per target: ``build/``, ``build-p4/``,
-``build-knob/``, each configured with ``-DMOON_ASSETS_TARGET=<t>``):
+Then run the image gate for **all three** board textures. It compares
+the result with NASA's reference renders. Each target has its own
+simulator build (``build/``, ``build-p4/``, ``build-knob/``, each
+configured with ``-DMOON_ASSETS_TARGET=<t>``):
 
 .. code-block:: bash
 
+   python3 assets/images/moon/get_assets.py --refs    # the reference crops, once
    host_sim/.venv/bin/python host_sim/check_gate.py --target s3
    host_sim/.venv/bin/python host_sim/check_gate.py --target p4
    host_sim/.venv/bin/python host_sim/check_gate.py --target knob
 
-The branch as one picture — sources, per-board blobs, the three
-configure-time guards, the warning-only missing blob, and the gate —
-is the pipeline figure in :doc:`the build-system reference
-<reference/build-system>`; its sealed version is the amber box in the
-bring-up figure above.
+The whole asset branch (sources, per-board blobs, the three
+configure-time checks, the missing-blob warning and the gate) is drawn
+in the pipeline figure in :doc:`the build system
+<reference/build-system>`.
