@@ -39,7 +39,7 @@ decisions:
 
 Two later sections describe edge-case machinery built for the dusk
 animation — a rim-sliver killer and a sampling margin. The dusk was
-retired 2026-11-13; the code stays, inert: every caller passes zero,
+retired :commit:`f7740500`; the code stays, inert: every caller passes zero,
 so the night test reduces to the plain ``lns <= 0``.
 
 Everything this page leans on — the vectors, ``lns``, the tone LUT,
@@ -199,7 +199,7 @@ two failures:
 2. **It read as an artifact.** Against the lit side's real texture, a
    dead-black half-disk looked like a rendering bug, not the Moon.
 
-The user's requirement (and the design goal it drove): *"the
+The requirement (and the design goal it drove): *"the
 unilluminated side is fully calculated — no black overlay, no flat
 floor."* The backlit model is the direct answer: render the same
 surface you render on the lit side, just lit from the opposite
@@ -313,7 +313,7 @@ A subtle but load-bearing fact: the backlit color is a function of the
 body-frame surface direction and the epoch's fixed Sun only. The camera
 basis (which direction the viewer sees) selects *which* direction is on
 screen, but never enters the *color*. That is what made a pole spin at a
-fixed phase (the light-sleep "dusk", retired 2026-11-13,
+fixed phase (the light-sleep "dusk", retired :commit:`f7740500`,
 :doc:`the animation pipelines <../implementation/animations>`) possible: the fully-lit
 body-frame color map is **constant** — it can be built once and every spin
 frame is just a re-projection of that one static map. No per-frame
@@ -372,7 +372,7 @@ inside the function makes it pure black. With ``dk_sup`` at 0 the extra
 test is dead and both branches agree.
 
 Every caller passes ``dk_sup = 0.0f`` today (the dusk was the only
-non-zero caller, retired 2026-11-13). What that leaves depends on the
+non-zero caller, retired :commit:`f7740500`). What that leaves depends on the
 path. The **gate** (``dark_zero = 0``) does run this test, and on that
 path it reduces to the plain :math:`lns \le 0` and stays byte-identical
 to the pre-backlit bake (``moon.h:101-102``). The **display** never
@@ -453,11 +453,11 @@ side is tuned.
      - 0 (earthshine)
      - 0.0
    * - Static bakes (display; the boot sweep's and the dusk's
-       rows retired with them 2026-11-13)
+       rows retired with them)
      - 1 (backlit)
      - 0.0
    * - Dusk frames (map build + final bake;
-       retired 2026-11-13)
+       retired :commit:`f7740500`)
      - 1 (backlit)
      - the endpoint :math:`dk_sup`
 

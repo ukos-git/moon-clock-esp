@@ -421,7 +421,7 @@ hit-test while the BSP indev stays live for the human — created
 .. graphviz:: ../_graphs/input-chain-knob.dot
    :align: center
    :alt: The knob opened — the polled CST816S and the pulse-pair dial at top, feeding the own POINTER indev, the tick-safe floor and the dial task, which land root-CLICKED commits, dim steps and hit-tests on the shared lock.
-   :caption: The knob opened (every pin, cadence and story the sealed box hides). ``CST816S`` @ 0x15 (SDA 11 · SCL 12 · INT 9 · RST 10): hard-reset pulse, normal-mode write once, then 7-byte polls from reg 0 — contact count at [2], x/y nibble-joined (``knob_board_touch.c``); the INT line is wired but POLLED anyway (vendor style). Our own ``touch_read_cb`` (``knob/main/main.c:84``) → ``lv_indev_create`` POINTER (:389) — the one difference from the clocks: WE supply the read callback; every press also calls ``knob_power_notify_activity`` (K7e: touch is activity), and the ok/err heartbeat probe logs a dead chip vs a silent panel vs a live one. The dial: EC1 A = GPIO 8 · B = GPIO 7, 10K pull-ups — NOT quadrature, an UP/DOWN PULSE PAIR (one channel pulses per detent and WHICH channel is the direction; bench + vendor 2026-11-08); ``enc_task`` (``knob_board_encoder.c:58``) polls 3 ms in the vendor ``process_knob_channel`` shape — LOW samples only re-arm, the detent fires on the debounced RISE (2 ticks), the count moves under ``portMUX``. The tick-safe floor is the amber footnote: at the knob's 100 Hz systick ``pdMS_TO_TICKS(3)`` == 0 and ``vTaskDelay(0)`` does NOT yield — the priority-5 poller then busy-spins, starves IDLE0 and the task WDT aborts the boot (bench 2026-11-11: "CPU 0: knob_enc" died at t ≈ 6.4 s); one tick = 10 ms, and detents are ≥ 30 ms apart anyway. ``dial_task`` 20 ms (``knob_dial.c:81``) consumes the count ONE detent at a time; off home → activity reported BEFORE the lock (a contended dial must never delay the un-dim), then ``knob_ui_lvgl_lock`` → ``screens_dial_step`` → unlock. On home the dial is BRIGHTNESS, not input: ±5 % steps through ``moon_ui_panel_brightness_set``, floored at the ladder's own dim rung — ``DIAL_DIM_MIN_PCT`` from ``CONFIG_KNOB_DIM_DUTY`` 64 = 25 % (user 2026-11-10). Tap-to-commit: a background CLICKED lands on the screen root (LVGL's no-target fallback) → ``screens_dial_commit`` (``knob_dial.c:38``), already inside the LVGL task's lock; ``knob_dial_start`` re-adds CLICKABLE to every settings root knob-side only (LVGL 9 needs CLICKABLE to make a press TARGET at all) — moon roots excluded, their tap opens the hub. And the reentrant lock (``knob_ui.c:226-:267``): holder+depth, a same-task take is a depth bump — a FreeRTOS mutex is NOT recursively takable by its owner, so the plain take self-deadlocked on the first tap when a CLICKED handler re-took it (loadScreen → seam); the dial task and the indev path meet at exactly this wrapper.
+   :caption: The knob opened (every pin, cadence and story the sealed box hides). ``CST816S`` @ 0x15 (SDA 11 · SCL 12 · INT 9 · RST 10): hard-reset pulse, normal-mode write once, then 7-byte polls from reg 0 — contact count at [2], x/y nibble-joined (``knob_board_touch.c``); the INT line is wired but POLLED anyway (vendor style). Our own ``touch_read_cb`` (``knob/main/main.c:84``) → ``lv_indev_create`` POINTER (:389) — the one difference from the clocks: WE supply the read callback; every press also calls ``knob_power_notify_activity`` (K7e: touch is activity), and the ok/err heartbeat probe logs a dead chip vs a silent panel vs a live one. The dial: EC1 A = GPIO 8 · B = GPIO 7, 10K pull-ups — NOT quadrature, an UP/DOWN PULSE PAIR (one channel pulses per detent and WHICH channel is the direction; bench + vendor 2026-11-08); ``enc_task`` (``knob_board_encoder.c:58``) polls 3 ms in the vendor ``process_knob_channel`` shape — LOW samples only re-arm, the detent fires on the debounced RISE (2 ticks), the count moves under ``portMUX``. The tick-safe floor is the amber footnote: at the knob's 100 Hz systick ``pdMS_TO_TICKS(3)`` == 0 and ``vTaskDelay(0)`` does NOT yield — the priority-5 poller then busy-spins, starves IDLE0 and the task WDT aborts the boot (bench 2026-11-11: "CPU 0: knob_enc" died at t ≈ 6.4 s); one tick = 10 ms, and detents are ≥ 30 ms apart anyway. ``dial_task`` 20 ms (``knob_dial.c:81``) consumes the count ONE detent at a time; off home → activity reported BEFORE the lock (a contended dial must never delay the un-dim), then ``knob_ui_lvgl_lock`` → ``screens_dial_step`` → unlock. On home the dial is BRIGHTNESS, not input: ±5 % steps through ``moon_ui_panel_brightness_set``, floored at the ladder's own dim rung — ``DIAL_DIM_MIN_PCT`` from ``CONFIG_KNOB_DIM_DUTY`` 64 = 25 % (:commit:`47c5e8b0`). Tap-to-commit: a background CLICKED lands on the screen root (LVGL's no-target fallback) → ``screens_dial_commit`` (``knob_dial.c:38``), already inside the LVGL task's lock; ``knob_dial_start`` re-adds CLICKABLE to every settings root knob-side only (LVGL 9 needs CLICKABLE to make a press TARGET at all) — moon roots excluded, their tap opens the hub. And the reentrant lock (``knob_ui.c:226-:267``): holder+depth, a same-task take is a depth bump — a FreeRTOS mutex is NOT recursively takable by its owner, so the plain take self-deadlocked on the first tap when a CLICKED handler re-took it (loadScreen → seam); the dial task and the indev path meet at exactly this wrapper.
 
 The rules the graph encodes:
 
@@ -442,8 +442,8 @@ The rules the graph encodes:
 - **Home dial = brightness, never input.** On the modem-sleep screen
   a detent turns the backlight ±5 % floored at the ladder's own dim
   rung (``CONFIG_KNOB_DIM_DUTY`` 64 → 25 %), is *not* ladder activity,
-  and only brightening from a dark panel counts as wake intent (user
-  decision 2026-11-10). Off home the same detent steps the edit
+  and only brightening from a dark panel counts as wake intent
+  (:commit:`47c5e8b0`). Off home the same detent steps the edit
   cursor under the LVGL lock — and activity is reported **before**
   the lock so a contended dial never delays the un-dim.
 - **The dial task and the indev path meet at the reentrant lock.**
@@ -542,9 +542,8 @@ home-family one ``gen_home_screens.py``.
    260 plus the 100×100 preview button at +150) — all three shown
    true-centred at once for width comparison; each device screen shows
    only its own roller. Bottom: the :doc:`Wi-Fi scan list
-   <settings-wifi>` — the family's ONE NORMAL-mode roller (the user's
-   2026-11-10 "make the network selection a lv_roller", 2026-11-11
-   family-wide): 430 wide (knob 300) at (0, +18), three visible rows
+   <settings-wifi>` — the family's ONE NORMAL-mode roller (the knob's
+   request :commit:`47c5e8b0`, family-wide :commit:`368d49aa`): 430 wide (knob 300) at (0, +18), three visible rows
    (the knob's four — the reason it was asked for at 360 px), its
    height being lv_roller.c's ``rows × line-height`` of the tier's
    SSID face (51/77/39 → 153/231/156). Entries are centred, truncated
@@ -553,7 +552,7 @@ home-family one ``gen_home_screens.py``.
    SCANNING / NO APS FOUND label shares the exact band and is the
    roller's only co-occupant — the pair toggles, since a one-option
    NORMAL roller pins its single row to the window top (which read as
-   "not centred", user 2026-11-11). The wifi glyph sits at y −150 and
+   "not centred"; the centred placeholder is the fix). The wifi glyph sits at y −150 and
    the NETWORKS title (32 px face) at y −84. The exit button —
    ``UI_PX(90)`` floored by ``settings_create_exit_button`` to the
    96 px box, BOTTOM_MID −34 — is the shared sub-screen furniture on

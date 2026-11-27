@@ -61,6 +61,12 @@ graphviz_dot = "dot"
 html_theme = "furo"
 # SWAP → "sphinx_rtd_theme" (sphinx-rtd-theme is in requirements.txt).
 html_static_path = ["_static"]
+# Furo's built-in per-page source buttons (the top-of-page "Edit"/"View"
+# links): with the VCS keys below, furo derives the per-page URL from the
+# source file's path relative to the docs root. Caveat: the code reference
+# pages under code/gen/ are GENERATED at build time by the mooncode
+# extension and have no path in the repo, so the View link on a code page
+# 404s (every hand-written page links correctly).
 # _templates/page.html head-injects _static/theme_sync.js (the file://
 # theme carry; see the html_js_files note below). page.html is the
 # right override point for furo: its page.html extends base.html
@@ -79,6 +85,12 @@ html_title = "The Moon Phase Clock"
 # links, ``color-brand-visited`` the visited links.
 pygments_style = "monokai"
 html_theme_options = {
+    # The per-page source links (furo's VCS model — github.com is one of
+    # the supported hosts): View → …/blob/main/docs/<page>.rst,
+    # Edit → …/edit/main/docs/<page>.rst.
+    "source_repository": "https://github.com/ukos-git/moon-clock-esp",
+    "source_branch": "main",
+    "source_directory": "docs/",
     "light_css_variables": {
         "color-brand-primary": "#525252",
         "color-brand-content": "#5f5f5f",
@@ -116,6 +128,23 @@ html_js_files = [
 # document, which kills furo's own persistence at every navigation —
 # the mechanism and the ``make -C docs serve`` way around it are on
 # reference/build-system.)
+
+# ``:commit:`<sha>``` — a bare commit SHA, linked to the GitHub commit
+# page. The docs point a decision's provenance at the commit that
+# introduced it instead of printing an ISO date; the commit page is the
+# date, one click deep. (The SHAs are short, exactly as quoted in the
+# prose — GitHub resolves them.)
+from docutils import nodes
+from docutils.parsers.rst import roles as _roles
+
+_GITHUB_COMMIT = "https://github.com/ukos-git/moon-clock-esp/commit/"
+
+
+def _commit_role(name, rawtext, text, lineno, inliner, options=None, content=None):
+    return [nodes.reference(rawtext, text, refuri=_GITHUB_COMMIT + text.strip())], []
+
+
+_roles.register_local_role("commit", _commit_role)
 
 # autodoc: the moon package is small and fully documented; show everything.
 autodoc_default_options = {

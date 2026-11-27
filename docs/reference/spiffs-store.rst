@@ -89,7 +89,7 @@ Cron-like, five fields:
      - ``0-6`` (0=Sunday), ``*``, ranges/lists
      - ``1-6`` = Mon–Sat, ``0,6`` = the weekend
 
-The default is comments-only (``# no alarms`` — 2026-11-19, a fresh
+The default is comments-only (``# no alarms`` — :commit:`dadfc2c5`, a fresh
 flash must not arm an unasked-for ring; the old ``0 7 * * 1-5``
 weekday default rang with "the alarm disabled" in the settings, and
 the ``*/5`` debug rule was burned into the alarm screen historically).
@@ -135,13 +135,13 @@ a bad/missing value falling back to the Kconfig-seeded default
    * - ``boot_anim_enable``
      - ``0``/``1``
      - none — **legacy no-op, unexposed**: nothing has read it since
-       the boot sweep retired 2026-11-13 and its
+       the boot sweep retired :commit:`51119200` and its
        ``UI_MOON_ANIM_ENABLE`` seed was deleted in the same config
        sweep (kept so the store round-trips unchanged)
    * - ``dusk_anim_enable``
      - ``0``/``1``
      - none — **legacy no-op, unexposed**: nothing has read it since
-       the dusk retired 2026-11-13 and its ``UI_MOON_DUSK_ENABLE``
+       the dusk retired :commit:`f7740500` and its ``UI_MOON_DUSK_ENABLE``
        seed was deleted in the same config sweep (kept so the store
        round-trips unchanged)
    * - ``timezone``
@@ -186,7 +186,7 @@ P4's system clock needs; the S3's PCF85063A stores *local* digits, so
 the same moment is re-derived into the new zone's digits and written
 back before the switch (epoch-consistent), and the resting moon frame
 is re-gathered in place (``moon_ui_tz_changed``, no re-bake). A file
-still carrying the retired numeric ``timezone_idx`` (the pre-2026-11-17
+still carrying the retired numeric ``timezone_idx`` (the pre-:commit:`d177a8fb`
 option list: generic 30-minute UTC offsets plus one Berlin entry)
 migrates once at load — 53 → ``Europe/Berlin``, any generic offset →
 the Kconfig default — and the name is written back on the next save.

@@ -47,7 +47,7 @@ knob — ``knob/partitions.csv``
 
 .. graphviz:: ../_graphs/partition-knob.dot
    :alt: knob partition chain — bootloader + table, factory 4096 K, storage 512 K, moon_assets 2560 K, moon_movie 9088 K, coredump 64 K
-   :caption: The sibling's chain: ``factory`` 4096 K, a fatter 512 K ``storage``, the 2560 K ``moon_assets`` row (864×432 albedo + 1024×512 DEM = 876 K combined), the 9088 K ``moon_movie`` row owning the chip's leftover (one synodic cycle of q90 gray JPEGs, 355 frames @ 2 h today — the knob has no SD socket, flash is its ONLY movie source), and the 64 K ``coredump`` witness of task #27 (read it with ``esptool read_flash`` at the data offset plus ``espcoredump.py``; it moved after the movie when the row landed — consumers find every partition by label). The table fills the whole 16384 K chip.
+   :caption: The sibling's chain: ``factory`` 4096 K, a fatter 512 K ``storage``, the 2560 K ``moon_assets`` row (864×432 albedo + 1024×512 DEM = 876 K combined), the 9088 K ``moon_movie`` row owning the chip's leftover (one synodic cycle of q90 gray JPEGs, 355 frames @ 2 h today — the knob has no SD socket, flash is its ONLY movie source), and the 64 K ``coredump`` partition (read it with ``esptool read_flash`` at the data offset plus ``espcoredump.py``; it moved after the movie when the row landed — consumers find every partition by label). The table fills the whole 16384 K chip.
    :align: center
 
 The data partitions in the build

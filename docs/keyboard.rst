@@ -6,7 +6,7 @@ password (the wheel caps the entry at 63 characters — one below the
 Wi-Fi side's 64-byte ceiling, the bound ``wifi.c`` actually enforces)
 on a 466×466 panel that is a ~35 mm
 disk. This page is the design record of the wheel that shipped — the
-**v2 12-sector hybrid** (approved and implemented 2026-11-02): its
+**v2 12-sector hybrid** (approved and implemented :commit:`47844eed`): its
 functionality, every geometry decision, the LVGL gotchas it cost, and
 the uisim verification. The full alternatives study — the 13
 considered methods, each in its own operable 1:1 widget with its pros
@@ -41,9 +41,9 @@ The widget below is the shipped wheel's *interaction* at true 1:1
 scale — the same SVG geometry as the lab's panel #1 (the 466×466
 panel, the AMOLED palette), operable in the browser: press a sector,
 sweep, release. One fidelity note before you press: its bottom band is
-**frozen at the 2026-11-02 proposal** — ⊗ commit, trash discard, the
+**frozen at the :commit:`47844eed` proposal** — ⊗ commit, trash discard, the
 lab's pairing — while the firmware has drawn the house circle-**check**
-COMMIT and circle-**xmark** DISCARD since 2026-11-08
+COMMIT and circle-**xmark** DISCARD since :commit:`f8c8d95b`
 (``screens.c:1819``; the uisim captures further down are the real
 thing).
 
@@ -187,7 +187,7 @@ Bottom band — commit / discard
 The bottom 120° splits into the house circle-**check** COMMIT key
 (LVGL 31.5°–88.5°, icon at LVGL 60° r 114) and the house
 circle-**xmark** DISCARD key (LVGL 91.5°–148.5°, icon at LVGL 120°
-r 114) — the 2026-11-08 pairing: X means discard, the check means
+r 114) — the :commit:`f8c8d95b` pairing: X means discard, the check means
 accept. Both icons are built from rotated ``lv_obj`` bars (the same
 house idiom as every other wheel mark; the FontAwesome subset has no
 circle-check code point, so the glyph is drawn, not typed — and the

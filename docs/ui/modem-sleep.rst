@@ -35,7 +35,7 @@ Elements
 
    * - 1
      - Moon — the current phase
-     - Baked statically at the current phase — the home is this frame from the first frame of boot (the boot-only sweep ``UI_MOON_ANIM_ENABLE`` used to end on it; retired 2026-11-13). Wakes show it static — no re-animation.
+     - Baked statically at the current phase — the home is this frame from the first frame of boot (the boot-only sweep ``UI_MOON_ANIM_ENABLE`` used to end on it; retired :commit:`51119200`). Wakes show it static — no re-animation.
      - :cfunc:`moon_screen_prepare` (the moon component), :cfunc:`tick_screen_modem_sleep`
 
    * - 2
@@ -55,7 +55,7 @@ Elements
 
    * - 5
      - Alarm row — next fire
-     - The NEXT scheduled alarm under the clock (third element of the shared clock widget, scheduler cache — no I2C in the tick). The hour drops its leading zero — a 07:05 rule reads "7:05", minutes stay zero-padded (task #49, cleaner against the XX:MM above). A fire beyond 24 h carries the two-letter weekday prefix ("Su 20:00" on Saturday), one inside 24 h reads plain; no scheduled rule → "--:--", no prefix.
+     - The NEXT scheduled alarm under the clock (third element of the shared clock widget, scheduler cache — no I2C in the tick). The hour drops its leading zero — a 07:05 rule reads "7:05", minutes stay zero-padded (cleaner against the XX:MM above). A fire beyond 24 h carries the two-letter weekday prefix ("Su 20:00" on Saturday), one inside 24 h reads plain; no scheduled rule → "--:--", no prefix.
      - ``refresh_alarm_display`` (:cfile:`components/ui/actions.c`), ``clock_alarm_get_next_scheduled`` (the ``clock`` component)
 
 The three variants' disk geometry side by side — the seconds arc's

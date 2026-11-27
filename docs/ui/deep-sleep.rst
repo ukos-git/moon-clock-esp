@@ -29,7 +29,7 @@ Elements
 
    * - 1
      - Moon — the parked static frame
-     - The deep transition parks on the same static frame the light-sleep screen holds (the dusk's dark-side endpoint bake was retired 2026-11-13); under the blacklight nothing shows, but the app layer keeps the image live for the alarm poll's wake.
+     - The deep transition parks on the same static frame the light-sleep screen holds (the dusk's dark-side endpoint bake was retired :commit:`f7740500`); under the blacklight nothing shows, but the app layer keeps the image live for the alarm poll's wake.
      - :cfunc:`create_screen_deep_sleep` — option ``UI_DEEP_SLEEP_COUNTDOWN_SEC`` (the countdown that armed this transition)
 
    * - 2

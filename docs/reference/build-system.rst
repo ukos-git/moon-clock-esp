@@ -287,13 +287,13 @@ conventions with *specific bugs* behind each:
    ``cz_conventional_commits`` schema — a ``type`` (with an optional
    ``(scope)``) and a colon, a ≤100-char subject, then a blank line
    before any body — which is the style the whole history was
-   rewritten to in 2026-11-24; ``git-cz`` / ``cz commit`` give the
+   rewritten to; ``git-cz`` / ``cz commit`` give the
    matching interactive prompt. The limit is passed with ``-l``
    because this commitizen version shadows the ``message_length_limit``
    config key when the flag is omitted. The second (``.githooks/commit-msg``)
    rejects any commit message carrying a co-authorship attribution
    line (case-insensitive, any position — the history's trailers were
-   scrubbed on 2026-11-22; new commits must stay clean the same
+   scrubbed in the same rewrite; new commits must stay clean the same
    way). A *pre-commit*-stage hook cannot see the message;
    installing the pre-commit stage (clang-format etc. on staged
    files) is a separate deliberate decision.

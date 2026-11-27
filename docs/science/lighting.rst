@@ -296,8 +296,8 @@ and cutting the frame time to ~1.3 s on the S3. The quantization step
 The slopes are a *pure function of the DEM cell* — the four-neighbor
 height differences — so the cache is phase-independent: it is built once
 at boot and reused for every frame. That is what made the boot sweep
-(1344 frames, retired 2026-11-13) and the dusk's map build (retired
-the same day) affordable — and what keeps the
+(1344 frames, retired :commit:`51119200`) and the dusk's map build (retired
+the same day, :commit:`f7740500`) affordable — and what keeps the
 orbit re-bakes cheap.
 
 The tangent basis

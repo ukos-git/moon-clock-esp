@@ -172,7 +172,7 @@ The public surface is deliberately small:
    void moon_bake_rows(const moon_geom_t *g, ...);       /* one row sweep */
    void moon_shade_map_build(const moon_geom_t *g, ...);/* the dusk's map (host-side only
                                                            since the dusk was retired
-                                                           2026-11-13 — shared verbatim) */
+                                                           — shared verbatim) */
    void moon_reproject(const uint8_t *map, int map_w, int map_h,
                        const moon_geom_t *g, uint8_t *frame, int size, ...);
    void moon_rotate(const uint8_t *src, int n, uint16_t *dst, int dst_w,

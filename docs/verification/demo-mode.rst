@@ -38,7 +38,7 @@ Enabling it
 
 One cycle of the clock tour takes roughly seven minutes. (It used to
 arm only once ``moon_ui_sweeping()`` was false — the boot sweep that
-gate waited for retired 2026-11-13, so the tour now arms on schedule;
+gate waited for retired :commit:`51119200`, so the tour now arms on schedule;
 takes no longer span a boot sweep on the clocks.) Demo mode also
 boots **without the TF boot replay** (``UI_MOON_BOOT_REPLAY`` is
 compiled out of the boot path while ``UI_DEMO_MODE`` is on): the
@@ -112,13 +112,13 @@ take showed the S3's QSPI completion-loss race (lost DMA completion ->
 into this phase in all four cycles the board ran — the alarm's
 wake/dismiss window,
 where the 0x51 hardware brightness ramp, the fade-to-black switch and
-the spin resume (the spin retired 2026-11-13) then overlapped (the
+the spin resume (the spin retired :commit:`79937e37`) then overlapped (the
 same family as the #96 settings-freeze
 stall). Placing the phase at the cycle end keeps roll and sync
 comparable on every cycle even while that watchdog recovery runs; the
-race itself was root-caused 2026-11-12 to the wake path's WiFi-init
+race itself was root-caused to the wake path's WiFi-init
 storm and closed with the sync-storm panel-traffic hold
-(:ref:`display-lost-dma` — see the closeout below).
+(:ref:`display-lost-dma`, :commit:`3b61fa9d` — see the closeout below).
 
 Tap-point geometry: the screen roots carry the base orientation
 (``UI_ORI_BASE_V10`` — 90° on all three panels) and the roll
@@ -141,7 +141,7 @@ sealed box, then opened step by step:
 
 .. graphviz:: ../_graphs/demo-tour.dot
    :alt: The demo tour as a black box — arm, the nine scripted phases, the alarm that rings last, and the s_cycle loop
-   :caption: Armed on schedule, the tour owns the display until reset; the cycle loops via ``s_cycle++`` with the moon index reset, and the alarm sits at the cycle's tail on purpose (8cc3fe4) — the 2026-11-08 bench take showed the QSPI completion-loss race firing ~29 s into the alarm phase, and placing it last keeps roll and sync comparable on every cycle (the race was root-caused 2026-11-12 to the wake path's WiFi-init storm).
+   :caption: Armed on schedule, the tour owns the display until reset; the cycle loops via ``s_cycle++`` with the moon index reset, and the alarm sits at the cycle's tail on purpose (:commit:`bc4d0b0b`) — the 2026-11-08 bench take showed the QSPI completion-loss race firing ~29 s into the alarm phase, and placing it last keeps roll and sync comparable on every cycle (the race was root-caused 2026-11-12 to the wake path's WiFi-init storm).
    :align: center
 
 .. graphviz:: ../_graphs/demo-tour-phases.dot
@@ -246,8 +246,8 @@ The recording harness
 Reading a take
 --------------
 
-* The **sweep** (retired from the clocks 2026-11-13, the knob's
-  cold-boot sweep 2026-11-14) played the 1344-frame spec (693 frames
+* The **sweep** (retired from the clocks :commit:`51119200`, the knob's
+  cold-boot sweep :commit:`e8efbee3`) played the 1344-frame spec (693 frames
   at the current cycle age) from the last new moon on every device.
   With a warm TF cache it replayed (measured 2026-11-08: S3 295 s at
   400 px, ~2.3 fps; P4 217 s at 650 px, ~3.2 fps); cold it baked
@@ -319,7 +319,7 @@ alarm-last order) produced:
   serial node until the dial is turned); it is build-gated with the
   clocks.
 
-**Follow-up closed (2026-11-12)** — the six-for-six stall's missing
+**Follow-up closed (:commit:`3b61fa9d`)** — the six-for-six stall's missing
 ingredient was not the 0x51 ramp itself but the wake path's on-demand
 WiFi sync. Bench hammer (``TEST_AUTO_WAKE_SEC`` auto-wakes 5 s after
 the DEEP rung, 5-frame sweep, connected AP): every tilt wake from deep
@@ -340,7 +340,7 @@ sync kickoff (quiescing the bus first), every *routine* panel write
 *dropped* (never blocked) until the sync task has taken the radio fully
 down, 15 s self-healing cap, 4 s radio tail, whole-screen repaint on
 release; the screen-switch frame is exempt at both drop seams (the
-**switch-frame pass**, 2026-11-16 — a screen switch is user presence
+**switch-frame pass**, :commit:`4d6914f5` — a screen switch is user presence
 and freezing its frame stranded the panel, see :ref:`display-lost-dma`). The hammer then caught two more thieves in the same window —
 the still-associated station's ~300 ms DTIM beacon wake stealing
 completions after the release (fixed: the sync task itself
@@ -356,14 +356,14 @@ log-and-return instead of aborting). Final hammer proof (2026-11-12):
 panic lines; the largest DMA block settles at a stable 15,360 B floor
 from wake 4 onward.
 
-**Follow-up closed (2026-11-12, same day) — the settings WiFi scan is
-the same class.** User report: after leaving the WiFi password screen
+**Follow-up closed (:commit:`9091c023`) — the settings WiFi scan is
+the same class.** Field report: after leaving the WiFi password screen
 the home clock row is blank white, no digits (the earlier phrasing was
 "scrambled watch display after returning from settings"). New headless
 repro hook ``TEST_SETTINGS_RETURN_SEC`` (writes nothing): open the
 WiFi settings screen N seconds after boot, dwell 2 s, exit home —
 dwell < the scan's ~3.9 s puts the home switch's atomic flush INSIDE
-the running scan (the user's path: password → list re-entry restarts
+the running scan (the reported path: password → list re-entry restarts
 the scan → exit home). Pre-fix capture: 400 ``co5300`` write failures
 in ~3 s plus two silently dropped strips over exactly the clock row
 (y 176..214, y 214..252) — the drops are permanent (LVGL answered
@@ -383,8 +383,8 @@ a uint32 countdown double-decrement underflowed and the return-home
 leg never fired; the heartbeat watcher (armed, 15 s threshold) stayed
 silent throughout, i.e. the LVGL task was alive the whole time.
 
-**Follow-up closed (2026-11-12) — the frozen-touch member (task #31).**
-User report: "touch is very unresponsive on the amoled display". The
+**Follow-up closed (:commit:`ba984e9c`) — the frozen-touch member.**
+Field report: "touch is very unresponsive on the amoled display". The
 WDT backtrace named the same class one level ABOVE the panel seam:
 ``wait_for_flushing`` (lv_refr.c) ← ``lvgl_worker`` (esp_lv_adapter.c)
 — LVGL's default flush wait is a non-yielding ``while
@@ -410,8 +410,8 @@ needed to fire), zero aborts. Steady-state CPU from the same captures
 Touch had headroom all along — the unresponsiveness was the wedge
 state, now bounded.
 
-**Follow-up closed (2026-11-13) — the light-sleep wake crash (task #32).**
-User report: "the s3 amoled just crashed coming back from light sleep
+**Follow-up closed (:commit:`0d2737f2`) — the light-sleep wake crash.**
+Field report: "the s3 amoled just crashed coming back from light sleep
 via touch." The line after the blackout named it: ``rst:0xc
 (RTC_SW_CPU_RST)`` — a panel-watchdog ``esp_restart``, not a panic (and
 with the #31 flush-wait bound installed, ``moon_flush_wait_cb`` never
@@ -583,9 +583,9 @@ pre-existing ~30 s ``IDLE1``/``moon_sweep`` task-WDT bite storm during
 the boot sweep predates this work and is unaffected — it never
 aborts.)
 
-**Follow-up (2026-11-15) — the ladder's healthy path never existed,
+**Follow-up (:commit:`9549a2ef`) — the ladder's healthy path never existed,
 and the bake-reveal trace proved it.** The reveal pacing investigation
-(its page retired 2026-11-24 with the compute-progress change; the
+(its page retired :commit:`ee4e3efd` with the compute-progress change; the
 numbers live in :doc:`../implementation/compute-progress`)
 instrumented every displayed
 reveal state and found the witness billing a flat **~641 ms** each:

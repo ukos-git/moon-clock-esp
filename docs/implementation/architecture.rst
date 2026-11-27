@@ -13,7 +13,7 @@ them:
    critical section. There is exactly ONE sanctioned exception,
    documented here: the hardware brightness ramp (which writes no
    pixels — the screen-switch fade; the once-per-hour refresh stopped
-   riding it on 2026-11-24, the compute-progress change). The bake
+   riding it on :commit:`ee4e3efd`, the compute-progress change). The bake
    reveal's second exception (its *atomicity-per-state* band states)
    was retired the same day: the computing frame now shows as the
    quick phase disc + the seconds-arc progress bar, and every image
@@ -281,7 +281,7 @@ watermark), **amber** is a periodic chip ask.
 .. graphviz:: ../_graphs/task-roster.dot
    :alt: The crew in black boxes — app_main, the sealed painter, the core-1 mill, the on-demand one-shots and the knob crew, each connected to the silicon box by cadence arrows
    :align: center
-   :caption: The crew in black boxes — the roster table above says *who runs where*; this says **who spawns whom, who wakes whom, and which chip each hand asks**, with every box sealed. The three claims this crew holds up: (1) the painter's affinity is **per board** — the S3 BSP pins it to core 0 with its own comment (the quote is in the prose above), the P4 passes the adapter default through; (2) every stack is internal-RAM debt by definition — ``pvPortMalloc`` is ``heap_caps_malloc(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`` (``~/esp/esp-idf/components/freertos/heap_idf.c:43,:47``) — with ONE ``xTaskCreatePinnedToCoreWithCaps`` rider on ``MALLOC_CAP_SPIRAM``, ``moon_event``; ``knob_moon`` asks ``MALLOC_CAP_INTERNAL`` on the same call (2026-11-16 — a task that can perform a flash write must never have its stack held up by the disabled cache, :doc:`/implementation/knob-display`); (3) the **static crew never exits and every dynamic member self-deletes** — and the two dashed ghosts are gated off in the shipped configs. The priorities of these same tasks are :ref:`the scheduler ladder <scheduler-ladder-perf>`, their resident bytes the :ref:`static footprint <static-footprint-perf>`, and the cadences on the amber arrows :ref:`the silicon ladder <silicon-ladder-perf>`. Each box opens below into its own sketch.
+   :caption: The crew in black boxes — the roster table above says *who runs where*; this says **who spawns whom, who wakes whom, and which chip each hand asks**, with every box sealed. The three claims this crew holds up: (1) the painter's affinity is **per board** — the S3 BSP pins it to core 0 with its own comment (the quote is in the prose above), the P4 passes the adapter default through; (2) every stack is internal-RAM debt by definition — ``pvPortMalloc`` is ``heap_caps_malloc(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`` (``~/esp/esp-idf/components/freertos/heap_idf.c:43,:47``) — with ONE ``xTaskCreatePinnedToCoreWithCaps`` rider on ``MALLOC_CAP_SPIRAM``, ``moon_event``; ``knob_moon`` asks ``MALLOC_CAP_INTERNAL`` on the same call (:commit:`d7edb36f` — a task that can perform a flash write must never have its stack held up by the disabled cache, :doc:`/implementation/knob-display`); (3) the **static crew never exits and every dynamic member self-deletes** — and the two dashed ghosts are gated off in the shipped configs. The priorities of these same tasks are :ref:`the scheduler ladder <scheduler-ladder-perf>`, their resident bytes the :ref:`static footprint <static-footprint-perf>`, and the cadences on the amber arrows :ref:`the silicon ladder <silicon-ladder-perf>`. Each box opens below into its own sketch.
 
 .. graphviz:: ../_graphs/task-roster-clocks.dot
    :alt: The clocks' crew opened — app_main and the LVGL worker spawn panel_wdg, moon_event, moon_replay, moon_hourly and moon_rebake, dashed hand-backs return to the painter, and the moon_orbit and hang_watch ghosts hang off it dashed grey
@@ -482,7 +482,7 @@ ride it:
    <clock-sleep>`).
 
 The second exception — the **bake reveal**'s *atomicity-per-state* band
-states (user decision 2026-11-14) — was retired on 2026-11-24 with the
+states (:commit:`5008dade`) — was retired on :commit:`ee4e3efd` with the
 **compute-progress** change (:doc:`the compute progress
 <compute-progress>`): a frame being *computed* no longer displays as a
 designed sequence of strip bands; the panel keeps the image it already
@@ -492,8 +492,8 @@ progress bar, so every image that lands is still ONE atomic whole-panel
 flush and the ramp's riders are the only no-pixel flows left.
 
 (The burn-in spin's direct panel write and the TF sweep cache's
-direct-write replay were further exceptions until 2026-11-13, when
-the spin subsystem was removed entirely at the user's request —
+direct-write replay were further exceptions until :commit:`79937e37`, when
+the spin subsystem was removed entirely —
 *"It does more things worse than good."* — and the boot sweep (the TF
 replay's producer) followed later the same day. The TF cache lives on
 as the hourly refresh's hour cache, and every moon frame now rides the
@@ -505,7 +505,7 @@ one atomic flush of each looping **boot movie** frame — the flash-resident
 synodic cycle, :doc:`the boot movie <moon-movie>` — and one atomic
 flush of the finished current-phase bake over the last movie frame),
 and the orbit re-bake (one atomic flush of the whole converted frame).
-The movie re-sourced the boot presentation on 2026-11-25, and it adds
+The movie re-sourced the boot presentation on :commit:`7693bffa`, and it adds
 **no new exception**: its frames are read off-panel on core 1 and shown
 through the very same sanctioned atomic-show path the card replay and
 the hourly refresh ride. (The boot sweep's frames — card-less and warm

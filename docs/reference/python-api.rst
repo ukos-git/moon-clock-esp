@@ -267,7 +267,7 @@ animation — the sweep
 
 ``moon.animation`` is the host synodic-month sweep model — the renderer
 that filmed the device's boot sweep (``docs/gen_media.py``'s
-``boot_sweep.mp4``) before that subsystem's retirement 2026-11-13; the
+``boot_sweep.mp4``) before that subsystem's retirement :commit:`51119200`; the
 film and the device sweep are gone, the host module stays runnable
 standalone with ``python -m moon.animation``
 (:doc:`the animation pipelines <../implementation/animations>`):

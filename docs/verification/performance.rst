@@ -129,13 +129,13 @@ panel 1:1, no resample. ``N`` below is the bake's pixel count
 - **re-project (dusk frame)** — one map tap per display pixel:
   **O(N)** in display pixels; the tap is **O(1)** whatever the map
   resolution.
-- **up-scale to the panel (sweep-era only, retired 2026-11-13)** —
+- **up-scale to the panel (sweep-era only, retired :commit:`51119200`)** —
   the boot sweep's 240-px baked disk drawn onto the ``panel``-px
   round display was one bilinear LVGL transform sample per *display*
   pixel: **O(display²)** in the canvas draw and the flush strips
   (:doc:`the display pipeline <../implementation/display>`). The
   sweep existed precisely to let that *draw* do the up-scaling
-  cheaply (pre-8954e88); since the native bake (``MOON_PX`` 400/650)
+  cheaply (pre-:commit:`7c3a39d1`); since the native bake (``MOON_PX`` 400/650)
   the home frame lands 1:1 and this cost is simply **gone** — the
   step no longer exists to be measured.
 
@@ -277,8 +277,8 @@ the family HEAD; the per-board gate story is
    **Right:** the plain bake vs the revealed bake per board — solid
    bars the plain baseline, dotted bars the DATED accepted reveal
    window with its min–max error bar (the strip reveal's visible-for-
-   computation tax, the 2026-11-14 bench; the reveal was retired by the
-   2026-11-24 compute repurpose — :doc:`the compute progress
+   computation tax, the 2026-11-14 bench; the reveal was retired by the :commit:`ee4e3efd`
+   compute repurpose — :doc:`the compute progress
    <../implementation/compute-progress>` — so the right panel is the
    reveal's one-glance epitaph). The generator is
    ``docs/tools/gen_perf_variants.py`` (device constants quoted beside
@@ -291,7 +291,7 @@ above plots exactly that): the knob's
 paying the same PSRAM latency per pixel, the P4 buys its 2.5×
 pixel-count lead over the S3 at *lower* wall time (fact 3), and the
 revealed column is the honest, dated price of the strip reveal — the
-2026-11-14 bench, measured before the 2026-11-24 repurpose retired
+2026-11-14 bench, measured before the :commit:`ee4e3efd` repurpose retired
 it: the reveal booked the band flushes into the bake's own budget
 (:doc:`the compute progress <../implementation/compute-progress>`,
 *Measured history*). The relief-build column scales
@@ -343,7 +343,7 @@ The A/B variants (host C)
    product's backlit-night + soft-terminator branch). At the 400 px
    product size: **relief off saves 31 %, the display path costs
    +24 %** — and the shape of the trade-off holds across the size
-   range, which is why the sweep (retired 2026-11-13) could trade
+   range, which is why the sweep (retired :commit:`51119200`) could trade
    resolution for frames.
 
 The display path's +24 % is the backlit night side (a large fraction
@@ -351,8 +351,8 @@ of the disk at a crescent) running the ``moon_backlit_night`` branch
 per dark pixel, plus the soft-terminator smoothstep at the terminator.
 That 24 % is the *art pass's* performance cost (:doc:`the artistic pass <../science/art-pass>`), paid by the S3 at
 ~0.17 s per 400 px frame — a price the sweep's 240 px bake (0.28 s
-wall) and the spin's once-baked model used to make affordable (both
-retired 2026-11-13). The relief
+wall) and the spin's once-baked model used to make affordable (the sweep retired
+:commit:`51119200`, the spin :commit:`79937e37`). The relief
 cache's 31 % is the cheap side of that trade: the one-time ~1.3 s
 gradient-cache build (S3) buys back ~2 s per frame of naive
 6-loads-per-pixel DEM sampling.
@@ -370,14 +370,15 @@ The device pipelines (accepted captures)
    bakes (blue), display-paced per-frame costs (cyan), one-time
    builds (amber), and the brightness-ramp fade (vermilion).
 
-The figure is an **accepted capture of the spin/sweep/dusk era** — all
-three motion pipelines retired 2026-11-13, so the cyan display-paced and
+The figure is an **accepted capture of the spin/sweep/dusk era** — all three motion pipelines retired
+(:commit:`79937e37` spin, :commit:`51119200` sweep, :commit:`f7740500` dusk), so the cyan display-paced and
 gather-paced bars are dated history (their live successors' hourly-refresh
 bench numbers are pending). The *pipeline-level* lesson is the ratio that
-made the product: the dusk and the sweep (both retired 2026-11-13) **were
+made the product: the dusk and the sweep (retired :commit:`f7740500` and
+:commit:`51119200`) **were
 display-paced, not bake-paced** (the per-frame display cost — ~0.23 s on
 the S3 — is *less* than the bake, so the bake task paces and the display
-keeps up with backpressure), and the spin (retired the same day) was
+keeps up with backpressure), and the spin (:commit:`79937e37`) was
 **gather-paced, not bake-paced** (the 45 ms frame against a 1.3 s bake was
 the ~30× — 150× counting just the 8 ms gather — that made a *free* spin off
 a once-baked frame possible). A pipeline whose display cost exceeded its
@@ -389,7 +390,7 @@ path — all the same native-resolution ~1.3 s S3 / ~2.4 s P4 / ~1 s knob
 bake, the 864/2048-albedo PSRAM load-latency floor; the knob's 360 px
 native bake is the 991 ms point of the per-variant table above) and the
 **orbit** re-bake (~1.7–2.4 s), plus the **hourly refresh** — which
-since the 2026-11-24 compute repurpose (:doc:`the compute progress
+since the :commit:`ee4e3efd` compute repurpose (:doc:`the compute progress
 <../implementation/compute-progress>`) runs with the OLD frame up the
 whole time: no 0x51 traffic, the seconds arc sweeping the
 rows-completed watermark, and the finished frame landing as one atomic
@@ -397,7 +398,7 @@ flush in the bright panel.
 
 The compute bench (2026-11-14, ``CONFIG_TEST_HOURLY_FORCE_S`` +
 cold/warm boot captures, measured under the strip-reveal firmware the
-2026-11-24 repurpose retired) put measured numbers on these paths
+:commit:`ee4e3efd` repurpose retired) put measured numbers on these paths
 (dated history — the repurpose's before-and-after; the plain baselines
 below are the live numbers): hourly warm TF hits land the frame in
 **185–235 ms** (after the ``new_moon_epoch_cached`` memoization —
@@ -429,8 +430,8 @@ the producer's single budget constant (``HOURLY_BUDGET_MS``,
    log millisecond axis with the 5 s ``HOURLY_BUDGET_MS`` line
    (dashed red). Solid bars are LIVE; dotted bars are DATED (the
    2026-11-14 bench measured the strip-reveal firmware — the 240 ms
-   fade legs and the revealed windows are retired by the
-   2026-11-24 compute repurpose). The TF hour-cache hit (185–235 ms)
+   fade legs and the revealed windows are retired by the :commit:`ee4e3efd` compute
+   repurpose). The TF hour-cache hit (185–235 ms)
    is **~7× cheaper than the plain bake it replaces** (1300 ms, S3
    native 400 px — the live cold path, old frame up the whole time);
    the revealed windows still land *inside* the budget — the
@@ -447,7 +448,7 @@ The boot-path ladder
 
 The ladder above is the *steady state* — what the most frequent refresh
 costs once the device is running. The boot ladder is what the user
-waits for first. Since the 2026-11-25 boot re-source
+waits for first. Since the :commit:`7693bffa` boot re-source
 (:doc:`the boot movie <../implementation/moon-movie>`), the boot
 presentation (``UI_MOON_BOOT_REPLAY``) has a **source ladder**: the
 flash-resident movie loops (unbounded — the bake is its stopper) while
@@ -472,7 +473,7 @@ drift apart:
   rate; a far target is one settle frame + the reveal, so the reveal
   lands at ~the plain **1300 ms** bake + one frame).
 - The **card fallback** (no valid movie: no partition, calcver
-  mismatch, zero-frame) is the 2026-11-14 card replay — the cache
+  mismatch, zero-frame) is the :commit:`dabbf475` card replay — the cache
   holds at most one synodic month of hourly keys (**709 files**), so a
   full warm playthrough is **89 s** at the floor and **~118 s** at the
   observed rate: both well inside the budget, which bounds that leg
@@ -481,7 +482,7 @@ drift apart:
   :ref:`per-version keying <calcver-keying>`). An overrun cuts the
   *animation*, never the moon — the final leg still lands the current
   phase. The 2009–2615 ms reveal window measured 2026-11-14 is dated
-  history (the strip reveal was retired by the 2026-11-24 repurpose).
+  history (the strip reveal was retired by the :commit:`ee4e3efd` repurpose).
 - ``UI_MOON_BOOT_REPLAY=n`` (and demo mode) never touch the SD bus and
   boot to the single static bake (**1300 ms**, the same accepted
   capture as the per-variant table above) — the quick phase disc shows
@@ -538,11 +539,10 @@ states the bound and stops.
   the boot log prints ("ready: ... scratch=NN KB") is ``s_enc_in``
   (GRAY probe, ``S²``) plus ``s_enc_out`` (the out-capacity above);
   the two big ones — ``s_fetch_in`` (sized to the same out-capacity)
-  and ``s_dec_rgb`` (3·S² RGB888) — are allocated **lazily** since
-  task #38, because on the S3 the eager ``3·S²`` decode buffer starved
+  and ``s_dec_rgb`` (3·S² RGB888) — are allocated **lazily**, because on the S3 the eager ``3·S²`` decode buffer starved
   the 8 MB board's slot floor and silently killed the card path *every*
   boot (:doc:`the animation pipelines <../implementation/animations>`,
-  the task #38 line — a cold folder never decodes, so the memory was
+  the lazy-decode line — a cold folder never decodes, so the memory was
   dead weight on exactly the board that could least spare it).
 - A **full card month** is 709 files at each board's own resolution:
   the raw decoded payload is **108 MiB** (S3, disk 400) against
@@ -568,8 +568,8 @@ states the bound and stops.
 
    The capacity axis. **Left:** one hour's frame through the codec —
    the resident encode pair (the sizes the boot log prints) against
-   the hatched lazy pair (fetch input, decode out) that task #38 made
-   conditional, KiB linear, per board. **Right:** a full card month of
+   the hatched lazy pair (fetch input, decode out), conditional in
+   the default build, KiB linear, per board. **Right:** a full card month of
    709 hourly files — the raw decoded payload (hatched, what they
    decode *to*) against the on-card worst case at the encoder's own
    file bound (solid), MiB log; the real JPEGs q90 are far smaller,
@@ -696,8 +696,7 @@ figure time:
    opacity over the already-dimmed panel; the deep entry is a SINGLE
    0x51 (``moon_ui_panel_brightness_set(0)``, ~100 µs — one
    transaction per ``fade_ramp``'s own comment, annotated not
-   measured). The hourly refresh no longer rides this family (user
-   2026-11-24: the old frame stays up the whole bake, zero 0x51
+   measured). The hourly refresh no longer rides this family (:commit:`ee4e3efd`: the old frame stays up the whole bake, zero 0x51
    traffic — :doc:`the compute progress
    <../implementation/compute-progress>`; the two 240 ms legs it used
    to ride are dated history in the hourly figure, above). The dim ramp
@@ -742,7 +741,7 @@ Runtime watermarks (free heap, largest block) are the device's own
    internal-RAM commitments — the static LVGL pool and the task
    stacks; the ONE ``MALLOC_CAP_SPIRAM`` stack task (``moon_event``) is
    dotted, not RAM debt — the knob producer's stack joined
-   internal RAM on 2026-11-16 (the tick-ISR flash-write
+   internal RAM in :commit:`d7edb36f` (the tick-ISR flash-write
    family). **Right:** the flash moon assets against their own
    partition rows — the S3's 2 MiB DEM pushes the combined image to
    94 % of its 2,560 KiB partition, the P4's 4 MiB combined sits at
@@ -808,16 +807,16 @@ The device CPU (one-core shares)
    hub-idle bar carries its measured 7–9 % range.
 
 The budget's shape is the architecture's shape: the *bake* is on a
-dedicated core (core 1, the bake tasks — the spin task retired
-2026-11-13 with its subsystem) and the *UI* is on
+dedicated core (core 1, the bake tasks — the spin task retired :commit:`79937e37`
+with its subsystem) and the *UI* is on
 core 0 (LVGL + touch + clock) — a bake that starves the UI is a
 design bug, not a timing accident. The two-core split is what let
 the sweep run for ~37 min (S3, native 400 px intermediate bake,
 2026-11-08 capture; ~11 min if ``UI_MOON_ANIM_BAKE_PX`` was dropped to
 240) — that was the *card-less* path; with the TF cache mounted the
 same sweep replayed from the card in ~2 min warm (:doc:`the
-animation pipelines <../implementation/animations>`; the sweep
-retired 2026-11-13). Either way
+animation pipelines <../implementation/animations>`; the sweep retired
+:commit:`51119200`). Either way
 the touch pipeline never sees a bake. The hub idle sits at 7–9 % because the LVGL adapter's
 ``task_min_delay_ms`` floor parks the loop at ~93 Hz — the pre-fix
 3500 Hz spin at 73–91 % was the ``vTaskDelay(0)`` yield, recorded in
@@ -2162,7 +2161,7 @@ shipped wheel (``WHEEL_SHARE``, the twelve groups name-for-name, the
 ``CONFIG_LV_INDEV_DEF_LONG_PRESS_TIME`` seeding ``lv_indev.c``). The
 fidelity notes the docs pages owe the frozen mocks are asserted
 **together** with the firmware's pairing comment — the lab card and
-widget still draw ⊗/trash while ``screens.c`` records the 2026-11-08
+widget still draw ⊗/trash while ``screens.c`` records the :commit:`f8c8d95b`
 move to check-commit/xmark-discard, and the ladder refuses to draw
 while the RST notes and the firmware comment disagree about it.
 
@@ -2342,7 +2341,8 @@ The performance decisions, ranked
 ---------------------------------
 
 The measured costs justify the spin/sweep era's performance decisions
-(both subsystems retired 2026-11-13 — the list stays as the record of
+(the spin retired :commit:`79937e37`, the sweep
+:commit:`51119200` — the list stays as the record of
 what the numbers bought; the relief cache and the dusk's
 constant-projection economics outlive them), in the order they
 mattered:
@@ -2353,17 +2353,17 @@ mattered:
    per frame on the S3; on the host (where loads are free) the same
    cache is worth the 31 % the A/B plot measures.
 2. **The once-baked spin** (:doc:`rotation and the LUT <../implementation/rotate-lut>` and :doc:`the animation pipelines <../implementation/animations>`, retired
-   2026-11-13) — the 8 ms gather against the 1.3 s bake is what made
+   :commit:`79937e37`) — the 8 ms gather against the 1.3 s bake is what made
    the burn-in rotation free; without it, the spin was a 1.3 s
    re-bake per hand motion.
 3. **The constant-projection dusk** (:doc:`the dark side <../science/darkside>` and :doc:`the animation pipelines <../implementation/animations>`) — the one-time
    1.6 s map build against the per-frame 1.3 s bake; the dusk's
    43 s runs off ~50 ms re-projects.
 4. **The reduced-res sweep lever** (:doc:`the animation pipelines <../implementation/animations>`, retired with the sweep
-   2026-11-13) — the 240 px intermediate
+   :commit:`51119200`) — the 240 px intermediate
    (~0.28 s) against the native bake: the sweep's 1343
    intermediate frames were ~56 % cheaper on the per-frame math.
-   The shipped default since 8954e88 was the NATIVE bake (S3 400 px,
+   The shipped default since :commit:`7c3a39d1` was the NATIVE bake (S3 400 px,
    P4 650 px — every intermediate frame pixel-identical to the
    static/spin bakes), a quality decision that cost boot time:
    measured ~36.5 min wall on the bench S3 (2026-11-08; per-frame
@@ -2386,9 +2386,9 @@ The honest limit: the S3's bake is ~0.7–1.3 s, and the product
 *accepts* it — the sweep was a ~37 min card-less boot story at the
 native default, ~19 min on a cold TF card and ~2 min on a warm
 one (frame count
-quadrupled on 2026-11-07: users watched the old 2.8 min sweep stutter,
-so the boot grew longer and smooth; the TF cache, 2026-11-08, made
-the length a once-per-calculation cost) before its 2026-11-13
+quadrupled in :commit:`57aa0cae`: users watched the old 2.8 min sweep stutter,
+so the boot grew longer and smooth; the TF cache (:commit:`ce3c2e1b`), made
+the length a once-per-calculation cost) before its :commit:`51119200`
 retirement; the spin (likewise retired) was
 once-baked; the dusk is map-re-projected. The alternative (a
 faster silicon, a smaller disk, a coarser relief) would buy

@@ -12,9 +12,9 @@ story. This page covers what the port took and what the
 measurements showed.
 
 **Panel-technology posture.** Burn-in is an AMOLED duty — and the
-burn-in duty was consciously dropped on 2026-11-13, when the burn-in
-spin subsystem was removed family-wide (the user's "non-amoled screens
-(e.g. lcd) do not need to use the anti-burnin moon-spin animation"
+burn-in duty was consciously dropped :commit:`79937e37`, when the burn-in
+spin subsystem was removed family-wide (the call — "non-amoled screens
+(e.g. lcd) do not need to use the anti-burnin moon-spin animation" —
 came first; "lets completely remove the moon spin anti-burn-in"
 followed the same day). On this IPS board there is no spin to run and
 never was much need for one: the moon is the static LVGL frame. The
@@ -22,7 +22,7 @@ spin-era facts quoted on this page (the 103-row strips, the 1-FB +
 ``LV_DISPLAY_RENDER_MODE_NONE`` posture, the async-DMA reject
 absorption) are the display-pipeline contract as measured when the
 spin ran, kept as history; the ``UI_MOON_SPIN_*`` Kconfig symbols
-were retired with the spin subsystem on 2026-11-13 (the config
+were retired with the spin subsystem :commit:`79937e37` (the config
 sweep deleted the keys).
 
 Component wiring
@@ -75,7 +75,7 @@ on (the default) that is the boot replay task, which plays the stored
 hour frames ascending and ends on the computed now-frame; with the
 replay off boot never touches the SD bus — and every card failure falls
 back silently to on-device baking. The module outlived the boot sweep
-it was built for (retired 2026-11-13; the replay plays **stored**
+it was built for (retired :commit:`51119200`; the replay plays **stored**
 frames, it computes none) and now caches one gray JPEG per hour,
 pruned to the current synodic month at each new moon. The pins are disjoint from the C6's
 SDIO link (CLK 18 / CMD 19 / D0–3 14–17); they are two different
@@ -124,14 +124,14 @@ Panel differences that matter to the pipeline
      - DSI async DMA (the async-DMA2D throughput floor shows up as "previous draw not finished" rejects, absorbed by the ``moon_panel_draw_wait`` retry — ~3,900 measured in the spin era — :doc:`the display pipeline <../implementation/display>`)
    * - Moon scale
      - MOON_PX 400, MOON_R 200
-     - MOON_PX 650, MOON_R 325 (upscaled from 618/309 with the 2026-11-01 seam work)
+     - MOON_PX 650, MOON_R 325 (upscaled from 618/309 with the :commit:`f23f9c77` seam work)
    * - Teardown mode
      - n/a
      - 1-FB ``LV_COLOR_FORMAT`` single-buffer with ``LV_DISPLAY_RENDER_MODE_NONE`` (the 3-FB partial-mode scanout flip showed a stale spin pose from an old frame's last visit — the spin-era CCW flicker; the posture outlived the spin — :doc:`the display pipeline <../implementation/display>`)
 
 The spin-era direct writes ran 103-row strips (the DPI FIFO underruns
 at 206 on X16+XIP PSRAM), settled to 65 rows for the 650 px disk; that
-write path retired with the spin subsystem (2026-11-13), and the
+write path retired with the spin subsystem (:commit:`79937e37`), and the
 surviving strip pitch — ``MOON_STRIP_ROWS`` 130 — only *paces* the
 LVGL invalidations the atomic displays use
 (:doc:`the P4 port <../implementation/p4-port>`). The gray→RGB
@@ -151,7 +151,7 @@ milestone labels used in the project's tracking):
   ``dependencies.lock.p4`` (the P4's C6/esp_hosted dependency set
   differs from the S3's). (M0 shipped with a 16 MB binary header —
   a shared-defaults leftover — whose esptool size-mismatch warning
-  was expected; the boot-movie wave, 2026-11-25, bumped the header
+  was expected; the boot-movie wave, :commit:`1703e278`, bumped the header
   to the real 32 MB and added the ``moon_movie`` LAST row, so the
   warning is gone and the table fills the whole chip.)
 - **M1 — plumbing**: rev v1.3 board, PSRAM at 200 MHz, JD9365 + GT911
@@ -183,16 +183,16 @@ On-device captures (full run, 0 WDT / 0 panic; the boot sweep, the
 dusk and the reject accounting are spin/sweep-era captures of now
 retired subsystems, quoted as history):
 
-- Boot sweep (retired 2026-11-13): 336/336 frames completed.
+- Boot sweep (retired :commit:`51119200`): 336/336 frames completed.
 - Final bake: ~959 ms at 650 px (599 ms at the earlier 618 px scale,
-  before the 2026-11-01 upscale).
-- Dusk (retired 2026-11-13): ~43 s for the full constant-projection
+  before the upscale).
+- Dusk (retired :commit:`f7740500`): ~43 s for the full constant-projection
   spin.
 - The async-DMA rejects during the spin are absorbed — 0 dropped
   strips after the ``moon_panel_draw_wait`` retry (the retry rides
   today's atomic flushes on the same path).
 
-After the 2026-11-04 clock rollers landed, the P4 binary is 1,605,984 B
+After the :commit:`5f50c8d0` clock rollers landed, the P4 binary is 1,605,984 B
 (``0x188160``) — about 17 % of the 9 MB factory partition. The S3
 binary at the same point is 1,511,280 B (``0x170f70``), about 72 % of
 its 2 MB factory partition (the ~28 % headroom under the 2,097,152 B
@@ -384,7 +384,7 @@ S3 page lists. The P4's native bake size is not a Kconfig value at
 all: it is ``#define MOON_PX 650`` (``components/ui/moon_ui.c``,
 behind ``#if defined(CONFIG_BOARD_P4)``) — the old
 ``UI_MOON_ANIM_BAKE_PX`` Kconfig key was deleted with the sweep
-2026-11-13.
+:commit:`51119200`.
 
 Compile-time settings
 ---------------------

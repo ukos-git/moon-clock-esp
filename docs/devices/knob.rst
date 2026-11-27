@@ -6,10 +6,10 @@ components** — the ``knob/`` sibling project boots its QSPI panel,
 loads the pre-baked moon assets into PSRAM and renders the physical
 moon (K7 milestones: K7a asset target + gate green, K7b static
 frame, K7c sky-event tint + day tick — its cold-boot synodic sweep
-retired 2026-11-14, the clocks having dropped their own the day
+retired :commit:`e8efbee3`, the clocks having dropped their own the day
 before —, K7d
 SNTP time with the honest ``no time`` posture, K7e idle ladder +
-EXT0 dial wake). The **P0 family seam** (2026-11-09) made it the
+EXT0 dial wake). The **P0 family seam** (:commit:`d96fdaff`) made it the
 third board of the moon-clock family: the project now links the
 clock's shared ``components/{clock, ui, wifi, moon}`` behind a
 knob-owned ``board``/``imu`` shim. The **P1 parity step** (same day)
@@ -21,7 +21,7 @@ idle ladder dims to the clocks' light-sleep look (LEDC 25 % + clock widget
 the internal RTC **TIMER** wake (silent — no codec). The **P2 dial
 step** (same day) made the settings surface operable without touch:
 hub ring, alarm screen, rollers, the WiFi list (an ``lv_roller`` in
-the 37 px SSID font since 2026-11-10 — the label rows read too small
+the 37 px SSID font since :commit:`47c5e8b0` — the label rows read too small
 on the 1.8", so the dial *rolls* the list now) and the wheel keyboard
 each carry one dial-stepped edit cursor, and a background tap
 commits it through the native handlers
@@ -31,13 +31,13 @@ full rule — hour, minute, start/end day — is set with dial + tap and
 saved through the native handler into ``/spiffs/alarm.txt``. The
 **P4 battery gauge** (same day) added the battery home-screen
 overlay reading GPIO 1 behind the divider on the **placeholder**
-LiPo calibration — redone 2026-11-13 as a small iPhone-style
+LiPo calibration — redone :commit:`e9fbd623` as a small iPhone-style
 status-bar icon (capsule + nub + fill + docked-bolt heuristic) at
 the bottom centre — the gauge ships, the multimeter ritual still
 owes it honest numbers.
 The earlier
 **companion-input** role (milestones K0–K6, UDP frames driving the
-clock's screens) was **discarded 2026-11-08** at the owner's
+clock's screens) was **discarded :commit:`955cf91c`** at the owner's
 direction — no companion code remains anywhere in the repo, and the
 clock lost its listener in the same change. This page records the
 bench-observed facts the port started from.
@@ -95,9 +95,9 @@ jobs stay from K7e: a detent is activity for the idle ladder on every
 screen but home — there it is the **brightness control** (5 % per
 detent, floored at the ladder's dim rung, and deliberately not
 activity), and after deep sleep it is the wake input (EXT0 on its A
-channel). A screen press once aborted the boot sweep (task #28: the
-seam's press observer consumed the tap so no hub opened under a
-skip); with the sweep retired 2026-11-14 every press is an ordinary
+channel). A screen press once aborted the boot sweep (the seam's press
+observer consumed the tap, so no hub opened under a skip); with the
+sweep retired :commit:`e8efbee3` every press is an ordinary
 home/hub touch again. The two clock boards and this
 one remain independent products — no cross-board traffic; what they
 share is the code.
@@ -316,7 +316,7 @@ legacy own-screen build (``KNOB_UI_ENABLE=n``) — with P2 shipped the
 shared TZ screen owns the zone on the family app and ``KNOB_TZ``
 survives only in that legacy caption. Around that, the sky-event
 tint with a 1 Hz day tick (every boot and wake shows the static
-current phase — the cold-boot synodic sweep retired 2026-11-14,
+current phase — the cold-boot synodic sweep retired :commit:`e8efbee3`,
 making the clock's wake policy the whole display policy),
 that re-bakes once on a UTC-date or event-signature change, SNTP
 time over the shared ``components/wifi`` join with the clock's NVS
@@ -401,7 +401,7 @@ Layout and commands:
   (:doc:`the knob display <../implementation/knob-display>`).
   Every frame bakes crisp at 360 with the event passed —
   the boot sweep's reduced-size intermediates retired with the sweep
-  on 2026-11-14, so the one crisp path is all that is left (the
+  on :commit:`e8efbee3`, so the one crisp path is all that is left (the
   frame is byte-identical to what the sweep's final frame always
   was). Measured on the S3R8 (bench, 2026-11-08): crisp bake
   ~0.8 s, 0 TWDT. The current-phase frame carries the sky event
@@ -520,7 +520,7 @@ Layout and commands:
   or brightening the dial wakes it.
 * The **battery gauge ships on placeholder calibration only**: the
   schematic's 10K/10K top rail (drawn as 5V) may measure VBUS rather
-  than the cell, so the multimeter ritual **with the user present**
+  than the cell, so the multimeter ritual **with a bench operator present**
   still owes the ``adc_oneshot`` GPIO 1 gauge its honest numbers
   (gauge mV vs multimeter at the divider top, USB-plugged vs
   battery-only; a gauge not agreeing within ~50 mV needs recalibration,
@@ -531,8 +531,8 @@ Layout and commands:
   verdict lands the icon reads plausible, not verified. The docked
   fill takes the **theme's moon color** —
   ``theme_colors[active_theme_index][0]``, the seconds-arc ink, read
-  live on every minute tick so a theme change propagates (user
-  2026-11-14, replacing the reference iOS green); the fill is white
+  live on every minute tick so a theme change propagates
+  (:commit:`3cd836aa`, replacing the reference iOS green); the fill is white
   normally and red at or below ``KNOB_BATTERY_LOW_PCT``.
 * Own build dir, lock and config (like the P4): ``idf.py -C knob -B
   ../build/knob build`` from the repo root; ``dependencies.lock.knob``
@@ -558,7 +558,7 @@ Layout and commands:
   on glass comes with P3). The shared clock keeps advancing under the
   alarm visual — HH:MM ticks on the alarm screen too (the missing
   ``clock_minute_enable_interrupt`` gate that froze it there while
-  ringing was caught and fixed on 2026-11-15,
+  ringing was caught and fixed in :commit:`2b4b9e6d`,
   :doc:`the knob display <../implementation/knob-display>`).
 * The dial is a **UP/DOWN pulse pair**, not quadrature: each detent
   pulses ONE channel (A = GPIO 8, B = GPIO 7, 10K pull-ups) and the

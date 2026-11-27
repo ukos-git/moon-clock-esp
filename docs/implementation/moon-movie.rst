@@ -1,7 +1,7 @@
 The boot movie
 ==============
 
-The boot presentation's first source (user decision 2026-11-25): a
+The boot presentation's first source (:commit:`7693bffa`): a
 **precomputed synodic cycle of the moon phases**, baked once at build
 time by the portable C core, stored **flash-resident** in the
 ``moon_movie`` data partition, and played **looping** on the panel
@@ -10,9 +10,9 @@ lands, the movie plays forward to the frame matching the current
 phase — and the computed frame reveals over it, atomically.
 
 The movie exists because the pre-movie boot had a cold gap: the card
-replay (2026-11-14) played *stored* hour frames, so a first boot —
+replay (:commit:`dabbf475`) played *stored* hour frames, so a first boot —
 empty card, wiped folder, or no card at all — had nothing to show and
-sat on the quick phase disc (or black, pre-2026-11-24) until the live
+sat on the quick phase disc (or black, pre-:commit:`ee4e3efd`) until the live
 bake landed. A movie baked at build time is present on *every* boot:
 no SD card, no probe, no cold folder. The TF card keeps its job — the
 **hourly refresh cache** only (:doc:`the animation pipelines
@@ -216,7 +216,7 @@ publish, and the two tasks never share a buffer (the bake owns
    loop and degrades to the final leg; a healed single miss is
    skipped.)
 2. **The card fallback** (no partition / calcver mismatch /
-   zero-frame movie): the 2026-11-14 card replay verbatim — the lazy
+   zero-frame movie): the :commit:`dabbf475` card replay verbatim — the lazy
    mount happens on THIS leg's first moment (a card-less fallback pays
    the ~1 s probe here; the movie path never touches the bus at
    boot), the stored hours play ascending, neutral tint, the

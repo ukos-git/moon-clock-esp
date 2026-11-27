@@ -23,7 +23,7 @@ The short version
 
 The previous page ended with a dark side that was *correct*. This page
 is the one place in the project that deliberately asks for more than
-correct: the user's standing direction — quoted above — is "better
+correct: the standing direction — quoted above — is "better
 than NASA", and what came out of it is exactly three small changes to
 what the panel shows:
 
@@ -229,7 +229,7 @@ The last line rounds to a byte like every other write in the bake, and
 The gating is deliberate: the blend runs **only** in the display bake
 (:math:`dark_zero = 1` *and* :math:`dk_sup = 0`). The gate
 (:math:`dark_zero = 0`) and the dusk's map path
-(:math:`dk_sup > 0` — retired with the dusk 2026-11-13, the
+(:math:`dk_sup > 0` — retired with the dusk :commit:`f7740500`, the
 parameter kept in the portable core) both fell through to the
 original hard path, so the validation numbers and the — then live —
 sleep-screen endpoint stayed untouched by the soft edge. The whole dark

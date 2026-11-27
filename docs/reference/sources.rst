@@ -90,8 +90,8 @@ The tools the numbers came from
   "redraw loop": one command that goes red on any ``Rebooting…`` /
   stack-overflow / ``Guru Meditation`` line inside the window and green
   on a live touch heartbeat with zero reboots. It is the red-capable
-  feedback loop behind the 2026-11-21 knob_boot 4 KiB stack-overflow
-  fix (commit ff7385f).
+  feedback loop behind the knob_boot 4 KiB stack-overflow
+  fix (:commit:`680ac89c`).
 
 A note on the site's own numbers
 --------------------------------

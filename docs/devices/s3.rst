@@ -58,7 +58,7 @@ is a silent no-op and the hourly refresh just bakes on-device. The
 module survives the sweep it was built for: it now serves the
 **hourly refresh** and the **boot replay's fallback leg** (
 ``UI_MOON_BOOT_REPLAY``, :doc:`the animation pipelines
-<../implementation/animations>`) — since the 2026-11-25 boot
+<../implementation/animations>`) — since the :commit:`7693bffa` boot
 re-source the presentation's first source is the flash-resident boot
 movie (:doc:`the boot movie <../implementation/moon-movie>`), and the
 card's stored hour frames play only when the movie is missing or
@@ -196,11 +196,11 @@ coiled cable in the photos). The sleep machine (:doc:`the clock and sleep machin
 largely because an always-on AMOLED on a desk is a burn-in risk and a
 power draw; light sleep keeps the panel on but dims it, deep sleep
 turns the panel's backlight off entirely. The rotation that once spread
-the first risk was retired with the animation stack on 2026-11-13;
+the first risk was retired with the animation stack :commit:`79937e37`;
 what follows from it — the moon burning itself faintly into the panel
-over weeks of always-on display — is an accepted trade-off since
-2026-11-14: the user calls a burned-in moon a feature rather than a
-bug, since it will likely not disturb reading the display
+over weeks of always-on display — is an accepted trade-off
+(:commit:`eed1d856`): a burned-in moon is a feature, not a bug, and it is
+unlikely to disturb reading the display
 (:doc:`the animation pipelines <../implementation/animations>`).
 
 The custom shim
@@ -324,7 +324,7 @@ allocator, not LVGL's 64 KB static pool), the hardware
 brightness fade + the once-per-hour refresh (``CONFIG_UI_SCREEN_SWITCH_FADE=240``,
 ``CONFIG_UI_MOON_HOURLY_ENABLE=y``), ``CONFIG_UI_CLOCK_ALPHA_PCT=20``,
 and ``CONFIG_LV_USE_SNAPSHOT=n`` (the burn-in spin's keep-mask was its
-only device user; gone with the spin 2026-11-13). The spin / boot-anim /
+only device user; gone with the spin :commit:`79937e37`). The spin / boot-anim /
 dusk pins the file once carried are gone with the whole animation stack.
 
 Compile-time settings

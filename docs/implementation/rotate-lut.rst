@@ -5,7 +5,7 @@ Two small functions close the core: the **in-plane rotation**
 ("ball-in-hand" free spin) and the **gray→RGB565** conversion. Both
 were latency-optimized for the frame rate of the burn-in spin, which
 displayed 8 fps off a once-baked frame; the spin was removed
-2026-11-13, and with it the rotation's only device caller — what
+:commit:`79937e37`, and with it the rotation's only device caller — what
 remains on the device is the LUT (every displayed frame goes through
 ``moon_gray565``) and the core's rotation API, used verbatim by
 ``host_sim`` (and kept, shared, in ``components/moon/core``). Both are
@@ -25,7 +25,7 @@ answers cover it:
    of the screen — exactly "the moon disk turning under your thumb",
    and exactly nothing more (a real 3-D turn would need a re-bake).
    The product that wanted it — the burn-in spin — was retired
-   2026-11-13; the function stays, verbatim, in the shared core
+   :commit:`79937e37`; the function stays, verbatim, in the shared core
    because the host tools still drive it.
 2. **Bake once, turn cheaply.** Baking costs ~1.3 s; a display frame
    had 125 ms in the spin era. So the phase is computed once and the
@@ -57,7 +57,7 @@ also have fuller entries in the :doc:`glossary <../glossary>`:
 - **Ball-in-hand** — the product name for the effect: the baked
   moon turning under the viewer's hand the way a physical model
   does.
-- **Spin** *(glossary)* — the retired (2026-11-13) device feature
+- **Spin** *(glossary)* — the retired (:commit:`79937e37`) device feature
   that called the rotation at 8 fps to fight AMOLED burn-in; the
   only device caller this file ever had.
 - **Gather (inverse mapping)** — building an image destination-first:
@@ -131,7 +131,7 @@ models (turning the visible disk about the screen normal) and wrong
 for what it is not (a true 3-D pose would need a re-bake — which is
 what the *orbit* pipeline does when the tilt demands it, :doc:`the animation pipelines <animations>`).
 That product decision outlived its justification and was retired
-2026-11-13 ("It does more things worse than good") — the gather and
+:commit:`79937e37` ("It does more things worse than good") — the gather and
 its rationale stay in the shared core, exercised by the host tools,
 while the orbit remains the live tilt pipeline.
 
@@ -300,7 +300,7 @@ that made the spin's 125 ms frame budget work):
 
 ``moon_rotate`` runs the whole square; ``moon_rotate_rows(y0, y1)``
 is the same operation on a row band. Neither runs on the device
-today: the spin — the only device caller — was retired 2026-11-13,
+today: the spin — the only device caller — was retired :commit:`79937e37`,
 and the row-publishing sweeps never gathered at all (the orbit bakes
 on a basis pre-rotated by ``moon_orbit_geometry`` and publishes
 converted rows through ``moon_bake_rows``,
@@ -422,7 +422,7 @@ Where these run on the device
 
 **The short version.** The file's two halves live different lives on
 the hardware: the rotation has no device caller left — its only
-one, the spin, was removed 2026-11-13, and the host tools drive it
+one, the spin, was removed :commit:`79937e37`, and the host tools drive it
 verbatim — while the LUT is unavoidable, sitting in every path that
 reaches a panel. Only the first bullet invites "why keep dead
 code?" and it has an answer: the core is shared byte-for-byte
@@ -430,7 +430,7 @@ between device and host, and the host is where the rotation's
 guarantees are tested.
 
 - ``moon_rotate`` / ``moon_rotate_rows`` — **no device caller** since
-  the spin's removal (2026-11-13); the host tools
+  the spin's removal (:commit:`79937e37`); the host tools
   (``host_sim/main.c``, ``host_sim/bench.c``) drive the whole-frame
   variant verbatim.
 - ``g565`` — the live path, everywhere: fused into the host gather
@@ -473,7 +473,7 @@ its live users.
 .. graphviz:: ../_graphs/rotate-lut-gather.dot
    :align: center
    :alt: A vertical chain — 4-px unroll, the inverse map, the round step, the two-comparison bounds test, the fused LUT read — fed by the teal gate and bench boxes (above which the dashed retired spin hangs) and by the trig triple sin_tab, moon_sin15, moon_cos15; the dotted incremental-update node feeds the round step.
-   :caption: The gather's numbers, line-referenced: ``sin_tab[NQ+1]``, NQ 1024 — 1025 int32 (8 KB) built once lazily (:13-15, "1025-entry quarter-symmetric table" :1); int32 on purpose — ``cos 0 = 32768`` wrapped to ``-32768`` in int16 "would wrap ... and mirror the disk" (:6-7); ``moon_sin15`` folds any angle with ``red16`` into ``[0, 4·NQ)`` (:28-33) then unpacks the quadrant — q1 walks the table BACKWARDS (``NQ − idx``), q2 negates, q3 mirrors and negates (:40-49) — and ``moon_cos15`` is one line (:52): cosine is sine a quarter turn ahead; the linear step lands ~18 bits of angle, sub-pixel per frame. The gather (:130-163, ~8 ms for 400×400): the 4-px unroll (:136-139) "keeps up to 4 PSRAM frame loads in flight so the gather is not latency-bound" (:137-138) — bandwidth-bound, the relief cache's lesson at 4 M; the inverse map ``fx = dx·c15 + dy·s15``, ``fy = dy·c15 − dx·s15`` ("p = R(−theta) s", Q15.15) is paid per GROUP of 4 (:144-145) with ``|dx|, |dy| < 234, max |fx| ~ 1.6e9 fits int32`` (:147-148); the floor/round pair (:149-152) is an arithmetic shift plus a bit-and and a compare for the nearest-neighbour sample; the whole bounds test is two comparisons — ``(unsigned)ix < (unsigned)frame_size`` (:153-156), a negative becomes huge so one ``<`` catches below-zero AND past-edge, and out-of-frame keeps ``gval = 0`` — "Out of frame = black", no disk mask (header :6); the LUT read is fused into the same instruction stream (:157); and one destination pixel over is ONE fixed rotation step (:158-159) — "exact integer math" (:137), no multiply returns, no drift along the row. The rotation's only customers: ``main.c:97`` (the gate's render_one, whole 400 px square per PNG, angle from ``rot_deg``) and ``bench.c:119`` (the timing loop); the dashed spin — 8 fps off one baked frame, the only device caller ever — retired 2026-11-13 (16cd5c3..59ceeef), "the product decision outlived its justification".
+   :caption: The gather's numbers, line-referenced: ``sin_tab[NQ+1]``, NQ 1024 — 1025 int32 (8 KB) built once lazily (:13-15, "1025-entry quarter-symmetric table" :1); int32 on purpose — ``cos 0 = 32768`` wrapped to ``-32768`` in int16 "would wrap ... and mirror the disk" (:6-7); ``moon_sin15`` folds any angle with ``red16`` into ``[0, 4·NQ)`` (:28-33) then unpacks the quadrant — q1 walks the table BACKWARDS (``NQ − idx``), q2 negates, q3 mirrors and negates (:40-49) — and ``moon_cos15`` is one line (:52): cosine is sine a quarter turn ahead; the linear step lands ~18 bits of angle, sub-pixel per frame. The gather (:130-163, ~8 ms for 400×400): the 4-px unroll (:136-139) "keeps up to 4 PSRAM frame loads in flight so the gather is not latency-bound" (:137-138) — bandwidth-bound, the relief cache's lesson at 4 M; the inverse map ``fx = dx·c15 + dy·s15``, ``fy = dy·c15 − dx·s15`` ("p = R(−theta) s", Q15.15) is paid per GROUP of 4 (:144-145) with ``|dx|, |dy| < 234, max |fx| ~ 1.6e9 fits int32`` (:147-148); the floor/round pair (:149-152) is an arithmetic shift plus a bit-and and a compare for the nearest-neighbour sample; the whole bounds test is two comparisons — ``(unsigned)ix < (unsigned)frame_size`` (:153-156), a negative becomes huge so one ``<`` catches below-zero AND past-edge, and out-of-frame keeps ``gval = 0`` — "Out of frame = black", no disk mask (header :6); the LUT read is fused into the same instruction stream (:157); and one destination pixel over is ONE fixed rotation step (:158-159) — "exact integer math" (:137), no multiply returns, no drift along the row. The rotation's only customers: ``main.c:97`` (the gate's render_one, whole 400 px square per PNG, angle from ``rot_deg``) and ``bench.c:119`` (the timing loop); the dashed spin — 8 fps off one baked frame, the only device caller ever — retired (:commit:`79937e37`), "the product decision outlived its justification".
 
 **The dictionary** — ``g565_build``, the two switches, the live users:
 

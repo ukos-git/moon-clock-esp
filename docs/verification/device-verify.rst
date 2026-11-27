@@ -21,7 +21,7 @@ every pipeline timing is a ``ESP_LOGI`` with a measured
 logged by the ROM reset reason. A verification capture is a serial
 log of a *defined flow* (boot → idle → light sleep → deep
 sleep → wake; the boot sweep and dusk rungs dropped out of it
-2026-11-13), read for three classes of line:
+:commit:`51119200` and :commit:`f7740500`), read for three classes of line:
 
 .. list-table::
    :header-rows: 1
@@ -110,7 +110,7 @@ own right.
 
 .. graphviz:: ../_graphs/device-verify-surfaces.dot
    :alt: The four verification surfaces — log, WDT/bus lock, scanout, eye — with the four incidents and the blind edges
-   :caption: Three of the four incidents were invisible to the log: the lost DMA completion was silent to BOTH log and WDT (parked tasks keep the idles alive) and was rooted only by the coredump shape — ``two tasks on one bus lock, no holder``; the P4 DPI-FIFO underrun logged nothing (the DPI controller does not log underruns by default) and showed as one tear per ~28 s of load, fixed by 103 → 65-row strips; the seam lines were invisible because the WRITE path was correct — the per-strip QSPI re-latch was not, and the eye caught it (1582ddb, one continuous window write; the spin retired 2026-11-13, the write path underneath stays). The log's one clear catch: ``ESP_ERR_NO_MEM`` mid-flush with a half-updated screen — fixed to 25-row strips, queue depth 1 (the 32 KiB SPI DMA cap; the host malloc has neither cap nor staging). The silent case's witness: the coredump's custom 32 B phdr + 588 B CORE notes — the TCB in the notes IS the thread id; symbolize with the ROM-ELF, not the app ELF.
+   :caption: Three of the four incidents were invisible to the log: the lost DMA completion was silent to BOTH log and WDT (parked tasks keep the idles alive) and was rooted only by the coredump shape — ``two tasks on one bus lock, no holder``; the P4 DPI-FIFO underrun logged nothing (the DPI controller does not log underruns by default) and showed as one tear per ~28 s of load, fixed by 103 → 65-row strips; the seam lines were invisible because the WRITE path was correct — the per-strip QSPI re-latch was not, and the eye caught it (:commit:`4d361afe`, one continuous window write; the spin is retired, the write path underneath stays). The log's one clear catch: ``ESP_ERR_NO_MEM`` mid-flush with a half-updated screen — fixed to 25-row strips, queue depth 1 (the 32 KiB SPI DMA cap; the host malloc has neither cap nor staging). The silent case's witness: the coredump's custom 32 B phdr + 588 B CORE notes — the TCB in the notes IS the thread id; symbolize with the ROM-ELF, not the app ELF.
    :align: center
 
 The flows the capture reads belong to their own sketches — the fade
@@ -132,7 +132,7 @@ Boot acceptance — and the sweep-era captures
 Boot is now **one static bake**: the acceptance is the ``bake | phase
 … | geo … bake …`` + ``bake | rgb565 …`` pair on every boot (plus the
 sleep chain that follows). The boot sweep that used to precede it —
-retired 2026-11-13 — needed the longer acceptance below, kept as
+retired :commit:`51119200` — needed the longer acceptance below, kept as
 history (the full 1344-frame flow; the bench S3 re-captured
 2026-11-08 at the new count — **~36.5 min wall** at the native 400 px
 intermediate bake. The bench S3 is the project's own board; the old
@@ -166,7 +166,7 @@ logged a plausible day count — a degenerate ephemeris logs a full
 not the bake (~270–280 ms on the S3's 25-row-strip flush path,
 ~190 ms on the P4 — never the ~1.2–2 s bake); and the capture carries
 on into the sleep chain (what used to be the spin hand-off is today
-the static final frame — the spin subsystem was retired 2026-11-13).
+the static final frame — the spin subsystem was retired :commit:`79937e37`).
 The 2026-11-08 S3
 capture ran the whole sleep chain on the heels of the sweep: idle
 re-arm, ``Idle timeout reached after 60888 ms``, the light-sleep
@@ -191,13 +191,13 @@ The spin-era acceptance was a **sustained window** (120 s of
 continuous settled spin on the S3), not a boot flow: the spin's
 failure modes were the panel-io ones (the lost-DMA-completion stall,
 the seam lines), which take a while to show. The seam fix (the single
-400×400 window write, ``1582ddb``) was verified with exactly this
+400×400 window write, :commit:`4d361afe`) was verified with exactly this
 window, and the *seam lines* themselves with a diagnostic build
 (``TEST_SPIN_BANDS=1``: the spin's 25-row strips rendered as 16
 distinct gray bands through the *same write path* as the moon — the
 bands confirmed the lines at the 25-px band edges, and the
 single-window write removed them). That flow retired with the spin
-subsystem on 2026-11-13 (diagnostic included).
+subsystem on :commit:`79937e37` (diagnostic included).
 
 What survives is the write path *underneath* the atomic whole-panel
 flushes. The P4 keeps the async-DSI reject accounting: the
@@ -214,7 +214,7 @@ Light sleep and the sleep machine
 ---------------------------------
 
 The dusk's acceptance (the endpoint + the countdown arm on its last
-frame) retired with the dusk 2026-11-13. Light sleep's acceptance is
+frame) retired with the dusk :commit:`f7740500`. Light sleep's acceptance is
 now the **static dim entry** and the **countdown arm at the entry**:
 the dim ramp lands, the moon tick pauses on the static frame, the
 seconds timer pauses, and the RTC one-shot is armed by the entry
@@ -316,6 +316,6 @@ numbers in :doc:`the animation pipelines <../implementation/animations>` and
 eye's sign-off is a hypothesis, not a verification.
 
 The remaining page of the section is the *performance* of all of it —
-the extensive comparison the user asked for (:doc:`performance <performance>`),
+the extensive on-device comparison (:doc:`performance <performance>`),
 with the binary-size chronology as its budget ledger
 (:doc:`the binary-size chronology <binary>`).

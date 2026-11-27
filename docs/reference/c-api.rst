@@ -43,7 +43,7 @@ them:
   ``moon_reproject_rows``) so the caller can sweep a finished row band
   to the display while the rest is still being computed (the orbit
   bakes rows today; the dusk re-projected rows and the boot sweep was
-  the original user — both retired 2026-11-13, :doc:`the animation pipelines <../implementation/animations>`).
+  the original user — both retired :commit:`51119200`, :doc:`the animation pipelines <../implementation/animations>`).
 
 .. _c-api-surface:
 
@@ -63,7 +63,7 @@ called by no one.
 .. graphviz:: ../_graphs/api-surface.dot
    :align: center
    :alt: Five sealed boxes — THE DEVICE CALLERS and THE HOST TOOLS side by side above THE CONTRACT (three headers, 24 entries), which hangs over THE DEFINITIONS and the amber THE ASSET SEAM box — joined by blue, teal and dashed legs.
-   :caption: The core's public surface as the family actually uses it — the black-box pass, no internals. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``) — the rotation's dashed era (the spin's removal 2026-11-13) ended 2026-11-17, when the observer-view gather brought it back into every shipped frame. Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call. The boxes open below; the three claims that follow are checkable at the cited line.
+   :caption: The core's public surface as the family actually uses it — the black-box pass, no internals. Blue edges are calls a shipped frame makes; teal edges belong to a host tool; amber prices the day-scan guard; dashed legs are retired (the dusk pair's whole-frame variants live only in ``bench.c``), internal (the four ``*_rows`` helpers), or dead (``moon_deinit``) — the rotation's dashed era (the spin's removal :commit:`79937e37`) ended :commit:`d177a8fb`, when the observer-view gather brought it back into every shipped frame. Every edge was read out of the source before drawing — comment-stripped, so the ``moon_tfcache.c`` "gray565" mention is a comment at :18, not a call. The boxes open below; the three claims that follow are checkable at the cited line.
 
 **The contract** opens into the census — the three headers, their 24
 entries, and where each definition lives:
@@ -91,7 +91,7 @@ core source list (the sharing ladder checks the set equality):
 
 Three claims the picture makes, each checkable at the cited line:
 
-- **The device owns the bake — and, since 2026-11-17, the rotation
+- **The device owns the bake — and, since :commit:`d177a8fb`, the rotation
   again.** ``moon_ui.c`` drives the geometry at six sites (:1722 boot,
   :1890 hourly producer, :2226 replay final, :2332 orbit, plus the
   new-moon scan :2066/:2081), the whole bake at four (:1750 boot,
@@ -223,7 +223,7 @@ The parameters the device always passes (and the two that carry the
   decision). ``dark_zero = 0`` is byte-identical to the old
   earthshine bake for every pixel (the gate's proof).
 - ``dk_sup`` — the *dusk-only* dark-side bound: retired with the dusk
-  2026-11-13, the parameter kept in the portable core (shared verbatim
+  :commit:`f7740500`, the parameter kept in the portable core (shared verbatim
   with the host tools) — every device bake passes ``0.0f`` today.
   With ``dark_zero``, the dark side was written for
   ``d < dk_sup`` instead of ``d < 0``, killing the geometrically-lit
@@ -248,8 +248,8 @@ the cached gradient (``lns = (d − G·S)/sqrt(1 + |G|²)``, unclipped),
 the phase-independent earthshine (``dark_zero = 0``) or the backlit
 computed surface (``dark_zero = 1``), then the 256-entry tone LUT.
 
-The constant-projection pair (the dusk — host-only since 2026-11-13)
---------------------------------------------------------------------
+The constant-projection pair (the dusk — host-only since :commit:`f7740500`)
+----------------------------------------------------------------------------
 
 .. code-block:: c
    :caption: moon.h — the dusk's map + re-project (abridged)

@@ -13,9 +13,9 @@ the seat choice is the board you want on the desk.
 source of truth (``hardware/housing/params.json``), the in-scene audit,
 the STL dimension audit and the render set are all green. The A2 step —
 the first 0.2 mm PETG test print, fitting all three boards, and recording
-the measured per-seat clearances back into ``params.json`` — is pending and
-user-gated; the Moon v1 seat stays a stub until Phase B's STEP regenerates
-it.
+the measured per-seat clearances back into ``params.json`` — is pending a
+go-ahead to print; the Moon v1 seat stays a stub until Phase B's STEP
+regenerates it.
 
 What it is
 ----------
@@ -111,7 +111,7 @@ lip), wall 4.0, lip 2.0, tilt **18°** (15–20° design band), height cap
 **160 mm**, feet Ø14 × 1.5. Print profile: FDM 0.2 mm PETG, 30 % infill,
 3 walls, **``tol_side`` 0.20 mm** (band 0.15–0.25 — A2 records the measured
 per-seat clearance and tunes it). The knob seat is a well for the **stock
-CNC case** (the user's unit lives in it), so its pocket is Ø66.40 × 22.20
+CNC case** (the unit in use lives in it), so its pocket is Ø66.40 × 22.20
 and it carries no screw — the stock case's own screw pattern is the
 documented brown-out hazard.
 
@@ -198,13 +198,13 @@ and none carry the anti-flex rule or the swappable-seat idea:
   weather-clock case (3274860), both documented on Waveshare's own resources
   page.
 - **Knob 1.8** — no community cases found (Printables/Thingiverse/MakerWorld
-  came up empty); the user's unit is in the stock CNC case, which is what
+  came up empty); the unit in use sits in the stock CNC case, which is what
   the knob seat replaces.
 
 Next: the A2 test print
 -----------------------
 
-The A2 step (user-gated) prints the chassis + all four cartridges at the
+The A2 step prints the chassis + all four cartridges at the
 current ``tol_side`` 0.20, fits the three physical boards (and the stock
 knob case), and records the measured clearance per seat into
 ``params.json``'s ``measured`` fields — then ``tol_side`` is tuned per seat,

@@ -19,9 +19,9 @@ turns the backlight off.
 
 ![The finished clock, simulated](docs/_static/photos/sim_home.webp)
 
-The [docs landing page](docs/index.rst) carries a short film of the whole
-interface, computed live by the docs build from the same simulator that renders
-the screenshots above.
+The [docs landing page](https://ukos-git.github.io/moon-clock-esp/) carries a
+short film of the whole interface, computed by the docs build from the same
+simulator that renders the screenshots above.
 
 The same portable C core runs on three Waveshare boards from one tree:
 
@@ -36,17 +36,19 @@ The same portable C core runs on three Waveshare boards from one tree:
 The complete documentation — the science, the implementation, the build system,
 the per-board references (pin maps, build/flash, partitions), and the
 per-screen UI reference with three-panel screenshots — is the Sphinx site under
-`docs/` (build it with
-`docs/.venv/bin/sphinx-build -b html docs docs/_build/html`; code links resolve
-to the locally generated source pages). This README is the entry point, not the
-reference.
+`docs/`, live at
+[https://ukos-git.github.io/moon-clock-esp/](https://ukos-git.github.io/moon-clock-esp/)
+(the docs CI builds and deploys it on every push to `main`; locally:
+`docs/.venv/bin/sphinx-build -b html docs docs/_build/html`, with code links
+resolving to the locally generated source pages). This README is the entry
+point, not the reference.
 
 ## Build & flash
 
 Verified end to end on a fresh clone, on Linux. The S3 1.75 is the default
 target; the P4 4C differs only in the pinned target/build dir. Full details
-(including port identification and per-board defaults) are in
-[docs/getting-started](docs/getting-started.rst).
+(including port identification and per-board defaults) are in the
+[getting-started guide](https://ukos-git.github.io/moon-clock-esp/getting-started.html).
 
 ```bash
 # one-time: install ESP-IDF 5.5.1 (the version this tree builds against)
@@ -117,28 +119,35 @@ idf.py clang-check --exit-code --run-clang-tidy-options="-header-filter=''" main
 
 Headless verification switches (all default off) — `TEST_SETTINGS_DEMO_SEC`,
 `TEST_AUTO_WAKE_SEC`, `TEST_BAKE_NO_RELIEF`, and more — are documented in the
-Kconfig table in the [documentation](docs/reference/kconfig-ui.rst).
+Kconfig table in the
+[UI Kconfig reference](https://ukos-git.github.io/moon-clock-esp/reference/kconfig-ui.html).
 
 ## Where to go next
 
-The hardware and build reference lives in the docs, not here:
+The hardware and build reference lives in the
+[docs](https://ukos-git.github.io/moon-clock-esp/), not here:
 
-- [The S3 board](docs/devices/s3.rst) — wiring, full pin map, build/flash,
-  pre-configured defaults
-- [The P4 4C board](docs/devices/p4.rst) — the sibling port, C6 over SDIO
-- [The knob board](docs/devices/knob.rst) — the dial sibling project (`knob/`),
-  deep sleep on an RTC timer
-- [Getting started](docs/getting-started.rst) — the minimal verified flash
-  runbook, expanded
-- [The user interface](docs/ui/index.rst) — every screen, element by element
-- [Performance](docs/verification/performance.rst) — how fast everything is,
-  with the exact commands to reproduce the numbers
+- [The S3 board](https://ukos-git.github.io/moon-clock-esp/devices/s3.html) —
+  wiring, full pin map, build/flash, pre-configured defaults
+- [The P4 4C board](https://ukos-git.github.io/moon-clock-esp/devices/p4.html)
+  — the sibling port, C6 over SDIO
+- [The knob board](https://ukos-git.github.io/moon-clock-esp/devices/knob.html)
+  — the dial sibling project (`knob/`), deep sleep on an RTC timer
+- [Getting started](https://ukos-git.github.io/moon-clock-esp/getting-started.html)
+  — the minimal verified flash runbook, expanded
+- [The user interface](https://ukos-git.github.io/moon-clock-esp/ui/index.html)
+  — every screen, element by element
+- [Performance](https://ukos-git.github.io/moon-clock-esp/verification/performance.html)
+  — how fast everything is, with the exact commands to reproduce the numbers
+
+The source is on [GitHub](https://github.com/ukos-git/moon-clock-esp).
 
 ## License
 
 The firmware and all other software in this repository are licensed under the
-**GNU General Public License, version 2 or (at your option) any later version**
-([LICENSE](LICENSE)). The documentation ([docs/](docs/)) is licensed under
+**GNU General Public License, version 2 or later** (GPL-2.0-or-later,
+[LINK](LICENSE)). The documentation
+([docs/](https://ukos-git.github.io/moon-clock-esp/)) is licensed under
 **Creative Commons Attribution-ShareAlike 4.0 International**
 ([docs/LICENSE](docs/LICENSE)).
 

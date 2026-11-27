@@ -65,7 +65,7 @@ P4's two chips below, the ``esp_wifi`` call leaving
 
 .. graphviz:: ../_graphs/p4-port-seams-chips.dot
    :alt: The P4's two chips — the JD9365 DSI panel driven from the shim, the remote C6 radio fed by wifi_manager
-   :caption: The panel is the JD9365 720×720 round IPS over MIPI-DSI DPI DMA, RGB888, ONE framebuffer + NONE tear mode (the 3-FB flip showed stale poses — d3d68b9), the XC BSP behind ``CONFIG_BSP_LCD_TYPE_720_720_4_INCH``. The radio is esp_wifi_remote 0.14.5 + esp_hosted 1.4.7 — RPC over SDIO, 4-bit at 40 MHz (CLK 18, CMD 19, D0–D3 14–17, slave reset GPIO 54) to the C6 slave, STA only, ``SOFTAP_SUPPORT=n`` on both sides; the three component-manager guard keys (``int``, default 0 — a bool would hard-error) silence the esp_hosted 3.1.0 registry's USB-transport clauses.
+   :caption: The panel is the JD9365 720×720 round IPS over MIPI-DSI DPI DMA, RGB888, ONE framebuffer + NONE tear mode (the 3-FB flip showed stale poses — :commit:`ee4e688e`), the XC BSP behind ``CONFIG_BSP_LCD_TYPE_720_720_4_INCH``. The radio is esp_wifi_remote 0.14.5 + esp_hosted 1.4.7 — RPC over SDIO, 4-bit at 40 MHz (CLK 18, CMD 19, D0–D3 14–17, slave reset GPIO 54) to the C6 slave, STA only, ``SOFTAP_SUPPORT=n`` on both sides; the three component-manager guard keys (``int``, default 0 — a bool would hard-error) silence the esp_hosted 3.1.0 registry's USB-transport clauses.
    :align: center
 
 The board shim
@@ -185,7 +185,7 @@ data from external memory fast enough, underrun" — one underrun per
 strips, 127 KB); for the 650 px disk the direct-write era settled at
 **65 rows** (10 strips, 84.5 KB) — an even smaller burst, the same
 proven-safe class. That era's write path retired with the spin
-subsystem (2026-11-13, :doc:`the animation pipelines <animations>`);
+subsystem (:commit:`79937e37`, :doc:`the animation pipelines <animations>`);
 what survives is its strip pitch, demoted to a *pacing* constant for
 the atomic displays' invalidations:
 
@@ -248,7 +248,7 @@ strips** over a long session in the spin era (the rejects were
 spin-only — 0 during the sweep and dusk; today the same retry rides
 the atomic flushes' back-to-back bursts). They are the
 panel's *throughput* limit, not a bug: the 1-FB + ``NONE`` tear mode
-(fix ``d3d68b9``) removed the triple-buffer flip that showed a stale
+(fix :commit:`ee4e688e`) removed the triple-buffer flip that showed a stale
 pose from a framebuffer's last visit, and the retries are what keeps
 the remaining throughput floor from dropping a frame.
 
@@ -339,14 +339,14 @@ What the port did *not* touch
   whole-panel display; the ONE sanctioned exception: the fade's
   hardware brightness ramp). The bake reveal's second exception —
   whose band-atomic states ran the P4's 13-row bands after the
-  2026-11-15 tuning (26 pre-tuning) — was retired 2026-11-24 with
+  2026-11-15 tuning (26 pre-tuning) — was retired :commit:`ee4e3efd` with
   the compute-progress change (:doc:`the compute progress
   <compute-progress>`; the compute watermark runs the same 13-row
   strips, but the partial bake is never displayed). In the spin era
   the P4's two extra exceptions (the spin's direct write and the TF
   replay's) went per-strip (65 rows) rather than the S3's single
   window, but were still ``s_panel_mtx``-held, per-frame atomic
-  units — all retired 2026-11-13 with the spin.
+  units — all retired :commit:`79937e37` with the spin.
 - **The panel-io watchdog** — the same ``s_panel_mtx``-based restart
   guard runs on the P4 (its DSI bus has its own stall modes; the
   bounded-hold + watchdog discipline is board-blind).

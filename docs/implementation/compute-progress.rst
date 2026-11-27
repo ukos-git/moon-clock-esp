@@ -1,7 +1,7 @@
 Compute progress — the phase disc and the arc
 =============================================
 
-The user's brief (2026-11-24): *"There is no point currently in giving out
+The brief (:commit:`ee4e3efd`): *"There is no point currently in giving out
 iteratively the result of the current calculation. It is simply not
 performant enough to yield calculation-steps. Instead, show the calculation
 progress in reasonable update steps using the seconds display arc that is
@@ -13,7 +13,7 @@ image."* — with the mid-turn refinement: *"if a calculated image is present
 you might as well stay on that; only if there would be a dark background,
 show the quick-calculated phase image."*
 
-It replaced the strip-by-strip **bake reveal** (user decision 2026-11-14,
+It replaced the strip-by-strip **bake reveal** (:commit:`5008dade`,
 this page's predecessor ``bake-reveal.rst`` — its 2026-11-14/15 bench
 numbers below remain the accepted bake-cost measurements). The reveal's
 entire display side is gone: the band state machine, the one-strip-per-tick
@@ -21,7 +21,7 @@ pacing rule, the catch-up bands, the heal path, the ``s_hourly_faded``
 fade choreography — and with it four Kconfig keys
 (``UI_MOON_BAKE_REVEAL``, ``KNOB_UI_BAKE_REVEAL``,
 ``UI_MOON_HOURLY_FADE_MS``, ``TEST_BAKE_REVEAL_TRACE``; all three trees,
-2026-11-24). What remains of the reveal is its **producer** — the
+:commit:`ee4e3efd`). What remains of the reveal is its **producer** — the
 strip loop with the rows-completed watermark — repurposed: the watermark
 now feeds a progress bar instead of a display. And the display side is two
 small things: a **quick phase disc** in the dark windows, and the home/wifi
@@ -219,7 +219,7 @@ Configuration
 
 No new keys. The behavior is unconditional family-wide; the four
 retired keys were deleted from ``components/ui/Kconfig`` and
-``knob/components/knob_ui/Kconfig`` (2026-11-24), and the live pins
+``knob/components/knob_ui/Kconfig`` (:commit:`ee4e3efd`), and the live pins
 (``CONFIG_UI_MOON_BAKE_REVEAL``, ``CONFIG_KNOB_UI_BAKE_REVEAL``,
 ``CONFIG_UI_MOON_HOURLY_FADE_MS``, ``CONFIG_TEST_BAKE_REVEAL_TRACE``)
 sedded out of ``sdkconfig`` / ``sdkconfig.p4`` / ``knob/sdkconfig`` per

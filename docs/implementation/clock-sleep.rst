@@ -193,7 +193,7 @@ The sub-screens:
    :figclass: align-center
 
    The **alarm** hub icon: the rule list (add / delete / edit). The
-   project default is now comments-only ("# no alarms", 2026-11-19 — a
+   project default is now comments-only ("# no alarms", :commit:`dadfc2c5` — a
    fresh flash must not arm an unasked-for ring); the screenshot replays
    the host sim's canned example rule (the old ``0 7 * * 1-5`` weekday
    default retired).
@@ -266,8 +266,8 @@ gates matter:
 - **The sweep gate** *(retired family-wide)* — an on-demand WiFi
   sync (below) used to be blocked while a boot sweep was playing: it
   would switch screens mid-sweep. The clocks retired the gate with
-  their sweep 2026-11-13, and the knob's own gate went with its sweep
-  on 2026-11-14 (:doc:`the knob display <knob-display>`) — nothing
+  their sweep :commit:`51119200`, and the knob's own gate went with its sweep
+  :commit:`e8efbee3` (:doc:`the knob display <knob-display>`) — nothing
   gates the sync but the remaining policy below.
 
 The minute label is drawn as **fixed-width HH:MM slots** — the numbers
@@ -310,7 +310,7 @@ Four facts carry the chain — all of them the code's own:
   then the boot NTP **synchronously inside ``clock_init``** (:512,
   timeout ``CLOCK_NTP_TIMEOUT_MS`` = 10 s), then the radio is dropped
   *before the panel ever wakes* — an associated modem's DTIM beacon
-  steals QSPI DMA completions (task #29), so the boot sync is done and
+  steals QSPI DMA completions, so the boot sync is done and
   gone before the first flush.
 - **Two plausibility floors, both parsed, never invented.** The NVS
   restore accepts only ``epoch >= 1609459200`` (pre-2021 is junk); a
@@ -360,7 +360,7 @@ drawn from the code:
 .. graphviz:: ../_graphs/time-chain-trust.dot
    :alt: The trust raisers and what the flag gates
    :align: center
-   :caption: The trust raisers — boot NTP is SYNCHRONOUS inside ``clock_init`` (``enable_ntp_sync`` at ``main.cpp:512``, timeout ``CLOCK_NTP_TIMEOUT_MS`` 10 s) and lands BEFORE the panel wakes (``wifi_manager_deinit`` follows at :541 — an associated modem's DTIM beacon steals QSPI DMA completions, task #29); the success path writes the S3's RTC and brings up home with a fresh clock. ``sntp_sync_time_cb`` (``clock_sntp.c:109``) raises the flag, force-snapshots the epoch (non-PCF builds) and releases the waiter; ``needs_sync()`` (``CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS``, 1 h) re-arms the hourly gate. Manual entry exists for the P4 only (the hub's clock icon): the commit runs ``clock_set_time`` + ``clock_sntp_set_time_trusted(true)`` + ``moon_ui_day_tick`` (``screens.c:2924-2927``) — a user-entered time IS trusted, the rejected path logs "manual time … rejected". The flag-gated legs: the knob arms its static phase on the wall bool ("a restore happened") rather than raw plausibility, and the P4's ring needs ``clock_sntp_time_trusted()`` AND (the one-shot flag OR ``now >= next_epoch``) so the default 2026-01-24 can never phantom-ring (``clock_interrupt.c:183``).
+   :caption: The trust raisers — boot NTP is SYNCHRONOUS inside ``clock_init`` (``enable_ntp_sync`` at ``main.cpp:512``, timeout ``CLOCK_NTP_TIMEOUT_MS`` 10 s) and lands BEFORE the panel wakes (``wifi_manager_deinit`` follows at :541 — an associated modem's DTIM beacon steals QSPI DMA completions); the success path writes the S3's RTC and brings up home with a fresh clock. ``sntp_sync_time_cb`` (``clock_sntp.c:109``) raises the flag, force-snapshots the epoch (non-PCF builds) and releases the waiter; ``needs_sync()`` (``CONFIG_CLOCK_NTP_SYNC_INTERVAL_HOURS``, 1 h) re-arms the hourly gate. Manual entry exists for the P4 only (the hub's clock icon): the commit runs ``clock_set_time`` + ``clock_sntp_set_time_trusted(true)`` + ``moon_ui_day_tick`` (``screens.c:2924-2927``) — a user-entered time IS trusted, the rejected path logs "manual time … rejected". The flag-gated legs: the knob arms its static phase on the wall bool ("a restore happened") rather than raw plausibility, and the P4's ring needs ``clock_sntp_time_trusted()`` AND (the one-shot flag OR ``now >= next_epoch``) so the default 2026-01-24 can never phantom-ring (``clock_interrupt.c:183``).
 
 One honest bench note on the P4's clock source. The curated
 ``sdkconfig.defaults.esp32p4`` pins ``CONFIG_RTC_CLK_SRC_EXT_CRYS=y``
@@ -423,7 +423,7 @@ rule exists to forbid. Four discrete poses, each applied atomically,
 is both cheaper and correct. (The direct-write spin had to pre-rotate
 every frame by the current step and re-rotate the UI keep-mask with it
 so its panel writes matched LVGL's root transform; that machinery was
-removed 2026-11-13 — the root transform is now the only rotation the
+removed :commit:`79937e37` — the root transform is now the only rotation the
 panel sees (:doc:`the display pipeline <display>`).)
 
 **The calibrations in one sentence each:** *home is where the desk
@@ -483,7 +483,7 @@ trigger.
 - the moon tick pauses on a **static frame**
   (:doc:`the animation pipelines <animations>`) — ``moon_ui_pause(true)``
   interrupts the orbit and parks the last baked viewport; the dusk
-  pole spin that used to play here was retired 2026-11-13;
+  pole spin that used to play here was retired :commit:`f7740500`;
 - the clock widget drops to ``UI_CLOCK_ALPHA_PCT`` (production:
   **20%** alpha) and the seconds timer pauses with the tick;
 - the panel ramps to ``UI_LIGHT_SLEEP_DIM_PCT`` (production: **25%**)
@@ -581,7 +581,7 @@ PCF85063A ALM wake (the app-level
 deep sleep does not call ``esp_deep_sleep`` — the crystal clock runs
 through it), so on the P4 the device **stays in light sleep while an
 alarm is pending** (dim panel, dark side) instead of dropping to the
-backlight-off state. The user's power decision: an alarm must be
+backlight-off state. The power decision: an alarm must be
 able to ring.
 
 The third board runs a different ladder
@@ -699,7 +699,7 @@ lands in — drawn from the code:
 .. graphviz:: ../_graphs/alarm-lifecycle-fire.dot
    :alt: The alarm fire paths and the shared poll
    :align: center
-   :caption: The fires — on the S3 the ALM pin sets AF and drives TCA9554 INT to EXIO3 (``IO_EXPANDER_PIN_NUM_3``, the same line the deep-sleep wake rides); ``clock_handle_interrupts`` reads the interrupts and, GATED on the scheduler's cache (``clock_alarm_get_next_scheduled`` — the P4 parity: a latched AF with no rule scheduled is a stale latch, cleared without firing; 2026-11-19), triggers, clears AF and re-schedules. On the P4 the one-shot's callback only sets a flag on the esp_timer task (nothing UI there); the poll branch accepts flag OR wall-clock backup check (``now >= next`` catches a one-shot a time SET left stale), gated on the trust flag, then stops the one-shot and re-schedules. Both branches run inside the ONE shared poll — ``lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS = 1300)`` — whose ``clock_cb.c`` dispatchers call the registered actions DIRECTLY, in the LVGL task. The ring: backlight relight, ``g_alarm_active``, ``alarm_audio_ring_start`` (ES8311 gradual ramp; the knob is the codec-less silent board), ``g_asleep = true`` (dismissing it IS a wake event), tick → 10 ms, ``moon_ui_pause(true)`` (no baking for a screen that shows no moon), ``clock_timer_disable``, ``clock_idle_reset_timer`` (no auto-sleep while ringing), ``loadScreen(SCREEN_ID_ALARM)``. The dismiss: ``alarm_indev_read_cb`` fires on every press regardless of hit-test but only while ``g_alarm_active`` AND ``!clock_is_idle()`` — the asleep press is consumed by the earlier-registered idle-wake cb instead.
+   :caption: The fires — on the S3 the ALM pin sets AF and drives TCA9554 INT to EXIO3 (``IO_EXPANDER_PIN_NUM_3``, the same line the deep-sleep wake rides); ``clock_handle_interrupts`` reads the interrupts and, GATED on the scheduler's cache (``clock_alarm_get_next_scheduled`` — the P4 parity: a latched AF with no rule scheduled is a stale latch, cleared without firing; :commit:`08645912`), triggers, clears AF and re-schedules. On the P4 the one-shot's callback only sets a flag on the esp_timer task (nothing UI there); the poll branch accepts flag OR wall-clock backup check (``now >= next`` catches a one-shot a time SET left stale), gated on the trust flag, then stops the one-shot and re-schedules. Both branches run inside the ONE shared poll — ``lv_timer_create(clock_rtc_interrupt_handler_cb, RTC_POLL_INTERVAL_MS = 1300)`` — whose ``clock_cb.c`` dispatchers call the registered actions DIRECTLY, in the LVGL task. The ring: backlight relight, ``g_alarm_active``, ``alarm_audio_ring_start`` (ES8311 gradual ramp; the knob is the codec-less silent board), ``g_asleep = true`` (dismissing it IS a wake event), tick → 10 ms, ``moon_ui_pause(true)`` (no baking for a screen that shows no moon), ``clock_timer_disable``, ``clock_idle_reset_timer`` (no auto-sleep while ringing), ``loadScreen(SCREEN_ID_ALARM)``. The dismiss: ``alarm_indev_read_cb`` fires on every press regardless of hit-test but only while ``g_alarm_active`` AND ``!clock_is_idle()`` — the asleep press is consumed by the earlier-registered idle-wake cb instead.
 
 The interval (pomodoro) rule's settings-side half — the three-glyph
 entry screen, the twin-roller screen whose RELEASED handler *is* the
@@ -765,7 +765,7 @@ its stability and on-axis gates — drawn from the code:
 .. graphviz:: ../_graphs/tilt-pipeline-orient.dot
    :alt: The 10 Hz orientation pipeline
    :align: center
-   :caption: The orientation pipeline — ``screen_orientation_apply`` runs every 10 ms UI tick but samples only through the 100 ms gate (``ORI_SAMPLE_MS``) → 10 Hz; the monitor's 1 Hz timer does not feed it. x/y are int4-quantized (``ORI_Q_SCALE`` 8, one level = 1/8 g, clamped ±1 g) and a flat gate below 0.25 g leaves the in-plane pose UNDEFINED — orientation, window and reference frozen. The 1 s running mean (``ORI_WINDOW`` 10) is the 1 Hz low-pass; STABLE means the filtered mean holds within ONE int4 level for ``ORI_STABLE_SAMPLES`` 15 (~1.5 s). An integer dot/cross quadrant decides step ∈ {0, 90, 180, 270}° CW-positive with no atan2 and no floats, decided BEFORE the reference re-tracks — and re-tracking happens only while SETTLED and step 0, so a fast 180° flip cannot adopt its transient pose as home (the "clock woke up sideways" bug class). The step must be produced by 10 consecutive samples (~1 s) before it applies; a deliberate move costs at most ~1 s. ``v10 = (ORI_BASE_V10 + s_user_base_v10) − step×10`` (sign via ``UI_CLOCK_ROLL_SIGN``; base 900 = +90° on ALL THREE panels — the single shared panel-mount offset, verified on the bench 2026-11-16 — and ``s_user_base_v10`` the persisted wall-mount trim, ``display_rotation_deg`` ×10, seeded at boot by ``action_orientation_init`` and moved live by the Settings display roller), and ``ori_apply_v10`` pushes LVGL ``transform_rotation`` to ALL 17 screen roots, pivot centre — the rotated root's panel-sized RGB565 layer (~0.4 MB @466, ~1.0 MB @720) comes from the CLIB malloc → PSRAM (the 64 KB LVGL pool cannot hold it); hit test inverse-maps through the transform, step 0 draws direct at zero cost. The 2 s press re-sync (``action_register_orientation_touch``) is ACTIONED only if stable AND on-axis (``|dot|² ≥ 3|cross|²`` — the 2026-10-30 "flipping does not reliably work" fix: a palm released mid-flip is dropped), and it re-anchors home and pushes the base orientation.
+   :caption: The orientation pipeline — ``screen_orientation_apply`` runs every 10 ms UI tick but samples only through the 100 ms gate (``ORI_SAMPLE_MS``) → 10 Hz; the monitor's 1 Hz timer does not feed it. x/y are int4-quantized (``ORI_Q_SCALE`` 8, one level = 1/8 g, clamped ±1 g) and a flat gate below 0.25 g leaves the in-plane pose UNDEFINED — orientation, window and reference frozen. The 1 s running mean (``ORI_WINDOW`` 10) is the 1 Hz low-pass; STABLE means the filtered mean holds within ONE int4 level for ``ORI_STABLE_SAMPLES`` 15 (~1.5 s). An integer dot/cross quadrant decides step ∈ {0, 90, 180, 270}° CW-positive with no atan2 and no floats, decided BEFORE the reference re-tracks — and re-tracking happens only while SETTLED and step 0, so a fast 180° flip cannot adopt its transient pose as home (the "clock woke up sideways" bug class). The step must be produced by 10 consecutive samples (~1 s) before it applies; a deliberate move costs at most ~1 s. ``v10 = (ORI_BASE_V10 + s_user_base_v10) − step×10`` (sign via ``UI_CLOCK_ROLL_SIGN``; base 900 = +90° on ALL THREE panels — the single shared panel-mount offset, verified on the bench 2026-11-16 — and ``s_user_base_v10`` the persisted wall-mount trim, ``display_rotation_deg`` ×10, seeded at boot by ``action_orientation_init`` and moved live by the Settings display roller), and ``ori_apply_v10`` pushes LVGL ``transform_rotation`` to ALL 17 screen roots, pivot centre — the rotated root's panel-sized RGB565 layer (~0.4 MB @466, ~1.0 MB @720) comes from the CLIB malloc → PSRAM (the 64 KB LVGL pool cannot hold it); hit test inverse-maps through the transform, step 0 draws direct at zero cost. The 2 s press re-sync (``action_register_orientation_touch``) is ACTIONED only if stable AND on-axis (``|dot|² ≥ 3|cross|²`` — the :commit:`fa0f419e` "flipping does not reliably work" fix: a palm released mid-flip is dropped), and it re-anchors home and pushes the base orientation.
 
 The sleep ladder: awake → light → deep
 --------------------------------------
@@ -809,7 +809,7 @@ from the code:
 .. graphviz:: ../_graphs/sleep-entry-guards.dot
    :alt: The sleep-entry guard ladder
    :align: center
-   :caption: The guards — ``main.cpp:629`` dispatches ``action_switch_to_deep_sleep_screen`` on the LVGL task when ``settings_deep_sleep_countdown_sec`` (``UI_DEEP_SLEEP_COUNTDOWN_SEC``, default 60 s, 60..1800 — the settings-deep-sleep picker writes it) expires; demo mode refuses the transition AND calls ``clock_timer_disable`` (a dead-black panel mid-recording would ruin the take), and the P4 with a pending alarm returns to the light screen instead — its deep state is app-level (the crystal keeps running), so the software one-shot could otherwise ring from the dark, and the user's power decision keeps the device in the lighter state with the one-shot still armed.
+   :caption: The guards — ``main.cpp:629`` dispatches ``action_switch_to_deep_sleep_screen`` on the LVGL task when ``settings_deep_sleep_countdown_sec`` (``UI_DEEP_SLEEP_COUNTDOWN_SEC``, default 60 s, 60..1800 — the settings-deep-sleep picker writes it) expires; demo mode refuses the transition AND calls ``clock_timer_disable`` (a dead-black panel mid-recording would ruin the take), and the P4 with a pending alarm returns to the light screen instead — its deep state is app-level (the crystal keeps running), so the software one-shot could otherwise ring from the dark, and the power decision keeps the device in the lighter state with the one-shot still armed.
 
 The wake paths
 --------------
@@ -910,7 +910,7 @@ WDT; it was the UI's own task parked inside the radio stack.
 
 The wake shows the **current phase static** (:doc:`the animation
 pipelines <animations>`) — no sweep at wake, by design: the sweep
-(retired 2026-11-13) was the boot story ("here is how the moon got to
+(retired :commit:`51119200`) was the boot story ("here is how the moon got to
 where it is"), and a wake is an answer, not a story. The frame the wake displays is the
 boot's bake when the day has not turned; when it *is* stale (new
 day, new event tint, mid-bake at sleep) the wake still returns
@@ -939,7 +939,7 @@ path fires. The policy is deliberately conservative:
   loss; the next wake re-syncs);
 - **no interference** — a settings session and an active sync gate
   the trigger off (the sweep's gate entry is gone with the sweeps —
-  clocks 2026-11-13, knob 2026-11-14);
+  clocks :commit:`51119200`, knob :commit:`e8efbee3`);
 - **transient** — the WiFi screen shows only while the sync is
   in flight; success or failure both drop back to airplane.
 
@@ -960,7 +960,7 @@ is pending — is a section of this page.
    <pre class="mermaid">
    stateDiagram-v2
      [*] --> BOOT
-     BOOT --> WIFI: NTP ok — static-phase bake (the 1344-frame boot sweep retired 2026-11-13)
+     BOOT --> WIFI: NTP ok — static-phase bake (the 1344-frame boot sweep retired :commit:`51119200`)
      BOOT --> AIRPLANE: NTP fail
      WIFI --> AIRPLANE: sync complete
      AIRPLANE --> HUB: tap — the sub-screens (exit returns with no sync kicked off)

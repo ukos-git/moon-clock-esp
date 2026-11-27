@@ -37,8 +37,8 @@ ink, which comes from the per-panel pre-baked font tier — 96 / 148 /
 ``fonts{,_p4,_knob}/`` (:doc:`the knob display <../implementation/knob-display>`
 records the tiers). So the ring geometry is not three designs, it is
 **one design read at three scales** — and the balance it was tuned at
-466 px (inner gap 44 vs outer 45, the 2026-11-04 "stacked icons"
-report) holds on every board:
+466 px (inner gap 44 vs outer 45, the :commit:`1d994b0d` "stacked icons"
+fix) holds on every board:
 
 .. list-table::
    :header-rows: 1

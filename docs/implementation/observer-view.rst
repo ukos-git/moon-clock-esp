@@ -1,7 +1,7 @@
 Observer view — the moon as the timezone's city sees it
 ========================================================
 
-The user's brief (2026-11-17): *"the selectable zones should include
+The brief (:commit:`d177a8fb`): *"the selectable zones should include
 all typical time zones and synchronize the moon projection / viewport
 to these zones. Generic time zones (UTC+02) should be dropped. We need
 this to calculate the viewport of the moon."*
@@ -119,7 +119,7 @@ The compute-progress rule
 -------------------------
 
 The bake reveal (:doc:`the compute progress <compute-progress>`)
-retired 2026-11-24 — no frame displays strip-wise anymore — so there
+retired :commit:`ee4e3efd` — no frame displays strip-wise anymore — so there
 is nothing to suppress. The compute bake runs strip-chunked with the
 rows-completed watermark **regardless of the tilt** (the watermark is
 on the north-up strip loop, and the seconds arc's progress is honest
@@ -169,7 +169,7 @@ leg by leg — whenever any input is missing: a non-positive epoch (no
 trustworthy time: the frame must not be tilted for a default-2026
 clock), an unknown zone name (a custom raw-POSIX setting has no city,
 so ``clock_tz_observer`` reports false), or the option off
-(``UI_MOON_OBSERVER_ENABLE=n`` restores the pre-2026-11-17 fixed
+(``UI_MOON_OBSERVER_ENABLE=n`` restores the pre-:commit:`d177a8fb` fixed
 viewport exactly). No leg ever guesses a city.
 
 What the board matrix says

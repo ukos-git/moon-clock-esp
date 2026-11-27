@@ -58,16 +58,16 @@ fitted QWERTY grid on a 35 mm disc is the one design the literature uniformly
 cannot save: keys land below fingertip resolution even with statistical
 decoding (WatchWriter, FingerText, "Is it too small?").
 
-The in-car line (added per the user's request) points the same way for _why_
-coarse angular input wins on small round hardware: an on-road CHI 2017 study
-found target accuracy high for all methods (>94%) but with direct tapping the
-_fastest_ and pressure-touch the _slowest_, while the physical dial's case is
-made on **glance/distraction metrics and physical certainty**; follow-on work
-(NHTSA-cited, TRB, LYRIQ HCII 2026) reports rotary controls cutting
-visual-manual distraction (up to 47% in one secondary source — low confidence)
-and helping drivers keep eyes on the road for simple control tasks. The
-transfer to a wrist-worn clock is: _the wheel's value is certainty and low
-error, not raw speed_ — which is exactly what a password entry wants.
+The in-car line points the same way for _why_ coarse angular input wins on
+small round hardware: an on-road CHI 2017 study found target accuracy high for
+all methods (>94%) but with direct tapping the _fastest_ and pressure-touch the
+_slowest_, while the physical dial's case is made on **glance/distraction
+metrics and physical certainty**; follow-on work (NHTSA-cited, TRB, LYRIQ
+HCII 2026) reports rotary controls cutting visual-manual distraction (up to 47%
+in one secondary source — low confidence) and helping drivers keep eyes on the
+road for simple control tasks. The transfer to a wrist-worn clock is: _the
+wheel's value is certainty and low error, not raw speed_ — which is exactly
+what a password entry wants.
 
 For this exact board, the cost model is decisive: the wheel is already shipped
 and uisim-verified; a 12-sector multi-tap mode and a hold-to-commit dwell are
@@ -204,14 +204,14 @@ task), or a hardware revision (rotary encoder). Ranked recommendations are in
 ### The baseline, for the record
 
 The shipped wheel commits one letter per _press–sweep–release_. No published
-benchmark exists for this exact design (the user's on-device check of sweep
-feel is still pending), so the cost model uses a back-of-envelope: 0.7–1.5 s
-per sweep → ~4–8 CPM → a 16-character password in roughly 30–60 s with zero
-errors when done carefully. That is unimpressive as a _typing_ speed and
-irrelevant as a _password-entry_ speed — the design bet, which the literature
-supports, is on **error rate**: each commit is one deliberate motion over a 27°
-(≈ 90 px, ≈ 3.3 mm arc) target with live preview and no auto-commit on
-crossing, so the failure mode is a slow retry, not a corrupted password.
+benchmark exists for this exact design (an on-device check of sweep feel is
+still pending), so the cost model uses a back-of-envelope: 0.7–1.5 s per sweep
+→ ~4–8 CPM → a 16-character password in roughly 30–60 s with zero errors when
+done carefully. That is unimpressive as a _typing_ speed and irrelevant as a
+_password-entry_ speed — the design bet, which the literature supports, is on
+**error rate**: each commit is one deliberate motion over a 27° (≈ 90 px, ≈ 3.3
+mm arc) target with live preview and no auto-commit on crossing, so the failure
+mode is a slow retry, not a corrupted password.
 
 ### Alternative by alternative
 

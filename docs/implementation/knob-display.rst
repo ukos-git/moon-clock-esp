@@ -4,7 +4,7 @@ The knob display
 The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** is the **third board
 of the moon-clock family** (P0 family seam + P1 home parity + P2
 dial-driven settings + P3 alarm editing + P4 battery gauge,
-2026-11-09): the ``knob/`` sibling project links
+:commit:`d96fdaff`): the ``knob/`` sibling project links
 the clock's shared
 ``components/{clock, ui, wifi, moon}`` through ``EXTRA_COMPONENT_DIRS``
 and answers the board-specific symbol surface with its own
@@ -59,7 +59,7 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   CPU1-pinned and TWDT-unregistered
   (``xTaskCreatePinnedToCoreWithCaps``, the clock's bake-producer
   posture — the re-bake/hourly tasks; both sweeps are gone, the
-  clock's retired 2026-11-13, the knob's own 2026-11-14), but
+  clock's retired :commit:`51119200`, the knob's own :commit:`e8efbee3`), but
   everything long on it **yields**: the core's classify
   scan on a 20 ms wall-clock budget (``moon_event.c``'s
   ``CONFIG_BOARD_KNOB`` branches — the coarse grid *and*
@@ -103,13 +103,13 @@ existing **partial** flush (two 360×30 internal-DMA buffers):
   lines on this panel.
 
 Measured on the S3R8 (bench, 2026-11-08; the sweep-era numbers are
-dated history — the 128-px intermediates retired 2026-11-14): relief
+dated history — the 128-px intermediates retired :commit:`e8efbee3`): relief
 build 727 ms, first
 360-px bake ~790 ms (the K7b-era figure — superseded by the
 2026-11-14 re-measure below), ~115–130 ms per 128-px sweep frame, 0 TWDT,
 ~6.8 MB PSRAM free after assets + buffers. The 2026-11-14 reveal
 bench (same binary family, now dated history — the band display
-retired 2026-11-24, the compute-progress change): the hidden boot bake
+retired :commit:`ee4e3efd`, the compute-progress change): the hidden boot bake
 was **991 ms**, the revealed one **2028–2059 ms** end to end — the
 swap's per-band flushes (prio 7) preempted the producer (prio 5) and
 cost the bake ~1.07 s. With the band display deleted the bake sheds
@@ -145,7 +145,7 @@ public headers from its own components:
 
 - ``knob_moon_render.c`` implements the **``moon_ui.h`` seam** — the
   eighteen functions the shared screens/actions call (since
-  2026-11-17 including ``moon_ui_tz_changed``, a **deliberate no-op**:
+  :commit:`d177a8fb` including ``moon_ui_tz_changed``, a **deliberate no-op**:
   the knob's viewport stays fixed north-up — the TIMEZONE screen still
   applies and persists its zone through the clock component, only the
   moon's disk tilt is not adopted,
@@ -162,7 +162,7 @@ public headers from its own components:
   :doc:`the animations page <animations>` — the
   classify/event probe is the producer task's job on CPU1, never the
   LVGL tick's), tilt says settled (no
-  spin seam at all since 2026-11-13 — the clock's seam API lost its
+  spin seam at all since :commit:`79937e37` — the clock's seam API lost its
   panel-step/keep-mask surface with the spin subsystem, and the dusk
   seam entries with the dusk the same day).
 - ``knob_alarm_audio_stub.c`` answers ``alarm_audio.h``: ring/preview
@@ -227,7 +227,7 @@ the ``lv_timer`` still synthesized the countdown and the alarm fire
 (neither consults the gate), so the alarm **rang** — but
 ``clock_trigger_time_update`` never ran and the shared HH:MM froze at
 its last screen-switch value, visibly so on the alarm screen while it
-was ringing (the user, 2026-11-15: "once an alarm fires, the clock is
+was ringing (a field report: "once an alarm fires, the clock is
 not updated during the alarm"). The boot log line ``Minute tick:
 software mode (no PCF85063A), type=2`` is the gate-open evidence.
 With the gate open the shared chain's hourly-sync leg rides along as
@@ -238,7 +238,7 @@ legacy is boot-time, though: on the clocks the shared 10 ms UI-tick
 and 1 s seconds-increment ``lv_timer`` timers are created by
 ``action_wake_screen`` — a handler the knob never runs — so the
 shared home's seconds arc sat frozen between the minute-tick writes
-(the user's "seconds arc is not moving anymore", 2026-11-10).
+(the report "seconds arc is not moving anymore").
 ``main.c`` now calls ``action_ensure_ui_timers()`` (a knob-guarded
 bare create/resume of exactly those two timers, no wake side work)
 in the single-threaded creation phase; the log line
@@ -252,7 +252,7 @@ one crisp 360-px bake, clocked by the same rule that keeps the
 battery honest. **The black window across a real deep sleep** is the
 one posture the old frame cannot cover: deep sleep loses the PSRAM
 double buffer, so the "old frame then atomic" a wake re-bake keeps
-has no old frame. ``KNOB_UI_LAST_FRAME`` (2026-11-20) makes it real
+has no old frame. ``KNOB_UI_LAST_FRAME`` (:commit:`43637e33`) makes it real
 by **persisting the last applied frame**: the producer writes the
 frame it just published to ``/spiffs/moon_frame.bin`` on the 512 K
 storage partition — one raw RGB565 square (259,200 B) plus a 24-byte
@@ -283,10 +283,10 @@ disc is **never persisted** (``maybe_persist_frame`` skips it), so
 day-tick re-bakes keep the old-frame-then-atomic posture as before (no
 black window to remove). The cold-boot synodic sweep (1344 frames new moon →
 now at 128 px plus the crisp final frame, **314 s wall**, the
-never-black posture) retired 2026-11-14; the clocks dropped their
-own 2026-11-13, so the clock's wake policy is now the whole display
+never-black posture) retired :commit:`e8efbee3`; the clocks dropped their
+own :commit:`51119200`, so the clock's wake policy is now the whole display
 policy. The surviving affordance of that posture lives on the shared
-home since task #28 through the render seam: the seam attaches a
+home through the render seam: the seam attaches a
 gated row to the producer's caption staging
 (``knob_ui_bind_caption``) — a montserrat-16, 240 px, DOT-centred
 label at the **top band** (+28; the middle belongs to the clock
@@ -306,7 +306,7 @@ signature changes.
 The press-abort bench acceptance for the seam affordances (2026-11-13,
 synthetic tap via the then-live ``KNOB_DIAG_TOUCH_INJECT_S`` — tap
 into the running sweep, no hub-load lines behind the consumed
-gesture) retired with the sweep on 2026-11-14; the surviving probe
+gesture) retired with the sweep on :commit:`e8efbee3`; the surviving probe
 facts are the caption row's ``x=60 y=28 w=240 h=18`` (the top band,
 centred) and the ladder dimming at idle 60 s after the presentation
 with 0 WDT/resets across 130 s.
@@ -337,7 +337,7 @@ seconds but already shows the last frame baked (it lands on the
 first arm, before the Wi-Fi + NTP window — the snapshot only sets
 the instant the caption and the fresh bake are judged against).
 The sync window itself is shown on the family's **transient WiFi
-screen** (2026-11-22, user report: the knob never showed the
+screen** (:commit:`a9042ea2` — the knob never showed the
 WiFi indicator during sync): the arm loads ``SCREEN_ID_WIFI``
 right before the join wait — the WiFi glyph there reads the
 connection state (grey = connecting, ``tick_screen_wifi``
@@ -441,7 +441,7 @@ the shared clock widget to ``UI_CLOCK_ALPHA_PCT`` (20 %) opacity
 alongside it, restoring both on activity. The observer also **hides the
 seconds arc** while dimmed: the arc is a sibling of the clock container
 in ``screens.c``, so the container's opacity never cascades to it, and it
-ticked at full brightness through the dim phase (user 2026-11-11:
+ticked at full brightness through the dim phase (a field report:
 "still shows the seconds tick arc in light sleep"); the clocks simply
 pause the seconds timer at their light-sleep entry, the knob has no
 light-sleep screen, so the rung hides the arc — hiding erases the
@@ -460,14 +460,14 @@ has not shown a single frame yet (only a board that will never
 present — no assets, or no fix and no snapshot — leaves the ladder
 free to sleep it). Device-verified (P1-era, ladder still on the
 Kconfig pair): the then-314 s boot presentation (the sweep, before
-its 2026-11-14 retirement) froze both thresholds, then dim fired
+its :commit:`e8efbee3` retirement) froze both thresholds, then dim fired
 at idle 15.1 s and the sleep at idle 60.1 s, with the USB-JTAG node
 vanishing host-side (a real deep sleep, not a hang) — the
 store-driven rungs re-measure with the P2 bench pass. Before ``esp_deep_sleep_start`` the supervisor
 saves the shared ``clock``/``epoch`` NVS snapshot
 (``clock_nvs_save_epoch``), so the wake comes up on the last known
-instant — and, under ``KNOB_ALARM_TIMER_WAKE`` (default ``y``, the
-user's alarm-across-deep-sleep choice), it **also arms the S3
+instant — and, under ``KNOB_ALARM_TIMER_WAKE`` (default ``y``, the chosen
+alarm-across-deep-sleep behaviour), it **also arms the S3
 internal RTC timer** for the next fixed rule:
 ``knob_power_rule_epochs_around`` mirrors the scheduler's own
 ``mktime``/``tm_isdst=-1`` math over the loaded rule's hour/minute +
@@ -509,7 +509,7 @@ up. Real activity (a touch, or brightening the home dial) wakes it; the
 dial's wake-intent is the software stand-in for the EXT0 dial wake.
 (Earlier builds faked activity after the skipped sleep, so the board
 un-dimmed to full every countdown and looked wide awake half the time —
-user 2026-11-11: "is it really transitioning to light sleep?".)
+a field report asked "is it really transitioning to light sleep?".)
 
 The ladder and the alarm, as one sketch
 ........................................
@@ -593,7 +593,7 @@ restyles is counted in :ref:`the assembly ladder
 
 The **commit never duplicates handler logic**: it re-sends the very
 event the touch path already handles. Icons, the alarm glyphs, exit
-buttons, WiFi rows and — since the 2026-11-10 list rework — the knob's
+buttons, WiFi rows and — since the :commit:`47c5e8b0` list rework — the knob's
 WiFi roller receive a synthetic ``LV_EVENT_CLICKED`` (the same the
 finger produces), rollers and the weekday-arc range handles
 receive ``LV_EVENT_RELEASED`` — which *is* their commit (store save /
@@ -611,7 +611,7 @@ cursor moved since the screen was entered.
      - Dial turn
      - Tap (background)
    * - Home (modem-sleep screen)
-     - **brightness control** (user 2026-11-10): CW brightens, CCW
+     - **brightness control** (:commit:`47c5e8b0`): CW brightens, CCW
        dims, 5 % per detent through the seam's
        ``moon_ui_panel_brightness_set``, floored at the ladder's own
        dim rung (``KNOB_DIM_DUTY`` = 25 %) so the dial can never go
@@ -647,10 +647,11 @@ cursor moved since the screen was entered.
        the arc stays fully working alongside)
      - ``RELEASED`` on the focused handle = save (the native handler
        writes the rule + re-arms the scheduler)
-   * - WiFi list (an ``lv_roller`` on all three boards — user
-       2026-11-10 asked for it on the knob ("the label rows read
-       too small at 360 px"), 2026-11-11 chose it family-wide, so
-       one Wi-Fi selection UI for the clocks too; the 7 native
+   * - WiFi list (an ``lv_roller`` on all three boards — the knob
+       asked for it first (:commit:`47c5e8b0`) ("the label rows read
+       too small at 360 px"), the family then adopted it
+       (:commit:`368d49aa`), so one Wi-Fi selection UI for the clocks
+       too; the 7 native
        rows + sel bar are gone)
      - roll the list — the window's centre **is** the cursor;
        entries in the tier's 48-baseline SSID font (the
@@ -669,7 +670,7 @@ cursor moved since the screen was entered.
    * - Boot arm / boot bake
      - activity (the ladder holds; a turn never interrupts the act)
      - an ordinary home/hub touch — the press-abort observer retired
-       with the boot sweep 2026-11-14
+       with the boot sweep :commit:`e8efbee3`
 
 The wheel keyboard's **touch press partition** at knob scale (bench
 2026-11-11): letters render at r≈130 px, and the mode register arc —
@@ -710,11 +711,11 @@ white fill, red at or below ``KNOB_BATTERY_LOW_PCT``, and while
 ``knob_battery_charging()`` a hand-rasterised bolt over a fill in the
 **theme's moon color** (``theme_colors[active_theme_index][0]``, the
 seconds-arc ink, read live so a theme change propagates on the next
-minute tick — the reference iOS green replaced 2026-11-14) — a heuristic,
+minute tick — the reference iOS green replaced :commit:`3cd836aa`) — a heuristic,
 not a signal: a cell read at or above ``KNOB_BATTERY_CHARGING_MV``
 (0 = bolt off) is the docked-USB signature (bench ~4522 mV, far over
 the cell ceiling); no reading leaves an empty pale-grey capsule.
-(Retired with this 2026-11-13 pass: the bottom-centre ``NN %`` digit
+(Retired with this :commit:`e9fbd623` pass: the bottom-centre ``NN %`` digit
 label, digits + % on the SSID font.) The cell moves on the minute
 scale, not the second. It *overlaps* the moon
 rather than making room for it: the shared home bakes the disk
@@ -724,13 +725,13 @@ inside the seconds-arc ink (get_center's radius
 theme's 12 px stroke is inked INWARD from it, so the ink spans
 162..173; the clocks keep limb-to-ink gaps of 12 px (S3) / 9 px
 (P4)) — set by the render seam via
-``knob_ui_set_disk_geom`` (task #48, 2026-11-14 — the user's verdict:
+``knob_ui_set_disk_geom`` (:commit:`28162660` — the verdict:
 "the moon… should be inside the seconds arc, same as the p4 and the
-s3 amoled"). The brief full-square r 180 of the 2026-11-13 pass let
+s3 amoled"). The brief full-square r 180 of the :commit:`19351f01` pass let
 the limb run past the arc. The legacy own-screen view keeps the
 foot-band bake (r 150 at cy 168) whose 12 px below centre kept its
-bottom-edge caption row clear of the lunar limb (task #35, 2026-11-13
-— the user's verdict: the indicator overlaps, the moon fills). The reading lives in
+bottom-edge caption row clear of the lunar limb (:commit:`19351f01` — the
+verdict: the indicator overlaps, the moon fills). The reading lives in
 ``knob/components/knob_battery``: ``adc_oneshot`` on **ADC1** ch
 ``KNOB_BATTERY_ADC_CHANNEL`` (GPIO 1; ADC2 is unusable with the radio
 on), 12 dB attenuation, the eFuse curve-fitting calibration with a
@@ -799,7 +800,7 @@ its own black box, armed in every production build:
   ``moon_assets``, so nvs/SPIFFS/assets stay intact.
 * **The witness self-test** — ``KNOB_DIAG_PANIC_AT_FRAME`` aborts
   the producer after N published frames; the bench proof (2026-11-12,
-  sweep era — the hook then rode sweep frames, since 2026-11-14 it
+  sweep era — the hook then rode sweep frames, since :commit:`e8efbee3` it
   rides the static boot bake, where N = 1 is the meaningful value):
   frame 320 → ``abort() was called at PC 0x4201923c on core 1``,
   the boot after printed ``gasp: crash-reboot reason=4 pub=320
@@ -867,7 +868,7 @@ Not shipped (on purpose)
 - **The battery *calibration*.** The code shipped with P4; the honest
   numbers did not. The divider pair and the 3300..4200 mV LiPo pair
   are the plan's sanctioned **placeholder** until the multimeter
-  ritual **with the user present** settles whether the divider's top
+  ritual **with a bench operator present** settles whether the divider's top
   rail is the cell or VBUS — the schematic draws it as 5V and the
   factory gauge reads an impossible 4.6 V, so until the measurement
   agrees within ~50 mV the gauge reads *plausible, not verified*. The

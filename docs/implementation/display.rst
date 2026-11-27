@@ -124,7 +124,7 @@ rides it into ``moon_panel_draw_wait`` (the accepted/rejected retry,
 below). The panel io's own bus lock serializes the actual transfers;
 the mutex is what keeps *this* project's code from queueing a 0x51
 behind a strip that might never complete (the freeze, below). (Until
-2026-11-13 the wrapper had a *second* job — refreshing the front
+:commit:`79937e37` the wrapper had a *second* job — refreshing the front
 mirror ``s_front`` so the spin's direct-write composite could keep the
 clock and arc in place; retired with the spin subsystem, below.)
 
@@ -167,7 +167,7 @@ in-place-heal versus budgeted-restart split) — drawn from the code:
 .. graphviz:: ../_graphs/flush-path.dot
    :alt: The flush path overview — rule, the one no-pixel exception, draw path, BSP, witnesses
    :align: center
-   :caption: The overview — the rule: every moon-pipeline frame hits the panel as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx`` (``moon_ui_screen_switched``), never a half-old/half-new composite. The ONE exception: the 0x51 hardware brightness ramp that writes NO pixels (the fade-to-black screen switch ``UI_SCREEN_SWITCH_FADE`` and the light-sleep dim/wake ramp). The once-per-hour refresh stopped riding it on 2026-11-24 (the compute-progress change — the old frame stays up the whole cycle, the new frame lands atomically in the bright panel), and the bake reveal's second exception (its *atomicity-per-state* band states) retired the same day: a computing frame now shows as the quick phase disc + the seconds-arc progress bar, and the strip watermark is never a panel-write (:doc:`the compute progress <../implementation/compute-progress>`).
+   :caption: The overview — the rule: every moon-pipeline frame hits the panel as ONE atomic whole-panel ``lv_refr_now`` under ``s_rgb_mtx`` (``moon_ui_screen_switched``), never a half-old/half-new composite. The ONE exception: the 0x51 hardware brightness ramp that writes NO pixels (the fade-to-black screen switch ``UI_SCREEN_SWITCH_FADE`` and the light-sleep dim/wake ramp). The once-per-hour refresh stopped riding it in :commit:`ee4e3efd` (the compute-progress change — the old frame stays up the whole cycle, the new frame lands atomically in the bright panel), and the bake reveal's second exception (its *atomicity-per-state* band states) retired the same day: a computing frame now shows as the quick phase disc + the seconds-arc progress bar, and the strip watermark is never a panel-write (:doc:`the compute progress <../implementation/compute-progress>`).
 
 .. graphviz:: ../_graphs/flush-path-strip.dot
    :alt: One strip's journey from PSRAM to panel
@@ -192,7 +192,7 @@ family drawn as a node graph is :ref:`the guards sketch <guards-arch>`.
 The direct-write spin (history, removed 2026-11-13)
 ----------------------------------------------------
 
-Until 2026-11-13 the home's moon rotated on the panel by itself. The
+Until :commit:`79937e37` the home's moon rotated on the panel by itself. The
 burn-in spin displayed a once-baked frame at 8 fps by **direct**
 ``esp_lcd_panel_draw_bitmap`` writes under ``s_panel_mtx``, bypassing
 LVGL entirely (the second sanctioned exception). Its original LVGL
@@ -222,12 +222,12 @@ Two hardware lessons from that era still constrain the panel path:
   scratch (~1.1 MB of gray-JPEG buffers) could squeeze it out, the
   rebuild kept ``s_mask_dirty`` and retried on the tilt monitor's 1 s
   tick, and a stale mirror pasted old clock digits between the fresh
-  flushes (task #39, 2026-11-13 — the sweep returning the codec
+  flushes (:commit:`fcd44274` — the sweep returning the codec
   scratch after its last frame was that fix).
 
 The subsystem — keep-mask, mirror, step-rotate, byte-swap helper,
-direct writes — was removed in its entirety later the same day at the
-user's request (*"It does more things worse than good."*). The home
+direct writes — was removed in its entirety later the same day
+(*"It does more things worse than good."*). The home
 moon is plain LVGL, shown static; every moon frame now rides the
 atomic ``lv_refr_now`` path and the wrapper's second job is gone.
 
@@ -365,7 +365,7 @@ write is *dropped*: the 0x51 brightness API is gated in
 the LVGL flushes drop at a **stub flush callback swapped into the
 display** (``moon_ui_panel_repaint_pending``, polled on the UI tick —
 the swap happens on the task that runs the flushes). The one
-exception is the **switch-frame pass** (user 2026-11-16: "cannot
+exception is the **switch-frame pass** (bench report 2026-11-16: "cannot
 enter settings from the wifi screen with touch" — bench RED 3/3: the
 tap opened the hub in LVGL in 20 ms, the panel never showed it until
 the release repaint, 7 s later): a screen switch is user presence, so
@@ -435,7 +435,7 @@ C6's init over SDIO); the knob's render seam stubs both APIs, since
 its LEDC backlight has no shared bus lock to wedge.
 
 The hold proved its worth the same week on a second member of the
-class: the **settings WiFi scan** (2026-11-12, task #30 — "the clock
+class: the **settings WiFi scan** (2026-11-12 — "the clock
 area is blank white, no digits, after leaving the WiFi password
 screen"). The scan task's ``esp_wifi_init`` + the active scan are the
 same completion-thief, and the bench repro (the ``TEST_SETTINGS_RETURN_SEC``
@@ -460,7 +460,7 @@ really done, wherever the user went in the meantime. The release's
 whole-screen repaint then heals everything the storm ate. Leaving the
 screen mid-scan deliberately does NOT cut the guard — the first cut
 of the fix released from the settings screen's own tick and from
-``loadScreen``, which re-opened the drop exactly on the user's path
+``loadScreen``, which re-opened the drop exactly on the operator's path
 (atomic flush into the live storm, no pending repaint to heal it).
 Bench proof (same hook, 2 s dwell so the home switch lands mid-scan):
 hold ON 45000 → ``-> home`` fires held → scan completes unwatched →
@@ -481,7 +481,7 @@ neither end:
 .. graphviz:: ../_graphs/scan-panel-hold-arm.dot
    :alt: The scan hold arm side
    :align: center
-   :caption: Arming — ``settings_wifi_screen_refresh`` calls ``scan_panel_hold_arm()`` BEFORE ``wifi_scan_begin``, because the storm starts when the scan task reaches ``esp_wifi_init``; leaving mid-scan deliberately does NOT cut the guard, since the user's path lands the home switch's atomic flush INSIDE the running storm (the first cut of the fix released from the screen's own tick and from ``loadScreen`` and re-opened the drop exactly there). Bench repro 2026-11-12: ~400 ``co5300`` write failures plus 2 silently DROPPED strips over the clock row (y 176..214 / 214..252) in ~3 s.
+   :caption: Arming — ``settings_wifi_screen_refresh`` calls ``scan_panel_hold_arm()`` BEFORE ``wifi_scan_begin``, because the storm starts when the scan task reaches ``esp_wifi_init``; leaving mid-scan deliberately does NOT cut the guard, since the operator's path lands the home switch's atomic flush INSIDE the running storm (the first cut of the fix released from the screen's own tick and from ``loadScreen`` and re-opened the drop exactly there). Bench repro 2026-11-12: ~400 ``co5300`` write failures plus 2 silently DROPPED strips over the clock row (y 176..214 / 214..252) in ~3 s.
 
 .. graphviz:: ../_graphs/scan-panel-hold-release.dot
    :alt: The scan hold release side
@@ -492,8 +492,8 @@ The class's fifth member sits *above* the seam, where no hold can
 reach it: LVGL's own flush wait. ``wait_for_flushing`` is a
 non-yielding ``while (disp->flushing);`` spin on whichever task enters
 it — the LVGL task (its indev poll dies with the spin: touch goes
-dead — the user's "touch is very unresponsive on the AMOLED",
-task #31) — and, until the boot sweep retired, the sweep task at
+dead — the report: "touch is very unresponsive on the AMOLED") —
+and, until the boot sweep retired, the sweep task at
 ``lv_refr_now``. Normally unreachable,
 the adapter keeps up — but a **lost trans-done hand** makes it
 permanent: ``disp->flushing`` was already set when the hold swaps its
@@ -520,9 +520,9 @@ an allocation the storm **refuses**: the strip's own DMA staging.
 Every PSRAM strip's transaction bounces through a contiguous 23,300 B
 internal-RAM block (``setup_priv_desc``; the S3's PSRAM is not
 SPI-DMA-capable), and ``esp_wifi_init`` can hold the internal heap
-below that size. Bench 2026-11-17 (user: "pressing x on the settings
+below that size. Bench 2026-11-17 ("pressing x on the settings
 crashed it" — exit settings into the sync screen, touch mid-sync): the
-switch-frame pass did its job and forwarded the user's frame under the
+switch-frame pass did its job and forwarded the operator's frame under the
 hold, but the radio storm had the largest free DMA block at 20,480 B,
 so every submission of every strip was rejected at the door — the
 ``moon_panel_draw_wait`` tally read ``io errors: 100×0x101``
@@ -552,7 +552,7 @@ hand — the drain witness, in-place heal and budgeted
 returns TIMEOUT and the watchdog resumes normal ownership — the
 fourth NO_MEM give-up restarts exactly as before. The next accepted
 strip zeroes the give-up budget, so one storm cannot tax a later one.
-Bench (fix build, 2026-11-17 — the user's own repro: wake off deep
+Bench (fix build, 2026-11-17 — the bench repro: wake off deep
 sleep into the sync screen, touch *during* the sync): the switch
 frame met the squeeze at the ride-out seam
 (``strip bounce no-mem (storm pressure): task lvgl (y 0..24),
@@ -565,7 +565,7 @@ give-up, the sync task ran to its end and the release repaint healed
 the screen; no restart. Shared code — S3 and P4 alike.
 
 The class's sixth member was caught on the **light-sleep dusk
-replay** (the dusk itself was retired 2026-11-13; the discovery bench,
+replay** (the dusk itself was retired :commit:`f7740500`; the discovery bench,
 2026-11-13: "the S3 AMOLED crashed coming back from light sleep via
 touch"):
 ``moon_tick_cb`` displays each published dusk frame with the tick's
@@ -686,7 +686,7 @@ capture: **shape** — a DMA-capable DRAM single-chunk row (above);
 dropped (``hold_flush_cb`` / ``moon_panel_draw_wait``'s shortcut never
 touched the bus), so the drain no-ops entirely (probing anyway would
 ride the shortcut into a phantom accept — the capture-8 hold series);
-the switch-frame pass is exempt (amended 2026-11-16 with the pass:
+the switch-frame pass is exempt (amended :commit:`4d6914f5` with the pass:
 a forwarded strip sets ``s_hold_pass_pending``, its trans-done hand is
 REAL, and the witness runs for it — the bench caught the sync screen's
 own pre-arm wedge healing exactly there);
@@ -827,4 +827,4 @@ this wrong is invisible in the simulator (the host renderer writes
 PNGs) and shows up on the panel as every color's red and blue
 channels transposed — the "the moon looks teal" bug class.
 
-:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the fade and the orbit's atomic displays (the dusk, the free spin and the boot sweep were callers until their retirement 2026-11-13).
+:doc:`The animation pipelines <animations>` assembles these pieces into the motion: the fade and the orbit's atomic displays (the dusk, the free spin and the boot sweep were callers until their retirement :commit:`79937e37`).

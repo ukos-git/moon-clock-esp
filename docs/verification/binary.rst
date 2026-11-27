@@ -293,7 +293,7 @@ warning* on every ``idf.py flash``:
    Warning: The chip has 32MB of flash, but the binary's header
    says 16MB. This is not an error; the flash will proceed.
 
-The boot-movie wave fixed it properly (2026-11-25): the flash-size pin
+The boot-movie wave fixed it properly (:commit:`1703e278`): the flash-size pin
 moved out of the shared defaults into the per-target files — the S3
 keeps 16 MB (its chip), the P4 took its real 32 MB
 (``sdkconfig.defaults.esp32p4``) — and the P4's ``partitions_p4.csv``
