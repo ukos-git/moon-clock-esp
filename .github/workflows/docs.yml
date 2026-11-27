@@ -96,23 +96,39 @@ jobs:
         # build dir sits ABOVE the repo, which is where gen_perf_bus
         # reads its sdkconfig.h) populates knob/managed_components/
         # (its own set, which gen_perf_bus reads for the SH8601 driver).
-        # The vendor-leg figs (perf_bus, perf_silicon) parse the live
-        # vendor headers — the S3 co5300 + pcf85063a AND the P4-only
-        # gt911 touch driver at once — so after the builds both are
-        # verified present; a missing package triggers the reconfigure
-        # of the target that fetches it (the figure scripts fail loudly
-        # with the rebuild hint if a re-resolve still prunes it).
+        # The two vendor-leg figs (perf_bus, perf_silicon) parse the live
+        # vendor headers from the SAME root managed_components/ but need
+        # packages from DIFFERENT targets: gen_perf_bus the S3-only panel
+        # driver (co5300) and gen_perf_silicon the P4-only touch driver
+        # (gt911) — pcf85063a + lvgl are in both. A single target's lock
+        # never provides both (the component manager prunes to its own
+        # lock on every re-resolve), so the S3 build last leaves the S3
+        # set; the union is then made by stashing the P4-only gt911
+        # through a P4 reconfigure and copying it back over the S3 set
+        # (the Media step runs no idf.py, so the copied package survives
+        # to figure time).
         run: |
           source "$IDF_PATH/export.sh"
           idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 build
           idf.py -C knob -B ../build/knob reconfigure
           idf.py build
-          if [ ! -d managed_components/espressif__esp_lcd_touch_gt911 ]; then
-            idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 reconfigure
-          fi
+          # Base the union on the S3 set (the S3 binary's co5300 driver +
+          # pcf85063a must be present for gen_perf_bus):
           if [ ! -d managed_components/espressif__esp_lcd_co5300 ] \
              || [ ! -d managed_components/waveshare__pcf85063a ]; then
             idf.py reconfigure
+          fi
+          # Add the P4-only touch driver (gt911) gen_perf_silicon parses.
+          # The P4 reconfigure prunes the S3 co5300, so: fetch gt911, stash
+          # it, restore the S3 set, then copy gt911 back (see the step note):
+          if [ ! -d managed_components/espressif__esp_lcd_touch_gt911 ]; then
+            idf.py -D IDF_TARGET=esp32p4 -B build/p4 -D SDKCONFIG=sdkconfig.p4 reconfigure
+            cp -a managed_components/espressif__esp_lcd_touch_gt911 \
+              build/p4/.gt911-fig-stash
+            idf.py reconfigure
+            rm -rf managed_components/espressif__esp_lcd_touch_gt911
+            cp -a build/p4/.gt911-fig-stash \
+              managed_components/espressif__esp_lcd_touch_gt911
           fi
       - name: "Host simulators (one moon_sim per board: the movie bake + the gate's C-runtime frames)"
         # host_sim is a standalone CMake project (no ESP-IDF) that reads the

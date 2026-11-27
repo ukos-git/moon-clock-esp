@@ -551,10 +551,17 @@ figures, the NASA art and the films), so the CI build is the
 ``-W`` html build, so a missing media file is a warning and a
 warning is a failure. The perf figs parse the live build trees
 (``build/config``, ``build/esp-idf/``, ``build/moon-phase.bin``, the
-root and knob ``managed_components/``), so the job runs the P4 and
-knob builds first and the S3 build LAST — the root
-``managed_components/`` holds only the last-resolved target's set and
-``gen_perf_bus.py`` reads the S3 panel driver from it. The NASA legs
+root and knob ``managed_components/``). The root
+``managed_components/`` holds only the last-resolved target's set —
+the component manager prunes it to its own lock on every re-resolve —
+so the job runs the P4 and knob builds first and the S3 build LAST,
+leaving the S3 set ``gen_perf_bus.py`` reads its panel driver
+(``co5300``) from. But ``gen_perf_silicon.py`` needs a P4-ONLY touch
+driver (``gt911``) the S3 set lacks, and no single target's lock
+carries both — so after the S3 build the job makes the UNION by
+stashing the ``gt911`` dir through a P4 reconfigure and copying it
+back over the S3 set (the Media step runs no ``idf.py``, so the copied
+package survives to figure time). The NASA legs
 need no network at all: the ground truth (kit TIFs + the 36 SVS 5415
 gate/quarter frames via LFS, ``mooninfo_2025.json``) ships with the
 repo, so the job only crops the answer key with
