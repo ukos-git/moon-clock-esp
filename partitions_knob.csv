@@ -31,7 +31,9 @@ moon_assets, data, undefined, , 2560K,
 # for by the movie.
 moon_movie, data, undefined, , 9088K,
 # 64 K coredump ring (task #27 field-crash witness): ESP-32 panic dumps
-# read back on the bench via `idf.py -C knob coredump-read`; complements
-# the RTC_NOINIT gasp marker (which survives even when the dump cannot
-# be written, e.g. a WDT reset mid-logging).
+# read back on the bench via `esptool read_flash` + `espcoredump.py`
+# against build/knob/moon-phase.elf (this IDF tree registers no
+# `idf.py coredump-read` action); complements the RTC_NOINIT gasp marker
+# (which survives even when the dump cannot be written, e.g. a WDT reset
+# mid-logging).
 coredump, data, coredump, , 64K,

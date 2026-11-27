@@ -8,15 +8,19 @@
 ## component-local (the vendored-BSP pattern), so main/idf_component.yml
 ## stays the clocks' manifest untouched.
 ##
-## Both are gated on CONFIG_BOARD_KNOB: the knob is indistinguishable from the
-## S3 by TARGET, so a `target ==` rule cannot select it. The Kconfig symbol
-## (components/board/Kconfig.projbuild's choice, default BOARD_S3) is a real
-## JSON bool in the build dir's sdkconfig.json, which the component manager's
-## prepare_dependencies step reads (--sdkconfig_json_file, build.cmake). Gating
-## keeps sh8601 + esp_codec_dev out of the S3/P4 dependency locks — on the
-## clocks the knob_board component carries no SRCS and no sh8601/codec
-## requirement (its CMakeLists registers empty off the knob), so the S3/P4
-## binaries are byte-identical to before the integration.
+## Both are gated on `target == "esp32s3"`, because the gate must evaluate in
+## the component manager's prepare_dependencies step, which runs BEFORE kconfig
+## generation: on a fresh build there is no sdkconfig.json yet, so a
+## `$CONFIG{...}` rule cannot resolve and the build then fails on the names
+## knob_board's CMakeLists REQUIRES. The knob IS an esp32s3 target, so the
+## rule is true there; on the clock builds the root CMakeLists EXCLUDES
+## knob_board (EXCLUDE_COMPONENTS keeps it out of the manager's
+## local-manifest list, so this yml is never evaluated at all — the S3 clock
+## shares the target, and the P4 target would already fail the rule). Gating +
+## exclusion keep sh8601 + esp_codec_dev out of the S3/P4 dependency locks;
+## on the clocks the knob_board component carries no SRCS (its CMakeLists
+## registers empty off the knob), so the S3/P4 binaries are unchanged by the
+## integration.
 ##   - esp_lcd_sh8601: the knob's round QSPI panel driver (the vendor demo's
 ##     own registry component; the LVGL port is hand-rolled in this component
 ##     — no esp_lvgl_port, the flush path stays under project control, the
@@ -36,8 +40,8 @@ dependencies:
   espressif/esp_lcd_sh8601:
     version: ^2
     rules:
-      - if: $CONFIG{BOARD_KNOB} == True
+      - if: target == "esp32s3"
   espressif/esp_codec_dev:
     version: ~1.5
     rules:
-      - if: $CONFIG{BOARD_KNOB} == True
+      - if: target == "esp32s3"

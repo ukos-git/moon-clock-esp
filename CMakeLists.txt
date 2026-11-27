@@ -16,8 +16,12 @@ if(IDF_TARGET STREQUAL "esp32p4")
     # The vendored S3 BSP is S3-only (its manifest declares
     # targets: [esp32s3]); EXCLUDE_COMPONENTS keeps it out of the P4
     # build AND of the component manager's local-manifest list (which
-    # would otherwise FATAL_ERROR on the target mismatch).
-    set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")
+    # would otherwise FATAL_ERROR on the target mismatch). The knob
+    # component joins the exclusion: EXCLUDE_COMPONENTS also keeps it out
+    # of the component manager's local-manifest list, so its yml (the
+    # knob-only managed deps) is never evaluated on the clock builds and
+    # those deps stay out of the P4 lock too.
+    set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75;knob_board")
     # The component manager rewrites its dependencies lock on every
     # configure and the two targets resolve DIFFERENT dependency sets
     # (different BSPs + driver stacks), so the P4 build uses its own
@@ -26,6 +30,19 @@ if(IDF_TARGET STREQUAL "esp32p4")
     # project(), which runs the component manager.
     idf_build_set_property(DEPENDENCIES_LOCK
         "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
+endif()
+
+# S3 clock block. The knob component is an esp32s3 TARGET with a manifest
+# (components/knob_board/idf_component.yml) that resolves the knob-only
+# managed deps on that target; the S3 clock shares the target, so the
+# manifest cannot discriminate by target alone — the exclusion does.
+# EXCLUDE_COMPONENTS keeps knob_board out of the component manager's
+# local-manifest list, so its yml is never evaluated here and its deps
+# (esp_lcd_sh8601, esp_codec_dev) stay out of the tracked S3 lock. Nothing
+# on the clock build requires knob_board by name (the board component
+# selects the S3 BSP there), so the exclusion drops nothing.
+if(NOT KNOB_BOARD AND NOT IDF_TARGET STREQUAL "esp32p4")
+    set(EXCLUDE_COMPONENTS "knob_board")
 endif()
 
 # Knob target block. The knob IS an esp32s3 (same target as the S3 clock),
@@ -115,7 +132,7 @@ endif()
 if(CONFIG_BOARD_KNOB AND NOT KNOB_BOARD)
     message(FATAL_ERROR "CONFIG_BOARD_KNOB is set but -D KNOB_BOARD=ON was not passed. The knob build must "
         "exclude the vendored S3 BSP and use its own lock. Re-run with: idf.py -D KNOB_BOARD=ON "
-        "-D SDKCONFIG=sdkconfig.knob -D SDKCONFIG_DEFS=\"sdkconfig.defaults;sdkconfig.defaults.knob\" -B build/knob build")
+        "-D SDKCONFIG=sdkconfig.knob -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.defaults.knob\" -B build/knob build")
 endif()
 
 # Moon asset consistency guard (fails fast at configure, not at flash/boot).
@@ -239,9 +256,10 @@ endif()
 # and emits out/<target>/moon_movie.bin (62 B header + u32 offset table +
 # q90 gray JPEGs) sized to the moon_movie ROW of the partition CSV -- the
 # "fill the leftover, never hinder the code build" policy. The guards only
-# arm when the ACTIVE table carries a moon_movie row: the S3 does, the P4
-# picks the row up with its 32 MB bump, and the knob sibling carries its
-# own copy in knob/CMakeLists.txt.
+# arm when the ACTIVE table carries a moon_movie row: the S3 does, and the
+# P4 and the knob pick the row up from their own CSVs (partitions_p4.csv /
+# partitions_knob.csv) -- the knob builds through this same file (KNOB_BOARD
+# on the esp32s3 target), so there is no knob-side copy.
 set(MOON_MOVIE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets/images/moon/out/${MOON_ASSET_TARGET})
 set(MOON_MOVIE_BIN ${MOON_MOVIE_DIR}/moon_movie.bin)
 set(MOON_MOVIE_MANIFEST ${MOON_MOVIE_DIR}/moon_movie_manifest.json)

@@ -11,9 +11,10 @@
 # selected by INCLUDE_DIRS, so every consumer's `#include "moon_consts.h"`
 # resolves to the board's own texture dims without touching the core.
 # First-match order (Kconfig defaults are first-match-wins too): the knob
-# sibling project adds BOARD_KNOB via its board shim and links this
-# component through EXTRA_COMPONENT_DIRS; the clock projects never define
-# the symbol, so their TUs compile exactly as before.
+# build (this same project, esp32s3 target with -D KNOB_BOARD=ON;
+# CONFIG_BOARD_KNOB from the shared board component's choice) takes the
+# generated/knob branch; the clock targets never define the symbol, so
+# their TUs compile exactly as before.
 if(CONFIG_BOARD_KNOB)
     set(MOON_GEN_DIR generated/knob)
 elseif(CONFIG_BOARD_P4)
