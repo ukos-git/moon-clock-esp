@@ -20,6 +20,18 @@ config BOARD_S3
         PCF85063A RTC + TCA9554 expander, QMI8658C IMU, built-in Wi-Fi.
         16 MB flash, 8 MB PSRAM (not SPI-DMA-capable).
 
+config BOARD_KNOB
+    bool "Waveshare ESP32-S3-Knob-Touch-LCD-1.8 (360x360)"
+    help
+        The knob: 360x360 SH8601 QSPI round LCD, CST816S touch, EC1 dial
+        (no push-button), LEDC backlight, battery ADC on GPIO1, NO IMU,
+        NO RTC IC, NO audio codec. Real esp_deep_sleep_start; the time
+        base is the internal RTC timer + SNTP (software path, as on the
+        P4). Third board of the moon-clock family. It is an esp32s3
+        TARGET, so the knob build passes -D KNOB_BOARD=ON (which the root
+        CMakeLists uses to EXCLUDE the vendored S3 BSP and select the
+        knob_board component) on top of IDF_TARGET=esp32s3.
+
 config BOARD_P4
     bool "Waveshare ESP32-P4-WIFI6-Touch-LCD-XC (720x720)"
     help

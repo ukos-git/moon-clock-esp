@@ -14,7 +14,7 @@ CONFIG_CLOCK_USE_PCF85063A=n
 # U3 W25Q128JVPIQ).
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_knob.csv"
 
 # Octal PSRAM at 80 MHz: the R8's in-package 8 MB. Not used by the K1
 # skeleton yet (LVGL buffers stay internal DMA RAM), declared so PSRAM

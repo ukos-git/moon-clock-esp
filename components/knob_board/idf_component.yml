@@ -1,0 +1,43 @@
+## IDF Component Manager Manifest — the knob's panel driver + codec name.
+##
+## The knob is the third board of the family but an esp32s3 TARGET (the same
+## as the S3 clock), so the two Waveshare BSPs never co-resolve with it: the
+## S3 BSP is EXCLUDED from the knob build (its 466 px bsp/display.h + its
+## esp_codec_dev public dep would both leak in), and the P4 BSP is P4-only.
+## The knob therefore answers the board-coupled managed names ITSELF,
+## component-local (the vendored-BSP pattern), so main/idf_component.yml
+## stays the clocks' manifest untouched.
+##
+## Both are gated on CONFIG_BOARD_KNOB: the knob is indistinguishable from the
+## S3 by TARGET, so a `target ==` rule cannot select it. The Kconfig symbol
+## (components/board/Kconfig.projbuild's choice, default BOARD_S3) is a real
+## JSON bool in the build dir's sdkconfig.json, which the component manager's
+## prepare_dependencies step reads (--sdkconfig_json_file, build.cmake). Gating
+## keeps sh8601 + esp_codec_dev out of the S3/P4 dependency locks — on the
+## clocks the knob_board component carries no SRCS and no sh8601/codec
+## requirement (its CMakeLists registers empty off the knob), so the S3/P4
+## binaries are byte-identical to before the integration.
+##   - esp_lcd_sh8601: the knob's round QSPI panel driver (the vendor demo's
+##     own registry component; the LVGL port is hand-rolled in this component
+##     — no esp_lvgl_port, the flush path stays under project control, the
+##     family's house style).
+##   - esp_codec_dev: the shared ui component REQUIRES esp_codec_dev
+##     UNCONDITIONALLY (the component manager's early requirements pass sees
+##     neither project variables nor CONFIG_ symbols, so a conditional
+##     REQUIRES is impossible). On the clocks the S3/P4 BSPs expose it
+##     publicly; with the S3 BSP excluded on the knob, the knob declares the
+##     real driver here instead. It is unused on the codec-less board (where
+##     alarm_audio.h is answered by knob_ui's silent stub and alarm_audio.c is
+##     excluded from the knob build), so its objects never link (a static
+##     library only pulls referenced objects).
+dependencies:
+  idf:
+    version: '>=5.4'
+  espressif/esp_lcd_sh8601:
+    version: ^2
+    rules:
+      - if: $CONFIG{BOARD_KNOB} == True
+  espressif/esp_codec_dev:
+    version: ~1.5
+    rules:
+      - if: $CONFIG{BOARD_KNOB} == True

@@ -28,6 +28,28 @@ if(IDF_TARGET STREQUAL "esp32p4")
         "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.p4")
 endif()
 
+# Knob target block. The knob IS an esp32s3 (same target as the S3 clock),
+# so it is selected by -D KNOB_BOARD=ON rather than a different IDF_TARGET.
+# That flag must reach the component manager's early requirements pass,
+# which a plain -D cache variable does NOT (that pass is a `cmake -P`
+# subprocess, component.cmake, that only sees the four -D args it is given
+# plus the __BUILD_PROPERTIES dump). idf_build_set_property promotes it
+# into that dump (the same channel IDF_TARGET itself rides, build.cmake),
+# so the board/imu/knob_* CMakeLists' `if(KNOB_BOARD)` SRCS/REQUIRES
+# branches resolve in BOTH the early pass and the target pass.
+#   - EXCLUDE_COMPONENTS the vendored S3 BSP: its 466 px bsp/display.h
+#     would scale the knob's 360 px round layout wrong, and its esp_codec_dev
+#     public dep would leak in (the knob instead answers that name with the
+#     real driver, declared in components/knob_board/idf_component.yml).
+#   - its own dependencies lock (the knob adds esp_lcd_sh8601 + esp_codec_dev,
+#     a different set than the S3), gitignored like the P4's.
+if(KNOB_BOARD)
+    set(EXCLUDE_COMPONENTS "esp32_s3_touch_amoled_1_75")
+    idf_build_set_property(DEPENDENCIES_LOCK
+        "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock.knob")
+    idf_build_set_property(KNOB_BOARD ON)
+endif()
+
 project(moon-phase)
 
 # Calculation version for the TF sweep cache (components/ui/moon_tfcache.c):
@@ -78,10 +100,22 @@ message(STATUS "moon calc version (TF sweep-cache folder prefix): ${MOON_CALC_VE
 # build, or vice versa, would resolve two BSPs / the wrong partition
 # table and fail obscurely deep in the build).
 if((IDF_TARGET STREQUAL "esp32p4" AND NOT CONFIG_BOARD_P4) OR
-        (IDF_TARGET STREQUAL "esp32s3" AND NOT CONFIG_BOARD_S3))
+        (IDF_TARGET STREQUAL "esp32s3" AND NOT CONFIG_BOARD_S3 AND NOT CONFIG_BOARD_KNOB))
     message(FATAL_ERROR "Board mismatch: IDF_TARGET=${IDF_TARGET} (CONFIG_BOARD_S3='${CONFIG_BOARD_S3}', "
-        "CONFIG_BOARD_P4='${CONFIG_BOARD_P4}'). Pass the matching -D IDF_TARGET / "
-        "sdkconfig.defaults.<target> so the build target and the Kconfig BOARD choice agree.")
+        "CONFIG_BOARD_P4='${CONFIG_BOARD_P4}', CONFIG_BOARD_KNOB='${CONFIG_BOARD_KNOB}'). Pass the matching "
+        "-D IDF_TARGET / sdkconfig.defaults.<target> so the build target and the Kconfig BOARD choice agree.")
+endif()
+
+# The knob is an esp32s3 target, so the guard above alone would let a knob
+# sdkconfig (CONFIG_BOARD_KNOB=y) resolve against the S3 build: the vendored
+# S3 BSP would register (466 px bsp/ headers, the S3 lock) and the knob's
+# hardware would be misdriven. Require the -D KNOB_BOARD=ON flag that the
+# pre-project leg uses to exclude the S3 BSP + select the knob lock, so a
+# stray knob sdkconfig fails loudly instead of silently misbuilding.
+if(CONFIG_BOARD_KNOB AND NOT KNOB_BOARD)
+    message(FATAL_ERROR "CONFIG_BOARD_KNOB is set but -D KNOB_BOARD=ON was not passed. The knob build must "
+        "exclude the vendored S3 BSP and use its own lock. Re-run with: idf.py -D KNOB_BOARD=ON "
+        "-D SDKCONFIG=sdkconfig.knob -D SDKCONFIG_DEFS=\"sdkconfig.defaults;sdkconfig.defaults.knob\" -B build/knob build")
 endif()
 
 # Moon asset consistency guard (fails fast at configure, not at flash/boot).
@@ -94,6 +128,8 @@ endif()
 # so they are FATAL_ERRORs here.
 if(IDF_TARGET STREQUAL "esp32p4")
     set(MOON_ASSET_TARGET p4)
+elseif(CONFIG_BOARD_KNOB)
+    set(MOON_ASSET_TARGET knob)
 else()
     set(MOON_ASSET_TARGET s3)
 endif()
@@ -128,7 +164,13 @@ if(EXISTS ${MOON_ASSETS_MANIFEST})
             "regenerate with cd assets/images/moon && .venv/bin/python -m moon.assets --target ${MOON_ASSET_TARGET}")
     endif()
     math(EXPR MOON_ASSET_COMBINED ${CMAKE_MATCH_1})
-    if(NOT MOON_ASSET_MANIFEST_ALB_W EQUAL MOON_ALBEDO_W)
+    # The knob has NO MOON_ALBEDO_W Kconfig mirror (the moon Kconfig's
+    # `default 2048 if BOARD_P4` / `default 864` fallback is its only value,
+    # and the knob code reads the width from the generated header + manifest,
+    # not from Kconfig) -- so the manifest-vs-Kconfig cross-check is skipped
+    # for the knob target. The manifest's own alb_w + the partition fit
+    # below remain the knob's guards (its original knob/CMakeLists.txt shape).
+    if(NOT MOON_ASSET_TARGET STREQUAL "knob" AND NOT MOON_ASSET_MANIFEST_ALB_W EQUAL MOON_ALBEDO_W)
         message(FATAL_ERROR "Moon assets were baked at albedo width ${MOON_ASSET_MANIFEST_ALB_W} "
             "(manifest ${MOON_ASSETS_MANIFEST}) but the Kconfig is MOON_ALBEDO_W=${MOON_ALBEDO_W}. "
             "Regenerate the assets: cd assets/images/moon && .venv/bin/python -m moon.assets "

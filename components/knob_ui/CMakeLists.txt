@@ -20,6 +20,14 @@ set(KNOB_UI_SRCS "knob_ui.c" "knob_moon_render.c" "knob_alarm_audio_stub.c" "kno
 # moon is LITERAL too: knob_ui.c includes moon_movie.h (the boot movie's
 # seam, KNOB_UI_MOVIE_ENABLE) and drives knob_moon_bake_movie_frame.
 set(KNOB_UI_DEPS lvgl knob_board knob_moon moon clock knob_power ui knob_battery)
+# Gated on KNOB_BOARD (promoted into the early pass by the root CMakeLists):
+# the seam + dial + battery overlay are knob-specific, so off the knob the
+# component registers with no SRCS (the shared `ui` TUs the seam depends on
+# are the ones the clocks keep; this knob-only glue is dropped).
+if(KNOB_BOARD)
 idf_component_register(SRCS ${KNOB_UI_SRCS}
                        INCLUDE_DIRS "include"
                        REQUIRES ${KNOB_UI_DEPS})
+else()
+idf_component_register()
+endif()

@@ -31,9 +31,16 @@ extern "C" {
 #define BOARD_LCD_W (BSP_LCD_H_RES)
 #define BOARD_LCD_H (BSP_LCD_V_RES)
 
-/* The active BSP's panel handle (S3 bsp_display_get_panel, P4
- * bsp_display_get_panel_handle). Valid after bsp_display_start. */
+/* The active board's panel handle (S3 bsp_display_get_panel, P4
+ * bsp_display_get_panel_handle, the knob's stored handle). Valid after the
+ * board's display start (the knob's knob_board_display_init; the clocks'
+ * bsp_display_start). */
 esp_lcd_panel_handle_t board_panel(void);
+
+/* Knob-only setter: knob_board_display_init records its SH8601 panel here
+ * (the knob does its own QSPI bring-up, so there is no BSP handle to read
+ * back). The clocks never call it. */
+void board_panel_set(esp_lcd_panel_handle_t panel);
 
 /* The S3's QSPI panel io handle (bsp_display_get_panel_io) -- the
  * single spi_device every panel write rides. The P4's MIPI-DSI path
